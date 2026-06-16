@@ -1,0 +1,25 @@
+{:paths ["src" "resources"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.5"}
+        com.xtdb/xtdb-api {:mvn/version "2.2.0-beta1"}
+        com.xtdb/xtdb-core {:mvn/version "2.2.0-beta1"}
+        com.cnuernber/charred {:mvn/version "1.037"}
+        rewrite-clj/rewrite-clj {:mvn/version "1.2.50"}
+        metosin/malli {:mvn/version "0.17.0"}
+        org.slf4j/slf4j-nop {:mvn/version "2.0.17"}}
+ :aliases
+ {:run {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
+                   "--enable-native-access=ALL-UNNAMED"
+                   "-Dio.netty.tryReflectionSetAccessible=true"]}
+  :test {:extra-paths ["test"]
+         :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}
+                      nubank/matcher-combinators {:mvn/version "3.10.0"}}
+         :main-opts ["-m" "kaocha.runner"]
+         :jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
+                    "--enable-native-access=ALL-UNNAMED"
+                    "-Dio.netty.tryReflectionSetAccessible=true"]}
+  :lint {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.05.25"}}
+         :main-opts ["-m" "clj-kondo.main" "--lint" "src" "test/agraph" "bb.edn" "deps.edn"]}
+  :format/check {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.16.4"}}
+                 :main-opts ["-m" "cljfmt.main" "check"]}
+  :format/fix {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.16.4"}}
+               :main-opts ["-m" "cljfmt.main" "fix"]}}}

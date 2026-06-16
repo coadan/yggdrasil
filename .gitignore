@@ -1,0 +1,6 @@
+.dev/
+.env
+.cpcache/
+target/
+*.class
+/.clj-kondo/.cache/

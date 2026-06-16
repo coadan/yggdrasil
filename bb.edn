@@ -1,0 +1,50 @@
+{:tasks
+ {:requires ([babashka.process :refer [shell]])
+
+  index {:doc "Index a repo. Usage: bb index <repo-path> [--dry-run]"
+         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "index"
+                      *command-line-args*)}
+
+  project {:doc "Project commands. Usage: bb project inspect|index|infer|maintain <project.edn>"
+           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "project"
+                        *command-line-args*)}
+
+  query {:doc "Search indexed graph. Usage: bb query \"text\" [--limit N]"
+         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "query"
+                      *command-line-args*)}
+
+  embed {:doc "Embed search docs. Usage: bb embed [--model MODEL] [--limit N]"
+         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "embed"
+                      *command-line-args*)}
+
+  graph {:doc "Write HTML graph view. Usage: bb graph overview|deps|query ..."
+         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "graph"
+                      *command-line-args*)}
+
+  cursor {:doc "Explore graph with stable cursors. Usage: bb cursor create|show|open|expand|docs|search ..."
+          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "cursor"
+                       *command-line-args*)}
+
+  deps {:doc "Show graph dependencies for a node/namespace."
+        :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "deps"
+                     *command-line-args*)}
+
+  path {:doc "Find graph path. Usage: bb path <source> <target>"
+        :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "path"
+                     *command-line-args*)}
+
+  report {:doc "Print graph report."
+          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "report"
+                       *command-line-args*)}
+
+  test {:doc "Run tests."
+        :task (shell "clojure -M:test")}
+
+  lint {:doc "Run clj-kondo."
+        :task (shell "clojure -M:lint")}
+
+  format:check {:doc "Check formatting."
+                :task (shell "clojure -M:format/check")}
+
+  format:fix {:doc "Fix formatting."
+              :task (shell "clojure -M:format/fix")}}}

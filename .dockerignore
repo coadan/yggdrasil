@@ -1,0 +1,10 @@
+.git
+.dev
+.env
+.cpcache
+.clj-kondo/.cache
+.DS_Store
+target
+node_modules
+test
+temp

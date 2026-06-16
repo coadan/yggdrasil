@@ -1,0 +1,33 @@
+class Agraph < Formula
+  desc "Local-first graph tooling for coding agents working on complex systems"
+  homepage "https://github.com/OWNER/agraph"
+  url "https://github.com/OWNER/agraph/archive/refs/tags/v0.1.0.tar.gz"
+  sha256 "REPLACE_WITH_RELEASE_TARBALL_SHA256"
+  license "MIT"
+  head "https://github.com/OWNER/agraph.git", branch: "main"
+
+  depends_on "clojure/tools/clojure"
+  depends_on "git"
+  depends_on "openjdk@21"
+
+  def install
+    libexec.install Dir["*"]
+
+    (bin/"agraph").write <<~EOS
+      #!/usr/bin/env bash
+      set -euo pipefail
+      export JAVA_HOME="#{Formula["openjdk@21"].opt_prefix}"
+      exec "#{libexec}/bin/agraph" "$@"
+    EOS
+
+    (bin/"agraph-mcp").write <<~EOS
+      #!/usr/bin/env bash
+      set -euo pipefail
+      exec "#{bin}/agraph" mcp "$@"
+    EOS
+  end
+
+  test do
+    assert_match "Usage:", shell_output("#{bin}/agraph help")
+  end
+end

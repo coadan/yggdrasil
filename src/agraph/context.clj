@@ -1,0 +1,442 @@
+(ns agraph.context
+  "Token-bounded, graph-grounded context packets for agents."
+  (:require [agraph.graph :as graph]
+            [agraph.map :as graph-map]
+            [agraph.query :as query]
+            [agraph.text :as text]
+            [charred.api :as json]
+            [clojure.string :as str]))
+
+(def schema
+  "agraph.context/v1")
+
+(def default-budget
+  4000)
+
+(def default-entity-limit
+  8)
+
+(def default-edge-limit
+  12)
+
+(def default-doc-limit
+  6)
+
+(def default-snippet-chars
+  900)
+
+(def default-retrieval-limit
+  40)
+
+(def role-weight
+  {"overview" 0.35
+   "contract" 0.35
+   "runbook" 0.30
+   "troubleshooting" 0.30
+   "rationale" 0.20
+   "warning" 0.20
+   "reference" 0.10
+   "example" 0.05})
+
+(defn estimate-tokens
+  "Return a cheap token estimate for value."
+  [value]
+  (long (Math/ceil (/ (count (json/write-json-str value)) 4.0))))
+
+(defn- s
+  [value]
+  (some-> value str))
+
+(defn- path-under?
+  [path prefix]
+  (and (seq path)
+       (seq prefix)
+       (or (= path prefix)
+           (str/starts-with? path (str prefix "/")))))
+
+(defn- node-path
+  [node]
+  (or (:pathPrefix node)
+      (:path-prefix node)
+      (:path node)))
+
+(defn- compact
+  [& parts]
+  (->> parts
+       flatten
+       (remove nil?)
+       (map str)
+       (remove str/blank?)
+       (str/join " ")))
+
+(defn- token-score
+  [query-tokens value]
+  (text/token-score query-tokens (text/tokenize value)))
+
+(defn- result-matches-node?
+  [result node]
+  (or (= (:target-id result) (:id node))
+      (and (:path result)
+           (node-path node)
+           (path-under? (:path result) (node-path node))
+           (or (nil? (:repo node))
+               (nil? (:repo-id result))
+               (= (:repo node) (:repo-id result))))))
+
+(defn- entity-score
+  [query-tokens results node]
+  (let [result-score (->> results
+                          (filter #(result-matches-node? % node))
+                          (map :score)
+                          (reduce max 0.0))
+        lexical-score (token-score query-tokens
+                                   (compact (:label node)
+                                            (:kind node)
+                                            (:repo node)
+                                            (:path node)
+                                            (:pathPrefix node)
+                                            (pr-str (:attrs node))
+                                            (str/join " " (:tags node))
+                                            (pr-str (:metrics node))))]
+    (+ result-score (* 0.25 lexical-score))))
+
+(defn- select-entities
+  [query-tokens results graph-data limit]
+  (->> (:nodes graph-data)
+       (remove #(= "repo" (:kind %)))
+       (map #(assoc % :context-score (entity-score query-tokens results %)))
+       (filter #(pos? (:context-score %)))
+       (sort-by (juxt (comp - :context-score) :label))
+       (take limit)
+       (mapv (fn [node]
+               (cond-> {:id (:id node)
+                        :label (:label node)
+                        :kind (:kind node)
+                        :repo (:repo node)
+                        :path (:path node)
+                        :pathPrefix (:pathPrefix node)
+                        :score (double (:context-score node))
+                        :why (if (some #(result-matches-node? % node) results)
+                               "retrieval and graph match"
+                               "graph label match")}
+                 (:attrs node) (assoc :attrs (:attrs node))
+                 (seq (:tags node)) (assoc :tags (:tags node))
+                 (:metrics node) (assoc :metrics (:metrics node)))))))
+
+(defn- edge-score
+  [query-tokens selected-ids edge]
+  (+ (cond
+       (and (contains? selected-ids (:source edge))
+            (contains? selected-ids (:target edge))) 1.0
+       (or (contains? selected-ids (:source edge))
+           (contains? selected-ids (:target edge))) 0.5
+       :else 0.0)
+     (* 0.15 (token-score query-tokens (:relation edge)))))
+
+(defn- select-edges
+  [query-tokens entities graph-data limit]
+  (let [selected-ids (set (map :id entities))]
+    (->> (:edges graph-data)
+         (map #(assoc % :context-score (edge-score query-tokens selected-ids %)))
+         (filter #(pos? (:context-score %)))
+         (sort-by (juxt (comp - :context-score) :relation :source :target))
+         (take limit)
+         (mapv (fn [edge]
+                 (cond-> {:id (:id edge)
+                          :source (:source edge)
+                          :target (:target edge)
+                          :relation (:relation edge)
+                          :confidence (:confidence edge)
+                          :score (double (:context-score edge))}
+                   (:attrs edge) (assoc :attrs (:attrs edge))
+                   (seq (:tags edge)) (assoc :tags (:tags edge))
+                   (:metrics edge) (assoc :metrics (:metrics edge))))))))
+
+(defn- truncate
+  [value n]
+  (let [value (str value)]
+    (if (<= (count value) n)
+      value
+      (str (subs value 0 (max 0 (- n 12))) "\n[truncated]"))))
+
+(defn- lines
+  [chunk]
+  (when (:source-line chunk)
+    (cond-> [(long (:source-line chunk))]
+      (:end-line chunk) (conj (long (:end-line chunk))))))
+
+(defn- chunk-source
+  [chunk]
+  {:repo (:repo-id chunk)
+   :path (:path chunk)
+   :heading (:label chunk)
+   :headingPath (:heading-path chunk)
+   :lines (lines chunk)
+   :contentSha (:content-sha chunk)})
+
+(defn- source-line
+  [source]
+  (or (:startLine source)
+      (:start-line source)))
+
+(defn- source-end-line
+  [source]
+  (or (:endLine source)
+      (:end-line source)))
+
+(defn- source-heading-path
+  [source]
+  (or (:headingPath source)
+      (:heading-path source)))
+
+(defn- source-matches-chunk?
+  [source chunk]
+  (and (= (s (:repo source)) (s (:repo-id chunk)))
+       (= (s (:path source)) (s (:path chunk)))
+       (or (nil? (:heading source))
+           (= (s (:heading source)) (s (:label chunk))))
+       (or (nil? (source-heading-path source))
+           (= (mapv s (source-heading-path source))
+              (mapv s (:heading-path chunk))))
+       (or (nil? (source-line source))
+           (= (long (source-line source)) (long (:source-line chunk))))))
+
+(defn- find-source-chunk
+  [chunks source]
+  (first (filter #(source-matches-chunk? source %) chunks)))
+
+(defn- attachment->doc
+  [chunks snippet-chars attachment]
+  (let [source (:source attachment)
+        chunk (find-source-chunk chunks source)
+        content-sha (or (:contentSha source) (:content-sha source))
+        stale? (or (nil? chunk)
+                   (and content-sha
+                        (:content-sha chunk)
+                        (not= (s content-sha) (s (:content-sha chunk))))
+                   (and (source-end-line source)
+                        (:end-line chunk)
+                        (not= (long (source-end-line source))
+                              (long (:end-line chunk)))))]
+    (cond-> {:target (:target attachment)
+             :role (or (:role attachment) "reference")
+             :status (if stale? "stale" "accepted")
+             :source (if chunk (chunk-source chunk) source)
+             :score (+ 2.0 (get role-weight (s (:role attachment)) 0.0))
+             :provenance "map-attachment"}
+      (:reason attachment) (assoc :reason (:reason attachment))
+      chunk (assoc :snippet (truncate (:text chunk) snippet-chars))
+      (nil? chunk) (assoc :warning "attached doc source not found"))))
+
+(defn- result-score-by-target
+  [results]
+  (into {} (map (juxt :target-id :score)) results))
+
+(defn- chunk-score
+  [query-tokens selected-labels result-scores chunk]
+  (+ (double (get result-scores (:xt/id chunk) 0.0))
+     (* 0.35 (token-score query-tokens
+                          (compact (:label chunk) (:path chunk) (:text chunk))))
+     (* 0.15 (text/token-score (text/tokenize (str/join " " selected-labels))
+                               (:tokens chunk)))))
+
+(defn- inferred-docs
+  [query-tokens results chunks entities snippet-chars]
+  (let [result-scores (result-score-by-target results)
+        selected-labels (map :label entities)]
+    (->> chunks
+         (filter #(= :markdown (:kind %)))
+         (map #(assoc % :context-score (chunk-score query-tokens selected-labels result-scores %)))
+         (filter #(pos? (:context-score %)))
+         (sort-by (juxt (comp - :context-score) :path :source-line))
+         (mapv (fn [chunk]
+                 {:target (:xt/id chunk)
+                  :role "reference"
+                  :status "candidate"
+                  :source (chunk-source chunk)
+                  :score (double (:context-score chunk))
+                  :snippet (truncate (:text chunk) snippet-chars)
+                  :provenance "retrieved-doc"})))))
+
+(defn- distinct-docs
+  [docs]
+  (loop [remaining (seq docs)
+         seen #{}
+         out []]
+    (if-let [doc (first remaining)]
+      (let [k [(get-in doc [:source :repo])
+               (get-in doc [:source :path])
+               (get-in doc [:source :lines])]]
+        (if (contains? seen k)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen k) (conj out doc))))
+      out)))
+
+(defn- selected-targets
+  [entities edges]
+  (set (concat (map :id entities)
+               (map :label entities)
+               (map :id edges))))
+
+(defn- attached-docs
+  [overlay chunks snippet-chars targets]
+  (->> (:docs overlay)
+       (filter #(contains? targets (:target %)))
+       (filter #(not= "rejected" (s (:status %))))
+       (map #(attachment->doc chunks snippet-chars %))
+       vec))
+
+(defn- base-packet
+  [query-text budget entities edges warnings drilldowns]
+  {:schema schema
+   :query query-text
+   :budget {:requested budget}
+   :entities entities
+   :edges edges
+   :docs []
+   :warnings warnings
+   :drilldowns drilldowns})
+
+(defn- add-doc-with-budget
+  [packet doc budget]
+  (let [with-snippet (update packet :docs conj doc)]
+    (if (<= (estimate-tokens with-snippet) budget)
+      with-snippet
+      (let [ref-doc (-> doc
+                        (dissoc :snippet)
+                        (assoc :snippetOmitted true))
+            with-ref (update packet :docs conj ref-doc)]
+        (if (<= (estimate-tokens with-ref) budget)
+          (update with-ref :warnings conj "snippet omitted to fit context budget")
+          (update packet :warnings conj "doc omitted to fit context budget"))))))
+
+(defn- fit-budget
+  [packet docs budget]
+  (let [packet (reduce #(add-doc-with-budget %1 %2 budget) packet docs)
+        estimated (estimate-tokens packet)]
+    (assoc packet
+           :budget (assoc (:budget packet)
+                          :estimated estimated
+                          :truncated (< (count (:docs packet)) (count docs))))))
+
+(defn- resolve-map-overlay
+  [path overlay project-id]
+  (cond
+    overlay overlay
+    (and path (graph-map/file-exists? path)) (graph-map/read-map path)
+    :else (graph-map/empty-map project-id)))
+
+(defn context-packet
+  "Return compact graph/doc context for an agent query."
+  [xtdb query-text {:keys [budget entity-limit edge-limit doc-limit snippet-chars
+                           retriever embedding-client project-id map-path
+                           map-overlay min-confidence read-context]
+                    :or {budget default-budget
+                         entity-limit default-entity-limit
+                         edge-limit default-edge-limit
+                         doc-limit default-doc-limit
+                         snippet-chars default-snippet-chars
+                         retriever :auto
+                         min-confidence 0.55}}]
+  (when (str/blank? (str query-text))
+    (throw (ex-info "Missing context query text." {})))
+  (when (str/blank? (str project-id))
+    (throw (ex-info "Context query requires --project." {})))
+  (let [overlay (resolve-map-overlay map-path map-overlay project-id)
+        query-tokens (text/tokenize query-text)
+        results (query/semantic-query xtdb
+                                      query-text
+                                      {:limit default-retrieval-limit
+                                       :retriever retriever
+                                       :embedding-client embedding-client
+                                       :project-id project-id
+                                       :read-context read-context})
+        graph-data (graph/system-graph xtdb
+                                       project-id
+                                       {:limit graph/default-node-limit
+                                        :min-confidence min-confidence
+                                        :map-path map-path
+                                        :map-overlay map-overlay
+                                        :read-context read-context})
+        chunks (vec (query/all-chunks xtdb {:project-id project-id
+                                            :read-context read-context}))
+        entities (select-entities query-tokens results graph-data entity-limit)
+        edges (select-edges query-tokens entities graph-data edge-limit)
+        targets (selected-targets entities edges)
+        warnings (cond-> []
+                   (empty? entities)
+                   (conj "no graph entities matched the query"))
+        drilldowns (cond-> [(str "agraph query " (pr-str query-text) " --project " project-id)
+                            (str "agraph graph export systems --project " project-id)]
+                     map-path
+                     (conj (str "agraph docs audit --project " project-id " --map " map-path)))
+        docs (->> (concat (attached-docs overlay chunks snippet-chars targets)
+                          (inferred-docs query-tokens results chunks entities snippet-chars))
+                  distinct-docs
+                  (sort-by (juxt (comp - :score) :role #(get-in % [:source :path])))
+                  (take doc-limit)
+                  vec)]
+    (fit-budget (base-packet query-text budget entities edges warnings drilldowns)
+                docs
+                budget)))
+
+(defn doc-candidates
+  "Return compact doc candidates for a graph target."
+  [xtdb target {:keys [project-id limit snippet-chars read-context]
+                :or {limit default-doc-limit
+                     snippet-chars default-snippet-chars}}]
+  (let [target-text (str target)
+        target-tokens (text/tokenize target-text)
+        chunks (vec (query/all-chunks xtdb {:project-id project-id
+                                            :read-context read-context}))]
+    (->> chunks
+         (filter #(= :markdown (:kind %)))
+         (map #(assoc % :context-score (token-score target-tokens
+                                                    (compact (:label %) (:path %) (:text %)))))
+         (filter #(pos? (:context-score %)))
+         (sort-by (juxt (comp - :context-score) :path :source-line))
+         (take limit)
+         (mapv (fn [chunk]
+                 {:target target
+                  :role "reference"
+                  :status "candidate"
+                  :source (chunk-source chunk)
+                  :score (double (:context-score chunk))
+                  :snippet (truncate (:text chunk) snippet-chars)})))))
+
+(defn docs-for
+  "Return attached docs for target with resolved snippets where possible."
+  [xtdb target {:keys [project-id map-path map-overlay snippet-chars read-context]
+                :or {snippet-chars default-snippet-chars}}]
+  (let [overlay (resolve-map-overlay map-path map-overlay project-id)
+        chunks (vec (query/all-chunks xtdb {:project-id project-id
+                                            :read-context read-context}))]
+    {:schema "agraph.docs/v1"
+     :target target
+     :docs (mapv #(attachment->doc chunks snippet-chars %)
+                 (graph-map/docs-for-target overlay target))}))
+
+(defn docs-audit
+  "Return maintenance findings for doc attachments and mapped systems."
+  [xtdb {:keys [project-id map-path map-overlay read-context]}]
+  (let [overlay (resolve-map-overlay map-path map-overlay project-id)
+        chunks (vec (query/all-chunks xtdb {:project-id project-id
+                                            :read-context read-context}))
+        systems (:systems overlay)
+        docs (:docs overlay)
+        docs-by-target (group-by :target docs)
+        unresolved (->> docs
+                        (map #(attachment->doc chunks default-snippet-chars %))
+                        (filter #(= "stale" (:status %)))
+                        (mapv #(dissoc % :snippet)))
+        undocumented (->> systems
+                          (filter #(= "accepted" (s (:status %))))
+                          (remove #(seq (get docs-by-target (:id %))))
+                          (mapv #(select-keys % [:id :label :kind])))]
+    {:schema "agraph.docs.audit/v1"
+     :project project-id
+     :counts {:attachments (count docs)
+              :unresolved (count unresolved)
+              :undocumentedSystems (count undocumented)}
+     :unresolved unresolved
+     :undocumentedSystems undocumented}))

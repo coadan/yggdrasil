@@ -1,0 +1,342 @@
+(ns agraph.map
+  "Editable system-map overlay for agent-maintained graph meaning."
+  (:require [agraph.hash :as hash]
+            [charred.api :as json]
+            [clojure.java.io :as io]
+            [clojure.string :as str]))
+
+(def schema
+  "agraph.map/v1")
+
+(def default-path
+  "agraph.map.json")
+
+(defn now-ms
+  []
+  (System/currentTimeMillis))
+
+(defn empty-map
+  "Return an empty editable graph map for project-id."
+  [project-id]
+  {:schema schema
+   :project project-id
+   :systems []
+   :reject []
+   :edges []
+   :docs []
+   :updated-at-ms (now-ms)})
+
+(defn read-map
+  "Read agraph.map/v1 JSON."
+  [path]
+  (json/read-json (slurp (io/file path)) :key-fn keyword))
+
+(defn write-map!
+  "Write agraph.map/v1 JSON."
+  [path data]
+  (let [file (io/file path)
+        data (assoc data :schema schema :updated-at-ms (now-ms))]
+    (when-let [parent (.getParentFile file)]
+      (.mkdirs parent))
+    (spit file (str (json/write-json-str data {:indent-str "  "}) "\n"))
+    (.getPath file)))
+
+(defn file-exists?
+  [path]
+  (.isFile (io/file path)))
+
+(defn- s
+  [value]
+  (some-> value str))
+
+(defn- kname
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (nil? value) nil
+    :else (str value)))
+
+(defn- path-under?
+  [path prefix]
+  (and (seq path)
+       (seq prefix)
+       (or (= path prefix)
+           (str/starts-with? path (str prefix "/")))))
+
+(defn- node-path
+  [node]
+  (or (:pathPrefix node)
+      (:path-prefix node)
+      (:path node)))
+
+(defn- include-matches-node?
+  [include node]
+  (and (or (nil? (:repo include))
+           (= (s (:repo include)) (s (:repo node))))
+       (cond
+         (:id include)
+         (= (s (:id include)) (s (:id node)))
+
+         (:path include)
+         (let [include-path (s (:path include))
+               node-path (s (node-path node))]
+           (or (path-under? node-path include-path)
+               (path-under? include-path node-path)))
+
+         :else false)))
+
+(defn- matching-node-ids
+  [nodes system]
+  (let [includes (vec (:includes system))
+        explicit-id (:id system)]
+    (->> nodes
+         (filter (fn [node]
+                   (or (= (s explicit-id) (s (:id node)))
+                       (some #(include-matches-node? % node) includes))))
+         (map :id)
+         set)))
+
+(defn- first-include-path
+  [system]
+  (some :path (:includes system)))
+
+(defn- first-include-repo
+  [system]
+  (some :repo (:includes system)))
+
+(defn- overlay-node
+  [system matched-nodes]
+  (let [base (or (first matched-nodes) {})
+        system-id (s (:id system))]
+    (cond-> (merge base
+                   {:id system-id
+                    :label (or (s (:label system)) system-id)
+                    :kind (or (kname (:kind system)) (:kind base) "system")
+                    :repo (or (s (:repo system))
+                              (s (first-include-repo system))
+                              (:repo base))
+                    :pathPrefix (or (s (:path-prefix system))
+                                    (s (:pathPrefix system))
+                                    (s (first-include-path system))
+                                    (:pathPrefix base))
+                    :source "map-overlay"})
+      (:reason system) (assoc :reason (:reason system))
+      (seq (:aliases system)) (assoc :aliases (str/join ", " (:aliases system))))))
+
+(defn- match-value?
+  [actual expected]
+  (or (nil? expected)
+      (= (s actual) (s expected))))
+
+(defn- node-matches?
+  [node match]
+  (let [kind (or (:kind match) (:type match))
+        path (or (:path match) (:pathPrefix match) (:path-prefix match))
+        host (:host match)]
+    (and (match-value? (:id node) (:id match))
+         (match-value? (:label node) (:label match))
+         (match-value? (:repo node) (:repo match))
+         (match-value? (:kind node) kind)
+         (match-value? (node-path node) path)
+         (or (nil? host)
+             (and (= "external-api" (s (:kind node)))
+                  (= (s host) (s (:label node))))))))
+
+(defn- rejected-node-ids
+  [nodes overlay]
+  (let [matches (keep :match (:reject overlay))]
+    (->> nodes
+         (filter (fn [node]
+                   (some #(node-matches? node %) matches)))
+         (map :id)
+         set)))
+
+(defn- rewrite-edge
+  [old->new edge]
+  (-> edge
+      (update :source #(get old->new % %))
+      (update :target #(get old->new % %))))
+
+(defn- overlay-edge
+  [edge]
+  (let [row {:source (:source edge)
+             :target (:target edge)
+             :relation (kname (:relation edge))
+             :confidence (str (or (:confidence edge) 1.0))
+             :rules (or (:rules edge) "map-overlay")
+             :evidence (or (:evidence edge) (:reason edge))}]
+    (assoc row :id (or (:id edge)
+                       (str "map-edge:" (hash/short-hash row))))))
+
+(defn- distinct-by
+  [f coll]
+  (loop [remaining (seq coll)
+         seen #{}
+         out []]
+    (if-let [item (first remaining)]
+      (let [k (f item)]
+        (if (contains? seen k)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen k) (conj out item))))
+      out)))
+
+(defn apply-overlay
+  "Apply editable map overlay to canonical agraph.graph/v2 data."
+  [graph-data overlay]
+  (let [nodes (vec (:nodes graph-data))
+        nodes-by-id (into {} (map (juxt :id identity)) nodes)
+        systems (vec (:systems overlay))
+        matches-by-system (mapv (fn [system]
+                                  [system (matching-node-ids nodes system)])
+                                systems)
+        old->new (into {}
+                       (mapcat (fn [[system ids]]
+                                 (map (fn [id] [id (s (:id system))]) ids))
+                               matches-by-system))
+        replaced-ids (set (keys old->new))
+        overlay-nodes (mapv (fn [[system ids]]
+                              (overlay-node system (keep nodes-by-id ids)))
+                            matches-by-system)
+        base-nodes (remove #(contains? replaced-ids (:id %)) nodes)
+        nodes* (vec (concat base-nodes overlay-nodes))
+        rejected (rejected-node-ids nodes* overlay)
+        nodes** (vec (remove #(contains? rejected (:id %)) nodes*))
+        node-ids (set (map :id nodes**))
+        rewritten-edges (->> (:edges graph-data)
+                             (map #(rewrite-edge old->new %))
+                             (remove #(= (:source %) (:target %)))
+                             (remove #(or (contains? rejected (:source %))
+                                          (contains? rejected (:target %)))))
+        map-edges (map overlay-edge (:edges overlay))
+        edges* (->> (concat rewritten-edges map-edges)
+                    (remove #(or (contains? rejected (:source %))
+                                 (contains? rejected (:target %))))
+                    (filter #(and (contains? node-ids (:source %))
+                                  (contains? node-ids (:target %))))
+                    (distinct-by (juxt :source :target :relation))
+                    vec)]
+    (assoc graph-data
+           :nodes nodes**
+           :edges edges*
+           :map {:schema schema
+                 :project (:project overlay)
+                 :systems (count (:systems overlay))
+                 :rejects (count (:reject overlay))
+                 :edges (count (:edges overlay))
+                 :docs (count (:docs overlay))})))
+
+(defn apply-file
+  "Apply map overlay from path to canonical graph data."
+  [graph-data path]
+  (apply-overlay graph-data (read-map path)))
+
+(defn system-entry
+  "Return an editable map system candidate from stored system node."
+  [node]
+  (cond-> {:id (:xt/id node)
+           :label (:label node)
+           :kind (kname (:kind node))
+           :includes (cond-> []
+                       (:path-prefix node)
+                       (conj {:repo (:repo-id node)
+                              :path (:path-prefix node)}))
+           :aliases (:aliases node)
+           :status "candidate"
+           :provenance "generated-by-agraph"}
+    (:path-prefix node) (assoc :pathPrefix (:path-prefix node))
+    (:repo-id node) (assoc :repo (:repo-id node))))
+
+(defn propose-map
+  "Return editable candidate map from stored system nodes and edges."
+  [project-id systems _edges]
+  {:schema schema
+   :project project-id
+   :systems (->> systems
+                 (sort-by (juxt :repo-id :label))
+                 (mapv system-entry))
+   :reject []
+   :edges []
+   :docs []
+   :updated-at-ms (now-ms)})
+
+(defn- find-system-index
+  [overlay value]
+  (let [value (s value)]
+    (first
+     (keep-indexed (fn [idx system]
+                     (when (or (= value (s (:id system)))
+                               (= value (s (:label system))))
+                       idx))
+                   (:systems overlay)))))
+
+(defn system-by-id-or-label
+  [overlay value]
+  (when-let [idx (find-system-index overlay value)]
+    (nth (:systems overlay) idx)))
+
+(defn- canonical-target
+  [overlay target]
+  (or (some-> (system-by-id-or-label overlay target) :id s)
+      target))
+
+(defn update-system
+  [overlay value f]
+  (if-let [idx (find-system-index overlay value)]
+    (update overlay :systems update idx f)
+    (throw (ex-info "System not found in map."
+                    {:system value
+                     :available (mapv #(select-keys % [:id :label]) (:systems overlay))}))))
+
+(defn set-kind
+  [overlay value kind]
+  (update-system overlay
+                 value
+                 #(assoc % :kind (kname kind) :status "accepted")))
+
+(defn add-include
+  [overlay value include]
+  (update-system overlay
+                 value
+                 (fn [system]
+                   (-> system
+                       (update :includes (fnil conj []) include)
+                       (assoc :status "accepted")))))
+
+(defn add-reject
+  [overlay match reason]
+  (update overlay
+          :reject
+          (fnil conj [])
+          (cond-> {:match match}
+            (seq reason) (assoc :reason reason))))
+
+(defn add-doc
+  "Attach accepted documentation metadata to a graph target."
+  [overlay target source {:keys [role heading start-line end-line reason]}]
+  (update overlay
+          :docs
+          (fnil conj [])
+          (cond-> {:target (canonical-target overlay target)
+                   :role (or role "reference")
+                   :source (cond-> source
+                             heading (assoc :heading heading)
+                             start-line (assoc :startLine start-line)
+                             end-line (assoc :endLine end-line))
+                   :status "accepted"}
+            (seq reason) (assoc :reason reason))))
+
+(defn docs-for-target
+  "Return accepted doc attachments for target id."
+  [overlay target]
+  (let [target (s target)
+        canonical (s (canonical-target overlay target))]
+    (->> (:docs overlay)
+         (filter (fn [doc]
+                   (let [doc-target (s (:target doc))
+                         doc-canonical (s (canonical-target overlay doc-target))]
+                     (or (= target doc-target)
+                         (= canonical doc-target)
+                         (= target doc-canonical)
+                         (= canonical doc-canonical)))))
+         (filter #(not= "rejected" (s (:status %))))
+         vec)))
