@@ -473,11 +473,204 @@
      :chunks [chunk]
      :diagnostics []}))
 
+(defn- go-namespace-name
+  [path _content]
+  (str/replace path #"\.go$" ""))
+
+(defn- go-public?
+  [name]
+  (boolean (re-matches #"[A-Z].*" (str name))))
+
+(defn- go-receiver-type
+  [receiver]
+  (some-> receiver
+          str/trim
+          (str/split #"\s+")
+          last
+          (str/replace #"^\*" "")
+          (str/replace #"\[.*\]$" "")))
+
+(defn- go-definition-kind
+  [path kind name receiver-type]
+  (cond
+    receiver-type :method
+    (= "func" kind) (if (and (str/ends-with? path "_test.go")
+                             (re-matches #"(Test|Benchmark|Fuzz).+" name))
+                      :test
+                      :function)
+    (= "struct" kind) :struct
+    (= "interface" kind) :interface
+    (= "const" kind) :constant
+    (= "var" kind) :var
+    :else :type))
+
+(defn- go-definition-line
+  [path idx line]
+  (or (when-let [[_ receiver name]
+                 (re-matches #"^\s*func\s+(?:\(([^)]*)\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(.*"
+                             line)]
+        (let [receiver-type (go-receiver-type receiver)]
+          {:kind (go-definition-kind path "func" name receiver-type)
+           :name (if receiver-type
+                   (str receiver-type "." name)
+                   name)
+           :public? (go-public? name)
+           :source-line (inc idx)}))
+      (when-let [[_ name kind]
+                 (re-matches #"^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)?.*"
+                             line)]
+        {:kind (go-definition-kind path kind name nil)
+         :name name
+         :public? (go-public? name)
+         :source-line (inc idx)})
+      (when-let [[_ kind name]
+                 (re-matches #"^\s*(const|var)\s+([A-Za-z_][A-Za-z0-9_]*)\b.*"
+                             line)]
+        {:kind (go-definition-kind path kind name nil)
+         :name name
+         :public? (go-public? name)
+         :source-line (inc idx)})))
+
+(defn- go-import-target
+  [line prefixed?]
+  (let [pattern (if prefixed?
+                  #"^\s*import\s+(?:(?:[A-Za-z_][A-Za-z0-9_]*|\.)\s+)?\"([^\"]+)\".*"
+                  #"^\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*|\.)\s+)?\"([^\"]+)\".*")]
+    (some-> (re-matches pattern line) second)))
+
+(defn- go-imports
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         in-block? false
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (cond
+        in-block?
+        (if (re-matches #"^\s*\)\s*$" line)
+          (recur (rest remaining) false out)
+          (recur (rest remaining)
+                 true
+                 (cond-> out
+                   (go-import-target line false)
+                   (conj {:target (go-import-target line false)
+                          :source-line (inc idx)}))))
+
+        (re-matches #"^\s*import\s+\(\s*$" line)
+        (recur (rest remaining) true out)
+
+        (go-import-target line true)
+        (recur (rest remaining)
+               false
+               (conj out {:target (go-import-target line true)
+                          :source-line (inc idx)}))
+
+        :else
+        (recur (rest remaining) false out))
+      out)))
+
+(def go-call-exclusions
+  #{"append" "cap" "close" "complex" "copy" "delete" "defer" "func" "go"
+    "if" "imag" "len" "make" "new" "panic" "print" "println" "real"
+    "recover" "return" "select" "switch"})
+
+(defn- go-call-name-keys
+  [node]
+  (let [node-name (:name node)]
+    (cond-> [node-name]
+      (str/includes? node-name ".")
+      (conj (last (str/split node-name #"\."))))))
+
+(defn- go-call-edges
+  [run-id file-id path defs content]
+  (let [defs-by-name (into {}
+                           (mapcat (fn [node]
+                                     (map (fn [name] [name (:xt/id node)])
+                                          (go-call-name-keys node))))
+                           defs)
+        callable-defs (filter #(contains? #{:function :method :test} (:kind %))
+                              defs)
+        lines (vec (str/split-lines content))]
+    (->> callable-defs
+         (mapcat
+          (fn [source]
+            (let [line-text (->> lines
+                                 (drop (dec (:source-line source)))
+                                 (take 120)
+                                 (str/join "\n"))]
+              (->> (re-seq #"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(" line-text)
+                   (map second)
+                   (remove go-call-exclusions)
+                   (keep (fn [callee]
+                           (when-let [target-id (get defs-by-name callee)]
+                             (when (not= target-id (:xt/id source))
+                               (edge-row run-id file-id path
+                                         (:xt/id source)
+                                         target-id
+                                         :calls
+                                         :inferred
+                                         (:source-line source))))))))))
+         distinct
+         vec)))
+
+(defn extract-go
+  "Extract graph rows from a Go source file record."
+  [run-id {:keys [id-scope file-id path content]}]
+  (let [namespace-name (go-namespace-name path content)
+        ns-node (namespace-node run-id id-scope file-id path namespace-name)
+        lines (str/split-lines content)
+        defs (->> lines
+                  (map-indexed #(go-definition-line path %1 %2))
+                  (keep identity)
+                  (mapv (fn [{:keys [kind name public? source-line]}]
+                          (let [label (str namespace-name "/" name)]
+                            {:xt/id (node-id id-scope :symbol label)
+                             :label label
+                             :kind kind
+                             :file-id file-id
+                             :path path
+                             :namespace namespace-name
+                             :name name
+                             :public? public?
+                             :source-line source-line
+                             :tokens (text/tokenize label)
+                             :active? true
+                             :run-id run-id}))))
+        define-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           defs)
+        import-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (node-id id-scope :namespace (:target %))
+                                      :imports
+                                      :extracted
+                                      (:source-line %))
+                           (go-imports lines))
+        call-edges (go-call-edges run-id file-id path defs content)
+        chunk {:xt/id (chunk-id id-scope path namespace-name 1)
+               :file-id file-id
+               :path path
+               :kind :go-file
+               :label namespace-name
+               :text (str/join "\n" (take 100 lines))
+               :tokens (text/tokenize (str namespace-name " " content))
+               :source-line 1
+               :active? true
+               :run-id run-id}]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges call-edges))
+     :chunks [chunk]
+     :diagnostics []}))
+
 (defn extract-file
   "Extract graph rows from a file record."
   [run-id file]
   (case (:kind file)
     :code (extract-code run-id file)
+    :go (extract-go run-id file)
     :rust (extract-rust run-id file)
     :doc (extract-doc run-id file)
     :edn (extract-edn run-id file)

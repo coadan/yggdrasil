@@ -8,10 +8,12 @@
             [agraph.graph :as graph]
             [agraph.hash :as hash]
             [agraph.index :as index]
+            [agraph.llm.openai-compatible :as llm]
             [agraph.map :as graph-map]
             [agraph.metadata :as metadata]
             [agraph.project :as project]
             [agraph.query :as query]
+            [agraph.system.classifier :as system-classifier]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.pprint :as pprint]
@@ -60,7 +62,7 @@
     "--entity-limit" "--edge-limit" "--doc-limit" "--snippet-chars" "--role"
     "--heading" "--start-line" "--end-line" "--valid-at" "--known-at"
     "--snapshot-token" "--type" "--source" "--confidence" "--view" "--query"
-    "--relation"})
+    "--relation" "--cache-dir" "--base-url"})
 
 (def boolean-options
   #{"--dry-run" "--systems" "--no-map"})
@@ -306,6 +308,40 @@
     (doseq [edge (take 20 low-confidence-edges)]
       (print-edge-finding edge))))
 
+(defn- candidate-system?
+  [system]
+  (contains? #{:candidate-system :repo-boundary} (:kind system)))
+
+(defn- print-candidate-systems
+  [systems limit]
+  (println "# System Candidates")
+  (println "- count" (count systems))
+  (doseq [system (take limit systems)]
+    (println (str "- "
+                  (:label system)
+                  " [" (name (:kind system)) "]"
+                  " repo " (:repo-id system)
+                  " types " (str/join "," (map name (:candidate-types system)))
+                  " files " (get-in system [:metrics :file-count] 0)
+                  " nodes " (get-in system [:metrics :node-count] 0)
+                  (when-let [path (:path-prefix system)]
+                    (str " path " path))))))
+
+(defn- classification-provider-option
+  [args]
+  (keyword (or (option-value args "--provider") "deepseek")))
+
+(defn- classification-model
+  [provider args]
+  (or (option-value args "--model")
+      (llm/default-model provider)))
+
+(defn- classification-client
+  [provider model args]
+  (llm/client {:provider provider
+               :model model
+               :base-url (option-value args "--base-url")}))
+
 (defn- default-provider
   []
   (if (openrouter/api-key)
@@ -544,6 +580,8 @@
    ["Usage:"
     "  index <repo-path> [--dry-run]"
     "  project inspect|index|infer|maintain <project.edn> [--dry-run]"
+    "  systems candidates --project ID [--limit N]"
+    "  systems classify <project.edn> [--provider deepseek|openrouter|openai] [--model MODEL] [--out agraph.map.json] [--cache-dir DIR]"
     "  map init|propose <project.edn> [--out agraph.map.json]"
     "  map explain <agraph.map.json> <system-id-or-label>"
     "  map set-kind <agraph.map.json> <system-id-or-label> <kind>"
@@ -596,6 +634,51 @@
         (store/with-node (store/storage-path)
           (fn [xtdb]
             (pprint/pprint (index/index-repo! xtdb root {}))))))
+
+    "systems"
+    (let [action (keyword (first args))
+          system-args (vec (rest args))]
+      (case action
+        :candidates
+        (let [{:keys [project-id]} (project-scope system-args)
+              limit (or (parse-limit system-args) 50)]
+          (when (str/blank? (str project-id))
+            (throw (ex-info "Missing --project for system candidates." {:usage (usage)})))
+          (store/with-node (store/storage-path)
+            (fn [xtdb]
+              (print-candidate-systems
+               (->> (active-project-systems xtdb project-id)
+                    (filter candidate-system?)
+                    (sort-by (juxt :repo-id :label))
+                    vec)
+               limit))))
+
+        :classify
+        (let [config-path (first (positional-args system-args))
+              out (or (option-value system-args "--out") graph-map/default-path)
+              provider (classification-provider-option system-args)
+              model (classification-model provider system-args)
+              cache-dir (or (option-value system-args "--cache-dir")
+                            system-classifier/default-cache-dir)]
+          (when-not config-path
+            (throw (ex-info "Missing project config path." {:usage (usage)})))
+          (let [project (project/read-project config-path)]
+            (store/with-node (store/storage-path)
+              (fn [xtdb]
+                (let [systems (active-project-systems xtdb (:id project))
+                      edges (active-project-system-edges xtdb (:id project))
+                      overlay (system-classifier/overlay
+                               {:project (:id project)
+                                :project-id (:id project)
+                                :systems systems
+                                :edges edges
+                                :limit (parse-limit system-args)
+                                :cache-dir cache-dir
+                                :client (classification-client provider model system-args)})]
+                  (print-map-summary (graph-map/write-map! out overlay) overlay))))))
+
+        (throw (ex-info "Unknown systems command." {:command action
+                                                    :usage (usage)}))))
 
     "map"
     (let [action (keyword (first args))

@@ -126,7 +126,7 @@
 
 (def indexed-relations
   "High-confidence relations persisted by default."
-  #{:defines :requires :declares-module :uses})
+  #{:defines :imports :requires :declares-module :uses})
 
 (defn- indexable-extraction
   [run-id project-id repo-id extraction]

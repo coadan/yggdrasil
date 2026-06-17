@@ -5,7 +5,7 @@ evidence in its prompt. It returns a compact JSON packet instead of dumping the
 full graph.
 
 ```sh
-agraph context "where does projection gateway talk to spacetime" --project void --budget 4000
+agraph context "where does the API gateway send requests" --project sample --budget 4000
 ```
 
 The packet schema is `agraph.context/v1`:
@@ -13,7 +13,7 @@ The packet schema is `agraph.context/v1`:
 ```json
 {
   "schema": "agraph.context/v1",
-  "query": "where does projection gateway talk to spacetime",
+  "query": "where does the API gateway send requests",
   "budget": {"requested": 4000, "estimated": 900, "truncated": false},
   "entities": [],
   "edges": [],
@@ -36,27 +36,27 @@ agents can maintain them alongside system boundaries.
 Find candidate snippets:
 
 ```sh
-agraph docs candidates system:void:void:services/projection_gateway --project void --limit 6
+agraph docs candidates system:sample:app:path/services/api-gateway --project sample --limit 6
 ```
 
 Attach a reviewed snippet:
 
 ```sh
-agraph docs attach agraph.map.json "Projection Gateway" void:docs/projection-gateway.md \
+agraph docs attach agraph.map.json "API Gateway" app:docs/api-gateway.md \
   --role contract \
-  --heading "Projection Gateway"
+  --heading "API Gateway"
 ```
 
 Read attached docs for one target:
 
 ```sh
-agraph docs for "Projection Gateway" --project void --map agraph.map.json
+agraph docs for "API Gateway" --project sample --map agraph.map.json
 ```
 
 Audit stale or missing docs:
 
 ```sh
-agraph docs audit --project void --map agraph.map.json
+agraph docs audit --project sample --map agraph.map.json
 ```
 
 Use roles to tell agents how to treat the snippet:
@@ -83,11 +83,11 @@ It stores a stable graph basis and returns small JSON packets that can be opened
 expanded, searched, and revisited without dumping the full graph.
 
 ```sh
-agraph cursor create "projection gateway connections" --project void --map agraph.map.json
-agraph cursor open cursor:abc123 "Projection Gateway"
-agraph cursor expand cursor:def456 "Projection Gateway"
-agraph cursor docs cursor:def456 "Projection Gateway"
-agraph cursor search cursor:def456 "spacetime websocket"
+agraph cursor create "api gateway connections" --project sample --map agraph.map.json
+agraph cursor open cursor:abc123 "API Gateway"
+agraph cursor expand cursor:def456 "API Gateway"
+agraph cursor docs cursor:def456 "API Gateway"
+agraph cursor search cursor:def456 "gateway route"
 ```
 
 Cursor packet schema is `agraph.cursor.packet/v1`. Each mutating cursor command

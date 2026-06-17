@@ -236,6 +236,9 @@
   (cond-> {:id (:xt/id node)
            :label (:label node)
            :kind (kname (:kind node))
+           :source (kname (:source node))
+           :candidateTypes (mapv kname (:candidate-types node))
+           :metrics (:metrics node)
            :includes (cond-> []
                        (:path-prefix node)
                        (conj {:repo (:repo-id node)
@@ -243,6 +246,7 @@
            :aliases (:aliases node)
            :status "candidate"
            :provenance "generated-by-agraph"}
+    (seq (:evidence node)) (assoc :evidence (:evidence node))
     (:path-prefix node) (assoc :pathPrefix (:path-prefix node))
     (:repo-id node) (assoc :repo (:repo-id node))))
 

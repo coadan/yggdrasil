@@ -4,6 +4,8 @@
             [agraph.map :as graph-map]
             [agraph.project :as project]
             [agraph.query :as query]
+            [agraph.system :as system]
+            [agraph.system.classifier :as system-classifier]
             [agraph.xtdb :as store]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -14,6 +16,44 @@
   (let [file (java.nio.file.Files/createTempDirectory prefix
                                                       (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
+
+(deftest path-system-returns-neutral-structural-candidates
+  (is (= {:system-key "path/bases/flows-api"
+          :label "bases/flows-api"
+          :kind :candidate-system
+          :path-prefix "bases/flows-api"
+          :source :deterministic
+          :candidate-types [:path-cluster]}
+         (select-keys (system/path-system {:id "repo" :role :application}
+                                          "bases/flows-api/src/app/core.clj")
+                      [:system-key :label :kind :path-prefix :source :candidate-types])))
+  (is (= {:system-key "path/libraries/flows"
+          :label "libraries/flows"
+          :kind :candidate-system
+          :path-prefix "libraries/flows"
+          :source :deterministic
+          :candidate-types [:path-cluster]}
+         (select-keys (system/path-system {:id "repo" :role :application}
+                                          "libraries/flows/src/lib/core.clj")
+                      [:system-key :label :kind :path-prefix :source :candidate-types])))
+  (is (= {:system-key "path/components/catalog"
+          :label "components/catalog"
+          :kind :candidate-system
+          :path-prefix "components/catalog"
+          :source :deterministic
+          :candidate-types [:path-cluster]}
+         (select-keys (system/path-system {:id "repo" :role :application}
+                                          "components/catalog/src/catalog/core.clj")
+                      [:system-key :label :kind :path-prefix :source :candidate-types])))
+  (is (= {:system-key "path/scripts/flows"
+          :label "scripts/flows"
+          :kind :candidate-system
+          :path-prefix "scripts/flows"
+          :source :deterministic
+          :candidate-types [:path-cluster]}
+         (select-keys (system/path-system {:id "repo" :role :application}
+                                          "scripts/flows/reindex.clj")
+                      [:system-key :label :kind :path-prefix :source :candidate-types]))))
 
 (deftest indexes-project-and-infers-system-graph
   (let [xtdb-path (temp-dir "agraph-project-xtdb")
@@ -42,19 +82,27 @@
           (is (= 1 (count (:repos index-summary))))
           (is (= :completed (:status system-summary)))
           (is (some #(and (= "libs/core" (:label %))
-                          (= :library (:kind %)))
+                          (= :candidate-system (:kind %))
+                          (some #{:path-cluster} (:candidate-types %)))
                     systems))
           (is (some #(and (= "services/api" (:label %))
-                          (= :service (:kind %)))
+                          (= :candidate-system (:kind %))
+                          (some #{:manifest-root} (:candidate-types %)))
                     systems))
           (is (some #(and (= "integrations/payments" (:label %))
-                          (= :integration (:kind %)))
+                          (= :candidate-system (:kind %))
+                          (some #{:manifest-root} (:candidate-types %)))
                     systems))
+          (is (not-any? #(contains? #{:service :library :tool :integration} (:kind %))
+                        systems))
           (is (some #(and (= :external-api (:kind %))
                           (= "api.stripe.com" (:label %)))
                     systems))
           (is (not-any? #(and (= :external-api (:kind %))
                               (#{"docs.example.com" "spacetimedb.com"} (:label %)))
+                        systems))
+          (is (not-any? #(and (= :external-api (:kind %))
+                              (= "api.example.com" (:label %)))
                         systems))
           (is (some #(= :code-depends-on (:relation %)) system-edges))
           (is (some #(= :calls-external-api (:relation %)) system-edges))
@@ -96,6 +144,48 @@
           (is (contains? labels "Fixture API"))
           (is (not (contains? labels "services/api")))
           (is (not (contains? labels "api.stripe.com"))))))))
+
+(deftest classifier-overlay-writes-accepted-map-with-provenance
+  (let [cache-dir (temp-dir "agraph-classifier-cache")
+        candidate-id "system:fixture:app:path/services/api"
+        client {:provider :fake
+                :model "fake-classifier"
+                :complete-json (fn [_messages]
+                                 {:systems [{:id candidate-id
+                                             :label "Fixture API"
+                                             :kind "service"
+                                             :status "accepted"
+                                             :confidence 0.86
+                                             :reason "Runtime API candidate."
+                                             :aliases ["fixture-api"]
+                                             :tags ["runtime"]}]
+                                  :reject []})}
+        overlay (system-classifier/overlay
+                 {:project "fixture"
+                  :project-id "fixture"
+                  :cache-dir cache-dir
+                  :client client
+                  :systems [{:xt/id candidate-id
+                             :project-id "fixture"
+                             :repo-id "app"
+                             :system-key "path/services/api"
+                             :label "services/api"
+                             :kind :candidate-system
+                             :path-prefix "services/api"
+                             :source :deterministic
+                             :candidate-types [:manifest-root :path-cluster]
+                             :metrics {:file-count 2 :node-count 4}
+                             :aliases []
+                             :active? true
+                             :run-id "run/test"}]
+                  :edges []})
+        system (first (:systems overlay))]
+    (is (= graph-map/schema (:schema overlay)))
+    (is (= "Fixture API" (:label system)))
+    (is (= "service" (:kind system)))
+    (is (= "accepted" (:status system)))
+    (is (= "fake" (get-in system [:provenance :provider])))
+    (is (= [{:repo "app" :path "services/api"}] (:includes system)))))
 
 (deftest context-packet-uses-attached-doc-snippets-with-budget
   (let [xtdb-path (temp-dir "agraph-context-xtdb")

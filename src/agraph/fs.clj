@@ -6,7 +6,7 @@
             [clojure.string :as str]))
 
 (def supported-extensions
-  #{".clj" ".cljc" ".cljs" ".edn" ".gradle" ".json" ".md" ".rs" ".toml"
+  #{".clj" ".cljc" ".cljs" ".edn" ".go" ".gradle" ".json" ".md" ".rs" ".toml"
     ".yaml" ".yml" ".xml"})
 
 (def supported-filenames
@@ -53,6 +53,7 @@
       :else
       (case (extension path)
         (".clj" ".cljc" ".cljs") :code
+        ".go" :go
         ".rs" :rust
         ".edn" :edn
         ".toml" :config

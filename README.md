@@ -22,14 +22,14 @@ are extracted internally but not stored by default yet.
 ```sh
 agraph index /path/to/repo
 AGRAPH_OPENROUTER_API_KEY=... agraph embed --provider openrouter
-agraph query "how does player input become canon" --retriever hybrid
-agraph graph query "how does player input become canon" --depth 1
-agraph graph deps void.runtime.turns --depth 2
-agraph graph export query "how does player input become canon" --out graph.json
-agraph cursor create "how does player input become canon" --project void
-agraph deps void.runtime.turns
-agraph path clients.web.main void.runtime.canon.xtdb
-agraph path clients/web services/game_runtime --project void --systems
+agraph query "where is the API gateway configured" --retriever hybrid
+agraph graph query "where is the API gateway configured" --depth 1
+agraph graph deps sample.api.gateway --depth 2
+agraph graph export query "where is the API gateway configured" --out graph.json
+agraph cursor create "where is the API gateway configured" --project sample
+agraph deps sample.api.gateway
+agraph path sample.web.main sample.api.gateway
+agraph path clients/web services/api-gateway --project sample --systems
 agraph report
 ```
 
@@ -79,10 +79,10 @@ graph from code dependencies plus config evidence.
 
 ```clojure
 ;; project.edn
-{:id "void"
- :name "Void"
- :repos [{:id "void"
-          :root "/Users/vegard/repos/void"
+{:id "sample"
+ :name "Sample"
+ :repos [{:id "app"
+          :root "/path/to/sample"
           :role :application}]}
 ```
 
@@ -93,13 +93,13 @@ agraph project infer project.edn
 agraph map propose project.edn --out agraph.map.json
 agraph map reject agraph.map.json external-api docs.xtdb.com --reason "Documentation reference"
 agraph project maintain project.edn
-agraph graph systems --project void --out .dev/reports/void-systems.html
-agraph graph export systems --project void --out .dev/reports/void-systems.json
-agraph query "projection gateway connections" --project void --retriever lexical
-agraph docs candidates system:projection-gateway --project void
-agraph docs attach agraph.map.json system:projection-gateway void:docs/projection-gateway.md --role contract --heading "Projection Gateway"
-agraph context "projection gateway connections" --project void --budget 4000
-agraph cursor create "projection gateway connections" --project void --map agraph.map.json
+agraph graph systems --project sample --out .dev/reports/sample-systems.html
+agraph graph export systems --project sample --out .dev/reports/sample-systems.json
+agraph query "api gateway connections" --project sample --retriever lexical
+agraph docs candidates system:api-gateway --project sample
+agraph docs attach agraph.map.json system:api-gateway app:docs/api-gateway.md --role contract --heading "API Gateway"
+agraph context "api gateway connections" --project sample --budget 4000
+agraph cursor create "api gateway connections" --project sample --map agraph.map.json
 ```
 
 For workbench repos that wrap source repos in cached clones or task worktrees,

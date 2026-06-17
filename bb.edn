@@ -9,6 +9,10 @@
            :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "project"
                         *command-line-args*)}
 
+  systems {:doc "System candidate and classification commands. Usage: bb systems candidates|classify ..."
+           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "systems"
+                        *command-line-args*)}
+
   query {:doc "Search indexed graph. Usage: bb query \"text\" [--limit N]"
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "query"
                       *command-line-args*)}

@@ -3,6 +3,7 @@
 
 (def projection-gateway-url "PROJECTION_GATEWAY_URL")
 (def billing-api-url "https://api.stripe.com/v1/customers")
+(def placeholder-api-url "https://api.example.com/not-runtime")
 
 (defn greet
   [name]

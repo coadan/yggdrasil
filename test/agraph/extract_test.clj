@@ -39,3 +39,18 @@
     (is (= 1 (get relations :declares-module 0)))
     (is (= 1 (get relations :uses 0)))
     (is (pos? (get relations :defines 0)))))
+
+(deftest extracts-go-packages-definitions-imports-and-calls
+  (let [file (fs/file-record "test/fixtures/sample-repo"
+                             "test/fixtures/sample-repo/internal/cli/flows.go")
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        relations (frequencies (map :relation (:edges result)))]
+    (is (= :go (:kind file)))
+    (is (contains? labels "internal/cli/flows"))
+    (is (contains? labels "internal/cli/flows/Client"))
+    (is (contains? labels "internal/cli/flows/RunFlow"))
+    (is (contains? labels "internal/cli/flows/Client.PublishFlow"))
+    (is (= 2 (get relations :imports 0)))
+    (is (<= 4 (get relations :defines 0)))
+    (is (pos? (get relations :calls 0)))))

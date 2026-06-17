@@ -4,39 +4,27 @@
             [agraph.hash :as hash]
             [agraph.index :as index]
             [agraph.search-doc :as search-doc]
+            [agraph.system.candidate :as candidate]
             [agraph.text :as text]
             [agraph.xtdb :as store]
             [clojure.string :as str])
   (:import [java.net URI]))
 
-(def system-roots
-  {"apps" :application
-   "clients" :client
-   "crates" :library
-   "integrations" :integration
-   "libs" :library
-   "packages" :library
-   "infra" :infrastructure
-   "k8s" :infrastructure
-   "services" :service
-   "tools" :tool})
-
 (def generic-aliases
-  #{"app" "apps" "client" "clients" "core" "lib" "libs" "main" "service"
-    "services" "src" "test" "tests" "tool" "tools"})
+  #{"app" "apps" "base" "bases" "client" "clients" "component" "components"
+    "core" "libraries" "library" "lib" "libs" "main" "script" "scripts"
+    "service" "services" "src" "test" "tests" "tool" "tools"})
 
 (def external-repo-id "__external")
 
-(def manifest-kinds
-  {"build.gradle" :package
-   "cargo.toml" :package
-   "deno.json" :package
-   "deps.edn" :package
-   "go.mod" :package
-   "mix.exs" :package
-   "package.json" :package
-   "pom.xml" :package
-   "pyproject.toml" :package})
+(def placeholder-hosts
+  #{"example.com"
+    "example.net"
+    "example.org"
+    "httpbin.org"
+    "jsonplaceholder.typicode.com"
+    "picsum.photos"
+    "postman-echo.com"})
 
 (defn now-ms
   []
@@ -61,74 +49,17 @@
        (remove str/blank?)
        (str/join "\n")))
 
-(defn- path-parts
-  [path]
-  (str/split path #"/"))
-
-(defn- file-name
-  [path]
-  (str/lower-case (last (path-parts path))))
-
-(defn- dirname
-  [path]
-  (let [idx (.lastIndexOf path "/")]
-    (when (pos? idx)
-      (subs path 0 idx))))
-
-(defn- repo-system
-  [{:keys [id repo-id role]}]
-  (let [repo-id (or repo-id id "repo")]
-    {:system-key (str "repo/" repo-id)
-     :label repo-id
-     :kind (case role
-             :application :application
-             :tooling :tool
-             :infrastructure :infrastructure
-             :external :external
-             :repository)
-     :path-prefix nil}))
-
-(defn- manifest-system
-  [path]
-  (when-let [kind (get manifest-kinds (file-name path))]
-    (when-let [prefix (dirname path)]
-      {:system-key (str "manifest/" prefix)
-       :label prefix
-       :kind kind
-       :path-prefix prefix})))
-
-(defn- manifest-systems
-  [files]
-  (->> files
-       (keep (comp manifest-system :path))
-       distinct
-       (sort-by #(count (:path-prefix %)))
-       vec))
-
-(defn- path-under-prefix?
-  [path prefix]
-  (or (= path prefix)
-      (str/starts-with? path (str prefix "/"))))
-
-(defn- manifest-match
-  [manifests path]
-  (->> manifests
-       (filter #(path-under-prefix? path (:path-prefix %)))
-       (sort-by (comp - count :path-prefix))
-       first))
+(defn path-systems
+  "Return neutral structural candidate systems for a repo's files."
+  [repo files]
+  (candidate/candidates-for-repo repo files))
 
 (defn path-system
-  "Return the system bucket for a repo-relative path."
-  ([repo path] (path-system repo [] path))
-  ([repo manifests path]
-   (let [[root name] (path-parts path)]
-     (or (when-let [kind (and name (get system-roots root))]
-           {:system-key (str root "/" name)
-            :label (str root "/" name)
-            :kind kind
-            :path-prefix (str root "/" name)})
-         (manifest-match manifests path)
-         (repo-system repo)))))
+  "Return the neutral candidate bucket for a repo-relative path."
+  ([repo path]
+   (path-system repo (candidate/candidates-for-repo repo [{:path path :kind :code}]) path))
+  ([repo candidates path]
+   (candidate/candidate-for-path repo candidates path)))
 
 (defn system-id
   [project-id repo-id system-key]
@@ -151,7 +82,9 @@
          vec)))
 
 (defn- system-node
-  [run-id project-id {:keys [id repo-id role]} {:keys [system-key label kind path-prefix]}]
+  [run-id project-id {:keys [id repo-id role]} {:keys [system-key label kind path-prefix
+                                                       source candidate-types evidence
+                                                       metrics]}]
   (let [repo-id (or repo-id id "repo")]
     (cond-> {:xt/id (system-id project-id repo-id system-key)
              :project-id project-id
@@ -159,6 +92,10 @@
              :system-key system-key
              :label label
              :kind kind
+             :source (or source :deterministic)
+             :candidate-types (vec candidate-types)
+             :evidence (vec evidence)
+             :metrics (or metrics {})
              :aliases (alias-candidates repo-id system-key label path-prefix)
              :active? true
              :run-id run-id}
@@ -182,9 +119,9 @@
        :role (or (:repo-role row) :repository)}))
 
 (defn- system-for-file
-  [project repo-by-id manifests-by-repo file]
+  [project repo-by-id candidates-by-repo file]
   (let [repo (repo-for-row repo-by-id file)
-        spec (path-system repo (get manifests-by-repo (:repo-id file)) (:path file))]
+        spec (path-system repo (get candidates-by-repo (:repo-id file)) (:path file))]
     (system-node (:run-id project) (:id project) repo spec)))
 
 (defn- active-files
@@ -248,6 +185,8 @@
   (and (seq host)
        (str/includes? host ".")
        (not (contains? #{"localhost" "127.0.0.1" "0.0.0.0"} host))
+       (not (contains? placeholder-hosts host))
+       (not (some #(str/ends-with? host (str "." %)) placeholder-hosts))
        (not (private-ip? host))
        (not (some #(str/ends-with? host %)
                   [".cluster.local" ".internal" ".local" ".svc"]))))
@@ -268,6 +207,8 @@
         (str/starts-with? path "tests/")
         (str/includes? path "/test/")
         (str/includes? path "/tests/")
+        (str/includes? path "/testdata/")
+        (str/starts-with? path "testdata/")
         (str/includes? path "_test.")
         (str/includes? path "-test."))))
 
@@ -276,6 +217,7 @@
   (let [path (str/lower-case (str path))]
     (or (str/includes? path "example")
         (str/includes? path "fixture")
+        (str/includes? path "mock")
         (str/includes? path "sample"))))
 
 (defn- operational-url-evidence?
@@ -357,12 +299,14 @@
                                 0.80)))))))
 
 (defn- file-evidence
-  [run-id project-id repo-by-id manifests-by-repo file]
+  [run-id project-id repo-by-id candidates-by-repo file]
   (let [repo (repo-for-row repo-by-id file)
         node (system-node run-id
                           project-id
                           repo
-                          (path-system repo (get manifests-by-repo (:repo-id file)) (:path file)))
+                          (path-system repo
+                                       (get candidates-by-repo (:repo-id file))
+                                       (:path file)))
         system-id (:xt/id node)]
     (vec
      (concat
@@ -372,7 +316,7 @@
       (yaml-evidence run-id project-id (:repo-id file) system-id file)))))
 
 (defn- evidence-for-project
-  [run-id {:keys [id repos]} manifests-by-repo]
+  [run-id {:keys [id repos]} candidates-by-repo]
   (let [project-id id
         repo-by-id (into {} (map (juxt :id identity)) repos)]
     (->> repos
@@ -385,18 +329,18 @@
                         (mapcat #(file-evidence run-id
                                                 project-id
                                                 repo-by-id
-                                                manifests-by-repo
+                                                candidates-by-repo
                                                 %)))))
          vec)))
 
 (defn- node-system-id
-  [file-by-id repo-by-id manifests-by-repo project-id node]
+  [file-by-id repo-by-id candidates-by-repo project-id node]
   (when-let [file (get file-by-id (:file-id node))]
     (:xt/id (system-node (:run-id node)
                          project-id
                          (repo-for-row repo-by-id file)
                          (path-system (repo-for-row repo-by-id file)
-                                      (get manifests-by-repo (:repo-id file))
+                                      (get candidates-by-repo (:repo-id file))
                                       (:path file))))))
 
 (defn- edge-id
@@ -417,7 +361,7 @@
    :run-id run-id})
 
 (defn- code-system-edges
-  [run-id project-id repo-by-id manifests-by-repo files nodes edges]
+  [run-id project-id repo-by-id candidates-by-repo files nodes edges]
   (let [file-by-id (into {} (map (juxt :xt/id identity)) files)
         node-by-id (into {} (map (juxt :xt/id identity)) nodes)]
     (->> edges
@@ -427,12 +371,12 @@
                        source-system (some->> source-node
                                               (node-system-id file-by-id
                                                               repo-by-id
-                                                              manifests-by-repo
+                                                              candidates-by-repo
                                                               project-id))
                        target-system (some->> target-node
                                               (node-system-id file-by-id
                                                               repo-by-id
-                                                              manifests-by-repo
+                                                              candidates-by-repo
                                                               project-id))]
                    (when (and source-system target-system (not= source-system target-system))
                      {:source-id source-system
@@ -450,6 +394,77 @@
                              (mapv :evidence-id rows)
                              ["code-edge"])))
          vec)))
+
+(defn- system-id-for-file
+  [project-id repo-by-id candidates-by-repo file]
+  (let [repo (repo-for-row repo-by-id file)]
+    (:xt/id (system-node (:run-id file)
+                         project-id
+                         repo
+                         (path-system repo
+                                      (get candidates-by-repo (:repo-id file))
+                                      (:path file))))))
+
+(defn- zero-metrics
+  []
+  {:file-count 0
+   :node-count 0
+   :internal-code-edge-count 0
+   :incoming-code-edge-count 0
+   :outgoing-code-edge-count 0})
+
+(defn- inc-metric
+  [metrics system-id k]
+  (update-in metrics [system-id k] (fnil inc 0)))
+
+(defn- system-metrics
+  [project-id repo-by-id candidates-by-repo files nodes edges]
+  (let [file-system-by-id (into {}
+                                (map (fn [file]
+                                       [(:xt/id file)
+                                        (system-id-for-file project-id
+                                                            repo-by-id
+                                                            candidates-by-repo
+                                                            file)]))
+                                files)
+        node-system-by-id (into {}
+                                (keep (fn [node]
+                                        (when-let [system-id (get file-system-by-id (:file-id node))]
+                                          [(:xt/id node) system-id])))
+                                nodes)]
+    (-> (reduce (fn [metrics file]
+                  (inc-metric metrics (get file-system-by-id (:xt/id file)) :file-count))
+                {}
+                files)
+        (as-> metrics
+              (reduce (fn [metrics node]
+                        (if-let [system-id (get node-system-by-id (:xt/id node))]
+                          (inc-metric metrics system-id :node-count)
+                          metrics))
+                      metrics
+                      nodes))
+        (as-> metrics
+              (reduce (fn [metrics edge]
+                        (let [source-system (get node-system-by-id (:source-id edge))
+                              target-system (get node-system-by-id (:target-id edge))]
+                          (cond
+                            (or (nil? source-system) (nil? target-system))
+                            metrics
+
+                            (= source-system target-system)
+                            (inc-metric metrics source-system :internal-code-edge-count)
+
+                            :else
+                            (-> metrics
+                                (inc-metric source-system :outgoing-code-edge-count)
+                                (inc-metric target-system :incoming-code-edge-count)))))
+                      metrics
+                      edges))
+        (update-vals #(merge (zero-metrics) %)))))
+
+(defn- attach-metrics
+  [metrics system]
+  (assoc system :metrics (get metrics (:xt/id system) (zero-metrics))))
 
 (defn- value-system-edges
   [run-id project-id evidence]
@@ -499,47 +514,6 @@
                                 [(:xt/id row)]
                                 ["url-host"])))))))
 
-(defn- alias-reference-edges
-  [run-id project-id systems evidence]
-  (let [system-aliases (mapcat (fn [system]
-                                 (map (fn [alias] [system alias])
-                                      (:aliases system)))
-                               systems)]
-    (->> evidence
-         (mapcat
-          (fn [row]
-            (for [[target alias] system-aliases
-                  :let [value (str (:normalized-value row) "-" (normalize-token (:label row)))]
-                  :when (and (not= (:system-id row) (:xt/id target))
-                             (str/includes? value alias))]
-              (system-edge run-id
-                           project-id
-                           (:system-id row)
-                           (:xt/id target)
-                           (case (:kind row)
-                             :url (if (operational-url-evidence? row)
-                                    :calls-http
-                                    :references)
-                             (:k8s-service :k8s-ingress :k8s-workload) :deploys
-                             :references)
-                           (case (:kind row)
-                             :url (if (operational-url-evidence? row) 0.74 0.62)
-                             (:k8s-service :k8s-ingress :k8s-workload) 0.82
-                             0.68)
-                           [(:xt/id row)]
-                           ["alias-reference"]))))
-         (group-by (juxt :source-id :target-id :relation))
-         (map (fn [[[source-id target-id relation] rows]]
-                (system-edge run-id
-                             project-id
-                             source-id
-                             target-id
-                             relation
-                             (apply max (map :confidence rows))
-                             (mapcat :evidence-ids rows)
-                             (mapcat :rules rows))))
-         vec)))
-
 (defn- merge-system-edges
   [run-id project-id edges]
   (->> edges
@@ -588,9 +562,13 @@
                                           (compact (:label system)
                                                    (label-terms (:label system))
                                                    (name (:kind system))
+                                                   (some->> (:source system) name)
+                                                   (map name (:candidate-types system))
                                                    (:repo-id system)
+                                                   (some-> (:repo-role system) name)
                                                    (:path-prefix system)
                                                    (label-terms (:path-prefix system))
+                                                   (some-> (:metrics system) pr-str)
                                                    (:aliases system))))
                         systems)
         edge-docs (mapv (fn [edge]
@@ -626,39 +604,30 @@
         project (assoc project :run-id run-id)
         repo-by-id (into {} (map (juxt :id identity)) repos)
         files (vec (active-files xtdb id))
-        manifests-by-repo (->> files
-                               (group-by :repo-id)
-                               (map (fn [[repo-id repo-files]]
-                                      [repo-id (manifest-systems repo-files)]))
-                               (into {}))
+        candidates-by-repo (candidate/candidates-by-repo repo-by-id files)
         nodes (vec (active-nodes xtdb id))
         edges (vec (active-edges xtdb id))
+        metrics (system-metrics id repo-by-id candidates-by-repo files nodes edges)
+        candidate-systems (->> candidates-by-repo
+                               (mapcat (fn [[repo-id candidates]]
+                                         (let [repo (get repo-by-id repo-id)]
+                                           (map #(system-node run-id id repo %) candidates))))
+                               distinct
+                               (mapv #(attach-metrics metrics %)))
         file-systems (->> files
-                          (map #(system-for-file project repo-by-id manifests-by-repo %))
-                          (map #(assoc % :run-id run-id))
+                          (map #(system-for-file project repo-by-id candidates-by-repo %))
+                          (map #(attach-metrics metrics %))
                           distinct
                           vec)
-        evidence (evidence-for-project run-id project manifests-by-repo)
-        evidence-systems (->> evidence
-                              (keep (fn [row]
-                                      (when-not (some #(= (:xt/id %) (:system-id row)) file-systems)
-                                        (let [repo (repo-for-row repo-by-id row)
-                                              file {:path (:path row)}
-                                              spec (path-system repo
-                                                                (get manifests-by-repo (:repo-id row))
-                                                                (:path file))]
-                                          (system-node run-id id repo spec)))))
-                              distinct)
+        evidence (evidence-for-project run-id project candidates-by-repo)
         external-systems (external-api-nodes run-id id evidence)
-        systems (vec (distinct (concat file-systems evidence-systems external-systems)))
-        code-edges (code-system-edges run-id id repo-by-id manifests-by-repo files nodes edges)
+        systems (vec (distinct (concat candidate-systems file-systems external-systems)))
+        code-edges (code-system-edges run-id id repo-by-id candidates-by-repo files nodes edges)
         value-edges (value-system-edges run-id id evidence)
         external-edges (external-api-edges run-id id evidence)
-        alias-edges (alias-reference-edges run-id id systems evidence)
         system-edges (merge-system-edges run-id id (concat code-edges
                                                            value-edges
-                                                           external-edges
-                                                           alias-edges))
+                                                           external-edges))
         system-by-id (into {} (map (juxt :xt/id identity)) systems)
         evidence-by-id (into {} (map (juxt :xt/id identity)) evidence)
         search-docs (system-search-docs run-id id systems system-edges system-by-id evidence-by-id)

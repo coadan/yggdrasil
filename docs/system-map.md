@@ -23,11 +23,11 @@ agraph map propose project.edn --out agraph.map.json
 Then accept or correct what research proves:
 
 ```sh
-agraph map set-kind agraph.map.json "services/projection_gateway" service
-agraph map include agraph.map.json "Projection Gateway" void:services/projection_gateway
+agraph map set-kind agraph.map.json "services/api-gateway" service
+agraph map include agraph.map.json "API Gateway" app:services/api-gateway
 agraph map reject agraph.map.json external-api docs.xtdb.com --reason "Documentation reference"
-agraph docs attach agraph.map.json "Projection Gateway" void:docs/projection-gateway.md --role contract --heading "Projection Gateway"
-agraph map explain agraph.map.json "Projection Gateway"
+agraph docs attach agraph.map.json "API Gateway" app:docs/api-gateway.md --role contract --heading "API Gateway"
+agraph map explain agraph.map.json "API Gateway"
 ```
 
 System graph exports apply `agraph.map.json` automatically when it exists in the
@@ -35,9 +35,9 @@ current directory. Use `--map PATH` to choose another file or `--no-map` to see
 raw generated candidates.
 
 ```sh
-agraph graph systems --project void --out .dev/reports/void-systems.html
-agraph graph export systems --project void --out .dev/reports/void-systems.json
-agraph graph export systems --project void --no-map --out .dev/reports/raw-systems.json
+agraph graph systems --project sample --out .dev/reports/sample-systems.html
+agraph graph export systems --project sample --out .dev/reports/sample-systems.json
+agraph graph export systems --project sample --no-map --out .dev/reports/raw-systems.json
 ```
 
 ## Shape
@@ -45,16 +45,16 @@ agraph graph export systems --project void --no-map --out .dev/reports/raw-syste
 ```json
 {
   "schema": "agraph.map/v1",
-  "project": "void",
+  "project": "sample",
   "systems": [
     {
-      "id": "system:void:manual:projection-gateway",
-      "label": "Projection Gateway",
+      "id": "system:sample:manual:api-gateway",
+      "label": "API Gateway",
       "kind": "service",
-      "includes": [{"repo": "void", "path": "services/projection_gateway"}],
-      "aliases": ["projection-gateway", "projection_gateway"],
+      "includes": [{"repo": "app", "path": "services/api-gateway"}],
+      "aliases": ["api-gateway"],
       "status": "accepted",
-      "reason": "Rust HTTP/SSE gateway consumed by clients/web"
+      "reason": "HTTP gateway consumed by clients/web"
     }
   ],
   "reject": [
@@ -65,21 +65,21 @@ agraph graph export systems --project void --no-map --out .dev/reports/raw-syste
   ],
   "edges": [
     {
-      "source": "system:void:manual:clients-web",
-      "target": "system:void:manual:projection-gateway",
+      "source": "system:sample:manual:clients-web",
+      "target": "system:sample:manual:api-gateway",
       "relation": "calls-http",
       "confidence": 1.0,
-      "reason": "Browser client consumes gateway HTTP/SSE endpoint"
+      "reason": "Browser client consumes gateway HTTP endpoint"
     }
   ],
   "docs": [
     {
-      "target": "system:void:manual:projection-gateway",
+      "target": "system:sample:manual:api-gateway",
       "role": "contract",
       "source": {
-        "repo": "void",
-        "path": "docs/projection-gateway.md",
-        "heading": "Projection Gateway"
+        "repo": "app",
+        "path": "docs/api-gateway.md",
+        "heading": "API Gateway"
       },
       "status": "accepted",
       "reason": "Defines the gateway boundary and client contract"

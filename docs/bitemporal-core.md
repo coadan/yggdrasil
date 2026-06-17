@@ -40,7 +40,7 @@ CLI reads support:
 agraph deps sample.core --valid-at 2026-01-01T00:00:00Z
 agraph graph export deps sample.core --valid-at 2026-01-01T00:00:00Z
 agraph query "greeting flow" --valid-at 2026-01-01T00:00:00Z
-agraph context "projection gateway" --project void --valid-at 2026-01-01T00:00:00Z
+agraph context "api gateway" --project sample --valid-at 2026-01-01T00:00:00Z
 ```
 
 ## Snapshot Semantics

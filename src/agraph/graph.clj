@@ -34,15 +34,21 @@
    :test "#f59e0b"
    :chunk "#64748b"
    :code-file "#64748b"
+   :go-file "#64748b"
    :rust-file "#64748b"
    :doc "#64748b"
    :struct "#0d9488"
+   :interface "#0d9488"
+   :constant "#16a34a"
    :enum "#0d9488"
    :trait "#0d9488"
-   :impl "#0f766e"})
+   :impl "#0f766e"
+   :candidate-system "#64748b"
+   :repo-boundary "#475569"})
 
 (def relation-color
   {:defines "#94a3b8"
+   :imports "#2563eb"
    :requires "#2563eb"
    :uses "#9333ea"
    :declares-module "#f59e0b"
@@ -90,6 +96,9 @@
      :repoRole (some-> (:repo-role node) name)
      :path (:path node)
      :pathPrefix (:path-prefix node)
+     :source (some-> (:source node) name)
+     :candidateTypes (some->> (:candidate-types node) (mapv name))
+     :metrics (:metrics node)
      :line (:source-line node)
      :degree (long (get degree id 0))
      :score score
@@ -470,8 +479,9 @@
         graph-nodes (mapv (fn [node]
                             {:data (cond-> (select-keys node [:id :label :kind :repo :path
                                                               :pathPrefix :line :degree
+                                                              :source :candidateTypes :metrics
                                                               :score :color :size
-                                                              :attrs :tags :metrics])
+                                                              :attrs :tags])
                                      (seq (metadata-text node)) (assoc :metadata (metadata-text node))
                                      (:repo node) (assoc :parent (str "repo:" (:repo node))))})
                           (:nodes data))
