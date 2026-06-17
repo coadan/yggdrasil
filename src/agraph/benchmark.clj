@@ -29,6 +29,9 @@
 (def agent-score-schema
   "agraph.benchmark.agent-score/v1")
 
+(def agent-report-schema
+  "agraph.benchmark.agent-report/v1")
+
 (def report-schema
   "agraph.benchmark.report/v1")
 
@@ -169,6 +172,14 @@
   (io/file (case-output-dir suite case opts)
            "agent-scores"
            (str (safe-id (without-json-suffix result-file)) ".score.json")))
+
+(defn- agent-score-dir
+  [suite case opts]
+  (io/file (case-output-dir suite case opts) "agent-scores"))
+
+(defn- agent-report-path
+  [suite opts]
+  (io/file (output-root suite opts) "agent-report.json"))
 
 (defn- report-path
   [suite opts]
@@ -416,6 +427,17 @@
                :found? false}))
           changed-files)))
 
+(defn- unsupported-ground-truth-paths
+  [ground-truth]
+  (set (map :path (:unsupportedGroundTruthFiles ground-truth))))
+
+(defn- scoreable-changed-files
+  [ground-truth]
+  (let [unsupported (unsupported-ground-truth-paths ground-truth)]
+    (->> (:changedFiles ground-truth)
+         (remove unsupported)
+         vec)))
+
 (defn- recall-at
   [truth paths k]
   (let [truth (set truth)
@@ -447,16 +469,19 @@
   "Return mechanical localization scores for a benchmark result shape."
   [{:keys [groundTruth agraph]}]
   (let [changed-files (:changedFiles groundTruth)
+        scoreable-files (scoreable-changed-files groundTruth)
         paths (mapv :path (:topFiles agraph))]
     (merge
      (into {}
            (map (fn [k]
                   [(keyword (str "fileRecallAt" k))
-                   (recall-at changed-files paths k)]))
+                   (recall-at scoreable-files paths k)]))
            recall-limits)
-     {:meanReciprocalRankFile (mean-reciprocal-rank-file changed-files
+     {:meanReciprocalRankFile (mean-reciprocal-rank-file scoreable-files
                                                          (:topFiles agraph))
-      :noiseRatioAt20 (noise-ratio-at changed-files paths 20)
+      :noiseRatioAt20 (noise-ratio-at scoreable-files paths 20)
+      :changedFiles (count changed-files)
+      :scoreableChangedFiles (count scoreable-files)
       :unsupportedGroundTruthFiles (count (:unsupportedGroundTruthFiles groundTruth))})))
 
 (defn- run-query!
@@ -783,6 +808,28 @@
     (write-json-file! (agent-score-path suite case opts result-file) scored)
     scored))
 
+(defn- json-file?
+  [file]
+  (and (.isFile file)
+       (str/ends-with? (.getName file) ".json")))
+
+(defn- agent-score-files
+  [suite case opts]
+  (let [dir (agent-score-dir suite case opts)]
+    (when (.isDirectory dir)
+      (->> (file-seq dir)
+           (filter json-file?)
+           (sort-by #(.getPath %))
+           vec))))
+
+(defn- agent-score-results
+  [suite case opts]
+  (->> (agent-score-files suite case opts)
+       (map read-json-file)
+       (filter #(or (blankish? (:mode opts))
+                    (= (:mode opts) (get-in % [:agent :mode]))))
+       vec))
+
 (defn- case-result-file
   [suite case opts]
   (let [file (result-path suite case opts)]
@@ -824,6 +871,57 @@
           (map (fn [k]
                  [k (average (keep #(get-in % [:scores k]) results))]))
           score-keys)))
+
+(defn- sum-score
+  [results k]
+  (reduce + 0 (keep #(get-in % [:scores k]) results)))
+
+(defn- aggregate-agent-scores
+  [results]
+  (assoc (aggregate-scores results)
+         :changedFiles (sum-score results :changedFiles)
+         :scoreableChangedFiles (sum-score results :scoreableChangedFiles)
+         :unsupportedGroundTruthFiles (sum-score results :unsupportedGroundTruthFiles)))
+
+(defn- group-agent-scores
+  [results key-path]
+  (->> results
+       (group-by #(or (get-in % key-path) "unknown"))
+       (map (fn [[k rows]]
+              {:key k
+               :runs (count rows)
+               :scores (aggregate-agent-scores rows)}))
+       (sort-by :key)
+       vec))
+
+(defn report-agent-suite
+  "Aggregate existing agent score artifacts."
+  [suite opts]
+  (let [cases (selected-cases suite (:case-id opts))
+        results (mapcat #(agent-score-results suite % opts) cases)
+        completed-cases (set (map :case-id results))
+        missing (->> cases
+                     (remove #(contains? completed-cases (:id %)))
+                     (mapv :id))
+        report {:schema agent-report-schema
+                :suite-id (:id suite)
+                :cases (count cases)
+                :completed (count completed-cases)
+                :runs (count results)
+                :missing missing
+                :scores (aggregate-agent-scores results)
+                :byMode (group-agent-scores results [:agent :mode])
+                :byAgent (group-agent-scores results [:agent :agentId])
+                :results (mapv #(select-keys % [:case-id
+                                                :repo-id
+                                                :baseSha
+                                                :fixSha
+                                                :agentResultPath
+                                                :agent
+                                                :scores])
+                               results)}]
+    (write-json-file! (agent-report-path suite opts) report)
+    report))
 
 (defn report-suite
   "Aggregate existing benchmark result artifacts."

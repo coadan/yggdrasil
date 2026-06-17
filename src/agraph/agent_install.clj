@@ -105,6 +105,7 @@
        "```sh\n"
        "agraph sync work pull --project <project-id> --agent codex\n"
        "agraph sync work complete <work-id> --result result.json\n"
+       "agraph sync activity <project.edn>\n"
        "agraph sync work apply <work-id> --map agraph.map.json\n"
        "```\n\n"
        "Keep AGraph evidence-first. Deterministic code records mechanical facts; "

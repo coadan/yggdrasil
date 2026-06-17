@@ -48,6 +48,8 @@ Core commands:
 - `bb ask "text" --project <project-id>`
 - `bb explore create "text" --project <project-id>`
 - `bb view systems --project <project-id>`
+- `bb report <project.edn> --map agraph.map.json --out agraph-out`
+- `agraph-mcp --config project.edn --map agraph.map.json`
 - `bb test`
 - `bb lint`
 - `bb format:check`

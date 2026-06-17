@@ -20,23 +20,18 @@ Default indexing persists high-confidence relations: definitions, namespace
 requires, source imports, and Rust module declarations. Noisy inferred call
 edges are extracted internally but not stored by default yet.
 
-## Usage
+## Quickstart
 
 ```sh
-agraph sync project.edn
-AGRAPH_OPENROUTER_API_KEY=... agraph embed --provider openrouter
-agraph ask "where is the API gateway configured" --project sample --retriever hybrid
-agraph ask "where is the API gateway configured" --project sample --json
-agraph explore create "where is the API gateway configured" --project sample
-agraph view query "where is the API gateway configured" --project sample --depth 1
-agraph view deps sample.api.gateway --project sample --depth 2
-agraph view systems --project sample --format json --out graph.json
-agraph sync coverage project.edn --json
-bb bench run benchmark.edn
-agraph sync check project.edn --map agraph.map.json --enqueue
-agraph sync work pull --project sample --agent codex
-agraph sync work complete queue:abc123 --result result.json
-agraph sync work apply queue:abc123 --map agraph.map.json
+agraph init . --project my-project --out project.edn
+agraph sync project.edn --check --map agraph.map.json
+agraph ask "where is auth handled" --project my-project --json
+agraph explore create "where is auth handled" --project my-project --map agraph.map.json
+agraph view systems --project my-project --format json
+agraph report project.edn --map agraph.map.json --out agraph-out
+agraph install-agent --platform codex --project --hooks
+agraph watch project.edn --map agraph.map.json
+agraph hook install project.edn --map agraph.map.json
 ```
 
 Default XTDB storage lives at `.dev/agraph/xtdb`. Override with:
@@ -78,6 +73,13 @@ Graph HTML reports and canonical JSON exports from `agraph view` are written to
 Visualization should consume that shape instead of defining renderer-specific
 export formats.
 
+Optional embedding-backed retrieval:
+
+```sh
+AGRAPH_OPENROUTER_API_KEY=... agraph embed --provider openrouter
+agraph ask "where is auth handled" --project my-project --retriever hybrid
+```
+
 ## Projects
 
 AGraph can index multiple repos as one project and derive a higher-level system
@@ -104,6 +106,7 @@ agraph sync propose project.edn --out agraph.map.json
 agraph sync ignore external-api docs.xtdb.com --map agraph.map.json --reason "Documentation reference"
 agraph view systems --project sample --out .dev/reports/sample-systems.html
 agraph view systems --project sample --format json --out .dev/reports/sample-systems.json
+agraph report project.edn --map agraph.map.json --out agraph-out
 agraph ask "api gateway connections" --project sample --retriever lexical
 agraph sync docs candidates system:api-gateway --project sample
 agraph sync docs attach system:api-gateway app:docs/api-gateway.md --map agraph.map.json --role contract --heading "API Gateway"
@@ -111,6 +114,9 @@ agraph explore create "api gateway connections" --project sample --map agraph.ma
 agraph sync check project.edn --map agraph.map.json --enqueue
 agraph sync work list --status ready
 ```
+
+Use `agraph init . --sync --map agraph.map.json` for a one-command local setup
+when the default single-repo config is enough.
 
 For workbench repos that wrap source repos in cached clones or task worktrees,
 point the project at the workbench root instead of listing each repo:
@@ -198,6 +204,16 @@ drilldown commands instead of the whole graph.
 Use `agraph explore` for longer investigations where an agent should keep a
 stable graph basis and progressively call `show`, `open`, `expand`, `docs`, and
 `search` against compact packets.
+
+Use `agraph install-agent --platform codex --project` to write concise project
+guidance into `AGENTS.md`. Add `--hooks` to install Codex hook guidance. The
+installer only edits marked AGraph sections, and `uninstall` removes those
+sections.
+
+Use `agraph-mcp --config project.edn --map agraph.map.json` when an MCP client
+should call AGraph tools directly. The server exposes compact packet tools such
+as `agraph_ask`, `agraph_explore_create`, `agraph_view_systems`, and
+`agraph_work_pull`; it does not expose arbitrary SQL or implicit map mutation.
 
 ## Queue Handoff
 

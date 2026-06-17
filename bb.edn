@@ -17,7 +17,7 @@
         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "view"
                      *command-line-args*)}
 
-  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-score|run|report|show <benchmark.edn>"
+  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-score|agent-report|run|report|show <benchmark.edn>"
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "bench"
                       *command-line-args*)}
 
@@ -65,7 +65,7 @@
         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "path"
                      *command-line-args*)}
 
-  report {:doc "Compatibility: print graph report."
+  report {:doc "Write a local report bundle. Usage: bb report <project.edn> [--map agraph.map.json] [--out agraph-out]"
           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "report"
                        *command-line-args*)}
 

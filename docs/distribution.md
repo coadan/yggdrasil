@@ -26,6 +26,18 @@ With dependencies:
 scripts/install-macos.sh --install-deps
 ```
 
+Verify the installed entrypoints:
+
+```sh
+agraph help
+agraph-mcp --config project.edn --map agraph.map.json
+```
+
+`agraph-mcp` is the stdio MCP server for editor and agent integrations. It
+exposes bounded graph tools for ask, explore, systems views, sync inspection,
+sync check, and filesystem queue handoff. Use the CLI for explicit map mutation
+and applying validated work results.
+
 ## Docker
 
 Build locally:

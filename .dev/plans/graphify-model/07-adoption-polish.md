@@ -1,5 +1,7 @@
 # Stage 7: Adoption Polish
 
+Status: implemented.
+
 ## Goal
 
 Finish the Graphify-inspired adoption work as a coherent AGraph product slice.
@@ -103,4 +105,3 @@ Before calling the Graphify-inspired work complete, verify:
 A new user can discover AGraph from the README, initialize a project, keep it
 fresh, generate a shareable report, install assistant guidance, and use MCP or
 CLI packet APIs without learning internal queue or XTDB details first.
-

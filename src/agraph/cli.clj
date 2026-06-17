@@ -1,6 +1,7 @@
 (ns agraph.cli
   "Command line interface."
   (:require [agraph.agent-install :as agent-install]
+            [agraph.activity :as activity]
             [agraph.benchmark :as benchmark]
             [agraph.context :as context]
             [agraph.coverage :as coverage]
@@ -736,6 +737,35 @@
               (print-json report)
               (print-source-coverage report))))))))
 
+(defn- print-activity-sync
+  [{:keys [project-id queue-root counts]}]
+  (println "# Activity Sync")
+  (println "- project" project-id)
+  (println "- queue-root" queue-root)
+  (println "- items" (:items counts 0))
+  (println "- events" (:events counts 0))
+  (println "- validation-events" (:validation-events counts 0))
+  (println "- ready" (:ready counts 0))
+  (println "- claimed" (:claimed counts 0))
+  (println "- done" (:done counts 0))
+  (println "- rejected" (:rejected counts 0))
+  (println "- failed" (:failed counts 0)))
+
+(defn- sync-activity!
+  [args]
+  (let [config-path (first (positional-args args))]
+    (when-not config-path
+      (throw (ex-info "Missing project config path." {:usage (usage)})))
+    (let [project (project/read-project config-path)]
+      (store/with-node (store/storage-path)
+        (fn [xtdb]
+          (let [result (activity/sync-queue! xtdb
+                                             project
+                                             {:queue-root (queue-root args)})]
+            (if (json-output? args)
+              (print-json result)
+              (print-activity-sync result))))))))
+
 (defn- sync-project!
   [args]
   (let [config-path (first (positional-args args))]
@@ -949,6 +979,9 @@
 
       :coverage
       (sync-coverage! action-args)
+
+      :activity
+      (sync-activity! action-args)
 
       :work
       (sync-work! action-args)
@@ -1478,6 +1511,7 @@
                    :prepare (benchmark/prepare-suite! suite opts)
                    :run (benchmark/run-suite! suite opts)
                    :report (benchmark/report-suite suite opts)
+                   :agent-report (benchmark/report-agent-suite suite opts)
                    :show (benchmark/show-case suite
                                               (or (:case-id opts)
                                                   (throw (ex-info "Missing --case."
@@ -1507,11 +1541,19 @@
   (str/join
    "\n"
    ["Usage:"
+    ""
+    "Setup:"
     "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync] [--map agraph.map.json]"
     "  init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]"
+    "  install-agent --platform codex --project [--hooks]"
+    "  install-agent list"
+    "  install-agent uninstall --platform codex --project"
+    ""
+    "Sync and maintenance:"
     "  sync <project.edn> [--repo ID] [--map PATH] [--check] [--enqueue] [--query-index] [--dry-run] [--json]"
     "  sync inspect <project.edn>"
     "  sync coverage <project.edn> [--json]"
+    "  sync activity <project.edn> [--queue-dir DIR] [--json]"
     "  sync add-repo <project.edn> <repo-path> [--repo ID] [--role ROLE]"
     "  sync check <project.edn> [--map PATH] [--json] [--enqueue] [--queue-dir DIR]"
     "  sync init|propose <project.edn> [--out agraph.map.json]"
@@ -1532,23 +1574,31 @@
     "  sync work apply <work-id> --map agraph.map.json [--queue-dir DIR]"
     "  sync work reject <work-id> --reason TEXT [--queue-dir DIR]"
     "  sync work release <work-id> [--reason TEXT] [--queue-dir DIR]"
+    ""
+    "Ask and explore:"
     "  ask <text> [--project ID] [--repo ID] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
     "  explore create [query text] --project ID [--budget N] [--limit N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--no-map] [--view ID] [--valid-at INSTANT] [--enqueue] [--queue-dir DIR]"
     "  explore show|open|expand|docs|search ..."
+    ""
+    "View and report:"
     "  view overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--format html|json] [--out PATH] [--valid-at INSTANT]"
     "  report <project.edn> [--map agraph.map.json] [--out agraph-out] [--detail primary|expanded|evidence|raw] [--force]"
-    "  install-agent --platform codex --project [--hooks]"
-    "  install-agent list"
-    "  install-agent uninstall --platform codex --project"
+    ""
+    "Agent integration:"
     "  watch <project.edn> [--map agraph.map.json] [--query-index] [--debounce-ms N]"
     "  hook install <project.edn> [--map agraph.map.json] [--query-index]"
     "  hook uninstall <project.edn>"
     "  hook status <project.edn>"
+    ""
+    "Server integration:"
+    "  mcp [--root DIR] [--config project.edn] [--map agraph.map.json] [--queue-dir DIR]"
+    ""
+    "Benchmarks:"
     "  bench prepare|run|report|show <benchmark.edn> [--case ID] [--out DIR] [--json]"
     "  bench agent-packet <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--enqueue] [--queue-dir DIR] [--out DIR] [--json]"
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--out DIR] [--json]"
+    "  bench agent-report <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--out DIR] [--json]"
     "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
-    "  mcp"
     ""
     "Compatibility commands remain during migration: index, project, systems, classify, queue, map, docs, meta, views, context, cursor, query, graph, deps, path."]))
 

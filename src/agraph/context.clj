@@ -1,6 +1,7 @@
 (ns agraph.context
   "Token-bounded, graph-grounded context packets for agents."
-  (:require [agraph.graph :as graph]
+  (:require [agraph.activity :as activity]
+            [agraph.graph :as graph]
             [agraph.map :as graph-map]
             [agraph.query :as query]
             [agraph.text :as text]
@@ -30,7 +31,7 @@
   40)
 
 (def unsupported-planes
-  [:activity :remote-work :session-history :validation-history])
+  [:remote-work :session-history])
 
 (def role-weight
   {"overview" 0.35
@@ -303,13 +304,14 @@
    :defaultDetail "primary"})
 
 (defn- base-packet
-  [query-text budget graph-data entities edges warnings drilldowns answerability]
+  [query-text budget graph-data entities edges activity warnings drilldowns answerability]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data)
            :budget {:requested budget}
            :entities entities
            :edges edges
+           :activity activity
            :docs []
            :warnings warnings
            :drilldowns drilldowns}
@@ -396,6 +398,13 @@
                                                        :read-context read-context}))
     :system-edges (count (query/all-system-edges xtdb {:project-id project-id
                                                        :read-context read-context}))
+    :activity-items (count (activity/all-items xtdb {:project-id project-id
+                                                     :read-context read-context}))
+    :activity-events (count (activity/all-events xtdb {:project-id project-id
+                                                       :read-context read-context}))
+    :validation-events (count (filter #(= :validation (:event-kind %))
+                                      (activity/all-events xtdb {:project-id project-id
+                                                                 :read-context read-context})))
     :diagnostics (count (filter active-row?
                                 (query/all-diagnostics xtdb {:project-id project-id
                                                              :repo-id repo-id
@@ -421,6 +430,8 @@
     (pos? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
     (pos? (:embeddings counts)) (conj :embeddings)
     (pos? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
+    (pos? (+ (:activity-items counts) (:activity-events counts))) (conj :activity)
+    (pos? (:validation-events counts)) (conj :validation-history)
     (pos? (+ (:map-systems counts)
              (:map-docs counts)
              (:map-edges counts)
@@ -433,10 +444,12 @@
     (zero? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
     (zero? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
     (zero? (:embeddings counts)) (conj :embeddings)
-    (zero? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)))
+    (zero? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
+    (zero? (+ (:activity-items counts) (:activity-events counts))) (conj :activity)
+    (zero? (:validation-events counts)) (conj :validation-history)))
 
 (defn- weak-planes
-  [counts {:keys [entity-count doc-count]}]
+  [counts {:keys [entity-count doc-count activity-count validation-count]}]
   (cond-> []
     (and (pos? (+ (:system-nodes counts) (:system-edges counts)))
          (zero? entity-count))
@@ -444,7 +457,15 @@
 
     (and (pos? (:search-docs counts))
          (zero? doc-count))
-    (conj :docs)))
+    (conj :docs)
+
+    (and (pos? (+ (:activity-items counts) (:activity-events counts)))
+         (zero? activity-count))
+    (conj :activity)
+
+    (and (pos? (:validation-events counts))
+         (zero? validation-count))
+    (conj :validation-history)))
 
 (defn- answerability-warnings
   [counts retrieval weak]
@@ -464,11 +485,23 @@
     (some #{:docs} weak)
     (conj "Search docs are indexed, but no docs matched this query.")
 
+    (zero? (+ (:activity-items counts) (:activity-events counts)))
+    (conj "No activity/work rows are indexed; prior work queries are limited.")
+
+    (some #{:activity} weak)
+    (conj "Activity/work rows are indexed, but no activity matched this query.")
+
+    (zero? (:validation-events counts))
+    (conj "No validation history rows are indexed; validation-history queries are limited.")
+
+    (some #{:validation-history} weak)
+    (conj "Validation history rows are indexed, but no validation events matched this query.")
+
     (zero? (:embeddings counts))
     (conj "No embeddings are indexed for this project.")
 
     true
-    (conj "Activity, remote work, session history, and validation history are not modeled in the current graph.")))
+    (conj "Remote work items and session history are not modeled in the current graph.")))
 
 (defn- next-steps
   [counts retrieval]
@@ -485,6 +518,9 @@
          (zero? (+ (:system-nodes counts) (:system-edges counts)))
          (conj "Run agraph sync <project.edn>")
 
+         (zero? (+ (:activity-items counts) (:activity-events counts)))
+         (conj "Run agraph sync activity <project.edn>")
+
          (pos? (:diagnostics counts))
          (conj "Run agraph sync coverage <project.edn> --json"))
        distinct
@@ -492,13 +528,15 @@
        vec))
 
 (defn- answerability-status
-  [missing weak retrieval {:keys [entity-count doc-count]}]
-  (cond
-    (and (zero? entity-count) (zero? doc-count)) :empty
-    (or (:fallback? retrieval)
-        (seq weak)
-        (some #{:source-files :source-graph :docs :system-graph} missing)) :limited
-    :else :ready))
+  [missing weak retrieval {:keys [entity-count doc-count activity-count]}]
+  (let [core-missing? (some #{:source-files :source-graph :docs :system-graph} missing)
+        core-weak? (some #{:system-graph :docs} weak)]
+    (cond
+      (and (zero? entity-count) (zero? doc-count) (zero? activity-count)) :empty
+      (or (:fallback? retrieval)
+          core-weak?
+          core-missing?) :limited
+      :else :ready)))
 
 (defn- answerability
   [xtdb overlay opts match-counts]
@@ -555,6 +593,11 @@
         entities (select-entities query-tokens results graph-data entity-limit)
         edges (select-edges query-tokens entities graph-data edge-limit)
         targets (selected-targets entities edges)
+        activity (activity/select-activity xtdb
+                                           query-text
+                                           {:project-id project-id
+                                            :read-context read-context
+                                            :target-ids targets})
         warnings (cond-> []
                    (empty? entities)
                    (conj "no graph entities matched the query"))
@@ -576,12 +619,18 @@
                                       :retriever retriever
                                       :embedding-client embedding-client}
                                      {:entity-count (count entities)
-                                      :doc-count (count docs)})]
+                                      :doc-count (count docs)
+                                      :activity-count (count activity)
+                                      :validation-count (count (filter #(some (fn [event]
+                                                                                (= :validation (:event-kind event)))
+                                                                              (:events %))
+                                                                       activity))})]
     (fit-budget (base-packet query-text
                              budget
                              graph-data
                              entities
                              edges
+                             activity
                              warnings
                              drilldowns
                              answerability)

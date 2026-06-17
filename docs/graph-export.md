@@ -87,6 +87,12 @@ internally for Cytoscape.js. External tools should consume `agraph.graph/v2`
 rather than depending on Cytoscape element JSON or another renderer-specific
 format.
 
+`agraph report <project.edn> --map agraph.map.json --out agraph-out` writes a
+local report bundle for humans and agents. The bundle includes `index.html`,
+`REPORT.md`, `graph.json`, `systems.json`, and `context-example.json`.
+`graph.json` and `systems.json` use this same `agraph.graph/v2` contract.
+`REPORT.md` is a readable summary, not a data contract.
+
 ## Metadata
 
 Metadata is stored in XTDB and participates in the same temporal reads as graph

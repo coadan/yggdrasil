@@ -1,5 +1,6 @@
 (ns agraph.benchmark-test
   (:require [agraph.benchmark :as benchmark]
+            [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
@@ -34,6 +35,10 @@
     (spit file content)
     (.getPath file)))
 
+(defn- spit-json!
+  [root path value]
+  (spit-file! root path (json/write-json-str value {:indent-str "  "})))
+
 (defn- commit!
   [repo message]
   (git! repo "add" ".")
@@ -52,6 +57,76 @@
     (is (= 0.5 (:meanReciprocalRankFile scores)))
     (is (= 0.5 (:noiseRatioAt20 scores)))
     (is (= 0 (:unsupportedGroundTruthFiles scores)))))
+
+(deftest scores-only-base-visible-ground-truth-files
+  (let [result {:groundTruth {:changedFiles [".chloggen/fix.yaml"
+                                             "src/app.clj"
+                                             "src/app_test.clj"]
+                              :unsupportedGroundTruthFiles [{:path ".chloggen/fix.yaml"
+                                                             :reason "missing-at-base"}]}
+                :agraph {:topFiles [{:path "src/app.clj" :rank 1}
+                                    {:path "src/app_test.clj" :rank 2}]}}
+        scores (benchmark/score-result result)]
+    (is (= 1.0 (:fileRecallAt5 scores)))
+    (is (= 1.0 (:meanReciprocalRankFile scores)))
+    (is (= 0.0 (:noiseRatioAt20 scores)))
+    (is (= 3 (:changedFiles scores)))
+    (is (= 2 (:scoreableChangedFiles scores)))
+    (is (= 1 (:unsupportedGroundTruthFiles scores)))))
+
+(deftest reports-agent-score-artifacts
+  (let [out (temp-dir "agraph-agent-report")
+        suite {:id "suite"
+               :cases [{:id "case-1"}
+                       {:id "case-2"}]}]
+    (spit-json! out
+                "suite/cases/case-1/agent-scores/run-1.score.json"
+                {:schema benchmark/agent-score-schema
+                 :suite-id "suite"
+                 :case-id "case-1"
+                 :repo-id "repo"
+                 :agent {:agentId "codex"
+                         :mode "agraph"}
+                 :scores {:fileRecallAt5 1.0
+                          :fileRecallAt10 1.0
+                          :fileRecallAt20 1.0
+                          :meanReciprocalRankFile 1.0
+                          :noiseRatioAt20 0.5
+                          :changedFiles 3
+                          :scoreableChangedFiles 2
+                          :unsupportedGroundTruthFiles 1}})
+    (spit-json! out
+                "suite/cases/case-1/agent-scores/run-2.score.json"
+                {:schema benchmark/agent-score-schema
+                 :suite-id "suite"
+                 :case-id "case-1"
+                 :repo-id "repo"
+                 :agent {:agentId "baseline"
+                         :mode "shell-only"}
+                 :scores {:fileRecallAt5 0.0
+                          :fileRecallAt10 0.5
+                          :fileRecallAt20 0.5
+                          :meanReciprocalRankFile 0.0
+                          :noiseRatioAt20 1.0
+                          :changedFiles 3
+                          :scoreableChangedFiles 2
+                          :unsupportedGroundTruthFiles 1}})
+    (let [report (benchmark/report-agent-suite suite {:out out})]
+      (is (= benchmark/agent-report-schema (:schema report)))
+      (is (= 2 (:cases report)))
+      (is (= 1 (:completed report)))
+      (is (= 2 (:runs report)))
+      (is (= ["case-2"] (:missing report)))
+      (is (= 0.75 (get-in report [:scores :fileRecallAt10])))
+      (is (= 6 (get-in report [:scores :changedFiles])))
+      (is (= 4 (get-in report [:scores :scoreableChangedFiles])))
+      (is (= #{"agraph" "shell-only"} (set (map :key (:byMode report)))))
+      (is (= ["baseline" "codex"] (mapv :key (:byAgent report)))))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :mode "agraph"})]
+      (is (= 1 (:runs report)))
+      (is (= 1.0 (get-in report [:scores :fileRecallAt10])))
+      (is (= ["agraph"] (mapv :key (:byMode report)))))))
 
 (deftest prepares-issue-replay-case-from-git-diff
   (let [root (temp-dir "agraph-bench-repo")

@@ -98,7 +98,9 @@
    :evidence :agraph/evidence
    :system-evidence :agraph/system-evidence
    :system-nodes :agraph/system-nodes
-   :system-edges :agraph/system-edges})
+   :system-edges :agraph/system-edges
+   :activity-items :agraph/activity-items
+   :activity-events :agraph/activity-events})
 
 (defn instant
   "Return java.util.Date instant value for XTDB temporal options."

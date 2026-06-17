@@ -36,6 +36,7 @@ Run the suite:
 bb bench prepare benchmark.edn
 bb bench agent-packet benchmark.edn --case penpot-example --json
 bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
+bb bench agent-report benchmark.edn
 bb bench run benchmark.edn
 bb bench report benchmark.edn
 bb bench show benchmark.edn --case penpot-example
@@ -54,6 +55,9 @@ generated output root.
   the agent AGraph command hints, or `--mode shell-only` for a baseline.
 - `bench agent-score <suite.edn> --case <case-id> --result result.json` scores
   one agent result JSON against hidden ground truth.
+- `bench agent-report <suite.edn>` aggregates existing agent score artifacts
+  across selected cases. Use `--mode agraph` or `--mode shell-only` to compare
+  one benchmark mode at a time.
 - `bench run <suite.edn>` creates a detached worktree at each base SHA, indexes
   it with the query profile, runs lexical retrieval over the issue text, and
   writes one scored result artifact per case.
@@ -135,12 +139,19 @@ retrieval quality.
 
 ## Scores
 
-The core scores are mechanical:
+The core scores are mechanical. Recall and MRR use scoreable changed files:
+files that existed in the base tree and were supported by AGraph. New files and
+unsupported file types are reported separately because an agent cannot reliably
+localize a file that did not exist in the checkout it was given.
 
 - `fileRecallAt5`, `fileRecallAt10`, `fileRecallAt20`: fraction of changed files
-  appearing in the top ranked file results.
+  appearing in the top ranked file results, after removing unsupported or
+  missing-at-base ground-truth files.
 - `meanReciprocalRankFile`: reciprocal rank of the first changed file found.
 - `noiseRatioAt20`: fraction of top ranked files outside the fixing diff.
+- `changedFiles`: files changed by the fixing diff.
+- `scoreableChangedFiles`: changed files that were present and supported in the
+  base checkout.
 - `unsupportedGroundTruthFiles`: changed files that were missing or unsupported
   in the base tree.
 

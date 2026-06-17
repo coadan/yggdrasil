@@ -20,15 +20,6 @@
 
 (def external-repo-id "__external")
 
-(def placeholder-hosts
-  #{"example.com"
-    "example.net"
-    "example.org"
-    "httpbin.org"
-    "jsonplaceholder.typicode.com"
-    "picsum.photos"
-    "postman-echo.com"})
-
 (defn now-ms
   []
   (System/currentTimeMillis))
@@ -222,47 +213,13 @@
   (and (seq host)
        (str/includes? host ".")
        (not (contains? #{"localhost" "127.0.0.1" "0.0.0.0"} host))
-       (not (contains? placeholder-hosts host))
-       (not (some #(str/ends-with? host (str "." %)) placeholder-hosts))
        (not (private-ip? host))
        (not (some #(str/ends-with? host %)
                   [".cluster.local" ".internal" ".local" ".svc"]))))
 
-(defn- docs-path?
-  [path]
-  (let [path (str/lower-case (str path))]
-    (or (str/ends-with? path ".md")
-        (str/starts-with? path "docs/")
-        (str/starts-with? path "doc/")
-        (str/includes? path "/docs/")
-        (str/includes? path "/doc/"))))
-
-(defn- test-path?
-  [path]
-  (let [path (str/lower-case (str path))]
-    (or (str/starts-with? path "test/")
-        (str/starts-with? path "tests/")
-        (str/includes? path "/test/")
-        (str/includes? path "/tests/")
-        (str/includes? path "/testdata/")
-        (str/starts-with? path "testdata/")
-        (str/includes? path "_test.")
-        (str/includes? path "-test."))))
-
-(defn- example-path?
-  [path]
-  (let [path (str/lower-case (str path))]
-    (or (str/includes? path "example")
-        (str/includes? path "fixture")
-        (str/includes? path "mock")
-        (str/includes? path "sample"))))
-
-(defn- operational-url-evidence?
+(defn- url-evidence?
   [row]
-  (and (= :url (:kind row))
-       (not (docs-path? (:path row)))
-       (not (test-path? (:path row)))
-       (not (example-path? (:path row)))))
+  (= :url (:kind row)))
 
 (def container-image-evidence-kinds
   #{:container-image-producer :container-image-consumer})
@@ -462,7 +419,7 @@
 (defn- external-api-nodes
   [run-id project-id evidence]
   (->> evidence
-       (filter operational-url-evidence?)
+       (filter url-evidence?)
        (keep (comp url-host :label))
        (filter external-host?)
        distinct
@@ -472,7 +429,7 @@
 (defn- external-api-edges
   [run-id project-id evidence]
   (->> evidence
-       (filter operational-url-evidence?)
+       (filter url-evidence?)
        (keep (fn [row]
                (when-let [host (url-host (:label row))]
                  (when (external-host? host)

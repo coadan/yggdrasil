@@ -265,6 +265,44 @@
    [:active? boolean?]
    [:created-at-ms int?]])
 
+(def activity-item-row
+  [:map
+   [:xt/id string?]
+   [:schema string?]
+   [:project-id {:optional true} string?]
+   [:source keyword?]
+   [:source-id string?]
+   [:source-path {:optional true} string?]
+   [:kind string?]
+   [:status keyword?]
+   [:payload-schema {:optional true} string?]
+   [:result-schema {:optional true} string?]
+   [:target-ids [:vector string?]]
+   [:summary string?]
+   [:tokens [:vector string?]]
+   [:created-at-ms int?]
+   [:updated-at-ms int?]
+   [:completed-at-ms {:optional true} int?]
+   [:active? boolean?]
+   [:run-id string?]])
+
+(def activity-event-row
+  [:map
+   [:xt/id string?]
+   [:schema string?]
+   [:project-id {:optional true} string?]
+   [:source keyword?]
+   [:source-id string?]
+   [:item-id string?]
+   [:event-kind keyword?]
+   [:status {:optional true} keyword?]
+   [:agent-id {:optional true} string?]
+   [:target-ids [:vector string?]]
+   [:summary string?]
+   [:at-ms int?]
+   [:active? boolean?]
+   [:run-id string?]])
+
 (defn assert!
   "Validate value against schema and return value."
   [schema value message]

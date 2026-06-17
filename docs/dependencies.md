@@ -9,12 +9,18 @@ Required for native CLI use:
 - JDK 21+
 - Clojure CLI
 - Git
+- Python 3, for Python AST extraction.
 
 Optional:
 
 - Babashka, for `bb` development shortcuts.
 - OpenRouter or OpenAI API key, for embedding-backed semantic retrieval.
 - Docker, for zero-install CLI usage.
+
+JavaScript, TypeScript, SQL, Terraform/HCL, OpenAPI, and container manifests are
+handled by deterministic text, JSON, EDN, or YAML extraction adapters. Native
+CLI use does not require a Node.js toolchain, TypeScript compiler, Terraform
+binary, or OpenAPI generator.
 
 The graph viewer vendors Cytoscape.js in `resources/agraph/vendor/` so generated
 HTML reports work without a CDN. The canonical graph export remains plain
@@ -49,6 +55,7 @@ Recommended tools:
 - Clojure CLI
 - Babashka
 - Git
+- Python 3
 - Docker
 
 Validation commands:

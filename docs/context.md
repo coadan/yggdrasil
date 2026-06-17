@@ -17,14 +17,15 @@ The packet schema is `agraph.context/v1`:
   "budget": {"requested": 4000, "estimated": 900, "truncated": false},
   "entities": [],
   "edges": [],
+  "activity": [],
   "docs": [],
   "answerability": {
     "status": "limited",
     "available": ["source-graph", "docs"],
-    "missing": ["embeddings", "system-graph"],
+    "missing": ["embeddings", "system-graph", "activity", "validation-history"],
     "weak": [],
-    "unsupported": ["activity", "remote-work", "session-history", "validation-history"],
-    "counts": {"nodes": 120, "search-docs": 40, "embeddings": 0},
+    "unsupported": ["remote-work", "session-history"],
+    "counts": {"nodes": 120, "search-docs": 40, "activity-items": 0},
     "retrieval": {"requested": "auto", "effective": "lexical", "fallback?": true},
     "warnings": [],
     "next": []
@@ -46,24 +47,24 @@ not supported by the current model.
 
 - `status`: `ready`, `limited`, or `empty`
 - `available`: populated evidence planes, such as `source-graph`, `docs`,
-  `system-graph`, `embeddings`, or `map-overlay`
+  `system-graph`, `embeddings`, `activity`, `validation-history`, or
+  `map-overlay`
 - `missing`: supported evidence planes with no useful rows for this project or
   read context
 - `weak`: evidence exists, but did not match this query well
-- `unsupported`: useful evidence planes AGraph cannot model yet, such as
-  `activity`, `remote-work`, `session-history`, and `validation-history`
+- `unsupported`: useful evidence planes AGraph cannot model yet, currently
+  `remote-work` and `session-history`
 - `counts`: compact row counts used to make the decision
 - `retrieval`: requested and effective retriever, including lexical fallback
 - `warnings`: short mechanical explanations
 - `next`: bounded follow-up commands
 
-Agents should treat `answerability` as a confidence boundary. If the packet says
-activity or session history is unsupported, AGraph can still answer source and
-docs questions, but it cannot answer who worked on something, what prior
-sessions tried, or which validation history exists unless that evidence appears
-in indexed source/docs. If `status` is `empty` or `limited`, follow `next` or use
-the listed missing planes to decide whether to sync, embed, inspect coverage, or
-ask the user for another source of truth.
+Agents should treat `answerability` as a confidence boundary. Local queue
+activity and validation-shaped queue results are supported after
+`agraph sync activity <project.edn>`. Remote work tools and session history are
+still unsupported. If `status` is `empty` or `limited`, follow `next` or use the
+listed missing planes to decide whether to sync, embed, inspect coverage, import
+activity, or ask the user for another source of truth.
 
 Plain `agraph ask` prints a concise answerability warning only when no query
 results are found. Use `agraph ask --json` for the full structured packet.
@@ -118,6 +119,33 @@ the packet is insufficient. During build or maintenance work, promote useful
 candidate docs into accepted map attachments and run `agraph sync docs audit`
 before handoff.
 
+Install project-local agent guidance when a coding assistant should discover
+AGraph automatically:
+
+```sh
+agraph install-agent --platform codex --project
+agraph install-agent --platform codex --project --hooks
+```
+
+The installer edits only marked AGraph sections. Remove them with:
+
+```sh
+agraph install-agent uninstall --platform codex --project
+```
+
+For MCP clients, run:
+
+```sh
+agraph-mcp --config project.edn --map agraph.map.json
+```
+
+The MCP server returns the same packet schemas as the CLI. Initial tools include
+`agraph_ask`, `agraph_explore_create`, `agraph_explore_open`,
+`agraph_explore_expand`, `agraph_view_systems`, `agraph_sync_inspect`,
+`agraph_sync_check`, `agraph_work_pull`, and `agraph_work_complete`.
+`agraph_work_complete` records an explicit result artifact; applying validated
+results to `agraph.map.json` stays a separate CLI step.
+
 ## Filesystem Queue
 
 Use `--enqueue` when a packet should be picked up by another agent, model, tool,
@@ -129,12 +157,15 @@ agraph sync check project.edn --map agraph.map.json --enqueue
 agraph explore create "projection boundary" --project sample --enqueue
 agraph sync work pull --project sample --agent codex
 agraph sync work complete queue:abc123 --result result.json
+agraph sync activity project.edn
 agraph sync work apply queue:abc123 --map agraph.map.json
 ```
 
 The queue is only the transport. The embedded payload remains unchanged, and the
 consumer result should be an explicit JSON artifact such as a map patch,
 classification, or finding. `sync work complete` stores the artifact for audit.
+`sync activity` imports queue item lifecycle and validation-shaped result facts
+into XTDB so future `ask --json` packets can include `activity` matches.
 `sync work apply` validates supported result schemas before writing accepted
 changes to `agraph.map.json`.
 

@@ -1,5 +1,6 @@
 (ns agraph.cli-test
   (:require [agraph.agent-install :as agent-install]
+            [agraph.activity :as activity]
             [agraph.benchmark :as benchmark]
             [agraph.cli :as cli]
             [agraph.context :as context]
@@ -43,6 +44,12 @@
 
 (deftest usage-shows-canonical-surface
   (let [usage (cli/usage)]
+    (is (str/includes? usage "Setup:"))
+    (is (str/includes? usage "Sync and maintenance:"))
+    (is (str/includes? usage "Ask and explore:"))
+    (is (str/includes? usage "View and report:"))
+    (is (str/includes? usage "Agent integration:"))
+    (is (str/includes? usage "Server integration:"))
     (is (str/includes? usage "sync <project.edn>"))
     (is (str/includes? usage "init <repo-root>"))
     (is (str/includes? usage "ask <text>"))
@@ -50,11 +57,13 @@
     (is (str/includes? usage "view overview|deps|query|systems"))
     (is (str/includes? usage "report <project.edn>"))
     (is (str/includes? usage "install-agent --platform codex --project"))
+    (is (str/includes? usage "mcp [--root DIR]"))
     (is (str/includes? usage "watch <project.edn>"))
     (is (str/includes? usage "hook install <project.edn>"))
     (is (str/includes? usage "bench prepare|run|report|show"))
     (is (str/includes? usage "bench agent-packet"))
     (is (str/includes? usage "bench agent-score"))
+    (is (str/includes? usage "bench agent-report"))
     (is (not (str/includes? usage "overlay")))))
 
 (deftest install-agent-list-shows-supported-platforms
@@ -264,6 +273,37 @@
                   :result-path "agent-result.json"}]]
                @calls))))))
 
+(deftest bench-agent-report-dispatches-to-benchmark-reporter
+  (let [calls (atom [])]
+    (with-redefs [benchmark/read-suite (fn [path]
+                                         (swap! calls conj [:read path])
+                                         {:id "suite"})
+                  benchmark/report-agent-suite (fn [suite opts]
+                                                 (swap! calls conj [:report suite opts])
+                                                 {:schema benchmark/agent-report-schema
+                                                  :suite-id (:id suite)
+                                                  :cases 1
+                                                  :completed 1
+                                                  :runs 1
+                                                  :scores {:fileRecallAt10 1.0
+                                                           :meanReciprocalRankFile 1.0}})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["agent-report" "benchmark.edn"
+                                 "--case" "case-1"
+                                 "--mode" "agraph"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= benchmark/agent-report-schema (:schema parsed)))
+        (is (= [[:read "benchmark.edn"]
+                [:report {:id "suite"}
+                 {:case-id "case-1"
+                  :out nil
+                  :retriever nil
+                  :mode "agraph"
+                  :result-path nil}]]
+               @calls))))))
+
 (deftest init-command-can-run-sync-and-create-explicit-map
   (let [root (temp-dir "agraph-cli-init")
         config-path (.getPath (io/file root "project.edn"))
@@ -461,6 +501,32 @@
       (is (= "fixture" (:project-id parsed)))
       (is (= {:files 2 :supported 1 :skipped 1}
              (:totals parsed))))))
+
+(deftest sync-activity-routes-through-project-config
+  (let [calls (atom [])]
+    (with-redefs [project/read-project (fn [path]
+                                         (swap! calls conj [:read path])
+                                         project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  activity/sync-queue! (fn [xtdb project opts]
+                                         (swap! calls conj [:activity xtdb (:id project) opts])
+                                         {:schema activity/sync-schema
+                                          :project-id (:id project)
+                                          :queue-root (:queue-root opts)
+                                          :counts {:items 1
+                                                   :events 2
+                                                   :validation-events 1}})]
+      (let [out (with-out-str
+                  (cli/dispatch "sync"
+                                ["activity" "project.edn"
+                                 "--queue-dir" ".dev/test-queue"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= activity/sync-schema (:schema parsed)))
+        (is (= "fixture" (:project-id parsed)))
+        (is (= [[:read "project.edn"]
+                [:activity :xtdb "fixture" {:queue-root ".dev/test-queue"}]]
+               @calls))))))
 
 (deftest bench-run-dispatches-to-benchmark-runner
   (let [calls (atom [])]
@@ -691,9 +757,9 @@
                                             {:status :empty
                                              :missing [:docs :embeddings]
                                              :weak []
-                                             :unsupported [:activity :remote-work]
+                                             :unsupported [:remote-work]
                                              :warnings ["No search docs are indexed."
-                                                        "Activity is not modeled."]
+                                                        "No activity/work rows are indexed."]
                                              :next ["Run agraph sync <project.edn> --query-index"]}})]
       (let [out (with-out-str
                   (binding [*err* err]
@@ -705,7 +771,7 @@
         (is (str/includes? (str err) "No query results."))
         (is (str/includes? (str err) "Answerability empty"))
         (is (str/includes? (str err) "Missing evidence: docs, embeddings"))
-        (is (str/includes? (str err) "Unsupported evidence: activity, remote-work"))
+        (is (str/includes? (str err) "Unsupported evidence: remote-work"))
         (is (str/includes? (str err) "Run agraph sync <project.edn> --query-index"))
         (is (= [:query :context] (mapv first @calls)))
         (is (= "prior work" (nth (second @calls) 2)))))))
