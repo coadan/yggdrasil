@@ -338,6 +338,11 @@
                    :status "accepted"}
             (seq reason) (assoc :reason reason))))
 
+(defn add-edge
+  "Attach an accepted project-level relationship to the editable map."
+  [overlay edge]
+  (update overlay :edges (fnil conj []) edge))
+
 (defn docs-for-target
   "Return accepted doc attachments for target id."
   [overlay target]

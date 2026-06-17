@@ -5,14 +5,14 @@ AGraph has one maintained graph data contract: `agraph.graph/v2`.
 Create it with:
 
 ```sh
-agraph graph export overview --out graph.json
-agraph graph export deps my.namespace --depth 2 --out deps.json
-agraph graph export query "where is auth handled" --retriever lexical --out query.json
-agraph graph export systems --project my-project --out systems.json
-agraph graph export systems --project my-project --detail expanded --out systems-expanded.json
-agraph graph export systems --project my-project --map agraph.map.json --out systems.json
-agraph graph export systems --project my-project --no-map --out raw-systems.json
-agraph graph export systems --project my-project --view view:runtime --out runtime.json
+agraph view overview --format json --out graph.json
+agraph view deps my.namespace --format json --depth 2 --out deps.json
+agraph view query "where is auth handled" --format json --retriever lexical --out query.json
+agraph view systems --project my-project --format json --out systems.json
+agraph view systems --project my-project --format json --detail expanded --out systems-expanded.json
+agraph view systems --project my-project --format json --map agraph.map.json --out systems.json
+agraph view systems --project my-project --format json --no-map --out raw-systems.json
+agraph view systems --project my-project --format json --view view:runtime --out runtime.json
 ```
 
 The top-level shape is:
@@ -97,26 +97,26 @@ changing the graph export schema.
 CLI commands:
 
 ```sh
-agraph meta defs
-agraph meta set <target-id> owner/team platform --type string --project my-project
-agraph meta get <target-id> --project my-project
-agraph meta unset <target-id> owner/team --project my-project
-agraph views list --project my-project
-agraph views show view:platform --project my-project
+agraph sync meta defs
+agraph sync meta set <target-id> owner/team platform --type string --project my-project
+agraph sync meta get <target-id> --project my-project
+agraph sync meta unset <target-id> owner/team --project my-project
+agraph sync view list --project my-project
+agraph sync view show view:platform --project my-project
 ```
 
-Graph views can filter exports with metadata and relation constraints. Use
-`--view <id-or-label>` on `agraph graph ...` commands to apply a stored view.
+Stored graph views can filter exports with metadata and relation constraints.
+Use `--view <id-or-label>` on `agraph view ...` commands to apply a stored view.
 
 ## System Graph Maps
 
 System graph exports apply `agraph.map.json` from the current directory when it
-exists. The map is an agent-maintained overlay that merges accepted systems,
+exists. The map is an agent-maintained correction layer that merges accepted systems,
 rejects known false positives, and adds accepted system relationships before the
 canonical graph is written. Use `--no-map` to export generated candidates
-without the overlay and `--detail raw` to export raw relation-level edges.
+without the map and `--detail raw` to export raw relation-level edges.
 Raw candidates are evidence-derived structure, not final architecture labels.
-Consumers should treat accepted overlays and metadata as the place where
+Consumers should treat accepted corrections and metadata as the place where
 project-specific semantics enter the graph.
 
 ## Compatibility

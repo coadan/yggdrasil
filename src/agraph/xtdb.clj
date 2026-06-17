@@ -86,6 +86,7 @@
    :nodes :agraph/nodes
    :edges :agraph/edges
    :chunks :agraph/chunks
+   :file-facts :agraph/file-facts
    :diagnostics :agraph/index-diagnostics
    :search-docs :agraph/search-docs
    :embeddings :agraph/embeddings
@@ -189,6 +190,10 @@
   [row]
   (schema/assert! schema/chunk-row row "Invalid chunk row."))
 
+(defn- validate-file-fact-row
+  [row]
+  (schema/assert! schema/file-fact-row row "Invalid file fact row."))
+
 (defn- validate-diagnostic-row
   [row]
   (schema/assert! schema/diagnostic-row row "Invalid diagnostic row."))
@@ -254,6 +259,23 @@
   [xtdb ops]
   (when (seq ops)
     (xt/execute-tx (:node xtdb) (vec ops))))
+
+(defn- compact-doc-ops
+  "Collapse same-table XTDB document ops into multi-row ops."
+  [ops]
+  (let [{:keys [order values]} (reduce
+                                (fn [{:keys [values] :as acc} op]
+                                  (let [k [(first op) (second op)]]
+                                    (-> acc
+                                        (cond-> (not (contains? values k))
+                                          (update :order conj k))
+                                        (update-in [:values k] into (nnext op)))))
+                                {:order []
+                                 :values {}}
+                                ops)]
+    (mapv (fn [[op table-or-opts :as k]]
+            (into [op table-or-opts] (get values k)))
+          order)))
 
 (defn table-ref
   "Return physical XTDB table keyword for logical table key."
@@ -467,6 +489,7 @@
    {:nodes (rows-by-field xtdb (:nodes tables) :file-id file-id ctx)
     :edges (rows-by-field xtdb (:edges tables) :file-id file-id ctx)
     :chunks (rows-by-field xtdb (:chunks tables) :file-id file-id ctx)
+    :file-facts (rows-by-field xtdb (:file-facts tables) :file-id file-id ctx)
     :diagnostics (rows-by-field xtdb (:diagnostics tables) :file-id file-id ctx)
     :search-docs (rows-by-field xtdb (:search-docs tables) :file-id file-id ctx)}))
 
@@ -481,16 +504,23 @@
                     valid-from (assoc :valid-at valid-from))
          existing (if existing?
                     (file-scoped-rows xtdb file-id read-ctx)
-                    {:nodes [] :edges [] :chunks [] :diagnostics [] :search-docs []})
+                    {:nodes []
+                     :edges []
+                     :chunks []
+                     :file-facts []
+                     :diagnostics []
+                     :search-docs []})
          delete-ops (concat
                      (map #(delete-op (:nodes tables) (:xt/id %) temporal) (:nodes existing))
                      (map #(delete-op (:edges tables) (:xt/id %) temporal) (:edges existing))
                      (map #(delete-op (:chunks tables) (:xt/id %) temporal) (:chunks existing))
+                     (map #(delete-op (:file-facts tables) (:xt/id %) temporal) (:file-facts existing))
                      (map #(delete-op (:diagnostics tables) (:xt/id %) temporal) (:diagnostics existing))
                      (map #(delete-op (:search-docs tables) (:xt/id %) temporal) (:search-docs existing)))
          nodes (map validate-node-row (:nodes extraction))
          edges (map validate-edge-row (:edges extraction))
          chunks (map validate-chunk-row (:chunks extraction))
+         file-facts (map validate-file-fact-row (:file-facts extraction))
          diagnostics (map validate-diagnostic-row (:diagnostics extraction))
          search-docs (map validate-search-doc-row (:search-docs extraction))
          put-ops (concat
@@ -498,13 +528,17 @@
                   (map #(put-op (:nodes tables) % temporal) nodes)
                   (map #(put-op (:edges tables) % temporal) edges)
                   (map #(put-op (:chunks tables) % temporal) chunks)
+                  (map #(put-op (:file-facts tables) % temporal) file-facts)
                   (map #(put-op (:diagnostics tables) % temporal) diagnostics)
                   (map #(put-op (:search-docs tables) % temporal) search-docs))
          tx-ops (vec (concat delete-ops put-ops))]
      {:ops tx-ops
+      :delete-ops (vec delete-ops)
+      :put-ops (vec put-ops)
       :counts {:nodes (count nodes)
                :edges (count edges)
                :chunks (count chunks)
+               :file-facts (count file-facts)
                :diagnostics (count diagnostics)
                :search-docs (count search-docs)}})))
 
@@ -516,7 +550,7 @@
   "Replace graph rows for one file."
   [xtdb file-row extraction]
   (let [{:keys [ops counts]} (file-tx xtdb file-row extraction)]
-    (xt/execute-tx (:node xtdb) ops)
+    (xt/execute-tx (:node xtdb) (compact-doc-ops ops))
     counts))
 
 (defn commit-files!
@@ -531,14 +565,26 @@
                                {:existing? (:existing? %)
                                 :valid-from (:valid-from %)})
                      batch)
-            ops (vec (mapcat :ops txs))
+            delete-ops (compact-doc-ops (mapcat :delete-ops txs))
+            put-ops (compact-doc-ops (mapcat :put-ops txs))
+            ops (vec (concat delete-ops put-ops))
             counts (reduce merge-counts
-                           {:nodes 0 :edges 0 :chunks 0 :diagnostics 0 :search-docs 0}
+                           {:nodes 0
+                            :edges 0
+                            :chunks 0
+                            :file-facts 0
+                            :diagnostics 0
+                            :search-docs 0}
                            (map :counts txs))]
         (when (seq ops)
           (xt/execute-tx (:node xtdb) ops))
         (merge-counts summary counts)))
-    {:nodes 0 :edges 0 :chunks 0 :diagnostics 0 :search-docs 0}
+    {:nodes 0
+     :edges 0
+     :chunks 0
+     :file-facts 0
+     :diagnostics 0
+     :search-docs 0}
     (partition-all batch-size entries))))
 
 (defn file-delete-tx
@@ -554,6 +600,7 @@
               (map #(delete-op (:nodes tables) (:xt/id %) temporal) (:nodes existing))
               (map #(delete-op (:edges tables) (:xt/id %) temporal) (:edges existing))
               (map #(delete-op (:chunks tables) (:xt/id %) temporal) (:chunks existing))
+              (map #(delete-op (:file-facts tables) (:xt/id %) temporal) (:file-facts existing))
               (map #(delete-op (:diagnostics tables) (:xt/id %) temporal) (:diagnostics existing))
               (map #(delete-op (:search-docs tables) (:xt/id %) temporal) (:search-docs existing))
               [(delete-op (:files tables) (:xt/id file-row) temporal)]))]
@@ -562,6 +609,7 @@
               :nodes-deleted (count (:nodes existing))
               :edges-deleted (count (:edges existing))
               :chunks-deleted (count (:chunks existing))
+              :file-facts-deleted (count (:file-facts existing))
               :diagnostics-deleted (count (:diagnostics existing))
               :search-docs-deleted (count (:search-docs existing))}}))
 
@@ -572,7 +620,7 @@
    (reduce
     (fn [summary batch]
       (let [txs (map #(file-delete-tx xtdb % opts) batch)
-            ops (vec (mapcat :ops txs))
+            ops (compact-doc-ops (mapcat :ops txs))
             counts (reduce merge-counts {} (map :counts txs))]
         (execute-tx! xtdb ops)
         (merge-counts summary counts)))
@@ -580,6 +628,7 @@
      :nodes-deleted 0
      :edges-deleted 0
      :chunks-deleted 0
+     :file-facts-deleted 0
      :diagnostics-deleted 0
      :search-docs-deleted 0}
     (partition-all batch-size file-rows))))
@@ -590,7 +639,7 @@
   (let [validated (map validate-embedding-row rows)
         ops (mapv #(put-op (:embeddings tables) %) validated)]
     (when (seq ops)
-      (xt/execute-tx (:node xtdb) ops))
+      (xt/execute-tx (:node xtdb) (compact-doc-ops ops)))
     {:embeddings (count validated)}))
 
 (defn commit-project!
@@ -599,7 +648,7 @@
   (let [ops (into [(put-op (:projects tables) (validate-project-row project-row))]
                   (map #(put-op (:repos tables) (validate-repo-row %))
                        repo-rows))]
-    (xt/execute-tx (:node xtdb) ops)
+    (xt/execute-tx (:node xtdb) (compact-doc-ops ops))
     {:project project-row
      :repos (count repo-rows)}))
 
@@ -631,7 +680,7 @@
               (map #(put-op (:system-edges tables) %) edges)
               (map #(put-op (:search-docs tables) %) search-docs)))]
     (when (seq ops)
-      (xt/execute-tx (:node xtdb) ops))
+      (xt/execute-tx (:node xtdb) (compact-doc-ops ops)))
     {:system-evidence (count evidence)
      :system-nodes (count nodes)
      :system-edges (count edges)

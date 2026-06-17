@@ -1,10 +1,10 @@
 (ns agraph.extract
-  "Deterministic extraction from Clojure, EDN, and Markdown files."
+  "Deterministic extraction from supported source, config, and document files."
   (:require [agraph.hash :as hash]
             [agraph.text :as text]
-            [clojure.string :as str]
-            [rewrite-clj.parser :as parser]
-            [rewrite-clj.zip :as z]))
+            [charred.api :as json]
+            [clojure.java.shell :as shell]
+            [clojure.string :as str]))
 
 (def definition-symbols
   '#{def defonce defn defn- defmacro defmulti defmethod defprotocol defrecord
@@ -12,6 +12,99 @@
 
 (def public-definition-symbols
   '#{def defonce defn defmacro defmulti defmethod defprotocol defrecord deftype})
+
+(def extraction-buckets
+  [:nodes :edges :chunks :diagnostics])
+
+(def extractor-contract-version
+  "agraph.extract/v1")
+
+(def extractor-versions
+  {:code "clojure/v4"
+   :go "go/v2"
+   :javascript "javascript/v1"
+   :typescript "typescript/v1"
+   :python "python/v3"
+   :rust "rust/v2"
+   :style "style/v1"
+   :sql "sql/v1"
+   :doc "markdown/v1"
+   :edn "edn/v1"
+   :config "config/v1"
+   :yaml "none/v1"
+   :manifest "none/v1"
+   :docker "none/v1"
+   :compose "none/v1"
+   :helm "none/v1"
+   :shell "none/v1"})
+
+(def ^:private python-ast-helper
+  (str
+   "import ast, json, sys\n"
+   "path = sys.argv[1]\n"
+   "def emit(value):\n"
+   "    sys.stdout.write(json.dumps(value, sort_keys=True))\n"
+   "def import_targets(node):\n"
+   "    if isinstance(node, ast.Import):\n"
+   "        return [{'target': alias.name, 'line': node.lineno} for alias in node.names]\n"
+   "    if isinstance(node, ast.ImportFrom):\n"
+   "        prefix = '.' * node.level\n"
+   "        if node.module:\n"
+   "            return [{'target': prefix + node.module, 'line': node.lineno}]\n"
+   "        return [{'target': prefix + alias.name, 'line': node.lineno} for alias in node.names]\n"
+   "    return []\n"
+   "try:\n"
+   "    with open(path, 'r', encoding='utf-8', errors='replace') as f:\n"
+   "        source = f.read()\n"
+   "    tree = ast.parse(source, filename=path)\n"
+   "    definitions = []\n"
+   "    imports = []\n"
+   "    for node in tree.body:\n"
+   "        if isinstance(node, (ast.Import, ast.ImportFrom)):\n"
+   "            imports.extend(import_targets(node))\n"
+   "        elif isinstance(node, ast.ClassDef):\n"
+   "            definitions.append({'kind': 'class', 'name': node.name, 'line': node.lineno})\n"
+   "            for child in node.body:\n"
+   "                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):\n"
+   "                    kind = 'async-method' if isinstance(child, ast.AsyncFunctionDef) else 'method'\n"
+   "                    definitions.append({'kind': kind, 'name': node.name + '.' + child.name, 'line': child.lineno})\n"
+   "        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):\n"
+   "            kind = 'async-function' if isinstance(node, ast.AsyncFunctionDef) else 'function'\n"
+   "            definitions.append({'kind': kind, 'name': node.name, 'line': node.lineno})\n"
+   "    emit({'definitions': definitions, 'imports': imports, 'diagnostics': []})\n"
+   "except SyntaxError as e:\n"
+   "    emit({'definitions': [], 'imports': [], 'diagnostics': [{'stage': 'parse', 'line': e.lineno, 'message': e.msg}]})\n"
+   "except Exception as e:\n"
+   "    emit({'definitions': [], 'imports': [], 'diagnostics': [{'stage': 'python-helper', 'line': None, 'message': str(e)}]})\n"))
+
+(defn empty-extraction
+  "Return an empty canonical extractor result."
+  []
+  {:nodes []
+   :edges []
+   :chunks []
+   :diagnostics []})
+
+(defn normalize-extraction
+  "Return extractor output with the canonical AGraph extraction buckets.
+
+  External parser adapters should return data at this boundary and let AGraph
+  own ids, row shape, relation names, diagnostics, and persistence."
+  [extraction]
+  (let [extraction (or extraction {})]
+    (reduce (fn [out k]
+              (assoc out k (vec (get extraction k []))))
+            {}
+            extraction-buckets)))
+
+(defn extractor-fingerprint
+  "Return the stable extractor fingerprint for a file record."
+  [file]
+  (let [kind (:kind file)]
+    (str "extractor:"
+         (hash/short-hash [extractor-contract-version
+                           kind
+                           (get extractor-versions kind "none/v1")]))))
 
 (defn node-id
   "Return stable node id for kind/name."
@@ -31,76 +124,63 @@
   ([id-scope path label source-line]
    (str "chunk:" (hash/short-hash [id-scope path label source-line]))))
 
-(defn- line
-  [loc]
-  (some-> loc z/position first int))
+(def clojure-symbol-pattern
+  "[A-Za-z0-9_.*+!?<>=/$%&-]+")
 
-(defn- sexpr-safe
-  [loc]
-  (try
-    (z/sexpr loc)
-    (catch Exception _ nil)))
+(defn- balanced-form
+  [content start]
+  (let [length (count content)]
+    (loop [idx start
+           depth 0
+           in-string? false
+           escaped? false]
+      (when (< idx length)
+        (let [ch (.charAt content idx)
+              escaped-next? (and in-string? (not escaped?) (= \\ ch))
+              in-string-next? (if (or escaped? escaped-next?)
+                                in-string?
+                                (if (= \" ch) (not in-string?) in-string?))
+              depth-next (cond
+                           in-string-next? depth
+                           (= \( ch) (inc depth)
+                           (= \) ch) (dec depth)
+                           :else depth)]
+          (if (and (not in-string-next?) (zero? depth-next) (pos? depth))
+            (subs content start (inc idx))
+            (recur (inc idx)
+                   depth-next
+                   in-string-next?
+                   escaped-next?)))))))
 
-(defn- list-locs
-  [root]
-  (loop [loc root
-         out []]
-    (if (z/end? loc)
-      out
-      (recur (z/next loc)
-             (if (= :list (z/tag loc))
-               (conj out loc)
-               out)))))
-
-(defn- first-symbol
-  [loc]
-  (let [down (z/down loc)]
-    (when (= :token (some-> down z/tag))
-      (let [value (sexpr-safe down)]
-        (when (symbol? value)
-          value)))))
-
-(defn- second-symbol
-  [loc]
-  (let [down (z/down loc)
-        second-loc (some-> down z/right)]
-    (when (= :token (some-> second-loc z/tag))
-      (let [value (sexpr-safe second-loc)]
-        (when (symbol? value)
-          value)))))
-
-(defn- ns-form?
-  [loc]
-  (= 'ns (first-symbol loc)))
-
-(defn- definition-form?
-  [loc]
-  (contains? definition-symbols (first-symbol loc)))
+(defn- ns-form-text
+  [content]
+  (when-let [match (re-find #"(?m)\(ns\s+" content)]
+    (let [start (str/index-of content match)]
+      (balanced-form content start))))
 
 (defn- file-ns-name
-  [forms]
-  (some (fn [loc]
-          (when (ns-form? loc)
-            (some-> (second-symbol loc) str)))
-        forms))
+  [ns-text]
+  (when ns-text
+    (some-> (re-find (re-pattern (str "\\(ns\\s+(" clojure-symbol-pattern ")")) ns-text)
+            second)))
+
+(defn- require-clause-text
+  [ns-text]
+  (when-let [match (re-find #"\(:require\b" ns-text)]
+    (let [start (str/index-of ns-text match)]
+      (balanced-form ns-text start))))
 
 (defn- requires-from-ns-form
-  [loc]
-  (let [form (sexpr-safe loc)
-        require-clauses (filter #(and (seq? %)
-                                      (= :require (first %)))
-                                form)]
-    (->> require-clauses
-         (mapcat rest)
-         (filter vector?)
-         (keep (fn [spec]
-                 (let [target (first spec)
-                       alias-idx (.indexOf spec :as)
-                       alias (when (<= 0 alias-idx)
-                               (nth spec (inc alias-idx) nil))]
-                   (when (symbol? target)
-                     {:target (str target)
-                      :alias (some-> alias str)}))))
+  [ns-text]
+  (let [clause (or (some-> ns-text require-clause-text) "")]
+    (->> (re-seq (re-pattern (str "\\[(" clojure-symbol-pattern ")"
+                                  "(?:[^\\]]*?:as\\s+(" clojure-symbol-pattern "))?"
+                                  "[^\\]]*\\]"))
+                 clause)
+         (keep (fn [[_ target alias]]
+                 (when-not (str/starts-with? target ":")
+                   {:target target
+                    :alias alias})))
          vec)))
 
 (defn- definition-kind
@@ -122,10 +202,8 @@
   (contains? public-definition-symbols sym))
 
 (defn- definition-node
-  [run-id id-scope file-id path ns-name loc]
-  (let [def-sym (first-symbol loc)
-        name-sym (second-symbol loc)
-        name (str name-sym)
+  [run-id id-scope file-id path ns-name {:keys [def-sym name line]}]
+  (let [def-sym (symbol def-sym)
         full-name (if ns-name (str ns-name "/" name) name)
         id (node-id id-scope :symbol full-name)]
     {:xt/id id
@@ -136,7 +214,7 @@
      :namespace ns-name
      :name name
      :public? (definition-public? def-sym)
-     :source-line (or (line loc) 1)
+     :source-line (or line 1)
      :tokens (text/tokenize full-name)
      :active? true
      :run-id run-id}))
@@ -169,51 +247,34 @@
    :active? true
    :run-id run-id})
 
-(defn- all-symbols-in
-  [loc]
-  (letfn [(symbols [value]
-            (cond
-              (symbol? value) [value]
-              (coll? value) (mapcat symbols value)
-              :else []))]
-    (vec (symbols (sexpr-safe loc)))))
-
-(defn- call-edges
-  [run-id id-scope file-id path ns-name alias->namespace definition-nodes loc]
-  (let [source (some-> (definition-node run-id id-scope file-id path ns-name loc) :xt/id)
-        local-defs (into {}
-                         (map (fn [node] [(:name node) (:xt/id node)]))
-                         definition-nodes)]
-    (->> (all-symbols-in loc)
-         (keep (fn [sym]
-                 (let [sym-ns (namespace sym)
-                       sym-name (name sym)
-                       target-id (cond
-                                   (and sym-ns (get alias->namespace sym-ns))
-                                   (node-id id-scope
-                                            :symbol
-                                            (str (get alias->namespace sym-ns) "/" sym-name))
-
-                                   (nil? sym-ns)
-                                   (get local-defs sym-name))]
-                   (when (and source target-id (not= source target-id))
-                     (edge-row run-id file-id path source target-id :calls :inferred (line loc))))))
-         distinct
+(defn- definition-forms
+  [content]
+  (let [pattern (re-pattern (str "^\\s*\\(("
+                                 (->> definition-symbols
+                                      (map name)
+                                      (sort-by count >)
+                                      (str/join "|"))
+                                 ")\\s+("
+                                 clojure-symbol-pattern
+                                 ")"))]
+    (->> (str/split-lines content)
+         (map-indexed vector)
+         (keep (fn [[idx line]]
+                 (when-let [[_ def-sym name] (re-find pattern line)]
+                   {:def-sym def-sym
+                    :name name
+                    :line (inc idx)})))
          vec)))
 
 (defn extract-code
   "Extract graph rows from a Clojure source file record."
   [run-id {:keys [id-scope file-id path content]}]
   (try
-    (let [root (z/of-node (parser/parse-string-all content) {:track-position? true})
-          forms (list-locs root)
-          ns-name (or (file-ns-name forms) (str/replace path #"\.(clj|cljc|cljs)$" ""))
+    (let [ns-text (ns-form-text content)
+          ns-name (or (file-ns-name ns-text) (str/replace path #"\.(clj|cljc|cljs)$" ""))
           ns-node (namespace-node run-id id-scope file-id path ns-name)
-          require-specs (mapcat requires-from-ns-form (filter ns-form? forms))
-          alias->namespace (into {} (keep (fn [{:keys [alias target]}]
-                                            (when alias [alias target])))
-                                 require-specs)
-          def-forms (filter definition-form? forms)
+          require-specs (requires-from-ns-form ns-text)
+          def-forms (definition-forms content)
           defs (mapv #(definition-node run-id id-scope file-id path ns-name %) def-forms)
           contains-edges (mapv #(edge-row run-id file-id path
                                           (:xt/id ns-node) (:xt/id %)
@@ -224,20 +285,19 @@
                                          (node-id id-scope :namespace (:target %))
                                          :requires :extracted 1)
                               require-specs)
-          calls (mapcat #(call-edges run-id id-scope file-id path ns-name alias->namespace defs %)
-                        def-forms)
+          chunk-text (str/join "\n" (take 80 (str/split-lines content)))
           chunk {:xt/id (chunk-id id-scope path ns-name 1)
                  :file-id file-id
                  :path path
                  :kind :code-file
                  :label ns-name
-                 :text (str/join "\n" (take 80 (str/split-lines content)))
-                 :tokens (text/tokenize (str ns-name " " content))
+                 :text chunk-text
+                 :tokens (text/tokenize (str ns-name "\n" chunk-text))
                  :source-line 1
                  :active? true
                  :run-id run-id}]
       {:nodes (into [ns-node] defs)
-       :edges (vec (concat contains-edges require-edges calls))
+       :edges (vec (concat contains-edges require-edges))
        :chunks [chunk]
        :diagnostics []})
     (catch Exception e
@@ -318,6 +378,24 @@
              :file-id file-id
              :path path
              :kind (or kind :edn)
+             :label path
+             :text content
+             :tokens (text/tokenize content)
+             :source-line 1
+             :active? true
+             :run-id run-id}]
+   :diagnostics []})
+
+(defn extract-text-source
+  "Extract a supported text source file as one searchable chunk."
+  [run-id {:keys [id-scope file-id path content kind]} chunk-kind]
+  {:nodes []
+   :edges []
+   :chunks [{:xt/id (chunk-id id-scope path path 1)
+             :file-id file-id
+             :path path
+             :kind chunk-kind
+             :file-kind kind
              :label path
              :text content
              :tokens (text/tokenize content)
@@ -458,13 +536,14 @@
                                                 %2)
                                 lines)
         call-edges (rust-call-edges run-id file-id path defs content)
+        chunk-text (str/join "\n" (take 80 lines))
         chunk {:xt/id (chunk-id id-scope path module-name 1)
                :file-id file-id
                :path path
                :kind :rust-file
                :label module-name
-               :text (str/join "\n" (take 80 lines))
-               :tokens (text/tokenize (str module-name " " content))
+               :text chunk-text
+               :tokens (text/tokenize (str module-name "\n" chunk-text))
                :source-line 1
                :active? true
                :run-id run-id}]
@@ -650,13 +729,14 @@
                                       (:source-line %))
                            (go-imports lines))
         call-edges (go-call-edges run-id file-id path defs content)
+        chunk-text (str/join "\n" (take 100 lines))
         chunk {:xt/id (chunk-id id-scope path namespace-name 1)
                :file-id file-id
                :path path
                :kind :go-file
                :label namespace-name
-               :text (str/join "\n" (take 100 lines))
-               :tokens (text/tokenize (str namespace-name " " content))
+               :text chunk-text
+               :tokens (text/tokenize (str namespace-name "\n" chunk-text))
                :source-line 1
                :active? true
                :run-id run-id}]
@@ -665,14 +745,356 @@
      :chunks [chunk]
      :diagnostics []}))
 
+(defn- python-module-name
+  [path]
+  (let [module (-> path
+                   (str/replace #"\.py$" "")
+                   (str/replace #"/" ".")
+                   (str/replace #"-" "_"))]
+    (if (str/ends-with? module ".__init__")
+      (let [trimmed (subs module 0 (- (count module) (count ".__init__")))]
+        (if (seq trimmed) trimmed "__init__"))
+      module)))
+
+(defn- python-definition-kind
+  [kind]
+  (case kind
+    "class" :class
+    "function" :function
+    "async-function" :function
+    "method" :method
+    "async-method" :method
+    :python-symbol))
+
+(defn- python-public?
+  [name]
+  (let [local-name (last (str/split (str name) #"\."))]
+    (not (str/starts-with? local-name "_"))))
+
+(defn- split-module
+  [module-name]
+  (->> (str/split (str module-name) #"\.")
+       (remove str/blank?)
+       vec))
+
+(defn- python-package-parts
+  [path module-name]
+  (let [parts (split-module module-name)]
+    (if (str/ends-with? path "__init__.py")
+      parts
+      (vec (drop-last parts)))))
+
+(defn- python-import-target
+  [path module-name target]
+  (let [target (str target)]
+    (if-not (str/starts-with? target ".")
+      target
+      (let [level (count (take-while #(= \. %) target))
+            tail (subs target level)
+            package-parts (python-package-parts path module-name)
+            base-count (max 0 (- (count package-parts) (dec level)))
+            base-parts (subvec package-parts 0 base-count)
+            tail-parts (split-module tail)]
+        (str/join "." (concat base-parts tail-parts))))))
+
+(defn- bounded-message
+  [message]
+  (let [message (str (or message ""))]
+    (subs message 0 (min 500 (count message)))))
+
+(defn- diagnostic-row
+  [run-id file-id path stage line message]
+  {:xt/id (str "diagnostic:"
+               (hash/short-hash [file-id stage line message]))
+   :file-id file-id
+   :path path
+   :stage (keyword (str (or stage "extract")))
+   :message (bounded-message message)
+   :source-line (or line 1)
+   :active? true
+   :run-id run-id})
+
+(defn- python-helper-failure
+  [message]
+  {:definitions []
+   :imports []
+   :diagnostics [{:stage "python-helper"
+                  :line nil
+                  :message message}]})
+
+(defn- python-facts
+  [absolute-path]
+  (try
+    (let [{:keys [exit out err]} (shell/sh "python3"
+                                           "-"
+                                           absolute-path
+                                           :in
+                                           python-ast-helper)]
+      (if (zero? exit)
+        (try
+          (json/read-json out :key-fn keyword)
+          (catch Exception e
+            (python-helper-failure
+             (str "Python AST helper returned unreadable JSON: " (ex-message e)))))
+        (python-helper-failure
+         (str "python3 exited " exit ": " (or (not-empty err) out)))))
+    (catch Exception e
+      (python-helper-failure (str "Could not run python3 AST helper: "
+                                  (ex-message e))))))
+
+(defn extract-python
+  "Extract graph rows from a Python source file record using Python's stdlib AST."
+  [run-id {:keys [id-scope file-id path absolute-path content]}]
+  (let [module-name (python-module-name path)
+        ns-node (namespace-node run-id id-scope file-id path module-name)
+        facts (python-facts absolute-path)
+        defs (->> (:definitions facts)
+                  (mapv (fn [{:keys [kind name line]}]
+                          (let [label (str module-name "/" name)]
+                            (cond-> {:xt/id (node-id id-scope :symbol label)
+                                     :label label
+                                     :kind (python-definition-kind kind)
+                                     :file-id file-id
+                                     :path path
+                                     :namespace module-name
+                                     :name name
+                                     :public? (python-public? name)
+                                     :source-line (or line 1)
+                                     :tokens (text/tokenize label)
+                                     :active? true
+                                     :run-id run-id}
+                              (contains? #{"async-function" "async-method"} kind)
+                              (assoc :async? true))))))
+        define-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           defs)
+        import-edges (->> (:imports facts)
+                          (keep (fn [{:keys [target line]}]
+                                  (let [target (python-import-target path
+                                                                     module-name
+                                                                     target)]
+                                    (when-not (str/blank? (str target))
+                                      (edge-row run-id file-id path
+                                                (:xt/id ns-node)
+                                                (node-id id-scope :namespace target)
+                                                :imports
+                                                :extracted
+                                                (or line 1))))))
+                          vec)
+        diagnostics (mapv #(diagnostic-row run-id
+                                           file-id
+                                           path
+                                           (:stage %)
+                                           (:line %)
+                                           (:message %))
+                          (:diagnostics facts))
+        chunk-text (str/join "\n" (take 100 (str/split-lines content)))
+        chunk {:xt/id (chunk-id id-scope path module-name 1)
+               :file-id file-id
+               :path path
+               :kind :python-file
+               :label module-name
+               :text chunk-text
+               :tokens (text/tokenize (str module-name "\n" chunk-text))
+               :source-line 1
+               :active? true
+               :run-id run-id}]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges))
+     :chunks [chunk]
+     :diagnostics diagnostics}))
+
+(defn- source-module-name
+  [path]
+  (-> path
+      (str/replace #"\.d\.ts$" "")
+      (str/replace #"\.(mjs|cjs|jsx|js|tsx|ts|scss|css|sql)$" "")
+      (str/replace #"/" ".")
+      (str/replace #"-" "_")))
+
+(defn- js-identifier
+  []
+  "[A-Za-z_$][A-Za-z0-9_$]*")
+
+(defn- js-public-line?
+  [line]
+  (boolean (re-find #"^\s*export\b" line)))
+
+(defn- js-definition-line
+  [idx line]
+  (let [identifier (js-identifier)
+        public? (js-public-line? line)]
+    (or (when-let [[_ name]
+                   (re-matches
+                    (re-pattern
+                     (str "^\\s*(?:export\\s+)?(?:default\\s+)?"
+                          "(?:async\\s+)?function\\s+(" identifier ")\\b.*"))
+                    line)]
+          {:kind :function
+           :name name
+           :public? public?
+           :source-line (inc idx)})
+        (when-let [[_ name]
+                   (re-matches
+                    (re-pattern
+                     (str "^\\s*(?:export\\s+)?(?:default\\s+)?class\\s+("
+                          identifier
+                          ")\\b.*"))
+                    line)]
+          {:kind :class
+           :name name
+           :public? public?
+           :source-line (inc idx)})
+        (when-let [[_ name]
+                   (re-matches
+                    (re-pattern
+                     (str "^\\s*(?:export\\s+)?(?:const|let|var)\\s+("
+                          identifier
+                          ")\\s*(?::[^=]+)?=\\s*(?:async\\s*)?"
+                          "(?:\\([^)]*\\)|" identifier ")\\s*=>.*"))
+                    line)]
+          {:kind :function
+           :name name
+           :public? public?
+           :source-line (inc idx)})
+        (when-let [[_ name]
+                   (re-matches
+                    (re-pattern
+                     (str "^\\s*export\\s+(?:const|let|var)\\s+("
+                          identifier
+                          ")\\b.*"))
+                    line)]
+          {:kind :var
+           :name name
+           :public? true
+           :source-line (inc idx)}))))
+
+(defn- normalize-module-path-part
+  [value]
+  (str/replace value #"-" "_"))
+
+(defn- drop-source-extension
+  [value]
+  (-> value
+      (str/replace #"\.d\.ts$" "")
+      (str/replace #"\.(mjs|cjs|jsx|js|tsx|ts|scss|css|json)$" "")))
+
+(defn- resolve-relative-source-target
+  [path target]
+  (let [base (->> (str/split path #"/")
+                  drop-last
+                  vec)]
+    (loop [parts (concat base (str/split target #"/"))
+           out []]
+      (if-let [part (first parts)]
+        (case part
+          "." (recur (rest parts) out)
+          "" (recur (rest parts) out)
+          ".." (recur (rest parts) (vec (drop-last out)))
+          (recur (rest parts) (conj out (normalize-module-path-part part))))
+        (->> out
+             (str/join ".")
+             drop-source-extension)))))
+
+(defn- js-import-target
+  [path target]
+  (let [target (str target)]
+    (if (str/starts-with? target ".")
+      (resolve-relative-source-target path target)
+      target)))
+
+(defn- js-import-targets
+  [idx path line]
+  (let [patterns [#"^\s*import\s+(?:type\s+)?(?:[^\"']+\s+from\s+)?[\"']([^\"']+)[\"'].*"
+                  #"^\s*export\s+(?:type\s+)?[^\"']+\s+from\s+[\"']([^\"']+)[\"'].*"
+                  #"\brequire\s*\(\s*[\"']([^\"']+)[\"']\s*\)"
+                  #"\bimport\s*\(\s*[\"']([^\"']+)[\"']\s*\)"]]
+    (->> patterns
+         (mapcat #(re-seq % line))
+         (map second)
+         (remove str/blank?)
+         (map #(js-import-target path %))
+         (map (fn [target]
+                {:target target
+                 :source-line (inc idx)}))
+         distinct)))
+
+(defn extract-js-family
+  "Extract bounded module facts from JavaScript and TypeScript source files."
+  [run-id {:keys [id-scope file-id path content kind]}]
+  (let [module-name (source-module-name path)
+        ns-node (namespace-node run-id id-scope file-id path module-name)
+        lines (str/split-lines content)
+        defs (->> lines
+                  (map-indexed js-definition-line)
+                  (keep identity)
+                  (mapv (fn [{:keys [kind name public? source-line]}]
+                          (let [label (str module-name "/" name)]
+                            {:xt/id (node-id id-scope :symbol label)
+                             :label label
+                             :kind kind
+                             :file-id file-id
+                             :path path
+                             :namespace module-name
+                             :name name
+                             :public? public?
+                             :source-line source-line
+                             :tokens (text/tokenize label)
+                             :active? true
+                             :run-id run-id}))))
+        define-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           defs)
+        import-edges (->> lines
+                          (map-indexed #(js-import-targets %1 path %2))
+                          (mapcat identity)
+                          (mapv #(edge-row run-id file-id path
+                                           (:xt/id ns-node)
+                                           (node-id id-scope :namespace (:target %))
+                                           :imports
+                                           :extracted
+                                           (:source-line %))))
+        chunk-text (str/join "\n" (take 100 lines))
+        chunk-kind (case kind
+                     :typescript :typescript-file
+                     :javascript-file)
+        chunk {:xt/id (chunk-id id-scope path module-name 1)
+               :file-id file-id
+               :path path
+               :kind chunk-kind
+               :label module-name
+               :text chunk-text
+               :tokens (text/tokenize (str module-name "\n" chunk-text))
+               :source-line 1
+               :active? true
+               :run-id run-id}]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges))
+     :chunks [chunk]
+     :diagnostics []}))
+
 (defn extract-file
   "Extract graph rows from a file record."
   [run-id file]
-  (case (:kind file)
-    :code (extract-code run-id file)
-    :go (extract-go run-id file)
-    :rust (extract-rust run-id file)
-    :doc (extract-doc run-id file)
-    :edn (extract-edn run-id file)
-    :config (extract-edn run-id file)
-    {:nodes [] :edges [] :chunks [] :diagnostics []}))
+  (normalize-extraction
+   (case (:kind file)
+     :code (extract-code run-id file)
+     :go (extract-go run-id file)
+     :javascript (extract-js-family run-id file)
+     :typescript (extract-js-family run-id file)
+     :python (extract-python run-id file)
+     :rust (extract-rust run-id file)
+     :style (extract-text-source run-id file :style-file)
+     :sql (extract-text-source run-id file :sql-file)
+     :doc (extract-doc run-id file)
+     :edn (extract-edn run-id file)
+     :config (extract-edn run-id file)
+     (empty-extraction))))

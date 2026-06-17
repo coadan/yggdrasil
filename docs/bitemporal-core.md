@@ -37,10 +37,10 @@ system-time replay should use `snapshot-token`.
 CLI reads support:
 
 ```sh
-agraph deps sample.core --valid-at 2026-01-01T00:00:00Z
-agraph graph export deps sample.core --valid-at 2026-01-01T00:00:00Z
-agraph query "greeting flow" --valid-at 2026-01-01T00:00:00Z
-agraph context "api gateway" --project sample --valid-at 2026-01-01T00:00:00Z
+agraph view deps sample.core --valid-at 2026-01-01T00:00:00Z
+agraph view deps sample.core --format json --valid-at 2026-01-01T00:00:00Z
+agraph ask "greeting flow" --valid-at 2026-01-01T00:00:00Z
+agraph ask "api gateway" --project sample --json --valid-at 2026-01-01T00:00:00Z
 ```
 
 ## Snapshot Semantics

@@ -9,7 +9,7 @@ AGraph has three distribution surfaces:
 The CLI is the product boundary. Docker and Homebrew wrap the same entrypoints.
 
 Graph data has one maintained export contract: `agraph.graph/v2` JSON from
-`agraph graph export ...`. The bundled HTML graph viewer consumes the same graph
+`agraph view ... --format json`. The bundled HTML graph viewer consumes the same graph
 shape and should not require separate renderer-specific export formats.
 
 ## Native CLI
@@ -40,7 +40,7 @@ Run with source read-only and XTDB data persisted:
 docker run --rm \
   -v "$PWD:/workspace:ro" \
   -v "$HOME/.cache/agraph:/data" \
-  agraph:dev project inspect /workspace/project.edn
+  agraph:dev sync inspect /workspace/project.edn
 ```
 
 For worktrees, mount the wrapper/workbench root rather than a nested worktree so

@@ -1,25 +1,37 @@
 (ns agraph.cli
   "Command line interface."
-  (:require [agraph.context :as context]
+  (:require [agraph.agent-install :as agent-install]
+            [agraph.benchmark :as benchmark]
+            [agraph.context :as context]
+            [agraph.coverage :as coverage]
             [agraph.cursor :as cursor]
             [agraph.embedding :as embedding]
             [agraph.embedding.openai :as openai]
             [agraph.embedding.openrouter :as openrouter]
             [agraph.graph :as graph]
             [agraph.hash :as hash]
+            [agraph.hook :as hook]
             [agraph.index :as index]
+            [agraph.init :as init]
+            [agraph.infra-review :as infra-review]
             [agraph.llm.openai-compatible :as llm]
             [agraph.map :as graph-map]
             [agraph.metadata :as metadata]
+            [agraph.mcp :as mcp]
             [agraph.project :as project]
+            [agraph.queue :as queue]
             [agraph.query :as query]
+            [agraph.report :as report]
             [agraph.system :as system]
             [agraph.system.decision-classifier :as decision-classifier]
+            [agraph.watch :as watch]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.pprint :as pprint]
             [clojure.string :as str])
   (:import [java.util.logging LogManager]))
+
+(declare usage dispatch)
 
 (defn- silence-jul!
   []
@@ -63,10 +75,13 @@
     "--entity-limit" "--edge-limit" "--doc-limit" "--snippet-chars" "--role"
     "--heading" "--start-line" "--end-line" "--valid-at" "--known-at"
     "--snapshot-token" "--type" "--source" "--confidence" "--view" "--query"
-    "--relation" "--base-url" "--detail"})
+    "--relation" "--base-url" "--detail" "--queue-dir" "--status" "--agent"
+    "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
+    "--debounce-ms" "--name" "--workbench" "--task" "--case"})
 
 (def boolean-options
-  #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer"})
+  #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer" "--enqueue"
+    "--check" "--query-index" "--force" "--hooks" "--sync"})
 
 (defn- positional-args
   [args]
@@ -82,7 +97,7 @@
 
 (defn- dry-run?
   [args]
-  (some #{"--dry-run"} args))
+  (boolean (some #{"--dry-run"} args)))
 
 (defn- system-path?
   [args]
@@ -109,6 +124,46 @@
     (graph-map/file-exists? graph-map/default-path) graph-map/default-path
     :else nil))
 
+(defn- required-map-path
+  [args]
+  (or (default-map-path args)
+      (throw (ex-info "Missing --map and agraph.map.json was not found."
+                      {:usage (usage)}))))
+
+(defn- apply-work-result!
+  [root id map-path]
+  (let [found (or (queue/find-item root id)
+                  (throw (ex-info "Queue item not found." {:id id})))
+        payload-schema (get-in found [:item :payload :schema])]
+    (case payload-schema
+      "agraph.infra.review-packet/v1"
+      (infra-review/apply-work-result! root id map-path)
+
+      "agraph.maintenance.decision-packet/v1"
+      (decision-classifier/apply-work-result! root id map-path)
+
+      {:schema "agraph.sync.work.apply/v1"
+       :status "failed"
+       :errors [{:path [:payload :schema]
+                 :error "No apply handler for work item payload schema."
+                 :value payload-schema}]
+       :item (queue/item-summary found)})))
+
+(defn- remove-option
+  [args flag]
+  (loop [remaining args
+         out []]
+    (if-let [arg (first remaining)]
+      (if (= flag arg)
+        (recur (nnext remaining) out)
+        (recur (next remaining) (conj out arg)))
+      out)))
+
+(defn- append-option
+  [args flag value]
+  (cond-> args
+    value (conj flag value)))
+
 (defn- print-query-result
   [result]
   (println (format "%.2f  %s  %s"
@@ -125,6 +180,62 @@
                      (double exact))))
   (when-let [reason (:reason result)]
     (println "       " reason)))
+
+(defn- print-ask-answerability-warning
+  [packet]
+  (let [answerability (:answerability packet)
+        missing (map name (:missing answerability))
+        weak (map name (:weak answerability))
+        unsupported (map name (:unsupported answerability))
+        warnings (take 2 (:warnings answerability))
+        next-steps (take 2 (:next answerability))]
+    (binding [*out* *err*]
+      (println "No query results.")
+      (println "Answerability" (name (:status answerability)))
+      (when (seq missing)
+        (println "Missing evidence:" (str/join ", " missing)))
+      (when (seq weak)
+        (println "Weak evidence:" (str/join ", " weak)))
+      (when (seq unsupported)
+        (println "Unsupported evidence:" (str/join ", " unsupported)))
+      (doseq [warning warnings]
+        (println "Warning:" warning))
+      (when (seq next-steps)
+        (println "Next:" (str/join " | " next-steps))))))
+
+(defn- print-ask-no-results
+  [xtdb query-text {:keys [project-id repo-id retriever embedding-client temporal args]}]
+  (if (str/blank? (str project-id))
+    (binding [*out* *err*]
+      (println "No query results.")
+      (println "Use --project to include answerability details."))
+    (print-ask-answerability-warning
+     (context/context-packet xtdb
+                             query-text
+                             {:project-id project-id
+                              :repo-id repo-id
+                              :retriever retriever
+                              :embedding-client embedding-client
+                              :map-path (default-map-path args)
+                              :read-context temporal
+                              :budget (parse-long-option args
+                                                         "--budget"
+                                                         context/default-budget)
+                              :entity-limit (parse-long-option args
+                                                               "--entity-limit"
+                                                               context/default-entity-limit)
+                              :edge-limit (parse-long-option args
+                                                             "--edge-limit"
+                                                             context/default-edge-limit)
+                              :doc-limit (parse-long-option args
+                                                            "--doc-limit"
+                                                            context/default-doc-limit)
+                              :snippet-chars (parse-long-option args
+                                                                "--snippet-chars"
+                                                                context/default-snippet-chars)
+                              :min-confidence (parse-double-option args
+                                                                   "--min-confidence"
+                                                                   0.55)}))))
 
 (defn- print-embed-summary
   [{:keys [provider model search-docs pending embedded skipped]}]
@@ -153,10 +264,11 @@
   (println "# Project Index")
   (println "- project" project-id)
   (println "- status" (name status))
-  (doseq [{:keys [repo-id status stats]} repos]
+  (doseq [{:keys [repo-id status stats index-profile]} repos]
     (println "-"
              repo-id
              (name status)
+             (str "profile=" (name (or index-profile index/default-index-profile)))
              (:files-scanned stats)
              "scanned,"
              (:files-indexed stats)
@@ -180,6 +292,67 @@
     (println "## Next")
     (doseq [command next]
       (println "-" command))))
+
+(defn- print-count-rows
+  [title label-key rows]
+  (when (seq rows)
+    (println)
+    (println title)
+    (doseq [row rows]
+      (println "-" (get row label-key) (:count row)))))
+
+(defn- print-source-coverage
+  [{:keys [project-id totals files-by-kind skipped-by-extension skipped-by-reason
+           extractors diagnostics repos]}]
+  (println "# Source Coverage")
+  (println "- project" project-id)
+  (println "- repos" (count repos))
+  (println "- files" (:files totals))
+  (println "- supported" (:supported totals))
+  (println "- skipped" (:skipped totals))
+  (println "- diagnostics" (:total diagnostics))
+  (print-count-rows "## Files By Kind" :kind files-by-kind)
+  (print-count-rows "## Skipped By Extension" :ext skipped-by-extension)
+  (print-count-rows "## Skipped By Reason" :reason skipped-by-reason)
+  (when (seq extractors)
+    (println)
+    (println "## Extractors")
+    (doseq [{:keys [kind extractor-version files]} extractors]
+      (println "-" kind extractor-version files "files")))
+  (when (seq (:by-extractor diagnostics))
+    (println)
+    (println "## Diagnostics By Extractor")
+    (doseq [{:keys [kind extractor-version stage count]} (:by-extractor diagnostics)]
+      (println "-" kind extractor-version stage count))))
+
+(defn- print-sync-summary
+  [{:keys [project-id repo-id index-summary system-summary check-report enqueued]}]
+  (println "# Sync")
+  (println "- project" project-id)
+  (when repo-id
+    (println "- repo" repo-id))
+  (when index-summary
+    (println "- indexed-repos" (count (:repos index-summary)))
+    (doseq [{:keys [repo-id status stats index-profile]} (:repos index-summary)]
+      (println "-"
+               repo-id
+               (name status)
+               (str "profile=" (name (or index-profile index/default-index-profile)))
+               (:files-scanned stats)
+               "scanned,"
+               (:files-indexed stats)
+               "indexed,"
+               (:files-skipped stats)
+               "skipped")))
+  (when system-summary
+    (println "- system-evidence" (:system-evidence system-summary))
+    (println "- system-nodes" (:system-nodes system-summary))
+    (println "- system-edges" (:system-edges system-summary)))
+  (when check-report
+    (println "- maintenance-decisions" (get-in check-report [:counts :maintenance-decisions] 0))
+    (println "- infra-review-items" (get-in check-report [:counts :infra-review-items] 0)))
+  (when enqueued
+    (println "- enqueued" (count enqueued))))
 
 (defn- print-system-summary
   [{:keys [project-id status system-evidence system-nodes system-edges search-docs]}]
@@ -221,6 +394,61 @@
 (defn- print-json
   [value]
   (println (json/write-json-str value {:indent-str "  "})))
+
+(defn- queue-root
+  [args]
+  (or (option-value args "--queue-dir") queue/default-root))
+
+(defn- enqueue-output?
+  [args]
+  (some #{"--enqueue"} args))
+
+(defn- severity-priority
+  [severity]
+  ({:high 90 :medium 60 :low 30
+    "high" 90 "medium" 60 "low" 30}
+   severity
+   50))
+
+(defn- queue-priority
+  ([args] (queue-priority args 50))
+  ([args default]
+   (parse-long-option args "--priority" default)))
+
+(defn- queue-agent
+  [args]
+  (or (option-value args "--agent")
+      (System/getenv "AGRAPH_AGENT_ID")
+      (System/getProperty "user.name")
+      "agent"))
+
+(defn- queue-lease-ms
+  [args]
+  (* 60 1000 (parse-long-option args "--lease-minutes" 30)))
+
+(defn- queue-enqueued-result
+  [found]
+  {:schema "agraph.queue.enqueued/v1"
+   :item (queue/item-summary found)})
+
+(defn- emit-json-or-enqueue
+  [args kind project-id payload]
+  (if (enqueue-output? args)
+    (print-json
+     (queue-enqueued-result
+      (queue/enqueue! payload
+                      {:root (queue-root args)
+                       :kind kind
+                       :project-id project-id
+                       :priority (queue-priority args)})))
+    (print-json payload)))
+
+(defn- emit-cursor-packet
+  [args payload]
+  (emit-json-or-enqueue args
+                        "cursor"
+                        (get-in payload [:basis :project-id])
+                        payload))
 
 (defn- target-kind
   [target-id]
@@ -309,9 +537,9 @@
   (some #{"--json"} args))
 
 (defn- print-maintenance-report
-  [{:keys [project-id graph-basis map counts scale fold-in orphaned-systems
+  [{:keys [project-id graph-basis map counts scale graph-health fold-in orphaned-systems
            dangling-edges low-confidence-edges
-           decision-queue]}]
+           decision-queue infra-review-queue]}]
   (println "# Maintain")
   (println "- project" project-id)
   (when graph-basis
@@ -325,11 +553,31 @@
     (println "- scale" (name (:tier scale)))
     (println "- noise-ratio" (format "%.2f" (double (get-in scale [:ratios :noise]))))
     (println "- orphan-ratio" (format "%.2f" (double (get-in scale [:ratios :orphaned])))))
-  (when (seq (:top-hubs scale))
+  (when (seq (or (:high-degree-hubs graph-health) (:top-hubs scale)))
     (println)
     (println "## Top Hubs")
-    (doseq [{:keys [label kind repo-id degree]} (take 10 (:top-hubs scale))]
+    (doseq [{:keys [label kind repo-id degree]} (take 10 (or (:high-degree-hubs graph-health)
+                                                             (:top-hubs scale)))]
       (println "-" label "[" (name kind) "]" "repo" repo-id "degree" degree)))
+  (when (seq (:cross-cluster-edges graph-health))
+    (println)
+    (println "## Cross Cluster Edges")
+    (doseq [{:keys [relation salience source target]} (take 10 (:cross-cluster-edges graph-health))]
+      (println "-"
+               (name relation)
+               (format "%.2f" (double (or salience 0.0)))
+               (:label source)
+               "->"
+               (:label target))))
+  (when (seq (:evidence-concentrations graph-health))
+    (println)
+    (println "## Evidence Concentrations")
+    (doseq [{:keys [system kind count]} (take 10 (:evidence-concentrations graph-health))]
+      (println "-"
+               (:label system)
+               "[" (name kind) "]"
+               "count"
+               count)))
   (when (seq orphaned-systems)
     (println)
     (println "## Orphaned Systems")
@@ -351,12 +599,375 @@
     (doseq [{:keys [id kind severity target reason]} (take 20 decision-queue)]
       (println "-" (name severity) (name kind) target "-" reason)
       (println " " id)))
+  (when (seq infra-review-queue)
+    (println)
+    (println "## Infra Review Queue")
+    (doseq [{:keys [reviewId kind artifact question]} (take 20 infra-review-queue)]
+      (println "-" kind artifact "-" question)
+      (println " " reviewId)))
   (when (seq (:actions fold-in))
     (println)
     (println "## Fold In")
     (doseq [{:keys [kind command reason]} (:actions fold-in)]
       (println "-" (name kind) command)
       (println " " reason))))
+
+(defn- repo-run-summary
+  [run]
+  {:repo-id (:repo-id run)
+   :status (:status run)
+   :index-profile (:index-profile run)
+   :stats (:stats run)})
+
+(defn- query-index?
+  [args]
+  (some #{"--query-index"} args))
+
+(defn- sync-index-profile
+  [args]
+  (if (and (not (query-index? args))
+           (or (some #{"--check"} args)
+               (enqueue-output? args)))
+    :graph
+    :query))
+
+(defn- sync-index-project!
+  [xtdb project args]
+  (if-let [repo-id (option-value args "--repo")]
+    (let [run (project/index-project-repo! xtdb
+                                           project
+                                           repo-id
+                                           {:dry-run? (dry-run? args)
+                                            :index-profile (sync-index-profile args)})]
+      {:project-id (:id project)
+       :status (:status run)
+       :repos [(repo-run-summary run)]})
+    (project/index-project! xtdb
+                            project
+                            {:dry-run? (dry-run? args)
+                             :index-profile (sync-index-profile args)})))
+
+(defn- maintenance-report
+  [xtdb project args]
+  (let [map-path (default-map-path args)]
+    (project/maintain-project
+     xtdb
+     project
+     {:low-confidence-threshold (parse-double-option args "--min-confidence" 0.60)
+      :map-overlay (when map-path
+                     (graph-map/read-map map-path))})))
+
+(defn- enqueue-maintenance-decisions!
+  [args decisions]
+  (mapv
+   (fn [decision]
+     (queue/item-summary
+      (queue/enqueue!
+       (decision-classifier/decision-packet decision)
+       {:root (queue-root args)
+        :kind "maintenance-decision"
+        :project-id (:project-id decision)
+        :priority (queue-priority args (severity-priority (:severity decision)))})))
+   decisions))
+
+(defn- enqueue-infra-review-packets!
+  [args packets]
+  (mapv
+   (fn [packet]
+     (queue/item-summary
+      (queue/enqueue!
+       packet
+       {:root (queue-root args)
+        :kind infra-review/work-kind
+        :project-id (:project-id packet)
+        :priority (queue-priority args 50)})))
+   packets))
+
+(defn- enqueue-sync-work!
+  [args report]
+  (vec
+   (concat
+    (enqueue-maintenance-decisions! args (:decision-queue report))
+    (enqueue-infra-review-packets! args (:infra-review-queue report)))))
+
+(defn- maintenance-result
+  [args report]
+  (let [enqueued (when (enqueue-output? args)
+                   (enqueue-sync-work! args report))]
+    (cond-> {:schema "agraph.sync.check/v1"
+             :report report}
+      enqueued (assoc :enqueued enqueued))))
+
+(defn- print-maintenance-result
+  [args result]
+  (if (json-output? args)
+    (print-json result)
+    (do
+      (print-maintenance-report (:report result))
+      (when-let [enqueued (:enqueued result)]
+        (println)
+        (println "## Enqueued")
+        (doseq [item enqueued]
+          (println "-" (:id item) (:kind item) (:status item)))))))
+
+(defn- sync-check!
+  [args]
+  (let [config-path (first (positional-args args))]
+    (when-not config-path
+      (throw (ex-info "Missing project config path." {:usage (usage)})))
+    (let [project (project/read-project config-path)]
+      (store/with-node (store/storage-path)
+        (fn [xtdb]
+          (print-maintenance-result args
+                                    (maintenance-result
+                                     args
+                                     (maintenance-report xtdb project args))))))))
+
+(defn- sync-coverage!
+  [args]
+  (let [config-path (first (positional-args args))]
+    (when-not config-path
+      (throw (ex-info "Missing project config path." {:usage (usage)})))
+    (let [project (project/read-project config-path)]
+      (store/with-node (store/storage-path)
+        (fn [xtdb]
+          (let [report (coverage/project-coverage xtdb project {})]
+            (if (json-output? args)
+              (print-json report)
+              (print-source-coverage report))))))))
+
+(defn- sync-project!
+  [args]
+  (let [config-path (first (positional-args args))]
+    (when-not config-path
+      (throw (ex-info "Missing project config path." {:usage (usage)})))
+    (let [project (project/read-project config-path)
+          repo-id (option-value args "--repo")
+          check? (or (some #{"--check"} args)
+                     (enqueue-output? args))]
+      (if (dry-run? args)
+        (let [index-summary (sync-index-project! nil project args)
+              result {:schema "agraph.sync/v1"
+                      :project-id (:id project)
+                      :repo-id repo-id
+                      :index-summary index-summary}]
+          (if (json-output? args)
+            (print-json result)
+            (print-sync-summary result)))
+        (store/with-node (store/storage-path)
+          (fn [xtdb]
+            (let [index-summary (sync-index-project! xtdb project args)
+                  system-summary (project/infer-project! xtdb project)
+                  report (when check?
+                           (maintenance-report xtdb project args))
+                  enqueued (when (and report (enqueue-output? args))
+                             (enqueue-sync-work! args report))
+                  result (cond-> {:schema "agraph.sync/v1"
+                                  :project-id (:id project)
+                                  :repo-id repo-id
+                                  :index-summary index-summary
+                                  :system-summary system-summary}
+                           report (assoc :check-report report)
+                           enqueued (assoc :enqueued enqueued))]
+              (if (json-output? args)
+                (print-json result)
+                (print-sync-summary result)))))))))
+
+(defn- sync-add-repo!
+  [args]
+  (let [[config-path repo-root] (positional-args args)]
+    (when-not (and config-path repo-root)
+      (throw (ex-info "Missing project config path or repo path."
+                      {:usage (usage)})))
+    (let [project (project/add-repo-to-config!
+                   config-path
+                   repo-root
+                   {:repo-id (option-value args "--repo")
+                    :role (some-> (option-value args "--role") keyword)})
+          repo (last (:repos project))]
+      (print-project-add-repo-summary
+       {:project project
+        :repo repo
+        :next [(str "agraph sync " config-path)]}))))
+
+(defn- sync-work!
+  [args]
+  (let [action (keyword (first args))
+        work-args (vec (rest args))
+        positional (positional-args work-args)
+        root (queue-root work-args)]
+    (case action
+      :list
+      (print-json
+       (queue/list-summary root
+                           {:status (option-value work-args "--status")
+                            :project-id (option-value work-args "--project")
+                            :kind (option-value work-args "--kind")
+                            :limit (parse-limit work-args)}))
+
+      :pull
+      (print-json
+       (if-let [found (queue/claim-next!
+                       root
+                       {:agent-id (queue-agent work-args)
+                        :lease-ms (queue-lease-ms work-args)
+                        :project-id (option-value work-args "--project")
+                        :kind (option-value work-args "--kind")})]
+         (assoc (queue/item-summary found) :item (:item found))
+         {:schema queue/summary-schema
+          :status "empty"
+          :root root}))
+
+      :show
+      (let [id (first positional)]
+        (when-not id
+          (throw (ex-info "Missing sync work id." {:usage (usage)})))
+        (print-json (if-let [found (queue/find-item root id)]
+                      (assoc (queue/item-summary found) :item (:item found))
+                      {:schema "agraph.queue.error/v1"
+                       :error "sync work item not found"
+                       :id id})))
+
+      :complete
+      (let [id (first positional)
+            result-path (option-value work-args "--result")]
+        (when-not (and id result-path)
+          (throw (ex-info "Missing sync work id or --result path."
+                          {:usage (usage)})))
+        (print-json
+         (queue/item-summary
+          (queue/complete! root id (queue/read-json-file result-path)))))
+
+      :apply
+      (let [id (first positional)
+            map-path (required-map-path work-args)]
+        (when-not id
+          (throw (ex-info "Missing sync work id."
+                          {:usage (usage)})))
+        (print-json
+         (apply-work-result! root id map-path)))
+
+      :reject
+      (let [id (first positional)
+            reason (option-value work-args "--reason")]
+        (when-not (and id reason)
+          (throw (ex-info "Missing sync work id or --reason."
+                          {:usage (usage)})))
+        (print-json (queue/item-summary (queue/reject! root id reason))))
+
+      :release
+      (let [id (first positional)]
+        (when-not id
+          (throw (ex-info "Missing sync work id." {:usage (usage)})))
+        (print-json
+         (queue/item-summary
+          (queue/release! root id (or (option-value work-args "--reason")
+                                      "manual release")))))
+
+      (throw (ex-info "Unknown sync work command." {:command action
+                                                    :usage (usage)})))))
+
+(defn- sync-map-command!
+  [action args]
+  (case action
+    (:init :propose)
+    (dispatch "map" (into [(name action)] args))
+
+    :explain
+    (let [target (first (positional-args args))]
+      (when-not target
+        (throw (ex-info "Missing sync target." {:usage (usage)})))
+      (dispatch "map" ["explain" (required-map-path args) target]))
+
+    :set-kind
+    (let [[target kind] (positional-args args)]
+      (when-not (and target kind)
+        (throw (ex-info "Missing sync target or kind." {:usage (usage)})))
+      (dispatch "map" ["set-kind" (required-map-path args) target kind]))
+
+    :include
+    (let [[target include] (positional-args args)]
+      (when-not (and target include)
+        (throw (ex-info "Missing sync target or repo:path include."
+                        {:usage (usage)})))
+      (dispatch "map" ["include" (required-map-path args) target include]))
+
+    :ignore
+    (let [[kind value] (positional-args args)
+          map-args (append-option ["reject" (required-map-path args) kind value]
+                                  "--reason"
+                                  (option-value args "--reason"))]
+      (when-not (and kind value)
+        (throw (ex-info "Missing ignore kind or value." {:usage (usage)})))
+      (dispatch "map" map-args))
+
+    (throw (ex-info "Unknown sync command." {:command action
+                                             :usage (usage)}))))
+
+(defn- sync-docs!
+  [args]
+  (let [action (keyword (first args))
+        docs-args (vec (rest args))]
+    (case action
+      :attach
+      (let [[target source] (positional-args docs-args)
+            map-path (required-map-path docs-args)
+            forwarded (-> ["attach" map-path target source]
+                          (append-option "--role" (option-value docs-args "--role"))
+                          (append-option "--heading" (option-value docs-args "--heading"))
+                          (append-option "--start-line" (option-value docs-args "--start-line"))
+                          (append-option "--end-line" (option-value docs-args "--end-line"))
+                          (append-option "--reason" (option-value docs-args "--reason")))]
+        (when-not (and target source)
+          (throw (ex-info "Missing docs target or repo:path source."
+                          {:usage (usage)})))
+        (dispatch "docs" forwarded))
+
+      (:candidates :for :audit)
+      (dispatch "docs" args)
+
+      (throw (ex-info "Unknown sync docs command." {:command action
+                                                    :usage (usage)})))))
+
+(defn- sync-dispatch!
+  [args]
+  (let [action-name (first args)
+        action (keyword action-name)
+        action-args (vec (rest args))]
+    (case action
+      :inspect
+      (let [config-path (first (positional-args action-args))]
+        (when-not config-path
+          (throw (ex-info "Missing project config path." {:usage (usage)})))
+        (print-project-inspect (project/read-project config-path)))
+
+      :add-repo
+      (sync-add-repo! action-args)
+
+      :check
+      (sync-check! action-args)
+
+      :coverage
+      (sync-coverage! action-args)
+
+      :work
+      (sync-work! action-args)
+
+      :docs
+      (sync-docs! action-args)
+
+      :meta
+      (dispatch "meta" action-args)
+
+      :view
+      (dispatch "views" action-args)
+
+      (:init :propose :explain :set-kind :include :ignore)
+      (sync-map-command! action action-args)
+
+      (if action-name
+        (sync-project! args)
+        (throw (ex-info "Missing sync project config path." {:usage (usage)}))))))
 
 (defn- candidate-system?
   [system]
@@ -483,23 +1094,6 @@
       (println (str idx ".") (:label node)))
     (println "No path found.")))
 
-(defn- print-report
-  [{:keys [counts top-nodes diagnostics]}]
-  (println "# AGraph Report")
-  (println)
-  (println "## Counts")
-  (doseq [[k v] counts]
-    (println "-" (name k) v))
-  (println)
-  (println "## High-Degree Nodes")
-  (doseq [{:keys [node degree]} top-nodes]
-    (println "-" (:label node) degree))
-  (when (seq diagnostics)
-    (println)
-    (println "## Diagnostics")
-    (doseq [diag diagnostics]
-      (println "-" (:path diag) (name (:stage diag)) (:message diag)))))
-
 (defn- default-graph-out
   [mode value]
   (str ".dev/reports/"
@@ -535,8 +1129,6 @@
     :else (throw (ex-info (missing-key-message provider)
                           {:retriever retriever
                            :provider provider}))))
-
-(declare usage)
 
 (defn- print-graph-output
   [path data]
@@ -659,58 +1251,335 @@
     (throw (ex-info "Unknown graph mode." {:mode mode
                                            :usage (usage)}))))
 
+(defn- retrieval-options
+  [args]
+  (let [retriever (keyword (or (option-value args "--retriever") "auto"))
+        provider (provider-option args)
+        model (or (option-value args "--model") (default-model provider))
+        embedding-client (query-embedding-client retriever provider model)]
+    (when (and (= :auto retriever) (nil? embedding-client))
+      (binding [*out* *err*]
+        (println "No embedding provider API key found; using lexical retrieval.")))
+    {:retriever retriever
+     :provider provider
+     :model model
+     :embedding-client embedding-client}))
+
+(defn- ask!
+  [args]
+  (let [query-text (str/join " " (positional-args args))
+        {:keys [retriever embedding-client]} (retrieval-options args)
+        {:keys [project-id repo-id]} (project-scope args)
+        temporal (temporal-options args)]
+    (when (str/blank? query-text)
+      (throw (ex-info "Missing ask text." {:usage (usage)})))
+    (store/with-node (store/storage-path)
+      (fn [xtdb]
+        (if (json-output? args)
+          (print-json
+           (context/context-packet xtdb
+                                   query-text
+                                   {:project-id project-id
+                                    :repo-id repo-id
+                                    :retriever retriever
+                                    :embedding-client embedding-client
+                                    :map-path (default-map-path args)
+                                    :read-context temporal
+                                    :budget (parse-long-option args
+                                                               "--budget"
+                                                               context/default-budget)
+                                    :entity-limit (parse-long-option args
+                                                                     "--entity-limit"
+                                                                     context/default-entity-limit)
+                                    :edge-limit (parse-long-option args
+                                                                   "--edge-limit"
+                                                                   context/default-edge-limit)
+                                    :doc-limit (parse-long-option args
+                                                                  "--doc-limit"
+                                                                  context/default-doc-limit)
+                                    :snippet-chars (parse-long-option args
+                                                                      "--snippet-chars"
+                                                                      context/default-snippet-chars)
+                                    :min-confidence (parse-double-option args
+                                                                         "--min-confidence"
+                                                                         0.55)}))
+          (let [results (query/semantic-query xtdb
+                                              query-text
+                                              {:limit (or (parse-limit args) 10)
+                                               :retriever retriever
+                                               :embedding-client embedding-client
+                                               :project-id project-id
+                                               :repo-id repo-id
+                                               :read-context temporal})]
+            (if (seq results)
+              (doseq [result results]
+                (print-query-result result))
+              (print-ask-no-results xtdb
+                                    query-text
+                                    {:project-id project-id
+                                     :repo-id repo-id
+                                     :retriever retriever
+                                     :embedding-client embedding-client
+                                     :temporal temporal
+                                     :args args}))))))))
+
+(defn- view!
+  [args]
+  (let [format (keyword (or (option-value args "--format") "html"))
+        view-args (remove-option args "--format")]
+    (case format
+      :html (dispatch "graph" view-args)
+      :json (dispatch "graph" (into ["export"] view-args))
+      (throw (ex-info "Unknown view format."
+                      {:format format
+                       :supported [:html :json]
+                       :usage (usage)})))))
+
+(defn- report!
+  [args]
+  (let [config-path (first (positional-args args))]
+    (when (str/blank? (str config-path))
+      (throw (ex-info "Missing project config." {:usage (usage)})))
+    (let [project (project/read-project config-path)
+          map-path (default-map-path args)]
+      (store/with-node (store/storage-path)
+        (fn [xtdb]
+          (print-json
+           (report/bundle! xtdb
+                           project
+                           {:out (or (option-value args "--out")
+                                     report/default-output-dir)
+                            :map-path map-path
+                            :detail (keyword (or (option-value args "--detail")
+                                                 (name report/default-detail)))
+                            :force? (boolean (some #{"--force"} args))})))))))
+
+(defn- ensure-init-map!
+  [project-id map-path]
+  (when (and map-path
+             (not (graph-map/file-exists? map-path)))
+    (graph-map/write-map! map-path (graph-map/empty-map project-id))))
+
+(defn- init-sync-args
+  [config-path map-path query-index?]
+  (cond-> [config-path "--check"]
+    map-path (into ["--map" map-path])
+    query-index? (conj "--query-index")))
+
+(defn- init!
+  [args]
+  (let [workbench-root (option-value args "--workbench")
+        root (or workbench-root (first (positional-args args)) ".")
+        map-path (option-value args "--map")
+        result (init/init! root
+                           {:out (option-value args "--out")
+                            :force? (boolean (some #{"--force"} args))
+                            :project-id (option-value args "--project")
+                            :name (option-value args "--name")
+                            :workbench? (boolean workbench-root)
+                            :task (option-value args "--task")
+                            :map-path map-path})]
+    (ensure-init-map! (:project-id result) map-path)
+    (print-json
+     (cond-> result
+       (some #{"--sync"} args)
+       (assoc :sync-output
+              (with-out-str
+                (dispatch "sync"
+                          (init-sync-args (:config result)
+                                          map-path
+                                          (query-index? args)))))))))
+
+(defn- bench-opts
+  [args]
+  (cond-> {:case-id (option-value args "--case")
+           :out (option-value args "--out")
+           :retriever (option-value args "--retriever")}
+    (parse-limit args) (assoc :limit (parse-limit args))))
+
+(defn- print-benchmark-case-summary
+  [case]
+  (println "-"
+           (:case-id case)
+           (:repo-id case)
+           "recall@10"
+           (format "%.2f" (double (get-in case [:scores :fileRecallAt10] 0.0)))
+           "mrr"
+           (format "%.2f" (double (get-in case [:scores :meanReciprocalRankFile] 0.0)))))
+
+(defn- print-benchmark-summary
+  [result]
+  (println "# Benchmark")
+  (println "- schema" (:schema result))
+  (println "- suite" (:suite-id result))
+  (cond
+    (:completed result)
+    (do
+      (println "- cases" (:cases result))
+      (println "- completed" (:completed result))
+      (println "- file-recall@10"
+               (format "%.2f" (double (get-in result [:scores :fileRecallAt10] 0.0))))
+      (println "- mrr"
+               (format "%.2f" (double (get-in result [:scores :meanReciprocalRankFile] 0.0))))
+      (when (seq (:missing result))
+        (println "- missing" (str/join "," (:missing result)))))
+
+    (:cases result)
+    (doseq [case (:cases result)]
+      (if (:scores case)
+        (print-benchmark-case-summary case)
+        (println "-" (:case-id case) (:repo-id case) "prepared")))))
+
+(defn- bench!
+  [args]
+  (let [action (keyword (first args))
+        bench-args (vec (rest args))
+        suite-path (first (positional-args bench-args))]
+    (when-not suite-path
+      (throw (ex-info "Missing benchmark suite path." {:usage (usage)})))
+    (let [suite (benchmark/read-suite suite-path)
+          opts (bench-opts bench-args)
+          result (case action
+                   :prepare (benchmark/prepare-suite! suite opts)
+                   :run (benchmark/run-suite! suite opts)
+                   :report (benchmark/report-suite suite opts)
+                   :show (benchmark/show-case suite
+                                              (or (:case-id opts)
+                                                  (throw (ex-info "Missing --case."
+                                                                  {:usage (usage)})))
+                                              opts)
+                   (throw (ex-info "Unknown benchmark command."
+                                   {:command action
+                                    :usage (usage)})))]
+      (if (json-output? bench-args)
+        (print-json result)
+        (print-benchmark-summary result)))))
+
 (defn usage
   []
   (str/join
    "\n"
    ["Usage:"
-    "  index <repo-path> [--dry-run]"
-    "  project inspect|index|infer|maintain <project.edn> [--dry-run]"
-    "  project add-repo <project.edn> <repo-path> [--repo ID] [--role ROLE] [--index] [--infer]"
-    "  systems candidates --project ID [--limit N]"
-    "  classify decision <decision-id-or-suffix> --project ID [--provider deepseek|openrouter|openai] [--model MODEL]"
-    "  map init|propose <project.edn> [--out agraph.map.json]"
-    "  map explain <agraph.map.json> <system-id-or-label>"
-    "  map set-kind <agraph.map.json> <system-id-or-label> <kind>"
-    "  map include <agraph.map.json> <system-id-or-label> <repo>:<path>"
-    "  map reject <agraph.map.json> external-api <host> [--reason TEXT]"
-    "  docs candidates <target> [--project ID] [--limit N] [--snippet-chars N]"
-    "  docs attach <agraph.map.json> <target> <repo>:<path> [--role ROLE] [--heading HEADING] [--start-line N] [--end-line N] [--reason TEXT]"
-    "  docs for <target> [--project ID] [--map PATH] [--snippet-chars N]"
-    "  docs audit [--project ID] [--map PATH]"
-    "  meta defs [--project ID]"
-    "  meta set <target-id> <key> <value> [--type string|keyword|boolean|integer|number|tag] [--source SOURCE] [--confidence N] [--project ID] [--repo ID] [--valid-at INSTANT]"
-    "  meta get <target-id> [--project ID] [--repo ID] [--valid-at INSTANT]"
-    "  meta unset <target-id> <key> [--source SOURCE] [--project ID] [--repo ID] [--valid-at INSTANT]"
-    "  views list [--project ID] [--valid-at INSTANT]"
-    "  views show <view-id> [--project ID] [--valid-at INSTANT]"
-    "  context <text> [--project ID] [--budget N] [--entity-limit N] [--edge-limit N] [--doc-limit N] [--snippet-chars N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--no-map] [--valid-at INSTANT]"
-    "  cursor create [query text] --project ID [--budget N] [--limit N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--no-map] [--view ID] [--valid-at INSTANT]"
-    "  cursor show <cursor-id> [--budget N]"
-    "  cursor open <cursor-id> <target-id-or-label> [--budget N]"
-    "  cursor expand <cursor-id> <target-id-or-label> [--relation REL] [--limit N] [--budget N]"
-    "  cursor docs <cursor-id> <target-id-or-label> [--budget N]"
-    "  cursor search <cursor-id> <text> [--limit N] [--budget N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL]"
+    "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync] [--map agraph.map.json]"
+    "  init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]"
+    "  sync <project.edn> [--repo ID] [--map PATH] [--check] [--enqueue] [--query-index] [--dry-run] [--json]"
+    "  sync inspect <project.edn>"
+    "  sync coverage <project.edn> [--json]"
+    "  sync add-repo <project.edn> <repo-path> [--repo ID] [--role ROLE]"
+    "  sync check <project.edn> [--map PATH] [--json] [--enqueue] [--queue-dir DIR]"
+    "  sync init|propose <project.edn> [--out agraph.map.json]"
+    "  sync explain <target> [--map agraph.map.json]"
+    "  sync set-kind <target> <kind> [--map agraph.map.json]"
+    "  sync include <target> <repo>:<path> [--map agraph.map.json]"
+    "  sync ignore external-api <host> [--map agraph.map.json] [--reason TEXT]"
+    "  sync docs candidates <target> [--project ID] [--limit N] [--snippet-chars N]"
+    "  sync docs attach <target> <repo>:<path> [--map agraph.map.json] [--role ROLE] [--heading HEADING] [--start-line N] [--end-line N] [--reason TEXT]"
+    "  sync docs for <target> [--project ID] [--map PATH] [--snippet-chars N]"
+    "  sync docs audit [--project ID] [--map PATH]"
+    "  sync meta defs|set|get|unset ..."
+    "  sync view list|show ..."
+    "  sync work list [--queue-dir DIR] [--status ready|claimed|done|rejected|failed] [--project ID] [--kind KIND] [--limit N]"
+    "  sync work pull [--queue-dir DIR] [--project ID] [--kind KIND] [--agent ID] [--lease-minutes N]"
+    "  sync work show <work-id> [--queue-dir DIR]"
+    "  sync work complete <work-id> --result result.json [--queue-dir DIR]"
+    "  sync work apply <work-id> --map agraph.map.json [--queue-dir DIR]"
+    "  sync work reject <work-id> --reason TEXT [--queue-dir DIR]"
+    "  sync work release <work-id> [--reason TEXT] [--queue-dir DIR]"
+    "  ask <text> [--project ID] [--repo ID] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
+    "  explore create [query text] --project ID [--budget N] [--limit N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--no-map] [--view ID] [--valid-at INSTANT] [--enqueue] [--queue-dir DIR]"
+    "  explore show|open|expand|docs|search ..."
+    "  view overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--format html|json] [--out PATH] [--valid-at INSTANT]"
+    "  report <project.edn> [--map agraph.map.json] [--out agraph-out] [--detail primary|expanded|evidence|raw] [--force]"
+    "  install-agent --platform codex --project [--hooks]"
+    "  install-agent list"
+    "  install-agent uninstall --platform codex --project"
+    "  watch <project.edn> [--map agraph.map.json] [--query-index] [--debounce-ms N]"
+    "  hook install <project.edn> [--map agraph.map.json] [--query-index]"
+    "  hook uninstall <project.edn>"
+    "  hook status <project.edn>"
+    "  bench prepare|run|report|show <benchmark.edn> [--case ID] [--out DIR] [--json]"
     "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
-    "  query <text> [--project ID] [--repo ID] [--limit N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--valid-at INSTANT]"
-    "  graph overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--out PATH] [--valid-at INSTANT]"
-    "  graph export overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--out PATH] [--valid-at INSTANT]"
-    "  deps <node-or-namespace> [--project ID] [--repo ID] [--valid-at INSTANT]"
-    "  path <source> <target> [--project ID] [--repo ID] [--systems] [--valid-at INSTANT]"
-    "  report [--project ID] [--repo ID] [--valid-at INSTANT]"
-    "  mcp"]))
-
-(defn- print-mcp-placeholder
-  []
-  (println "# AGraph MCP")
-  (println "- status not-implemented")
-  (println "- message MCP is the planned structured agent interface; use the CLI commands for now."))
+    "  mcp"
+    ""
+    "Compatibility commands remain during migration: index, project, systems, classify, queue, map, docs, meta, views, context, cursor, query, graph, deps, path."]))
 
 (defn dispatch
   [command args]
   (case command
     ("help" "--help" "-h")
     (println (usage))
+
+    "init"
+    (init! args)
+
+    "sync"
+    (sync-dispatch! args)
+
+    "ask"
+    (ask! args)
+
+    "explore"
+    (dispatch "cursor" args)
+
+    "view"
+    (view! args)
+
+    "bench"
+    (bench! args)
+
+    "install-agent"
+    (let [action (first args)
+          agent-args (if (#{"list" "uninstall"} action)
+                       (vec (rest args))
+                       args)
+          platform (or (option-value agent-args "--platform") "codex")
+          opts {:project? (boolean (some #{"--project"} agent-args))
+                :hooks? (boolean (some #{"--hooks"} agent-args))
+                :force? (boolean (some #{"--force"} agent-args))}]
+      (case action
+        "list"
+        (print-json (agent-install/list-platforms))
+
+        "uninstall"
+        (print-json (agent-install/uninstall! platform opts))
+
+        (print-json (agent-install/install! platform opts))))
+
+    "watch"
+    (let [config-path (first (positional-args args))]
+      (when-not config-path
+        (throw (ex-info "Missing project config path." {:usage (usage)})))
+      (watch/watch! (project/read-project config-path)
+                    {:config-path config-path
+                     :map-path (default-map-path args)
+                     :query-index? (boolean (query-index? args))
+                     :debounce-ms (parse-long-option args
+                                                     "--debounce-ms"
+                                                     watch/default-debounce-ms)}))
+
+    "hook"
+    (let [action (keyword (first args))
+          hook-args (vec (rest args))
+          config-path (first (positional-args hook-args))]
+      (when-not config-path
+        (throw (ex-info "Missing project config path." {:usage (usage)})))
+      (let [project (project/read-project config-path)
+            opts {:config-path config-path
+                  :map-path (default-map-path hook-args)
+                  :query-index? (boolean (query-index? hook-args))
+                  :agraph-bin (System/getenv "AGRAPH_BIN")}]
+        (case action
+          :install
+          (print-json (hook/install! project opts))
+
+          :uninstall
+          (print-json (hook/uninstall! project))
+
+          :status
+          (print-json (hook/status project))
+
+          (throw (ex-info "Unknown hook command." {:command action
+                                                   :usage (usage)})))))
 
     "index"
     (let [root (first args)]
@@ -771,13 +1640,125 @@
                   (throw (ex-info "Maintenance decision not found."
                                   {:decision-id decision-id
                                    :project-id project-id})))
-                (print-json
-                 (decision-classifier/classify
-                  {:client (llm-client provider model classify-args)
-                   :decision decision}))))))
+                (if (enqueue-output? classify-args)
+                  (print-json
+                   (queue-enqueued-result
+                    (queue/enqueue!
+                     (decision-classifier/decision-packet decision)
+                     {:root (queue-root classify-args)
+                      :kind "maintenance-decision"
+                      :project-id project-id
+                      :priority (queue-priority classify-args
+                                                (severity-priority (:severity decision)))})))
+                  (print-json
+                   (decision-classifier/classify
+                    {:client (llm-client provider model classify-args)
+                     :decision decision})))))))
 
         (throw (ex-info "Unknown classify command." {:command action
                                                      :usage (usage)}))))
+
+    "queue"
+    (let [action (keyword (first args))
+          queue-args (vec (rest args))
+          positional (positional-args queue-args)
+          root (queue-root queue-args)]
+      (case action
+        :add
+        (let [path (first positional)]
+          (when-not path
+            (throw (ex-info "Missing packet JSON path." {:usage (usage)})))
+          (print-json
+           (queue-enqueued-result
+            (queue/enqueue! (queue/read-json-file path)
+                            {:root root
+                             :kind (option-value queue-args "--kind")
+                             :project-id (option-value queue-args "--project")
+                             :priority (queue-priority queue-args)
+                             :source {:kind "file"
+                                      :path path}}))))
+
+        :list
+        (print-json
+         (queue/list-summary root
+                             {:status (option-value queue-args "--status")
+                              :project-id (option-value queue-args "--project")
+                              :kind (option-value queue-args "--kind")
+                              :limit (parse-limit queue-args)}))
+
+        :show
+        (let [id (first positional)]
+          (when-not id
+            (throw (ex-info "Missing queue item id." {:usage (usage)})))
+          (print-json (or (queue/find-item root id)
+                          {:schema "agraph.queue.error/v1"
+                           :error "queue item not found"
+                           :id id})))
+
+        :claim
+        (let [target (first positional)]
+          (when-not (= "next" target)
+            (throw (ex-info "Only `queue claim next` is supported."
+                            {:usage (usage)})))
+          (print-json (or (some-> (queue/claim-next!
+                                   root
+                                   {:agent-id (queue-agent queue-args)
+                                    :lease-ms (queue-lease-ms queue-args)
+                                    :project-id (option-value queue-args "--project")
+                                    :kind (option-value queue-args "--kind")})
+                                  queue/item-summary)
+                          {:schema queue/summary-schema
+                           :status "empty"
+                           :root root})))
+
+        :complete
+        (let [id (first positional)
+              result-path (option-value queue-args "--result")]
+          (when-not (and id result-path)
+            (throw (ex-info "Missing queue item id or --result path."
+                            {:usage (usage)})))
+          (print-json
+           (queue/item-summary
+            (queue/complete! root id (queue/read-json-file result-path)))))
+
+        :reject
+        (let [id (first positional)
+              reason (option-value queue-args "--reason")]
+          (when-not (and id reason)
+            (throw (ex-info "Missing queue item id or --reason."
+                            {:usage (usage)})))
+          (print-json (queue/item-summary (queue/reject! root id reason))))
+
+        :fail
+        (let [id (first positional)
+              reason (option-value queue-args "--reason")]
+          (when-not (and id reason)
+            (throw (ex-info "Missing queue item id or --reason."
+                            {:usage (usage)})))
+          (print-json (queue/item-summary (queue/fail! root id reason))))
+
+        :release
+        (let [id (first positional)]
+          (when-not id
+            (throw (ex-info "Missing queue item id." {:usage (usage)})))
+          (print-json
+           (queue/item-summary
+            (queue/release! root id (or (option-value queue-args "--reason")
+                                        "manual release")))))
+
+        :heartbeat
+        (let [id (first positional)]
+          (when-not id
+            (throw (ex-info "Missing queue item id." {:usage (usage)})))
+          (print-json
+           (queue/item-summary
+            (queue/heartbeat! root
+                              id
+                              {:agent-id (queue-agent queue-args)
+                               :lease-ms (queue-lease-ms queue-args)}))))
+
+        (throw (ex-info "Unknown queue command." {:command action
+                                                  :usage (usage)}))))
 
     "map"
     (let [action (keyword (first args))
@@ -988,17 +1969,21 @@
           provider (provider-option args)
           model (or (option-value args "--model") (default-model provider))
           embedding-client (query-embedding-client retriever provider model)
-          {:keys [project-id]} (project-scope args)
+          {:keys [project-id repo-id]} (project-scope args)
           temporal (temporal-options args)]
       (when (and (= :auto retriever) (nil? embedding-client))
         (binding [*out* *err*]
           (println "No embedding provider API key found; using lexical retrieval.")))
       (store/with-node (store/storage-path)
         (fn [xtdb]
-          (print-json
+          (emit-json-or-enqueue
+           args
+           "context"
+           project-id
            (context/context-packet xtdb
                                    query-text
                                    {:project-id project-id
+                                    :repo-id repo-id
                                     :retriever retriever
                                     :embedding-client embedding-client
                                     :map-path (default-map-path args)
@@ -1041,7 +2026,8 @@
             (let [query-text (or (option-value cursor-args "--query")
                                  (not-empty (str/trim (str/join " " positional))))
                   {:keys [project-id]} (project-scope cursor-args)]
-              (print-json
+              (emit-cursor-packet
+               cursor-args
                (cursor/create! xtdb
                                {:project-id project-id
                                 :query-text query-text
@@ -1072,33 +2058,38 @@
             (let [cursor-id (first positional)]
               (when-not cursor-id
                 (throw (ex-info "Missing cursor id." {:usage (usage)})))
-              (print-json (cursor/show xtdb cursor-id {:budget budget})))
+              (emit-cursor-packet cursor-args
+                                  (cursor/show xtdb cursor-id {:budget budget})))
 
             :open
             (let [[cursor-id target] positional]
               (when-not (and cursor-id target)
                 (throw (ex-info "Missing cursor id or target."
                                 {:usage (usage)})))
-              (print-json (cursor/open! xtdb cursor-id target {:budget budget})))
+              (emit-cursor-packet cursor-args
+                                  (cursor/open! xtdb cursor-id target {:budget budget})))
 
             :expand
             (let [[cursor-id target] positional]
               (when-not (and cursor-id target)
                 (throw (ex-info "Missing cursor id or target."
                                 {:usage (usage)})))
-              (print-json (cursor/expand! xtdb
-                                          cursor-id
-                                          target
-                                          {:budget budget
-                                           :relation (option-value cursor-args "--relation")
-                                           :limit (parse-limit cursor-args)})))
+              (emit-cursor-packet cursor-args
+                                  (cursor/expand! xtdb
+                                                  cursor-id
+                                                  target
+                                                  {:budget budget
+                                                   :relation (option-value cursor-args
+                                                                           "--relation")
+                                                   :limit (parse-limit cursor-args)})))
 
             :docs
             (let [[cursor-id target] positional]
               (when-not (and cursor-id target)
                 (throw (ex-info "Missing cursor id or target."
                                 {:usage (usage)})))
-              (print-json (cursor/docs! xtdb cursor-id target {:budget budget})))
+              (emit-cursor-packet cursor-args
+                                  (cursor/docs! xtdb cursor-id target {:budget budget})))
 
             :search
             (let [[cursor-id & query-parts] positional
@@ -1106,13 +2097,14 @@
                                  (str/join " " query-parts))]
               (when-not cursor-id
                 (throw (ex-info "Missing cursor id." {:usage (usage)})))
-              (print-json (cursor/search! xtdb
-                                          cursor-id
-                                          query-text
-                                          {:budget budget
-                                           :retriever retriever
-                                           :embedding-client embedding-client
-                                           :limit (parse-limit cursor-args)})))
+              (emit-cursor-packet cursor-args
+                                  (cursor/search! xtdb
+                                                  cursor-id
+                                                  query-text
+                                                  {:budget budget
+                                                   :retriever retriever
+                                                   :embedding-client embedding-client
+                                                   :limit (parse-limit cursor-args)})))
 
             (throw (ex-info "Unknown cursor command." {:command action
                                                        :usage (usage)}))))))
@@ -1293,13 +2285,10 @@
                         (query/graph-path xtdb source target scope))))))
 
     "report"
-    (let [scope (assoc (project-scope args) :read-context (temporal-options args))]
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (print-report (query/report xtdb scope)))))
+    (report! args)
 
     "mcp"
-    (print-mcp-placeholder)
+    (mcp/run-stdio! (mcp/server-context args))
 
     (throw (ex-info "Unknown command." {:command command
                                         :usage (usage)}))))

@@ -1,20 +1,22 @@
-# System Map Overlay
+# System Map Corrections
 
 AGraph separates mechanical extraction from agent-maintained system meaning.
 The raw graph should emerge from concrete facts; the map records the meaning
 that cannot be safely hard-coded for every project.
 
 The extractor can regenerate facts at any time: files, symbols, imports,
-manifests, URLs, ports, routes, config values, and candidate system nodes. Those
+manifests, URLs, ports, routes, config values, container image producer/consumer
+evidence from manifests and shell scripts, and candidate system nodes. Those
 facts are useful evidence, but they are not expected to be perfectly classified
 for every repo shape.
 
 Mechanical extraction should stay bounded and project-agnostic: parsers,
-manifests, dependency edges, route/URL evidence, topology, and metrics. When the
-question becomes semantic, such as which candidates are one system, which edge
-is a runtime API dependency, or which subsystem matters for a use case, put the
-answer in this overlay. Humans or LLM-backed tools can make those judgments from
-evidence without turning AGraph into a pile of path-name rules or text matching.
+manifests, dependency edges, route/URL evidence, container image artifact
+matches, topology, and metrics. When the question becomes semantic, such as
+which candidates are one system, which edge is a runtime API dependency, or which
+subsystem matters for a use case, put the answer in `agraph.map.json`. Humans or
+LLM-backed tools can make those judgments from evidence without turning AGraph
+into a pile of path-name rules or text matching.
 
 `agraph.map.json` is the durable correction layer. It is versionable JSON that
 an agent or human can update while doing normal coding work.
@@ -24,20 +26,19 @@ an agent or human can update while doing normal coding work.
 Start from generated candidates:
 
 ```sh
-agraph project add-repo project.edn /path/to/repo --repo app --role application
-agraph project index project.edn
-agraph project infer project.edn
-agraph map propose project.edn --out agraph.map.json
+agraph sync add-repo project.edn /path/to/repo --repo app --role application
+agraph sync project.edn
+agraph sync propose project.edn --out agraph.map.json
 ```
 
 Then accept or correct what research proves:
 
 ```sh
-agraph map set-kind agraph.map.json "services/api-gateway" service
-agraph map include agraph.map.json "API Gateway" app:services/api-gateway
-agraph map reject agraph.map.json external-api docs.xtdb.com --reason "Documentation reference"
-agraph docs attach agraph.map.json "API Gateway" app:docs/api-gateway.md --role contract --heading "API Gateway"
-agraph map explain agraph.map.json "API Gateway"
+agraph sync set-kind "services/api-gateway" service --map agraph.map.json
+agraph sync include "API Gateway" app:services/api-gateway --map agraph.map.json
+agraph sync ignore external-api docs.xtdb.com --map agraph.map.json --reason "Documentation reference"
+agraph sync docs attach "API Gateway" app:docs/api-gateway.md --map agraph.map.json --role contract --heading "API Gateway"
+agraph sync explain "API Gateway" --map agraph.map.json
 ```
 
 System graph exports apply `agraph.map.json` automatically when it exists in the
@@ -45,9 +46,9 @@ current directory. Use `--map PATH` to choose another file or `--no-map` to see
 raw generated candidates.
 
 ```sh
-agraph graph systems --project sample --out .dev/reports/sample-systems.html
-agraph graph export systems --project sample --out .dev/reports/sample-systems.json
-agraph graph export systems --project sample --no-map --out .dev/reports/raw-systems.json
+agraph view systems --project sample --out .dev/reports/sample-systems.html
+agraph view systems --project sample --format json --out .dev/reports/sample-systems.json
+agraph view systems --project sample --format json --no-map --out .dev/reports/raw-systems.json
 ```
 
 ## Shape
@@ -112,38 +113,57 @@ incident edges.
 research. It can also override computed connection visibility/importance for a
 matching `source`/`target`/`relation`.
 
-`docs[]` attaches reviewed Markdown snippets to graph targets. `agraph context`
+`docs[]` attaches reviewed Markdown snippets to graph targets. `agraph ask --json`
 prioritizes accepted attachments, resolves them back to indexed heading chunks,
 and omits or truncates snippets to stay inside the requested token budget.
 
 ## Maintain
 
 Agents should maintain the map while working. Start with
-`agraph project maintain --json` and address the ranked decision queue. The
-report includes a graph-basis hash, scale/noise ratios, top hubs, and fold-in
-actions. Use those signals to make small corrections as work reveals them,
-rather than trying to classify the whole project. Use `--map agraph.map.json`
-when reviewing after corrections so rejected systems and incident edges stay out
-of the maintenance queue.
+`agraph sync check --json --map agraph.map.json` and address the ranked
+decision queue. The report includes a graph-basis hash, scale/noise ratios, top
+hubs, and fold-in actions. A check/enqueue sync uses the graph-maintenance index
+profile by default, which updates files, graph rows, diagnostics, and bounded
+file facts without writing code/doc search chunks. Add `--query-index` when the
+same run should also refresh searchable chunks for `agraph ask`, `agraph
+explore`, embeddings, and context packets. Use those signals to make small
+corrections as work reveals them, rather than trying to classify the whole
+project. Use `--map agraph.map.json` when reviewing after corrections so
+rejected systems and incident edges stay out of the maintenance queue.
 
 If a task reveals a better system boundary, a stale external API node, an
 orphaned system, a noisy visible edge, a missing connection, or a repo that
-should be part of the project, update `agraph.map.json` or run `agraph project
-add-repo` in the same slice as the code or docs change.
+should be part of the project, update `agraph.map.json` through `agraph sync`
+commands or run `agraph sync add-repo` in the same slice as the code or docs
+change.
 
 If semantic help is needed, classify one decision at a time:
 
 ```sh
 agraph classify decision maintenance-decision:abc123 --project sample
+agraph sync check project.edn --map agraph.map.json --enqueue
+agraph sync work pull --project sample --agent codex
+agraph sync work complete queue:abc123 --result result.json
+agraph sync work apply queue:abc123 --map agraph.map.json
 ```
 
 Do not classify the whole system graph. The classifier receives one decision
-bundle and should return a proposed map patch.
+bundle and should return a proposed map patch. Use `--enqueue` when the decision
+should be picked up from `.dev/agraph/queue/ready` by a different agent, model,
+or review process.
+
+Infrastructure gaps use the same queue. `sync check --enqueue` can emit
+`agraph.infra.review-packet/v1` items when mechanical evidence finds bounded
+producer/consumer fact gaps, such as a container image build fact with no known
+deployment consumer. The agent returns `agraph.infra.review-result/v1`.
+`sync work complete` records that result; `sync work apply` validates that patch
+operations reference only ids and evidence from the packet before adding reviewed
+edges to `agraph.map.json`.
 
 The map does not need to be perfect. It should be correct where the agent has
 done enough research to know the answer, and explicit about rejected mistakes so
 future regenerations do not reintroduce the same false positives.
 
-Doc attachments are maintenance data too. Run `agraph docs audit --project ID
+Doc attachments are maintenance data too. Run `agraph sync docs audit --project ID
 --map agraph.map.json` to find stale attachments and accepted systems without
 reviewed docs.

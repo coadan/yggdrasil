@@ -3,40 +3,46 @@
 AGraph is a local-first repo graph indexer backed by XTDB. It is designed for
 coding agents that need to work effectively on complex systems over time.
 
-It starts with deterministic Clojure/ClojureScript/Rust/EDN/Markdown indexing:
+It starts with deterministic Clojure/ClojureScript/Go/JavaScript/TypeScript/
+Python/Rust/SQL/style/EDN/Markdown indexing:
 
-- namespaces, requires, vars, tests, Rust modules, Rust imports, and Rust items
+- namespaces, requires, vars, tests, Go packages, JS/TS modules, Python modules,
+  source imports, Rust modules, and source items
 - Markdown heading chunks and exact symbol mentions
 - XTDB-backed files, runs, nodes, high-confidence edges, chunks, diagnostics, and query runs
 - OpenRouter/OpenAI embedding-backed hybrid semantic query with graph expansion
 - token-bounded context packets with attached architecture/docs snippets
+- filesystem queue handoff for provider-agnostic agent packets
 - dependency summaries, path search, and Markdown reports
 - project-level system graphs, third-party API nodes, and maintenance findings
 
 Default indexing persists high-confidence relations: definitions, namespace
-requires, Rust module declarations, and Rust imports. Noisy inferred call edges
-are extracted internally but not stored by default yet.
+requires, source imports, and Rust module declarations. Noisy inferred call
+edges are extracted internally but not stored by default yet.
 
 ## Usage
 
 ```sh
-agraph index /path/to/repo
+agraph sync project.edn
 AGRAPH_OPENROUTER_API_KEY=... agraph embed --provider openrouter
-agraph query "where is the API gateway configured" --retriever hybrid
-agraph graph query "where is the API gateway configured" --depth 1
-agraph graph deps sample.api.gateway --depth 2
-agraph graph export query "where is the API gateway configured" --out graph.json
-agraph cursor create "where is the API gateway configured" --project sample
-agraph deps sample.api.gateway
-agraph path sample.web.main sample.api.gateway
-agraph path clients/web services/api-gateway --project sample --systems
-agraph report
+agraph ask "where is the API gateway configured" --project sample --retriever hybrid
+agraph ask "where is the API gateway configured" --project sample --json
+agraph explore create "where is the API gateway configured" --project sample
+agraph view query "where is the API gateway configured" --project sample --depth 1
+agraph view deps sample.api.gateway --project sample --depth 2
+agraph view systems --project sample --format json --out graph.json
+agraph sync coverage project.edn --json
+bb bench run benchmark.edn
+agraph sync check project.edn --map agraph.map.json --enqueue
+agraph sync work pull --project sample --agent codex
+agraph sync work complete queue:abc123 --result result.json
+agraph sync work apply queue:abc123 --map agraph.map.json
 ```
 
 Default XTDB storage lives at `.dev/agraph/xtdb`. Override with:
 
 ```sh
-AGRAPH_XTDB_PATH=/tmp/agraph-xtdb agraph index /path/to/repo
+AGRAPH_XTDB_PATH=/tmp/agraph-xtdb agraph sync project.edn
 ```
 
 ## Install
@@ -64,11 +70,11 @@ Embedding defaults:
 - OpenRouter default model: `openai/text-embedding-3-small`
 - OpenAI fallback vars: `AGRAPH_OPENAI_API_KEY`, `OPENAI_API_KEY`
 - OpenAI default model: `text-embedding-3-small`
-- `bb query --retriever auto` falls back to lexical retrieval when no API key is configured
+- `bb ask --retriever auto` falls back to lexical retrieval when no API key is configured
 
-Graph HTML reports and canonical JSON exports are written to `.dev/reports/` by
-default. Use `--out` to choose a path. The export contract is
-`agraph.graph/v1`, with top-level `schema`, `title`, `nodes`, and `edges`.
+Graph HTML reports and canonical JSON exports from `agraph view` are written to
+`.dev/reports/` by default. Use `--out` to choose a path. The export contract is
+`agraph.graph/v2`, with top-level `schema`, `title`, `nodes`, and `edges`.
 Visualization should consume that shape instead of defining renderer-specific
 export formats.
 
@@ -77,7 +83,7 @@ export formats.
 AGraph can index multiple repos as one project and derive a higher-level system
 graph from code dependencies plus config evidence. The graph is designed to
 emerge from durable facts: generated systems are neutral candidates until
-relationships, metadata, or an accepted overlay gives them project meaning.
+relationships, metadata, or accepted corrections give them project meaning.
 
 ```clojure
 ;; project.edn
@@ -89,20 +95,21 @@ relationships, metadata, or an accepted overlay gives them project meaning.
 ```
 
 ```sh
-agraph project inspect project.edn
-agraph project add-repo project.edn /path/to/another-repo --repo cli --role tooling --infer
-agraph project index project.edn
-agraph project infer project.edn
-agraph map propose project.edn --out agraph.map.json
-agraph map reject agraph.map.json external-api docs.xtdb.com --reason "Documentation reference"
-agraph project maintain project.edn --map agraph.map.json
-agraph graph systems --project sample --out .dev/reports/sample-systems.html
-agraph graph export systems --project sample --out .dev/reports/sample-systems.json
-agraph query "api gateway connections" --project sample --retriever lexical
-agraph docs candidates system:api-gateway --project sample
-agraph docs attach agraph.map.json system:api-gateway app:docs/api-gateway.md --role contract --heading "API Gateway"
-agraph context "api gateway connections" --project sample --budget 4000
-agraph cursor create "api gateway connections" --project sample --map agraph.map.json
+agraph sync inspect project.edn
+agraph sync add-repo project.edn /path/to/another-repo --repo cli --role tooling
+agraph sync project.edn --map agraph.map.json --check
+agraph sync coverage project.edn
+agraph sync project.edn --query-index
+agraph sync propose project.edn --out agraph.map.json
+agraph sync ignore external-api docs.xtdb.com --map agraph.map.json --reason "Documentation reference"
+agraph view systems --project sample --out .dev/reports/sample-systems.html
+agraph view systems --project sample --format json --out .dev/reports/sample-systems.json
+agraph ask "api gateway connections" --project sample --retriever lexical
+agraph sync docs candidates system:api-gateway --project sample
+agraph sync docs attach system:api-gateway app:docs/api-gateway.md --map agraph.map.json --role contract --heading "API Gateway"
+agraph explore create "api gateway connections" --project sample --map agraph.map.json
+agraph sync check project.edn --map agraph.map.json --enqueue
+agraph sync work list --status ready
 ```
 
 For workbench repos that wrap source repos in cached clones or task worktrees,
@@ -122,81 +129,110 @@ point the project at the workbench root instead of listing each repo:
 For ordinary project configs, repos can be folded in incrementally:
 
 ```sh
-agraph project add-repo project.edn /path/to/repo --repo billing-api --role application
-agraph project add-repo project.edn /path/to/cli --infer
+agraph sync add-repo project.edn /path/to/repo --repo billing-api --role application
+agraph sync add-repo project.edn /path/to/cli
+agraph sync project.edn
 ```
 
-`--infer` indexes only the added repo and then refreshes the project system
-graph. Without `--infer`, the command edits `project.edn` and prints the next
-index/infer/maintain commands.
+`sync add-repo` edits `project.edn` and prints the next sync command.
 
 ## Agent Jobs
 
-AGraph is organized around three jobs for coding agents:
+AGraph is organized around two jobs for coding agents:
 
-- Build: inspect the project config, index repos, infer the system graph, and
-  review the generated evidence. Commands: `agraph project inspect`, `agraph
-  project index`, `agraph project infer`, `agraph graph systems`, `agraph graph
-  clusters`, `agraph graph export systems`.
-- Query: use the graph while coding to answer dependency, ownership, and system
-  interaction questions. Commands: `agraph query`, `agraph graph query`,
-  `agraph context`, `agraph deps`, `agraph path`, `agraph docs for`.
-- Maintain: keep the graph aligned with code and architecture changes. Commands:
-  rerun `agraph project index`, rerun `agraph project infer`, use `agraph
-  project maintain --json` to get orphaned systems, noisy visible edges,
-  cluster bridges, likely false external APIs, and focused decision ids, then
-  update `agraph.map.json` with accepted corrections. Use `agraph docs audit`
-  to find stale or missing doc attachments. Maintain output includes graph-basis,
-  scale/noise ratios, top hubs, and fold-in actions so agents can make small
-  corrections during normal work instead of waiting for a full remap. Pass
-  `--map agraph.map.json` so accepted rejects are not reported again.
+- Sync: keep AGraph aligned with the codebase. Use `agraph sync` to index
+  concrete facts, refresh derived system candidates, check for drift, enqueue
+  bounded maintenance work, and record accepted corrections in `agraph.map.json`
+  or metadata.
+- Ask and explore: use `agraph ask` for one-shot graph questions and
+  `agraph explore` for longer investigations with a stable graph basis. Use
+  `agraph view` only when a rendered or exported graph slice helps the task.
 
 The system graph is intentionally evidence-first and emergent. Generic
 extractors capture bounded, project-agnostic facts: file types, code
 dependencies, manifests, config values, URLs, routes, ports, Kubernetes-ish
-resources, external API hosts, topology, and metrics. Generated system nodes are
-neutral candidates, not semantic claims derived from path-name rules or text
-matching. Graph exports derive salience-ranked semantic connections and clusters
-from this raw evidence. Use `--detail primary|expanded|evidence|raw` to choose
-how much of the graph to expose. Agents should use evidence to maintain
-`agraph.map.json`, which is the durable overlay for accepted system boundaries,
-rejected false positives, visibility overrides, and agent-discovered
-project-level relationships.
+resources, container image producer/consumer evidence from Dockerfiles,
+deployment manifests, and shell image build/runtime scripts, external API hosts,
+topology, and metrics. Generated system nodes are neutral candidates, not
+semantic claims derived from path-name rules or text matching. View exports
+derive salience-ranked semantic connections and clusters from this raw evidence,
+including `deploys` edges when a built image artifact is consumed by deployment
+manifests or script-level runtime configuration. Use `--detail
+primary|expanded|evidence|raw` to choose how much of the graph to expose.
+Agents should use evidence to maintain
+`agraph.map.json`, which is the durable correction layer for accepted system
+boundaries, rejected false positives, visibility overrides, and
+agent-discovered project-level relationships.
 
 Mechanical code should stay small and extensible. Adding a file type should
 mean adding a scanner kind and extractor adapter that emits canonical graph
 rows. Open-ended semantic judgment, merging, classification, and
-use-case-specific meaning belong in human or LLM-backed overlays where the
+use-case-specific meaning belong in human or LLM-backed corrections where the
 project state space is too large for fixed rules.
 
 Agent usage should follow progressive disclosure. A fresh agent should start
-with `agraph project inspect`, `agraph project maintain`, and a compact system
-graph, then drill into `agraph query`, `agraph deps`, `agraph path`, graph
-slices, and evidence only for the subsystem or task it is actively working on.
+with `agraph sync inspect`, `agraph sync check`, and a compact system view, then
+drill into `agraph ask`, `agraph explore`, graph slices, and evidence only for
+the subsystem or task it is actively working on.
 Avoid dumping the full graph unless the task explicitly needs broad inventory.
 Use `--detail primary` by default; move to `expanded`, then `evidence`, then
 `raw` only when the current task needs more proof.
 During coding tasks, agents should update the map when research reveals a stale
 classification, missing connection, orphaned system, or false external API.
-If classifier help is needed, use `agraph classify decision <id> --project ID`
-on one maintenance decision from `agraph project maintain --json`; do not send
-the whole graph for classification.
-Use `agraph context` when handing graph evidence to an agent prompt; it returns a
-budgeted packet of relevant entities, edges, snippets, warnings, and drilldown
-commands instead of the whole graph.
-Use `agraph cursor` for longer investigations where an agent should keep a
+Use `agraph sync check --enqueue` when another agent, model, or human should
+pick up bounded maintenance work from the filesystem queue. Maintenance
+decisions and infrastructure review packets use the same `sync work` flow.
+When `sync` is run with `--check` or `--enqueue`, it uses a graph-maintenance
+index profile by default: files, graph nodes, edges, diagnostics, and bounded
+file facts are updated, while heavyweight code/doc search rows are skipped. Add
+`--query-index` to the same command when the run should also refresh searchable
+chunks for `agraph ask`, `agraph explore`, embeddings, and context packets.
+Use `agraph sync coverage project.edn` to audit source type support across the
+project before adding a parser or changing scanner rules. The report separates
+supported files, unsupported extensions, intentionally ignored lockfiles, active
+extractor versions, and indexed diagnostics; `--json` emits the stable
+`agraph.source-coverage/v1` shape for smoke reports or CI.
+Use `agraph ask --json` when handing graph evidence to an agent prompt; it
+returns a budgeted packet of relevant entities, edges, snippets, warnings, and
+drilldown commands instead of the whole graph.
+Use `agraph explore` for longer investigations where an agent should keep a
 stable graph basis and progressively call `show`, `open`, `expand`, `docs`, and
-`search` against compact cursor packets.
+`search` against compact packets.
+
+## Queue Handoff
+
+The queue is a local JSON handoff contract, not a model runner. AGraph writes
+queue items under `.dev/agraph/queue/ready`, agents claim them into `claimed`,
+and completed items move to `done` with a result payload.
+
+```sh
+agraph sync check project.edn --map agraph.map.json --enqueue
+agraph sync work list --status ready --project sample
+agraph sync work show queue:abc123
+agraph sync work pull --project sample --agent codex --lease-minutes 30
+agraph sync work complete queue:abc123 --result result.json
+agraph sync work apply queue:abc123 --map agraph.map.json
+agraph sync work release queue:abc123 --reason "needs broader scope"
+```
+
+Queue item schema is `agraph.queue.item/v1`. The embedded `payload` is left
+unchanged so the consumer can be Codex, another LLM, a script, CI, or a human
+review tool. Semantic results should come back as explicit JSON patches or
+findings. `sync work complete` records that result on the queue item. `sync work
+apply` is the explicit mutation step for result schemas AGraph can validate; the
+first supported apply path is `agraph.infra.review-result/v1`, which can add or
+override reviewed system-map edges in `agraph.map.json`.
 
 ## Development
 
 See [docs/dependencies.md](docs/dependencies.md) and
 [docs/distribution.md](docs/distribution.md). The canonical graph export schema
 is documented in [docs/graph-export.md](docs/graph-export.md). The editable
-system map overlay is documented in [docs/system-map.md](docs/system-map.md).
+system map correction layer is documented in [docs/system-map.md](docs/system-map.md).
 Context packets and doc attachments are documented in
 [docs/context.md](docs/context.md). XTDB valid-time storage and read contexts are
-documented in [docs/bitemporal-core.md](docs/bitemporal-core.md).
+documented in [docs/bitemporal-core.md](docs/bitemporal-core.md). Issue replay
+benchmarking is documented in [docs/benchmarking.md](docs/benchmarking.md).
 
 ```sh
 bb test

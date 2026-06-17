@@ -2,4 +2,7 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec "$SCRIPT_DIR/agraph" mcp "$@"
+REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+cd "$REPO_DIR"
+exec clojure -M:run -m agraph.mcp "$@"

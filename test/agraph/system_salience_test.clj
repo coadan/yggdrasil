@@ -2,6 +2,7 @@
   (:require [agraph.system.cluster :as cluster]
             [agraph.system.decision-classifier :as decision-classifier]
             [agraph.system.salience :as salience]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (defn- node
@@ -89,3 +90,19 @@
     (is (= "reject" (:recommendation result)))
     (is (re-find #"maintenance-decision:123" (-> @messages* second :content)))
     (is (not (re-find #"\"candidates\"" (-> @messages* second :content))))))
+
+(deftest decision-packet-includes-explicit-allowed-actions
+  (let [packet (decision-classifier/decision-packet
+                {:id "maintenance-decision:123"
+                 :kind :unclustered-system
+                 :target "system:fixture:api"})]
+    (is (= ["accept-system"
+            "reject-system"
+            "set-system-kind"
+            "add-edge"
+            "set-edge-visibility"
+            "reject-external-api"
+            "none"]
+           (:allowedActions packet)))
+    (is (str/includes? (-> packet :messages second :content)
+                       "\"allowedActions\""))))

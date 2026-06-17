@@ -14,7 +14,8 @@
     "pyproject.toml"})
 
 (def source-like-kinds
-  #{:code :go :rust :edn :config :yaml :helm :compose :docker :manifest})
+  #{:code :go :python :rust :edn :config :yaml :helm :compose :docker :manifest
+    :shell})
 
 (defn path-parts
   [path]

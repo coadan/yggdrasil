@@ -1,11 +1,31 @@
 {:tasks
  {:requires ([babashka.process :refer [shell]])
 
-  index {:doc "Index a repo. Usage: bb index <repo-path> [--dry-run]"
+  sync {:doc "Sync AGraph with a project. Usage: bb sync <project.edn> [--check] [--enqueue] [--query-index]"
+        :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "sync"
+                     *command-line-args*)}
+
+  ask {:doc "Ask the current graph one question. Usage: bb ask \"text\" [--project ID]"
+       :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "ask"
+                    *command-line-args*)}
+
+  explore {:doc "Progressively explore the graph. Usage: bb explore create|show|open|expand|docs|search ..."
+           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "explore"
+                        *command-line-args*)}
+
+  view {:doc "Render or export graph slices. Usage: bb view overview|deps|query|systems ..."
+        :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "view"
+                     *command-line-args*)}
+
+  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|run|report|show <benchmark.edn>"
+         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "bench"
+                      *command-line-args*)}
+
+  index {:doc "Compatibility: index a repo. Usage: bb index <repo-path> [--dry-run]"
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "index"
                       *command-line-args*)}
 
-  project {:doc "Project commands. Usage: bb project inspect|index|infer|maintain|add-repo <project.edn>"
+  project {:doc "Compatibility: project commands. Prefer bb sync."
            :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "project"
                         *command-line-args*)}
 
@@ -17,7 +37,11 @@
             :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "classify"
                          *command-line-args*)}
 
-  query {:doc "Search indexed graph. Usage: bb query \"text\" [--limit N]"
+  queue {:doc "Compatibility: filesystem queue commands. Prefer bb sync work."
+         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "queue"
+                      *command-line-args*)}
+
+  query {:doc "Compatibility: search indexed graph. Prefer bb ask."
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "query"
                       *command-line-args*)}
 
@@ -25,23 +49,23 @@
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "embed"
                       *command-line-args*)}
 
-  graph {:doc "Write HTML graph view. Usage: bb graph overview|deps|query ..."
+  graph {:doc "Compatibility: write graph view. Prefer bb view."
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "graph"
                       *command-line-args*)}
 
-  cursor {:doc "Explore graph with stable cursors. Usage: bb cursor create|show|open|expand|docs|search ..."
+  cursor {:doc "Compatibility: cursor packets. Prefer bb explore."
           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "cursor"
                        *command-line-args*)}
 
-  deps {:doc "Show graph dependencies for a node/namespace."
+  deps {:doc "Compatibility: show graph dependencies. Prefer bb view deps or bb ask."
         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "deps"
                      *command-line-args*)}
 
-  path {:doc "Find graph path. Usage: bb path <source> <target>"
+  path {:doc "Compatibility: find graph path."
         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "path"
                      *command-line-args*)}
 
-  report {:doc "Print graph report."
+  report {:doc "Compatibility: print graph report."
           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "report"
                        *command-line-args*)}
 

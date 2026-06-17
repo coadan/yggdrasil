@@ -13,6 +13,7 @@
    [:ext string?]
    [:kind keyword?]
    [:content-sha string?]
+   [:extractor-fingerprint {:optional true} string?]
    [:mtime-ms int?]
    [:size-bytes int?]
    [:active? boolean?]
@@ -65,6 +66,22 @@
    [:content-sha {:optional true} string?]
    [:source-line {:optional true} int?]
    [:end-line {:optional true} int?]
+   [:active? boolean?]
+   [:run-id string?]])
+
+(def file-fact-row
+  [:map
+   [:xt/id string?]
+   [:project-id {:optional true} string?]
+   [:repo-id {:optional true} string?]
+   [:file-id string?]
+   [:path string?]
+   [:file-kind {:optional true} keyword?]
+   [:kind keyword?]
+   [:label string?]
+   [:normalized-value string?]
+   [:source-line int?]
+   [:confidence number?]
    [:active? boolean?]
    [:run-id string?]])
 

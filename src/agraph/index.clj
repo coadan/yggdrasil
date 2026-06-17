@@ -1,6 +1,7 @@
 (ns agraph.index
   "Index orchestration."
   (:require [agraph.extract :as extract]
+            [agraph.file-facts :as file-facts]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
             [agraph.search-doc :as search-doc]
@@ -119,6 +120,7 @@
    :ext (:ext file)
    :kind (:kind file)
    :content-sha (:content-sha file)
+   :extractor-fingerprint (:extractor-fingerprint file)
    :mtime-ms (long (:mtime-ms file))
    :size-bytes (long (:size-bytes file))
    :active? true
@@ -128,27 +130,84 @@
   "High-confidence relations persisted by default."
   #{:defines :imports :requires :declares-module :uses})
 
+(def indexing-contract-version
+  "agraph.index/v4")
+
+(def index-profiles
+  "Supported persistence profiles.
+
+  `:query` keeps the full code/doc search surface. `:graph` keeps only rows
+  needed for graph maintenance and system inference."
+  #{:graph :query})
+
+(def default-index-profile
+  :query)
+
+(defn normalize-index-profile
+  [profile]
+  (let [profile (keyword (or profile default-index-profile))]
+    (when-not (contains? index-profiles profile)
+      (throw (ex-info "Unknown index profile."
+                      {:profile profile
+                       :supported (sort index-profiles)})))
+    profile))
+
+(defn extractor-fingerprint
+  "Return the persisted extractor fingerprint for a file record.
+
+  The value includes extractor dispatch plus index-time relation filtering, so
+  unchanged files can be reindexed when either boundary changes."
+  ([file] (extractor-fingerprint file (or (:index-profile file) default-index-profile)))
+  ([file index-profile]
+   (let [index-profile (normalize-index-profile index-profile)]
+     (str "extractor:"
+          (hash/short-hash [indexing-contract-version
+                            index-profile
+                            (extract/extractor-fingerprint file)
+                            (sort indexed-relations)])))))
+
+(defn- attach-extractor-fingerprint
+  [index-profile file]
+  (let [file (assoc file :index-profile index-profile)]
+    (assoc file :extractor-fingerprint (extractor-fingerprint file))))
+
+(defn- profile-extraction
+  [extraction index-profile]
+  (case (normalize-index-profile index-profile)
+    :query extraction
+    :graph (assoc extraction :chunks [])))
+
 (defn- indexable-extraction
-  [run-id project-id repo-id extraction]
+  [run-id project-id repo-id index-profile file extraction]
   (let [annotate #(assoc % :project-id project-id :repo-id repo-id)
         filtered (-> extraction
+                     (profile-extraction index-profile)
                      (update :nodes #(mapv annotate %))
                      (update :edges #(mapv annotate %))
                      (update :chunks #(mapv annotate %))
                      (update :diagnostics #(mapv annotate %))
-                     (update :edges #(filterv (comp indexed-relations :relation) %)))]
-    (assoc filtered :search-docs (search-doc/build-search-docs run-id filtered))))
+                     (update :edges #(filterv (comp indexed-relations :relation) %)))
+        search-docs (case (normalize-index-profile index-profile)
+                      :query (search-doc/build-search-docs run-id filtered)
+                      :graph [])]
+    (assoc filtered
+           :file-facts (file-facts/facts-for-file run-id project-id repo-id file)
+           :search-docs search-docs)))
 
 (defn index-repo!
   "Index root into XTDB. Returns run summary."
-  [xtdb root {:keys [dry-run? project-id repo-id repo-role]
+  [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile]
               :or {dry-run? false
                    project-id default-project-id
                    repo-id default-repo-id
-                   repo-role :repository}}]
+                   repo-role :repository
+                   index-profile default-index-profile}}]
   (let [started (now-ms)
+        index-profile (normalize-index-profile index-profile)
         root-path (fs/canonical-path root)
-        files (mapv #(scoped-file project-id repo-id %) (fs/scan-files root-path))
+        files (mapv #(attach-extractor-fingerprint index-profile
+                                                   (scoped-file project-id repo-id %))
+                    (fs/scan-files root-path))
         snapshot (source-snapshot project-id repo-id root-path started files)
         valid-from (:basis-instant snapshot)
         run-id (run-id root-path started project-id repo-id)
@@ -159,6 +218,7 @@
                  :repo-id repo-id
                  :repo-root root-path
                  :repo-role repo-role
+                 :index-profile index-profile
                  :git-sha (git-sha root-path)
                  :tree-sha (:tree-sha snapshot)
                  :status :running
@@ -170,6 +230,7 @@
                          :nodes 0
                          :edges 0
                          :chunks 0
+                         :file-facts 0
                          :search-docs 0
                          :diagnostics 0
                          :files-deleted 0}}]
@@ -177,7 +238,11 @@
       (assoc initial
              :status :dry-run
              :finished-at-ms (now-ms)
-             :files (mapv #(select-keys % [:path :kind :content-sha]) files))
+             :files (mapv #(select-keys % [:path
+                                           :kind
+                                           :content-sha
+                                           :extractor-fingerprint])
+                          files))
       (do
         (store/commit-run! xtdb (assoc initial :xt/id run-id))
         (store/commit-temporal-bundle!
@@ -198,7 +263,9 @@
               planned (reduce
                        (fn [acc file]
                          (let [existing (get existing-by-path (:path file))]
-                           (if (= (:content-sha existing) (:content-sha file))
+                           (if (and (= (:content-sha existing) (:content-sha file))
+                                    (= (:extractor-fingerprint existing)
+                                       (:extractor-fingerprint file)))
                              (update acc :skipped inc)
                              (update acc :changed conj
                                      {:file-row (->file-row run-id
@@ -213,6 +280,8 @@
                                                    run-id
                                                    project-id
                                                    repo-id
+                                                   index-profile
+                                                   file
                                                    (extract/extract-file run-id file))
                                       :existing? (boolean existing)
                                       :valid-from valid-from}))))
@@ -227,6 +296,7 @@
                           (update :nodes + (:nodes result))
                           (update :edges + (:edges result))
                           (update :chunks + (:chunks result))
+                          (update :file-facts + (:file-facts result))
                           (update :search-docs + (:search-docs result))
                           (update :diagnostics + (:diagnostics result)))
               finished (assoc initial

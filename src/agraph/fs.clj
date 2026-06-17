@@ -6,8 +6,9 @@
             [clojure.string :as str]))
 
 (def supported-extensions
-  #{".clj" ".cljc" ".cljs" ".edn" ".go" ".gradle" ".json" ".md" ".rs" ".toml"
-    ".yaml" ".yml" ".xml"})
+  #{".clj" ".cljc" ".cljs" ".css" ".cjs" ".edn" ".go" ".gradle" ".js"
+    ".jsx" ".json" ".md" ".mjs" ".py" ".rs" ".scss" ".sh" ".sql" ".toml"
+    ".ts" ".tsx" ".yaml" ".yml" ".xml"})
 
 (def supported-filenames
   #{"dockerfile" "docker-compose.yml" "docker-compose.yaml"
@@ -54,7 +55,13 @@
       (case (extension path)
         (".clj" ".cljc" ".cljs") :code
         ".go" :go
+        (".js" ".jsx" ".mjs" ".cjs") :javascript
+        (".ts" ".tsx") :typescript
+        ".py" :python
         ".rs" :rust
+        (".css" ".scss") :style
+        ".sh" :shell
+        ".sql" :sql
         ".edn" :edn
         ".toml" :config
         (".yaml" ".yml") :yaml
@@ -63,6 +70,19 @@
         ".gradle" :config
         ".md" :doc
         nil))))
+
+(defn ignored-filename?
+  "Return true when a file name is intentionally excluded from indexing."
+  [path]
+  (contains? ignored-filenames
+             (str/lower-case (.getName (io/file path)))))
+
+(defn supported-path?
+  "Return true when path has a supported extension or exact supported filename."
+  [path]
+  (let [filename (str/lower-case (.getName (io/file path)))]
+    (or (contains? supported-extensions (extension path))
+        (contains? supported-filenames filename))))
 
 (defn relative-path
   "Return slash-normalized relative path from root to file."
@@ -94,14 +114,29 @@
      :size-bytes (.length f)
      :active? true}))
 
+(defn- file-record-for-relative-path
+  "Build file metadata when the repo-relative path is already known."
+  [root rel]
+  (let [file (io/file root rel)
+        text (read-file file)
+        kind (file-kind file)
+        f (io/file file)]
+    {:file-id (str "file:" rel)
+     :path rel
+     :absolute-path (.getPath (.getAbsoluteFile file))
+     :ext (extension file)
+     :kind kind
+     :content text
+     :content-sha (str "sha256:" (hash/sha256-hex text))
+     :mtime-ms (.lastModified f)
+     :size-bytes (.length f)
+     :active? true}))
+
 (defn- supported-file?
   [file]
   (and (.isFile file)
-       (not (contains? ignored-filenames
-                       (str/lower-case (.getName file))))
-       (or (contains? supported-extensions (extension file))
-           (contains? supported-filenames
-                      (str/lower-case (.getName file))))))
+       (not (ignored-filename? file))
+       (supported-path? file)))
 
 (defn- ignored-path?
   [rel-path]
@@ -109,16 +144,11 @@
     (or (some ignored-dirs parts)
         (some #(str/starts-with? % ".") parts))))
 
-(defn- ignored-dir-path?
-  [rel-path]
-  (let [parts (str/split rel-path #"/")]
-    (some ignored-dirs parts)))
-
-(defn- git-indexable-files
+(defn- git-candidate-paths
   [root]
   (let [{:keys [exit out]} (shell/sh "git"
                                      "-C"
-                                     (canonical-path root)
+                                     (.getPath root)
                                      "ls-files"
                                      "--cached"
                                      "--others"
@@ -126,21 +156,64 @@
     (when (zero? exit)
       (->> (str/split-lines out)
            (remove str/blank?)
-           (remove ignored-dir-path?)
-           (map #(io/file root %))
-           (filter supported-file?)
+           (remove ignored-path?)
+           (filter #(.isFile (io/file root %)))
            vec))))
+
+(defn- filesystem-candidate-paths
+  [root]
+  (->> (file-seq root)
+       (filter #(.isFile %))
+       (keep (fn [file]
+               (let [rel (relative-path root file)]
+                 (when-not (ignored-path? rel)
+                   rel))))
+       vec))
+
+(defn- candidate-paths
+  [root]
+  (or (seq (git-candidate-paths root))
+      (filesystem-candidate-paths root)))
+
+(defn- file-coverage-row
+  [root rel]
+  (let [file (io/file root rel)
+        ignored? (ignored-filename? file)
+        supported? (and (not ignored?)
+                        (supported-path? file))]
+    (cond-> {:path rel
+             :ext (extension rel)
+             :filename (str/lower-case (.getName file))
+             :supported? supported?
+             :size-bytes (.length file)}
+      supported? (assoc :kind (file-kind rel))
+      ignored? (assoc :skip-reason :ignored-filename)
+      (and (not ignored?) (not supported?)) (assoc :skip-reason :unsupported-extension))))
+
+(defn scan-file-coverage
+  "Return support coverage rows for non-ignored files under root.
+
+  Rows do not include file contents. Supported rows use the same path support
+  rules as `scan-files`; skipped rows explain unsupported or intentionally
+  ignored filenames."
+  [root]
+  (let [root-file (.getCanonicalFile (io/file root))]
+    (when-not (.isDirectory root-file)
+      (throw (ex-info "Index root is not a directory." {:root root})))
+    {:root (.getPath root-file)
+     :files (->> (candidate-paths root-file)
+                 (mapv #(file-coverage-row root-file %))
+                 (sort-by :path)
+                 vec)}))
 
 (defn scan-files
   "Return supported files under root with content metadata."
   [root]
-  (let [root-file (io/file root)]
+  (let [root-file (.getCanonicalFile (io/file root))]
     (when-not (.isDirectory root-file)
       (throw (ex-info "Index root is not a directory." {:root root})))
-    (->> (or (seq (git-indexable-files root-file))
-             (->> (file-seq root-file)
-                  (filter supported-file?)
-                  (remove #(ignored-path? (relative-path root-file %)))))
-         (map #(file-record root-file %))
+    (->> (candidate-paths root-file)
+         (filter #(supported-file? (io/file root-file %)))
+         (map #(file-record-for-relative-path root-file %))
          (sort-by :path)
          vec)))

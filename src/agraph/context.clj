@@ -4,6 +4,7 @@
             [agraph.map :as graph-map]
             [agraph.query :as query]
             [agraph.text :as text]
+            [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.string :as str]))
 
@@ -27,6 +28,9 @@
 
 (def default-retrieval-limit
   40)
+
+(def unsupported-planes
+  [:activity :remote-work :session-history :validation-history])
 
 (def role-weight
   {"overview" 0.35
@@ -299,16 +303,17 @@
    :defaultDetail "primary"})
 
 (defn- base-packet
-  [query-text budget graph-data entities edges warnings drilldowns]
-  {:schema schema
-   :query query-text
-   :graph (graph-summary graph-data)
-   :budget {:requested budget}
-   :entities entities
-   :edges edges
-   :docs []
-   :warnings warnings
-   :drilldowns drilldowns})
+  [query-text budget graph-data entities edges warnings drilldowns answerability]
+  (cond-> {:schema schema
+           :query query-text
+           :graph (graph-summary graph-data)
+           :budget {:requested budget}
+           :entities entities
+           :edges edges
+           :docs []
+           :warnings warnings
+           :drilldowns drilldowns}
+    answerability (assoc :answerability answerability)))
 
 (defn- add-doc-with-budget
   [packet doc budget]
@@ -339,10 +344,179 @@
     (and path (graph-map/file-exists? path)) (graph-map/read-map path)
     :else (graph-map/empty-map project-id)))
 
+(defn- active-row?
+  [row]
+  (not= false (:active? row)))
+
+(defn- scope-match?
+  [{:keys [project-id repo-id]} row]
+  (and (or (str/blank? (str project-id)) (= project-id (:project-id row)))
+       (or (str/blank? (str repo-id)) (= repo-id (:repo-id row)))))
+
+(defn- scoped-active-count
+  [xtdb table {:keys [project-id repo-id read-context]}]
+  (->> (store/all-rows xtdb table (store/read-context read-context))
+       (filter active-row?)
+       (filter #(scope-match? {:project-id project-id :repo-id repo-id} %))
+       count))
+
+(defn- overlay-counts
+  [overlay]
+  {:map-systems (count (:systems overlay))
+   :map-docs (count (:docs overlay))
+   :map-edges (count (:edges overlay))
+   :map-rejects (count (:reject overlay))})
+
+(defn- capability-counts
+  [xtdb overlay {:keys [project-id repo-id read-context]}]
+  (merge
+   {:files (scoped-active-count xtdb (:files store/tables)
+                                {:project-id project-id
+                                 :repo-id repo-id
+                                 :read-context read-context})
+    :nodes (count (filter active-row?
+                          (query/all-nodes xtdb {:project-id project-id
+                                                 :repo-id repo-id
+                                                 :read-context read-context})))
+    :edges (count (filter active-row?
+                          (query/all-edges xtdb {:project-id project-id
+                                                 :repo-id repo-id
+                                                 :read-context read-context})))
+    :chunks (count (filter active-row?
+                           (query/all-chunks xtdb {:project-id project-id
+                                                   :repo-id repo-id
+                                                   :read-context read-context})))
+    :search-docs (count (query/all-search-docs xtdb {:project-id project-id
+                                                     :repo-id repo-id
+                                                     :read-context read-context}))
+    :embeddings (count (query/all-embeddings xtdb {:project-id project-id
+                                                   :repo-id repo-id
+                                                   :read-context read-context}))
+    :system-nodes (count (query/all-system-nodes xtdb {:project-id project-id
+                                                       :read-context read-context}))
+    :system-edges (count (query/all-system-edges xtdb {:project-id project-id
+                                                       :read-context read-context}))
+    :diagnostics (count (filter active-row?
+                                (query/all-diagnostics xtdb {:project-id project-id
+                                                             :repo-id repo-id
+                                                             :read-context read-context})))}
+   (overlay-counts overlay)))
+
+(defn- retrieval-summary
+  [{:keys [retriever embedding-client]}]
+  (let [requested (keyword (or retriever :auto))
+        effective (case requested
+                    :auto (if embedding-client :hybrid :lexical)
+                    requested)
+        fallback? (and (= :auto requested) (= :lexical effective))]
+    (cond-> {:requested requested
+             :effective effective
+             :fallback? fallback?}
+      fallback? (assoc :reason "No embedding client was available."))))
+
+(defn- available-planes
+  [counts]
+  (cond-> []
+    (pos? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
+    (pos? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
+    (pos? (:embeddings counts)) (conj :embeddings)
+    (pos? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
+    (pos? (+ (:map-systems counts)
+             (:map-docs counts)
+             (:map-edges counts)
+             (:map-rejects counts))) (conj :map-overlay)))
+
+(defn- missing-planes
+  [counts]
+  (cond-> []
+    (zero? (:files counts)) (conj :source-files)
+    (zero? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
+    (zero? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
+    (zero? (:embeddings counts)) (conj :embeddings)
+    (zero? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)))
+
+(defn- weak-planes
+  [counts {:keys [entity-count doc-count]}]
+  (cond-> []
+    (and (pos? (+ (:system-nodes counts) (:system-edges counts)))
+         (zero? entity-count))
+    (conj :system-graph)
+
+    (and (pos? (:search-docs counts))
+         (zero? doc-count))
+    (conj :docs)))
+
+(defn- answerability-warnings
+  [counts retrieval weak]
+  (cond-> []
+    (and (= :auto (:requested retrieval)) (:fallback? retrieval))
+    (conj "No embedding client was available; retrieval used lexical fallback.")
+
+    (zero? (:search-docs counts))
+    (conj "No search docs are indexed; context retrieval is limited.")
+
+    (zero? (+ (:system-nodes counts) (:system-edges counts)))
+    (conj "No system graph rows are indexed for this project.")
+
+    (some #{:docs} weak)
+    (conj "Search docs are indexed, but no docs matched this query.")
+
+    (zero? (:embeddings counts))
+    (conj "No embeddings are indexed for this project.")
+
+    true
+    (conj "Activity, remote work, session history, and validation history are not modeled in the current graph.")))
+
+(defn- next-steps
+  [counts retrieval]
+  (->> (cond-> []
+         (zero? (:files counts))
+         (conj "Run agraph sync <project.edn>")
+
+         (zero? (:search-docs counts))
+         (conj "Run agraph sync <project.edn> --query-index")
+
+         (and (= :auto (:requested retrieval)) (:fallback? retrieval))
+         (conj "Run agraph embed --provider openrouter")
+
+         (zero? (+ (:system-nodes counts) (:system-edges counts)))
+         (conj "Run agraph sync <project.edn>")
+
+         (pos? (:diagnostics counts))
+         (conj "Run agraph sync coverage <project.edn> --json"))
+       distinct
+       (take 5)
+       vec))
+
+(defn- answerability-status
+  [missing weak retrieval {:keys [entity-count doc-count]}]
+  (cond
+    (and (zero? entity-count) (zero? doc-count)) :empty
+    (or (:fallback? retrieval)
+        (seq weak)
+        (some #{:source-files :source-graph :docs} missing)) :limited
+    :else :ready))
+
+(defn- answerability
+  [xtdb overlay opts match-counts]
+  (let [counts (capability-counts xtdb overlay opts)
+        retrieval (retrieval-summary opts)
+        missing (missing-planes counts)
+        weak (weak-planes counts match-counts)]
+    {:status (answerability-status missing weak retrieval match-counts)
+     :available (available-planes counts)
+     :missing missing
+     :weak weak
+     :unsupported unsupported-planes
+     :counts counts
+     :retrieval retrieval
+     :warnings (answerability-warnings counts retrieval weak)
+     :next (next-steps counts retrieval)}))
+
 (defn context-packet
   "Return compact graph/doc context for an agent query."
   [xtdb query-text {:keys [budget entity-limit edge-limit doc-limit snippet-chars
-                           retriever embedding-client project-id map-path
+                           retriever embedding-client project-id repo-id map-path
                            map-overlay min-confidence read-context]
                     :or {budget default-budget
                          entity-limit default-entity-limit
@@ -363,6 +537,7 @@
                                        :retriever retriever
                                        :embedding-client embedding-client
                                        :project-id project-id
+                                       :repo-id repo-id
                                        :read-context read-context})
         graph-data (graph/system-graph xtdb
                                        project-id
@@ -372,6 +547,7 @@
                                         :map-overlay map-overlay
                                         :read-context read-context})
         chunks (vec (query/all-chunks xtdb {:project-id project-id
+                                            :repo-id repo-id
                                             :read-context read-context}))
         entities (select-entities query-tokens results graph-data entity-limit)
         edges (select-edges query-tokens entities graph-data edge-limit)
@@ -388,8 +564,24 @@
                   distinct-docs
                   (sort-by (juxt (comp - :score) :role #(get-in % [:source :path])))
                   (take doc-limit)
-                  vec)]
-    (fit-budget (base-packet query-text budget graph-data entities edges warnings drilldowns)
+                  vec)
+        answerability (answerability xtdb
+                                     overlay
+                                     {:project-id project-id
+                                      :repo-id repo-id
+                                      :read-context read-context
+                                      :retriever retriever
+                                      :embedding-client embedding-client}
+                                     {:entity-count (count entities)
+                                      :doc-count (count docs)})]
+    (fit-budget (base-packet query-text
+                             budget
+                             graph-data
+                             entities
+                             edges
+                             warnings
+                             drilldowns
+                             answerability)
                 docs
                 budget)))
 

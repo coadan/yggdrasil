@@ -33,6 +33,26 @@
           (is (pos? (get-in report [:counts :nodes])))
           (is (pos? (get-in report [:counts :search-docs]))))))))
 
+(deftest graph-profile-skips-query-rows-and-query-profile-restores-them
+  (let [xtdb-path (temp-dir "agraph-index-profile-xtdb")
+        repo (.getPath (io/file "test/fixtures/sample-repo"))]
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [graph-summary (index/index-repo! xtdb repo {:index-profile :graph})
+              graph-report (query/report xtdb)]
+          (is (= :graph (:index-profile graph-summary)))
+          (is (pos? (get-in graph-summary [:stats :nodes])))
+          (is (zero? (get-in graph-summary [:stats :chunks])))
+          (is (zero? (get-in graph-summary [:stats :search-docs])))
+          (is (zero? (get-in graph-report [:counts :search-docs])))
+          (let [query-summary (index/index-repo! xtdb repo {:index-profile :query})
+                query-report (query/report xtdb)]
+            (is (= :query (:index-profile query-summary)))
+            (is (pos? (get-in query-summary [:stats :files-indexed])))
+            (is (pos? (get-in query-summary [:stats :chunks])))
+            (is (pos? (get-in query-summary [:stats :search-docs])))
+            (is (pos? (get-in query-report [:counts :search-docs])))))))))
+
 (deftest report-respects-project-scope-and-readable-missing-targets
   (store/with-node (temp-dir "agraph-report-scope-xtdb")
     (fn [xtdb]
@@ -76,13 +96,17 @@
     (spit (io/file repo "package-lock.json") "{\"packages\":{}}")
     (.mkdirs (io/file repo ".clj-kondo"))
     (spit (io/file repo ".clj-kondo" "config.edn") "{:linters {}}")
+    (.mkdirs (io/file repo ".workbench" "repos" "nested" "src"))
+    (spit (io/file repo ".workbench" "repos" "nested" "src" "ignored.clj")
+          "(ns nested.ignored)")
     (is (zero? (:exit (shell/sh "git" "-C" (.getPath repo) "init"))))
     (let [paths (set (map :path (fs/scan-files repo)))]
       (is (contains? paths "src/kept.clj"))
       (is (not (contains? paths "src/scratch.secret.edn")))
       (is (not (contains? paths "ignored/ignored.clj")))
       (is (not (contains? paths "package-lock.json")))
-      (is (not (contains? paths ".clj-kondo/config.edn"))))))
+      (is (not (contains? paths ".clj-kondo/config.edn")))
+      (is (not (contains? paths ".workbench/repos/nested/src/ignored.clj"))))))
 
 (deftest index-writes-temporal-source-snapshots
   (let [xtdb-path (temp-dir "agraph-index-temporal-xtdb")
@@ -126,3 +150,25 @@
                 (is (nil? (query/find-node xtdb
                                            "demo.b"
                                            {:read-context {:valid-at second-valid}})))))))))))
+
+(deftest index-skips-by-content-and-extractor-fingerprint
+  (let [xtdb-path (temp-dir "agraph-index-fingerprint-xtdb")
+        repo (io/file (temp-dir "agraph-index-fingerprint-repo"))
+        src (io/file repo "src")]
+    (.mkdirs src)
+    (spit (io/file src "demo.clj") "(ns demo)\n(defn value [] 1)\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [first-summary (index/index-repo! xtdb (.getPath repo) {})
+              second-summary (index/index-repo! xtdb (.getPath repo) {})
+              row (store/file-row xtdb "src/demo.clj")]
+          (is (= 1 (get-in first-summary [:stats :files-indexed])))
+          (is (= 1 (get-in second-summary [:stats :files-skipped])))
+          (is (string? (:extractor-fingerprint row)))
+          (with-redefs [index/extractor-fingerprint (fn [_]
+                                                      "extractor:test-changed")]
+            (let [third-summary (index/index-repo! xtdb (.getPath repo) {})
+                  changed-row (store/file-row xtdb "src/demo.clj")]
+              (is (= 1 (get-in third-summary [:stats :files-indexed])))
+              (is (= "extractor:test-changed"
+                     (:extractor-fingerprint changed-row))))))))))

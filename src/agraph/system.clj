@@ -1,8 +1,7 @@
 (ns agraph.system
   "Derived project system graph inference."
-  (:require [agraph.fs :as fs]
-            [agraph.hash :as hash]
-            [agraph.index :as index]
+  (:require [agraph.hash :as hash]
+            [agraph.infra-review :as infra-review]
             [agraph.map :as graph-map]
             [agraph.search-doc :as search-doc]
             [agraph.system.candidate :as candidate]
@@ -122,10 +121,39 @@
       {:id (or (:repo-id row) "repo")
        :role (or (:repo-role row) :repository)}))
 
+(defn- candidate-index
+  [candidates]
+  {:repo (some #(when (= "repo" (:system-key %)) %) candidates)
+   :path-prefixes (->> candidates
+                       (filter :path-prefix)
+                       (sort-by (comp - count :path-prefix))
+                       vec)})
+
+(defn- candidate-indexes
+  [candidates-by-repo]
+  (into {}
+        (map (fn [[repo-id candidates]]
+               [repo-id (candidate-index candidates)]))
+        candidates-by-repo))
+
+(defn- indexed-candidate-for-path
+  [repo candidate-index path]
+  (or (some #(when (candidate/path-under-prefix? path (:path-prefix %)) %)
+            (:path-prefixes candidate-index))
+      (:repo candidate-index)
+      (candidate/repo-candidate repo)))
+
+(defn- candidate-for-row
+  [repo-by-id candidate-index-by-repo row]
+  (let [repo (repo-for-row repo-by-id row)
+        spec (indexed-candidate-for-path repo
+                                         (get candidate-index-by-repo (:repo-id row))
+                                         (:path row))]
+    [repo spec]))
+
 (defn- system-for-file
-  [project repo-by-id candidates-by-repo file]
-  (let [repo (repo-for-row repo-by-id file)
-        spec (path-system repo (get candidates-by-repo (:repo-id file)) (:path file))]
+  [project repo-by-id candidate-index-by-repo file]
+  (let [[repo spec] (candidate-for-row repo-by-id candidate-index-by-repo file)]
     (system-node (:run-id project) (:id project) repo spec)))
 
 (defn- active-files
@@ -143,31 +171,36 @@
   (->> (store/rows-by-field xtdb (:edges store/tables) :project-id project-id)
        (filter :active?)))
 
+(defn- active-file-facts
+  [xtdb project-id]
+  (->> (store/rows-by-field xtdb (:file-facts store/tables) :project-id project-id)
+       (filter :active?)))
+
 (defn- evidence-id
   [project-id repo-id system-id kind path line normalized-value]
   (str "evidence:" (hash/short-hash [project-id repo-id system-id kind path line normalized-value])))
 
 (defn- evidence-row
-  [run-id project-id repo-id system-id file kind line label normalized-value confidence]
-  {:xt/id (evidence-id project-id repo-id system-id kind (:path file) line normalized-value)
+  [run-id project-id repo-id system-id fact]
+  {:xt/id (evidence-id project-id
+                       repo-id
+                       system-id
+                       (:kind fact)
+                       (:path fact)
+                       (:source-line fact)
+                       (:normalized-value fact))
    :project-id project-id
    :repo-id repo-id
    :system-id system-id
-   :file-id (:file-id file)
-   :path (:path file)
-   :kind kind
-   :label label
-   :normalized-value normalized-value
-   :source-line (long (or line 1))
-   :confidence (double confidence)
+   :file-id (:file-id fact)
+   :path (:path fact)
+   :kind (:kind fact)
+   :label (:label fact)
+   :normalized-value (:normalized-value fact)
+   :source-line (long (or (:source-line fact) 1))
+   :confidence (double (:confidence fact))
    :active? true
    :run-id run-id})
-
-(defn- url-values
-  [line]
-  (->> (re-seq #"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+" line)
-       (map #(str/replace % #"[\"')\],;]+$" ""))
-       distinct))
 
 (defn- url-host
   [value]
@@ -231,121 +264,33 @@
        (not (test-path? (:path row)))
        (not (example-path? (:path row)))))
 
-(defn- env-values
-  [line]
-  (->> (re-seq #"\b[A-Z][A-Z0-9_]*(?:URL|URI|HOST|PORT|ENDPOINT|QUEUE|TOPIC|TASK_QUEUE|DATABASE|DB)[A-Z0-9_]*\b"
-               line)
-       distinct))
+(def container-image-evidence-kinds
+  #{:container-image-producer :container-image-consumer})
 
-(defn- port-values
-  [line]
-  (->> (re-seq #"\b(?:port|targetPort|containerPort):\s*([0-9]{2,5})\b" line)
-       (map second)
-       distinct))
+(defn- system-id-for-row
+  [project-id repo-by-id candidate-index-by-repo row]
+  (let [[repo spec] (candidate-for-row repo-by-id candidate-index-by-repo row)
+        repo-id (or (:repo-id row) (:repo-id repo) (:id repo) "repo")]
+    (system-id project-id repo-id (:system-key spec))))
 
-(defn- route-values
-  [line]
-  (->> (re-seq #"['\"](/(?:[A-Za-z0-9._~:-]+/?)*)['\"]" line)
-       (map second)
-       (filter #(<= 2 (count %)))
-       distinct))
-
-(defn- line-evidence
-  [run-id project-id repo-id system-id file idx line]
-  (let [line-no (inc idx)]
-    (concat
-     (map #(evidence-row run-id project-id repo-id system-id file :url line-no % (normalize-token %) 0.70)
-          (url-values line))
-     (map #(evidence-row run-id project-id repo-id system-id file :env-var line-no % (normalize-token %) 0.65)
-          (env-values line))
-     (map #(evidence-row run-id project-id repo-id system-id file :port line-no (str "port " %) % 0.55)
-          (port-values line))
-     (map #(evidence-row run-id project-id repo-id system-id file :route line-no % (normalize-token %) 0.55)
-          (route-values line)))))
-
-(defn- yaml-docs
-  [content]
-  (str/split content #"(?m)^---\s*$"))
-
-(defn- yaml-resource
-  [doc]
-  (let [lines (str/split-lines doc)
-        kind (some (fn [line]
-                     (second (re-matches #"^\s*kind:\s*([A-Za-z0-9_-]+)\s*$" line)))
-                   lines)
-        name (some (fn [line]
-                     (second (re-matches #"^\s*name:\s*([A-Za-z0-9_.-]+)\s*$" line)))
-                   lines)]
-    (when (and kind name)
-      {:kind kind :name name})))
-
-(defn- yaml-evidence
-  [run-id project-id repo-id system-id file]
-  (when (#{:yaml :helm :compose} (:kind file))
-    (->> (yaml-docs (:content file))
-         (keep yaml-resource)
-         (map (fn [{:keys [kind name]}]
-                (let [evidence-kind (case kind
-                                      "Service" :k8s-service
-                                      "Ingress" :k8s-ingress
-                                      ("Deployment" "StatefulSet" "DaemonSet") :k8s-workload
-                                      "ConfigMap" :k8s-config
-                                      :yaml-resource)]
-                  (evidence-row run-id
-                                project-id
-                                repo-id
-                                system-id
-                                file
-                                evidence-kind
-                                1
-                                (str kind " " name)
-                                (normalize-token name)
-                                0.80)))))))
-
-(defn- file-evidence
-  [run-id project-id repo-by-id candidates-by-repo file]
-  (let [repo (repo-for-row repo-by-id file)
-        node (system-node run-id
-                          project-id
-                          repo
-                          (path-system repo
-                                       (get candidates-by-repo (:repo-id file))
-                                       (:path file)))
-        system-id (:xt/id node)]
-    (vec
-     (concat
-      (mapcat (fn [[idx line]]
-                (line-evidence run-id project-id (:repo-id file) system-id file idx line))
-              (map-indexed vector (str/split-lines (:content file))))
-      (yaml-evidence run-id project-id (:repo-id file) system-id file)))))
+(defn- fact-evidence
+  [run-id project-id repo-by-id candidate-index-by-repo fact]
+  (let [system-id (system-id-for-row project-id
+                                     repo-by-id
+                                     candidate-index-by-repo
+                                     fact)]
+    (evidence-row run-id project-id (:repo-id fact) system-id fact)))
 
 (defn- evidence-for-project
-  [run-id {:keys [id repos]} candidates-by-repo]
-  (let [project-id id
-        repo-by-id (into {} (map (juxt :id identity)) repos)]
-    (->> repos
-         (mapcat (fn [{repo-id :id root :root}]
-                   (->> (fs/scan-files root)
-                        (map #(assoc %
-                                     :project-id project-id
-                                     :repo-id repo-id
-                                     :file-id (index/file-id project-id repo-id (:path %))))
-                        (mapcat #(file-evidence run-id
-                                                project-id
-                                                repo-by-id
-                                                candidates-by-repo
-                                                %)))))
-         vec)))
-
-(defn- node-system-id
-  [file-by-id repo-by-id candidates-by-repo project-id node]
-  (when-let [file (get file-by-id (:file-id node))]
-    (:xt/id (system-node (:run-id node)
-                         project-id
-                         (repo-for-row repo-by-id file)
-                         (path-system (repo-for-row repo-by-id file)
-                                      (get candidates-by-repo (:repo-id file))
-                                      (:path file))))))
+  [run-id project-id repo-by-id candidate-index-by-repo facts]
+  (->> facts
+       (filter :active?)
+       (map #(fact-evidence run-id
+                            project-id
+                            repo-by-id
+                            candidate-index-by-repo
+                            %))
+       vec))
 
 (defn- edge-id
   [project-id source-id target-id relation rules evidence-ids]
@@ -365,49 +310,46 @@
    :run-id run-id})
 
 (defn- code-system-edges
-  [run-id project-id repo-by-id candidates-by-repo files nodes edges]
-  (let [file-by-id (into {} (map (juxt :xt/id identity)) files)
-        node-by-id (into {} (map (juxt :xt/id identity)) nodes)]
-    (->> edges
-         (keep (fn [edge]
-                 (let [source-node (get node-by-id (:source-id edge))
-                       target-node (get node-by-id (:target-id edge))
-                       source-system (some->> source-node
-                                              (node-system-id file-by-id
-                                                              repo-by-id
-                                                              candidates-by-repo
-                                                              project-id))
-                       target-system (some->> target-node
-                                              (node-system-id file-by-id
-                                                              repo-by-id
-                                                              candidates-by-repo
-                                                              project-id))]
-                   (when (and source-system target-system (not= source-system target-system))
-                     {:source-id source-system
-                      :target-id target-system
-                      :relation :code-depends-on
-                      :evidence-id (:xt/id edge)}))))
-         (group-by (juxt :source-id :target-id :relation))
-         (map (fn [[[source-id target-id relation] rows]]
-                (system-edge run-id
-                             project-id
-                             source-id
-                             target-id
-                             relation
-                             0.90
-                             (mapv :evidence-id rows)
-                             ["code-edge"])))
-         vec)))
+  [run-id project-id node-system-by-id edges]
+  (->> edges
+       (keep (fn [edge]
+               (let [source-system (get node-system-by-id (:source-id edge))
+                     target-system (get node-system-by-id (:target-id edge))]
+                 (when (and source-system target-system (not= source-system target-system))
+                   {:source-id source-system
+                    :target-id target-system
+                    :relation :code-depends-on
+                    :evidence-id (:xt/id edge)}))))
+       (group-by (juxt :source-id :target-id :relation))
+       (map (fn [[[source-id target-id relation] rows]]
+              (system-edge run-id
+                           project-id
+                           source-id
+                           target-id
+                           relation
+                           0.90
+                           (mapv :evidence-id rows)
+                           ["code-edge"])))
+       vec))
 
-(defn- system-id-for-file
-  [project-id repo-by-id candidates-by-repo file]
-  (let [repo (repo-for-row repo-by-id file)]
-    (:xt/id (system-node (:run-id file)
-                         project-id
-                         repo
-                         (path-system repo
-                                      (get candidates-by-repo (:repo-id file))
-                                      (:path file))))))
+(defn- file-system-ids
+  [project-id repo-by-id candidate-index-by-repo files]
+  (into {}
+        (map (fn [file]
+               [(:xt/id file)
+                (system-id-for-row project-id
+                                   repo-by-id
+                                   candidate-index-by-repo
+                                   file)]))
+        files))
+
+(defn- node-system-ids
+  [file-system-by-id nodes]
+  (into {}
+        (keep (fn [node]
+                (when-let [system-id (get file-system-by-id (:file-id node))]
+                  [(:xt/id node) system-id])))
+        nodes))
 
 (defn- zero-metrics
   []
@@ -422,49 +364,36 @@
   (update-in metrics [system-id k] (fnil inc 0)))
 
 (defn- system-metrics
-  [project-id repo-by-id candidates-by-repo files nodes edges]
-  (let [file-system-by-id (into {}
-                                (map (fn [file]
-                                       [(:xt/id file)
-                                        (system-id-for-file project-id
-                                                            repo-by-id
-                                                            candidates-by-repo
-                                                            file)]))
-                                files)
-        node-system-by-id (into {}
-                                (keep (fn [node]
-                                        (when-let [system-id (get file-system-by-id (:file-id node))]
-                                          [(:xt/id node) system-id])))
-                                nodes)]
-    (-> (reduce (fn [metrics file]
-                  (inc-metric metrics (get file-system-by-id (:xt/id file)) :file-count))
-                {}
-                files)
-        (as-> metrics
-              (reduce (fn [metrics node]
-                        (if-let [system-id (get node-system-by-id (:xt/id node))]
-                          (inc-metric metrics system-id :node-count)
-                          metrics))
-                      metrics
-                      nodes))
-        (as-> metrics
-              (reduce (fn [metrics edge]
-                        (let [source-system (get node-system-by-id (:source-id edge))
-                              target-system (get node-system-by-id (:target-id edge))]
-                          (cond
-                            (or (nil? source-system) (nil? target-system))
-                            metrics
+  [files nodes edges file-system-by-id node-system-by-id]
+  (-> (reduce (fn [metrics file]
+                (inc-metric metrics (get file-system-by-id (:xt/id file)) :file-count))
+              {}
+              files)
+      (as-> metrics
+            (reduce (fn [metrics node]
+                      (if-let [system-id (get node-system-by-id (:xt/id node))]
+                        (inc-metric metrics system-id :node-count)
+                        metrics))
+                    metrics
+                    nodes))
+      (as-> metrics
+            (reduce (fn [metrics edge]
+                      (let [source-system (get node-system-by-id (:source-id edge))
+                            target-system (get node-system-by-id (:target-id edge))]
+                        (cond
+                          (or (nil? source-system) (nil? target-system))
+                          metrics
 
-                            (= source-system target-system)
-                            (inc-metric metrics source-system :internal-code-edge-count)
+                          (= source-system target-system)
+                          (inc-metric metrics source-system :internal-code-edge-count)
 
-                            :else
-                            (-> metrics
-                                (inc-metric source-system :outgoing-code-edge-count)
-                                (inc-metric target-system :incoming-code-edge-count)))))
-                      metrics
-                      edges))
-        (update-vals #(merge (zero-metrics) %)))))
+                          :else
+                          (-> metrics
+                              (inc-metric source-system :outgoing-code-edge-count)
+                              (inc-metric target-system :incoming-code-edge-count)))))
+                    metrics
+                    edges))
+      (update-vals #(merge (zero-metrics) %))))
 
 (defn- attach-metrics
   [metrics system]
@@ -473,7 +402,8 @@
 (defn- value-system-edges
   [run-id project-id evidence]
   (->> evidence
-       (remove #(contains? #{:port :route :url} (:kind %)))
+       (remove #(contains? (set/union #{:port :route :url} container-image-evidence-kinds)
+                           (:kind %)))
        (group-by :normalized-value)
        (mapcat
         (fn [[_ rows]]
@@ -491,6 +421,43 @@
                              (mapv :xt/id rows)
                              ["shared-evidence-value"]))))))
        vec))
+
+(defn- deploy-system-edges
+  [run-id project-id evidence]
+  (let [by-kind-and-artifact (->> evidence
+                                  (filter #(contains? container-image-evidence-kinds (:kind %)))
+                                  (group-by (juxt :kind :normalized-value)))
+        producer-keys (->> by-kind-and-artifact
+                           keys
+                           (keep (fn [[kind artifact]]
+                                   (when (= :container-image-producer kind)
+                                     artifact)))
+                           set)
+        consumer-keys (->> by-kind-and-artifact
+                           keys
+                           (keep (fn [[kind artifact]]
+                                   (when (= :container-image-consumer kind)
+                                     artifact)))
+                           set)]
+    (->> (set/intersection producer-keys consumer-keys)
+         (mapcat
+          (fn [artifact]
+            (let [producers (get by-kind-and-artifact [:container-image-producer artifact])
+                  consumers (get by-kind-and-artifact [:container-image-consumer artifact])
+                  producer-rows-by-system (group-by :system-id producers)
+                  consumer-rows-by-system (group-by :system-id consumers)]
+              (for [[source-id source-rows] producer-rows-by-system
+                    [target-id target-rows] consumer-rows-by-system
+                    :when (not= source-id target-id)]
+                (system-edge run-id
+                             project-id
+                             source-id
+                             target-id
+                             :deploys
+                             0.74
+                             (mapv :xt/id (concat source-rows target-rows))
+                             ["container-image-artifact"])))))
+         vec)))
 
 (defn- external-api-nodes
   [run-id project-id evidence]
@@ -609,9 +576,20 @@
         repo-by-id (into {} (map (juxt :id identity)) repos)
         files (vec (active-files xtdb id))
         candidates-by-repo (candidate/candidates-by-repo repo-by-id files)
+        candidate-index-by-repo (candidate-indexes candidates-by-repo)
         nodes (vec (active-nodes xtdb id))
         edges (vec (active-edges xtdb id))
-        metrics (system-metrics id repo-by-id candidates-by-repo files nodes edges)
+        file-facts (vec (active-file-facts xtdb id))
+        file-system-by-id (file-system-ids id
+                                           repo-by-id
+                                           candidate-index-by-repo
+                                           files)
+        node-system-by-id (node-system-ids file-system-by-id nodes)
+        metrics (system-metrics files
+                                nodes
+                                edges
+                                file-system-by-id
+                                node-system-by-id)
         candidate-systems (->> candidates-by-repo
                                (mapcat (fn [[repo-id candidates]]
                                          (let [repo (get repo-by-id repo-id)]
@@ -619,18 +597,27 @@
                                distinct
                                (mapv #(attach-metrics metrics %)))
         file-systems (->> files
-                          (map #(system-for-file project repo-by-id candidates-by-repo %))
+                          (map #(system-for-file project
+                                                 repo-by-id
+                                                 candidate-index-by-repo
+                                                 %))
                           (map #(attach-metrics metrics %))
                           distinct
                           vec)
-        evidence (evidence-for-project run-id project candidates-by-repo)
+        evidence (evidence-for-project run-id
+                                       id
+                                       repo-by-id
+                                       candidate-index-by-repo
+                                       file-facts)
         external-systems (external-api-nodes run-id id evidence)
         systems (vec (distinct (concat candidate-systems file-systems external-systems)))
-        code-edges (code-system-edges run-id id repo-by-id candidates-by-repo files nodes edges)
+        code-edges (code-system-edges run-id id node-system-by-id edges)
         value-edges (value-system-edges run-id id evidence)
+        deploy-edges (deploy-system-edges run-id id evidence)
         external-edges (external-api-edges run-id id evidence)
         system-edges (merge-system-edges run-id id (concat code-edges
                                                            value-edges
+                                                           deploy-edges
                                                            external-edges))
         system-by-id (into {} (map (juxt :xt/id identity)) systems)
         evidence-by-id (into {} (map (juxt :xt/id identity)) evidence)
@@ -908,6 +895,60 @@
          (take 10)
          vec)))
 
+(defn- cluster-summary
+  [cluster]
+  (select-keys cluster [:id :label :sourceLabel :nodeCount]))
+
+(defn- cross-cluster-edges
+  [systems system-by-id visible-edges]
+  (let [primary-edges (filter #(= "primary" (:visibility %)) visible-edges)
+        primary-clusters (cluster/clusters systems primary-edges)
+        cluster-by-source (into {}
+                                (map (juxt :sourceLabel identity))
+                                primary-clusters)
+        cluster-labels (cluster/cluster-labels systems primary-edges)]
+    (->> visible-edges
+         (keep (fn [edge]
+                 (let [source-cluster (get cluster-labels (:source-id edge))
+                       target-cluster (get cluster-labels (:target-id edge))]
+                   (when (and source-cluster
+                              target-cluster
+                              (not= source-cluster target-cluster))
+                     (assoc (edge-summary system-by-id edge)
+                            :source-cluster (cluster-summary
+                                             (get cluster-by-source source-cluster))
+                            :target-cluster (cluster-summary
+                                             (get cluster-by-source target-cluster)))))))
+         (sort-by (fn [edge]
+                    [(- (double (or (:salience edge) 0.0)))
+                     (:xt/id edge)]))
+         (take 10)
+         vec)))
+
+(defn- evidence-concentrations
+  [system-by-id evidence]
+  (->> evidence
+       (group-by (juxt :system-id :kind))
+       (map (fn [[[system-id kind] rows]]
+              {:system (system-summary (get system-by-id system-id))
+               :kind kind
+               :count (count rows)}))
+       (remove #(nil? (get-in % [:system :xt/id])))
+       (sort-by (fn [{:keys [system kind count]}]
+                  [(- (long count))
+                   (name kind)
+                   (get system :repo-id)
+                   (get system :label)]))
+       (take 10)
+       vec))
+
+(defn- graph-health
+  [systems system-by-id evidence visible-edges orphaned]
+  {:high-degree-hubs (top-hubs system-by-id visible-edges)
+   :cross-cluster-edges (cross-cluster-edges systems system-by-id visible-edges)
+   :orphaned-candidates (mapv system-summary (take 10 orphaned))
+   :evidence-concentrations (evidence-concentrations system-by-id evidence)})
+
 (defn- scale-report
   [systems evidence semantic-edges visible-edges clusters orphaned system-by-id]
   (let [counts {:systems (count systems)
@@ -1019,12 +1060,22 @@
         clusters (cluster/clusters systems visible-edges)
         system-by-id (into {} (map (juxt :xt/id identity)) systems)
         basis (graph-basis project-id systems edges evidence semantic-edges)
+        graph-health (graph-health systems
+                                   system-by-id
+                                   evidence
+                                   visible-edges
+                                   orphaned)
         decision-queue (maintenance-decision-queue project-id
                                                    basis
                                                    system-by-id
                                                    semantic-edges
                                                    orphaned
                                                    clusters)
+        infra-review-queue (infra-review/review-packets
+                            {:project-id project-id
+                             :basis basis
+                             :systems systems
+                             :evidence evidence})
         scale (scale-report systems
                             evidence
                             semantic-edges
@@ -1045,8 +1096,10 @@
               :semantic-connections (count semantic-edges)
               :visible-connections (count visible-edges)
               :clusters (count clusters)
-              :maintenance-decisions (count decision-queue)}
+              :maintenance-decisions (count decision-queue)
+              :infra-review-items (count infra-review-queue)}
      :scale scale
+     :graph-health graph-health
      :fold-in (fold-in-report project-id scale decision-queue)
      :orphaned-systems orphaned
      :dangling-edges dangling-edges
@@ -1054,4 +1107,5 @@
      :low-confidence-edges low-confidence-edges
      :semantic-connections semantic-edges
      :clusters clusters
-     :decision-queue decision-queue}))
+     :decision-queue decision-queue
+     :infra-review-queue infra-review-queue}))
