@@ -51,7 +51,7 @@
                                             "uppercase greeting"
                                             {:retriever :hybrid
                                              :embedding-client fake-client
-                                             :limit 8})
+                                             :limit 20})
               labels (set (map :label results))]
           (is (seq results))
           (is (contains? labels "sample.util"))

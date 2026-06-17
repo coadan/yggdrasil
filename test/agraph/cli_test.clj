@@ -53,6 +53,8 @@
     (is (str/includes? usage "watch <project.edn>"))
     (is (str/includes? usage "hook install <project.edn>"))
     (is (str/includes? usage "bench prepare|run|report|show"))
+    (is (str/includes? usage "bench agent-packet"))
+    (is (str/includes? usage "bench agent-score"))
     (is (not (str/includes? usage "overlay")))))
 
 (deftest install-agent-list-shows-supported-platforms
@@ -192,6 +194,74 @@
                                           :map-path "agraph.map.json"
                                           :detail :expanded
                                           :force? true}]]
+               @calls))))))
+
+(deftest bench-agent-packet-can-enqueue-provider-neutral-work
+  (let [root (temp-dir "agraph-cli-agent-bench-queue")]
+    (with-redefs [benchmark/read-suite (constantly {:id "suite"})
+                  benchmark/agent-packets! (fn [suite opts]
+                                             {:schema "agraph.benchmark.agent-packets/v1"
+                                              :suite-id (:id suite)
+                                              :opts opts
+                                              :packets [{:schema benchmark/agent-packet-schema
+                                                         :suite-id (:id suite)
+                                                         :case-id "case-1"
+                                                         :repo-id "repo"
+                                                         :project-id "suite-case-1"
+                                                         :mode "agraph"
+                                                         :artifacts {:packetPath "/tmp/packet.json"}}]})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["agent-packet" "benchmark.edn"
+                                 "--case" "case-1"
+                                 "--mode" "agraph"
+                                 "--enqueue"
+                                 "--queue-dir" root
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= "agraph.benchmark.agent-packets/v1" (:schema parsed)))
+        (is (= {:case-id "case-1"
+                :out nil
+                :retriever nil
+                :mode "agraph"
+                :result-path nil}
+               (:opts parsed)))
+        (is (= ["benchmark-agent"] (mapv :kind (:enqueued parsed))))
+        (is (= [benchmark/agent-packet-schema]
+               (mapv :payload-schema (:enqueued parsed))))))))
+
+(deftest bench-agent-score-dispatches-to-benchmark-scorer
+  (let [calls (atom [])]
+    (with-redefs [benchmark/read-suite (fn [path]
+                                         (swap! calls conj [:read path])
+                                         {:id "suite"})
+                  benchmark/selected-cases (fn [suite case-id]
+                                             (swap! calls conj [:select (:id suite) case-id])
+                                             [{:id case-id}])
+                  benchmark/score-agent-result! (fn [suite case opts]
+                                                  (swap! calls conj [:score suite case opts])
+                                                  {:schema benchmark/agent-score-schema
+                                                   :suite-id (:id suite)
+                                                   :case-id (:id case)
+                                                   :scores {:fileRecallAt10 1.0
+                                                            :meanReciprocalRankFile 1.0}})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["agent-score" "benchmark.edn"
+                                 "--case" "case-1"
+                                 "--result" "agent-result.json"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= benchmark/agent-score-schema (:schema parsed)))
+        (is (= [[:read "benchmark.edn"]
+                [:select "suite" "case-1"]
+                [:score {:id "suite"}
+                 {:id "case-1"}
+                 {:case-id "case-1"
+                  :out nil
+                  :retriever nil
+                  :mode nil
+                  :result-path "agent-result.json"}]]
                @calls))))))
 
 (deftest init-command-can-run-sync-and-create-explicit-map
@@ -414,7 +484,9 @@
                 [:run {:id "suite"}
                  {:case-id "case-1"
                   :out ".dev/bench"
-                  :retriever nil}]]
+                  :retriever nil
+                  :mode nil
+                  :result-path nil}]]
                @calls))))))
 
 (deftest sync-work-apply-valid-infra-review-result-updates-map

@@ -20,6 +20,15 @@
 (def result-schema
   "agraph.benchmark.result/v1")
 
+(def agent-packet-schema
+  "agraph.benchmark.agent-packet/v1")
+
+(def agent-result-schema
+  "agraph.benchmark.agent-result/v1")
+
+(def agent-score-schema
+  "agraph.benchmark.agent-score/v1")
+
 (def report-schema
   "agraph.benchmark.report/v1")
 
@@ -143,6 +152,24 @@
   [suite case opts]
   (io/file (case-output-dir suite case opts) "result.json"))
 
+(defn- agent-project-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts) "agent-project.edn"))
+
+(defn- agent-packet-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts) "agent-packet.json"))
+
+(defn- without-json-suffix
+  [path]
+  (str/replace (.getName (io/file path)) #"\.json$" ""))
+
+(defn- agent-score-path
+  [suite case opts result-file]
+  (io/file (case-output-dir suite case opts)
+           "agent-scores"
+           (str (safe-id (without-json-suffix result-file)) ".score.json")))
+
 (defn- report-path
   [suite opts]
   (io/file (output-root suite opts) "report.json"))
@@ -155,6 +182,12 @@
   [path value]
   (ensure-parent! path)
   (spit (io/file path) (json/write-json-str value {:indent-str "  "}))
+  path)
+
+(defn- write-edn-file!
+  [path value]
+  (ensure-parent! path)
+  (spit (io/file path) (str (pr-str value) "\n"))
   path)
 
 (defn- read-json-file
@@ -488,6 +521,267 @@
    :suite-id (:id suite)
    :cases (mapv #(run-case! suite % opts)
                 (selected-cases suite (:case-id opts)))})
+
+(defn- shell-quote
+  [value]
+  (str "'" (str/replace (str value) "'" "'\"'\"'") "'"))
+
+(defn- env-command
+  [xtdb-path command & args]
+  (str "AGRAPH_XTDB_PATH="
+       (shell-quote xtdb-path)
+       " "
+       (str/join " " (cons command (map shell-quote args)))))
+
+(defn- agent-mode
+  [opts]
+  (let [mode (name (keyword (or (:mode opts) :agraph)))]
+    (when-not (#{"agraph" "shell-only"} mode)
+      (throw (ex-info "Unknown benchmark agent mode."
+                      {:mode mode
+                       :supported ["agraph" "shell-only"]})))
+    mode))
+
+(defn- agent-project
+  [prepared]
+  {:id (:project-id prepared)
+   :name (:case-id prepared)
+   :repos [{:id (:repo-id prepared)
+            :root (:worktreeRoot prepared)
+            :role :application}]})
+
+(defn- agent-command-hints
+  [prepared project-path xtdb-path mode]
+  (cond-> {:shell ["Inspect the checkout with ordinary local commands such as git, rg, find, sed, and tests."
+                   "Do not read the fixing diff, PR, post-fix commits, or ground-truth artifacts."]}
+    (= "agraph" mode)
+    (assoc :agraph
+           {:projectConfig project-path
+            :xtdbPath xtdb-path
+            :setupCommand (env-command xtdb-path "bb" "sync" project-path)
+            :askCommand (env-command xtdb-path
+                                     "bb"
+                                     "ask"
+                                     (get-in prepared [:input :queryText])
+                                     "--project"
+                                     (:project-id prepared)
+                                     "--json")
+            :exploreCommand (env-command xtdb-path
+                                         "bb"
+                                         "explore"
+                                         "create"
+                                         (get-in prepared [:input :queryText])
+                                         "--project"
+                                         (:project-id prepared)
+                                         "--json")})))
+
+(defn- agent-result-contract
+  []
+  {:schema agent-result-schema
+   :caseId "case id from the packet"
+   :agentId "stable id for the agent run"
+   :mode "agraph or shell-only"
+   :suspectedFiles [{:path "repo-relative/path.ext"
+                     :rank 1
+                     :confidence 0.0
+                     :reason "short evidence-based reason"}]
+   :suspectedSymbols []
+   :commands []
+   :summary "brief rationale"})
+
+(defn agent-packet!
+  "Prepare one case and write a provider-neutral agent localization packet."
+  [suite case opts]
+  (let [prepared (prepare-case! suite case opts)
+        mode (agent-mode opts)
+        project-path (fs/canonical-path (agent-project-path suite case opts))
+        xtdb-path (fs/canonical-path (xtdb-dir suite case opts))
+        packet-path (fs/canonical-path (agent-packet-path suite case opts))
+        project-config (agent-project prepared)
+        packet {:schema agent-packet-schema
+                :suite-id (:suite-id prepared)
+                :case-id (:case-id prepared)
+                :repo-id (:repo-id prepared)
+                :project-id (:project-id prepared)
+                :mode mode
+                :baseSha (:baseSha prepared)
+                :worktreeRoot (:worktreeRoot prepared)
+                :input (:input prepared)
+                :task {:kind "issue-localization"
+                       :objective (str "Identify the repo-relative files and optional symbols most likely "
+                                       "needed to fix the issue from the base checkout.")
+                       :rules ["Use only the base checkout and issue text in this packet."
+                               "Return ranked suspected files before attempting a patch."
+                               "Keep reasoning evidence-based and cite commands or graph context used."
+                               "Do not inspect the fixing diff, PR body, post-fix commits, or ground-truth artifacts."]
+                       :expectedResultSchema agent-result-schema
+                       :resultContract (agent-result-contract)}
+                :tools (agent-command-hints prepared project-path xtdb-path mode)
+                :artifacts {:projectConfig project-path
+                            :packetPath packet-path
+                            :xtdbPath xtdb-path}
+                :fairness {:allowedInput ["issue title"
+                                          "issue body"
+                                          "pre-fix issue comments"
+                                          "base checkout"
+                                          "AGraph output generated from the base checkout"]
+                           :forbiddenInput ["fix diff"
+                                            "PR title or body"
+                                            "post-fix issue comments"
+                                            "post-fix commits"
+                                            "ground-truth benchmark artifacts"]}}]
+    (write-edn-file! project-path project-config)
+    (write-json-file! packet-path packet)
+    packet))
+
+(defn agent-packets!
+  "Write agent localization packets for selected benchmark cases."
+  [suite opts]
+  {:schema "agraph.benchmark.agent-packets/v1"
+   :suite-id (:id suite)
+   :packets (mapv #(agent-packet! suite % opts)
+                  (selected-cases suite (:case-id opts)))})
+
+(defn- parse-long-safe
+  [value]
+  (cond
+    (integer? value) (long value)
+    (number? value) (long value)
+    (str/blank? (str value)) nil
+    :else (try
+            (Long/parseLong (str value))
+            (catch NumberFormatException _
+              nil))))
+
+(defn- parse-double-safe
+  [value]
+  (cond
+    (number? value) (double value)
+    (str/blank? (str value)) nil
+    :else (try
+            (Double/parseDouble (str value))
+            (catch NumberFormatException _
+              nil))))
+
+(defn- relativize-path
+  [root path]
+  (let [path (str/trim (str path))
+        file (io/file path)]
+    (str/replace
+     (str/replace
+      (if (.isAbsolute file)
+        (try
+          (let [root-path (.toPath (.getCanonicalFile (io/file root)))
+                file-path (.toPath (.getCanonicalFile file))]
+            (str (.relativize root-path file-path)))
+          (catch Exception _
+            path))
+        path)
+      #"^\./"
+      "")
+     #"\\" "/")))
+
+(defn- suspected-file-path
+  [root item]
+  (cond
+    (string? item) (relativize-path root item)
+    (map? item) (some->> (or (:path item)
+                             (:file item)
+                             (:filePath item)
+                             (:file-path item))
+                         (relativize-path root))
+    :else nil))
+
+(defn- agent-file-predictions
+  [prepared agent-result]
+  (let [root (:worktreeRoot prepared)
+        raw-files (or (:suspectedFiles agent-result)
+                      (:suspected-files agent-result)
+                      (:files agent-result))]
+    (->> raw-files
+         (map-indexed
+          (fn [idx item]
+            (when-let [path (some-> (suspected-file-path root item) not-empty)]
+              (let [rank (if (map? item)
+                           (parse-long-safe (:rank item))
+                           nil)]
+                (cond-> {:path path
+                         :rank (long (or rank (inc idx)))}
+                  (map? item) (assoc :confidence (parse-double-safe (:confidence item))
+                                     :reason (:reason item)
+                                     :evidence (:evidence item)))))))
+         (keep identity)
+         (reduce (fn [best row]
+                   (let [existing (get best (:path row))]
+                     (if (or (nil? existing)
+                             (< (:rank row) (:rank existing)))
+                       (assoc best (:path row) row)
+                       best)))
+                 {})
+         vals
+         (sort-by (juxt :rank :path))
+         vec)))
+
+(defn- missing-predicted-files
+  [root predictions]
+  (->> predictions
+       (keep (fn [{:keys [path]}]
+               (when-not (.isFile (io/file root path))
+                 path)))
+       vec))
+
+(defn score-agent-result
+  "Score an agent localization result against a prepared case artifact."
+  [prepared agent-result]
+  (let [top-files (agent-file-predictions prepared agent-result)
+        result-shape {:groundTruth (:groundTruth prepared)
+                      :agraph {:topFiles top-files}}
+        warnings (cond-> []
+                   (empty? top-files)
+                   (conj "agent result did not contain suspected files")
+
+                   (seq (missing-predicted-files (:worktreeRoot prepared) top-files))
+                   (conj "agent result referenced files missing from the base checkout"))
+        result-with-ranks (assoc result-shape
+                                 :groundTruthRanks
+                                 {:files (ground-truth-file-ranks
+                                          (get-in result-shape [:groundTruth :changedFiles])
+                                          top-files)})]
+    {:schema agent-score-schema
+     :suite-id (:suite-id prepared)
+     :case-id (:case-id prepared)
+     :repo-id (:repo-id prepared)
+     :project-id (:project-id prepared)
+     :baseSha (:baseSha prepared)
+     :fixSha (:fixSha prepared)
+     :input (:input prepared)
+     :groundTruth (:groundTruth prepared)
+     :agent {:schema (:schema agent-result)
+             :agentId (:agentId agent-result)
+             :mode (:mode agent-result)
+             :topFiles top-files
+             :suspectedSymbols (or (:suspectedSymbols agent-result)
+                                   (:suspected-symbols agent-result))
+             :commands (:commands agent-result)
+             :summary (:summary agent-result)
+             :warnings warnings
+             :missingPredictedFiles (missing-predicted-files (:worktreeRoot prepared)
+                                                             top-files)}
+     :groundTruthRanks (:groundTruthRanks result-with-ranks)
+     :scores (score-result result-with-ranks)}))
+
+(defn score-agent-result!
+  "Read, score, and write one agent localization result artifact."
+  [suite case opts]
+  (let [result-file (or (:result-path opts)
+                        (throw (ex-info "Missing agent result path."
+                                        {:case-id (:id case)})))
+        prepared (prepare-case! suite case opts)
+        agent-result (read-json-file result-file)
+        scored (assoc (score-agent-result prepared agent-result)
+                      :agentResultPath (fs/canonical-path result-file))]
+    (write-json-file! (agent-score-path suite case opts result-file) scored)
+    scored))
 
 (defn- case-result-file
   [suite case opts]

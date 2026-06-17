@@ -19,6 +19,10 @@
                (fs/file-record "test/fixtures/sample-repo"
                                "test/fixtures/sample-repo/db/schema.sql")
                (fs/file-record "test/fixtures/sample-repo"
+                               "test/fixtures/sample-repo/infra/main.tf")
+               (fs/file-record "test/fixtures/sample-repo"
+                               "test/fixtures/sample-repo/api/openapi.yaml")
+               (fs/file-record "test/fixtures/sample-repo"
                                "test/fixtures/sample-repo/src/python/app.py")
                (fs/file-record "test/fixtures/sample-repo"
                                "test/fixtures/sample-repo/src/rust/lib.rs")
@@ -148,18 +152,73 @@
     (is (= [:typescript-file] (mapv :kind (:chunks result))))
     (is (empty? (:diagnostics result)))))
 
-(deftest extracts-style-and-sql-as-searchable-source-chunks
+(deftest extracts-style-as-searchable-source-chunk
   (let [style-result (extract/extract-file
                       "run/test"
                       (fs/file-record "test/fixtures/sample-repo"
-                                      "test/fixtures/sample-repo/src/web/theme.scss"))
-        sql-result (extract/extract-file
-                    "run/test"
-                    (fs/file-record "test/fixtures/sample-repo"
-                                    "test/fixtures/sample-repo/db/schema.sql"))]
+                                      "test/fixtures/sample-repo/src/web/theme.scss"))]
     (is (= [:style-file] (mapv :kind (:chunks style-result))))
-    (is (= [:sql-file] (mapv :kind (:chunks sql-result))))
     (is (empty? (:nodes style-result)))
-    (is (empty? (:edges style-result)))
-    (is (empty? (:nodes sql-result)))
-    (is (empty? (:edges sql-result)))))
+    (is (empty? (:edges style-result)))))
+
+(deftest extracts-sql-tables-views-and-foreign-keys
+  (let [result (extract/extract-file
+                "run/test"
+                (fs/file-record "test/fixtures/sample-repo"
+                                "test/fixtures/sample-repo/db/schema.sql"))
+        labels (set (map :label (:nodes result)))
+        kinds (frequencies (map :kind (:nodes result)))
+        references (filter #(= :references (:relation %)) (:edges result))]
+    (is (= [:sql-file] (mapv :kind (:chunks result))))
+    (is (contains? labels "panels"))
+    (is (contains? labels "panel_events"))
+    (is (contains? labels "active_panels"))
+    (is (= 2 (:table kinds)))
+    (is (= 1 (:view kinds)))
+    (is (= 1 (count references)))
+    (is (= (extract/node-id :table "panels") (:target-id (first references))))))
+
+(deftest extracts-terraform-blocks-and-explicit-references
+  (let [file (fs/file-record "test/fixtures/sample-repo"
+                             "test/fixtures/sample-repo/infra/main.tf")
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        kinds (frequencies (map :kind (:nodes result)))
+        relations (frequencies (map :relation (:edges result)))]
+    (is (= :terraform (:kind file)))
+    (is (contains? labels "infra/main.tf"))
+    (is (contains? labels "aws_s3_bucket.assets"))
+    (is (contains? labels "aws_s3_bucket_policy.assets"))
+    (is (contains? labels "module.cdn"))
+    (is (contains? labels "provider.aws"))
+    (is (= 1 (:terraform-file kinds)))
+    (is (= 2 (:terraform-resource kinds)))
+    (is (= 1 (:terraform-module kinds)))
+    (is (= 1 (:terraform-provider kinds)))
+    (is (pos? (:defines relations)))
+    (is (pos? (:references relations)))
+    (is (some #(= :terraform-block (:kind %)) (:chunks result)))))
+
+(deftest extracts-openapi-paths-operations-and-schemas
+  (let [file (fs/file-record "test/fixtures/sample-repo"
+                             "test/fixtures/sample-repo/api/openapi.yaml")
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        kinds (frequencies (map :kind (:nodes result)))
+        relations (frequencies (map :relation (:edges result)))]
+    (is (= :openapi (:kind file)))
+    (is (contains? labels "api/openapi.yaml"))
+    (is (contains? labels "/panels"))
+    (is (contains? labels "/panels/{id}"))
+    (is (contains? labels "GET /panels"))
+    (is (contains? labels "POST /panels"))
+    (is (contains? labels "GET /panels/{id}"))
+    (is (contains? labels "Panel"))
+    (is (contains? labels "PanelCreate"))
+    (is (= 1 (:api-spec kinds)))
+    (is (= 2 (:api-path kinds)))
+    (is (= 3 (:api-operation kinds)))
+    (is (= 2 (:api-schema kinds)))
+    (is (= 7 (:defines relations)))
+    (is (= [:openapi-file] (mapv :kind (:chunks result))))
+    (is (empty? (:diagnostics result)))))

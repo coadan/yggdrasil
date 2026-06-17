@@ -77,7 +77,7 @@
     "--snapshot-token" "--type" "--source" "--confidence" "--view" "--query"
     "--relation" "--base-url" "--detail" "--queue-dir" "--status" "--agent"
     "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
-    "--debounce-ms" "--name" "--workbench" "--task" "--case"})
+    "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode"})
 
 (def boolean-options
   #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer" "--enqueue"
@@ -1394,7 +1394,9 @@
   [args]
   (cond-> {:case-id (option-value args "--case")
            :out (option-value args "--out")
-           :retriever (option-value args "--retriever")}
+           :retriever (option-value args "--retriever")
+           :mode (option-value args "--mode")
+           :result-path (option-value args "--result")}
     (parse-limit args) (assoc :limit (parse-limit args))))
 
 (defn- print-benchmark-case-summary
@@ -1428,7 +1430,40 @@
     (doseq [case (:cases result)]
       (if (:scores case)
         (print-benchmark-case-summary case)
-        (println "-" (:case-id case) (:repo-id case) "prepared")))))
+        (println "-" (:case-id case) (:repo-id case) "prepared")))
+
+    (:packets result)
+    (doseq [packet (:packets result)]
+      (println "-"
+               (:case-id packet)
+               (:repo-id packet)
+               "mode"
+               (:mode packet)
+               "packet"
+               (get-in packet [:artifacts :packetPath])))
+
+    (= benchmark/agent-score-schema (:schema result))
+    (do
+      (println "- case" (:case-id result))
+      (println "- agent" (get-in result [:agent :agentId]))
+      (println "- mode" (get-in result [:agent :mode]))
+      (println "- file-recall@10"
+               (format "%.2f" (double (get-in result [:scores :fileRecallAt10] 0.0))))
+      (println "- mrr"
+               (format "%.2f" (double (get-in result [:scores :meanReciprocalRankFile] 0.0)))))))
+
+(defn- enqueue-benchmark-agent-packets
+  [args result]
+  (assoc result
+         :enqueued
+         (mapv (fn [packet]
+                 (queue/item-summary
+                  (queue/enqueue! packet
+                                  {:root (queue-root args)
+                                   :kind "benchmark-agent"
+                                   :project-id (:project-id packet)
+                                   :priority (queue-priority args 50)})))
+               (:packets result))))
 
 (defn- bench!
   [args]
@@ -1448,6 +1483,18 @@
                                                   (throw (ex-info "Missing --case."
                                                                   {:usage (usage)})))
                                               opts)
+                   :agent-packet (let [result (benchmark/agent-packets! suite opts)]
+                                   (if (enqueue-output? bench-args)
+                                     (enqueue-benchmark-agent-packets bench-args result)
+                                     result))
+                   :agent-score (benchmark/score-agent-result!
+                                 suite
+                                 (first (benchmark/selected-cases
+                                         suite
+                                         (or (:case-id opts)
+                                             (throw (ex-info "Missing --case."
+                                                             {:usage (usage)})))))
+                                 opts)
                    (throw (ex-info "Unknown benchmark command."
                                    {:command action
                                     :usage (usage)})))]
@@ -1498,6 +1545,8 @@
     "  hook uninstall <project.edn>"
     "  hook status <project.edn>"
     "  bench prepare|run|report|show <benchmark.edn> [--case ID] [--out DIR] [--json]"
+    "  bench agent-packet <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--enqueue] [--queue-dir DIR] [--out DIR] [--json]"
+    "  bench agent-score <benchmark.edn> --case ID --result result.json [--out DIR] [--json]"
     "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
     "  mcp"
     ""

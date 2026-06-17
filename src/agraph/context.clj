@@ -458,6 +458,9 @@
     (zero? (+ (:system-nodes counts) (:system-edges counts)))
     (conj "No system graph rows are indexed for this project.")
 
+    (some #{:system-graph} weak)
+    (conj "System graph rows are indexed, but no graph entities matched this query.")
+
     (some #{:docs} weak)
     (conj "Search docs are indexed, but no docs matched this query.")
 
@@ -494,7 +497,7 @@
     (and (zero? entity-count) (zero? doc-count)) :empty
     (or (:fallback? retrieval)
         (seq weak)
-        (some #{:source-files :source-graph :docs} missing)) :limited
+        (some #{:source-files :source-graph :docs :system-graph} missing)) :limited
     :else :ready))
 
 (defn- answerability

@@ -460,6 +460,29 @@
         (is (some #(str/includes? % "Activity")
                   (:warnings answerability)))))))
 
+(deftest context-packet-is-limited-when-system-graph-is-missing
+  (let [xtdb-path (temp-dir "agraph-missing-system-answerability-xtdb")
+        repo (.getPath (io/file "test/fixtures/project-repo"))
+        project {:id "fixture"
+                 :name "Fixture"
+                 :repos [{:id "app" :root repo :role :application}]}]
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (project/index-project! xtdb project {})
+        (let [packet (context/context-packet xtdb
+                                             "fixture api runtime"
+                                             {:project-id "fixture"
+                                              :retriever :lexical
+                                              :budget 2000})
+              answerability (:answerability packet)]
+          (is (seq (:docs packet)))
+          (is (empty? (:entities packet)))
+          (is (= :limited (:status answerability)))
+          (is (contains? (set (:available answerability)) :docs))
+          (is (contains? (set (:missing answerability)) :system-graph))
+          (is (some #(str/includes? % "No system graph rows")
+                    (:warnings answerability))))))))
+
 (deftest context-packet-reports-graph-profile-and-auto-fallback
   (let [xtdb-path (temp-dir "agraph-graph-profile-answerability-xtdb")
         repo (.getPath (io/file "test/fixtures/sample-repo"))

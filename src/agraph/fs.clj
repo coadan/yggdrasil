@@ -7,13 +7,15 @@
 
 (def supported-extensions
   #{".clj" ".cljc" ".cljs" ".css" ".cjs" ".edn" ".go" ".gradle" ".js"
-    ".jsx" ".json" ".md" ".mjs" ".py" ".rs" ".scss" ".sh" ".sql" ".toml"
-    ".ts" ".tsx" ".yaml" ".yml" ".xml"})
+    ".jsx" ".json" ".hcl" ".md" ".mjs" ".py" ".rs" ".scss" ".sh" ".sql"
+    ".tf" ".tfvars" ".toml" ".ts" ".tsx" ".yaml" ".yml" ".xml"})
 
 (def supported-filenames
   #{"dockerfile" "docker-compose.yml" "docker-compose.yaml"
     "compose.yml" "compose.yaml" "chart.yaml" "go.mod" "mix.exs" "package.json"
-    "cargo.toml" "pyproject.toml" "pom.xml" "deno.json"})
+    "cargo.toml" "pyproject.toml" "pom.xml" "deno.json"
+    "openapi.json" "openapi.yaml" "openapi.yml" "swagger.json"
+    "swagger.yaml" "swagger.yml"})
 
 (def ignored-dirs
   #{".git" ".dev" ".cpcache" ".clj-kondo" "target" "node_modules"
@@ -43,6 +45,9 @@
   (let [filename (str/lower-case (.getName (io/file path)))]
     (cond
       (= "dockerfile" filename) :docker
+      (contains? #{"openapi.json" "openapi.yaml" "openapi.yml"
+                   "swagger.json" "swagger.yaml" "swagger.yml"}
+                 filename) :openapi
       (contains? #{"go.mod" "mix.exs" "package.json" "cargo.toml"
                    "pyproject.toml" "pom.xml" "deno.json"}
                  filename) :manifest
@@ -62,6 +67,7 @@
         (".css" ".scss") :style
         ".sh" :shell
         ".sql" :sql
+        (".tf" ".tfvars" ".hcl") :terraform
         ".edn" :edn
         ".toml" :config
         (".yaml" ".yml") :yaml

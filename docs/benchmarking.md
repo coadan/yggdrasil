@@ -1,14 +1,15 @@
 # Benchmarking AGraph
 
 AGraph benchmarks replay real project work from a historical source tree. The
-primary benchmark is issue replay: start from the commit before a fix, give
-AGraph the issue text, rank likely graph neighborhoods, and compare that output
-with the actual fixing diff.
+primary benchmark is agent issue replay: start from the commit before a fix,
+give an agent the issue text plus a base checkout, collect ranked suspected
+files, and compare that output with the actual fixing diff.
 
-The first benchmark target is localization quality, not autonomous patching.
-Reliable localization scores are cheaper to run, easier to debug, and strong
-enough to catch regressions in source support, extraction, ranking, and system
-inference.
+The first target is localization quality, not autonomous patching. Reliable
+localization scores are cheap to run, easy to debug, and strong enough to catch
+regressions in source support, extraction, ranking, and system inference. The
+retrieval runner is still useful, but treat it as a diagnostic for why an agent
+did or did not get useful help.
 
 ## Workflow
 
@@ -33,6 +34,8 @@ Run the suite:
 
 ```sh
 bb bench prepare benchmark.edn
+bb bench agent-packet benchmark.edn --case penpot-example --json
+bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
 bb bench run benchmark.edn
 bb bench report benchmark.edn
 bb bench show benchmark.edn --case penpot-example
@@ -46,14 +49,58 @@ generated output root.
 
 - `bench prepare <suite.edn>` computes ground truth from `git diff
   <base-sha> <fix-sha>` and writes one prepared case artifact per case.
+- `bench agent-packet <suite.edn>` writes an agent-localization packet for each
+  selected case. Use `--case <case-id>` for one case, `--mode agraph` to give
+  the agent AGraph command hints, or `--mode shell-only` for a baseline.
+- `bench agent-score <suite.edn> --case <case-id> --result result.json` scores
+  one agent result JSON against hidden ground truth.
 - `bench run <suite.edn>` creates a detached worktree at each base SHA, indexes
   it with the query profile, runs lexical retrieval over the issue text, and
   writes one scored result artifact per case.
 - `bench report <suite.edn>` aggregates case result scores.
 - `bench show <suite.edn> --case <case-id>` prints one case result.
 
-Use `--case <case-id>` with `prepare`, `run`, `report`, or `show` to narrow the
-command to one case.
+Use `--case <case-id>` with benchmark commands to narrow the command to one
+case.
+
+Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
+agents through the filesystem queue:
+
+```sh
+bb bench agent-packet benchmark.edn --case penpot-example --enqueue --queue-dir .dev/agraph/queue --json
+bb sync work pull --kind benchmark-agent --queue-dir .dev/agraph/queue --agent codex
+```
+
+The queue item stores transport and lease state only. The embedded payload is
+the explicit `agraph.benchmark.agent-packet/v1` JSON artifact.
+
+## Agent Result Contract
+
+Agents should return JSON shaped like this:
+
+```json
+{
+  "schema": "agraph.benchmark.agent-result/v1",
+  "caseId": "penpot-example",
+  "agentId": "codex",
+  "mode": "agraph",
+  "suspectedFiles": [
+    {
+      "path": "repo-relative/path.ext",
+      "rank": 1,
+      "confidence": 0.84,
+      "reason": "Short evidence-based reason."
+    }
+  ],
+  "suspectedSymbols": [],
+  "commands": [],
+  "summary": "Brief rationale."
+}
+```
+
+The scorer only uses `suspectedFiles.path` and rank for localization metrics.
+Reasons, commands, and symbols are still part of the artifact because they make
+failures auditable.
 
 ## Fair Inputs
 

@@ -1,5 +1,7 @@
 # Stage 6: Extractor Expansion
 
+Status: implemented.
+
 ## Goal
 
 Borrow Graphify's broad input coverage selectively. AGraph should prioritize
@@ -140,4 +142,3 @@ Near-term option:
 AGraph supports at least TypeScript/JavaScript, SQL, Terraform/HCL, and OpenAPI
 as deterministic source types, and `agraph sync coverage` clearly reports what
 was indexed, skipped, and unsupported.
-

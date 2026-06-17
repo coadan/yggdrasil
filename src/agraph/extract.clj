@@ -27,7 +27,9 @@
    :python "python/v3"
    :rust "rust/v2"
    :style "style/v1"
-   :sql "sql/v1"
+   :sql "sql/v2"
+   :terraform "terraform/v1"
+   :openapi "openapi/v1"
    :doc "markdown/v1"
    :edn "edn/v1"
    :config "config/v1"
@@ -244,6 +246,19 @@
    :file-id file-id
    :path path
    :source-line (or source-line 1)
+   :active? true
+   :run-id run-id})
+
+(defn- generic-node
+  [run-id id-scope file-id path kind label source-line]
+  {:xt/id (node-id id-scope kind label)
+   :label label
+   :kind kind
+   :file-id file-id
+   :path path
+   :name label
+   :source-line (or source-line 1)
+   :tokens (text/tokenize label)
    :active? true
    :run-id run-id})
 
@@ -1081,6 +1096,398 @@
      :chunks [chunk]
      :diagnostics []}))
 
+(defn- sql-name
+  [value]
+  (some-> value
+          (str/replace #"^[`\"\[]|[`\"\]]$" "")
+          (str/replace #";$" "")))
+
+(defn- sql-create-row
+  [idx line]
+  (or (when-let [[_ table]
+                 (re-find #"(?i)^\s*create\s+(?:temporary\s+|temp\s+)?table\s+(?:if\s+not\s+exists\s+)?([A-Za-z_][A-Za-z0-9_.\"`\[\]]*)"
+                          line)]
+        {:kind :table
+         :name (sql-name table)
+         :source-line (inc idx)})
+      (when-let [[_ view]
+                 (re-find #"(?i)^\s*create\s+(?:or\s+replace\s+)?view\s+([A-Za-z_][A-Za-z0-9_.\"`\[\]]*)"
+                          line)]
+        {:kind :view
+         :name (sql-name view)
+         :source-line (inc idx)})))
+
+(defn- sql-table-ranges
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         current nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (if-let [create (sql-create-row idx line)]
+        (recur (rest remaining)
+               (assoc create :start-idx idx :end-idx idx)
+               (cond-> out current (conj current)))
+        (let [current* (cond-> current
+                         current (assoc :end-idx idx))]
+          (if (and current (str/includes? line ");"))
+            (recur (rest remaining) nil (conj out current*))
+            (recur (rest remaining) current* out))))
+      (cond-> out current (conj current)))))
+
+(defn- sql-reference-targets
+  [line]
+  (->> (re-seq #"(?i)\breferences\s+([A-Za-z_][A-Za-z0-9_.\"`\[\]]*)" line)
+       (map second)
+       (map sql-name)
+       (remove str/blank?)
+       distinct))
+
+(defn- sql-table-edges
+  [run-id id-scope file-id path tables lines]
+  (->> tables
+       (filter #(= :table (:kind %)))
+       (mapcat
+        (fn [{:keys [name start-idx end-idx]}]
+          (let [source-id (node-id id-scope :table name)]
+            (->> (subvec (vec lines) start-idx (inc end-idx))
+                 (map-indexed vector)
+                 (mapcat (fn [[offset line]]
+                           (map (fn [target]
+                                  (edge-row run-id
+                                            file-id
+                                            path
+                                            source-id
+                                            (node-id id-scope :table target)
+                                            :references
+                                            :extracted
+                                            (+ start-idx offset 1)))
+                                (sql-reference-targets line))))))))
+       distinct
+       vec))
+
+(defn extract-sql
+  "Extract declared SQL schema facts from a static SQL file."
+  [run-id {:keys [id-scope file-id path content kind] :as file}]
+  (let [lines (vec (str/split-lines content))
+        declarations (sql-table-ranges lines)
+        nodes (mapv (fn [{:keys [kind name source-line]}]
+                      (generic-node run-id id-scope file-id path kind name source-line))
+                    declarations)
+        edges (sql-table-edges run-id id-scope file-id path declarations lines)
+        chunk-result (extract-text-source run-id file :sql-file)]
+    (assoc chunk-result
+           :nodes nodes
+           :edges edges
+           :chunks (mapv #(assoc % :file-kind kind) (:chunks chunk-result)))))
+
+(defn- block-start
+  [idx line]
+  (or (when-let [[_ block-type resource-type name]
+                 (re-matches #"^\s*(resource|data)\s+\"([^\"]+)\"\s+\"([^\"]+)\"\s*\{\s*$"
+                             line)]
+        {:block-type block-type
+         :kind :terraform-resource
+         :name (str resource-type "." name)
+         :provider resource-type
+         :source-line (inc idx)})
+      (when-let [[_ name]
+                 (re-matches #"^\s*module\s+\"([^\"]+)\"\s*\{\s*$" line)]
+        {:block-type "module"
+         :kind :terraform-module
+         :name (str "module." name)
+         :source-line (inc idx)})
+      (when-let [[_ name]
+                 (re-matches #"^\s*provider\s+\"([^\"]+)\"\s*\{\s*$" line)]
+        {:block-type "provider"
+         :kind :terraform-provider
+         :name (str "provider." name)
+         :provider name
+         :source-line (inc idx)})))
+
+(defn- hcl-blocks
+  ([lines] (hcl-blocks lines block-start))
+  ([lines start-fn]
+   (loop [remaining (map-indexed vector lines)
+          current nil
+          depth 0
+          out []]
+     (if-let [[idx line] (first remaining)]
+       (if current
+         (let [opens (count (re-seq #"\{" line))
+               closes (count (re-seq #"\}" line))
+               depth* (+ depth opens (- closes))
+               current* (-> current
+                            (update :lines conj [idx line])
+                            (assoc :end-line (inc idx)))]
+           (if (<= depth* 0)
+             (recur (rest remaining) nil 0 (conj out current*))
+             (recur (rest remaining) current* depth* out)))
+         (if-let [start (start-fn idx line)]
+           (let [opens (count (re-seq #"\{" line))
+                 closes (count (re-seq #"\}" line))]
+             (recur (rest remaining)
+                    (assoc start
+                           :lines [[idx line]]
+                           :end-line (inc idx))
+                    (+ opens (- closes))
+                    out))
+           (recur (rest remaining) nil 0 out)))
+       out))))
+
+(defn- hcl-reference-targets
+  [lines]
+  (->> lines
+       (mapcat (fn [[idx line]]
+                 (map (fn [[_ target]]
+                        {:target target
+                         :source-line (inc idx)})
+                      (re-seq #"\b([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_-]*)\b"
+                              line))))
+       distinct
+       vec))
+
+(defn- terraform-chunks
+  [run-id id-scope file-id path blocks]
+  (->> blocks
+       (filter #(contains? #{"variable" "output"} (:block-type %)))
+       (mapv (fn [{:keys [block-type name source-line lines]}]
+               (let [label (str block-type "." name)
+                     text (->> lines (map second) (str/join "\n"))]
+                 {:xt/id (chunk-id id-scope path label source-line)
+                  :file-id file-id
+                  :path path
+                  :kind :terraform-block
+                  :label label
+                  :text text
+                  :tokens (text/tokenize (str label "\n" text))
+                  :source-line source-line
+                  :active? true
+                  :run-id run-id})))))
+
+(defn- terraform-extra-block-start
+  [idx line]
+  (or (when-let [[_ block-type name]
+                 (re-matches #"^\s*(variable|output)\s+\"([^\"]+)\"\s*\{\s*$" line)]
+        {:block-type block-type
+         :name name
+         :source-line (inc idx)})
+      (block-start idx line)))
+
+(defn- terraform-blocks
+  [lines]
+  (hcl-blocks lines terraform-extra-block-start))
+
+(defn extract-terraform
+  "Extract declared Terraform/HCL blocks and explicit references."
+  [run-id {:keys [id-scope file-id path content] :as file}]
+  (let [lines (vec (str/split-lines content))
+        file-node (generic-node run-id id-scope file-id path :terraform-file path 1)
+        blocks (terraform-blocks lines)
+        graph-blocks (filter :kind blocks)
+        nodes (into [file-node]
+                    (map (fn [{:keys [kind name source-line]}]
+                           (generic-node run-id id-scope file-id path kind name source-line)))
+                    graph-blocks)
+        node-by-name (into {} (map (juxt :label :xt/id)) nodes)
+        define-edges (mapv (fn [{:keys [kind name source-line]}]
+                             (edge-row run-id
+                                       file-id
+                                       path
+                                       (:xt/id file-node)
+                                       (node-id id-scope kind name)
+                                       :defines
+                                       :extracted
+                                       source-line))
+                           graph-blocks)
+        reference-edges (->> graph-blocks
+                             (mapcat (fn [{:keys [kind name lines]}]
+                                       (let [source-id (node-id id-scope kind name)]
+                                         (keep (fn [{:keys [target source-line]}]
+                                                 (when-let [target-id (get node-by-name target)]
+                                                   (when (not= source-id target-id)
+                                                     (edge-row run-id
+                                                               file-id
+                                                               path
+                                                               source-id
+                                                               target-id
+                                                               :references
+                                                               :extracted
+                                                               source-line))))
+                                               (hcl-reference-targets lines)))))
+                             distinct
+                             vec)
+        chunk-result (extract-text-source run-id file :terraform-file)
+        chunks (vec (concat (:chunks chunk-result)
+                            (terraform-chunks run-id id-scope file-id path blocks)))]
+    {:nodes nodes
+     :edges (vec (concat define-edges reference-edges))
+     :chunks chunks
+     :diagnostics []}))
+
+(def openapi-methods
+  #{"get" "put" "post" "delete" "options" "head" "patch" "trace"})
+
+(defn- openapi-json-spec
+  [content]
+  (try
+    (let [parsed (json/read-json content :key-fn keyword)]
+      (when (or (:openapi parsed) (:swagger parsed))
+        parsed))
+    (catch Exception _ nil)))
+
+(defn- openapi-yaml-lines
+  [lines]
+  (when (some #(re-matches #"^\s*(openapi|swagger):\s*.+$" %) lines)
+    {:paths (->> lines
+                 (map-indexed vector)
+                 (keep (fn [[idx line]]
+                         (when-let [[_ path] (re-matches #"^\s{2}(/[^\s:]+):\s*$"
+                                                         line)]
+                           {:path path
+                            :source-line (inc idx)})))
+                 vec)
+     :operations (->> lines
+                      (map-indexed vector)
+                      (reduce (fn [{:keys [current-path] :as state} [idx line]]
+                                (if-let [[_ path] (re-matches #"^\s{2}(/[^\s:]+):\s*$" line)]
+                                  (assoc state :current-path path)
+                                  (if-let [[_ method] (re-matches #"^\s{4}([a-z]+):\s*$" line)]
+                                    (if (and current-path (contains? openapi-methods method))
+                                      (update state :operations conj
+                                              {:path current-path
+                                               :method method
+                                               :source-line (inc idx)})
+                                      state)
+                                    state)))
+                              {:current-path nil
+                               :operations []})
+                      :operations)
+     :schemas (->> lines
+                   (map-indexed vector)
+                   (reduce (fn [{:keys [in-schemas?] :as state} [idx line]]
+                             (cond
+                               (re-matches #"^\s{2}schemas:\s*$" line)
+                               (assoc state :in-schemas? true)
+
+                               (and in-schemas?
+                                    (re-matches #"^\s{2}[A-Za-z0-9_.-]+:\s*$" line))
+                               (assoc state :in-schemas? false)
+
+                               :else
+                               (if-let [[_ name] (and in-schemas?
+                                                      (re-matches
+                                                       #"^\s{4}([A-Za-z0-9_.-]+):\s*$"
+                                                       line))]
+                                 (update state :schemas conj
+                                         {:name name
+                                          :source-line (inc idx)})
+                                 state)))
+                           {:in-schemas? false
+                            :schemas []})
+                   :schemas)}))
+
+(defn- openapi-json-facts
+  [spec]
+  (when spec
+    {:paths (mapv (fn [path]
+                    {:path (name path)
+                     :source-line 1})
+                  (keys (:paths spec)))
+     :operations (->> (:paths spec)
+                      (mapcat (fn [[path methods]]
+                                (->> methods
+                                     (filter (fn [[method _]]
+                                               (contains? openapi-methods (name method))))
+                                     (map (fn [[method operation]]
+                                            {:path (name path)
+                                             :method (name method)
+                                             :operation-id (:operationId operation)
+                                             :source-line 1})))))
+                      vec)
+     :schemas (mapv (fn [schema]
+                      {:name (name schema)
+                       :source-line 1})
+                    (keys (get-in spec [:components :schemas])))}))
+
+(defn- openapi-facts
+  [content]
+  (let [lines (str/split-lines content)]
+    (or (openapi-json-facts (openapi-json-spec content))
+        (openapi-yaml-lines lines)
+        {:paths []
+         :operations []
+         :schemas []
+         :diagnostics [{:stage :parse
+                        :line 1
+                        :message "OpenAPI extractor did not find openapi or swagger declaration."}]})))
+
+(defn extract-openapi
+  "Extract declared OpenAPI paths, operations, and schemas."
+  [run-id {:keys [id-scope file-id path content] :as file}]
+  (let [facts (openapi-facts content)
+        spec-node (generic-node run-id id-scope file-id path :api-spec path 1)
+        path-nodes (mapv (fn [{:keys [path source-line]}]
+                           (generic-node run-id id-scope file-id (:path file)
+                                         :api-path path source-line))
+                         (:paths facts))
+        operation-nodes (mapv (fn [{:keys [path method operation-id source-line]}]
+                                (generic-node run-id id-scope file-id (:path file)
+                                              :api-operation
+                                              (str (str/upper-case method)
+                                                   " "
+                                                   path
+                                                   (when operation-id
+                                                     (str " " operation-id)))
+                                              source-line))
+                              (:operations facts))
+        schema-nodes (mapv (fn [{:keys [name source-line]}]
+                             (generic-node run-id id-scope file-id (:path file)
+                                           :api-schema name source-line))
+                           (:schemas facts))
+        path-edges (mapv #(edge-row run-id file-id path
+                                    (:xt/id spec-node)
+                                    (:xt/id %)
+                                    :defines
+                                    :extracted
+                                    (:source-line %))
+                         path-nodes)
+        path-id-by-label (into {} (map (juxt :label :xt/id)) path-nodes)
+        operation-edges (mapv (fn [{:keys [path method operation-id source-line]}]
+                                (edge-row run-id
+                                          file-id
+                                          (:path file)
+                                          (get path-id-by-label path)
+                                          (node-id id-scope
+                                                   :api-operation
+                                                   (str (str/upper-case method)
+                                                        " "
+                                                        path
+                                                        (when operation-id
+                                                          (str " " operation-id))))
+                                          :defines
+                                          :extracted
+                                          source-line))
+                              (:operations facts))
+        schema-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id spec-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           schema-nodes)
+        chunk-result (extract-text-source run-id file :openapi-file)
+        diagnostics (mapv #(diagnostic-row run-id
+                                           file-id
+                                           path
+                                           (:stage %)
+                                           (:line %)
+                                           (:message %))
+                          (:diagnostics facts))]
+    {:nodes (vec (concat [spec-node] path-nodes operation-nodes schema-nodes))
+     :edges (vec (concat path-edges operation-edges schema-edges))
+     :chunks (:chunks chunk-result)
+     :diagnostics diagnostics}))
+
 (defn extract-file
   "Extract graph rows from a file record."
   [run-id file]
@@ -1093,7 +1500,9 @@
      :python (extract-python run-id file)
      :rust (extract-rust run-id file)
      :style (extract-text-source run-id file :style-file)
-     :sql (extract-text-source run-id file :sql-file)
+     :sql (extract-sql run-id file)
+     :terraform (extract-terraform run-id file)
+     :openapi (extract-openapi run-id file)
      :doc (extract-doc run-id file)
      :edn (extract-edn run-id file)
      :config (extract-edn run-id file)

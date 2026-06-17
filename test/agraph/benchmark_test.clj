@@ -86,3 +86,79 @@
                    :reason "missing-at-base"}]
                  (get-in prepared [:groundTruth :unsupportedGroundTruthFiles])))
           (is (.isDirectory (io/file (:worktreeRoot prepared)))))))))
+
+(deftest writes-agent-packet-without-ground-truth
+  (let [root (temp-dir "agraph-bench-agent-repo")
+        out (temp-dir "agraph-bench-agent-out")
+        suite-dir (temp-dir "agraph-bench-agent-suite")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))]
+    (git! root "init")
+    (git! root "config" "user.email" "agraph@example.test")
+    (git! root "config" "user.name" "AGraph Test")
+    (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (let [base-sha (commit! root "base")]
+      (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :fixed)\n")
+      (let [fix-sha (commit! root "fix")]
+        (spit suite-path
+              (pr-str {:id "agent-fixture"
+                       :repos [{:id "repo"
+                                :root root}]
+                       :cases [{:id "case-1"
+                                :repo-id "repo"
+                                :base-sha base-sha
+                                :fix-sha fix-sha
+                                :issue {:id 1
+                                        :title "broken app"
+                                        :body "The app returns the old value."}}]}))
+        (let [suite (benchmark/read-suite suite-path)
+              packet (first (:packets (benchmark/agent-packets! suite {:out out
+                                                                       :case-id "case-1"})))
+              project-path (get-in packet [:artifacts :projectConfig])
+              packet-path (get-in packet [:artifacts :packetPath])
+              project-config (read-string (slurp project-path))]
+          (is (= benchmark/agent-packet-schema (:schema packet)))
+          (is (= benchmark/agent-result-schema
+                 (get-in packet [:task :expectedResultSchema])))
+          (is (not (contains? packet :groundTruth)))
+          (is (= (:project-id packet) (:id project-config)))
+          (is (= (:worktreeRoot packet) (get-in project-config [:repos 0 :root])))
+          (is (.isFile (io/file packet-path))))))))
+
+(deftest scores-agent-localization-result
+  (let [root (temp-dir "agraph-bench-agent-score")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        _ (spit-file! root "src/db.clj" "(ns db)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :input {:title "broken app"}
+                  :groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :agentId "codex"
+                      :mode "agraph"
+                      :suspectedFiles [{:path "src/other.clj"
+                                        :rank 1
+                                        :confidence 0.9}
+                                       {:path "src/app.clj"
+                                        :rank 2
+                                        :confidence 0.8}
+                                       {:path "src/db.clj"
+                                        :rank 3
+                                        :confidence 0.7}]}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (= benchmark/agent-score-schema (:schema scored)))
+    (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
+    (is (= 0.5 (get-in scored [:scores :meanReciprocalRankFile])))
+    (is (= ["src/other.clj"] (get-in scored [:agent :missingPredictedFiles])))
+    (is (= [{:path "src/app.clj"
+             :rank 2
+             :found? true}
+            {:path "src/db.clj"
+             :rank 3
+             :found? true}]
+           (get-in scored [:groundTruthRanks :files])))))
