@@ -1489,6 +1489,57 @@
            "agraph install-agent --platform codex --project"]
     true vec))
 
+(defn- sum-repo-stats
+  [sync-result]
+  (->> (get-in sync-result [:index-summary :repos])
+       (map :stats)
+       (apply merge-with +)))
+
+(defn- compact-counts
+  [sync-result activity-result]
+  (let [repo-stats (sum-repo-stats sync-result)
+        system-summary (:system-summary sync-result)
+        maintenance-counts (get-in sync-result [:check-report :counts])
+        activity-counts (:counts activity-result)]
+    {:files {:scanned (:files-scanned repo-stats 0)
+             :indexed (:files-indexed repo-stats 0)
+             :skipped (:files-skipped repo-stats 0)
+             :deleted (:files-deleted repo-stats 0)
+             :diagnostics (:diagnostics repo-stats 0)}
+     :graph {:nodes (:nodes repo-stats 0)
+             :edges (:edges repo-stats 0)
+             :file-facts (:file-facts repo-stats 0)
+             :chunks (:chunks repo-stats 0)
+             :search-docs (:search-docs repo-stats 0)}
+     :systems {:nodes (:system-nodes system-summary 0)
+               :edges (:system-edges system-summary 0)
+               :evidence (:system-evidence system-summary 0)
+               :maintenance-decisions (:maintenance-decisions maintenance-counts 0)
+               :orphaned-candidates (:orphaned-systems maintenance-counts 0)}
+     :activity {:items (:items activity-counts 0)
+                :events (:events activity-counts 0)
+                :validation-events (:validation-events activity-counts 0)}}))
+
+(defn- compact-report
+  [report-result]
+  {:out (:out report-result)
+   :files (:files report-result)})
+
+(defn- start-result
+  [project start-info map-path report-out sync-result activity-result report-result]
+  (cond-> {:schema start-schema
+           :project-id (:id project)
+           :mode (:mode start-info)
+           :config (:config start-info)
+           :map map-path
+           :report (compact-report report-result)
+           :counts (compact-counts sync-result activity-result)
+           :next (start-next-commands (:id project)
+                                      (:config start-info)
+                                      map-path
+                                      report-out)}
+    (:init start-info) (assoc :initialized true)))
+
 (defn- start!
   [args]
   (let [workbench-root (option-value args "--workbench")
@@ -1516,19 +1567,13 @@
                                                                   (name report/default-detail)))
                                              :force? (boolean (some #{"--force"} args))})]
           (print-json
-           (cond-> {:schema start-schema
-                    :project-id (:id project)
-                    :mode (:mode start-info)
-                    :config (:config start-info)
-                    :map map-path
-                    :sync sync-result
-                    :activity activity-result
-                    :report report-result
-                    :next (start-next-commands (:id project)
-                                               (:config start-info)
-                                               map-path
-                                               report-out)}
-             (:init start-info) (assoc :init (:init start-info)))))))))
+           (start-result project
+                         start-info
+                         map-path
+                         report-out
+                         sync-result
+                         activity-result
+                         report-result)))))))
 
 (defn- bench-opts
   [args]

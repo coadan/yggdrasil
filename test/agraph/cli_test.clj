@@ -422,12 +422,37 @@
             parsed (read-json-output out)]
         (is (= "agraph.start/v1" (:schema parsed)))
         (is (= "initialized" (:mode parsed)))
+        (is (= true (:initialized parsed)))
         (is (= "fixture" (:project-id parsed)))
         (is (= config-path (:config parsed)))
         (is (= map-path (:map parsed)))
-        (is (= "agraph.sync/v1" (get-in parsed [:sync :schema])))
-        (is (= activity/sync-schema (get-in parsed [:activity :schema])))
-        (is (= report/schema (get-in parsed [:report :schema])))
+        (is (not (contains? parsed :sync)))
+        (is (not (contains? parsed :activity)))
+        (is (not (contains? parsed :check-report)))
+        (is (not (contains? parsed :semantic-connections)))
+        (is (= report-out (get-in parsed [:report :out])))
+        (is (= {:scanned 0
+                :indexed 0
+                :skipped 0
+                :deleted 0
+                :diagnostics 0}
+               (get-in parsed [:counts :files])))
+        (is (= {:nodes 0
+                :edges 0
+                :file-facts 0
+                :chunks 0
+                :search-docs 0}
+               (get-in parsed [:counts :graph])))
+        (is (= {:nodes 0
+                :edges 0
+                :evidence 0
+                :maintenance-decisions 0
+                :orphaned-candidates 0}
+               (get-in parsed [:counts :systems])))
+        (is (= {:items 0
+                :events 0
+                :validation-events 0}
+               (get-in parsed [:counts :activity])))
         (is (graph-map/file-exists? map-path))
         (is (some #(str/includes? % "agraph ask")
                   (:next parsed)))
@@ -491,6 +516,8 @@
         (is (= "existing" (:mode parsed)))
         (is (= "existing" (:project-id parsed)))
         (is (not (contains? parsed :init)))
+        (is (not (contains? parsed :initialized)))
+        (is (not (contains? parsed :sync)))
         (is (= [[:index :xtdb "existing" {:dry-run? false
                                           :index-profile :graph}]]
                @calls))))))

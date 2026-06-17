@@ -21,7 +21,7 @@ agraph start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map
 - Runs the same graph sync/check path as `agraph sync <project.edn> --check`.
 - Imports local queue activity with `sync activity` semantics.
 - Writes a report bundle with `agraph report` semantics.
-- Returns a compact JSON summary with next commands.
+- Returns a compact JSON summary with counts, output paths, and next commands.
 
 ## Guardrails
 
@@ -29,10 +29,14 @@ agraph start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map
 - No hidden map mutation beyond creating an explicit empty map for first run.
 - No embeddings or LLM calls.
 - No Git hook or agent instruction install unless the user runs those commands.
+- No full sync, maintenance, activity, graph evidence, or semantic connection
+  payloads in the `start` response; those stay in report files and lower-level
+  commands.
 
 ## Validation
 
 - CLI usage and dispatch tests cover the new public command.
 - Focused CLI tests cover first-run initialization and idempotent config reuse.
+- Focused CLI tests assert the compact response shape.
 - Manual smoke should run with a temporary `AGRAPH_XTDB_PATH` to avoid generated
   graph data in the repository.
