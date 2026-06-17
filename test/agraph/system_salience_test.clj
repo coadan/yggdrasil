@@ -27,19 +27,19 @@
   (let [nodes [(node "api" "API" :service)
                (node "core" "Core" :library)
                (node "repo" "repo" :repo-boundary)
-               (node "docs" "docs.example.com" :external-api)]
+               (node "external" "external.example" :external-api)]
         connections (salience/semantic-connections
                      "fixture"
                      nodes
                      [(edge "api" "core" :code-depends-on
                             :evidence ["a" "b" "c"])
-                      (edge "api" "docs" :references)
+                      (edge "api" "external" :references)
                       (edge "repo" "api" :shares-config)])
         by-target (into {} (map (juxt :target-id identity)) connections)]
     (is (= "primary" (:visibility (get by-target "core"))))
-    (is (= "noise" (:visibility (get by-target "docs"))))
+    (is (= "noise" (:visibility (get by-target "external"))))
     (is (= "noise" (:visibility (get by-target "api"))))
-    (is (< (:salience (get by-target "docs"))
+    (is (< (:salience (get by-target "external"))
            (:salience (get by-target "core"))))))
 
 (deftest clusters-split-dense-subgraphs-across-weak-bridges
@@ -72,8 +72,8 @@
 (deftest decision-classifier-sends-one-maintenance-decision
   (let [messages* (atom nil)
         decision {:id "maintenance-decision:123"
-                  :kind :external-api-likely-reference
-                  :target "system:test:external/docs.example.com"}
+                  :kind :ambiguous-high-salience-edge
+                  :target "system-connection:123"}
         result (decision-classifier/classify
                 {:decision decision
                  :client {:provider :fake
@@ -82,7 +82,7 @@
                                            (reset! messages* messages)
                                            {:recommendation "reject"
                                             :confidence 0.9
-                                            :reason "Docs host."
+                                            :reason "Weak evidence."
                                             :mapPatch []})}})]
     (is (= decision-classifier/schema (:schema result)))
     (is (= "maintenance-decision:123" (:decisionId result)))

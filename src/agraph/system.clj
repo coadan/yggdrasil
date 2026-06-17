@@ -760,28 +760,6 @@
   [edge]
   (vec (:evidence-ids edge)))
 
-(defn- external-api-reference-decisions
-  [project-id basis system-by-id semantic-edges]
-  (->> semantic-edges
-       (filter #(= "noise" (:visibility %)))
-       (filter (fn [edge]
-                 (let [target (get system-by-id (:target-id edge))]
-                   (and (= :external-api (:kind target))
-                        (salience/docs-like-host? (:label target))))))
-       (mapv (fn [edge]
-               (decision-row project-id
-                             basis
-                             :external-api-likely-reference
-                             :medium
-                             (:target-id edge)
-                             "External host looks like documentation, example, test, or mock evidence."
-                             {:edge (edge-summary system-by-id edge)}
-                             {:scope {:target-kind :system-node}
-                              :evidence-ids (edge-evidence-ids edge)
-                              :recommended-actions [:reject-external-api
-                                                    :hide-edge
-                                                    :investigate]})))))
-
 (defn- ambiguous-edge-decisions
   [project-id basis system-by-id semantic-edges]
   (->> semantic-edges
@@ -871,7 +849,6 @@
   [project-id basis system-by-id semantic-edges orphaned clusters]
   (->> (concat (ambiguous-edge-decisions project-id basis system-by-id semantic-edges)
                (cluster-bridge-decisions project-id basis system-by-id semantic-edges clusters)
-               (external-api-reference-decisions project-id basis system-by-id semantic-edges)
                (orphan-decisions project-id basis orphaned))
        (sort-by (fn [decision]
                   [(severity-rank (:severity decision))

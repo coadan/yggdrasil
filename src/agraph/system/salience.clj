@@ -1,7 +1,6 @@
 (ns agraph.system.salience
   "Derive semantic, salience-ranked system connections from raw system edges."
-  (:require [agraph.hash :as hash]
-            [clojure.string :as str]))
+  (:require [agraph.hash :as hash]))
 
 (def relation-weight
   {:code-depends-on 6.0
@@ -30,33 +29,12 @@
   [node]
   (keywordize (:kind node)))
 
-(defn docs-like-host?
-  "Return true when an external host looks like docs, examples, tests, or mocks."
-  [host]
-  (let [host (str/lower-case (str host))]
-    (or (str/starts-with? host "docs.")
-        (str/starts-with? host "doc.")
-        (str/starts-with? host "developer.")
-        (str/starts-with? host "developers.")
-        (str/starts-with? host "learn.")
-        (str/starts-with? host "console.")
-        (str/includes? host "example")
-        (str/includes? host "localhost")
-        (str/includes? host "mock.")
-        (str/includes? host "test."))))
-
 (defn- repo-boundary-edge?
   [node-by-id edge]
   (let [source (get node-by-id (:source-id edge))
         target (get node-by-id (:target-id edge))]
     (or (= :repo-boundary (node-kind source))
         (= :repo-boundary (node-kind target)))))
-
-(defn- docs-like-external-edge?
-  [node-by-id edge]
-  (let [target (get node-by-id (:target-id edge))]
-    (and (= :external-api (node-kind target))
-         (docs-like-host? (:label target)))))
 
 (defn- relation-counts
   [edges]
@@ -90,10 +68,6 @@
   [node-by-id edges]
   (let [relations (set (map (comp keywordize :relation) edges))]
     (cond-> []
-      (some #(docs-like-external-edge? node-by-id %) edges)
-      (conj {:reason "documentation/example-like external host"
-             :delta -4.0})
-
       (every? #(repo-boundary-edge? node-by-id %) edges)
       (conj {:reason "repo-boundary-only connection"
              :delta -3.0})

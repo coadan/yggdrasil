@@ -17,6 +17,17 @@ metrics, and stable row shapes. Leave open-ended semantic judgment, merging,
 classification, and use-case-specific meaning to humans or LLM-backed overlays;
 do not recreate that reasoning with brittle rules.
 
+Hard boundary: AGraph core must not contain semantic heuristics that classify
+project meaning from names, hosts, path vocabulary, prose, or substring lists.
+Examples of forbidden core logic: "docs-like host", "service-like path",
+"library-like folder", "test/example URL means non-runtime", or similar
+semantic shortcuts. When such judgment is useful, expose a bounded decision with
+ids, evidence rows, graph neighborhood, and recommended actions so a human or
+LLM can decide and write the accepted result into metadata or `agraph.map.json`.
+Deterministic code may rank by mechanical facts such as relation type,
+evidence count, degree, file kind, parser output, and graph topology; it must
+not pretend those facts are final architecture semantics.
+
 Keep implementation local-first and deterministic. XTDB stores durable graph
 facts and audit history; semantic/vector providers are optional later backends.
 
