@@ -122,7 +122,9 @@ Agents should maintain the map while working. Start with
 `agraph project maintain --json` and address the ranked decision queue. The
 report includes a graph-basis hash, scale/noise ratios, top hubs, and fold-in
 actions. Use those signals to make small corrections as work reveals them,
-rather than trying to classify the whole project.
+rather than trying to classify the whole project. Use `--map agraph.map.json`
+when reviewing after corrections so rejected systems and incident edges stay out
+of the maintenance queue.
 
 If a task reveals a better system boundary, a stale external API node, an
 orphaned system, a noisy visible edge, a missing connection, or a repo that

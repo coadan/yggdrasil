@@ -67,6 +67,16 @@
               systems (store/rows-by-field xtdb (:system-nodes store/tables) :project-id "fixture")
               system-edges (store/rows-by-field xtdb (:system-edges store/tables) :project-id "fixture")
               maintenance (project/maintain-project xtdb project {})
+              mapped-maintenance (project/maintain-project
+                                  xtdb
+                                  project
+                                  {:map-overlay {:schema graph-map/schema
+                                                 :project "fixture"
+                                                 :systems []
+                                                 :reject [{:match {:kind "external-api"
+                                                                   :host "api.stripe.com"}}]
+                                                 :edges []
+                                                 :docs []}})
               search (query/semantic-query xtdb
                                            "services api depends on core"
                                            {:project-id "fixture"
@@ -117,6 +127,12 @@
           (is (some :clusterId (:nodes graph-data)))
           (is (= "agraph.graph-basis/v1" (get-in maintenance [:graph-basis :schema])))
           (is (string? (get-in maintenance [:graph-basis :hash])))
+          (is (= 1 (get-in mapped-maintenance [:map :rejected-systems])))
+          (is (= (dec (get-in maintenance [:counts :systems]))
+                 (get-in mapped-maintenance [:counts :systems])))
+          (is (not-any? #(or (str/includes? (:source-id %) "api.stripe.com")
+                             (str/includes? (:target-id %) "api.stripe.com"))
+                        (:semantic-connections mapped-maintenance)))
           (is (= :small (get-in maintenance [:scale :tier])))
           (is (contains? (set (map :kind (get-in maintenance [:fold-in :actions])))
                          :review-primary-graph))

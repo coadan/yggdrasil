@@ -309,13 +309,16 @@
   (some #{"--json"} args))
 
 (defn- print-maintenance-report
-  [{:keys [project-id graph-basis counts scale fold-in orphaned-systems
+  [{:keys [project-id graph-basis map counts scale fold-in orphaned-systems
            dangling-edges low-confidence-edges
            decision-queue]}]
   (println "# Maintain")
   (println "- project" project-id)
   (when graph-basis
     (println "- graph-basis" (:hash graph-basis)))
+  (when map
+    (println "- map-rejects" (:rejects map))
+    (println "- map-rejected-systems" (:rejected-systems map)))
   (doseq [[k v] counts]
     (println "-" (name k) v))
   (when scale
@@ -1227,13 +1230,16 @@
             :maintain
             (store/with-node (store/storage-path)
               (fn [xtdb]
-                (let [report (project/maintain-project
+                (let [map-path (default-map-path project-args)
+                      report (project/maintain-project
                               xtdb
                               project
                               {:low-confidence-threshold
                                (parse-double-option project-args
                                                     "--min-confidence"
-                                                    0.60)})]
+                                                    0.60)
+                               :map-overlay (when map-path
+                                              (graph-map/read-map map-path))})]
                   (if (json-output? project-args)
                     (print-json report)
                     (print-maintenance-report report)))))

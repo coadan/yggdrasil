@@ -3,6 +3,7 @@
   (:require [agraph.fs :as fs]
             [agraph.hash :as hash]
             [agraph.index :as index]
+            [agraph.map :as graph-map]
             [agraph.search-doc :as search-doc]
             [agraph.system.candidate :as candidate]
             [agraph.system.cluster :as cluster]
@@ -663,6 +664,59 @@
        (sort-by pr-str)
        vec))
 
+(defn- s
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (nil? value) nil
+    :else (str value)))
+
+(defn- match-value?
+  [actual expected]
+  (or (nil? expected)
+      (= (s actual) (s expected))))
+
+(defn- system-matches-reject?
+  [system match]
+  (let [kind (or (:kind match) (:type match))
+        path (or (:path match) (:pathPrefix match) (:path-prefix match))
+        host (:host match)]
+    (and (match-value? (:xt/id system) (:id match))
+         (match-value? (:label system) (:label match))
+         (match-value? (:repo-id system) (:repo match))
+         (match-value? (:kind system) kind)
+         (match-value? (:path-prefix system) path)
+         (or (nil? host)
+             (and (= :external-api (:kind system))
+                  (= (s host) (s (:label system))))))))
+
+(defn- reject-matches
+  [overlay]
+  (keep :match (:reject overlay)))
+
+(defn- apply-maintenance-overlay
+  [systems edges evidence overlay]
+  (if-not overlay
+    {:systems systems
+     :edges edges
+     :evidence evidence
+     :map nil}
+    (let [matches (vec (reject-matches overlay))
+          rejected-ids (->> systems
+                            (filter (fn [system]
+                                      (some #(system-matches-reject? system %) matches)))
+                            (map :xt/id)
+                            set)]
+      {:systems (vec (remove #(contains? rejected-ids (:xt/id %)) systems))
+       :edges (vec (remove #(or (contains? rejected-ids (:source-id %))
+                                (contains? rejected-ids (:target-id %)))
+                           edges))
+       :evidence (vec (remove #(contains? rejected-ids (:system-id %)) evidence))
+       :map {:schema graph-map/schema
+             :project (:project overlay)
+             :rejects (count (:reject overlay))
+             :rejected-systems (count rejected-ids)}})))
+
 (defn- graph-basis
   [project-id systems edges evidence semantic-edges]
   (let [signature {:systems (stable-row-signature systems [:xt/id :run-id :kind])
@@ -948,17 +1002,21 @@
 
 (defn maintenance-report
   "Return read-only maintenance findings for a project's current system graph."
-  [xtdb project-id {:keys [low-confidence-threshold]
+  [xtdb project-id {:keys [low-confidence-threshold map-overlay]
                     :or {low-confidence-threshold 0.60}}]
-  (let [systems (->> (store/rows-by-field xtdb (:system-nodes store/tables) :project-id project-id)
-                     (filter :active?)
-                     vec)
-        edges (->> (store/rows-by-field xtdb (:system-edges store/tables) :project-id project-id)
-                   (filter :active?)
-                   vec)
-        evidence (->> (store/rows-by-field xtdb (:system-evidence store/tables) :project-id project-id)
-                      (filter :active?)
-                      vec)
+  (let [raw-systems (->> (store/rows-by-field xtdb (:system-nodes store/tables) :project-id project-id)
+                         (filter :active?)
+                         vec)
+        raw-edges (->> (store/rows-by-field xtdb (:system-edges store/tables) :project-id project-id)
+                       (filter :active?)
+                       vec)
+        raw-evidence (->> (store/rows-by-field xtdb (:system-evidence store/tables) :project-id project-id)
+                          (filter :active?)
+                          vec)
+        overlay-result (apply-maintenance-overlay raw-systems raw-edges raw-evidence map-overlay)
+        systems (:systems overlay-result)
+        edges (:edges overlay-result)
+        evidence (:evidence overlay-result)
         system-ids (set (map :xt/id systems))
         incident-ids (set (mapcat (juxt :source-id :target-id) edges))
         orphaned (->> systems
@@ -999,6 +1057,7 @@
                             system-by-id)]
     {:project-id project-id
      :graph-basis basis
+     :map (:map overlay-result)
      :counts {:systems (count systems)
               :edges (count edges)
               :evidence (count evidence)

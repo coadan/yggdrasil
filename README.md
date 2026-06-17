@@ -95,7 +95,7 @@ agraph project index project.edn
 agraph project infer project.edn
 agraph map propose project.edn --out agraph.map.json
 agraph map reject agraph.map.json external-api docs.xtdb.com --reason "Documentation reference"
-agraph project maintain project.edn
+agraph project maintain project.edn --map agraph.map.json
 agraph graph systems --project sample --out .dev/reports/sample-systems.html
 agraph graph export systems --project sample --out .dev/reports/sample-systems.json
 agraph query "api gateway connections" --project sample --retriever lexical
@@ -148,7 +148,8 @@ AGraph is organized around three jobs for coding agents:
   update `agraph.map.json` with accepted corrections. Use `agraph docs audit`
   to find stale or missing doc attachments. Maintain output includes graph-basis,
   scale/noise ratios, top hubs, and fold-in actions so agents can make small
-  corrections during normal work instead of waiting for a full remap.
+  corrections during normal work instead of waiting for a full remap. Pass
+  `--map agraph.map.json` so accepted rejects are not reported again.
 
 The system graph is intentionally evidence-first and emergent. Generic
 extractors capture bounded, project-agnostic facts: file types, code
