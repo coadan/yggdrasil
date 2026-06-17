@@ -115,6 +115,8 @@
                         :repo (:repo node)
                         :path (:path node)
                         :pathPrefix (:pathPrefix node)
+                        :clusterId (:clusterId node)
+                        :clusterLabel (:clusterLabel node)
                         :score (double (:context-score node))
                         :why (if (some #(result-matches-node? % node) results)
                                "retrieval and graph match"
@@ -147,6 +149,8 @@
                           :target (:target edge)
                           :relation (:relation edge)
                           :confidence (:confidence edge)
+                          :salience (:salience edge)
+                          :visibility (:visibility edge)
                           :score (double (:context-score edge))}
                    (:attrs edge) (assoc :attrs (:attrs edge))
                    (seq (:tags edge)) (assoc :tags (:tags edge))
@@ -286,10 +290,19 @@
        (map #(attachment->doc chunks snippet-chars %))
        vec))
 
+(defn- graph-summary
+  [graph-data]
+  {:basis (:basis graph-data)
+   :counts {:nodes (count (:nodes graph-data))
+            :edges (count (:edges graph-data))
+            :clusters (count (:clusters graph-data))}
+   :defaultDetail "primary"})
+
 (defn- base-packet
-  [query-text budget entities edges warnings drilldowns]
+  [query-text budget graph-data entities edges warnings drilldowns]
   {:schema schema
    :query query-text
+   :graph (graph-summary graph-data)
    :budget {:requested budget}
    :entities entities
    :edges edges
@@ -376,7 +389,7 @@
                   (sort-by (juxt (comp - :score) :role #(get-in % [:source :path])))
                   (take doc-limit)
                   vec)]
-    (fit-budget (base-packet query-text budget entities edges warnings drilldowns)
+    (fit-budget (base-packet query-text budget graph-data entities edges warnings drilldowns)
                 docs
                 budget)))
 

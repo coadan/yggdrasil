@@ -121,6 +121,10 @@
                                     (:pathPrefix base))
                     :source "map-overlay"})
       (:reason system) (assoc :reason (:reason system))
+      (:lifecycle system) (assoc :lifecycle (s (:lifecycle system)))
+      (:clusterHint system) (assoc :clusterHint (s (:clusterHint system)))
+      (:cluster-hint system) (assoc :clusterHint (s (:cluster-hint system)))
+      (seq (:tags system)) (assoc :tags (mapv s (:tags system)))
       (seq (:aliases system)) (assoc :aliases (str/join ", " (:aliases system))))))
 
 (defn- match-value?
@@ -159,12 +163,17 @@
 
 (defn- overlay-edge
   [edge]
-  (let [row {:source (:source edge)
-             :target (:target edge)
-             :relation (kname (:relation edge))
-             :confidence (str (or (:confidence edge) 1.0))
-             :rules (or (:rules edge) "map-overlay")
-             :evidence (or (:evidence edge) (:reason edge))}]
+  (let [row (cond-> {:source (:source edge)
+                     :target (:target edge)
+                     :relation (kname (:relation edge))
+                     :confidence (str (or (:confidence edge) 1.0))
+                     :rules (or (:rules edge) "map-overlay")
+                     :evidence (or (:evidence edge) (:reason edge))}
+              (:visibility edge) (assoc :visibility (s (:visibility edge)))
+              (:importance edge) (assoc :importance (s (:importance edge)))
+              (:salience edge) (assoc :salience (:salience edge))
+              (:reason edge) (assoc :reason (:reason edge))
+              (seq (:tags edge)) (assoc :tags (mapv s (:tags edge))))]
     (assoc row :id (or (:id edge)
                        (str "map-edge:" (hash/short-hash row))))))
 
@@ -208,7 +217,7 @@
                              (remove #(or (contains? rejected (:source %))
                                           (contains? rejected (:target %)))))
         map-edges (map overlay-edge (:edges overlay))
-        edges* (->> (concat rewritten-edges map-edges)
+        edges* (->> (concat map-edges rewritten-edges)
                     (remove #(or (contains? rejected (:source %))
                                  (contains? rejected (:target %))))
                     (filter #(and (contains? node-ids (:source %))

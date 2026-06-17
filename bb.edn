@@ -5,13 +5,17 @@
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "index"
                       *command-line-args*)}
 
-  project {:doc "Project commands. Usage: bb project inspect|index|infer|maintain <project.edn>"
+  project {:doc "Project commands. Usage: bb project inspect|index|infer|maintain|add-repo <project.edn>"
            :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "project"
                         *command-line-args*)}
 
-  systems {:doc "System candidate and classification commands. Usage: bb systems candidates|classify ..."
+  systems {:doc "System candidate commands. Usage: bb systems candidates --project ID"
            :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "systems"
                         *command-line-args*)}
+
+  classify {:doc "Focused classifier commands. Usage: bb classify decision <id> --project ID"
+            :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "classify"
+                         *command-line-args*)}
 
   query {:doc "Search indexed graph. Usage: bb query \"text\" [--limit N]"
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "query"

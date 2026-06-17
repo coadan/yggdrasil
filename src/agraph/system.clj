@@ -5,8 +5,11 @@
             [agraph.index :as index]
             [agraph.search-doc :as search-doc]
             [agraph.system.candidate :as candidate]
+            [agraph.system.cluster :as cluster]
+            [agraph.system.salience :as salience]
             [agraph.text :as text]
             [agraph.xtdb :as store]
+            [clojure.set :as set]
             [clojure.string :as str])
   (:import [java.net URI]))
 
@@ -642,6 +645,307 @@
            :project-id id
            :status :completed)))
 
+(defn- system-summary
+  [system]
+  (select-keys system [:xt/id :label :kind :repo-id :path-prefix :metrics]))
+
+(defn- edge-summary
+  [system-by-id edge]
+  (assoc (select-keys edge [:xt/id :relation :relations :salience :visibility
+                            :evidence-ids :evidence-counts :salience-reasons])
+         :source (system-summary (get system-by-id (:source-id edge)))
+         :target (system-summary (get system-by-id (:target-id edge)))))
+
+(defn- stable-row-signature
+  [rows keys]
+  (->> rows
+       (map #(select-keys % keys))
+       (sort-by pr-str)
+       vec))
+
+(defn- graph-basis
+  [project-id systems edges evidence semantic-edges]
+  (let [signature {:systems (stable-row-signature systems [:xt/id :run-id :kind])
+                   :edges (stable-row-signature edges [:xt/id :run-id :relation])
+                   :evidence (stable-row-signature evidence [:xt/id :run-id :kind])
+                   :semantic (stable-row-signature semantic-edges
+                                                   [:xt/id :visibility :salience])}]
+    {:schema "agraph.graph-basis/v1"
+     :project-id project-id
+     :hash (hash/short-hash signature)
+     :counts {:systems (count systems)
+              :system-edges (count edges)
+              :system-evidence (count evidence)
+              :semantic-connections (count semantic-edges)}
+     :run-ids (->> systems
+                   (keep :run-id)
+                   distinct
+                   sort
+                   vec)}))
+
+(defn- decision-row
+  [project-id basis kind severity target reason data
+   {:keys [scope evidence-ids recommended-actions]}]
+  (let [evidence-ids (vec (distinct evidence-ids))]
+    {:schema "agraph.frontier.decision/v1"
+     :id (str "maintenance-decision:"
+              (hash/short-hash [project-id kind target evidence-ids (:hash basis)]))
+     :project-id project-id
+     :kind kind
+     :status :open
+     :severity severity
+     :scope (or scope {})
+     :target target
+     :reason reason
+     :evidence-ids evidence-ids
+     :recommended-actions (vec recommended-actions)
+     :basis basis
+     :data data}))
+
+(defn- edge-evidence-ids
+  [edge]
+  (vec (:evidence-ids edge)))
+
+(defn- external-api-reference-decisions
+  [project-id basis system-by-id semantic-edges]
+  (->> semantic-edges
+       (filter #(= "noise" (:visibility %)))
+       (filter (fn [edge]
+                 (let [target (get system-by-id (:target-id edge))]
+                   (and (= :external-api (:kind target))
+                        (salience/docs-like-host? (:label target))))))
+       (mapv (fn [edge]
+               (decision-row project-id
+                             basis
+                             :external-api-likely-reference
+                             :medium
+                             (:target-id edge)
+                             "External host looks like documentation, example, test, or mock evidence."
+                             {:edge (edge-summary system-by-id edge)}
+                             {:scope {:target-kind :system-node}
+                              :evidence-ids (edge-evidence-ids edge)
+                              :recommended-actions [:reject-external-api
+                                                    :hide-edge
+                                                    :investigate]})))))
+
+(defn- ambiguous-edge-decisions
+  [project-id basis system-by-id semantic-edges]
+  (->> semantic-edges
+       (filter #(contains? #{"primary" "secondary"} (:visibility %)))
+       (filter (fn [edge]
+                 (let [relations (set (:relations edge))
+                       noisy-relations (set/intersection relations
+                                                         #{:references
+                                                           :shares-config})
+                       strong-relations (set/intersection relations
+                                                          #{:code-depends-on
+                                                            :deploys
+                                                            :calls-external-api
+                                                            :calls-http})]
+                   (or (contains? relations :references)
+                       (and (seq noisy-relations)
+                            (empty? strong-relations))))))
+       (mapv (fn [edge]
+               (decision-row project-id
+                             basis
+                             :ambiguous-high-salience-edge
+                             :high
+                             (:xt/id edge)
+                             "Visible connection includes mixed or noisy evidence and may need agent judgment."
+                             {:edge (edge-summary system-by-id edge)}
+                             {:scope {:target-kind :system-edge}
+                              :evidence-ids (edge-evidence-ids edge)
+                              :recommended-actions [:set-edge-visibility
+                                                    :hide-edge
+                                                    :investigate]})))))
+
+(defn- orphan-decisions
+  [project-id basis orphaned]
+  (->> orphaned
+       (filter #(pos? (long (get-in % [:metrics :node-count] 0))))
+       (mapv (fn [system]
+               (decision-row project-id
+                             basis
+                             :unclustered-system
+                             :low
+                             (:xt/id system)
+                             "System has indexed code but no visible system connections."
+                             {:system (system-summary system)}
+                             {:scope {:target-kind :system-node}
+                              :recommended-actions [:accept-system
+                                                    :merge-system
+                                                    :hide-system]})))))
+
+(defn- cluster-bridge-decisions
+  [project-id basis system-by-id semantic-edges clusters]
+  (let [cluster-by-source (into {}
+                                (map (juxt :sourceLabel :id))
+                                clusters)
+        cluster-labels (cluster/cluster-labels (vals system-by-id) semantic-edges)]
+    (->> semantic-edges
+         (filter #(contains? #{"primary" "secondary"} (:visibility %)))
+         (keep (fn [edge]
+                 (let [source-cluster (get cluster-by-source
+                                           (get cluster-labels (:source-id edge)))
+                       target-cluster (get cluster-by-source
+                                           (get cluster-labels (:target-id edge)))]
+                   (when (and source-cluster target-cluster
+                              (not= source-cluster target-cluster))
+                     (decision-row project-id
+                                   basis
+                                   :cluster-bridge
+                                   :medium
+                                   (:xt/id edge)
+                                   "Visible connection bridges two discovered clusters."
+                                   {:sourceCluster source-cluster
+                                    :targetCluster target-cluster
+                                    :edge (edge-summary system-by-id edge)}
+                                   {:scope {:source-cluster source-cluster
+                                            :target-cluster target-cluster
+                                            :target-kind :system-edge}
+                                    :evidence-ids (edge-evidence-ids edge)
+                                    :recommended-actions [:promote-edge
+                                                          :split-system
+                                                          :hide-edge]})))))
+         vec)))
+
+(defn- severity-rank
+  [severity]
+  ({:high 0 :medium 1 :low 2} severity 3))
+
+(defn- maintenance-decision-queue
+  [project-id basis system-by-id semantic-edges orphaned clusters]
+  (->> (concat (ambiguous-edge-decisions project-id basis system-by-id semantic-edges)
+               (cluster-bridge-decisions project-id basis system-by-id semantic-edges clusters)
+               (external-api-reference-decisions project-id basis system-by-id semantic-edges)
+               (orphan-decisions project-id basis orphaned))
+       (sort-by (fn [decision]
+                  [(severity-rank (:severity decision))
+                   (:kind decision)
+                   (:target decision)]))
+       vec))
+
+(defn- ratio
+  [numerator denominator]
+  (if (pos? denominator)
+    (/ (double numerator) (double denominator))
+    0.0))
+
+(defn- scale-tier
+  [{:keys [systems semantic-connections evidence]}]
+  (cond
+    (or (>= systems 500)
+        (>= semantic-connections 2000)
+        (>= evidence 10000)) :large
+    (or (>= systems 150)
+        (>= semantic-connections 600)
+        (>= evidence 3000)) :medium
+    :else :small))
+
+(defn- visibility-counts
+  [semantic-edges]
+  (->> semantic-edges
+       (map :visibility)
+       frequencies
+       (into (sorted-map))))
+
+(defn- relation-counts
+  [semantic-edges]
+  (->> semantic-edges
+       (mapcat :relations)
+       frequencies
+       (sort-by (comp name key))
+       (into (sorted-map))))
+
+(defn- evidence-kind-counts
+  [evidence]
+  (->> evidence
+       (map :kind)
+       frequencies
+       (sort-by (comp name key))
+       (into (sorted-map))))
+
+(defn- top-hubs
+  [system-by-id semantic-edges]
+  (let [degree (frequencies (mapcat (juxt :source-id :target-id) semantic-edges))]
+    (->> degree
+         (map (fn [[id n]]
+                (assoc (system-summary (get system-by-id id))
+                       :degree n)))
+         (remove #(nil? (:xt/id %)))
+         (sort-by (juxt (comp - long :degree) :repo-id :label))
+         (take 10)
+         vec)))
+
+(defn- scale-report
+  [systems evidence semantic-edges visible-edges clusters orphaned system-by-id]
+  (let [counts {:systems (count systems)
+                :evidence (count evidence)
+                :semantic-connections (count semantic-edges)
+                :visible-connections (count visible-edges)
+                :noise-connections (count (filter #(= "noise" (:visibility %))
+                                                  semantic-edges))
+                :clusters (count clusters)
+                :orphaned-systems (count orphaned)}]
+    {:tier (scale-tier counts)
+     :ratios {:visible (ratio (:visible-connections counts)
+                              (:semantic-connections counts))
+              :noise (ratio (:noise-connections counts)
+                            (:semantic-connections counts))
+              :orphaned (ratio (:orphaned-systems counts)
+                               (:systems counts))}
+     :counts counts
+     :visibility-counts (visibility-counts semantic-edges)
+     :relation-counts (relation-counts semantic-edges)
+     :evidence-kind-counts (evidence-kind-counts evidence)
+     :top-hubs (top-hubs system-by-id semantic-edges)}))
+
+(defn- fold-in-action
+  [kind command reason]
+  {:kind kind
+   :command command
+   :reason reason})
+
+(defn- fold-in-report
+  [project-id scale decision-queue]
+  (let [counts (:counts scale)
+        noise-ratio (get-in scale [:ratios :noise])
+        orphan-ratio (get-in scale [:ratios :orphaned])
+        actions (cond-> [(fold-in-action
+                          :review-primary-graph
+                          (str "agraph graph systems --project " project-id
+                               " --detail primary")
+                          "Start from the compact system view before drilling down.")]
+                  (pos? (:orphaned-systems counts))
+                  (conj (fold-in-action
+                         :review-orphans
+                         "agraph project maintain <project.edn> --json"
+                         "Research orphaned systems discovered during normal work."))
+
+                  (< 0.35 noise-ratio)
+                  (conj (fold-in-action
+                         :review-noise
+                         (str "agraph graph export systems --project " project-id
+                              " --detail evidence")
+                         "Inspect noisy evidence before promoting or hiding it."))
+
+                  (< 0.20 orphan-ratio)
+                  (conj (fold-in-action
+                         :add-missing-connections
+                         "agraph map include agraph.map.json <system> <repo>:<path>"
+                         "Fold researched boundaries into the map overlay."))
+
+                  (seq decision-queue)
+                  (conj (fold-in-action
+                         :classify-one-decision
+                         (str "agraph classify decision "
+                              (:id (first decision-queue))
+                              " --project " project-id)
+                         "Ask an LLM only about one bounded maintenance decision.")))]
+    {:schema "agraph.fold-in/v1"
+     :summary "Maintain the graph incrementally while coding; update only researched boundaries."
+     :actions actions}))
+
 (defn maintenance-report
   "Return read-only maintenance findings for a project's current system graph."
   [xtdb project-id {:keys [low-confidence-threshold]
@@ -674,16 +978,44 @@
                                   (filter #(< (double (:confidence %))
                                               (double low-confidence-threshold)))
                                   (sort-by (juxt :confidence :relation :xt/id))
-                                  vec)]
+                                  vec)
+        semantic-edges (salience/semantic-connections project-id systems edges)
+        visible-edges (remove #(= "noise" (:visibility %)) semantic-edges)
+        clusters (cluster/clusters systems visible-edges)
+        system-by-id (into {} (map (juxt :xt/id identity)) systems)
+        basis (graph-basis project-id systems edges evidence semantic-edges)
+        decision-queue (maintenance-decision-queue project-id
+                                                   basis
+                                                   system-by-id
+                                                   semantic-edges
+                                                   orphaned
+                                                   clusters)
+        scale (scale-report systems
+                            evidence
+                            semantic-edges
+                            visible-edges
+                            clusters
+                            orphaned
+                            system-by-id)]
     {:project-id project-id
+     :graph-basis basis
      :counts {:systems (count systems)
               :edges (count edges)
               :evidence (count evidence)
               :orphaned-systems (count orphaned)
               :dangling-edges (count dangling-edges)
               :evidence-with-missing-system (count missing-evidence-systems)
-              :low-confidence-edges (count low-confidence-edges)}
+              :low-confidence-edges (count low-confidence-edges)
+              :semantic-connections (count semantic-edges)
+              :visible-connections (count visible-edges)
+              :clusters (count clusters)
+              :maintenance-decisions (count decision-queue)}
+     :scale scale
+     :fold-in (fold-in-report project-id scale decision-queue)
      :orphaned-systems orphaned
      :dangling-edges dangling-edges
      :evidence-with-missing-system missing-evidence-systems
-     :low-confidence-edges low-confidence-edges}))
+     :low-confidence-edges low-confidence-edges
+     :semantic-connections semantic-edges
+     :clusters clusters
+     :decision-queue decision-queue}))

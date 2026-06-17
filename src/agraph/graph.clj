@@ -3,6 +3,8 @@
   (:require [agraph.map :as graph-map]
             [agraph.metadata :as metadata]
             [agraph.query :as query]
+            [agraph.system.cluster :as cluster]
+            [agraph.system.salience :as salience]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -73,9 +75,17 @@
   [node]
   (or (:xt/id node) (:target-id node)))
 
+(defn- edge-source
+  [edge]
+  (or (:source-id edge) (:source edge)))
+
+(defn- edge-target
+  [edge]
+  (or (:target-id edge) (:target edge)))
+
 (defn- degree-map
   [edges]
-  (frequencies (mapcat (juxt :source-id :target-id) edges)))
+  (frequencies (mapcat (juxt edge-source edge-target) edges)))
 
 (defn- value-string
   [value]
@@ -107,16 +117,21 @@
 
 (defn- edge-row
   [edge]
-  {:id (:xt/id edge)
-   :source (:source-id edge)
-   :target (:target-id edge)
-   :relation (name (:relation edge))
-   :confidence (some-> (:confidence edge) str)
-   :rules (some-> (:rules edge) seq (str/join ", "))
-   :evidence (some-> (:evidence-ids edge) seq (str/join ", "))
-   :path (:path edge)
-   :line (:source-line edge)
-   :color (get relation-color (:relation edge) "#94a3b8")})
+  (cond-> {:id (:xt/id edge)
+           :source (:source-id edge)
+           :target (:target-id edge)
+           :relation (name (:relation edge))
+           :confidence (some-> (:confidence edge) str)
+           :rules (some-> (:rules edge) seq (str/join ", "))
+           :evidence (some-> (:evidence-ids edge) seq (str/join ", "))
+           :path (:path edge)
+           :line (:source-line edge)
+           :color (get relation-color (:relation edge) "#94a3b8")}
+    (:salience edge) (assoc :salience (:salience edge))
+    (:visibility edge) (assoc :visibility (:visibility edge))
+    (:evidence-counts edge) (assoc :evidenceCounts (:evidence-counts edge))
+    (:relations edge) (assoc :relations (mapv name (:relations edge)))
+    (:salience-reasons edge) (assoc :salienceReasons (:salience-reasons edge))))
 
 (defn- keywordize
   [value]
@@ -219,6 +234,7 @@
     {:title title
      :schema schema
      :basis (cond-> (select-keys opts [:project-id :repo-id])
+              (:detail opts) (assoc :detail (name (:detail opts)))
               (:valid-at temporal) (assoc :validAt (value-string (:valid-at temporal)))
               (:known-at temporal) (assoc :knownAt (value-string (:known-at temporal)))
               (:snapshot-token temporal) (assoc :snapshotToken (:snapshot-token temporal)))
@@ -407,27 +423,41 @@
 (defn system-graph
   "Return project-level system graph."
   [xtdb project-id {:keys [map-path map-overlay min-confidence limit valid-at known-at
-                           snapshot-token current-time read-context view-id]
+                           snapshot-token current-time read-context view-id detail]
                     :or {min-confidence 0.55
-                         limit default-node-limit}}]
+                         limit default-node-limit
+                         detail :primary}}]
   (let [read-context (merge read-context
                             (select-keys {:valid-at valid-at
                                           :known-at known-at
                                           :snapshot-token snapshot-token
                                           :current-time current-time}
                                          [:valid-at :known-at :snapshot-token :current-time]))
+        detail (keyword detail)
         nodes (vec (active-system-nodes xtdb project-id read-context))
-        edges (vec (active-system-edges xtdb
-                                        project-id
-                                        min-confidence
-                                        read-context))
+        raw-edges (vec (active-system-edges xtdb
+                                            project-id
+                                            min-confidence
+                                            read-context))
+        edges (if (= :raw detail)
+                raw-edges
+                (salience/filter-by-detail
+                 detail
+                 (salience/semantic-connections project-id nodes raw-edges)))
         degree (degree-map edges)
-        chosen (->> nodes
-                    (sort-by (fn [node] [(- (get degree (:xt/id node) 0))
-                                         (:repo-id node)
-                                         (:label node)]))
-                    (take limit)
-                    vec)
+        incident-node-ids (set (mapcat (juxt edge-source edge-target) edges))
+        chosen (let [ranked (->> nodes
+                                 (filter #(or (= :raw detail)
+                                              (contains? incident-node-ids (:xt/id %))))
+                                 (sort-by (fn [node] [(- (get degree (:xt/id node) 0))
+                                                      (:repo-id node)
+                                                      (:label node)]))
+                                 vec)]
+                 (->> (if (seq ranked)
+                        ranked
+                        (sort-by (fn [node] [(:repo-id node) (:label node)]) nodes))
+                      (take limit)
+                      vec))
         chosen-ids (mapv :xt/id chosen)
         data (graph-data (str "Systems: " project-id)
                          chosen
@@ -435,16 +465,44 @@
                          {}
                          {:project-id project-id
                           :read-context read-context
-                          :view-id view-id})
+                          :view-id view-id
+                          :detail detail})
         data (cond
                map-overlay (graph-map/apply-overlay data map-overlay)
                map-path (graph-map/apply-file data map-path)
                :else data)]
     (enrich-graph xtdb
-                  data
+                  (if (= :raw detail)
+                    data
+                    (cluster/annotate-graph data))
                   {:project-id project-id
                    :read-context read-context
                    :view-id view-id})))
+
+(defn cluster-graph
+  "Return a single discovered system cluster graph."
+  [xtdb project-id cluster-id opts]
+  (let [data (system-graph xtdb project-id opts)
+        matching-cluster (some #(when (or (= cluster-id (:id %))
+                                          (= cluster-id (:label %))
+                                          (= cluster-id (:sourceLabel %)))
+                                  %)
+                               (:clusters data))
+        cluster-id* (:id matching-cluster)
+        nodes (if cluster-id*
+                (filter #(= cluster-id* (:clusterId %)) (:nodes data))
+                [])
+        node-ids (set (map :id nodes))
+        edges (filter #(and (contains? node-ids (:source %))
+                            (contains? node-ids (:target %)))
+                      (:edges data))]
+    (-> data
+        (assoc :title (str "Cluster: " (or (:label matching-cluster) cluster-id))
+               :nodes (vec nodes)
+               :edges (vec edges)
+               :clusters (cond-> []
+                           matching-cluster (conj matching-cluster)))
+        refresh-presentation)))
 
 (defn- escape-html
   [s]
@@ -481,14 +539,21 @@
                                                               :pathPrefix :line :degree
                                                               :source :candidateTypes :metrics
                                                               :score :color :size
-                                                              :attrs :tags])
+                                                              :attrs :tags
+                                                              :clusterId :clusterLabel
+                                                              :clusterRank :lifecycle
+                                                              :clusterHint])
                                      (seq (metadata-text node)) (assoc :metadata (metadata-text node))
                                      (:repo node) (assoc :parent (str "repo:" (:repo node))))})
                           (:nodes data))
         graph-edges (mapv (fn [edge]
                             {:data (select-keys edge [:id :source :target :relation :confidence
                                                       :rules :evidence :path :line :color
-                                                      :attrs :tags :metrics])})
+                                                      :attrs :tags :metrics
+                                                      :salience :visibility
+                                                      :evidenceCounts :relations
+                                                      :salienceReasons
+                                                      :importance :reason])})
                           (:edges data))]
     (vec (concat repo-nodes graph-nodes graph-edges))))
 
@@ -523,7 +588,7 @@ button:hover{background:#f1f5f9}
 </style>
 </head>
 <body>
-<div id=\"bar\"><strong>" (escape-html (:title data)) "</strong><span class=\"muted\" id=\"count\"></span><input id=\"q\" placeholder=\"Filter\"><select id=\"kind\"></select><select id=\"relation\"></select><div id=\"controls\"><select id=\"layout\"><option value=\"cose\">cose</option><option value=\"breadthfirst\">breadthfirst</option><option value=\"concentric\">concentric</option><option value=\"grid\">grid</option><option value=\"circle\">circle</option></select><button id=\"fit\">Fit</button><button id=\"reset\">Layout</button></div></div>
+<div id=\"bar\"><strong>" (escape-html (:title data)) "</strong><span class=\"muted\" id=\"count\"></span><input id=\"q\" placeholder=\"Filter\"><select id=\"kind\"></select><select id=\"relation\"></select><select id=\"cluster\"></select><div id=\"controls\"><select id=\"layout\"><option value=\"cose\">cose</option><option value=\"breadthfirst\">breadthfirst</option><option value=\"concentric\">concentric</option><option value=\"grid\">grid</option><option value=\"circle\">circle</option></select><button id=\"fit\">Fit</button><button id=\"reset\">Layout</button></div></div>
 <div id=\"wrap\"><div id=\"cy\"></div><aside id=\"panel\"><div class=\"muted\">Click a node or edge.</div></aside></div>
 <script>
 " (cytoscape-js) "
@@ -548,6 +613,7 @@ const panel = document.getElementById('panel');
 const q = document.getElementById('q');
 const kind = document.getElementById('kind');
 const relation = document.getElementById('relation');
+const cluster = document.getElementById('cluster');
 const layoutSelect = document.getElementById('layout');
 const count = document.getElementById('count');
 function esc(s){return String(s??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));}
@@ -555,13 +621,15 @@ function detailRows(obj){return Object.entries(obj).filter(([k,v])=>v!==null&&v!
 function options(select,label,values){select.innerHTML=`<option value=\"\">${label}</option>`+Array.from(values).sort().map(v=>`<option value=\"${esc(v)}\">${esc(v)}</option>`).join('');}
 options(kind,'All kinds',new Set(cy.nodes().map(n=>n.data('kind')).filter(Boolean)));
 options(relation,'All relations',new Set(cy.edges().map(e=>e.data('relation')).filter(Boolean)));
+options(cluster,'All clusters',new Set(cy.nodes().map(n=>n.data('clusterLabel')).filter(Boolean)));
 function runLayout(){cy.layout({name:layoutSelect.value,animate:false,fit:true,padding:48,nodeDimensionsIncludeLabels:true}).run();}
 function visibleNode(n){
   if(n.data('kind')==='repo') return true;
   const needle=q.value.trim().toLowerCase();
   const kindValue=kind.value;
+  const clusterValue=cluster.value;
   const text=[n.data('label'),n.data('kind'),n.data('repo'),n.data('path'),n.data('pathPrefix'),n.data('metadata'),JSON.stringify(n.data('attrs')||{}),JSON.stringify(n.data('tags')||[]),JSON.stringify(n.data('metrics')||{})].join(' ').toLowerCase();
-  return (!needle||text.includes(needle))&&(!kindValue||n.data('kind')===kindValue);
+  return (!needle||text.includes(needle))&&(!kindValue||n.data('kind')===kindValue)&&(!clusterValue||n.data('clusterLabel')===clusterValue);
 }
 function visibleEdge(e){
   const rel=relation.value;
@@ -583,6 +651,7 @@ cy.on('tap','edge',evt=>{const d=evt.target.data(); panel.innerHTML=`<h2>${esc(d
 q.addEventListener('input',applyFilters);
 kind.addEventListener('change',applyFilters);
 relation.addEventListener('change',applyFilters);
+cluster.addEventListener('change',applyFilters);
 layoutSelect.addEventListener('change',runLayout);
 document.getElementById('fit').onclick=()=>cy.fit(cy.elements().not('.faded'),48);
 document.getElementById('reset').onclick=runLayout;

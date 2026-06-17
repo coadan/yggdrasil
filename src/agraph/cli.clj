@@ -13,7 +13,8 @@
             [agraph.metadata :as metadata]
             [agraph.project :as project]
             [agraph.query :as query]
-            [agraph.system.classifier :as system-classifier]
+            [agraph.system :as system]
+            [agraph.system.decision-classifier :as decision-classifier]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.pprint :as pprint]
@@ -62,10 +63,10 @@
     "--entity-limit" "--edge-limit" "--doc-limit" "--snippet-chars" "--role"
     "--heading" "--start-line" "--end-line" "--valid-at" "--known-at"
     "--snapshot-token" "--type" "--source" "--confidence" "--view" "--query"
-    "--relation" "--cache-dir" "--base-url"})
+    "--relation" "--base-url" "--detail"})
 
 (def boolean-options
-  #{"--dry-run" "--systems" "--no-map"})
+  #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer"})
 
 (defn- positional-args
   [args]
@@ -162,6 +163,23 @@
              "indexed,"
              (:files-skipped stats)
              "skipped")))
+
+(defn- print-project-add-repo-summary
+  [{:keys [project repo index-summary system-summary next]}]
+  (println "# Project Repo Added")
+  (println "- project" (:id project))
+  (println "- repo" (:id repo))
+  (println "- root" (:root repo))
+  (println "- role" (name (:role repo)))
+  (when index-summary
+    (println "- indexed" (:files-indexed (:stats index-summary)) "files"))
+  (when system-summary
+    (println "- inferred" (:system-nodes system-summary) "system nodes"))
+  (when (seq next)
+    (println)
+    (println "## Next")
+    (doseq [command next]
+      (println "-" command))))
 
 (defn- print-system-summary
   [{:keys [project-id status system-evidence system-nodes system-edges search-docs]}]
@@ -286,12 +304,29 @@
   [{:keys [relation confidence source-id target-id]}]
   (println "-" (name relation) (format "%.2f" (double confidence)) source-id "->" target-id))
 
+(defn- json-output?
+  [args]
+  (some #{"--json"} args))
+
 (defn- print-maintenance-report
-  [{:keys [project-id counts orphaned-systems dangling-edges low-confidence-edges]}]
+  [{:keys [project-id graph-basis counts scale fold-in orphaned-systems
+           dangling-edges low-confidence-edges
+           decision-queue]}]
   (println "# Maintain")
   (println "- project" project-id)
+  (when graph-basis
+    (println "- graph-basis" (:hash graph-basis)))
   (doseq [[k v] counts]
     (println "-" (name k) v))
+  (when scale
+    (println "- scale" (name (:tier scale)))
+    (println "- noise-ratio" (format "%.2f" (double (get-in scale [:ratios :noise]))))
+    (println "- orphan-ratio" (format "%.2f" (double (get-in scale [:ratios :orphaned])))))
+  (when (seq (:top-hubs scale))
+    (println)
+    (println "## Top Hubs")
+    (doseq [{:keys [label kind repo-id degree]} (take 10 (:top-hubs scale))]
+      (println "-" label "[" (name kind) "]" "repo" repo-id "degree" degree)))
   (when (seq orphaned-systems)
     (println)
     (println "## Orphaned Systems")
@@ -306,7 +341,19 @@
     (println)
     (println "## Low Confidence Edges")
     (doseq [edge (take 20 low-confidence-edges)]
-      (print-edge-finding edge))))
+      (print-edge-finding edge)))
+  (when (seq decision-queue)
+    (println)
+    (println "## Decision Queue")
+    (doseq [{:keys [id kind severity target reason]} (take 20 decision-queue)]
+      (println "-" (name severity) (name kind) target "-" reason)
+      (println " " id)))
+  (when (seq (:actions fold-in))
+    (println)
+    (println "## Fold In")
+    (doseq [{:keys [kind command reason]} (:actions fold-in)]
+      (println "-" (name kind) command)
+      (println " " reason))))
 
 (defn- candidate-system?
   [system]
@@ -326,21 +373,6 @@
                   " nodes " (get-in system [:metrics :node-count] 0)
                   (when-let [path (:path-prefix system)]
                     (str " path " path))))))
-
-(defn- classification-provider-option
-  [args]
-  (keyword (or (option-value args "--provider") "deepseek")))
-
-(defn- classification-model
-  [provider args]
-  (or (option-value args "--model")
-      (llm/default-model provider)))
-
-(defn- classification-client
-  [provider model args]
-  (llm/client {:provider provider
-               :model model
-               :base-url (option-value args "--base-url")}))
 
 (defn- default-provider
   []
@@ -384,6 +416,21 @@
     :openrouter "Missing OpenRouter API key. Set AGRAPH_OPENROUTER_API_KEY or OPENROUTER_API_KEY."
     :openai "Missing OpenAI API key. Set AGRAPH_OPENAI_API_KEY or OPENAI_API_KEY."
     "Missing embedding provider API key."))
+
+(defn- llm-provider-option
+  [args]
+  (keyword (or (option-value args "--provider") "openrouter")))
+
+(defn- llm-model
+  [provider args]
+  (or (option-value args "--model")
+      (llm/default-model provider)))
+
+(defn- llm-client
+  [provider model args]
+  (llm/client {:provider provider
+               :model model
+               :base-url (option-value args "--base-url")}))
 
 (defn- print-edge-target
   [edge]
@@ -495,6 +542,8 @@
   (println "- schema" (:schema data))
   (println "- nodes" (count (:nodes data)))
   (println "- edges" (count (:edges data)))
+  (when (contains? data :clusters)
+    (println "- clusters" (count (:clusters data))))
   (println "- output" path))
 
 (defn- print-canonical-output
@@ -504,6 +553,8 @@
   (println "- schema" (:schema data))
   (println "- nodes" (count (:nodes data)))
   (println "- edges" (count (:edges data)))
+  (when (contains? data :clusters)
+    (println "- clusters" (count (:clusters data))))
   (println "- output" path))
 
 (defn- graph-output-value
@@ -513,6 +564,8 @@
     :deps (first (positional-args graph-args))
     :query (str/join " " (positional-args graph-args))
     :systems (option-value graph-args "--project")
+    :clusters (option-value graph-args "--project")
+    :cluster (str (option-value graph-args "--project") ":" (first (positional-args graph-args)))
     "graph"))
 
 (defn- graph-data-for-mode
@@ -566,9 +619,39 @@
       (let [min-confidence (parse-double-option graph-args "--min-confidence" 0.55)]
         (graph/system-graph xtdb project-id {:limit limit
                                              :min-confidence min-confidence
+                                             :detail (keyword (or (option-value graph-args "--detail")
+                                                                  "primary"))
                                              :map-path (default-map-path graph-args)
                                              :read-context (temporal-options graph-args)
                                              :view-id (option-value graph-args "--view")})))
+
+    :clusters
+    (let [project-id (option-value graph-args "--project")]
+      (when (str/blank? (str project-id))
+        (throw (ex-info "Missing --project for clusters graph." {:usage (usage)})))
+      (graph/system-graph xtdb project-id {:limit limit
+                                           :detail (keyword (or (option-value graph-args "--detail")
+                                                                "primary"))
+                                           :map-path (default-map-path graph-args)
+                                           :read-context (temporal-options graph-args)
+                                           :view-id (option-value graph-args "--view")}))
+
+    :cluster
+    (let [cluster-id (first (positional-args graph-args))
+          project-id (option-value graph-args "--project")]
+      (when-not cluster-id
+        (throw (ex-info "Missing cluster id." {:usage (usage)})))
+      (when (str/blank? (str project-id))
+        (throw (ex-info "Missing --project for cluster graph." {:usage (usage)})))
+      (graph/cluster-graph xtdb
+                           project-id
+                           cluster-id
+                           {:limit limit
+                            :detail (keyword (or (option-value graph-args "--detail")
+                                                 "expanded"))
+                            :map-path (default-map-path graph-args)
+                            :read-context (temporal-options graph-args)
+                            :view-id (option-value graph-args "--view")}))
 
     (throw (ex-info "Unknown graph mode." {:mode mode
                                            :usage (usage)}))))
@@ -580,8 +663,9 @@
    ["Usage:"
     "  index <repo-path> [--dry-run]"
     "  project inspect|index|infer|maintain <project.edn> [--dry-run]"
+    "  project add-repo <project.edn> <repo-path> [--repo ID] [--role ROLE] [--index] [--infer]"
     "  systems candidates --project ID [--limit N]"
-    "  systems classify <project.edn> [--provider deepseek|openrouter|openai] [--model MODEL] [--out agraph.map.json] [--cache-dir DIR]"
+    "  classify decision <decision-id-or-suffix> --project ID [--provider deepseek|openrouter|openai] [--model MODEL]"
     "  map init|propose <project.edn> [--out agraph.map.json]"
     "  map explain <agraph.map.json> <system-id-or-label>"
     "  map set-kind <agraph.map.json> <system-id-or-label> <kind>"
@@ -606,8 +690,8 @@
     "  cursor search <cursor-id> <text> [--limit N] [--budget N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL]"
     "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
     "  query <text> [--project ID] [--repo ID] [--limit N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--valid-at INSTANT]"
-    "  graph overview|deps|query|systems [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--map PATH] [--no-map] [--view ID] [--out PATH] [--valid-at INSTANT]"
-    "  graph export overview|deps|query|systems [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--map PATH] [--no-map] [--view ID] [--out PATH] [--valid-at INSTANT]"
+    "  graph overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--out PATH] [--valid-at INSTANT]"
+    "  graph export overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--out PATH] [--valid-at INSTANT]"
     "  deps <node-or-namespace> [--project ID] [--repo ID] [--valid-at INSTANT]"
     "  path <source> <target> [--project ID] [--repo ID] [--systems] [--valid-at INSTANT]"
     "  report [--project ID] [--repo ID] [--valid-at INSTANT]"
@@ -653,32 +737,44 @@
                     vec)
                limit))))
 
-        :classify
-        (let [config-path (first (positional-args system-args))
-              out (or (option-value system-args "--out") graph-map/default-path)
-              provider (classification-provider-option system-args)
-              model (classification-model provider system-args)
-              cache-dir (or (option-value system-args "--cache-dir")
-                            system-classifier/default-cache-dir)]
-          (when-not config-path
-            (throw (ex-info "Missing project config path." {:usage (usage)})))
-          (let [project (project/read-project config-path)]
-            (store/with-node (store/storage-path)
-              (fn [xtdb]
-                (let [systems (active-project-systems xtdb (:id project))
-                      edges (active-project-system-edges xtdb (:id project))
-                      overlay (system-classifier/overlay
-                               {:project (:id project)
-                                :project-id (:id project)
-                                :systems systems
-                                :edges edges
-                                :limit (parse-limit system-args)
-                                :cache-dir cache-dir
-                                :client (classification-client provider model system-args)})]
-                  (print-map-summary (graph-map/write-map! out overlay) overlay))))))
-
         (throw (ex-info "Unknown systems command." {:command action
                                                     :usage (usage)}))))
+
+    "classify"
+    (let [action (keyword (first args))
+          classify-args (vec (rest args))]
+      (case action
+        :decision
+        (let [decision-id (first (positional-args classify-args))
+              {:keys [project-id]} (project-scope classify-args)
+              provider (llm-provider-option classify-args)
+              model (llm-model provider classify-args)]
+          (when-not decision-id
+            (throw (ex-info "Missing decision id." {:usage (usage)})))
+          (when (str/blank? (str project-id))
+            (throw (ex-info "Missing --project for decision classification."
+                            {:usage (usage)})))
+          (store/with-node (store/storage-path)
+            (fn [xtdb]
+              (let [report (system/maintenance-report
+                            xtdb
+                            project-id
+                            {:low-confidence-threshold
+                             (parse-double-option classify-args "--min-confidence" 0.60)})
+                    decision (decision-classifier/decision-by-id
+                              (:decision-queue report)
+                              decision-id)]
+                (when-not decision
+                  (throw (ex-info "Maintenance decision not found."
+                                  {:decision-id decision-id
+                                   :project-id project-id})))
+                (print-json
+                 (decision-classifier/classify
+                  {:client (llm-client provider model classify-args)
+                   :decision decision}))))))
+
+        (throw (ex-info "Unknown classify command." {:command action
+                                                     :usage (usage)}))))
 
     "map"
     (let [action (keyword (first args))
@@ -1069,36 +1165,81 @@
           config-path (first (positional-args project-args))]
       (when-not config-path
         (throw (ex-info "Missing project config path." {:usage (usage)})))
-      (let [project (project/read-project config-path)]
-        (case action
-          :inspect
-          (print-project-inspect project)
+      (case action
+        :add-repo
+        (let [[_ repo-root] (positional-args project-args)]
+          (when-not repo-root
+            (throw (ex-info "Missing repo path for project add-repo."
+                            {:usage (usage)})))
+          (let [project (project/add-repo-to-config!
+                         config-path
+                         repo-root
+                         {:repo-id (option-value project-args "--repo")
+                          :role (some-> (option-value project-args "--role") keyword)})
+                repo (last (:repos project))
+                index? (or (some #{"--index"} project-args)
+                           (some #{"--infer"} project-args))
+                infer? (some #{"--infer"} project-args)
+                next-commands (cond-> []
+                                (not index?)
+                                (conj (str "agraph project index " config-path))
+                                (not infer?)
+                                (conj (str "agraph project infer " config-path))
+                                true
+                                (conj (str "agraph project maintain " config-path)))]
+            (if index?
+              (store/with-node (store/storage-path)
+                (fn [xtdb]
+                  (let [index-summary (project/index-project-repo! xtdb
+                                                                   project
+                                                                   (:id repo)
+                                                                   {})
+                        system-summary (when infer?
+                                         (project/infer-project! xtdb project))]
+                    (print-project-add-repo-summary
+                     {:project project
+                      :repo repo
+                      :index-summary index-summary
+                      :system-summary system-summary
+                      :next next-commands}))))
+              (print-project-add-repo-summary
+               {:project project
+                :repo repo
+                :next next-commands}))))
 
-          :index
-          (if (dry-run? project-args)
-            (print-project-index-summary (project/index-project! nil project {:dry-run? true}))
+        (let [project (project/read-project config-path)]
+          (case action
+            :inspect
+            (print-project-inspect project)
+
+            :index
+            (if (dry-run? project-args)
+              (print-project-index-summary (project/index-project! nil project {:dry-run? true}))
+              (store/with-node (store/storage-path)
+                (fn [xtdb]
+                  (print-project-index-summary (project/index-project! xtdb project {})))))
+
+            :infer
             (store/with-node (store/storage-path)
               (fn [xtdb]
-                (print-project-index-summary (project/index-project! xtdb project {})))))
+                (print-system-summary (project/infer-project! xtdb project))))
 
-          :infer
-          (store/with-node (store/storage-path)
-            (fn [xtdb]
-              (print-system-summary (project/infer-project! xtdb project))))
+            :maintain
+            (store/with-node (store/storage-path)
+              (fn [xtdb]
+                (let [report (project/maintain-project
+                              xtdb
+                              project
+                              {:low-confidence-threshold
+                               (parse-double-option project-args
+                                                    "--min-confidence"
+                                                    0.60)})]
+                  (if (json-output? project-args)
+                    (print-json report)
+                    (print-maintenance-report report)))))
 
-          :maintain
-          (store/with-node (store/storage-path)
-            (fn [xtdb]
-              (print-maintenance-report
-               (project/maintain-project xtdb
-                                         project
-                                         {:low-confidence-threshold
-                                          (parse-double-option project-args
-                                                               "--min-confidence"
-                                                               0.60)}))))
-
-          (throw (ex-info "Unknown project command." {:command action
-                                                      :usage (usage)})))))
+            (throw (ex-info "Unknown project command." {:command action
+                                                        :usage (usage)}))))))
 
     "graph"
     (let [raw-mode (keyword (first args))

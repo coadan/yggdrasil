@@ -143,6 +143,7 @@
                       {:limit default-graph-limit
                        :min-confidence (get-in cursor [:limits :min-confidence]
                                                default-min-confidence)
+                       :detail :expanded
                        :map-overlay (:map-overlay cursor)
                        :read-context (read-context-from-basis (:basis cursor))
                        :view-id (get-in cursor [:basis :view-id])}))
@@ -214,6 +215,8 @@
     :repoRole (:repoRole node)
     :path (:path node)
     :pathPrefix (:pathPrefix node)
+    :clusterId (:clusterId node)
+    :clusterLabel (:clusterLabel node)
     :degree (:degree node)
     :attrs (:attrs node)
     :tags (:tags node)
@@ -227,6 +230,8 @@
     :target (:target edge)
     :relation (:relation edge)
     :confidence (:confidence edge)
+    :salience (:salience edge)
+    :visibility (:visibility edge)
     :rules (:rules edge)
     :evidence (:evidence edge)}))
 
@@ -324,6 +329,14 @@
          (take edge-limit)
          (mapv compact-edge))))
 
+(defn- graph-summary
+  [graph-data]
+  {:basis (:basis graph-data)
+   :counts {:nodes (count (:nodes graph-data))
+            :edges (count (:edges graph-data))
+            :clusters (count (:clusters graph-data))}
+   :detail "expanded"})
+
 (defn- next-actions
   [cursor focus]
   (let [cursor-id (:xt/id cursor)]
@@ -420,6 +433,7 @@
                                        :mode (name (:mode cursor))
                                        :operation (:operation cursor)})
                  :basis (basis-packet (:basis cursor))
+                 :graph (graph-summary graph-data)
                  :focus focus
                  :frontier frontier
                  :edges edges

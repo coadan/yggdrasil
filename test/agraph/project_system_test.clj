@@ -5,7 +5,6 @@
             [agraph.project :as project]
             [agraph.query :as query]
             [agraph.system :as system]
-            [agraph.system.classifier :as system-classifier]
             [agraph.xtdb :as store]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -77,7 +76,8 @@
                                              "services/api"
                                              "libs/core"
                                              {:project-id "fixture"})
-              graph-data (graph/system-graph xtdb "fixture" {})]
+              graph-data (graph/system-graph xtdb "fixture" {:detail :expanded})
+              raw-graph-data (graph/system-graph xtdb "fixture" {:detail :raw})]
           (is (= :completed (:status index-summary)))
           (is (= 1 (count (:repos index-summary))))
           (is (= :completed (:status system-summary)))
@@ -110,7 +110,19 @@
           (is (some #(= :system-node (:result-kind %)) search))
           (is (= ["services/api" "libs/core"] (mapv :label system-path)))
           (is (seq (:nodes graph-data)))
-          (is (seq (:edges graph-data))))))))
+          (is (seq (:edges graph-data)))
+          (is (every? :visibility (:edges graph-data)))
+          (is (every? :salience (:edges graph-data)))
+          (is (seq (:clusters graph-data)))
+          (is (some :clusterId (:nodes graph-data)))
+          (is (= "agraph.graph-basis/v1" (get-in maintenance [:graph-basis :schema])))
+          (is (string? (get-in maintenance [:graph-basis :hash])))
+          (is (= :small (get-in maintenance [:scale :tier])))
+          (is (contains? (set (map :kind (get-in maintenance [:fold-in :actions])))
+                         :review-primary-graph))
+          (is (every? :basis (:decision-queue maintenance)))
+          (is (every? #(= :open (:status %)) (:decision-queue maintenance)))
+          (is (<= (count (:edges graph-data)) (count (:edges raw-graph-data)))))))))
 
 (deftest graph-map-overlay-corrects-system-graph
   (let [xtdb-path (temp-dir "agraph-map-xtdb")
@@ -144,48 +156,6 @@
           (is (contains? labels "Fixture API"))
           (is (not (contains? labels "services/api")))
           (is (not (contains? labels "api.stripe.com"))))))))
-
-(deftest classifier-overlay-writes-accepted-map-with-provenance
-  (let [cache-dir (temp-dir "agraph-classifier-cache")
-        candidate-id "system:fixture:app:path/services/api"
-        client {:provider :fake
-                :model "fake-classifier"
-                :complete-json (fn [_messages]
-                                 {:systems [{:id candidate-id
-                                             :label "Fixture API"
-                                             :kind "service"
-                                             :status "accepted"
-                                             :confidence 0.86
-                                             :reason "Runtime API candidate."
-                                             :aliases ["fixture-api"]
-                                             :tags ["runtime"]}]
-                                  :reject []})}
-        overlay (system-classifier/overlay
-                 {:project "fixture"
-                  :project-id "fixture"
-                  :cache-dir cache-dir
-                  :client client
-                  :systems [{:xt/id candidate-id
-                             :project-id "fixture"
-                             :repo-id "app"
-                             :system-key "path/services/api"
-                             :label "services/api"
-                             :kind :candidate-system
-                             :path-prefix "services/api"
-                             :source :deterministic
-                             :candidate-types [:manifest-root :path-cluster]
-                             :metrics {:file-count 2 :node-count 4}
-                             :aliases []
-                             :active? true
-                             :run-id "run/test"}]
-                  :edges []})
-        system (first (:systems overlay))]
-    (is (= graph-map/schema (:schema overlay)))
-    (is (= "Fixture API" (:label system)))
-    (is (= "service" (:kind system)))
-    (is (= "accepted" (:status system)))
-    (is (= "fake" (get-in system [:provenance :provider])))
-    (is (= [{:repo "app" :path "services/api"}] (:includes system)))))
 
 (deftest context-packet-uses-attached-doc-snippets-with-budget
   (let [xtdb-path (temp-dir "agraph-context-xtdb")
@@ -226,6 +196,8 @@
               labels (set (map :label (:entities packet)))
               doc (first (:docs packet))]
           (is (= context/schema (:schema packet)))
+          (is (= "primary" (get-in packet [:graph :defaultDetail])))
+          (is (pos? (get-in packet [:graph :counts :nodes])))
           (is (<= (context/estimate-tokens packet) 1200))
           (is (contains? labels "Fixture API"))
           (is (= "runbook" (:role doc)))
@@ -269,3 +241,24 @@
                :root (.getCanonicalPath repo-root)
                :role :application}]
              (:repos project))))))
+
+(deftest adds-repo-to-project-config
+  (let [root (io/file (temp-dir "agraph-add-repo"))
+        repo-a (io/file root "repo-a")
+        repo-b (io/file root "repo-b-cli")
+        project-edn (io/file root "project.edn")]
+    (.mkdirs repo-a)
+    (.mkdirs repo-b)
+    (spit project-edn
+          (pr-str {:id "multi"
+                   :repos [{:id "repo-a"
+                            :root (.getPath repo-a)
+                            :role :application}]}))
+    (let [project (project/add-repo-to-config! (.getPath project-edn)
+                                               (.getPath repo-b)
+                                               {})]
+      (is (= ["repo-a" "repo-b-cli"] (mapv :id (:repos project))))
+      (is (= :tooling (-> project :repos second :role)))
+      (is (= (.getCanonicalPath repo-b) (-> project :repos second :root)))
+      (is (= (:repos project)
+             (:repos (project/read-project (.getPath project-edn))))))))

@@ -75,7 +75,9 @@ export formats.
 ## Projects
 
 AGraph can index multiple repos as one project and derive a higher-level system
-graph from code dependencies plus config evidence.
+graph from code dependencies plus config evidence. The graph is designed to
+emerge from durable facts: generated systems are neutral candidates until
+relationships, metadata, or an accepted overlay gives them project meaning.
 
 ```clojure
 ;; project.edn
@@ -88,6 +90,7 @@ graph from code dependencies plus config evidence.
 
 ```sh
 agraph project inspect project.edn
+agraph project add-repo project.edn /path/to/another-repo --repo cli --role tooling --infer
 agraph project index project.edn
 agraph project infer project.edn
 agraph map propose project.edn --out agraph.map.json
@@ -116,6 +119,17 @@ point the project at the workbench root instead of listing each repo:
 `.worktrees/<task>/<repo>` when it exists; otherwise it uses
 `.workbench/repos/<repo>`.
 
+For ordinary project configs, repos can be folded in incrementally:
+
+```sh
+agraph project add-repo project.edn /path/to/repo --repo billing-api --role application
+agraph project add-repo project.edn /path/to/cli --infer
+```
+
+`--infer` indexes only the added repo and then refreshes the project system
+graph. Without `--infer`, the command edits `project.edn` and prints the next
+index/infer/maintain commands.
+
 ## Agent Jobs
 
 AGraph is organized around three jobs for coding agents:
@@ -123,31 +137,49 @@ AGraph is organized around three jobs for coding agents:
 - Build: inspect the project config, index repos, infer the system graph, and
   review the generated evidence. Commands: `agraph project inspect`, `agraph
   project index`, `agraph project infer`, `agraph graph systems`, `agraph graph
-  export systems`.
+  clusters`, `agraph graph export systems`.
 - Query: use the graph while coding to answer dependency, ownership, and system
   interaction questions. Commands: `agraph query`, `agraph graph query`,
   `agraph context`, `agraph deps`, `agraph path`, `agraph docs for`.
 - Maintain: keep the graph aligned with code and architecture changes. Commands:
   rerun `agraph project index`, rerun `agraph project infer`, use `agraph
-  project maintain` to report orphaned systems, dangling edges, evidence that
-  points at missing systems, and low-confidence inferred edges, and update
-  `agraph.map.json` with accepted corrections. Use `agraph docs audit` to find
-  stale or missing doc attachments.
+  project maintain --json` to get orphaned systems, noisy visible edges,
+  cluster bridges, likely false external APIs, and focused decision ids, then
+  update `agraph.map.json` with accepted corrections. Use `agraph docs audit`
+  to find stale or missing doc attachments. Maintain output includes graph-basis,
+  scale/noise ratios, top hubs, and fold-in actions so agents can make small
+  corrections during normal work instead of waiting for a full remap.
 
-The system graph is intentionally evidence-first. Generic extractors capture
-code dependencies, manifests, config values, URLs, routes, ports, Kubernetes-ish
-resources, and external API hosts. Generated system nodes are candidates.
-Agents should use evidence to maintain `agraph.map.json`, which is the durable
-overlay for accepted system boundaries, rejected false positives, and
-agent-discovered project-level relationships.
+The system graph is intentionally evidence-first and emergent. Generic
+extractors capture bounded, project-agnostic facts: file types, code
+dependencies, manifests, config values, URLs, routes, ports, Kubernetes-ish
+resources, external API hosts, topology, and metrics. Generated system nodes are
+neutral candidates, not semantic claims derived from path-name rules or text
+matching. Graph exports derive salience-ranked semantic connections and clusters
+from this raw evidence. Use `--detail primary|expanded|evidence|raw` to choose
+how much of the graph to expose. Agents should use evidence to maintain
+`agraph.map.json`, which is the durable overlay for accepted system boundaries,
+rejected false positives, visibility overrides, and agent-discovered
+project-level relationships.
+
+Mechanical code should stay small and extensible. Adding a file type should
+mean adding a scanner kind and extractor adapter that emits canonical graph
+rows. Open-ended semantic judgment, merging, classification, and
+use-case-specific meaning belong in human or LLM-backed overlays where the
+project state space is too large for fixed rules.
 
 Agent usage should follow progressive disclosure. A fresh agent should start
 with `agraph project inspect`, `agraph project maintain`, and a compact system
 graph, then drill into `agraph query`, `agraph deps`, `agraph path`, graph
 slices, and evidence only for the subsystem or task it is actively working on.
 Avoid dumping the full graph unless the task explicitly needs broad inventory.
+Use `--detail primary` by default; move to `expanded`, then `evidence`, then
+`raw` only when the current task needs more proof.
 During coding tasks, agents should update the map when research reveals a stale
 classification, missing connection, orphaned system, or false external API.
+If classifier help is needed, use `agraph classify decision <id> --project ID`
+on one maintenance decision from `agraph project maintain --json`; do not send
+the whole graph for classification.
 Use `agraph context` when handing graph evidence to an agent prompt; it returns a
 budgeted packet of relevant entities, edges, snippets, warnings, and drilldown
 commands instead of the whole graph.

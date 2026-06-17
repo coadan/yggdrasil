@@ -1,12 +1,13 @@
 (ns agraph.project
   "Project config loading and multi-repo orchestration."
-  (:require [charred.api :as json]
-            [agraph.fs :as fs]
+  (:require [agraph.fs :as fs]
             [agraph.index :as index]
             [agraph.system :as system]
             [agraph.xtdb :as store]
+            [charred.api :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.pprint :as pprint]
             [clojure.string :as str]))
 
 (defn now-ms
@@ -38,6 +39,28 @@
         (str/includes? repo-id "infra")
         (str/includes? repo-id "k8s")) :infrastructure
     :else :application))
+
+(defn- repo-id-from-root
+  [root]
+  (let [name (some-> (io/file root) .getCanonicalFile .getName)]
+    (-> (or name "repo")
+        str/lower-case
+        (str/replace #"[^a-z0-9._-]+" "-")
+        (str/replace #"(^[-._]+|[-._]+$)" "")
+        not-empty
+        (or "repo"))))
+
+(defn- read-config-data
+  [path]
+  (edn/read-string (slurp (io/file path))))
+
+(defn- write-config-data!
+  [path data]
+  (with-open [writer (io/writer path)]
+    (binding [*out* writer
+              *print-namespace-maps* false]
+      (pprint/pprint data)))
+  path)
 
 (defn- normalize-repo
   [base repo]
@@ -96,7 +119,7 @@
   "Read and normalize a project.edn file."
   [path]
   (let [base (config-dir path)
-        data (edn/read-string (slurp (io/file path)))
+        data (read-config-data path)
         project-id (some-> (:id data) str)]
     (when (str/blank? project-id)
       (throw (ex-info "Project config is missing :id." {:path path})))
@@ -104,6 +127,40 @@
      :name (str (or (:name data) project-id))
      :path (fs/canonical-path path)
      :repos (normalize-repos base data)}))
+
+(defn add-repo-to-config!
+  "Add a repo entry to project config and return the normalized project.
+
+  `repo-root` is written as a canonical path. If `repo-id` is omitted, the id is
+  derived from the repo directory name. Workbench configs remain driven by
+  `repos.json` and are not edited by this helper."
+  [config-path repo-root {:keys [repo-id role]}]
+  (let [file (io/file config-path)
+        data (read-config-data file)
+        canonical-root (fs/canonical-path repo-root)
+        repo-id (str (or repo-id (repo-id-from-root canonical-root)))
+        role (keyword (or role (infer-role repo-id)))
+        existing-repos (vec (:repos data))]
+    (when (and (:workbench-root data) (empty? existing-repos))
+      (throw (ex-info "Workbench project repos are discovered from repos.json."
+                      {:project config-path
+                       :workbench-root (:workbench-root data)})))
+    (when (some #(= repo-id (str (:id %))) existing-repos)
+      (throw (ex-info "Project already has a repo with this id."
+                      {:project config-path
+                       :repo-id repo-id})))
+    (when (some #(= canonical-root (resolve-root (config-dir config-path) (:root %)))
+                existing-repos)
+      (throw (ex-info "Project already has this repo root."
+                      {:project config-path
+                       :root canonical-root})))
+    (write-config-data!
+     file
+     (assoc data :repos (conj existing-repos
+                              {:id repo-id
+                               :root canonical-root
+                               :role role})))
+    (read-project config-path)))
 
 (defn- project-row
   [{:keys [id name]} updated-at-ms]
@@ -156,6 +213,28 @@
                                           :repo-id id
                                           :repo-role role}))
                     (:repos project))})))
+
+(defn index-project-repo!
+  "Index one repo from a project config into XTDB."
+  [xtdb project repo-id {:keys [dry-run?] :or {dry-run? false}}]
+  (let [repo (or (some #(when (= repo-id (:id %)) %) (:repos project))
+                 (throw (ex-info "Project repo not found."
+                                 {:project-id (:id project)
+                                  :repo-id repo-id})))]
+    (if dry-run?
+      (index/index-repo! nil
+                         (:root repo)
+                         {:dry-run? true
+                          :project-id (:id project)
+                          :repo-id (:id repo)
+                          :repo-role (:role repo)})
+      (do
+        (persist-project! xtdb project)
+        (index/index-repo! xtdb
+                           (:root repo)
+                           {:project-id (:id project)
+                            :repo-id (:id repo)
+                            :repo-role (:role repo)})))))
 
 (defn infer-project!
   "Infer and persist a derived system graph for project."
