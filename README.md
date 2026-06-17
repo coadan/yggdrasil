@@ -23,6 +23,16 @@ edges are extracted internally but not stored by default yet.
 ## Quickstart
 
 ```sh
+agraph start . --project my-project
+```
+
+`start` is the shortest local setup path: it writes or reuses `project.edn`,
+creates `agraph.map.json`, runs `sync --check`, imports local queue activity,
+and writes an `agraph-out/` report bundle.
+
+For separate steps:
+
+```sh
 agraph init . --project my-project --out project.edn
 agraph sync project.edn --check --map agraph.map.json
 agraph ask "where is auth handled" --project my-project --json
@@ -115,8 +125,9 @@ agraph sync check project.edn --map agraph.map.json --enqueue
 agraph sync work list --status ready
 ```
 
-Use `agraph init . --sync --map agraph.map.json` for a one-command local setup
-when the default single-repo config is enough.
+Use `agraph start .` for one-command local setup when the default single-repo
+config and report output are enough. Use `agraph init . --sync --map
+agraph.map.json` when you want setup plus sync but no report bundle.
 
 For workbench repos that wrap source repos in cached clones or task worktrees,
 point the project at the workbench root instead of listing each repo:

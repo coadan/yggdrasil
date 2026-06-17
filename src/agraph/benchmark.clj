@@ -307,6 +307,18 @@
                       (concat [(:title issue) (:body issue)]
                               (issue-comments issue))))))
 
+(defn- input-hints
+  [input-text truth]
+  (let [text (str input-text)
+        mentioned-files (->> (:changedFiles truth)
+                             (filter #(and (not (blankish? %))
+                                           (str/includes? text %)))
+                             vec)]
+    {:hinted (boolean (seq mentioned-files))
+     :mentionedChangedFiles mentioned-files
+     :mentionedChangedFileCount (count mentioned-files)
+     :changedFileCount (count (:changedFiles truth))}))
+
 (defn- prepared-case
   [suite case repo worktree-root truth]
   (let [input-text (issue-text case)]
@@ -323,6 +335,7 @@
              :body (get-in case [:issue :body])
              :comments (issue-comments (:issue case))
              :queryText input-text}
+     :inputHints (input-hints input-text truth)
      :groundTruth (assoc truth
                          :unsupportedGroundTruthFiles
                          (unsupported-ground-truth-files worktree-root
@@ -519,6 +532,7 @@
                :baseSha (:baseSha prepared)
                :fixSha (:fixSha prepared)
                :input (:input prepared)
+               :inputHints (:inputHints prepared)
                :groundTruth (:groundTruth prepared)
                :agraph {:retriever (name (keyword (or (:retriever opts) :lexical)))
                         :limit (long (or (:limit opts) default-limit))
@@ -780,6 +794,7 @@
      :baseSha (:baseSha prepared)
      :fixSha (:fixSha prepared)
      :input (:input prepared)
+     :inputHints (:inputHints prepared)
      :groundTruth (:groundTruth prepared)
      :agent {:schema (:schema agent-result)
              :agentId (:agentId agent-result)
@@ -883,6 +898,18 @@
          :scoreableChangedFiles (sum-score results :scoreableChangedFiles)
          :unsupportedGroundTruthFiles (sum-score results :unsupportedGroundTruthFiles)))
 
+(defn- input-hint-summary
+  [results]
+  (let [hinted (filter #(get-in % [:inputHints :hinted]) results)
+        hinted-cases (->> hinted
+                          (map :case-id)
+                          set
+                          sort
+                          vec)]
+    {:inputHintedRuns (count hinted)
+     :inputHintedCases (count hinted-cases)
+     :inputHintedCaseIds hinted-cases}))
+
 (defn- group-agent-scores
   [results key-path]
   (->> results
@@ -890,7 +917,8 @@
        (map (fn [[k rows]]
               {:key k
                :runs (count rows)
-               :scores (aggregate-agent-scores rows)}))
+               :scores (aggregate-agent-scores rows)
+               :inputHints (input-hint-summary rows)}))
        (sort-by :key)
        vec))
 
@@ -910,12 +938,14 @@
                 :runs (count results)
                 :missing missing
                 :scores (aggregate-agent-scores results)
+                :inputHints (input-hint-summary results)
                 :byMode (group-agent-scores results [:agent :mode])
                 :byAgent (group-agent-scores results [:agent :agentId])
                 :results (mapv #(select-keys % [:case-id
                                                 :repo-id
                                                 :baseSha
                                                 :fixSha
+                                                :inputHints
                                                 :agentResultPath
                                                 :agent
                                                 :scores])

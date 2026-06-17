@@ -50,6 +50,7 @@
     (is (str/includes? usage "View and report:"))
     (is (str/includes? usage "Agent integration:"))
     (is (str/includes? usage "Server integration:"))
+    (is (str/includes? usage "start <repo-root>"))
     (is (str/includes? usage "sync <project.edn>"))
     (is (str/includes? usage "init <repo-root>"))
     (is (str/includes? usage "ask <text>"))
@@ -373,6 +374,126 @@
                  last
                  (get-in [3 :map-overlay])
                  (select-keys [:schema :project :systems :reject :edges :docs])))))))
+
+(deftest start-command-initializes-syncs-activity-and-report
+  (let [root (temp-dir "agraph-cli-start")
+        config-path (.getPath (io/file root "project.edn"))
+        map-path (.getPath (io/file root "agraph.map.json"))
+        report-out (.getPath (io/file root "agraph-out"))
+        calls (atom [])]
+    (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                  project/index-project! (fn [xtdb project opts]
+                                           (swap! calls conj [:index xtdb (:id project) opts])
+                                           {:project-id (:id project)
+                                            :status :completed
+                                            :repos []})
+                  project/infer-project! (fn [xtdb project]
+                                           (swap! calls conj [:infer xtdb (:id project)])
+                                           {:project-id (:id project)
+                                            :status :completed
+                                            :system-evidence 0
+                                            :system-nodes 0
+                                            :system-edges 0})
+                  project/maintain-project (fn [xtdb project opts]
+                                             (swap! calls conj [:check xtdb (:id project) opts])
+                                             {:project-id (:id project)
+                                              :counts {:maintenance-decisions 0}
+                                              :decision-queue []})
+                  activity/sync-queue! (fn [xtdb project opts]
+                                         (swap! calls conj [:activity xtdb (:id project) opts])
+                                         {:schema activity/sync-schema
+                                          :project-id (:id project)
+                                          :queue-root (:queue-root opts)
+                                          :counts {:items 0
+                                                   :events 0
+                                                   :validation-events 0}})
+                  report/bundle! (fn [xtdb project opts]
+                                   (swap! calls conj [:report xtdb (:id project) opts])
+                                   {:schema report/schema
+                                    :project-id (:id project)
+                                    :out (:out opts)
+                                    :files {:index "index.html"}})]
+      (let [out (with-out-str
+                  (cli/dispatch "start" [root
+                                         "--project" "fixture"
+                                         "--out" config-path
+                                         "--map" map-path
+                                         "--report-out" report-out]))
+            parsed (read-json-output out)]
+        (is (= "agraph.start/v1" (:schema parsed)))
+        (is (= "initialized" (:mode parsed)))
+        (is (= "fixture" (:project-id parsed)))
+        (is (= config-path (:config parsed)))
+        (is (= map-path (:map parsed)))
+        (is (= "agraph.sync/v1" (get-in parsed [:sync :schema])))
+        (is (= activity/sync-schema (get-in parsed [:activity :schema])))
+        (is (= report/schema (get-in parsed [:report :schema])))
+        (is (graph-map/file-exists? map-path))
+        (is (some #(str/includes? % "agraph ask")
+                  (:next parsed)))
+        (is (= [[:index :xtdb "fixture" {:dry-run? false
+                                         :index-profile :graph}]
+                [:infer :xtdb "fixture"]
+                [:check :xtdb "fixture" {:low-confidence-threshold 0.6
+                                         :map-overlay {:schema "agraph.map/v1"
+                                                       :project "fixture"
+                                                       :systems []
+                                                       :reject []
+                                                       :edges []
+                                                       :docs []}}]
+                [:activity :xtdb "fixture" {:queue-root queue/default-root}]
+                [:report :xtdb "fixture" {:out report-out
+                                          :map-path map-path
+                                          :detail :primary
+                                          :force? false}]]
+               (mapv (fn [call]
+                       (if (= :check (first call))
+                         (update-in call [3 :map-overlay] #(select-keys %
+                                                                        [:schema
+                                                                         :project
+                                                                         :systems
+                                                                         :reject
+                                                                         :edges
+                                                                         :docs]))
+                         call))
+                     @calls)))))))
+
+(deftest start-command-reuses-existing-project-config
+  (let [root (temp-dir "agraph-cli-start-existing")
+        config-path (.getPath (io/file root "project.edn"))
+        map-path (.getPath (io/file root "agraph.map.json"))
+        report-out (.getPath (io/file root "agraph-out"))
+        calls (atom [])]
+    (init/init! root {:out config-path
+                      :project-id "existing"})
+    (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                  project/index-project! (fn [xtdb project opts]
+                                           (swap! calls conj [:index xtdb (:id project) opts])
+                                           {:project-id (:id project)
+                                            :status :completed
+                                            :repos []})
+                  project/infer-project! (constantly {:status :completed})
+                  project/maintain-project (constantly {:counts {}
+                                                        :decision-queue []})
+                  activity/sync-queue! (fn [_ project _]
+                                         {:schema activity/sync-schema
+                                          :project-id (:id project)
+                                          :counts {}})
+                  report/bundle! (fn [_ project _]
+                                   {:schema report/schema
+                                    :project-id (:id project)})]
+      (let [out (with-out-str
+                  (cli/dispatch "start" [root
+                                         "--out" config-path
+                                         "--map" map-path
+                                         "--report-out" report-out]))
+            parsed (read-json-output out)]
+        (is (= "existing" (:mode parsed)))
+        (is (= "existing" (:project-id parsed)))
+        (is (not (contains? parsed :init)))
+        (is (= [[:index :xtdb "existing" {:dry-run? false
+                                          :index-profile :graph}]]
+               @calls))))))
 
 (deftest sync-runs-index-infer-and-optional-check
   (let [calls (atom [])]

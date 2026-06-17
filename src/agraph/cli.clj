@@ -28,6 +28,7 @@
             [agraph.watch :as watch]
             [agraph.xtdb :as store]
             [charred.api :as json]
+            [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [clojure.string :as str])
   (:import [java.util.logging LogManager]))
@@ -78,7 +79,8 @@
     "--snapshot-token" "--type" "--source" "--confidence" "--view" "--query"
     "--relation" "--base-url" "--detail" "--queue-dir" "--status" "--agent"
     "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
-    "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode"})
+    "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode"
+    "--report-out"})
 
 (def boolean-options
   #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer" "--enqueue"
@@ -1387,11 +1389,25 @@
                                                  (name report/default-detail)))
                             :force? (boolean (some #{"--force"} args))})))))))
 
+(def start-schema
+  "agraph.start/v1")
+
 (defn- ensure-init-map!
   [project-id map-path]
   (when (and map-path
              (not (graph-map/file-exists? map-path)))
     (graph-map/write-map! map-path (graph-map/empty-map project-id))))
+
+(defn- start-map-path
+  [args]
+  (cond
+    (some #{"--no-map"} args) nil
+    (option-value args "--map") (option-value args "--map")
+    :else graph-map/default-path))
+
+(defn- project-config-exists?
+  [path]
+  (.exists (io/file path)))
 
 (defn- init-sync-args
   [config-path map-path query-index?]
@@ -1422,6 +1438,97 @@
                           (init-sync-args (:config result)
                                           map-path
                                           (query-index? args)))))))))
+
+(defn- sync-project-result!
+  [xtdb project args]
+  (let [repo-id (option-value args "--repo")
+        check? (or (some #{"--check"} args)
+                   (enqueue-output? args))
+        index-summary (sync-index-project! xtdb project args)
+        system-summary (project/infer-project! xtdb project)
+        report (when check?
+                 (maintenance-report xtdb project args))
+        enqueued (when (and report (enqueue-output? args))
+                   (enqueue-sync-work! args report))]
+    (cond-> {:schema "agraph.sync/v1"
+             :project-id (:id project)
+             :repo-id repo-id
+             :index-summary index-summary
+             :system-summary system-summary}
+      report (assoc :check-report report)
+      enqueued (assoc :enqueued enqueued))))
+
+(defn- start-project!
+  [root config-path map-path args]
+  (if (and (project-config-exists? config-path)
+           (not (some #{"--force"} args)))
+    {:mode "existing"
+     :config config-path
+     :project (project/read-project config-path)}
+    (let [result (init/init! root
+                             {:out config-path
+                              :force? (boolean (some #{"--force"} args))
+                              :project-id (option-value args "--project")
+                              :name (option-value args "--name")
+                              :workbench? (boolean (option-value args "--workbench"))
+                              :task (option-value args "--task")
+                              :map-path map-path})]
+      {:mode "initialized"
+       :config (:config result)
+       :init result
+       :project (project/read-project (:config result))})))
+
+(defn- start-next-commands
+  [project-id config-path map-path report-out]
+  (cond-> [(str "agraph ask \"where is this handled?\" --project " project-id " --json")
+           (str "agraph explore create \"runtime boundary\" --project " project-id)
+           (str "agraph view systems --project " project-id)
+           (str "agraph report " config-path
+                (when map-path (str " --map " map-path))
+                " --out " report-out)
+           "agraph install-agent --platform codex --project"]
+    true vec))
+
+(defn- start!
+  [args]
+  (let [workbench-root (option-value args "--workbench")
+        root (or workbench-root (first (positional-args args)) ".")
+        config-path (or (option-value args "--out") "project.edn")
+        map-path (start-map-path args)
+        report-out (or (option-value args "--report-out") report/default-output-dir)
+        start-info (start-project! root config-path map-path args)
+        project (:project start-info)]
+    (ensure-init-map! (:id project) map-path)
+    (store/with-node (store/storage-path)
+      (fn [xtdb]
+        (let [sync-args (init-sync-args (:config start-info)
+                                        map-path
+                                        (query-index? args))
+              sync-result (sync-project-result! xtdb project sync-args)
+              activity-result (activity/sync-queue! xtdb
+                                                    project
+                                                    {:queue-root (queue-root args)})
+              report-result (report/bundle! xtdb
+                                            project
+                                            {:out report-out
+                                             :map-path map-path
+                                             :detail (keyword (or (option-value args "--detail")
+                                                                  (name report/default-detail)))
+                                             :force? (boolean (some #{"--force"} args))})]
+          (print-json
+           (cond-> {:schema start-schema
+                    :project-id (:id project)
+                    :mode (:mode start-info)
+                    :config (:config start-info)
+                    :map map-path
+                    :sync sync-result
+                    :activity activity-result
+                    :report report-result
+                    :next (start-next-commands (:id project)
+                                               (:config start-info)
+                                               map-path
+                                               report-out)}
+             (:init start-info) (assoc :init (:init start-info)))))))))
 
 (defn- bench-opts
   [args]
@@ -1543,6 +1650,7 @@
    ["Usage:"
     ""
     "Setup:"
+    "  start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map agraph.map.json] [--report-out agraph-out] [--force] [--query-index]"
     "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync] [--map agraph.map.json]"
     "  init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]"
     "  install-agent --platform codex --project [--hooks]"
@@ -1610,6 +1718,9 @@
 
     "init"
     (init! args)
+
+    "start"
+    (start! args)
 
     "sync"
     (sync-dispatch! args)

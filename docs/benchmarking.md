@@ -137,6 +137,12 @@ If explicit changed files are omitted, AGraph computes them from git. Unsupporte
 or missing ground-truth files are reported so misses can be separated from
 retrieval quality.
 
+Prepared and scored artifacts also include `inputHints`. This records exact
+ground-truth file paths already present in the issue text. Agent packets omit
+this field, but reports count `inputHintedRuns` and `inputHintedCases` so easy
+cases that name the fix file can be separated from cases where localization
+depends on source inspection or graph context.
+
 ## Scores
 
 The core scores are mechanical. Recall and MRR use scoreable changed files:

@@ -26,6 +26,7 @@ generator or a broad semantic classifier.
 | 5 | [MCP Server](05-mcp-server.md) | `agraph-mcp` becomes a real structured server over ask, explore, view, and sync work. |
 | 6 | [Extractor Expansion](06-extractor-expansion.md) | Add high-impact deterministic extractors and coverage guidance. |
 | 7 | [Adoption Polish](07-adoption-polish.md) | Finish the docs, tests, migration cleanup, and release checks around the new surface. |
+| 8 | [Start Command](08-start-command.md) | One command initializes or reuses a project, syncs, imports activity, and writes a report bundle. |
 
 ## Implementation Order
 
@@ -69,6 +70,7 @@ Every stage should add or update focused tests:
 The roadmap is complete when a fresh repo can run:
 
 ```sh
+agraph start .
 agraph init .
 agraph sync project.edn --check --map agraph.map.json
 agraph install-agent --platform codex --project
@@ -85,4 +87,3 @@ agraph explore create "runtime boundary" --project <id>
 agraph view systems --project <id> --format json
 agraph sync work pull --project <id> --agent codex
 ```
-

@@ -17,14 +17,15 @@ agraph init --workbench <root> [--task TASK] [--project ID] [--out project.edn]
 agraph init . --sync --map agraph.map.json
 ```
 
-Optionally add a convenience command after `init` is stable:
+Convenience command added after `init` stabilized:
 
 ```text
 agraph start .
 ```
 
-`start` would be a wrapper around `init`, `sync --check`, and a compact next
-steps report.
+`start` initializes or reuses `project.edn`, ensures an explicit map unless
+`--no-map` is supplied, runs `sync --check`, imports local queue activity, and
+writes a report bundle.
 
 ## Behavior
 
@@ -102,6 +103,7 @@ Implemented surface:
 - `agraph init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force]`
 - `agraph init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]`
 - `agraph init <repo-root> --sync [--map agraph.map.json] [--query-index]`
+- `agraph start <repo-root> [--project ID] [--out project.edn] [--map agraph.map.json] [--report-out agraph-out]`
 
 Notes:
 

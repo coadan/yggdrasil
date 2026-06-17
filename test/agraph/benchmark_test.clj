@@ -87,6 +87,10 @@
                  :repo-id "repo"
                  :agent {:agentId "codex"
                          :mode "agraph"}
+                 :inputHints {:hinted true
+                              :mentionedChangedFiles ["src/app.clj"]
+                              :mentionedChangedFileCount 1
+                              :changedFileCount 3}
                  :scores {:fileRecallAt5 1.0
                           :fileRecallAt10 1.0
                           :fileRecallAt20 1.0
@@ -120,6 +124,14 @@
       (is (= 0.75 (get-in report [:scores :fileRecallAt10])))
       (is (= 6 (get-in report [:scores :changedFiles])))
       (is (= 4 (get-in report [:scores :scoreableChangedFiles])))
+      (is (= {:inputHintedRuns 1
+              :inputHintedCases 1
+              :inputHintedCaseIds ["case-1"]}
+             (:inputHints report)))
+      (is (= {:inputHintedRuns 1
+              :inputHintedCases 1
+              :inputHintedCaseIds ["case-1"]}
+             (get-in (first (:byMode report)) [:inputHints])))
       (is (= #{"agraph" "shell-only"} (set (map :key (:byMode report)))))
       (is (= ["baseline" "codex"] (mapv :key (:byAgent report)))))
     (let [report (benchmark/report-agent-suite suite {:out out
@@ -151,7 +163,7 @@
                                 :fix-sha fix-sha
                                 :issue {:id 1
                                         :title "broken app"
-                                        :body "The app returns the old value."}}]}))
+                                        :body "The app returns the old value in src/app.clj."}}]}))
         (let [suite (benchmark/read-suite suite-path)
               prepared (first (:cases (benchmark/prepare-suite! suite {:out out})))]
           (is (= benchmark/prepared-case-schema (:schema prepared)))
@@ -160,6 +172,11 @@
           (is (= [{:path "src/new.clj"
                    :reason "missing-at-base"}]
                  (get-in prepared [:groundTruth :unsupportedGroundTruthFiles])))
+          (is (= {:hinted true
+                  :mentionedChangedFiles ["src/app.clj"]
+                  :mentionedChangedFileCount 1
+                  :changedFileCount 2}
+                 (:inputHints prepared)))
           (is (.isDirectory (io/file (:worktreeRoot prepared)))))))))
 
 (deftest writes-agent-packet-without-ground-truth
@@ -195,6 +212,7 @@
           (is (= benchmark/agent-result-schema
                  (get-in packet [:task :expectedResultSchema])))
           (is (not (contains? packet :groundTruth)))
+          (is (not (contains? packet :inputHints)))
           (is (= (:project-id packet) (:id project-config)))
           (is (= (:worktreeRoot packet) (get-in project-config [:repos 0 :root])))
           (is (.isFile (io/file packet-path))))))))
@@ -211,6 +229,10 @@
                   :fixSha "fix"
                   :worktreeRoot root
                   :input {:title "broken app"}
+                  :inputHints {:hinted true
+                               :mentionedChangedFiles ["src/app.clj"]
+                               :mentionedChangedFileCount 1
+                               :changedFileCount 2}
                   :groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]
                                 :unsupportedGroundTruthFiles []}}
         agent-result {:schema benchmark/agent-result-schema
@@ -229,6 +251,7 @@
     (is (= benchmark/agent-score-schema (:schema scored)))
     (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
     (is (= 0.5 (get-in scored [:scores :meanReciprocalRankFile])))
+    (is (= (:inputHints prepared) (:inputHints scored)))
     (is (= ["src/other.clj"] (get-in scored [:agent :missingPredictedFiles])))
     (is (= [{:path "src/app.clj"
              :rank 2
