@@ -51,6 +51,46 @@
     (is (= ["src/A.java" "src/B.java" "src/A.java"]
            (mapv #(get-in % [:source :path]) docs)))))
 
+(deftest select-docs-preserves-top-retrieved-path-coverage
+  (let [select-docs @#'context/select-docs
+        crowded-docs (for [idx (range 20)]
+                       {:target (str "chunk:p" idx)
+                        :role "reference"
+                        :status "candidate"
+                        :source {:repo "app"
+                                 :path (str "p" idx ".clj")
+                                 :definitionKind :fn}
+                        :score (- 1.0 (* idx 0.01))
+                        :snippet (str "p" idx)
+                        :provenance "retrieved-doc"
+                        :retrievedSource true})
+        important-doc {:target "chunk:important"
+                       :role "reference"
+                       :status "candidate"
+                       :source {:repo "app"
+                                :path "important.clj"
+                                :definitionKind :fn}
+                       :score 0.01
+                       :snippet "important"
+                       :provenance "retrieved-doc"
+                       :retrievedSource true}
+        results (concat
+                 (for [idx (range 8)]
+                   {:path (str "p" idx ".clj")
+                    :target-id (str "chunk:p" idx)
+                    :target-kind :chunk
+                    :score (- 1.0 (* idx 0.01))})
+                 [{:path "important.clj"
+                   :target-id "chunk:important"
+                   :target-kind :chunk
+                   :score 0.01}])
+        selected (select-docs (concat crowded-docs [important-doc])
+                              results
+                              20)]
+    (is (= 20 (count selected)))
+    (is (some #{"important.clj"}
+              (map #(get-in % [:source :path]) selected)))))
+
 (deftest context-packet-includes-search-instrumentation
   (with-redefs [query/search-report (fn [_ query-text opts]
                                       {:schema query/search-report-schema

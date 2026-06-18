@@ -407,6 +407,104 @@
                  (second definition-key) (conj definition-key))
                (conj out doc))))))
 
+(defn- doc-source-path
+  [doc]
+  (get-in doc [:source :path]))
+
+(defn- ranked-result-paths
+  [results limit]
+  (->> results
+       (keep :path)
+       (remove #(str/blank? (str %)))
+       distinct
+       (take limit)
+       vec))
+
+(defn- ranked-path-coverage-limit
+  [doc-limit]
+  (when (pos? (long doc-limit))
+    (min (long doc-limit)
+         (max 1 (quot (long doc-limit) 2)))))
+
+(defn- docs-by-path
+  [docs]
+  (reduce (fn [by-path doc]
+            (if-let [path (doc-source-path doc)]
+              (update by-path path #(or % doc))
+              by-path))
+          {}
+          docs))
+
+(defn- insert-doc-at
+  [docs idx doc]
+  (let [idx (min (max 0 (long idx)) (count docs))]
+    (vec (concat (subvec docs 0 idx)
+                 [doc]
+                 (subvec docs idx)))))
+
+(defn- remove-doc-at
+  [docs idx]
+  (vec (concat (subvec docs 0 idx)
+               (subvec docs (inc idx)))))
+
+(defn- replaceable-doc-index
+  [docs protected-paths]
+  (or (->> docs
+           (map-indexed vector)
+           (filter (fn [[_ doc]]
+                     (and (not= "map-attachment" (:provenance doc))
+                          (not (contains? protected-paths
+                                          (doc-source-path doc))))))
+           last
+           first)
+      (when (seq docs)
+        (dec (count docs)))))
+
+(defn- trim-docs-to-limit
+  [docs limit protected-paths]
+  (loop [docs (vec docs)]
+    (if (<= (count docs) limit)
+      docs
+      (if-let [idx (replaceable-doc-index docs protected-paths)]
+        (recur (remove-doc-at docs idx))
+        docs))))
+
+(defn- ensure-ranked-path-docs
+  [docs result-paths limit]
+  (let [limit (long limit)
+        docs (vec docs)
+        representatives (docs-by-path docs)
+        protected-paths (set result-paths)]
+    (loop [selected (vec (take limit docs))
+           wanted (map-indexed vector result-paths)]
+      (if-let [[idx path] (first wanted)]
+        (let [represented? (some #(= path (doc-source-path %)) selected)
+              representative (get representatives path)]
+          (if (or represented? (nil? representative))
+            (recur selected (next wanted))
+            (recur (-> selected
+                       (insert-doc-at idx representative)
+                       (trim-docs-to-limit limit protected-paths))
+                   (next wanted))))
+        selected))))
+
+(defn- select-docs
+  [docs results doc-limit]
+  (let [doc-limit (long doc-limit)
+        docs (->> docs
+                  distinct-docs
+                  (sort-by (juxt doc-priority
+                                 (comp - :score)
+                                 :role
+                                 #(get-in % [:source :path])))
+                  diversify-docs)
+        result-paths (ranked-result-paths results
+                                          (or (ranked-path-coverage-limit doc-limit)
+                                              0))]
+    (-> docs
+        (ensure-ranked-path-docs result-paths doc-limit)
+        vec)))
+
 (defn- attached-docs
   [overlay chunks snippet-chars targets]
   (let [system-label-by-id (into {}
@@ -886,14 +984,7 @@
                      (conj (str "agraph docs audit --project " project-id " --map " map-path)))
         docs (->> (concat (attached-docs overlay chunks snippet-chars targets)
                           (inferred-docs query-tokens results chunks entities snippet-chars))
-                  distinct-docs
-                  (sort-by (juxt doc-priority
-                                 (comp - :score)
-                                 :role
-                                 #(get-in % [:source :path])))
-                  diversify-docs
-                  (take doc-limit)
-                  vec)
+                  (#(select-docs % results doc-limit)))
         search-context (-> (select-keys search-report
                                         [:schema
                                          :query-run-id
