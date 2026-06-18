@@ -62,7 +62,8 @@
     (is (str/includes? usage "mcp [--root DIR]"))
     (is (str/includes? usage "watch <project.edn>"))
     (is (str/includes? usage "hook install <project.edn>"))
-    (is (str/includes? usage "bench prepare|run|report|show"))
+    (is (str/includes? usage "bench prepare|run|report"))
+    (is (str/includes? usage "bench show"))
     (is (str/includes? usage "bench agent-packet"))
     (is (str/includes? usage "bench agent-baseline"))
     (is (str/includes? usage "bench agent-run"))
@@ -70,6 +71,7 @@
     (is (str/includes? usage "bench agent-report"))
     (is (str/includes? usage "bench agent-check"))
     (is (str/includes? usage "bench agent-compare"))
+    (is (str/includes? usage "--cases ID,ID"))
     (is (not (str/includes? usage "overlay")))))
 
 (deftest install-agent-list-shows-supported-platforms
@@ -384,7 +386,7 @@
       (let [out (with-out-str
                   (cli/dispatch "bench"
                                 ["agent-report" "benchmark.edn"
-                                 "--case" "case-1"
+                                 "--cases" "case-1, case-2"
                                  "--mode" "agraph"
                                  "--agent" "codex"
                                  "--json"]))
@@ -392,7 +394,8 @@
         (is (= benchmark/agent-report-schema (:schema parsed)))
         (is (= [[:read "benchmark.edn"]
                 [:report {:id "suite"}
-                 {:case-id "case-1"
+                 {:case-id nil
+                  :case-ids ["case-1" "case-2"]
                   :out nil
                   :retriever nil
                   :mode "agraph"

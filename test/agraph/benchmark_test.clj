@@ -45,6 +45,21 @@
   (git! repo "commit" "-m" message)
   (str/trim (git! repo "rev-parse" "HEAD")))
 
+(deftest selects-one-or-more-benchmark-cases
+  (let [suite {:id "suite"
+               :cases [{:id "case-1"}
+                       {:id "case-2"}
+                       {:id "case-3"}]}]
+    (is (= ["case-1" "case-2" "case-3"]
+           (mapv :id (benchmark/selected-cases suite nil))))
+    (is (= ["case-2"]
+           (mapv :id (benchmark/selected-cases suite "case-2"))))
+    (is (= ["case-1" "case-3"]
+           (mapv :id (benchmark/selected-cases suite ["case-3" "case-1"]))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Benchmark case not found"
+                          (benchmark/selected-cases suite ["case-1" "missing"])))))
+
 (deftest scores-file-localization
   (let [result {:groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]
                               :unsupportedGroundTruthFiles []}

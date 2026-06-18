@@ -171,16 +171,32 @@
   (into {} (map (juxt :id identity)) (:repos suite)))
 
 (defn selected-cases
-  "Return suite cases, optionally narrowed to one case id."
-  [suite case-id]
-  (let [cases (:cases suite)]
-    (if (blankish? case-id)
+  "Return suite cases, optionally narrowed to one or more case ids."
+  [suite selector]
+  (let [cases (:cases suite)
+        case-ids (cond
+                   (blankish? selector) []
+                   (sequential? selector) (->> selector
+                                               (map str)
+                                               (remove blankish?)
+                                               vec)
+                   :else [(str selector)])]
+    (if (empty? case-ids)
       cases
-      (let [case-id (str case-id)]
-        (or (seq (filter #(= case-id (:id %)) cases))
-            (throw (ex-info "Benchmark case not found."
-                            {:case-id case-id
-                             :suite-id (:id suite)})))))))
+      (let [wanted (set case-ids)
+            found (filter #(contains? wanted (:id %)) cases)
+            found-ids (set (map :id found))
+            missing (vec (remove found-ids case-ids))]
+        (when (seq missing)
+          (throw (ex-info "Benchmark case not found."
+                          {:case-ids missing
+                           :suite-id (:id suite)})))
+        (seq found)))))
+
+(defn- case-selector
+  [opts]
+  (or (:case-ids opts)
+      (:case-id opts)))
 
 (defn- output-root
   [suite opts]
@@ -646,7 +662,7 @@
   {:schema "agraph.benchmark.prepare/v1"
    :suite-id (:id suite)
    :cases (mapv #(prepare-case! suite % opts)
-                (selected-cases suite (:case-id opts)))})
+                (selected-cases suite (case-selector opts)))})
 
 (defn- file-row
   [rank result]
@@ -844,7 +860,7 @@
   {:schema "agraph.benchmark.run/v1"
    :suite-id (:id suite)
    :cases (mapv #(run-case! suite % opts)
-                (selected-cases suite (:case-id opts)))})
+                (selected-cases suite (case-selector opts)))})
 
 (defn- shell-quote
   [value]
@@ -992,7 +1008,7 @@
   {:schema "agraph.benchmark.agent-packets/v1"
    :suite-id (:id suite)
    :packets (mapv #(agent-packet! suite % opts)
-                  (selected-cases suite (:case-id opts)))})
+                  (selected-cases suite (case-selector opts)))})
 
 (declare parse-double-safe score-agent-result)
 
@@ -1532,7 +1548,7 @@
    :baselines (mapv #(if (= :local-vector (keyword (or (:retriever opts) :lexical)))
                        (local-vector-baseline! suite % opts)
                        (agent-baseline! suite % opts))
-                    (selected-cases suite (:case-id opts)))})
+                    (selected-cases suite (case-selector opts)))})
 
 (defn- source-line-range
   [source]
@@ -2011,7 +2027,7 @@
   "Run an external agent command for selected benchmark cases."
   [suite opts]
   (let [runs (mapv #(agent-run! suite % opts)
-                   (selected-cases suite (:case-id opts)))]
+                   (selected-cases suite (case-selector opts)))]
     {:schema agent-runs-schema
      :suite-id (:id suite)
      :runs runs
@@ -2382,7 +2398,7 @@
 (defn report-agent-suite
   "Aggregate existing agent score artifacts."
   [suite opts]
-  (let [cases (selected-cases suite (:case-id opts))
+  (let [cases (selected-cases suite (case-selector opts))
         progress (->> cases
                       (keep #(progress-summary suite % opts))
                       vec)
@@ -2814,7 +2830,7 @@
 (defn report-suite
   "Aggregate existing benchmark result artifacts."
   [suite opts]
-  (let [cases (selected-cases suite (:case-id opts))
+  (let [cases (selected-cases suite (case-selector opts))
         results (keep #(case-result suite % opts) cases)
         missing (->> cases
                      (remove #(case-result suite % opts))

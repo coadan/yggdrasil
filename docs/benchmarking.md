@@ -143,7 +143,9 @@ generated output root.
 - `bench show <suite.edn> --case <case-id>` prints one case result.
 
 Use `--case <case-id>` with benchmark commands to narrow the command to one
-case.
+case. Use `--cases <case-id>,<case-id>` with suite-level benchmark commands
+such as `agent-baseline`, `agent-run`, `agent-report`, and `agent-check` to
+rerun or gate a focused subset without paying for unrelated slow cases.
 
 The wide OSS replay suite currently covers Clojure/ClojureScript, Go, Java,
 .NET/C#, Python, Rust, JavaScript, TypeScript, Terraform, shell, SQL, style
