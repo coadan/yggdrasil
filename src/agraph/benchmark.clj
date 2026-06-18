@@ -100,6 +100,9 @@
 (def ^:private rank-score-ordered-pair-weight
   0.45)
 
+(def ^:private rank-score-compound-pair-weight
+  0.35)
+
 (def ^:private rank-score-support-count-cap
   2)
 
@@ -1658,6 +1661,12 @@
         evidence-pairs (ordered-token-pairs (text/tokenize text))]
     (set/intersection query-pairs evidence-pairs)))
 
+(defn- compact-compound-token-pair-matches
+  [query-tokens text]
+  (let [query-pairs (ordered-token-pairs query-tokens)
+        evidence-pairs (set (text/compound-token-pairs text))]
+    (set/intersection query-pairs evidence-pairs)))
+
 (defn- retrieved-source-rank-score
   [retrieved-source-count first-source-rank]
   (if (and (pos? retrieved-source-count)
@@ -1683,6 +1692,9 @@
        :exact-path-source? (boolean (:exactPathSource doc))
        :definition-kind (some-> (:definitionKind source) name)
        :matched-tokens (token-matches query-tokens (evidence-text doc))
+       :matched-compound-token-pairs (compact-compound-token-pair-matches
+                                      query-tokens
+                                      (evidence-text doc))
        :reason (str "AGraph context doc"
                     (when-let [heading (:heading source)]
                       (str " " (pr-str heading)))
@@ -1713,6 +1725,11 @@
                              (str (:path entity)
                                   "\n"
                                   (:label entity)))
+       :matched-compound-token-pairs (compact-compound-token-pair-matches
+                                      query-tokens
+                                      (str (:path entity)
+                                           "\n"
+                                           (:label entity)))
        :reason (str "AGraph graph entity "
                     (pr-str (:label entity))
                     " references "
@@ -1728,6 +1745,9 @@
                                (:label candidate))
             matched-tokens (token-matches query-tokens evidence-text)
             matched-token-pairs (compact-token-pair-matches query-tokens evidence-text)
+            matched-compound-token-pairs (compact-compound-token-pair-matches
+                                          query-tokens
+                                          evidence-text)
             score-components (or (:scoreComponents candidate)
                                  (:score-components candidate))
             graph-score (double (or (parse-double-safe (:graph score-components))
@@ -1745,6 +1765,7 @@
                  :definition-kind (some-> (:targetKind candidate) name)
                  :matched-tokens matched-tokens
                  :matched-token-pairs matched-token-pairs
+                 :matched-compound-token-pairs matched-compound-token-pairs
                  :reason (str "AGraph retrieved candidate file "
                               path
                               " from result rank "
@@ -1770,6 +1791,9 @@
                              matched-token-pairs (->> ordered
                                                       (mapcat :matched-token-pairs)
                                                       set)
+                             matched-compound-token-pairs (->> ordered
+                                                               (mapcat :matched-compound-token-pairs)
+                                                               set)
                              doc-count (count (filter #(= :doc (:evidence-kind %))
                                                       ordered))
                              entity-count (count (filter #(= :entity (:evidence-kind %))
@@ -1783,6 +1807,9 @@
                              candidate-only-graph-score (if (zero? doc-count)
                                                           graph-neighbor-score
                                                           0.0)
+                             candidate-only-compound-pair-count (if (zero? doc-count)
+                                                                  (count matched-compound-token-pairs)
+                                                                  0)
                              retrieved-source-count (count (filter :retrieved-source?
                                                                    ordered))
                              exact-path-source-count (count (filter :exact-path-source?
@@ -1800,6 +1827,9 @@
                                            (* rank-score-ordered-pair-weight
                                               (min rank-score-ordered-pair-cap
                                                    (count matched-token-pairs)))
+                                           (* rank-score-compound-pair-weight
+                                              (min rank-score-ordered-pair-cap
+                                                   candidate-only-compound-pair-count))
                                            (* 0.08 (min rank-score-support-count-cap
                                                         support-count))
                                            (* 0.08 (min rank-score-retrieved-source-count-cap
@@ -1825,6 +1855,9 @@
                                        (seq matched-token-pairs)
                                        (assoc :matchedTokenPairCount
                                               (count matched-token-pairs))
+                                       (seq matched-compound-token-pairs)
+                                       (assoc :matchedCompoundTokenPairCount
+                                              (count matched-compound-token-pairs))
                                        (pos? source-rank-score)
                                        (assoc :sourceRankScore source-rank-score)
                                        (pos? graph-neighbor-score)
@@ -1859,6 +1892,7 @@
                                     :exact-path-source?
                                     :matched-tokens
                                     :matched-token-pairs
+                                    :matched-compound-token-pairs
                                     :definition-kind)
                             (assoc :rank (inc idx)))))
          vec)))

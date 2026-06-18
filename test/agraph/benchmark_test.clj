@@ -1615,6 +1615,39 @@
     (is (= 1 (get-in files [0 :metrics :matchedTokenPairCount])))
     (is (nil? (get-in files [1 :metrics :matchedTokenPairCount])))))
 
+(deftest file-ranking-uses-compound-identifier-query-token-pairs
+  (let [root (temp-dir "agraph-bench-compound-token-pairs")
+        target "test/fast/Unit tests/nvm_remote_version"
+        noisy-paths (mapv #(str "test/fast/Running 'nvm use "
+                                %
+                                "' should not create the current symlink")
+                          (range 24))
+        _ (doseq [path (cons target noisy-paths)]
+            (spit-file! root path "#!/bin/sh\n"))
+        packet {:query "nvm install argon should not remote version"
+                :candidateFiles (vec
+                                 (concat
+                                  (map-indexed
+                                   (fn [idx path]
+                                     {:path path
+                                      :rank (inc idx)
+                                      :score 0.42
+                                      :targetKind "chunk"
+                                      :label path})
+                                   noisy-paths)
+                                  [{:path target
+                                    :rank 99
+                                    :score 0.40
+                                    :targetKind "chunk"
+                                    :label "nvm_remote_version"}]))}
+        result (benchmark/context-packet->agent-result packet {:root root
+                                                               :limit 20})
+        files (:suspectedFiles result)
+        target-row (some #(when (= target (:path %)) %) files)]
+    (is (some? target-row))
+    (is (= 1 (get-in target-row [:metrics :matchedCompoundTokenPairCount])))
+    (is (<= (:rank target-row) 20))))
+
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
   (let [root (temp-dir "agraph-bench-candidate-file-quota")
         _ (doseq [path ["src/doc-1.clj" "src/doc-2.clj" "src/doc-3.clj"

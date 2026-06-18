@@ -97,6 +97,18 @@
        (filter keep-token?)
        vec))
 
+(defn compound-token-pairs
+  "Return adjacent lexical token pairs that come from the same compound token."
+  [text]
+  (->> (raw-tokens text)
+       (mapcat (fn [token]
+                 (let [parts (->> (concat (token-parts token)
+                                          (camel-compound-parts token))
+                                  (filter keep-token?)
+                                  distinct-vec)]
+                   (map vector parts (rest parts)))))
+       distinct-vec))
+
 (defn token-score
   "Return overlap score between query and candidate token sets."
   [query-tokens candidate-tokens]

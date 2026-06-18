@@ -30,6 +30,12 @@
           "enabled"]
          (text/tokenize-all "mcp-enabled mcp-enabled"))))
 
+(deftest compound-token-pairs-track-identifier-adjacency
+  (is (= [["nvm" "remote"]
+          ["remote" "version"]
+          ["lts" "argon"]]
+         (text/compound-token-pairs "nvm_remote_version lts/argon should not"))))
+
 (deftest tokenization-expands-camel-and-pascal-identifiers
   (is (= ["typehandlertests"
           "type"
