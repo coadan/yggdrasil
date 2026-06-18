@@ -1,3 +1,11 @@
+$panel-padding: 1rem !default;
+
+// scss-docs-start panel-variables
+$panel-radius: .25rem !default;
+$panel-radius-sm: .125rem !default;
+// scss-docs-end panel-variables
+
 .panel {
   color: var(--panel-text);
+  border-radius: $panel-radius;
 }
