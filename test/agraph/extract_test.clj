@@ -1865,12 +1865,24 @@
                      "run/test"
                      (fs/file-record "test/fixtures/extractor-repo"
                                      "test/fixtures/extractor-repo/mobile/expo/app.json"))
+        capacitor-result (extract/extract-file
+                          "run/test"
+                          (fs/file-record "test/fixtures/extractor-repo"
+                                          "test/fixtures/extractor-repo/mobile/capacitor/capacitor.config.ts"))
+        tauri-result (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/mobile/tauri/tauri.conf.json"))
         labels (fn [result] (set (map :label (:nodes result))))
         relations (fn [result] (frequencies (map :relation (:edges result))))]
     (is (= :manifest (:kind (fs/file-record "test/fixtures/extractor-repo"
                                             "test/fixtures/extractor-repo/mobile/android/AndroidManifest.xml"))))
     (is (= :manifest (:kind (fs/file-record "test/fixtures/extractor-repo"
                                             "test/fixtures/extractor-repo/mobile/ios/Info.plist"))))
+    (is (= :manifest (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                            "test/fixtures/extractor-repo/mobile/capacitor/capacitor.config.ts"))))
+    (is (= :manifest (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                            "test/fixtures/extractor-repo/mobile/tauri/tauri.conf.json"))))
     (is (contains? (labels android-result) "com.example.panels"))
     (is (contains? (labels android-result) "android.permission.INTERNET"))
     (is (contains? (labels android-result) "activity:.MainActivity"))
@@ -1900,8 +1912,29 @@
     (is (contains? (labels expo-result) "expo-build-properties"))
     (is (= {:defines 2 :uses 2} (select-keys (relations expo-result)
                                              [:defines :uses])))
+    (is (contains? (labels capacitor-result) "Panels Capacitor"))
+    (is (contains? (labels capacitor-result) "com.example.panels"))
+    (is (contains? (labels capacitor-result) "dist"))
+    (is (contains? (labels capacitor-result) "https://app.example.test"))
+    (is (contains? (labels capacitor-result) "SplashScreen"))
+    (is (contains? (labels capacitor-result) "PushNotifications"))
+    (is (= {:defines 2 :references 2 :uses 2}
+           (select-keys (relations capacitor-result)
+                        [:defines :references :uses])))
+    (is (contains? (labels tauri-result) "Panels Desktop"))
+    (is (contains? (labels tauri-result) "com.example.panels.desktop"))
+    (is (contains? (labels tauri-result) "../dist"))
+    (is (contains? (labels tauri-result) "http://localhost:1420"))
+    (is (contains? (labels tauri-result) "pnpm dev"))
+    (is (contains? (labels tauri-result) "main:Panels"))
+    (is (contains? (labels tauri-result) "shell"))
+    (is (= {:defines 3 :references 2 :uses 2}
+           (select-keys (relations tauri-result)
+                        [:defines :references :uses])))
     (is (= [:manifest-file] (mapv :kind (:chunks android-result))))
-    (is (= [:manifest-file] (mapv :kind (:chunks expo-result))))))
+    (is (= [:manifest-file] (mapv :kind (:chunks expo-result))))
+    (is (= [:manifest-file] (mapv :kind (:chunks capacitor-result))))
+    (is (= [:manifest-file] (mapv :kind (:chunks tauri-result))))))
 
 (deftest extracts-mobile-resource-and-apple-config-facts
   (let [values-result (extract/extract-file

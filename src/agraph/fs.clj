@@ -37,6 +37,9 @@
     "directory.build.targets" "nuget.config" "packages.config"
     "androidmanifest.xml" "info.plist" "podfile" "package.swift"
     "app.json" "app.config.json" "eas.json"
+    "capacitor.config.json" "capacitor.config.ts" "capacitor.config.js"
+    "capacitor.config.mjs" "capacitor.config.cjs"
+    "tauri.conf.json" "tauri.conf.json5"
     "pnpm-workspace.yaml" "pnpm-workspace.yml" "turbo.json" "nx.json"
     "workspace.json" "lerna.json" "rush.json"
     "license" "copying" "notice" "security.md" "contributing.md"
@@ -222,7 +225,11 @@
                    "directory.build.props" "directory.build.targets"
                    "nuget.config" "packages.config" "androidmanifest.xml"
                    "info.plist" "podfile" "package.swift" "app.json"
-                   "app.config.json" "eas.json" "pnpm-workspace.yaml"
+                   "app.config.json" "eas.json"
+                   "capacitor.config.json" "capacitor.config.ts"
+                   "capacitor.config.js" "capacitor.config.mjs"
+                   "capacitor.config.cjs" "tauri.conf.json"
+                   "tauri.conf.json5" "pnpm-workspace.yaml"
                    "pnpm-workspace.yml" "turbo.json" "nx.json"
                    "workspace.json" "lerna.json" "rush.json"}
                  filename) :manifest

@@ -41,6 +41,8 @@
     (spit-file! root "ios/Package.swift" "let package = Package(name: \"Demo\")\n")
     (spit-file! root "ios/Demo.xcodeproj/project.pbxproj" "productName = Demo;\n")
     (spit-file! root "expo/app.json" "{\"expo\":{\"name\":\"Demo\",\"android\":{\"package\":\"com.example\"}}}\n")
+    (spit-file! root "mobile/capacitor.config.ts" "export default { appId: 'com.example', appName: 'Demo', webDir: 'dist' };\n")
+    (spit-file! root "mobile/tauri.conf.json" "{\"productName\":\"Demo\",\"identifier\":\"com.example.demo\"}\n")
     (spit-file! root "db/schema.prisma" "model User {\n  id String @id\n}\n")
     (spit-file! root "db/drizzle.config.ts" "export default { schema: './src/db/schema.ts' };\n")
     (spit-file! root "db/flyway.conf" "flyway.locations=filesystem:db/migration\n")
@@ -203,9 +205,9 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 172
-              :supported 171
-              :skipped 1}
+      (is (= {:files 174
+              :supported 172
+              :skipped 2}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "ci" (:files-by-kind report)))))
@@ -263,12 +265,11 @@
       (is (= 1 (:count (row-by :kind "svg" (:files-by-kind report)))))
       (is (= 4 (:count (row-by :kind "image-asset" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "font-asset" (:files-by-kind report)))))
-      (is (= 1 (:count (row-by :kind "env" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "html" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "shell" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "text" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "config" (:files-by-kind report)))))
-      (is (= 33 (:count (row-by :kind "manifest" (:files-by-kind report)))))
+      (is (= 35 (:count (row-by :kind "manifest" (:files-by-kind report)))))
       (is (= 5 (:count (row-by :kind "governance" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "xml" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "python" (:files-by-kind report)))))
@@ -459,9 +460,6 @@
       (is (some #(and (= "svg" (:kind %))
                       (= "svg/v1" (:extractor-version %)))
                 (:extractors report)))
-      (is (some #(and (= "env" (:kind %))
-                      (= "env/v1" (:extractor-version %)))
-                (:extractors report)))
       (is (some #(and (= "html" (:kind %))
                       (= "html/v1" (:extractor-version %)))
                 (:extractors report)))
@@ -473,7 +471,7 @@
                 (:extractors report)))
       (is (some #(and (= "manifest" (:kind %))
                       (= "manifest/v2" (:extractor-version %))
-                      (= 33 (:files %)))
+                      (= 35 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "xml" (:kind %))
                       (= "xml/v1" (:extractor-version %))

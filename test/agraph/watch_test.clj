@@ -35,6 +35,8 @@
   (is (watch/watchable-path? "android/res/layout/activity.xml"))
   (is (watch/watchable-path? "ios/Debug.xcconfig"))
   (is (watch/watchable-path? "ios/App.entitlements"))
+  (is (watch/watchable-path? "mobile/capacitor.config.ts"))
+  (is (watch/watchable-path? "mobile/tauri.conf.json"))
   (is (watch/watchable-path? "db/schema.prisma"))
   (is (watch/watchable-path? "dbt/dbt_project.yml"))
   (is (watch/watchable-path? "dbt/panel_orders.sql"))

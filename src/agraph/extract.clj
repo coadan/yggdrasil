@@ -6876,6 +6876,186 @@
     (catch Exception _
       path)))
 
+(defn- js-config-string-value
+  [content key-name]
+  (or (some-> (re-find (re-pattern (str "(?m)\\b" key-name "\\s*:\\s*['\"]([^'\"]+)['\"]"))
+                       content)
+              second)
+      (some-> (re-find (re-pattern (str "(?m)\"" key-name "\"\\s*:\\s*\"([^\"]+)\""))
+                       content)
+              second)))
+
+(defn- json-or-js-string-at
+  [content path key-name]
+  (or (some-> (read-json-map content)
+              (json-string-at path))
+      (js-config-string-value content key-name)))
+
+(defn- object-key-facts
+  [m kind relation source-line]
+  (when (map? m)
+    (mapv (fn [[k _]]
+            {:kind kind
+             :label (json-key-label k)
+             :source-line source-line
+             :relation relation})
+          m)))
+
+(defn- capacitor-plugin-facts
+  [content]
+  (if-let [plugins (:plugins (read-json-map content))]
+    (object-key-facts plugins :capacitor-plugin :uses 1)
+    (loop [remaining (map-indexed vector (str/split-lines content))
+           in-plugins? false
+           depth 0
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [starts? (and (not in-plugins?)
+                           (re-find #"\bplugins\s*:\s*\{" line))
+              depth-before (if starts? 1 depth)
+              plugin (when (and (or in-plugins? starts?)
+                                (= 1 depth-before))
+                       (some-> (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*\{?.*$" line)
+                               second))
+              opens (count (re-seq #"\{" line))
+              closes (count (re-seq #"\}" line))
+              depth* (cond
+                       starts? (+ opens (- closes))
+                       in-plugins? (+ depth opens (- closes))
+                       :else depth)
+              in-plugins* (or (and starts? (pos? depth*))
+                              (and in-plugins? (pos? depth*)))]
+          (recur (rest remaining)
+                 in-plugins*
+                 depth*
+                 (cond-> out
+                   (and plugin (not= "plugins" plugin))
+                   (conj {:kind :capacitor-plugin
+                          :label plugin
+                          :source-line (inc idx)
+                          :relation :uses}))))
+        (->> out distinct vec)))))
+
+(defn- capacitor-config-facts
+  [content]
+  (let [app-id (json-or-js-string-at content [:appId] "appId")
+        app-name (json-or-js-string-at content [:appName] "appName")
+        web-dir (json-or-js-string-at content [:webDir] "webDir")
+        server-url (json-or-js-string-at content [:server :url] "url")]
+    (vec (concat
+          (when app-id
+            [{:kind :mobile-bundle
+              :label app-id
+              :source-line 1
+              :relation :defines}])
+          (when app-name
+            [{:kind :mobile-display-name
+              :label app-name
+              :source-line 1
+              :relation :defines}])
+          (when web-dir
+            [{:kind :mobile-web-dir
+              :label web-dir
+              :source-line 1
+              :relation :references}])
+          (when server-url
+            [{:kind :mobile-entry-url
+              :label server-url
+              :source-line 1
+              :relation :references}])
+          (capacitor-plugin-facts content)))))
+
+(defn- capacitor-project-label
+  [content path]
+  (or (json-or-js-string-at content [:appName] "appName")
+      (json-or-js-string-at content [:appId] "appId")
+      path))
+
+(defn- tauri-config-value
+  [content paths key-name]
+  (or (some (fn [path]
+              (some-> (read-json-map content)
+                      (json-string-at path)))
+            paths)
+      (js-config-string-value content key-name)))
+
+(defn- tauri-plugin-facts
+  [content]
+  (let [parsed (read-json-map content)
+        plugins (:plugins parsed)]
+    (object-key-facts plugins :tauri-plugin :uses 1)))
+
+(defn- tauri-window-facts
+  [content]
+  (let [parsed (read-json-map content)
+        windows (or (get-in parsed [:app :windows])
+                    (get-in parsed [:tauri :windows]))]
+    (when (vector? windows)
+      (->> windows
+           (keep (fn [window]
+                   (when (map? window)
+                     (let [label (or (:label window) (:title window))]
+                       (when label
+                         {:kind :tauri-window
+                          :label (if-let [title (:title window)]
+                                   (str label ":" title)
+                                   label)
+                          :source-line 1
+                          :relation :defines})))))
+           vec))))
+
+(defn- tauri-config-facts
+  [content]
+  (let [identifier (tauri-config-value content
+                                       [[:identifier] [:tauri :bundle :identifier]]
+                                       "identifier")
+        product-name (tauri-config-value content
+                                         [[:productName] [:package :productName]]
+                                         "productName")
+        frontend-dist (tauri-config-value content
+                                          [[:build :frontendDist] [:build :distDir]]
+                                          "frontendDist")
+        dev-url (tauri-config-value content
+                                    [[:build :devUrl] [:build :devPath]]
+                                    "devUrl")
+        before-dev-command (tauri-config-value content
+                                               [[:build :beforeDevCommand]]
+                                               "beforeDevCommand")]
+    (vec (concat
+          (when identifier
+            [{:kind :mobile-bundle
+              :label identifier
+              :source-line 1
+              :relation :defines}])
+          (when product-name
+            [{:kind :mobile-display-name
+              :label product-name
+              :source-line 1
+              :relation :defines}])
+          (when frontend-dist
+            [{:kind :mobile-web-dir
+              :label frontend-dist
+              :source-line 1
+              :relation :references}])
+          (when dev-url
+            [{:kind :mobile-entry-url
+              :label dev-url
+              :source-line 1
+              :relation :references}])
+          (when before-dev-command
+            [{:kind :task-command
+              :label before-dev-command
+              :source-line 1
+              :relation :uses}])
+          (tauri-window-facts content)
+          (tauri-plugin-facts content)))))
+
+(defn- tauri-project-label
+  [content path]
+  (or (tauri-config-value content [[:productName] [:package :productName]] "productName")
+      (tauri-config-value content [[:identifier] [:tauri :bundle :identifier]] "identifier")
+      path))
+
 (defn- manifest-facts
   [{:keys [path content]}]
   (let [filename (manifest-name path)
@@ -7040,6 +7220,17 @@
       (contains? #{"app.json" "app.config.json" "eas.json"} filename)
       {:project-label (expo-project-label content path)
        :facts (expo-json-facts content)}
+
+      (contains? #{"capacitor.config.json" "capacitor.config.ts"
+                   "capacitor.config.js" "capacitor.config.mjs"
+                   "capacitor.config.cjs"}
+                 filename)
+      {:project-label (capacitor-project-label content path)
+       :facts (capacitor-config-facts content)}
+
+      (contains? #{"tauri.conf.json" "tauri.conf.json5"} filename)
+      {:project-label (tauri-project-label content path)
+       :facts (tauri-config-facts content)}
 
       :else
       {:project-label path

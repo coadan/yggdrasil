@@ -1,0 +1,22 @@
+{
+  "productName": "Panels Desktop",
+  "identifier": "com.example.panels.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "pnpm dev"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Panels"
+      }
+    ]
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}
