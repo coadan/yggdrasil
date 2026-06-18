@@ -526,6 +526,7 @@
                                  "--max-input-hinted-cases" "0"
                                  "--max-unsupported-ground-truth-files" "0"
                                  "--max-warning-runs" "0"
+                                 "--max-missing-declared-source-kind-runs" "0"
                                  "--max-missed-runs" "0"
                                  "--max-ranked-outside-top-5-runs" "0"
                                  "--max-ranked-outside-top-10-runs" "0"
@@ -561,6 +562,7 @@
                   :max-input-hinted-cases 0.0
                   :max-unsupported-ground-truth-files 0.0
                   :max-warning-runs 0.0
+                  :max-missing-declared-source-kind-runs 0.0
                   :max-missed-runs 0.0
                   :max-ranked-outside-top-5-runs 0.0
                   :max-ranked-outside-top-10-runs 0.0

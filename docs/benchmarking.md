@@ -164,7 +164,9 @@ generated output root.
   beyond the configured budget, `--max-unverified-score-runs` to fail when
   matching score artifacts are legacy or stale relative to the current suite file,
   `--max-graph-expectation-failures` to fail when graph/evidence expectations
-  do not match the indexed facts, plus
+  do not match the indexed facts,
+  `--max-missing-declared-source-kind-runs` to fail when selected cases declare
+  source kinds that produce no scoreable coverage, plus
   `--max-active-stage-ms` for partial or interrupted runs with a stuck active
   stage. Use
   `--agent <agent-id>` to avoid mixing baseline, shell-only, and ad hoc agent

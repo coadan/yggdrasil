@@ -4131,6 +4131,7 @@
                  [:max-warning-runs :maxWarningRuns]
                  [:max-unverified-score-runs :maxUnverifiedScoreRuns]
                  [:max-graph-expectation-failures :maxGraphExpectationFailures]
+                 [:max-missing-declared-source-kind-runs :maxMissingDeclaredSourceKindRuns]
                  [:max-missed-runs :maxMissedRuns]
                  [:max-ranked-outside-top-5-runs :maxRankedOutsideTop5Runs]
                  [:max-ranked-outside-top-10-runs :maxRankedOutsideTop10Runs]
@@ -4359,6 +4360,31 @@
                              :message message}))))))
        vec))
 
+(defn- coverage-diagnostic-failures
+  [check]
+  (when-some [expected (get-in check
+                               [:thresholds
+                                :maxMissingDeclaredSourceKindRuns])]
+    (let [actual (double (get-in check
+                                 [:report
+                                  :coverageDiagnostics
+                                  :missingDeclaredSourceKindRuns]
+                                 0))]
+      (when (> actual expected)
+        [(merge (metric-failure "missingDeclaredSourceKindRuns"
+                                "<="
+                                expected
+                                actual)
+                {:case-ids (get-in check
+                                   [:report
+                                    :coverageDiagnostics
+                                    :missingDeclaredSourceKindCaseIds])
+                 :missingDeclaredSourceKinds (get-in check
+                                                     [:report
+                                                      :coverageDiagnostics
+                                                      :missingDeclaredSourceKinds])
+                 :message "Some runs declared source kinds that had no scoreable coverage."})]))))
+
 (defn- graph-expectation-failures
   [check]
   (when-some [expected (get-in check [:thresholds :maxGraphExpectationFailures])]
@@ -4514,6 +4540,7 @@
                    (warning-run-failures check-base)
                    (unverified-score-failures check-base)
                    (graph-expectation-failures check-base)
+                   (coverage-diagnostic-failures check-base)
                    (parser-worker-profile-failures check-base)
                    (localization-diagnostic-failures check-base)
                    (active-stage-failures check-base)))]

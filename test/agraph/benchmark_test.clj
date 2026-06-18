@@ -716,6 +716,12 @@
                                    :warningCaseIds ["case-1"]}
                 :artifactDiagnostics {:unverifiedScoreRuns 1
                                       :unverifiedScoreCaseIds ["case-1"]}
+                :coverageDiagnostics {:missingDeclaredSourceKindRuns 1
+                                      :missingDeclaredSourceKindCaseIds ["case-1"]
+                                      :missingDeclaredSourceKinds [{:kind "python"
+                                                                    :runs 1
+                                                                    :cases 1
+                                                                    :caseIds ["case-1"]}]}
                 :graphExpectationDiagnostics {:configuredRuns 1
                                               :passedRuns 0
                                               :passedCaseIds []
@@ -768,6 +774,7 @@
                  :max-warning-runs 0
                  :max-unverified-score-runs 0
                  :max-graph-expectation-failures 0
+                 :max-missing-declared-source-kind-runs 0
                  :max-missed-runs 0
                  :max-ranked-outside-top-5-runs 0
                  :max-ranked-outside-top-10-runs 0
@@ -807,6 +814,7 @@
                  :max-warning-runs 1
                  :max-unverified-score-runs 1
                  :max-graph-expectation-failures 1
+                 :max-missing-declared-source-kind-runs 1
                  :max-missed-runs 1
                  :max-ranked-outside-top-5-runs 1
                  :max-ranked-outside-top-10-runs 1
@@ -833,6 +841,7 @@
              "warningRuns"
              "unverifiedScoreRuns"
              "graphExpectationFailures"
+             "missingDeclaredSourceKindRuns"
              "case.graphExpectations"
              "missedRuns"
              "rankedOutsideTop5Runs"
@@ -891,6 +900,7 @@
             :maxWarningRuns 0.0
             :maxUnverifiedScoreRuns 0.0
             :maxGraphExpectationFailures 0.0
+            :maxMissingDeclaredSourceKindRuns 0.0
             :maxMissedRuns 0.0
             :maxRankedOutsideTop5Runs 0.0
             :maxRankedOutsideTop10Runs 0.0
