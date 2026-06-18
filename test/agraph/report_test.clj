@@ -58,6 +58,12 @@
                             (:extractor-version %)
                             (number? (:files %)))
                       (get-in report-json [:coverage :extractors])))
+          (is (seq (get-in report-json [:coverage :extractor-fingerprints])))
+          (is (every? #(and (:kind %)
+                            (:extractor-version %)
+                            (:extractor-fingerprint %)
+                            (number? (:files %)))
+                      (get-in report-json [:coverage :extractor-fingerprints])))
           (is (= (get-in report-json [:maintenance :queue :decisions])
                  (get-in report-json [:maintenance :decision-summary :total])))
           (is (= "agraph.context/v1"

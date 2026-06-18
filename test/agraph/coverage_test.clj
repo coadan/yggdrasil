@@ -31,12 +31,14 @@
                                      :repo-id "app"
                                      :path "src/app.clj"
                                      :kind :code
+                                     :extractor-fingerprint "extractor:clj-a"
                                      :active? true}
                                     {:xt/id "file:service"
                                      :project-id "fixture"
                                      :repo-id "app"
                                      :path "src/Service.java"
                                      :kind :java
+                                     :extractor-fingerprint "extractor:java-a"
                                      :active? true}
                                     {:xt/id "file:other"
                                      :project-id "other"
@@ -94,6 +96,15 @@
                :extractorVersion "java/v2"
                :files 1}]
              (:extractors summary)))
+      (is (= [{:kind "code"
+               :extractorVersion "clojure/v9"
+               :extractorFingerprint "extractor:clj-a"
+               :files 1}
+              {:kind "java"
+               :extractorVersion "java/v2"
+               :extractorFingerprint "extractor:java-a"
+               :files 1}]
+             (:extractorFingerprints summary)))
       (is (= [{:stage "extract" :count 1}
               {:stage "parse" :count 1}]
              (get-in summary [:diagnostics :byStage])))
@@ -106,6 +117,55 @@
                :stage "extract"
                :count 1}]
              (get-in summary [:diagnostics :byExtractor]))))))
+
+(deftest project-coverage-reports-indexed-extractor-fingerprints
+  (let [root (temp-dir "agraph-coverage-fingerprints")]
+    (spit-file! root "src/app.clj" "(ns app)\n")
+    (with-redefs [store/rows-by-field (fn [_ table field value]
+                                        (case [table field value]
+                                          [:agraph/files :project-id "fixture"]
+                                          [{:xt/id "file:app"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/app.clj"
+                                            :kind :code
+                                            :extractor-fingerprint "extractor:clj-a"
+                                            :active? true}
+                                           {:xt/id "file:worker"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/Worker.java"
+                                            :kind :java
+                                            :extractor-fingerprint "extractor:java-a"
+                                            :active? true}
+                                           {:xt/id "file:old"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/Old.java"
+                                            :kind :java
+                                            :extractor-fingerprint "extractor:java-old"
+                                            :active? false}]
+
+                                          [:agraph/index-diagnostics :project-id "fixture"]
+                                          []
+
+                                          []))]
+      (let [report (coverage/project-coverage
+                    :xtdb
+                    {:id "fixture"
+                     :repos [{:id "app"
+                              :root root
+                              :role :application}]}
+                    {})]
+        (is (= [{:kind "code"
+                 :extractor-version "clojure/v9"
+                 :extractor-fingerprint "extractor:clj-a"
+                 :files 1}
+                {:kind "java"
+                 :extractor-version "java/v2"
+                 :extractor-fingerprint "extractor:java-a"
+                 :files 1}]
+               (:extractor-fingerprints report)))))))
 
 (deftest project-coverage-reports-supported-and-skipped-source-types
   (let [root (temp-dir "agraph-coverage-repo")]

@@ -25,6 +25,7 @@ The packet schema is `agraph.context/v1`:
     "totals": {"indexedFiles": 40, "diagnostics": 0, "fileKinds": 3},
     "topFileKinds": [],
     "extractors": [],
+    "extractorFingerprints": [],
     "diagnostics": {"byStage": [], "byExtractor": []}
   },
   "answerability": {
@@ -92,10 +93,12 @@ results are found. Use `agraph ask --json` for the full structured packet.
 
 Context packets include `sourceCoverage`, a compact summary of the indexed graph
 basis for the selected project/repo/read context. It reports indexed file counts,
-top source kinds, extractor versions, and active diagnostics grouped by stage and
-extractor. It does not scan the filesystem for unsupported files; use
-`agraph sync coverage <project.edn> --json` when an agent needs skipped or
-unsupported source candidates.
+top source kinds, extractor versions, persisted extractor fingerprint groups,
+and active diagnostics grouped by stage and extractor. Fingerprints are opaque
+mechanical audit ids for the extractor/indexing boundary used to create indexed
+file rows; they are not semantic classifications. It does not scan the
+filesystem for unsupported files; use `agraph sync coverage <project.edn> --json`
+when an agent needs skipped or unsupported source candidates.
 
 ## Doc Attachments
 

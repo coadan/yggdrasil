@@ -153,6 +153,25 @@
        (sort-by (juxt :kind :extractorVersion))
        vec))
 
+(defn- extractor-fingerprint-value
+  [file]
+  (let [fingerprint (:extractor-fingerprint file)]
+    (if (str/blank? (str fingerprint))
+      "missing"
+      (str fingerprint))))
+
+(defn- context-extractor-fingerprint-rows
+  [files]
+  (->> files
+       (group-by (juxt :kind extractor-fingerprint-value))
+       (map (fn [[[kind fingerprint] kind-files]]
+              {:kind (display-value kind)
+               :extractorVersion (get extract/extractor-versions kind "none/v1")
+               :extractorFingerprint fingerprint
+               :files (count kind-files)}))
+       (sort-by (juxt :kind :extractorVersion :extractorFingerprint))
+       vec))
+
 (defn- context-diagnostic-extractor-rows
   [files diagnostics]
   (let [file-by-id (into {} (map (juxt :xt/id identity)) files)]
@@ -193,10 +212,30 @@
               :fileKinds (count (set (keep :kind files)))}
      :topFileKinds (vec (take 8 (count-rows :kind :kind files)))
      :extractors (vec (take 12 (context-extractor-rows files)))
+     :extractorFingerprints (vec (take 12 (context-extractor-fingerprint-rows
+                                           files)))
      :diagnostics {:byStage (vec (take 8 (count-rows :stage :stage diagnostics)))
                    :byExtractor (vec (take 8 (context-diagnostic-extractor-rows
                                               files
                                               diagnostics)))}}))
+
+(defn- indexed-extractor-fingerprint-summary
+  [xtdb project-id]
+  (if-not xtdb
+    []
+    (->> (store/rows-by-field xtdb
+                              (:files store/tables)
+                              :project-id
+                              project-id)
+         (filter active-index-row?)
+         (group-by (juxt :kind extractor-fingerprint-value))
+         (map (fn [[[kind fingerprint] files]]
+                {:kind (display-value kind)
+                 :extractor-version (get extract/extractor-versions kind "none/v1")
+                 :extractor-fingerprint fingerprint
+                 :files (count files)}))
+         (sort-by (juxt :kind :extractor-version :extractor-fingerprint))
+         vec)))
 
 (defn- diagnostics-summary
   [xtdb project-id]
@@ -268,5 +307,6 @@
       :skipped-by-extension (merge-counts repos :skipped-by-extension :ext)
       :skipped-by-reason (merge-counts repos :skipped-by-reason :reason)
       :extractors (merge-extractors repos)
+      :extractor-fingerprints (indexed-extractor-fingerprint-summary xtdb id)
       :diagnostics (diagnostics-summary xtdb id)
       :repos repos})))
