@@ -3710,14 +3710,14 @@
                                  (filter #(= :imports (:relation %))
                                          (:edges result))))]
     (is (= :python (:kind file)))
-    (is (contains? labels "src.python.app"))
-    (is (contains? labels "src.python.app/Service"))
-    (is (contains? labels "src.python.app/Service.fetch"))
-    (is (contains? labels "src.python.app/build"))
-    (is (contains? labels "src.python.app/main"))
+    (is (contains? labels "python.app"))
+    (is (contains? labels "python.app/Service"))
+    (is (contains? labels "python.app/Service.fetch"))
+    (is (contains? labels "python.app/build"))
+    (is (contains? labels "python.app/main"))
     (is (= 4 (get relations :imports 0)))
     (is (contains? import-targets
-                   (extract/node-id :namespace "src.python.local")))
+                   (extract/node-id :namespace "python.local")))
     (is (<= 5 (get relations :defines 0)))
     (is (= [:python-file] (mapv :kind (:chunks result))))
     (is (empty? (:diagnostics result))))
@@ -3752,7 +3752,7 @@
         import-targets (set (map :target-id
                                  (filter #(= :imports (:relation %))
                                          (:edges result))))]
-    (is (contains? labels "src.python.app/from_worker"))
+    (is (contains? labels "python.app/from_worker"))
     (is (contains? import-targets
                    (extract/node-id :namespace "worker.dep")))
     (is (empty? (:diagnostics result)))))

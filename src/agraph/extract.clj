@@ -1515,7 +1515,8 @@
 
 (defn- python-module-name
   [path]
-  (let [module (-> path
+  (let [path (str/replace (str path) #"^src/" "")
+        module (-> path
                    (str/replace #"\.py$" "")
                    (str/replace #"/" ".")
                    (str/replace #"-" "_"))]
