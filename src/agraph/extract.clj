@@ -22,9 +22,6 @@
          read-json-map
          strip-yaml-scalar
          yaml-key-line
-         yaml-scalar-list-values
-         yaml-top-section-blocks
-         block-key-values
          leading-spaces
          source-definition-chunk
          json-label
@@ -9109,7 +9106,8 @@
      :diagnostics []}))
 
 (declare yaml-scalar-list-values
-         yaml-top-section-blocks)
+         yaml-top-section-blocks
+         block-key-values)
 
 (def dbt-path-sections
   #{"analysis-paths" "macro-paths" "model-paths" "seed-paths"
