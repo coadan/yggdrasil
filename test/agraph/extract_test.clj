@@ -357,6 +357,53 @@
     (is (every? string? (map :content-sha chunks)))
     (is (empty? (:diagnostics result)))))
 
+(deftest extracts-mdx-and-storybook-facts
+  (let [mdx-result (extract/extract-file
+                    "run/test"
+                    (fs/file-record "test/fixtures/extractor-repo"
+                                    "test/fixtures/extractor-repo/docs/components.mdx"))
+        storybook-config-result (extract/extract-file
+                                 "run/test"
+                                 (fs/file-record
+                                  "test/fixtures/extractor-repo"
+                                  "test/fixtures/extractor-repo/.storybook/main.ts"))
+        story-result (extract/extract-file
+                      "run/test"
+                      (fs/file-record
+                       "test/fixtures/extractor-repo"
+                       "test/fixtures/extractor-repo/src/ui/Button.stories.tsx"))
+        labels (fn [result] (set (map :label (:nodes result))))
+        relations (fn [result] (frequencies (map :relation (:edges result))))]
+    (is (= :doc (:kind (fs/file-record
+                        "test/fixtures/extractor-repo"
+                        "test/fixtures/extractor-repo/docs/components.mdx"))))
+    (is (= :storybook (:kind (fs/file-record
+                              "test/fixtures/extractor-repo"
+                              "test/fixtures/extractor-repo/.storybook/main.ts"))))
+    (is (= :storybook (:kind (fs/file-record
+                              "test/fixtures/extractor-repo"
+                              "test/fixtures/extractor-repo/src/ui/Button.stories.tsx"))))
+    (is (contains? (labels mdx-result) "Components"))
+    (is (contains? (labels mdx-result) "./panels.md"))
+    (is (contains? (labels mdx-result) "src.ui.Button"))
+    (is (= [:mdx :mdx] (mapv :kind (:chunks mdx-result))))
+    (is (pos? (get (relations mdx-result) :references 0)))
+    (is (contains? (labels storybook-config-result)
+                   "../src/**/*.stories.tsx"))
+    (is (contains? (labels storybook-config-result)
+                   "@storybook/addon-essentials"))
+    (is (contains? (labels storybook-config-result)
+                   "@storybook/react-vite"))
+    (is (contains? (labels story-result) "@storybook/react"))
+    (is (contains? (labels story-result) "src.ui.Button"))
+    (is (contains? (labels story-result) "Components/Button"))
+    (is (contains? (labels story-result) "Button"))
+    (is (contains? (labels story-result) "autodocs"))
+    (is (contains? (labels story-result) "Primary"))
+    (is (pos? (get (relations story-result) :references 0)))
+    (is (= [:storybook-file] (mapv :kind (:chunks storybook-config-result))))
+    (is (= [:storybook-file] (mapv :kind (:chunks story-result))))))
+
 (deftest extracts-rust-modules-definitions-uses-and-calls
   (let [file (fs/file-record "test/fixtures/sample-repo"
                              "test/fixtures/sample-repo/src/rust/lib.rs")
@@ -2452,10 +2499,6 @@
                          "run/test"
                          (fs/file-record "test/fixtures/extractor-repo"
                                          "test/fixtures/extractor-repo/tooling/renovate.json"))
-        storybook-result (extract/extract-file
-                          "run/test"
-                          (fs/file-record "test/fixtures/extractor-repo"
-                                          "test/fixtures/extractor-repo/.storybook/main.ts"))
         editorconfig-result (extract/extract-file
                              "run/test"
                              (fs/file-record "test/fixtures/extractor-repo"
@@ -2480,8 +2523,6 @@
                                                "test/fixtures/extractor-repo/.github/dependabot.yml"))))
     (is (= :tool-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                                "test/fixtures/extractor-repo/tooling/renovate.json"))))
-    (is (= :tool-config (:kind (fs/file-record "test/fixtures/extractor-repo"
-                                               "test/fixtures/extractor-repo/.storybook/main.ts"))))
     (is (contains? (labels jest-result) "tooling/jest.config.js"))
     (is (contains? (labels jest-result) "testEnvironment=jsdom"))
     (is (contains? (labels playwright-result) "@playwright/test"))
@@ -2505,7 +2546,6 @@
     (is (contains? (labels renovate-result) "ui"))
     (is (contains? (labels renovate-result) "ui:^@vitejs/"))
     (is (contains? (labels renovate-result) "npm"))
-    (is (contains? (labels storybook-result) "stories"))
     (is (contains? (labels editorconfig-result) "indent_style=space"))
     (is (pos? (get (relations jest-result) :defines 0)))
     (is (pos? (get (relations playwright-result) :references 0)))

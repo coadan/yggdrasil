@@ -50,7 +50,7 @@
     :r :ruby :rust :scala :svelte :swift :svg :test-config :text
     :tool-config :vue :zig :edn :config :xml :yaml :helm :compose :docker
     :manifest :shell :notebook :devcontainer :kustomize :pre-commit-config
-    :codeowners :task-runner :starlark :tool-version-config})
+    :codeowners :task-runner :starlark :tool-version-config :storybook})
 
 (defn path-parts
   [path]

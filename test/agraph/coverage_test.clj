@@ -162,7 +162,9 @@
     (spit-file! root "tooling/tailwind.config.js" "module.exports = { content: ['./src/**/*.tsx'] };\n")
     (spit-file! root "tooling/pytest.ini" "[pytest]\ntestpaths = tests\n")
     (spit-file! root ".github/dependabot.yml" "version: 2\nupdates:\n  - package-ecosystem: npm\n")
-    (spit-file! root ".storybook/main.ts" "export default { stories: ['../src/**/*.stories.tsx'] };\n")
+    (spit-file! root ".storybook/main.ts" "export default { stories: ['../src/**/*.stories.tsx'], addons: ['@storybook/addon-essentials'], framework: { name: '@storybook/react-vite' } };\n")
+    (spit-file! root "src/ui/Button.stories.tsx" "import { Button } from './Button';\nexport default { title: 'Components/Button', component: Button, tags: ['autodocs'] };\nexport const Primary = {};\n")
+    (spit-file! root "docs/components.mdx" "import { Button } from '../src/ui/Button';\n\n# Components\n\nSee [panels](./panels.md).\n")
     (spit-file! root "tooling/renovate.json" "{\"extends\":[\"config:recommended\"]}\n")
     (spit-file! root ".editorconfig" "root = true\nindent_style = space\n")
     (spit-file! root "infra/docker-compose.yml" "services:\n  web:\n    image: ghcr.io/acme/web:latest\n    build: ./web\n")
@@ -205,8 +207,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 174
-              :supported 173
+      (is (= {:files 176
+              :supported 175
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -238,7 +240,8 @@
       (is (= 2 (:count (row-by :kind "odin" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "zig" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "test-config" (:files-by-kind report)))))
-      (is (= 11 (:count (row-by :kind "tool-config" (:files-by-kind report)))))
+      (is (= 10 (:count (row-by :kind "tool-config" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "storybook" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "compose" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "helm" (:files-by-kind report)))))
       (is (= 6 (:count (row-by :kind "ops-config" (:files-by-kind report)))))
@@ -274,7 +277,7 @@
       (is (= 5 (:count (row-by :kind "governance" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "xml" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "python" (:files-by-kind report)))))
-      (is (= 5 (:count (row-by :kind "doc" (:files-by-kind report)))))
+      (is (= 6 (:count (row-by :kind "doc" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "typescript" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "vue" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "svelte" (:files-by-kind report)))))
@@ -352,7 +355,11 @@
                 (:extractors report)))
       (is (some #(and (= "tool-config" (:kind %))
                       (= "tool-config/v1" (:extractor-version %))
-                      (= 11 (:files %)))
+                      (= 10 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "storybook" (:kind %))
+                      (= "storybook/v1" (:extractor-version %))
+                      (= 2 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "compose" (:kind %))
                       (= "compose/v1" (:extractor-version %)))

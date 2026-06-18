@@ -24,6 +24,7 @@
          yaml-key-line
          leading-spaces
          json-label
+         js-import-targets
          json-ref-tail
          json-ref-values)
 
@@ -65,6 +66,7 @@
    :task-runner "task-runner/v1"
    :starlark "starlark/v1"
    :tool-version-config "tool-version-config/v1"
+   :storybook "storybook/v1"
    :governance "governance/v1"
    :db-config "db-config/v1"
    :db-migration "db-migration/v1"
@@ -614,6 +616,55 @@
 
 (def ^:private markdown-chunk-lines 120)
 
+(defn- markdown-heading-facts
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (when-let [[_ _ heading] (re-matches #"^(#{1,6})\s+(.+?)\s*$"
+                                                    line)]
+                 {:kind :doc-heading
+                  :label heading
+                  :source-line (inc idx)
+                  :relation :defines})))
+       distinct
+       vec))
+
+(defn- markdown-link-facts
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (mapcat (fn [[idx line]]
+                 (map (fn [[_ target]]
+                        {:kind :doc-link
+                         :label target
+                         :source-line (inc idx)
+                         :relation :references})
+                      (re-seq #"\[[^\]]+\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)"
+                              line))))
+       distinct
+       vec))
+
+(defn- mdx-import-facts
+  [path lines]
+  (->> lines
+       (map-indexed #(js-import-targets %1 path %2))
+       (mapcat identity)
+       (map (fn [{:keys [target source-line]}]
+              {:kind :doc-import
+               :label target
+               :source-line source-line
+               :relation :references}))
+       distinct
+       vec))
+
+(defn- doc-structure-facts
+  [path lines]
+  (vec (concat (markdown-heading-facts lines)
+               (markdown-link-facts lines)
+               (when (= ".mdx" (fs/extension path))
+                 (mdx-import-facts path lines)))))
+
 (defn- split-doc-chunk
   [{:keys [start-line lines] :as chunk}]
   (->> (partition-all markdown-chunk-lines lines)
@@ -630,6 +681,23 @@
   [run-id {:keys [id-scope file-id path content]}]
   (let [lines (str/split-lines content)
         total-lines (count lines)
+        mdx? (= ".mdx" (fs/extension path))
+        doc-node (generic-node run-id id-scope file-id path :doc-file path 1)
+        facts (doc-structure-facts path lines)
+        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
+                           (generic-node run-id id-scope file-id path
+                                         kind label source-line))
+                         facts)
+        fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
+                           (edge-row run-id
+                                     file-id
+                                     path
+                                     (:xt/id doc-node)
+                                     (node-id id-scope kind label)
+                                     relation
+                                     :extracted
+                                     source-line))
+                         facts)
         close-chunk (fn [out current end-line]
                       (if (seq (:lines current))
                         (into out (split-doc-chunk
@@ -661,14 +729,14 @@
                             (update current :lines conj line)
                             out))
                    (close-chunk out current total-lines)))]
-    {:nodes []
-     :edges []
+    {:nodes (into [doc-node] fact-nodes)
+     :edges fact-edges
      :chunks (mapv (fn [{:keys [label start-line lines] :as chunk}]
                      (let [text (str/join "\n" lines)]
                        {:xt/id (chunk-id id-scope path label start-line)
                         :file-id file-id
                         :path path
-                        :kind :markdown
+                        :kind (if mdx? :mdx :markdown)
                         :label label
                         :text text
                         :tokens (text/tokenize (str label "\n" text))
@@ -8433,6 +8501,118 @@
                         :tool-config-file
                         (tool-config-facts file)))
 
+(defn- storybook-quoted-values
+  [content]
+  (mapv second (re-seq #"['\"]([^'\"]+)['\"]" content)))
+
+(defn- storybook-array-values
+  [content key-name]
+  (if-let [[_ body] (re-find (re-pattern (str "(?s)" key-name "\\s*:\\s*\\[(.*?)\\]"))
+                             content)]
+    (storybook-quoted-values body)
+    []))
+
+(defn- storybook-main-facts
+  [content]
+  (let [story-patterns (storybook-array-values content "stories")
+        addons (storybook-array-values content "addons")
+        framework (or (some->> (re-find #"framework\s*:\s*['\"]([^'\"]+)['\"]"
+                                        content)
+                               second)
+                      (some->> (re-find #"framework\s*:\s*\{[^}]*name\s*:\s*['\"]([^'\"]+)['\"]"
+                                        content)
+                               second))]
+    (vec (concat
+          (map (fn [pattern]
+                 {:kind :storybook-story-pattern
+                  :label pattern
+                  :source-line 1
+                  :relation :references})
+               story-patterns)
+          (map (fn [addon]
+                 {:kind :storybook-addon
+                  :label addon
+                  :source-line 1
+                  :relation :references})
+               addons)
+          (when framework
+            [{:kind :storybook-framework
+              :label framework
+              :source-line 1
+              :relation :uses}])))))
+
+(defn- storybook-import-facts
+  [path content]
+  (->> (str/split-lines content)
+       (map-indexed #(js-import-targets %1 path %2))
+       (mapcat identity)
+       (map (fn [{:keys [target source-line]}]
+              {:kind :storybook-import
+               :label target
+               :source-line source-line
+               :relation :references}))
+       distinct
+       vec))
+
+(defn- storybook-story-facts
+  [path content]
+  (let [title (some->> (re-find #"title\s*:\s*['\"]([^'\"]+)['\"]" content)
+                       second)
+        component (some->> (re-find #"component\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*)"
+                                    content)
+                           second)
+        tags (storybook-array-values content "tags")
+        stories (mapv second
+                      (re-seq #"(?m)^\s*export\s+const\s+([A-Za-z_$][A-Za-z0-9_$]*)\b"
+                              content))]
+    (vec (concat
+          (storybook-import-facts path content)
+          (when title
+            [{:kind :storybook-title
+              :label title
+              :source-line 1
+              :relation :defines}])
+          (when component
+            [{:kind :storybook-component
+              :label component
+              :source-line 1
+              :relation :references}])
+          (map (fn [tag]
+                 {:kind :storybook-tag
+                  :label tag
+                  :source-line 1
+                  :relation :defines})
+               tags)
+          (map (fn [story]
+                 {:kind :storybook-story
+                  :label story
+                  :source-line 1
+                  :relation :defines})
+               stories)))))
+
+(defn- storybook-facts
+  [{:keys [path content]}]
+  (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")
+        filename (manifest-name path)]
+    (cond
+      (re-find #"(^|/)\.storybook/(?:main|preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
+               path-lower)
+      (storybook-main-facts content)
+
+      (re-matches #".+\.stories\.(?:js|jsx|ts|tsx|mdx)$" filename)
+      (storybook-story-facts path content)
+
+      :else [])))
+
+(defn extract-storybook
+  "Extract bounded Storybook config and story facts."
+  [run-id file]
+  (extract-format-facts run-id
+                        file
+                        :storybook-file
+                        :storybook-file
+                        (storybook-facts file)))
+
 (defn- extract-format-facts
   [run-id {:keys [id-scope file-id path] :as file} root-kind chunk-kind facts]
   (let [root-node (generic-node run-id id-scope file-id path root-kind path 1)
@@ -12983,6 +13163,7 @@
      :task-runner (extract-task-runner run-id file)
      :starlark (extract-starlark run-id file)
      :tool-version-config (extract-tool-version-config run-id file)
+     :storybook (extract-storybook run-id file)
      :governance (extract-governance run-id file)
      :vue (extract-sfc run-id file)
      :svelte (extract-sfc run-id file)

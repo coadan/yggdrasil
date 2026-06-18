@@ -12,7 +12,7 @@
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".lua"
-    ".kt" ".kts" ".m" ".md" ".mjs" ".ml" ".mli" ".mm" ".mo" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
+    ".kt" ".kts" ".m" ".md" ".mdx" ".mjs" ".ml" ".mli" ".mm" ".mo" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
     ".nix" ".odin" ".out" ".prisma" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
     ".service" ".sln" ".socket" ".sql" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".ttf"
     ".license" ".template" ".toml" ".ts" ".tsx" ".txt" ".vb" ".vbproj" ".vue" ".xcconfig"
@@ -213,9 +213,12 @@
                    "biome.json" "pyrightconfig.json"}
                  filename) :tool-config
       (or (re-matches #"tsconfig\.[a-z0-9_.-]+\.json" filename)
-          (re-find #"(^|/)\.github/dependabot\.ya?ml$" path-lower)
-          (re-find #"(^|/)\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower))
+          (re-find #"(^|/)\.github/dependabot\.ya?ml$" path-lower))
       :tool-config
+      (or (re-find #"(^|/)\.storybook/(?:main|preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
+                   path-lower)
+          (re-matches #".+\.stories\.(?:js|jsx|ts|tsx|mdx)$" filename))
+      :storybook
       (contains? #{"go.mod" "go.work" "mix.exs" "package.json" "cargo.toml"
                    "pyproject.toml" "pom.xml" "deno.json" "composer.json"
                    "gemfile" "pipfile" "setup.cfg" "setup.py"
@@ -307,7 +310,7 @@
         ".gradle" :config
         ".license" :doc
         ".template" :text
-        (".adoc" ".asciidoc" ".md" ".rst") :doc
+        (".adoc" ".asciidoc" ".md" ".mdx" ".rst") :doc
         (".out" ".txt") :text
         ".vue" :vue
         nil))))
@@ -332,6 +335,8 @@
         (re-find #"(^|/)\.github/funding\.ya?ml$" path-lower)
         (re-find #"(^|/)\.github/dependabot\.ya?ml$" path-lower)
         (re-find #"(^|/)\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower)
+        (re-find #"(^|/)\.storybook/(?:preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
+                 path-lower)
         (re-find #"(^|/)\.circleci/config\.ya?ml$" path-lower)
         (re-find #"(^|/)\.buildkite/pipeline\.ya?ml$" path-lower)
         (contains? supported-filenames filename))))
@@ -502,6 +507,8 @@
         (re-find #"^\.github/dependabot\.ya?ml$" path-lower)
         (re-find #"^\.github/codeowners$" path-lower)
         (re-find #"^\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower)
+        (re-find #"^\.storybook/(?:preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
+                 path-lower)
         (re-find #"^\.circleci/config\.ya?ml$" path-lower)
         (re-find #"^\.buildkite/pipeline\.ya?ml$" path-lower))))
 

@@ -126,6 +126,8 @@
   (is (watch/watchable-path? ".editorconfig"))
   (is (watch/watchable-path? ".github/dependabot.yml"))
   (is (watch/watchable-path? ".storybook/main.ts"))
+  (is (watch/watchable-path? "docs/components.mdx"))
+  (is (watch/watchable-path? "src/ui/Button.stories.tsx"))
   (is (watch/watchable-path? "tooling/renovate.json"))
   (is (not (watch/watchable-path? "tooling/.prettierrc")))
   (is (watch/watchable-path? "tooling/stylelint.config.js"))
