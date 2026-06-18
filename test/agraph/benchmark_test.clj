@@ -439,6 +439,7 @@
               :zeroCandidateCaseIds []
               :coverageFilteredRuns 1
               :coverageFilteredCaseIds ["case-1"]
+              :coverageFilteredCandidateFiles 1
               :missingPredictedFileRuns 0
               :missingPredictedFiles 0
               :warningRuns 1

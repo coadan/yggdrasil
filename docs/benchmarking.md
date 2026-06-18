@@ -142,8 +142,9 @@ generated output root.
   files, per-file ranks, misses, coverage exclusions, and files found outside
   the top 5, 10, and 20. Reports also include `agentDiagnostics`, which counts
   empty rankable outputs, zero-candidate AGraph packets, coverage-filtered
-  candidates, warning-bearing runs, and missing predicted paths so benchmark
-  failures point to the next mechanical fix instead of only reporting a score.
+  runs and candidate files, warning-bearing runs, and missing predicted paths so
+  benchmark failures point to the next mechanical fix instead of only reporting
+  a score.
   Reports also include `artifactDiagnostics`, which classifies score artifacts
   as current, legacy, or stale against the suite case fingerprint so old scores
   cannot silently stand in for changed issue text, commits, coverage, or curated

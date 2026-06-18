@@ -3496,6 +3496,11 @@
                                    distinct
                                    sort
                                    vec)
+     :coverageFilteredCandidateFiles (reduce + 0
+                                             (map (comp #(long (or % 0))
+                                                        :coverageFilteredCandidateFiles
+                                                        second)
+                                                  coverage-filtered))
      :missingPredictedFileRuns (count missing-predicted)
      :missingPredictedFiles (reduce + 0
                                     (map (comp count
