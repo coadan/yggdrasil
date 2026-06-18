@@ -240,17 +240,17 @@
                 :warnings []
                 :drilldowns []
                 :candidateFiles (mapv (fn [idx]
-                                         {:path (str "src/candidate_" idx ".clj")
-                                          :rank (inc idx)
-                                          :score 0.9
-                                          :targetKind "chunk"
-                                          :label (apply str
-                                                        "open page root "
-                                                        (repeat 80 (str "token" idx " ")))
-                                          :reason (apply str
-                                                         "verbose provenance "
-                                                         (repeat 80 (str "reason" idx " ")))})
-                                       (range 25))
+                                        {:path (str "src/candidate_" idx ".clj")
+                                         :rank (inc idx)
+                                         :score 0.9
+                                         :targetKind "chunk"
+                                         :label (apply str
+                                                       "open page root "
+                                                       (repeat 80 (str "token" idx " ")))
+                                         :reason (apply str
+                                                        "verbose provenance "
+                                                        (repeat 80 (str "reason" idx " ")))})
+                                      (range 25))
                 :docs []}
         docs [{:target "chunk:doc"
                :role "reference"
