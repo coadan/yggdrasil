@@ -368,6 +368,12 @@ absent. Agent reports also copy this into `localization.ranks` and summarize
 `rankedOutsideTop5`, `rankedOutsideTop10`, and `rankedOutsideTop20` for quick
 threshold debugging.
 
+Agent-style AGraph runs may also record `contextGroundTruthRanks`. This compares
+the scoreable localization files against the full AGraph context ranking before
+the agent answer limit is applied. Use it to distinguish missing evidence from
+ranking/selection misses: if a target appears there but not in
+`groundTruthRanks`, the context had the file and the top-N answer needs work.
+
 These scores do not claim the graph understands the project. They measure
 whether deterministic facts and ranking put the real fix area close enough for a
 human or agent to use.

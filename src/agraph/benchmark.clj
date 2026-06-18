@@ -1546,6 +1546,23 @@
                     (count candidate-files)
                     " context packet file candidates.")})))
 
+(defn- context-ground-truth-ranks
+  [prepared packet]
+  (let [context-result (context-packet->agent-result
+                        packet
+                        {:root (:worktreeRoot prepared)
+                         :coverage (:coverage prepared)})]
+    {:files (ground-truth-file-ranks
+             (scoreable-changed-files (:groundTruth prepared))
+             (:suspectedFiles context-result))
+     :selection (:selection context-result)}))
+
+(defn- context-ground-truth-ranks-from-path
+  [prepared path]
+  (when (and (not (blankish? path))
+             (.isFile (io/file path)))
+    (context-ground-truth-ranks prepared (read-json-file path))))
+
 (defn- agent-baseline-context-options
   [prepared opts]
   {:project-id (:project-id prepared)
@@ -1634,7 +1651,10 @@
                       :score-agent-result
                       #(assoc (score-agent-result prepared agent-result)
                               :agentResultPath (fs/canonical-path result-path)
-                              :contextPacketPath (fs/canonical-path context-path))
+                              :contextPacketPath (fs/canonical-path context-path)
+                              :contextGroundTruthRanks (context-ground-truth-ranks
+                                                        prepared
+                                                        packet))
                       (fn [scored]
                         (select-keys (:scores scored)
                                      [:fileRecallAt5
@@ -2279,8 +2299,13 @@
         read-result (read-agent-run-result prepared result-path opts process-result)
         agent-result (:agent-result read-result)
         _ (write-json-file! result-path agent-result)
-        scored (assoc (score-agent-result prepared agent-result)
-                      :agentResultPath (fs/canonical-path result-path))
+        context-ranks (context-ground-truth-ranks-from-path
+                       prepared
+                       (get-in packet [:artifacts :agraphContextPath]))
+        scored (cond-> (assoc (score-agent-result prepared agent-result)
+                              :agentResultPath (fs/canonical-path result-path))
+                 context-ranks
+                 (assoc :contextGroundTruthRanks context-ranks))
         status (if (:artifact-ok? read-result)
                  "passed"
                  "failed")

@@ -1496,3 +1496,33 @@
              :rank 3
              :found? true}]
            (get-in scored [:groundTruthRanks :files])))))
+
+(deftest context-ground-truth-ranks-show-context-misses-separately
+  (let [root (temp-dir "agraph-bench-context-ground-truth")
+        _ (spit-file! root "src/visible.clj" "(ns visible)\n")
+        _ (spit-file! root "src/below-limit.clj" "(ns below-limit)\n")
+        prepared {:worktreeRoot root
+                  :groundTruth {:changedFiles ["src/below-limit.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        packet {:query "visible below limit"
+                :docs [{:source {:path "src/visible.clj"
+                                 :heading "visible"}
+                        :score 2.0
+                        :snippet "visible"
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "src/below-limit.clj"
+                                  :rank 99
+                                  :score 0.1
+                                  :targetKind :chunk
+                                  :label "below limit"}]}
+        ranks (#'benchmark/context-ground-truth-ranks prepared packet)]
+    (is (= [{:path "src/below-limit.clj"
+             :rank 2
+             :found? true}]
+           (get-in ranks [:files])))
+    (is (= {:rawCandidateFiles 2
+            :candidateFiles 2
+            :coverageFilteredCandidateFiles 0
+            :limit nil
+            :coverageSourceKinds []}
+           (:selection ranks)))))
