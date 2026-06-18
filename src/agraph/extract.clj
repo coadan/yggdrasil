@@ -68,7 +68,7 @@
    :tool-version-config "tool-version-config/v1"
    :storybook "storybook/v1"
    :governance "governance/v1"
-   :db-config "db-config/v1"
+   :db-config "db-config/v2"
    :db-migration "db-migration/v2"
    :codegen-config "codegen-config/v1"
    :ops-config "ops-config/v1"
@@ -8774,6 +8774,76 @@
                  (config-import-facts path content)
                  (config-string-reference-facts content)))))
 
+(defn- properties-assignment-lines
+  [content]
+  (->> (str/split-lines content)
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (when-let [[_ key value]
+                          (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*[=:]\s*(.*?)\s*$"
+                                      line)]
+                 (when-not (or (str/blank? key)
+                               (str/starts-with? (str/trim line) "#"))
+                   {:key key
+                    :value (str/trim value)
+                    :source-line (inc idx)}))))))
+
+(defn- comma-separated-values
+  [value]
+  (->> (str/split (str value) #",")
+       (map str/trim)
+       (remove str/blank?)
+       vec))
+
+(defn- flyway-config-facts
+  [content]
+  (->> (properties-assignment-lines content)
+       (mapcat
+        (fn [{:keys [key value source-line]}]
+          (cond
+            (= "flyway.locations" key)
+            (map (fn [entry]
+                   {:kind :flyway-location
+                    :label entry
+                    :source-line source-line
+                    :relation :references})
+                 (comma-separated-values value))
+
+            (= "flyway.schemas" key)
+            (map (fn [entry]
+                   {:kind :db-schema
+                    :label entry
+                    :source-line source-line
+                    :relation :defines})
+                 (comma-separated-values value))
+
+            (str/starts-with? key "flyway.placeholders.")
+            [{:kind :flyway-placeholder
+              :label (subs key (count "flyway.placeholders."))
+              :source-line source-line
+              :relation :defines}]
+
+            (contains? #{"flyway.baselineOnMigrate"
+                         "flyway.baselineVersion"
+                         "flyway.baselineDescription"}
+                       key)
+            [{:kind :flyway-baseline-flag
+              :label (str key "=" value)
+              :source-line source-line
+              :relation :defines}]
+
+            :else [])))
+       distinct
+       vec))
+
+(defn- db-config-facts
+  [{:keys [path content] :as file}]
+  (let [filename (manifest-name path)]
+    (vec (concat (config-facts file)
+                 (case filename
+                   "flyway.conf" (flyway-config-facts content)
+                   [])))))
+
 (defn- extract-config-facts
   [run-id {:keys [id-scope file-id path] :as file} root-kind chunk-kind]
   (let [config-node (generic-node run-id id-scope file-id path root-kind path 1)
@@ -8800,7 +8870,38 @@
 (defn extract-db-config
   "Extract bounded database migration/tool configuration facts."
   [run-id file]
-  (extract-config-facts run-id file :db-config :db-config-file))
+  (let [facts (db-config-facts file)
+        config-node (generic-node run-id
+                                  (:id-scope file)
+                                  (:file-id file)
+                                  (:path file)
+                                  :db-config
+                                  (:path file)
+                                  1)
+        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
+                           (generic-node run-id
+                                         (:id-scope file)
+                                         (:file-id file)
+                                         (:path file)
+                                         kind
+                                         label
+                                         source-line))
+                         facts)
+        fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
+                           (edge-row run-id
+                                     (:file-id file)
+                                     (:path file)
+                                     (:xt/id config-node)
+                                     (node-id (:id-scope file) kind label)
+                                     relation
+                                     :extracted
+                                     source-line))
+                         facts)
+        chunk-result (extract-text-source run-id file :db-config-file)]
+    {:nodes (into [config-node] fact-nodes)
+     :edges fact-edges
+     :chunks (:chunks chunk-result)
+     :diagnostics []}))
 
 (declare yaml-scalar-list-values
          yaml-top-section-blocks)

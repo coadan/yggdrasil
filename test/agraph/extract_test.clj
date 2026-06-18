@@ -2139,6 +2139,7 @@
                         (fs/file-record "test/fixtures/extractor-repo"
                                         "test/fixtures/extractor-repo/codegen/graphql-codegen.yml"))
         labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
         relations (fn [result] (frequencies (map :relation (:edges result))))]
     (is (= :db-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                              "test/fixtures/extractor-repo/db/drizzle.config.ts"))))
@@ -2154,6 +2155,18 @@
     (is (contains? (labels flyway-result)
                    "flyway.locations=filesystem:db/migration"))
     (is (contains? (labels flyway-result) "flyway.schemas=public"))
+    (is (contains? (labels flyway-result) "filesystem:db/migration"))
+    (is (contains? (labels flyway-result) "classpath:db/repeatable"))
+    (is (contains? (labels flyway-result) "public"))
+    (is (contains? (labels flyway-result) "audit"))
+    (is (contains? (labels flyway-result) "app_user"))
+    (is (contains? (labels flyway-result) "flyway.baselineOnMigrate=true"))
+    (is (contains? (labels flyway-result) "flyway.baselineVersion=1"))
+    (is (= 2 (:flyway-location (kinds flyway-result))))
+    (is (= 2 (:db-schema (kinds flyway-result))))
+    (is (= 1 (:flyway-placeholder (kinds flyway-result))))
+    (is (= 2 (:flyway-baseline-flag (kinds flyway-result))))
+    (is (= 2 (get (relations flyway-result) :references 0)))
     (is (contains? (labels liquibase-result) "changeLogFile=db/changelog.xml"))
     (is (contains? (labels liquibase-result) "defaultSchemaName=public"))
     (is (contains? (labels codegen-result)

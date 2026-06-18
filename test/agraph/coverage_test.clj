@@ -383,7 +383,7 @@
                       (= "codegen-config/v1" (:extractor-version %)))
                 (:extractors report)))
       (is (some #(and (= "db-config" (:kind %))
-                      (= "db-config/v1" (:extractor-version %))
+                      (= "db-config/v2" (:extractor-version %))
                       (= 3 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "db-migration" (:kind %))
