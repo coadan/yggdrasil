@@ -1,5 +1,6 @@
 (ns agraph.benchmark-test
   (:require [agraph.benchmark :as benchmark]
+            [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -129,6 +130,10 @@
   (let [evidence [{:kind :auth-reference
                    :path "config/app.yml"
                    :auth-context :bearer}]
+        chunks [{:kind :code-definition
+                 :path "scripts/nvm.sh"
+                 :definition-kind :function
+                 :label "nvm_remote_version"}]
         edges [{:relation :calls-external-api
                 :source-id "src/app.clj"
                 :target-id "external-api:auth.example.test"}]
@@ -142,6 +147,13 @@
                      evidence
                      [{:semantic-label "auth config"}]
                      identity)
+        expected-chunk (#'benchmark/expected-row-results
+                        chunks
+                        [{:kind "code-definition"
+                          :path "scripts/nvm.sh"
+                          :definitionKind "function"
+                          :label "nvm_remote_version"}]
+                        identity)
         forbidden (#'benchmark/forbidden-row-results
                    edges
                    [:calls-external-api]
@@ -152,7 +164,65 @@
             :path "config/app.yml"}
            (get-in expected [0 :expectation])))
     (is (= false (get-in unsupported [0 :found?])))
+    (is (= true (get-in expected-chunk [0 :found?])))
+    (is (= {:definition-kind "function"
+            :kind "code-definition"
+            :label "nvm_remote_version"
+            :path "scripts/nvm.sh"}
+           (get-in expected-chunk [0 :expectation])))
     (is (= true (get-in forbidden [0 :violated?])))))
+
+(deftest evaluates-source-chunk-graph-expectations
+  (let [prepared {:project-id "fixture"
+                  :expectations {:chunks [{:kind :code-definition
+                                           :path "scripts/nvm.sh"
+                                           :definitionKind :function
+                                           :label "nvm_remote_version"}]
+                                 :forbidden-chunks [{:kind :code-definition
+                                                     :path "scripts/nvm.sh"
+                                                     :label "legacy_function"}]}}
+        chunk {:xt/id "chunk:shell-function"
+               :kind :code-definition
+               :path "scripts/nvm.sh"
+               :definition-kind :function
+               :label "nvm_remote_version"
+               :source-line 12
+               :end-line 18
+               :project-id "fixture"}]
+    (with-redefs [store/rows-by-field
+                  (fn [_ table _field _value]
+                    (cond
+                      (= table (:chunks store/tables)) [chunk]
+                      (= table (:system-evidence store/tables)) []
+                      (= table (:system-edges store/tables)) []
+                      :else []))]
+      (let [result (#'benchmark/evaluate-graph-expectations nil prepared)]
+        (is (= benchmark/graph-expectations-schema (:schema result)))
+        (is (= "passed" (:status result)))
+        (is (= {:expectedEvidence 0
+                :foundEvidence 0
+                :missingEvidence 0
+                :expectedChunks 1
+                :foundChunks 1
+                :missingChunks 0
+                :expectedEdges 0
+                :foundEdges 0
+                :missingEdges 0
+                :forbiddenChunks 1
+                :forbiddenChunkViolations 0
+                :forbiddenEdges 0
+                :forbiddenEdgeViolations 0}
+               (:summary result)))
+        (is (= true (get-in result [:expectedChunks 0 :found?])))
+        (is (= false (get-in result [:forbiddenChunks 0 :violated?])))
+        (is (= [{:xt/id "chunk:shell-function"
+                 :kind :code-definition
+                 :path "scripts/nvm.sh"
+                 :definition-kind :function
+                 :label "nvm_remote_version"
+                 :source-line 12
+                 :end-line 18}]
+               (get-in result [:expectedChunks 0 :matches])))))))
 
 (deftest reports-agent-score-artifacts
   (let [out (temp-dir "agraph-agent-report")

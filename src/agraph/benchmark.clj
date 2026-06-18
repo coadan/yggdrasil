@@ -1009,6 +1009,9 @@
     :label
     :normalized-value
     :source-line
+    :end-line
+    :definition-kind
+    :content-sha
     :repo-id
     :system-id
     :relation
@@ -1027,6 +1030,12 @@
    :normalized-value :normalized-value
    :sourceLine :source-line
    :source-line :source-line
+   :endLine :end-line
+   :end-line :end-line
+   :definitionKind :definition-kind
+   :definition-kind :definition-kind
+   :contentSha :content-sha
+   :content-sha :content-sha
    :repoId :repo-id
    :repo-id :repo-id
    :systemId :system-id
@@ -1091,6 +1100,18 @@
                     :source-line
                     :system-id]))
 
+(defn- chunk-match-summary
+  [row]
+  (select-keys row [:xt/id
+                    :kind
+                    :path
+                    :file-kind
+                    :definition-kind
+                    :label
+                    :source-line
+                    :end-line
+                    :content-sha]))
+
 (defn- edge-match-summary
   [row]
   (select-keys row [:xt/id
@@ -1123,21 +1144,28 @@
         expectations))
 
 (defn- graph-expectation-status
-  [expected-evidence expected-edges forbidden-edges]
+  [expected-evidence expected-chunks expected-edges forbidden-chunks forbidden-edges]
   (if (or (some (complement :found?) expected-evidence)
+          (some (complement :found?) expected-chunks)
           (some (complement :found?) expected-edges)
+          (some :violated? forbidden-chunks)
           (some :violated? forbidden-edges))
     "failed"
     "passed"))
 
 (defn- graph-expectation-summary
-  [expected-evidence expected-edges forbidden-edges]
+  [expected-evidence expected-chunks expected-edges forbidden-chunks forbidden-edges]
   {:expectedEvidence (count expected-evidence)
    :foundEvidence (count (filter :found? expected-evidence))
    :missingEvidence (count (remove :found? expected-evidence))
+   :expectedChunks (count expected-chunks)
+   :foundChunks (count (filter :found? expected-chunks))
+   :missingChunks (count (remove :found? expected-chunks))
    :expectedEdges (count expected-edges)
    :foundEdges (count (filter :found? expected-edges))
    :missingEdges (count (remove :found? expected-edges))
+   :forbiddenChunks (count forbidden-chunks)
+   :forbiddenChunkViolations (count (filter :violated? forbidden-chunks))
    :forbiddenEdges (count forbidden-edges)
    :forbiddenEdgeViolations (count (filter :violated? forbidden-edges))})
 
@@ -1145,15 +1173,23 @@
   [xtdb prepared]
   (let [expectations (:expectations prepared)
         evidence-expectations (vec (:evidence expectations))
+        chunk-expectations (vec (:chunks expectations))
         edge-expectations (vec (:edges expectations))
+        forbidden-chunk-expectations (vec (:forbidden-chunks expectations))
         forbidden-edge-expectations (vec (:forbidden-edges expectations))]
     (when (or (seq evidence-expectations)
+              (seq chunk-expectations)
               (seq edge-expectations)
+              (seq forbidden-chunk-expectations)
               (seq forbidden-edge-expectations))
       (let [evidence (store/rows-by-field xtdb
                                           (:system-evidence store/tables)
                                           :project-id
                                           (:project-id prepared))
+            chunks (store/rows-by-field xtdb
+                                        (:chunks store/tables)
+                                        :project-id
+                                        (:project-id prepared))
             edges (store/rows-by-field xtdb
                                        (:system-edges store/tables)
                                        :project-id
@@ -1161,21 +1197,33 @@
             expected-evidence (expected-row-results evidence
                                                     evidence-expectations
                                                     evidence-match-summary)
+            expected-chunks (expected-row-results chunks
+                                                  chunk-expectations
+                                                  chunk-match-summary)
             expected-edges (expected-row-results edges
                                                  edge-expectations
                                                  edge-match-summary)
+            forbidden-chunks (forbidden-row-results chunks
+                                                    forbidden-chunk-expectations
+                                                    chunk-match-summary)
             forbidden-edges (forbidden-row-results edges
                                                    forbidden-edge-expectations
                                                    edge-match-summary)]
         {:schema graph-expectations-schema
          :status (graph-expectation-status expected-evidence
+                                           expected-chunks
                                            expected-edges
+                                           forbidden-chunks
                                            forbidden-edges)
          :summary (graph-expectation-summary expected-evidence
+                                             expected-chunks
                                              expected-edges
+                                             forbidden-chunks
                                              forbidden-edges)
          :expectedEvidence expected-evidence
+         :expectedChunks expected-chunks
          :expectedEdges expected-edges
+         :forbiddenChunks forbidden-chunks
          :forbiddenEdges forbidden-edges}))))
 
 (defn- run-query!
@@ -3142,7 +3190,9 @@
   [result]
   (let [expectations (:expectations result)]
     (or (seq (:evidence expectations))
+        (seq (:chunks expectations))
         (seq (:edges expectations))
+        (seq (:forbidden-chunks expectations))
         (seq (:forbidden-edges expectations)))))
 
 (defn- graph-expectation-diagnostic
@@ -3156,7 +3206,9 @@
       (expectation-configured? result)
       {:status "not-run"
        :summary {:expectedEvidence (count (get-in result [:expectations :evidence]))
+                 :expectedChunks (count (get-in result [:expectations :chunks]))
                  :expectedEdges (count (get-in result [:expectations :edges]))
+                 :forbiddenChunks (count (get-in result [:expectations :forbidden-chunks]))
                  :forbiddenEdges (count (get-in result [:expectations :forbidden-edges]))}}
 
       :else nil)))
@@ -3776,7 +3828,7 @@
                                  distinct
                                  sort
                                  vec)
-                  :message "Some graph/evidence benchmark expectations failed."})]
+                  :message "Some graph/evidence/chunk benchmark expectations failed."})]
          (map (fn [result]
                 (merge (case-metric-failure result
                                             "case.graphExpectations"
@@ -3784,7 +3836,7 @@
                                             "passed"
                                             "failed")
                        {:summary (get-in result [:graphExpectations :summary])
-                        :message "Graph/evidence benchmark expectations failed for this run."}))
+                        :message "Graph/evidence/chunk benchmark expectations failed for this run."}))
               failed-results))))))
 
 (def ^:private case-diagnostic-score-keys
