@@ -3026,12 +3026,26 @@
     (is (= 2 (:compose-service (kinds compose-result))))
     (is (= 2 (:container-image (kinds compose-result))))
     (is (= 1 (:build-reference (kinds compose-result))))
+    (is (= 1 (:container-port (kinds compose-result))))
+    (is (= 1 (:runtime-volume (kinds compose-result))))
+    (is (= 1 (:compose-network (kinds compose-result))))
+    (is (= 3 (:runtime-env-var (kinds compose-result))))
     (is (contains? (labels compose-result) "web"))
     (is (contains? (labels compose-result) "worker"))
     (is (contains? (labels compose-result) "ghcr.io/acme/panels-web:latest"))
     (is (contains? (labels compose-result) "./web"))
-    (is (= 2 (:defines (relations compose-result))))
-    (is (= 3 (:uses (relations compose-result))))
+    (is (contains? (labels compose-result) "8080:8080"))
+    (is (contains? (labels compose-result) "./web/config:/app/config:ro"))
+    (is (contains? (labels compose-result) "frontend"))
+    (is (contains? (labels compose-result) "web:PANEL_ENV"))
+    (is (contains? (labels compose-result) "web:PANEL_TOKEN"))
+    (is (contains? (labels compose-result) "worker:PANEL_QUEUE"))
+    (is (not (contains? (labels compose-result) "condition")))
+    (is (not (contains? (labels compose-result) "panels-web")))
+    (is (= 6 (:defines (relations compose-result))))
+    (is (= 5 (:uses (relations compose-result))))
+    (is (= 1 (:requires (relations compose-result))))
+    (is (= 1 (:references (relations compose-result))))
     (is (contains? (labels helm-result) "panels"))
     (is (contains? (labels helm-result) "0.1.0"))
     (is (contains? (labels helm-result) "1.2.3"))
@@ -3977,8 +3991,38 @@
                       (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/scripts/setup.sh"))]
     (is (= [:shell-file] (mapv :kind (:chunks shell-result))))
-    (is (empty? (:nodes shell-result)))
+    (is (= [:shell-file] (mapv :kind (:nodes shell-result))))
     (is (empty? (:edges shell-result)))))
+
+(deftest extracts-shell-functions-as-source-definitions
+  (let [root (.toFile (java.nio.file.Files/createTempDirectory
+                       "agraph-shell-extract"
+                       (make-array java.nio.file.attribute.FileAttribute 0)))
+        file (doto (io/file root "tool.sh")
+               (spit (str "#!/usr/bin/env bash\n"
+                          "nvm_remote_version() {\n"
+                          "  echo \"$1\"\n"
+                          "}\n\n"
+                          "function install_lts {\n"
+                          "  nvm_remote_version \"$1\"\n"
+                          "}\n")))
+        record (fs/file-record (.getPath root) (.getPath file))
+        result (extract/extract-file "run/test" record)
+        labels (set (map :label (:nodes result)))
+        relations (frequencies (map :relation (:edges result)))
+        chunks-by-label (group-by :label (:chunks result))]
+    (is (= :shell (:kind record)))
+    (is (= #{:shell-file :code-definition}
+           (set (map :kind (:chunks result)))))
+    (is (contains? labels "tool.sh"))
+    (is (contains? labels "tool.sh/nvm_remote_version"))
+    (is (contains? labels "tool.sh/install_lts"))
+    (is (= 2 (get relations :defines 0)))
+    (is (= :function
+           (get-in chunks-by-label ["tool.sh/nvm_remote_version" 0 :definition-kind])))
+    (is (str/includes?
+         (get-in chunks-by-label ["tool.sh/nvm_remote_version" 0 :text])
+         "echo \"$1\""))))
 
 (deftest extracts-env-files-with-sanitized-variable-chunks
   (let [root (.toFile (java.nio.file.Files/createTempDirectory

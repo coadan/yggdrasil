@@ -23,6 +23,7 @@
          strip-yaml-scalar
          yaml-key-line
          leading-spaces
+         source-definition-chunk
          json-label
          js-import-targets
          json-ref-tail
@@ -114,7 +115,7 @@
    :procfile "procfile/v1"
    :compose "compose/v1"
    :helm "helm/v1"
-   :shell "shell/v1"})
+   :shell "shell/v2"})
 
 (def ^:private python-ast-helper
   (str
@@ -850,6 +851,96 @@
              :active? true
              :run-id run-id}]
    :diagnostics []})
+
+(def ^:private shell-function-name-pattern
+  "[A-Za-z_][A-Za-z0-9_:-]*")
+
+(def ^:private shell-function-with-parens-pattern
+  (re-pattern (str "^\\s*(" shell-function-name-pattern ")\\s*\\(\\s*\\)\\s*(?:\\{.*)?$")))
+
+(def ^:private shell-function-keyword-pattern
+  (re-pattern (str "^\\s*function\\s+(" shell-function-name-pattern ")"
+                   "(?:\\s*\\(\\s*\\))?\\s*(?:\\{.*)?$")))
+
+(defn- shell-function-name
+  [line]
+  (or (some-> (re-matches shell-function-with-parens-pattern line) second)
+      (some-> (re-matches shell-function-keyword-pattern line) second)))
+
+(defn- next-nonblank-line
+  [lines idx]
+  (->> lines
+       (drop (inc idx))
+       (drop-while str/blank?)
+       first))
+
+(defn- shell-function-start?
+  [lines idx line]
+  (and (shell-function-name line)
+       (or (str/includes? line "{")
+           (= "{" (some-> (next-nonblank-line lines idx) str/trim)))))
+
+(defn- shell-function-facts
+  [content]
+  (let [lines (vec (str/split-lines (or content "")))
+        offsets (vec (line-start-offsets (or content "")))]
+    (->> lines
+         (map-indexed vector)
+         (keep (fn [[idx line]]
+                 (when (shell-function-start? lines idx line)
+                   (let [source-line (inc idx)
+                         text (or (balanced-curly-block content (nth offsets idx))
+                                  line)
+                         line-count (count (str/split-lines text))]
+                     {:name (shell-function-name line)
+                      :source-line source-line
+                      :end-line (+ source-line line-count -1)
+                      :text text}))))
+         vec)))
+
+(defn extract-shell
+  "Extract shell scripts as file chunks plus function definitions."
+  [run-id {:keys [id-scope file-id path content] :as file}]
+  (let [file-node (generic-node run-id id-scope file-id path :shell-file path 1)
+        file-chunk-result (extract-text-source run-id file :shell-file)
+        functions (shell-function-facts content)
+        function-label (fn [{:keys [name]}]
+                         (str path "/" name))
+        function-nodes (mapv (fn [{:keys [source-line] :as function}]
+                               (generic-node run-id
+                                             id-scope
+                                             file-id
+                                             path
+                                             :shell-function
+                                             (function-label function)
+                                             source-line))
+                             functions)
+        function-edges (mapv (fn [{:keys [source-line] :as function}]
+                               (edge-row run-id
+                                         file-id
+                                         path
+                                         (:xt/id file-node)
+                                         (node-id id-scope
+                                                  :shell-function
+                                                  (function-label function))
+                                         :defines
+                                         :extracted
+                                         source-line))
+                             functions)
+        function-chunks (mapv (fn [{:keys [source-line text] :as function}]
+                                (source-definition-chunk run-id
+                                                         id-scope
+                                                         file-id
+                                                         path
+                                                         (function-label function)
+                                                         :function
+                                                         source-line
+                                                         text))
+                              functions)]
+    {:nodes (into [file-node] function-nodes)
+     :edges function-edges
+     :chunks (vec (concat (:chunks file-chunk-result) function-chunks))
+     :diagnostics []}))
 
 (def ^:private style-section-chunk-lines
   120)
@@ -12680,6 +12771,65 @@
                    [key (strip-yaml-scalar value)]))))
        (into {})))
 
+(defn- compose-section-values
+  [block section-name value-mode]
+  (let [service-indent (some-> (:lines block) first second leading-spaces)]
+    (loop [remaining (:lines block)
+           section-indent nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [entry (yaml-key-line idx line)
+              indent (leading-spaces line)
+              section-indent* (cond
+                                (and entry
+                                     (= (+ service-indent 2) (:indent entry))
+                                     (= section-name (:key entry))
+                                     (str/blank? (:value entry)))
+                                (:indent entry)
+
+                                (and section-indent
+                                     entry
+                                     (<= (:indent entry) section-indent))
+                                nil
+
+                                :else section-indent)
+              inline-values (when (and entry
+                                       (= (+ service-indent 2) (:indent entry))
+                                       (= section-name (:key entry))
+                                       (seq (:value entry)))
+                              (map (fn [value]
+                                     {:value value
+                                      :source-line (:source-line entry)})
+                                   (yaml-scalar-list-values (:value entry))))
+              list-value (when (and section-indent*
+                                    (= indent (+ section-indent* 2)))
+                           (when-let [[_ value]
+                                      (re-matches #"^\s*-\s+(.+?)\s*$" line)]
+                             (let [value (strip-yaml-scalar value)]
+                               {:value (case value-mode
+                                         :env-key (or (second (re-matches #"([^=\s]+)=.*" value))
+                                                      value)
+                                         value)
+                                :source-line (inc idx)})))
+              map-value (when (and section-indent*
+                                   (= indent (+ section-indent* 2))
+                                   entry)
+                          (case value-mode
+                            :env-key {:value (:key entry)
+                                      :source-line (:source-line entry)}
+                            :map-key {:value (:key entry)
+                                      :source-line (:source-line entry)}
+                            (when (seq (:value entry))
+                              {:value (strip-yaml-scalar (:value entry))
+                               :source-line (:source-line entry)})))]
+          (recur (rest remaining)
+                 section-indent*
+                 (cond-> out
+                   inline-values (into inline-values)
+                   list-value (conj list-value)
+                   map-value (conj map-value))))
+        (vec (distinct out))))))
+
 (defn- compose-services
   [lines]
   (->> (yaml-top-section-blocks lines "services")
@@ -12689,24 +12839,67 @@
                   :source-line source-line
                   :image (get values "image")
                   :build (get values "build")
-                  :container-name (get values "container_name")})))))
+                  :container-name (get values "container_name")
+                  :depends-on (compose-section-values block "depends_on" :map-key)
+                  :ports (compose-section-values block "ports" :scalar)
+                  :volumes (compose-section-values block "volumes" :scalar)
+                  :networks (compose-section-values block "networks" :map-key)
+                  :environment (compose-section-values block
+                                                       "environment"
+                                                       :env-key)})))))
 
 (defn- compose-service-references
   [services]
   (let [service-labels (set (map :label services))]
     (->> services
          (mapcat (fn [{:keys [label source-line] :as service}]
-                   (keep (fn [[kind target]]
-                           (when (seq target)
-                             {:source label
-                              :target target
-                              :kind kind
-                              :source-line source-line
-                              :relation (if (contains? service-labels target)
-                                          :requires
-                                          :uses)}))
-                         [[:container-image (:image service)]
-                          [:build-reference (:build service)]])))
+                   (concat
+                    (keep (fn [[kind target]]
+                            (when (seq target)
+                              {:source label
+                               :target target
+                               :kind kind
+                               :source-line source-line
+                               :relation (if (contains? service-labels target)
+                                           :requires
+                                           :uses)}))
+                          [[:container-image (:image service)]
+                           [:build-reference (:build service)]])
+                    (map (fn [{:keys [value source-line]}]
+                           {:source label
+                            :target value
+                            :kind :compose-service
+                            :source-line source-line
+                            :relation :requires})
+                         (:depends-on service))
+                    (map (fn [{:keys [value source-line]}]
+                           {:source label
+                            :target value
+                            :kind :container-port
+                            :source-line source-line
+                            :relation :defines})
+                         (:ports service))
+                    (map (fn [{:keys [value source-line]}]
+                           {:source label
+                            :target value
+                            :kind :runtime-volume
+                            :source-line source-line
+                            :relation :references})
+                         (:volumes service))
+                    (map (fn [{:keys [value source-line]}]
+                           {:source label
+                            :target value
+                            :kind :compose-network
+                            :source-line source-line
+                            :relation :uses})
+                         (:networks service))
+                    (map (fn [{:keys [value source-line]}]
+                           {:source label
+                            :target (str label ":" value)
+                            :kind :runtime-env-var
+                            :source-line source-line
+                            :relation :defines})
+                         (:environment service)))))
          distinct
          vec)))
 
@@ -13051,9 +13244,20 @@
                               (generic-node run-id id-scope file-id path :compose-service label source-line))
                             services)
         reference-facts (compose-service-references services)
+        service-labels (set (map :label services))
+        reference-node-facts (->> reference-facts
+                                  (remove #(and (= :compose-service (:kind %))
+                                                (contains? service-labels
+                                                           (:target %))))
+                                  (reduce (fn [acc {:keys [kind target] :as fact}]
+                                            (if (contains? acc [kind target])
+                                              acc
+                                              (assoc acc [kind target] fact)))
+                                          {})
+                                  vals)
         reference-nodes (mapv (fn [{:keys [kind target source-line]}]
                                 (generic-node run-id id-scope file-id path kind target source-line))
-                              reference-facts)
+                              reference-node-facts)
         define-edges (mapv #(edge-row run-id file-id path
                                       (:xt/id compose-node)
                                       (:xt/id %)
@@ -17206,7 +17410,7 @@
      :python (extract-python run-id file)
      :rust (extract-rust run-id file)
      :style (extract-style run-id file)
-     :shell (extract-text-source run-id file :shell-file)
+     :shell (extract-shell run-id file)
      :sql (extract-sql run-id file)
      :db-migration (extract-db-migration run-id file)
      :terraform (extract-terraform run-id file)

@@ -2,5 +2,26 @@ services:
   web:
     image: ghcr.io/acme/panels-web:latest
     build: ./web
+    depends_on:
+      worker:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./web/config:/app/config:ro
+    networks:
+      frontend:
+        aliases:
+          - panels-web
+    environment:
+      PANEL_ENV: development
+      PANEL_TOKEN: redacted
   worker:
     image: ghcr.io/acme/panels-worker:latest
+    networks:
+      - frontend
+    environment:
+      - PANEL_QUEUE=default
+
+networks:
+  frontend: {}
