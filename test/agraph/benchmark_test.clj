@@ -1357,7 +1357,8 @@
                    "cat > \"$AGRAPH_BENCH_RESULT\" <<'JSON'\n"
                    "{\"schema\":\"" benchmark/agent-result-schema "\","
                    "\"suspectedFiles\":[{\"path\":\"src/app.clj\","
-                   "\"rank\":1,\"confidence\":1.0,\"reason\":\"script\"}],"
+                   "\"rank\":1,\"confidence\":1.0,\"reason\":\"script\","
+                   "\"evidence\":[\"rg broken src/app.clj\"]}],"
                    "\"warnings\":[\"agent note\"],"
                    "\"summary\":\"script result\"}\n"
                    "JSON\n"
@@ -2214,6 +2215,45 @@
              :rank 3
              :found? true}]
            (get-in scored [:groundTruthRanks :files])))))
+
+(deftest score-agent-result-warns-on-malformed-agent-output
+  (let [root (temp-dir "agraph-bench-agent-score-shape")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.8}
+                                       "README.md"]
+                      :suspectedSymbols [{:name "broken"
+                                          :path "src/app.clj"
+                                          :rank 1}]}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
+    (is (= ["agent result missing required field caseId"
+            "agent result missing required field agentId"
+            "agent result missing required field mode"
+            "agent result missing required field commands"
+            "agent result missing required field warnings"
+            "agent result missing required field summary"
+            "agent result suspectedFiles row 1 path src/app.clj missing reason"
+            "agent result suspectedFiles row 1 path src/app.clj missing evidence"
+            "agent result suspectedFiles row 2 is not an object"
+            "agent result suspectedSymbols row 1 path src/app.clj missing kind"
+            "agent result suspectedSymbols row 1 path src/app.clj missing confidence"
+            "agent result suspectedSymbols row 1 path src/app.clj missing reason"
+            "agent result suspectedSymbols row 1 path src/app.clj missing evidence"
+            "agent result referenced files missing from the base checkout"]
+           (get-in scored [:agent :warnings])))))
 
 (deftest score-agent-result-writes-parser-worker-provenance
   (let [root (temp-dir "agraph-bench-agent-score-worker")

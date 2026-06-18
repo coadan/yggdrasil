@@ -2802,7 +2802,13 @@
          :schema agent-result-schema
          :caseId (:case-id prepared)
          :agentId (:agent-id opts)
-         :mode (agent-mode opts)))
+         :mode (agent-mode opts)
+         :suspectedSymbols (vec (or (:suspectedSymbols agent-result)
+                                    (:suspected-symbols agent-result)
+                                    []))
+         :commands (vec (or (:commands agent-result) []))
+         :warnings (vec (or (:warnings agent-result) []))
+         :summary (or (:summary agent-result) "")))
 
 (defn- failure-agent-result
   [prepared opts warning]
@@ -3086,6 +3092,64 @@
              (:files agent-result)
              [])))
 
+(def ^:private agent-result-required-fields
+  [:schema
+   :caseId
+   :agentId
+   :mode
+   :suspectedFiles
+   :suspectedSymbols
+   :commands
+   :warnings
+   :summary])
+
+(defn- required-field-missing?
+  [m k]
+  (or (not (contains? m k))
+      (nil? (get m k))))
+
+(defn- missing-required-field-warnings
+  [agent-result]
+  (->> agent-result-required-fields
+       (filter #(required-field-missing? agent-result %))
+       (mapv #(str "agent result missing required field " (name %)))))
+
+(defn- row-label
+  [idx item]
+  (str "row " (inc idx)
+       (when-let [path (and (map? item) (not-empty (str (:path item))))]
+         (str " path " path))))
+
+(defn- rankable-row-shape-warnings
+  [field rows required-fields]
+  (->> rows
+       (map-indexed
+        (fn [idx item]
+          (if-not (map? item)
+            [(str "agent result " (name field) " " (row-label idx item) " is not an object")]
+            (->> required-fields
+                 (filter #(required-field-missing? item %))
+                 (mapv #(str "agent result "
+                             (name field)
+                             " "
+                             (row-label idx item)
+                             " missing "
+                             (name %)))))))
+       (mapcat identity)
+       vec))
+
+(defn- agent-result-shape-warnings
+  [agent-result]
+  (vec
+   (concat
+    (missing-required-field-warnings agent-result)
+    (rankable-row-shape-warnings :suspectedFiles
+                                 (or (:suspectedFiles agent-result) [])
+                                 [:path :rank :confidence :reason :evidence])
+    (rankable-row-shape-warnings :suspectedSymbols
+                                 (or (:suspectedSymbols agent-result) [])
+                                 [:name :path :kind :rank :confidence :reason :evidence]))))
+
 (defn- missing-predicted-files
   [root predictions]
   (->> predictions
@@ -3100,7 +3164,8 @@
   (let [top-files (agent-file-predictions prepared agent-result)
         result-shape {:groundTruth (:groundTruth prepared)
                       :agraph {:topFiles top-files}}
-        warnings (cond-> (vec (or (:warnings agent-result) []))
+        warnings (cond-> (vec (distinct (concat (or (:warnings agent-result) [])
+                                                (agent-result-shape-warnings agent-result))))
                    (empty? top-files)
                    (conj "agent result did not contain suspected files")
 
