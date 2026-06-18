@@ -863,6 +863,16 @@
           (is (str/includes? setup-command "bb 'sync'"))
           (is (.isFile (io/file packet-path))))))))
 
+(deftest agent-baseline-context-options-use-wide-candidate-pool-by-default
+  (let [prepared {:project-id "project"
+                  :repo-id "repo"}
+        defaults (#'benchmark/agent-baseline-context-options prepared {})
+        override (#'benchmark/agent-baseline-context-options
+                  prepared
+                  {:retrieval-limit 42})]
+    (is (= 300 (:retrieval-limit defaults)))
+    (is (= 42 (:retrieval-limit override)))))
+
 (deftest runs-external-agent-command-and-scores-result
   (let [root (temp-dir "agraph-bench-agent-run-repo")
         out (temp-dir "agraph-bench-agent-run-out")

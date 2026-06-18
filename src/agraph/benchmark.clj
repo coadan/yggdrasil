@@ -74,7 +74,7 @@
   20)
 
 (def default-agent-baseline-retrieval-limit
-  100)
+  300)
 
 (def default-agent-baseline-suspect-limit
   20)

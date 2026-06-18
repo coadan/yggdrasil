@@ -66,10 +66,12 @@ generated output root.
   a ranked suspected-file list of twenty files and still writes the full
   context packet; use `--limit <n>` to change the suspected-file shortlist size,
   `--doc-limit <n>` to change the snippet-bearing source context size, and
-  `--retrieval-limit <n>` to widen the compact candidate-file pool without
-  adding more snippets. Limited AGraph baselines reserve a small slice of the
-  shortlist for candidate-file-only evidence so compact file/path matches are
-  not completely crowded out by snippet-bearing retrieved docs.
+  `--retrieval-limit <n>` to change the compact candidate-file pool without
+  adding more snippets. The default retrieval limit is intentionally wider than
+  the snippet limit so lower-ranked but relevant companion files can still be
+  selected. Limited AGraph baselines reserve a small slice of the shortlist for
+  candidate-file-only evidence so compact file/path matches are not completely
+  crowded out by snippet-bearing retrieved docs.
   Use `--retriever local-vector` to run an optional local semantic-vector
   control lane instead of the graph/context packet. The default worker is
   `python3 scripts/local-vector-baseline.py`, which uses
