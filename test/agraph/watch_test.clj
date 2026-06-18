@@ -142,6 +142,8 @@
   (is (watch/watchable-path? "docs/sphinx/index.rst"))
   (is (watch/watchable-path? "docs/nextra/next.config.mjs"))
   (is (watch/watchable-path? "docs/nextra/content/_meta.ts"))
+  (is (watch/watchable-path? "sbom/cyclonedx.json"))
+  (is (watch/watchable-path? "sbom/spdx.json"))
   (is (watch/watchable-path? "src/ui/Button.stories.tsx"))
   (is (watch/watchable-path? "tooling/renovate.json"))
   (is (not (watch/watchable-path? "tooling/.prettierrc")))

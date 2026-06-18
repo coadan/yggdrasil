@@ -248,6 +248,10 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/NOTICE")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/sbom/cyclonedx.json")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/sbom/spdx.json")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/notebooks/panel_analysis.ipynb")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/.devcontainer/devcontainer.json")
@@ -2541,6 +2545,45 @@
     (is (= 1 (get notice-kinds :copyright-notice 0)))
     (is (= [:governance-config-file] (mapv :kind (:chunks license))))
     (is (= [:governance-config-file] (mapv :kind (:chunks notice))))))
+
+(deftest extracts-sbom-package-and-relationship-facts
+  (let [result-for (fn [path]
+                     (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      (str "test/fixtures/extractor-repo/" path))))
+        kind-for (fn [path]
+                   (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                          (str "test/fixtures/extractor-repo/" path))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        relations (fn [result] (frequencies (map :relation (:edges result))))
+        cyclonedx (result-for "sbom/cyclonedx.json")
+        spdx (result-for "sbom/spdx.json")]
+    (is (= :sbom (kind-for "sbom/cyclonedx.json")))
+    (is (= :sbom (kind-for "sbom/spdx.json")))
+    (is (contains? (labels cyclonedx)
+                   "urn:uuid:11111111-1111-1111-1111-111111111111"))
+    (is (contains? (labels cyclonedx) "pkg:app/panels@1.2.3"))
+    (is (contains? (labels cyclonedx) "pkg:npm/lodash@4.17.21"))
+    (is (contains? (labels cyclonedx) "pkg:npm/react@19.1.0"))
+    (is (contains? (labels cyclonedx) "MIT"))
+    (is (= 1 (:sbom-document (kinds cyclonedx))))
+    (is (= 3 (:sbom-package (kinds cyclonedx))))
+    (is (= 1 (:license-id (kinds cyclonedx))))
+    (is (= 2 (:depends-on (relations cyclonedx))))
+    (is (= 2 (:licenses (relations cyclonedx))))
+    (is (= [:sbom-file] (mapv :kind (:chunks cyclonedx))))
+    (is (contains? (labels spdx) "SPDXRef-DOCUMENT"))
+    (is (contains? (labels spdx) "panel-core@1.0.0"))
+    (is (contains? (labels spdx) "guava@33.0.0"))
+    (is (contains? (labels spdx) "Apache-2.0"))
+    (is (= 1 (:sbom-document (kinds spdx))))
+    (is (= 2 (:sbom-package (kinds spdx))))
+    (is (= 1 (:license-id (kinds spdx))))
+    (is (= 1 (:depends-on (relations spdx))))
+    (is (= 2 (:licenses (relations spdx))))
+    (is (= [:sbom-file] (mapv :kind (:chunks spdx))))))
 
 (deftest extracts-format-support-tranche-facts
   (let [result-for (fn [path]

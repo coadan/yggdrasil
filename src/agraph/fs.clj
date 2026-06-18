@@ -471,6 +471,15 @@
 
         :else nil))))
 
+(defn- sbom-content-kind
+  [path-kind file]
+  (when (= :config path-kind)
+    (let [content (text-file-prefix file)]
+      (when (or (re-find #"(?s)\"bomFormat\"\s*:\s*\"CycloneDX\"" content)
+                (re-find #"(?s)\"spdxVersion\"\s*:" content)
+                (re-find #"(?s)\"SPDXID\"\s*:" content))
+        :sbom))))
+
 (defn- helm-template-content-kind
   [path-kind file]
   (when (= :yaml path-kind)
@@ -485,6 +494,7 @@
     (or (dbt-content-kind path-kind file)
         (nextra-content-kind path-kind file)
         (sphinx-content-kind path-kind file)
+        (sbom-content-kind path-kind file)
         (helm-template-content-kind path-kind file)
         (ops-config-content-kind path-kind file)
         path-kind

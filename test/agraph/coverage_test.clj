@@ -82,6 +82,7 @@
     (spit-file! root ".github/FUNDING.yml" "github: acme\n")
     (spit-file! root "SECURITY.md" "# Security Policy\n")
     (spit-file! root "CONTRIBUTING.md" "# Contributing\n")
+    (spit-file! root "sbom/cyclonedx.json" "{\"bomFormat\":\"CycloneDX\",\"metadata\":{\"component\":{\"name\":\"demo\",\"version\":\"1.0.0\",\"bom-ref\":\"pkg:demo/demo@1.0.0\"}},\"components\":[]}\n")
     (spit-file! root "languages/messages.po" "msgid \"Hello\"\nmsgstr \"Hei\"\n")
     (spit-file! root "assets/logo.svg" "<svg id=\"logo\"></svg>\n")
     (spit-file! root "assets/hero.png" "png\n")
@@ -209,8 +210,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 178
-              :supported 177
+      (is (= {:files 179
+              :supported 178
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -277,6 +278,7 @@
       (is (= 1 (:count (row-by :kind "env" (:files-by-kind report)))))
       (is (= 35 (:count (row-by :kind "manifest" (:files-by-kind report)))))
       (is (= 6 (:count (row-by :kind "governance" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "sbom" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "xml" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "python" (:files-by-kind report)))))
       (is (= 5 (:count (row-by :kind "doc" (:files-by-kind report)))))
@@ -431,6 +433,10 @@
       (is (some #(and (= "governance" (:kind %))
                       (= "governance/v1" (:extractor-version %))
                       (= 6 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "sbom" (:kind %))
+                      (= "sbom/v1" (:extractor-version %))
+                      (= 1 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "notebook" (:kind %))
                       (= "notebook/v1" (:extractor-version %)))

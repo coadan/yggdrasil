@@ -1,0 +1,26 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "panels-spdx",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-panel-core",
+      "name": "panel-core",
+      "versionInfo": "1.0.0",
+      "licenseConcluded": "Apache-2.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-guava",
+      "name": "guava",
+      "versionInfo": "33.0.0",
+      "licenseConcluded": "Apache-2.0"
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-Package-panel-core",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-guava"
+    }
+  ]
+}
