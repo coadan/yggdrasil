@@ -59,6 +59,12 @@
     "semantic-release.config.cjs" "semantic-release.config.mjs"
     "semantic-release.config.ts" "standard-version.json" ".versionrc"
     ".versionrc.json" ".versionrc.yaml" ".versionrc.yml"
+    "next.config.js" "next.config.cjs" "next.config.mjs" "next.config.ts"
+    "vite.config.js" "vite.config.cjs" "vite.config.mjs" "vite.config.ts"
+    "svelte.config.js" "svelte.config.cjs" "svelte.config.mjs" "svelte.config.ts"
+    "nuxt.config.js" "nuxt.config.cjs" "nuxt.config.mjs" "nuxt.config.ts"
+    "astro.config.js" "astro.config.cjs" "astro.config.mjs" "astro.config.ts"
+    "angular.json"
     "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx"
     "content.config.js" "content.config.mjs" "content.config.ts"
     "docusaurus.config.js" "docusaurus.config.cjs" "docusaurus.config.mjs"
@@ -81,7 +87,7 @@
     "stylelint.config.js" "stylelint.config.cjs" "stylelint.config.mjs"
     ".stylelintrc" ".stylelintrc.js" ".stylelintrc.json" ".stylelintrc.yaml" ".stylelintrc.yml"
     "postcss.config.js" "postcss.config.cjs" "postcss.config.mjs"
-    "tsconfig.json" "jsconfig.json" "vite.config.js" "vite.config.cjs" "vite.config.mjs" "vite.config.ts"
+    "tsconfig.json" "jsconfig.json"
     "webpack.config.js" "webpack.config.cjs" "webpack.config.mjs" "webpack.config.ts"
     "rollup.config.js" "rollup.config.cjs" "rollup.config.mjs" "rollup.config.ts"
     "rspack.config.js" "rspack.config.cjs" "rspack.config.mjs" "rspack.config.ts"
@@ -208,6 +214,13 @@
                      filename)
           (re-find #"(^|/)\.changeset/(?:config\.json|[^/]+\.md)$"
                    path-lower)) :release-config
+      (contains? #{"next.config.js" "next.config.cjs" "next.config.mjs" "next.config.ts"
+                   "vite.config.js" "vite.config.cjs" "vite.config.mjs" "vite.config.ts"
+                   "svelte.config.js" "svelte.config.cjs" "svelte.config.mjs" "svelte.config.ts"
+                   "nuxt.config.js" "nuxt.config.cjs" "nuxt.config.mjs" "nuxt.config.ts"
+                   "astro.config.js" "astro.config.cjs" "astro.config.mjs" "astro.config.ts"
+                   "angular.json"}
+                 filename) :web-framework
       (contains? #{"dbt_project.yml" "dbt_project.yaml"} filename) :dbt
       (or (= "nginx.conf" filename)
           (contains? #{"serverless.yml" "serverless.yaml" "cdk.json"} filename)
@@ -232,7 +245,6 @@
                    ".stylelintrc" ".stylelintrc.js" ".stylelintrc.json" ".stylelintrc.yaml" ".stylelintrc.yml"
                    "postcss.config.js" "postcss.config.cjs" "postcss.config.mjs"
                    "tsconfig.json" "jsconfig.json"
-                   "vite.config.js" "vite.config.cjs" "vite.config.mjs" "vite.config.ts"
                    "webpack.config.js" "webpack.config.cjs" "webpack.config.mjs" "webpack.config.ts"
                    "rollup.config.js" "rollup.config.cjs" "rollup.config.mjs" "rollup.config.ts"
                    "rspack.config.js" "rspack.config.cjs" "rspack.config.mjs" "rspack.config.ts"
@@ -463,7 +475,7 @@
                  filename)
       :docs-config
 
-      (and (contains? #{:javascript :typescript} path-kind)
+      (and (contains? #{:javascript :typescript :web-framework} path-kind)
            (re-matches #"next\.config\.(?:cjs|js|mjs|ts)" filename))
       (let [content (text-file-prefix file)]
         (when (or (re-find #"(?m)\bfrom\s+['\"]nextra['\"]" content)
@@ -472,6 +484,23 @@
           :docs-config))
 
       :else nil)))
+
+(defn- web-framework-route-path?
+  [path-kind file]
+  (let [path-lower (str/replace (str/lower-case (str file)) "\\" "/")]
+    (boolean
+     (or (and (contains? #{:javascript :typescript} path-kind)
+              (or (re-find #"(^|/)app/(?:.+/)?(?:page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs)$"
+                           path-lower)
+                  (re-find #"(^|/)pages/(?:.+\.)?(?:js|jsx|ts|tsx|mjs|cjs)$"
+                           path-lower)))
+         (and (= :svelte path-kind)
+              (re-find #"(^|/)src/routes/(?:.+/)?\+(?:page|layout|server)\.svelte$"
+                       path-lower))
+         (and (= :vue path-kind)
+              (re-find #"(^|/)pages/.+\.vue$" path-lower))
+         (and (= :astro path-kind)
+              (re-find #"(^|/)src/pages/.+\.astro$" path-lower))))))
 
 (defn- dbt-content-kind
   [path-kind file]
@@ -517,6 +546,8 @@
   (let [path-kind (file-kind file)]
     (or (dbt-content-kind path-kind file)
         (nextra-content-kind path-kind file)
+        (when (web-framework-route-path? path-kind file)
+          :web-framework)
         (sphinx-content-kind path-kind file)
         (sbom-content-kind path-kind file)
         (helm-template-content-kind path-kind file)

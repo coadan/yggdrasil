@@ -24,6 +24,10 @@
          yaml-key-line
          leading-spaces
          source-definition-chunk
+         docs-config-array-property-values
+         docs-config-property-values
+         extract-astro
+         extract-sfc
          json-label
          js-import-targets
          json-ref-tail
@@ -71,6 +75,7 @@
    :docs-config "docs-config/v1"
    :editor-config "editor-config/v1"
    :release-config "release-config/v1"
+   :web-framework "web-framework/v1"
    :governance "governance/v1"
    :sbom "sbom/v1"
    :db-config "db-config/v2"
@@ -10250,6 +10255,301 @@
                                     (release-chunks run-id file))))
      :diagnostics []}))
 
+(defn- web-framework-config-kind
+  [filename]
+  (cond
+    (re-matches #"next\.config\.(?:js|cjs|mjs|ts)" filename) "next"
+    (re-matches #"vite\.config\.(?:js|cjs|mjs|ts)" filename) "vite"
+    (re-matches #"svelte\.config\.(?:js|cjs|mjs|ts)" filename) "sveltekit"
+    (re-matches #"nuxt\.config\.(?:js|cjs|mjs|ts)" filename) "nuxt"
+    (re-matches #"astro\.config\.(?:js|cjs|mjs|ts)" filename) "astro"
+    (= "angular.json" filename) "angular"
+    :else nil))
+
+(defn- package-reference?
+  [value]
+  (and (string? value)
+       (not (str/starts-with? value "."))
+       (not (str/starts-with? value "/"))))
+
+(defn- web-config-import-facts
+  [path content]
+  (let [imports (->> (str/split-lines content)
+                     (map-indexed #(js-import-targets %1 path %2))
+                     (mapcat identity)
+                     distinct
+                     vec)]
+    (vec
+     (concat
+      (map (fn [{:keys [target source-line]}]
+             {:kind :web-framework-import
+              :label target
+              :source-line source-line
+              :relation :imports})
+           imports)
+      (map (fn [{:keys [target source-line]}]
+             {:kind :web-framework-plugin
+              :label target
+              :source-line source-line
+              :relation :uses})
+           (filter #(package-reference? (:target %)) imports))))))
+
+(defn- web-config-string-array-facts
+  [content property-name kind relation]
+  (mapv (fn [value]
+          {:kind kind
+           :label value
+           :source-line 1
+           :relation relation})
+        (docs-config-array-property-values content property-name)))
+
+(defn- angular-project-facts
+  [content]
+  (if-let [m (read-json-map content)]
+    (let [projects (:projects m)]
+      (if (map? projects)
+        (->> projects
+             (mapcat
+              (fn [[project-name project]]
+                (let [label (json-key-label project-name)
+                      architect (when (map? project) (:architect project))]
+                  (concat
+                   [{:kind :web-framework-project
+                     :label label
+                     :source-line 1
+                     :relation :defines}]
+                   (when (string? (:root project))
+                     [{:kind :web-framework-root
+                       :label (str label ":" (:root project))
+                       :source-line 1
+                       :relation :references}])
+                   (when (string? (:sourceRoot project))
+                     [{:kind :web-framework-source-root
+                       :label (str label ":" (:sourceRoot project))
+                       :source-line 1
+                       :relation :references}])
+                   (when (map? architect)
+                     (mapcat (fn [[target-name target]]
+                               (when (and (map? target) (string? (:builder target)))
+                                 [{:kind :web-framework-builder
+                                   :label (str label ":" (json-key-label target-name) ":" (:builder target))
+                                   :source-line 1
+                                   :relation :uses}]))
+                             architect))))))
+             distinct
+             vec)
+        []))
+    []))
+
+(defn- web-config-facts
+  [{:keys [path content]}]
+  (let [filename (manifest-name path)
+        framework (web-framework-config-kind filename)]
+    (vec
+     (concat
+      (when framework
+        [{:kind :web-framework
+          :label framework
+          :source-line 1
+          :relation :defines}])
+      (if (= "angular" framework)
+        (angular-project-facts content)
+        (web-config-import-facts path content))
+      (case framework
+        "next"
+        (map (fn [value]
+               {:kind :web-framework-route
+                :label value
+                :source-line 1
+                :relation :references})
+             (distinct (concat (docs-config-property-values content "basePath")
+                               (docs-config-property-values content "assetPrefix"))))
+
+        "vite"
+        (map (fn [value]
+               {:kind :web-framework-route
+                :label value
+                :source-line 1
+                :relation :references})
+             (docs-config-property-values content "base"))
+
+        "sveltekit"
+        (map (fn [value]
+               {:kind :web-framework-adapter
+                :label value
+                :source-line 1
+                :relation :uses})
+             (docs-config-property-values content "adapter"))
+
+        "nuxt"
+        (web-config-string-array-facts content "modules" :web-framework-module :uses)
+
+        "astro"
+        (vec (concat
+              (web-config-string-array-facts content "integrations" :web-framework-plugin :uses)
+              (map (fn [value]
+                     {:kind :web-framework-route
+                      :label value
+                      :source-line 1
+                      :relation :references})
+                   (docs-config-property-values content "base"))))
+
+        [])))))
+
+(defn- strip-route-extension
+  [value]
+  (str/replace value #"\.(?:js|jsx|ts|tsx|mjs|cjs|svelte|vue|astro)$" ""))
+
+(defn- route-segment-label
+  [segment]
+  (cond
+    (= "index" segment) nil
+    (or (str/starts-with? segment "(")
+        (str/starts-with? segment "@")) nil
+    (re-matches #"\[\[\.\.\..+\]\]" segment)
+    (str "{..." (subs segment 5 (- (count segment) 2)) "}")
+    (re-matches #"\[\.\.\..+\]" segment)
+    (str "{..." (subs segment 4 (dec (count segment))) "}")
+    (re-matches #"\[.+\]" segment)
+    (str "{" (subs segment 1 (dec (count segment))) "}")
+    :else segment))
+
+(defn- route-path-from-segments
+  [segments]
+  (let [segments (->> segments
+                      (map route-segment-label)
+                      (remove str/blank?)
+                      vec)]
+    (if (seq segments)
+      (str "/" (str/join "/" segments))
+      "/")))
+
+(defn- web-route-info
+  [path]
+  (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")]
+    (cond
+      (re-find #"(?:^|/)app/(?:.+/)?(?:page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs)$"
+               path-lower)
+      (let [[_ route-part file-role] (re-find #"(?:^|/)app/(.*)/(page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs)$"
+                                              path-lower)
+            [_ file-role-root] (re-find #"(?:^|/)app/(page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs)$"
+                                        path-lower)
+            file-role (or file-role file-role-root)
+            route-part (or route-part "")
+            segments (if (seq route-part) (str/split route-part #"/") [])]
+        {:framework "next"
+         :route (route-path-from-segments segments)
+         :role file-role})
+
+      (re-find #"(?:^|/)pages/.+\.(?:js|jsx|ts|tsx|mjs|cjs)$" path-lower)
+      (let [[_ route-part] (re-find #"(?:^|/)pages/(.+)\.(?:js|jsx|ts|tsx|mjs|cjs)$"
+                                    path-lower)]
+        {:framework "next"
+         :route (route-path-from-segments (str/split (strip-route-extension route-part) #"/"))
+         :role "page"})
+
+      (re-find #"(?:^|/)src/routes/(?:.+/)?\+(?:page|layout|server)\.svelte$" path-lower)
+      (let [[_ route-part file-role] (re-find #"(?:^|/)src/routes/(.*)/\+(page|layout|server)\.svelte$"
+                                              path-lower)
+            [_ file-role-root] (re-find #"(?:^|/)src/routes/\+(page|layout|server)\.svelte$"
+                                        path-lower)
+            file-role (or file-role file-role-root)
+            route-part (or route-part "")
+            segments (if (seq route-part) (str/split route-part #"/") [])]
+        {:framework "sveltekit"
+         :route (route-path-from-segments segments)
+         :role file-role})
+
+      (re-find #"(?:^|/)pages/.+\.vue$" path-lower)
+      (let [[_ route-part] (re-find #"(?:^|/)pages/(.+)\.vue$" path-lower)]
+        {:framework "nuxt"
+         :route (route-path-from-segments (str/split (strip-route-extension route-part) #"/"))
+         :role "page"})
+
+      (re-find #"(?:^|/)src/pages/.+\.astro$" path-lower)
+      (let [[_ route-part] (re-find #"(?:^|/)src/pages/(.+)\.astro$" path-lower)]
+        {:framework "astro"
+         :route (route-path-from-segments (str/split (strip-route-extension route-part) #"/"))
+         :role "page"})
+
+      :else nil)))
+
+(defn- web-route-facts
+  [{:keys [path content]}]
+  (if-let [{:keys [framework route role]} (web-route-info path)]
+    (vec
+     (concat
+      [{:kind :web-framework
+        :label framework
+        :source-line 1
+        :relation :defines}
+       {:kind :web-framework-route
+        :label route
+        :source-line 1
+        :relation :defines}
+       {:kind (case role
+                "layout" :web-framework-layout
+                "route" :web-framework-route-handler
+                "server" :web-framework-route-handler
+                :web-framework-page)
+        :label (str route ":" role)
+        :source-line 1
+        :relation :defines}]
+      (map (fn [{:keys [target source-line]}]
+             {:kind :web-framework-import
+              :label target
+              :source-line source-line
+              :relation :imports})
+           (->> (str/split-lines content)
+                (map-indexed #(js-import-targets %1 path %2))
+                (mapcat identity)
+                distinct))))
+    []))
+
+(defn- web-framework-facts
+  [{:keys [path] :as file}]
+  (if (web-route-info path)
+    (web-route-facts file)
+    (web-config-facts file)))
+
+(defn- web-framework-base-kind
+  [path]
+  (case (fs/extension path)
+    (".ts" ".tsx" ".mts") :typescript
+    (".js" ".jsx" ".mjs" ".cjs") :javascript
+    ".svelte" :svelte
+    ".astro" :astro
+    ".vue" :vue
+    nil))
+
+(defn- web-framework-base-result
+  [run-id {:keys [path] :as file}]
+  (when (web-route-info path)
+    (case (web-framework-base-kind path)
+      :typescript (extract-js-family run-id (assoc file :kind :typescript))
+      :javascript (extract-js-family run-id (assoc file :kind :javascript))
+      :svelte (extract-sfc run-id (assoc file :kind :svelte))
+      :astro (extract-astro run-id (assoc file :kind :astro))
+      :vue (extract-sfc run-id (assoc file :kind :vue))
+      nil)))
+
+(defn extract-web-framework
+  "Extract deterministic web framework config and file-backed route facts."
+  [run-id file]
+  (let [web-result (extract-format-facts run-id
+                                         file
+                                         :web-framework-file
+                                         :web-framework-file
+                                         (web-framework-facts file))
+        base-result (web-framework-base-result run-id file)]
+    (if base-result
+      {:nodes (vec (distinct (concat (:nodes base-result) (:nodes web-result))))
+       :edges (vec (distinct (concat (:edges base-result) (:edges web-result))))
+       :chunks (vec (distinct (concat (:chunks base-result) (:chunks web-result))))
+       :diagnostics (vec (concat (:diagnostics base-result)
+                                 (:diagnostics web-result)))}
+      web-result)))
+
 (defn extract-tool-config
   "Extract bounded lint/format/tool configuration facts."
   [run-id file]
@@ -18099,6 +18399,7 @@
      :test-config (extract-test-config run-id file)
      :editor-config (extract-editor-config run-id file)
      :release-config (extract-release-config run-id file)
+     :web-framework (extract-web-framework run-id file)
      :tool-config (extract-tool-config run-id file)
      :ops-config (extract-ops-config run-id file)
      :astro (extract-astro run-id file)

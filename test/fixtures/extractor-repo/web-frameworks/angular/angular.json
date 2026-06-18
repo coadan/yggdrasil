@@ -1,0 +1,16 @@
+{
+  "projects": {
+    "panels-web": {
+      "root": "projects/panels-web",
+      "sourceRoot": "projects/panels-web/src",
+      "architect": {
+        "build": {
+          "builder": "@angular-devkit/build-angular:browser"
+        },
+        "test": {
+          "builder": "@angular-devkit/build-angular:karma"
+        }
+      }
+    }
+  }
+}

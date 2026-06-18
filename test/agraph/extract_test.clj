@@ -311,6 +311,34 @@
                                "test/fixtures/extractor-repo/.ruby-version")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/mise.toml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/next/next.config.mjs")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/next/app/page.tsx")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/next/app/panels/[id]/page.tsx")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/svelte/svelte.config.js")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/svelte/src/routes/+page.svelte")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/svelte/src/routes/panels/[id]/+page.svelte")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/nuxt/nuxt.config.ts")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/nuxt/pages/index.vue")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/nuxt/pages/panels/[id].vue")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/astro/astro.config.mjs")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/astro/src/pages/index.astro")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/astro/src/pages/blog/[slug].astro")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/angular/angular.json")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/web-frameworks/vite/vite.config.ts")
                (fs/file-record "test/fixtures/sample-repo"
                                "test/fixtures/sample-repo/src/web/app.ts")
                (fs/file-record "test/fixtures/sample-repo"
@@ -2980,8 +3008,8 @@
                                                "test/fixtures/extractor-repo/.prettierrc"))))
     (is (= :tool-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                                "test/fixtures/extractor-repo/tooling/tsconfig.json"))))
-    (is (= :tool-config (:kind (fs/file-record "test/fixtures/extractor-repo"
-                                               "test/fixtures/extractor-repo/tooling/vite.config.ts"))))
+    (is (= :web-framework (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                                 "test/fixtures/extractor-repo/tooling/vite.config.ts"))))
     (is (= :test-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                                "test/fixtures/extractor-repo/tooling/pytest.ini"))))
     (is (= :tool-config (:kind (fs/file-record "test/fixtures/extractor-repo"
@@ -3372,6 +3400,85 @@
     (is (contains? (labels php-routes) "GET /panels"))
     (is (contains? (labels php-routes) "POST /panels/{id}"))
     (is (contains? (labels php-routes) "/admin/panels"))))
+
+(deftest extracts-web-framework-config-and-route-facts
+  (let [result-for (fn [path]
+                     (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      (str "test/fixtures/extractor-repo/" path))))
+        kind-for (fn [path]
+                   (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                          (str "test/fixtures/extractor-repo/" path))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        relations (fn [result] (frequencies (map :relation (:edges result))))
+        next-config (result-for "web-frameworks/next/next.config.mjs")
+        next-index (result-for "web-frameworks/next/app/page.tsx")
+        next-panel (result-for "web-frameworks/next/app/panels/[id]/page.tsx")
+        svelte-config (result-for "web-frameworks/svelte/svelte.config.js")
+        svelte-index (result-for "web-frameworks/svelte/src/routes/+page.svelte")
+        svelte-panel (result-for "web-frameworks/svelte/src/routes/panels/[id]/+page.svelte")
+        nuxt-config (result-for "web-frameworks/nuxt/nuxt.config.ts")
+        nuxt-panel (result-for "web-frameworks/nuxt/pages/panels/[id].vue")
+        astro-config (result-for "web-frameworks/astro/astro.config.mjs")
+        astro-panel (result-for "web-frameworks/astro/src/pages/blog/[slug].astro")
+        angular-config (result-for "web-frameworks/angular/angular.json")
+        vite-config (result-for "web-frameworks/vite/vite.config.ts")]
+    (doseq [path ["web-frameworks/next/next.config.mjs"
+                  "web-frameworks/next/app/page.tsx"
+                  "web-frameworks/next/app/panels/[id]/page.tsx"
+                  "web-frameworks/svelte/svelte.config.js"
+                  "web-frameworks/svelte/src/routes/+page.svelte"
+                  "web-frameworks/svelte/src/routes/panels/[id]/+page.svelte"
+                  "web-frameworks/nuxt/nuxt.config.ts"
+                  "web-frameworks/nuxt/pages/panels/[id].vue"
+                  "web-frameworks/astro/astro.config.mjs"
+                  "web-frameworks/astro/src/pages/blog/[slug].astro"
+                  "web-frameworks/angular/angular.json"
+                  "web-frameworks/vite/vite.config.ts"]]
+      (is (= :web-framework (kind-for path))))
+    (is (contains? (labels next-config) "next"))
+    (is (contains? (labels next-config) "@next/bundle-analyzer"))
+    (is (contains? (labels next-config) "/panels"))
+    (is (contains? (labels next-config) "/assets"))
+    (is (contains? (labels next-index) "/"))
+    (is (contains? (labels next-index) "/:page"))
+    (is (contains? (labels next-panel) "/panels/{id}"))
+    (is (contains? (labels next-panel) "/panels/{id}:page"))
+    (is (contains? (labels next-panel) "web_frameworks.next.components.PanelDetails"))
+    (is (contains? (labels svelte-config) "sveltekit"))
+    (is (contains? (labels svelte-config) "@sveltejs/adapter-auto"))
+    (is (contains? (labels svelte-index) "/"))
+    (is (contains? (labels svelte-panel) "/panels/{id}"))
+    (is (contains? (labels svelte-panel) "$lib/PanelDetails.svelte"))
+    (is (contains? (labels nuxt-config) "nuxt"))
+    (is (contains? (labels nuxt-config) "@nuxt/image"))
+    (is (contains? (labels nuxt-config) "@pinia/nuxt"))
+    (is (contains? (labels nuxt-panel) "/panels/{id}"))
+    (is (contains? (labels astro-config) "astro"))
+    (is (contains? (labels astro-config) "@astrojs/node"))
+    (is (contains? (labels astro-config) "/astro-panels"))
+    (is (contains? (labels astro-panel) "/blog/{slug}"))
+    (is (contains? (labels astro-panel) "web_frameworks.astro.src.components.BlogPost"))
+    (is (contains? (labels angular-config) "angular"))
+    (is (contains? (labels angular-config) "panels-web"))
+    (is (contains? (labels angular-config) "panels-web:projects/panels-web"))
+    (is (contains? (labels angular-config)
+                   "panels-web:build:@angular-devkit/build-angular:browser"))
+    (is (contains? (labels vite-config) "vite"))
+    (is (contains? (labels vite-config) "@vitejs/plugin-react"))
+    (is (contains? (labels vite-config) "/vite-panels"))
+    (is (= 1 (:web-framework-plugin (kinds next-config))))
+    (is (= 1 (:web-framework-page (kinds next-panel))))
+    (is (= 1 (:web-framework-page (kinds svelte-panel))))
+    (is (= 2 (:web-framework-module (kinds nuxt-config))))
+    (is (= 1 (:web-framework-project (kinds angular-config))))
+    (is (pos? (get (relations next-panel) :imports 0)))
+    (is (pos? (get (relations angular-config) :uses 0)))
+    (is (some #(= :typescript-file (:kind %)) (:chunks next-panel)))
+    (is (some #(= :web-framework-file (:kind %)) (:chunks next-panel)))
+    (is (some #(= :astro-file (:kind %)) (:chunks astro-panel)))))
 
 (deftest extracts-package-and-workspace-manifest-facts
   (let [package-result (extract/extract-file

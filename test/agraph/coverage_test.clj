@@ -179,6 +179,20 @@
     (spit-file! root ".releaserc.json" "{\"branches\":[\"main\"],\"plugins\":[\"@semantic-release/changelog\"]}\n")
     (spit-file! root "standard-version.json" "{\"tagPrefix\":\"v\",\"types\":[{\"type\":\"feat\",\"section\":\"Features\"}]}\n")
     (spit-file! root "CHANGELOG.md" "# Changelog\n\n## 1.4.0\n")
+    (spit-file! root "web-frameworks/next/next.config.mjs" "import analyzer from '@next/bundle-analyzer';\nexport default { basePath: '/panels' };\n")
+    (spit-file! root "web-frameworks/next/app/page.tsx" "export default function Page() { return null; }\n")
+    (spit-file! root "web-frameworks/next/app/panels/[id]/page.tsx" "export default function Page() { return null; }\n")
+    (spit-file! root "web-frameworks/svelte/svelte.config.js" "import adapter from '@sveltejs/adapter-auto';\nexport default { kit: { adapter: adapter() } };\n")
+    (spit-file! root "web-frameworks/svelte/src/routes/+page.svelte" "<h1>Panels</h1>\n")
+    (spit-file! root "web-frameworks/svelte/src/routes/panels/[id]/+page.svelte" "<h1>Panel</h1>\n")
+    (spit-file! root "web-frameworks/nuxt/nuxt.config.ts" "export default defineNuxtConfig({ modules: ['@nuxt/image'] });\n")
+    (spit-file! root "web-frameworks/nuxt/pages/index.vue" "<template><PanelList /></template>\n")
+    (spit-file! root "web-frameworks/nuxt/pages/panels/[id].vue" "<template><PanelDetails /></template>\n")
+    (spit-file! root "web-frameworks/astro/astro.config.mjs" "import node from '@astrojs/node';\nexport default { base: '/astro-panels', adapter: node() };\n")
+    (spit-file! root "web-frameworks/astro/src/pages/index.astro" "---\n---\n<h1>Panels</h1>\n")
+    (spit-file! root "web-frameworks/astro/src/pages/blog/[slug].astro" "---\n---\n<h1>Post</h1>\n")
+    (spit-file! root "web-frameworks/angular/angular.json" "{\"projects\":{\"panels-web\":{\"root\":\"projects/panels-web\",\"architect\":{\"build\":{\"builder\":\"@angular-devkit/build-angular:browser\"}}}}}\n")
+    (spit-file! root "web-frameworks/vite/vite.config.ts" "import react from '@vitejs/plugin-react';\nexport default { base: '/vite-panels', plugins: [react()] };\n")
     (spit-file! root "infra/docker-compose.yml" "services:\n  web:\n    image: ghcr.io/acme/web:latest\n    build: ./web\n    ports:\n      - \"8080:8080\"\n    environment:\n      PANEL_ENV: dev\n")
     (spit-file! root "runtime/Dockerfile" "FROM alpine:3.20 AS runtime\nCMD [\"demo\"]\n")
     (spit-file! root "runtime/Containerfile" "FROM busybox:1.36\nENTRYPOINT [\"demo\"]\n")
@@ -224,8 +238,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 193
-              :supported 192
+      (is (= {:files 207
+              :supported 206
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -257,9 +271,10 @@
       (is (= 2 (:count (row-by :kind "odin" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "zig" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "test-config" (:files-by-kind report)))))
-      (is (= 9 (:count (row-by :kind "tool-config" (:files-by-kind report)))))
+      (is (= 8 (:count (row-by :kind "tool-config" (:files-by-kind report)))))
       (is (= 5 (:count (row-by :kind "editor-config" (:files-by-kind report)))))
       (is (= 7 (:count (row-by :kind "release-config" (:files-by-kind report)))))
+      (is (= 15 (:count (row-by :kind "web-framework" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "storybook" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "docker" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "procfile" (:files-by-kind report)))))
@@ -377,7 +392,7 @@
                 (:extractors report)))
       (is (some #(and (= "tool-config" (:kind %))
                       (= "tool-config/v1" (:extractor-version %))
-                      (= 9 (:files %)))
+                      (= 8 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "editor-config" (:kind %))
                       (= "editor-config/v1" (:extractor-version %))
@@ -386,6 +401,10 @@
       (is (some #(and (= "release-config" (:kind %))
                       (= "release-config/v1" (:extractor-version %))
                       (= 7 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "web-framework" (:kind %))
+                      (= "web-framework/v1" (:extractor-version %))
+                      (= 15 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "storybook" (:kind %))
                       (= "storybook/v1" (:extractor-version %))
