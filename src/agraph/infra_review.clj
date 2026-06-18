@@ -35,6 +35,9 @@
 (def ^:private allowed-visibilities
   #{"primary" "secondary" "noise"})
 
+(def ^:private allowed-recommendations
+  #{"add-map-edge" "no-change" "needs-human" "needs-scanner"})
+
 (defn- s
   [value]
   (cond
@@ -282,7 +285,8 @@
   "Return validation errors for applying item result, or an empty vector."
   [item]
   (let [packet (payload item)
-        result (result item)]
+        result (result item)
+        recommendation (s (:recommendation result))]
     (vec
      (concat
       (remove nil?
@@ -302,6 +306,13 @@
                  {:path [:result :reviewId]
                   :error "Result reviewId does not match the packet."
                   :value (:reviewId result)})
+               (when-not (contains? allowed-recommendations recommendation)
+                 {:path [:result :recommendation]
+                  :error "Result recommendation is required and must be supported."
+                  :value recommendation})
+               (when-not (present? (:reason result))
+                 {:path [:result :reason]
+                  :error "Result reason is required."})
                (when (and (contains? result :confidence)
                           (not (bounded-confidence? (:confidence result))))
                  {:path [:result :confidence]

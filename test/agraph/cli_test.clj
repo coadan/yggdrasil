@@ -1158,6 +1158,36 @@
              (:errors parsed)))
       (is (false? (graph-map/file-exists? map-path))))))
 
+(deftest infra-review-result-requires-supported-recommendation-and-reason
+  (let [packet {:schema infra-review/packet-schema
+                :reviewId "infra-review:test"
+                :project-id "fixture"
+                :facts {:systems []
+                        :evidence []}
+                :allowedActions ["none"]}
+        item {:status :done
+              :payload packet
+              :result {:schema infra-review/result-schema
+                       :reviewId "infra-review:test"
+                       :recommendation "maybe"
+                       :confidence 0.5
+                       :mapPatch []}}]
+    (is (= [{:path [:result :recommendation]
+             :error "Result recommendation is required and must be supported."
+             :value "maybe"}
+            {:path [:result :reason]
+             :error "Result reason is required."}]
+           (infra-review/validate-result item)))
+    (is (empty? (infra-review/validate-result
+                 (assoc item
+                        :result {:schema infra-review/result-schema
+                                 :reviewId "infra-review:test"
+                                 :recommendation "needs-human"
+                                 :confidence 0.5
+                                 :reason "The packet evidence is insufficient."
+                                 :mapPatch []
+                                 :findings ["Needs a human call."]}))))))
+
 (deftest sync-work-apply-valid-maintenance-result-updates-map
   (let [root (temp-dir "agraph-cli-work-maintenance-apply")
         dir (temp-dir "agraph-cli-work-maintenance-map")
