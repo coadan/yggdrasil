@@ -767,6 +767,35 @@
                             (filter #(= "completed" (:status %))
                                     (:events progress))))))))))
 
+(deftest progress-stage-records-shutdown-interruption
+  (let [out (temp-dir "agraph-bench-progress-shutdown")
+        expr (pr-str
+              `(do
+                 (require 'agraph.benchmark)
+                 ((var agraph.benchmark/progress-stage!)
+                  {:id "fixture"}
+                  {:id "case-1" :repo-id "repo"}
+                  {:out ~out}
+                  :index-project
+                  (fn []
+                    (System/exit 42)))))
+        process (shell/sh "clojure" "-M" "-e" expr)
+        progress-path (io/file out
+                               "fixture"
+                               "cases"
+                               "case-1"
+                               "progress.json")
+        progress (json/read-json (slurp progress-path) :key-fn keyword)
+        events (:events progress)
+        last-event (last events)]
+    (is (= 42 (:exit process)))
+    (is (= ["started" "failed"] (mapv :status events)))
+    (is (= "index-project" (:stage last-event)))
+    (is (= true (:interrupted last-event)))
+    (is (= "Benchmark JVM shut down before stage completed."
+           (get-in last-event [:error :message])))
+    (is (pos? (:elapsedMs last-event)))))
+
 (deftest writes-agent-packet-without-ground-truth
   (let [root (temp-dir "agraph-bench-agent-repo")
         out (temp-dir "agraph-bench-agent-out")

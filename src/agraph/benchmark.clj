@@ -424,38 +424,75 @@
                           (update :events (fnil conj []) event)))
     path))
 
+(defn- shutdown-hook-thread
+  [f]
+  (Thread. ^Runnable f "agraph-benchmark-progress-shutdown-hook"))
+
+(defn- remove-shutdown-hook!
+  [hook]
+  (try
+    (.removeShutdownHook (Runtime/getRuntime) hook)
+    (catch IllegalStateException _
+      nil)
+    (catch Throwable _
+      nil)))
+
 (defn- progress-stage!
   ([suite case opts stage f]
    (progress-stage! suite case opts stage f (constantly nil)))
   ([suite case opts stage f summarize]
-   (let [started-ns (System/nanoTime)]
+   (let [started-ns (System/nanoTime)
+         active? (atom true)]
      (append-progress-event! suite
                              case
                              opts
                              (progress-event stage :started {}))
-     (try
-       (let [result (f)
-             summary (summarize result)]
-         (append-progress-event! suite
-                                 case
-                                 opts
-                                 (progress-event
-                                  stage
-                                  :completed
-                                  (cond-> {:elapsedMs (elapsed-ms started-ns)}
-                                    (some? summary) (assoc :summary summary))))
-         result)
-       (catch Throwable t
-         (append-progress-event! suite
-                                 case
-                                 opts
-                                 (progress-event
-                                  stage
-                                  :failed
-                                  {:elapsedMs (elapsed-ms started-ns)
-                                   :error {:class (.getName (class t))
-                                           :message (ex-message t)}}))
-         (throw t))))))
+     (let [hook (shutdown-hook-thread
+                 (fn []
+                   (when (compare-and-set! active? true false)
+                     (try
+                       (append-progress-event!
+                        suite
+                        case
+                        opts
+                        (progress-event
+                         stage
+                         :failed
+                         {:elapsedMs (elapsed-ms started-ns)
+                          :interrupted true
+                          :error {:class "java.lang.Runtime"
+                                  :message
+                                  "Benchmark JVM shut down before stage completed."}}))
+                       (catch Throwable _
+                         nil)))))]
+       (.addShutdownHook (Runtime/getRuntime) hook)
+       (try
+         (let [result (f)
+               summary (summarize result)]
+           (when (compare-and-set! active? true false)
+             (append-progress-event! suite
+                                     case
+                                     opts
+                                     (progress-event
+                                      stage
+                                      :completed
+                                      (cond-> {:elapsedMs (elapsed-ms started-ns)}
+                                        (some? summary) (assoc :summary summary)))))
+           result)
+         (catch Throwable t
+           (when (compare-and-set! active? true false)
+             (append-progress-event! suite
+                                     case
+                                     opts
+                                     (progress-event
+                                      stage
+                                      :failed
+                                      {:elapsedMs (elapsed-ms started-ns)
+                                       :error {:class (.getName (class t))
+                                               :message (ex-message t)}})))
+           (throw t))
+         (finally
+           (remove-shutdown-hook! hook)))))))
 
 (defn- run-git!
   [repo-root args]
