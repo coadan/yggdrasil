@@ -7933,13 +7933,125 @@
     (->> (:lines block)
          (keep (fn [[idx line]]
                  (when-let [[_ _field field-type]
-                            (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\[\])?(?:\?|)\b.*"
-                                        line)]
+                            (when-not (str/includes? line "{")
+                              (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\[\])?(?:\?|)\b.*"
+                                          line))]
                    (when-not (contains? prisma-scalar-types field-type)
                      {:target field-type
                       :source-line (inc idx)}))))
          distinct
          vec)))
+
+(defn- prisma-assignment-facts
+  [block]
+  (let [block-name (:name block)]
+    (->> (:lines block)
+         (mapcat
+          (fn [[idx line]]
+            (let [source-line (inc idx)]
+              (concat
+               (when-let [[_ value]
+                          (re-matches #"^\s*provider\s*=\s*\"([^\"]+)\".*$"
+                                      line)]
+                 [{:kind (case (:kind block)
+                           :prisma-datasource :prisma-datasource-provider
+                           :prisma-generator :prisma-generator-provider
+                           :prisma-config-provider)
+                   :label (str block-name ":" value)
+                   :source-line source-line
+                   :relation :defines}])
+               (when-let [[_ key]
+                          (re-matches #"^\s*url\s*=\s*env\(\"([^\"]+)\"\).*$"
+                                      line)]
+                 [{:kind :prisma-env-key
+                   :label (str block-name ":" key)
+                   :source-line source-line
+                   :relation :references}])
+               (when-let [[_ value]
+                          (re-matches #"^\s*output\s*=\s*\"([^\"]+)\".*$"
+                                      line)]
+                 [{:kind :prisma-generator-output
+                   :label (str block-name ":" value)
+                   :source-line source-line
+                   :relation :references}])))))
+         distinct
+         vec)))
+
+(defn- prisma-model-field-facts
+  [block]
+  (when (= :prisma-model (:kind block))
+    (->> (:lines block)
+         (mapcat
+          (fn [[idx line]]
+            (when-let [[_ field-name field-type _array _optional attributes]
+                       (when-not (str/includes? line "{")
+                         (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)(\[\])?(\?)?\s*(.*?)\s*$"
+                                     line))]
+              (let [source-line (inc idx)
+                    label-prefix (str (:name block) "." field-name)
+                    relation-field? (not (contains? prisma-scalar-types field-type))]
+                (remove nil?
+                        [{:kind (if relation-field?
+                                  :prisma-relation-field
+                                  :prisma-field)
+                          :label (str label-prefix ":" field-type)
+                          :source-line source-line
+                          :relation :defines}
+                         (when (str/includes? (str attributes) "@id")
+                           {:kind :prisma-id-field
+                            :label label-prefix
+                            :source-line source-line
+                            :relation :defines})
+                         (when-let [[_ mapped]
+                                    (re-find #"@map\(\"([^\"]+)\"\)" (str attributes))]
+                           {:kind :prisma-column-map
+                            :label (str label-prefix "=" mapped)
+                            :source-line source-line
+                            :relation :defines})])))))
+         distinct
+         vec)))
+
+(defn- prisma-model-attribute-facts
+  [block]
+  (when (= :prisma-model (:kind block))
+    (->> (:lines block)
+         (mapcat
+          (fn [[idx line]]
+            (let [source-line (inc idx)]
+              (concat
+               (when-let [[_ mapped]
+                          (re-matches #"^\s*@@map\(\"([^\"]+)\"\).*$" line)]
+                 [{:kind :prisma-table-map
+                   :label (str (:name block) "=" mapped)
+                   :source-line source-line
+                   :relation :defines}])
+               (when-let [[_ fields]
+                          (re-matches #"^\s*@@index\(\[([^\]]+)\].*$" line)]
+                 [{:kind :prisma-index
+                   :label (str (:name block) ":"
+                               (str/replace fields #"\s+" ""))
+                   :source-line source-line
+                   :relation :defines}])
+               (when-let [[_ fields]
+                          (re-matches #"^\s*@@unique\(\[([^\]]+)\].*$" line)]
+                 [{:kind :prisma-unique
+                   :label (str (:name block) ":"
+                               (str/replace fields #"\s+" ""))
+                   :source-line source-line
+                   :relation :defines}])))))
+         distinct
+         vec)))
+
+(defn- prisma-block-facts
+  [blocks]
+  (->> blocks
+       (mapcat (fn [block]
+                 (map #(assoc % :block-kind (:kind block) :block-name (:name block))
+                      (concat (prisma-assignment-facts block)
+                              (prisma-model-field-facts block)
+                              (prisma-model-attribute-facts block)))))
+       distinct
+       vec))
 
 (defn- prisma-reference-edges
   [run-id id-scope file-id path blocks]
@@ -7977,6 +8089,22 @@
                                       :extracted
                                       (:source-line %))
                            block-nodes)
+        fact-rows (prisma-block-facts blocks)
+        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
+                           (generic-node run-id id-scope file-id path
+                                         kind label source-line))
+                         fact-rows)
+        fact-edges (mapv (fn [{:keys [block-kind block-name kind label
+                                      source-line relation]}]
+                           (edge-row run-id
+                                     file-id
+                                     path
+                                     (node-id id-scope block-kind block-name)
+                                     (node-id id-scope kind label)
+                                     (or relation :defines)
+                                     :extracted
+                                     source-line))
+                         fact-rows)
         reference-edges (prisma-reference-edges run-id id-scope file-id path blocks)
         chunk-result (extract-text-source run-id file :prisma-file)
         definition-chunks (mapv (fn [{:keys [kind name source-line lines]}]
@@ -7991,8 +8119,8 @@
                                    (str/join "\n" (map second lines))))
                                 blocks)
         diagnostics (curly-balance-diagnostics run-id file-id path content "Prisma")]
-    {:nodes (into [schema-node] block-nodes)
-     :edges (vec (concat define-edges reference-edges))
+    {:nodes (vec (concat [schema-node] block-nodes fact-nodes))
+     :edges (vec (concat define-edges fact-edges reference-edges))
      :chunks (vec (concat (:chunks chunk-result) definition-chunks))
      :diagnostics diagnostics}))
 
