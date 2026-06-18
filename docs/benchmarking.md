@@ -82,7 +82,11 @@ generated output root.
   receives `REQUEST_JSON RESULT_JSON MODEL` arguments. This lane is for
   benchmark diagnosis: if it beats the graph baseline, inspect whether AGraph is
   missing extractor facts, ranking useful facts poorly, or losing on vocabulary
-  mismatch. It does not make AGraph core depend on a vector provider.
+  mismatch. It does not make AGraph core depend on a vector provider. Use
+  `--skip-existing` to resume an interrupted suite run. A case is skipped only
+  when exactly one current score artifact already matches the case fingerprint,
+  agent id, mode, and result path; stale, duplicate, or missing artifacts are
+  rerun.
 - `bench agent-run <suite.edn> --agent <id> --command <cmd>` prepares the same
   packet contract, runs an external coding-agent command from the base
   worktree, and scores the JSON result written to `$AGRAPH_BENCH_RESULT`. The
@@ -107,7 +111,9 @@ generated output root.
   shell-only`, only the checkout and packet are provided. Prefer the hints
   artifact first and the context artifact for supporting snippets: sandboxed
   coding agents may block live XTDB/Clojure commands even when the graph store
-  is writable. Use `--timeout-ms <n>` to bound long-running agents.
+  is writable. Use `--timeout-ms <n>` to bound long-running agents. Use
+  `--skip-existing` to resume interrupted agent runs with the same current-score
+  matching rules as `agent-baseline`.
 - `bench agent-score <suite.edn> --case <case-id> --result result.json` scores
   one agent result JSON against hidden ground truth.
 - `bench agent-report <suite.edn>` aggregates existing agent score artifacts

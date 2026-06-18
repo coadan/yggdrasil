@@ -308,6 +308,7 @@
                                  "--retrieval-limit" "80"
                                  "--vector-command" "fake-vector-worker"
                                  "--vector-model" "fake-vector-model"
+                                 "--skip-existing"
                                  "--json"]))
             parsed (read-json-output out)]
         (is (= benchmark/agent-baselines-schema (:schema parsed)))
@@ -323,7 +324,8 @@
                   :vector-model "fake-vector-model"
                   :limit 3
                   :doc-limit 12
-                  :retrieval-limit 80}]]
+                  :retrieval-limit 80
+                  :skip-existing? true}]]
                @calls))))))
 
 (deftest bench-agent-run-dispatches-to-benchmark-runner
@@ -353,6 +355,7 @@
                                  "--command" "codex exec --json"
                                  "--prompt-profile" "fast"
                                  "--timeout-ms" "120000"
+                                 "--skip-existing"
                                  "--json"]))
             parsed (read-json-output out)]
         (is (= benchmark/agent-runs-schema (:schema parsed)))
@@ -366,7 +369,8 @@
                   :result-path nil
                   :command "codex exec --json"
                   :prompt-profile "fast"
-                  :timeout-ms 120000}]]
+                  :timeout-ms 120000
+                  :skip-existing? true}]]
                @calls))))))
 
 (deftest bench-agent-report-dispatches-to-benchmark-reporter

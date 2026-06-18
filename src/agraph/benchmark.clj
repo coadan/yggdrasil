@@ -112,6 +112,8 @@
 (def recall-limits
   [5 10 20])
 
+(declare agent-baseline-suspect-limit agent-prompt-profile)
+
 (defn- blankish?
   [value]
   (str/blank? (str value)))
@@ -1017,6 +1019,87 @@
                        :supported ["agraph" "shell-only"]})))
     mode))
 
+(defn- score-json-file?
+  [file]
+  (and (.isFile file)
+       (str/ends-with? (.getName file) ".json")))
+
+(defn- current-agent-score-artifacts
+  [suite case opts {:keys [agent-id mode result-path]}]
+  (let [dir (agent-score-dir suite case opts)
+        expected-fingerprint (case-fingerprint suite case)
+        expected-result-path (some-> result-path fs/canonical-path)]
+    (if-not (.isDirectory dir)
+      []
+      (->> (file-seq dir)
+           (filter score-json-file?)
+           (keep (fn [file]
+                   (let [score (try
+                                 (read-json-file file)
+                                 (catch Exception _
+                                   nil))]
+                     (when (and score
+                                (= (:id case) (:case-id score))
+                                (= expected-fingerprint (:caseFingerprint score))
+                                (= agent-id (get-in score [:agent :agentId]))
+                                (= mode (get-in score [:agent :mode]))
+                                (= expected-result-path (:agentResultPath score)))
+                       (assoc score :agentScorePath (fs/canonical-path file))))))
+           vec))))
+
+(defn- reusable-agent-score
+  [suite case opts match]
+  (let [matches (current-agent-score-artifacts suite case opts match)]
+    (when (= 1 (count matches))
+      (first matches))))
+
+(defn- agent-baseline-mode
+  [opts]
+  (if (= :local-vector (keyword (or (:retriever opts) :lexical)))
+    "local-vector"
+    "agraph"))
+
+(defn- skipped-agent-baseline
+  [suite case opts score]
+  {:schema agent-baseline-schema
+   :suite-id (:suite-id score)
+   :case-id (:case-id score)
+   :repo-id (:repo-id score)
+   :project-id (:project-id score)
+   :caseFingerprint (:caseFingerprint score)
+   :agentId (get-in score [:agent :agentId])
+   :mode (get-in score [:agent :mode])
+   :retriever (name (keyword (or (:retriever opts) :lexical)))
+   :suspectLimit (agent-baseline-suspect-limit opts)
+   :status "skipped"
+   :skipReason "current-score-artifact"
+   :artifacts (cond-> {:agentResultPath (:agentResultPath score)
+                       :agentScorePath (:agentScorePath score)
+                       :progressPath (fs/canonical-path (progress-path suite case opts))}
+                (= "local-vector" (get-in score [:agent :mode]))
+                (assoc :localVectorRequestPath
+                       (fs/canonical-path (local-vector-request-path suite case opts))))
+   :scores (:scores score)})
+
+(defn- skipped-agent-run
+  [suite case opts score]
+  {:schema agent-run-schema
+   :suite-id (:suite-id score)
+   :case-id (:case-id score)
+   :repo-id (:repo-id score)
+   :project-id (:project-id score)
+   :caseFingerprint (:caseFingerprint score)
+   :agentId (get-in score [:agent :agentId])
+   :mode (get-in score [:agent :mode])
+   :promptProfile (agent-prompt-profile opts)
+   :status "skipped"
+   :skipReason "current-score-artifact"
+   :artifacts {:agentResultPath (:agentResultPath score)
+               :agentScorePath (:agentScorePath score)
+               :agentRunPath (fs/canonical-path (agent-run-path suite case opts))}
+   :scores (:scores score)
+   :warnings (get-in score [:agent :warnings])})
+
 (defn- agent-project
   [prepared]
   {:id (:project-id prepared)
@@ -1692,12 +1775,27 @@
 (defn agent-baselines!
   "Generate deterministic AGraph agent-result artifacts for selected cases."
   [suite opts]
-  {:schema agent-baselines-schema
-   :suite-id (:id suite)
-   :baselines (mapv #(if (= :local-vector (keyword (or (:retriever opts) :lexical)))
-                       (local-vector-baseline! suite % opts)
-                       (agent-baseline! suite % opts))
-                    (selected-cases suite (case-selector opts)))})
+  (let [baseline-for-case (fn [case]
+                            (or (when (:skip-existing? opts)
+                                  (some->> {:agent-id (agent-baseline-id opts)
+                                            :mode (agent-baseline-mode opts)
+                                            :result-path (agent-baseline-result-path
+                                                          suite
+                                                          case
+                                                          opts)}
+                                           (reusable-agent-score suite case opts)
+                                           (skipped-agent-baseline suite case opts)))
+                                (if (= :local-vector (keyword (or (:retriever opts)
+                                                                  :lexical)))
+                                  (local-vector-baseline! suite case opts)
+                                  (agent-baseline! suite case opts))))
+        baselines (mapv baseline-for-case
+                        (selected-cases suite (case-selector opts)))]
+    {:schema agent-baselines-schema
+     :suite-id (:id suite)
+     :baselines baselines
+     :completed (count baselines)
+     :skipped (count (filter #(= "skipped" (:status %)) baselines))}))
 
 (defn- source-line-range
   [source]
@@ -2175,13 +2273,23 @@
 (defn agent-runs!
   "Run an external agent command for selected benchmark cases."
   [suite opts]
-  (let [runs (mapv #(agent-run! suite % opts)
+  (ensure-agent-run-id! opts)
+  (let [run-for-case (fn [case]
+                       (or (when (:skip-existing? opts)
+                             (some->> {:agent-id (:agent-id opts)
+                                       :mode (agent-mode opts)
+                                       :result-path (agent-run-result-path suite case opts)}
+                                      (reusable-agent-score suite case opts)
+                                      (skipped-agent-run suite case opts)))
+                           (agent-run! suite case opts)))
+        runs (mapv run-for-case
                    (selected-cases suite (case-selector opts)))]
     {:schema agent-runs-schema
      :suite-id (:id suite)
      :runs runs
      :completed (count runs)
-     :failed (count (filter #(= "failed" (:status %)) runs))}))
+     :failed (count (filter #(= "failed" (:status %)) runs))
+     :skipped (count (filter #(= "skipped" (:status %)) runs))}))
 
 (defn- parse-long-safe
   [value]

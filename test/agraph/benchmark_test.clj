@@ -859,7 +859,15 @@
                                                    :mode "shell-only"
                                                    :prompt-profile "fast"
                                                    :command (str "sh " script-path)})
+              resumed (benchmark/agent-runs! suite {:out out
+                                                    :case-id "case-1"
+                                                    :agent-id "script-agent"
+                                                    :mode "shell-only"
+                                                    :prompt-profile "fast"
+                                                    :command "exit 99"
+                                                    :skip-existing? true})
               run (first (:runs result))
+              skipped (first (:runs resumed))
               report (benchmark/report-agent-suite suite {:out out
                                                           :agent-id "script-agent"})]
           (is (= benchmark/agent-runs-schema (:schema result)))
@@ -899,6 +907,10 @@
                                   "changedFiles")))
           (is (str/includes? (slurp (get-in run [:artifacts :stdoutPath]))
                              "ran script-agent"))
+          (is (= 1 (:skipped resumed)))
+          (is (= "skipped" (:status skipped)))
+          (is (= "current-score-artifact" (:skipReason skipped)))
+          (is (= (:scores run) (:scores skipped)))
           (is (= 1 (:runs report)))
           (is (= "script-agent" (get-in report [:results 0 :agent :agentId]))))))))
 
@@ -1257,7 +1269,16 @@
                        :key-fn keyword)
               scored (json/read-json
                       (slurp (get-in baseline [:artifacts :agentScorePath]))
-                      :key-fn keyword)]
+                      :key-fn keyword)
+              resumed (benchmark/agent-baselines!
+                       suite
+                       {:out out
+                        :case-id "case-1"
+                        :retriever "local-vector"
+                        :vector-command "missing-vector-worker"
+                        :vector-model "fake-local-model"
+                        :skip-existing? true})
+              skipped (first (:baselines resumed))]
           (is (= benchmark/agent-baselines-schema (:schema result)))
           (is (= "agraph-baseline-local-vector" (:agentId baseline)))
           (is (= "local-vector" (:mode baseline)))
@@ -1270,7 +1291,11 @@
           (is (not (contains? request :groundTruth)))
           (is (= "local-vector" (get-in scored [:agent :mode])))
           (is (= ["src/app.clj"]
-                 (mapv :path (get-in scored [:agent :topFiles])))))))))
+                 (mapv :path (get-in scored [:agent :topFiles]))))
+          (is (= 1 (:skipped resumed)))
+          (is (= "skipped" (:status skipped)))
+          (is (= "current-score-artifact" (:skipReason skipped)))
+          (is (= (:scores baseline) (:scores skipped))))))))
 
 (deftest context-packet-can-be-written-as-agent-hints
   (let [root (temp-dir "agraph-bench-context-hints")

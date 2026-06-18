@@ -110,13 +110,13 @@
     "--max-ranked-outside-top-5-runs"
     "--max-ranked-outside-top-10-runs"
     "--max-ranked-outside-top-20-runs"
-    "--max-active-stage-ms" "--regression-tolerance"})
+    "--max-active-stage-ms" "--regression-tolerance" "--skip-existing"})
 
 (def boolean-options
   #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer" "--enqueue"
     "--check" "--query-index" "--force" "--hooks" "--sync" "--allow-missing"
     "--allow-duplicate-runs" "--allow-unverified-scores"
-    "--with-conflicts" "--without-import-evidence"})
+    "--skip-existing" "--with-conflicts" "--without-import-evidence"})
 
 (defn- positional-args
   [args]
@@ -1880,6 +1880,7 @@
                                                            (parse-optional-double
                                                             args
                                                             "--regression-tolerance"))
+    (some #{"--skip-existing"} args) (assoc :skip-existing? true)
     (some #{"--allow-missing"} args) (assoc :allow-missing? true)
     (some #{"--allow-duplicate-runs"} args) (assoc :allow-duplicate-runs? true)
     (some #{"--allow-unverified-scores"} args) (assoc :allow-unverified-scores? true)))
@@ -1904,6 +1905,7 @@
     (do
       (println "- completed" (:completed result))
       (println "- failed" (:failed result))
+      (println "- skipped" (:skipped result 0))
       (doseq [run (:runs result)]
         (println "-"
                  (:case-id run)
@@ -1966,18 +1968,23 @@
                (get-in packet [:artifacts :packetPath])))
 
     (:baselines result)
-    (doseq [baseline (:baselines result)]
-      (println "-"
-               (:case-id baseline)
-               (:repo-id baseline)
-               "agent"
-               (:agentId baseline)
-               "recall@10"
-               (format "%.2f" (double (get-in baseline [:scores :fileRecallAt10] 0.0)))
-               "mrr"
-               (format "%.2f" (double (get-in baseline
-                                              [:scores :meanReciprocalRankFile]
-                                              0.0)))))
+    (do
+      (when (contains? result :skipped)
+        (println "- skipped" (:skipped result 0)))
+      (doseq [baseline (:baselines result)]
+        (println "-"
+                 (:case-id baseline)
+                 (:repo-id baseline)
+                 "agent"
+                 (:agentId baseline)
+                 "status"
+                 (or (:status baseline) "ran")
+                 "recall@10"
+                 (format "%.2f" (double (get-in baseline [:scores :fileRecallAt10] 0.0)))
+                 "mrr"
+                 (format "%.2f" (double (get-in baseline
+                                                [:scores :meanReciprocalRankFile]
+                                                0.0))))))
 
     (= benchmark/agent-check-schema (:schema result))
     (do
@@ -2168,8 +2175,8 @@
     "  bench prepare|run|report <benchmark.edn> [--case ID] [--cases ID,ID] [--out DIR] [--json]"
     "  bench show <benchmark.edn> --case ID [--out DIR] [--json]"
     "  bench agent-packet <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--enqueue] [--queue-dir DIR] [--out DIR] [--json]"
-    "  bench agent-baseline <benchmark.edn> [--case ID] [--cases ID,ID] [--retriever auto|hybrid|lexical|semantic|local-vector] [--limit N] [--doc-limit N] [--retrieval-limit N] [--vector-model MODEL] [--vector-command CMD] [--out DIR] [--json]"
-    "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--out DIR] [--json]"
+    "  bench agent-baseline <benchmark.edn> [--case ID] [--cases ID,ID] [--retriever auto|hybrid|lexical|semantic|local-vector] [--limit N] [--doc-limit N] [--retrieval-limit N] [--vector-model MODEL] [--vector-command CMD] [--skip-existing] [--out DIR] [--json]"
+    "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--skip-existing] [--out DIR] [--json]"
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--out DIR] [--json]"
     "  bench agent-report <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--allow-unverified-scores] [--out DIR] [--json]"
     "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-unverified-score-runs N] [--max-missed-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-active-stage-ms N] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"
