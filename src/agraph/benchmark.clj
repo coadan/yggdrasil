@@ -43,6 +43,9 @@
 (def agent-check-schema
   "agraph.benchmark.agent-check/v1")
 
+(def graph-expectations-schema
+  "agraph.benchmark.graph-expectations/v1")
+
 (def agent-compare-schema
   "agraph.benchmark.agent-compare/v1")
 
@@ -161,6 +164,23 @@
            :root (canonical-or-relative base (:root repo))
            :role (keyword (or (:role repo) :application)))))
 
+(defn- normalize-case-tag
+  [tag]
+  (some-> tag name safe-id not-empty))
+
+(defn- case-tags
+  [case]
+  (->> (:tags case)
+       (keep normalize-case-tag)
+       distinct
+       sort
+       vec))
+
+(defn- case-expectations
+  [case]
+  (when-let [expectations (:expectations case)]
+    expectations))
+
 (defn- normalize-case
   [case]
   (let [case-id (some-> (:id case) str)
@@ -174,7 +194,9 @@
            :id case-id
            :repo-id repo-id
            :base-sha (some-> (:base-sha case) str)
-           :fix-sha (some-> (:fix-sha case) str))))
+           :fix-sha (some-> (:fix-sha case) str)
+           :tags (case-tags case)
+           :expectations (case-expectations case))))
 
 (defn read-suite
   "Read and normalize a benchmark suite EDN file."
@@ -734,8 +756,10 @@
    :repo-id (:repo-id case)
    :base-sha (:base-sha case)
    :fix-sha (:fix-sha case)
+   :tags (case-tags case)
    :query-text (issue-text case)
    :coverage {:source-kinds (declared-source-kinds case)}
+   :expectations (case-expectations case)
    :ground-truth (:ground-truth case)})
 
 (defn- case-fingerprint
@@ -772,6 +796,8 @@
      :repo-id (:id repo)
      :project-id (str (:project-id suite) "-" (:id case))
      :caseFingerprint fingerprint
+     :tags (case-tags case)
+     :expectations (case-expectations case)
      :baseSha (:base-sha case)
      :fixSha (:fix-sha case)
      :worktreeRoot worktree-root
@@ -967,6 +993,185 @@
       :unsupportedGroundTruthFiles (count (:unsupportedGroundTruthFiles groundTruth))
       :coverageExcludedGroundTruthFiles (count (:coverageExcludedFiles groundTruth))})))
 
+(def ^:private expectation-match-keys
+  #{:xt/id
+    :kind
+    :path
+    :file-kind
+    :url-context
+    :auth-context
+    :label
+    :normalized-value
+    :source-line
+    :repo-id
+    :system-id
+    :relation
+    :source-id
+    :target-id})
+
+(def ^:private expectation-key-aliases
+  {:id :xt/id
+   :fileKind :file-kind
+   :file-kind :file-kind
+   :urlContext :url-context
+   :url-context :url-context
+   :authContext :auth-context
+   :auth-context :auth-context
+   :normalizedValue :normalized-value
+   :normalized-value :normalized-value
+   :sourceLine :source-line
+   :source-line :source-line
+   :repoId :repo-id
+   :repo-id :repo-id
+   :systemId :system-id
+   :system-id :system-id
+   :sourceId :source-id
+   :source-id :source-id
+   :targetId :target-id
+   :target-id :target-id})
+
+(defn- normalize-expectation-key
+  [k]
+  (or (get expectation-key-aliases k)
+      (get expectation-key-aliases (keyword (name k)))
+      k))
+
+(defn- normalize-match-value
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (symbol? value) (name value)
+    (number? value) value
+    :else (str value)))
+
+(defn- normalize-expectation-map
+  [expectation]
+  (let [expectation (if (and (map? expectation) (:match expectation))
+                      (:match expectation)
+                      expectation)]
+    (cond
+      (map? expectation)
+      (->> expectation
+           (map (fn [[k v]]
+                  [(normalize-expectation-key k) v]))
+           (filter (fn [[k v]]
+                     (and (contains? expectation-match-keys k)
+                          (some? v))))
+           (into (sorted-map)))
+
+      (or (keyword? expectation) (string? expectation) (symbol? expectation))
+      {:relation expectation}
+
+      :else {})))
+
+(defn- row-matches-expectation?
+  [row expectation]
+  (and (seq expectation)
+       (every? (fn [[k expected]]
+                 (= (normalize-match-value expected)
+                    (normalize-match-value (get row k))))
+               expectation)))
+
+(defn- evidence-match-summary
+  [row]
+  (select-keys row [:xt/id
+                    :kind
+                    :path
+                    :file-kind
+                    :url-context
+                    :auth-context
+                    :label
+                    :normalized-value
+                    :source-line
+                    :system-id]))
+
+(defn- edge-match-summary
+  [row]
+  (select-keys row [:xt/id
+                    :relation
+                    :source-id
+                    :target-id
+                    :confidence
+                    :evidence-ids]))
+
+(defn- expected-row-results
+  [rows expectations summarize]
+  (mapv (fn [expectation]
+          (let [normalized (normalize-expectation-map expectation)
+                matches (filter #(row-matches-expectation? % normalized) rows)]
+            {:expectation normalized
+             :found? (boolean (seq matches))
+             :matchCount (count matches)
+             :matches (mapv summarize (take 5 matches))}))
+        expectations))
+
+(defn- forbidden-row-results
+  [rows expectations summarize]
+  (mapv (fn [expectation]
+          (let [normalized (normalize-expectation-map expectation)
+                matches (filter #(row-matches-expectation? % normalized) rows)]
+            {:expectation normalized
+             :violated? (boolean (seq matches))
+             :matchCount (count matches)
+             :matches (mapv summarize (take 5 matches))}))
+        expectations))
+
+(defn- graph-expectation-status
+  [expected-evidence expected-edges forbidden-edges]
+  (if (or (some (complement :found?) expected-evidence)
+          (some (complement :found?) expected-edges)
+          (some :violated? forbidden-edges))
+    "failed"
+    "passed"))
+
+(defn- graph-expectation-summary
+  [expected-evidence expected-edges forbidden-edges]
+  {:expectedEvidence (count expected-evidence)
+   :foundEvidence (count (filter :found? expected-evidence))
+   :missingEvidence (count (remove :found? expected-evidence))
+   :expectedEdges (count expected-edges)
+   :foundEdges (count (filter :found? expected-edges))
+   :missingEdges (count (remove :found? expected-edges))
+   :forbiddenEdges (count forbidden-edges)
+   :forbiddenEdgeViolations (count (filter :violated? forbidden-edges))})
+
+(defn- evaluate-graph-expectations
+  [xtdb prepared]
+  (let [expectations (:expectations prepared)
+        evidence-expectations (vec (:evidence expectations))
+        edge-expectations (vec (:edges expectations))
+        forbidden-edge-expectations (vec (:forbidden-edges expectations))]
+    (when (or (seq evidence-expectations)
+              (seq edge-expectations)
+              (seq forbidden-edge-expectations))
+      (let [evidence (store/rows-by-field xtdb
+                                          (:system-evidence store/tables)
+                                          :project-id
+                                          (:project-id prepared))
+            edges (store/rows-by-field xtdb
+                                       (:system-edges store/tables)
+                                       :project-id
+                                       (:project-id prepared))
+            expected-evidence (expected-row-results evidence
+                                                    evidence-expectations
+                                                    evidence-match-summary)
+            expected-edges (expected-row-results edges
+                                                 edge-expectations
+                                                 edge-match-summary)
+            forbidden-edges (forbidden-row-results edges
+                                                   forbidden-edge-expectations
+                                                   edge-match-summary)]
+        {:schema graph-expectations-schema
+         :status (graph-expectation-status expected-evidence
+                                           expected-edges
+                                           forbidden-edges)
+         :summary (graph-expectation-summary expected-evidence
+                                             expected-edges
+                                             forbidden-edges)
+         :expectedEvidence expected-evidence
+         :expectedEdges expected-edges
+         :forbiddenEdges forbidden-edges}))))
+
 (defn- run-query!
   [xtdb prepared opts]
   (query/semantic-query xtdb
@@ -992,6 +1197,7 @@
                                                     bench-project
                                                     {:index-profile :query})
               system-summary (project/infer-project! xtdb bench-project)
+              graph-expectations (evaluate-graph-expectations xtdb prepared)
               ranked (run-query! xtdb prepared opts)
               result-base
               {:schema result-schema
@@ -1000,6 +1206,8 @@
                :repo-id (:repo-id prepared)
                :project-id (:project-id prepared)
                :caseFingerprint (:caseFingerprint prepared)
+               :tags (:tags prepared)
+               :expectations (:expectations prepared)
                :baseSha (:baseSha prepared)
                :fixSha (:fixSha prepared)
                :input (:input prepared)
@@ -1013,7 +1221,8 @@
                         :topFiles (top-files ranked)
                         :topNodes (top-nodes ranked)
                         :topSystems (top-systems ranked)
-                        :warnings []}}
+                        :warnings []}
+               :graphExpectations graph-expectations}
               result-without-scores
               (assoc result-base
                      :groundTruthRanks
@@ -1700,6 +1909,7 @@
                               :infer-project
                               #(project/infer-project! xtdb bench-project)
                               #(select-keys % [:systems :candidates :edges]))
+              graph-expectations (evaluate-graph-expectations xtdb prepared)
               packet (progress-stage!
                       suite
                       case
@@ -1736,12 +1946,14 @@
                       case
                       opts
                       :score-agent-result
-                      #(assoc (score-agent-result prepared agent-result)
-                              :agentResultPath (fs/canonical-path result-path)
-                              :contextPacketPath (fs/canonical-path context-path)
-                              :contextGroundTruthRanks (context-ground-truth-ranks
-                                                        prepared
-                                                        packet))
+                      #(cond-> (assoc (score-agent-result prepared agent-result)
+                                      :agentResultPath (fs/canonical-path result-path)
+                                      :contextPacketPath (fs/canonical-path context-path)
+                                      :contextGroundTruthRanks (context-ground-truth-ranks
+                                                                prepared
+                                                                packet))
+                         graph-expectations
+                         (assoc :graphExpectations graph-expectations))
                       (fn [scored]
                         (select-keys (:scores scored)
                                      [:fileRecallAt5
@@ -1767,6 +1979,7 @@
                                     :progressPath (fs/canonical-path progress-path)}
                         :agraph {:indexSummary index-summary
                                  :systemSummary system-summary}
+                        :graphExpectations graph-expectations
                         :scores (:scores scored)}]
           (progress-stage!
            suite
@@ -2342,7 +2555,8 @@
           {:indexSummary (project/index-project! xtdb
                                                  bench-project
                                                  {:index-profile :query})
-           :systemSummary (project/infer-project! xtdb bench-project)})))))
+           :systemSummary (project/infer-project! xtdb bench-project)
+           :graphExpectations (evaluate-graph-expectations xtdb prepared)})))))
 
 (defn agent-run!
   "Run one external agent command against a benchmark packet, then score it."
@@ -2392,7 +2606,9 @@
         scored (cond-> (assoc (score-agent-result prepared agent-result)
                               :agentResultPath (fs/canonical-path result-path))
                  context-ranks
-                 (assoc :contextGroundTruthRanks context-ranks))
+                 (assoc :contextGroundTruthRanks context-ranks)
+                 (:graphExpectations agraph-summary)
+                 (assoc :graphExpectations (:graphExpectations agraph-summary)))
         status (if (:artifact-ok? read-result)
                  "passed"
                  "failed")
@@ -2422,6 +2638,7 @@
                                 :agentRunPath (fs/canonical-path run-path)}
                                logs)
              :agraph agraph-summary
+             :graphExpectations (:graphExpectations agraph-summary)
              :scores (:scores scored)
              :warnings (get-in scored [:agent :warnings])}]
     (write-json-file! score-path scored)
@@ -2569,6 +2786,8 @@
      :repo-id (:repo-id prepared)
      :project-id (:project-id prepared)
      :caseFingerprint (:caseFingerprint prepared)
+     :tags (:tags prepared)
+     :expectations (:expectations prepared)
      :baseSha (:baseSha prepared)
      :fixSha (:fixSha prepared)
      :input (:input prepared)
@@ -2911,6 +3130,50 @@
                                               %)
                                             raw-results))}))
 
+(defn- expectation-configured?
+  [result]
+  (let [expectations (:expectations result)]
+    (or (seq (:evidence expectations))
+        (seq (:edges expectations))
+        (seq (:forbidden-edges expectations)))))
+
+(defn- graph-expectation-diagnostic
+  [result]
+  (let [graph-expectations (:graphExpectations result)]
+    (cond
+      graph-expectations
+      {:status (:status graph-expectations)
+       :summary (:summary graph-expectations)}
+
+      (expectation-configured? result)
+      {:status "not-run"
+       :summary {:expectedEvidence (count (get-in result [:expectations :evidence]))
+                 :expectedEdges (count (get-in result [:expectations :edges]))
+                 :forbiddenEdges (count (get-in result [:expectations :forbidden-edges]))}}
+
+      :else nil)))
+
+(defn- aggregate-graph-expectation-diagnostics
+  [results]
+  (let [pairs (->> results
+                   (keep (fn [result]
+                           (when-let [diagnostic (graph-expectation-diagnostic result)]
+                             [result diagnostic]))))
+        by-status (group-by (comp :status second) pairs)
+        case-ids (fn [status]
+                   (->> (get by-status status)
+                        (map (comp :case-id first))
+                        distinct
+                        sort
+                        vec))]
+    {:configuredRuns (count pairs)
+     :passedRuns (count (get by-status "passed"))
+     :passedCaseIds (case-ids "passed")
+     :failedRuns (count (get by-status "failed"))
+     :failedCaseIds (case-ids "failed")
+     :notRunRuns (count (get by-status "not-run"))
+     :notRunCaseIds (case-ids "not-run")}))
+
 (declare aggregate-localization-diagnostics)
 
 (defn- group-agent-scores
@@ -2923,12 +3186,63 @@
                :scores (aggregate-agent-scores rows)
                :inputHints (input-hint-summary rows)
                :agentDiagnostics (aggregate-agent-diagnostics rows)
+               :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
                :localizationDiagnostics (aggregate-localization-diagnostics rows)
                :artifactDiagnostics (aggregate-artifact-diagnostics
                                      expected-fingerprints
                                      rows)}))
        (sort-by :key)
        vec))
+
+(defn- result-tags
+  [result]
+  (->> (:tags result)
+       (keep normalize-case-tag)
+       distinct
+       sort
+       vec))
+
+(defn- group-agent-scores-by-tag
+  [expected-fingerprints results]
+  (->> results
+       (mapcat (fn [result]
+                 (map (fn [tag] [tag result]) (result-tags result))))
+       (group-by first)
+       (map (fn [[tag pairs]]
+              (let [rows (mapv second pairs)]
+                {:key tag
+                 :cases (count (set (map :case-id rows)))
+                 :runs (count rows)
+                 :scores (aggregate-agent-scores rows)
+                 :inputHints (input-hint-summary rows)
+                 :agentDiagnostics (aggregate-agent-diagnostics rows)
+                 :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
+                 :localizationDiagnostics (aggregate-localization-diagnostics rows)
+                 :artifactDiagnostics (aggregate-artifact-diagnostics
+                                       expected-fingerprints
+                                       rows)})))
+       (sort-by :key)
+       vec))
+
+(defn- aggregate-case-tags
+  [cases]
+  (let [pairs (mapcat (fn [case]
+                        (map (fn [tag] [tag (:id case)])
+                             (case-tags case)))
+                      cases)]
+    {:tags (->> pairs (map first) distinct sort vec)
+     :casesByTag (->> pairs
+                      (group-by first)
+                      (map (fn [[tag rows]]
+                             {:tag tag
+                              :cases (count (set (map second rows)))
+                              :caseIds (->> rows
+                                            (map second)
+                                            distinct
+                                            sort
+                                            vec)}))
+                      (sort-by :tag)
+                      vec)}))
 
 (defn- coverage-cases
   [results]
@@ -3159,6 +3473,7 @@
                 :scores (aggregate-agent-scores results)
                 :inputHints (input-hint-summary results)
                 :agentDiagnostics (aggregate-agent-diagnostics results)
+                :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics results)
                 :localizationDiagnostics (aggregate-localization-diagnostics results)
                 :artifactDiagnostics (aggregate-artifact-diagnostics
                                       expected-fingerprints
@@ -3168,6 +3483,7 @@
                                                  results
                                                  allow-unverified?)
                 :coverage (aggregate-coverage results)
+                :tags (aggregate-case-tags cases)
                 :timings (aggregate-progress progress)
                 :caseProgress progress
                 :byMode (group-agent-scores expected-fingerprints
@@ -3176,11 +3492,16 @@
                 :byAgent (group-agent-scores expected-fingerprints
                                              results
                                              [:agent :agentId])
+                :byTag (group-agent-scores-by-tag expected-fingerprints
+                                                  results)
                 :results (mapv #(assoc (select-keys % [:case-id
                                                        :repo-id
                                                        :baseSha
                                                        :fixSha
                                                        :caseFingerprint
+                                                       :tags
+                                                       :expectations
+                                                       :graphExpectations
                                                        :inputHints
                                                        :coverage
                                                        :agentResultPath
@@ -3224,6 +3545,7 @@
          [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
          [:max-empty-result-runs :maxEmptyResultRuns]
          [:max-unverified-score-runs :maxUnverifiedScoreRuns]
+         [:max-graph-expectation-failures :maxGraphExpectationFailures]
          [:max-missed-runs :maxMissedRuns]
          [:max-ranked-outside-top-5-runs :maxRankedOutsideTop5Runs]
          [:max-ranked-outside-top-10-runs :maxRankedOutsideTop10Runs]
@@ -3431,6 +3753,32 @@
                              :message message}))))))
        vec))
 
+(defn- graph-expectation-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :maxGraphExpectationFailures])]
+    (let [failed-results (filter #(= "failed"
+                                     (get-in % [:graphExpectations :status]))
+                                 (get-in check [:report :results]))
+          actual (double (count failed-results))]
+      (when (> actual expected)
+        (into
+         [(merge (metric-failure "graphExpectationFailures" "<=" expected actual)
+                 {:case-ids (->> failed-results
+                                 (map :case-id)
+                                 distinct
+                                 sort
+                                 vec)
+                  :message "Some graph/evidence benchmark expectations failed."})]
+         (map (fn [result]
+                (merge (case-metric-failure result
+                                            "case.graphExpectations"
+                                            "="
+                                            "passed"
+                                            "failed")
+                       {:summary (get-in result [:graphExpectations :summary])
+                        :message "Graph/evidence benchmark expectations failed for this run."}))
+              failed-results))))))
+
 (def ^:private case-diagnostic-score-keys
   [:fileRecallAt5
    :fileRecallAt10
@@ -3518,6 +3866,7 @@
                    (case-threshold-failures check-base)
                    (empty-result-failures check-base)
                    (unverified-score-failures check-base)
+                   (graph-expectation-failures check-base)
                    (localization-diagnostic-failures check-base)
                    (active-stage-failures check-base)))]
     (assoc check-base

@@ -153,7 +153,9 @@ generated output root.
   `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`, and
   `--max-empty-result-runs` to fail when agents produce no rankable suspected
   files, `--max-unverified-score-runs` to fail when matching score artifacts are
-  legacy or stale relative to the current suite file, plus
+  legacy or stale relative to the current suite file,
+  `--max-graph-expectation-failures` to fail when graph/evidence expectations
+  do not match the indexed facts, plus
   `--max-active-stage-ms` for partial or interrupted runs with a stuck active
   stage. Use
   `--agent <agent-id>` to avoid mixing baseline, shell-only, and ad hoc agent
@@ -229,6 +231,44 @@ Index summaries include `:stats :timings-ms` / `stats.timings-ms` with phase
 timings such as `scan-ms`, `parser-worker-ms`, `extract-ms`,
 `commit-files-ms`, `dependency-ms`, and `total-ms`; use those fields to separate
 parser cost from XTDB writes, search-doc construction, and derived edge refresh.
+
+Use case tags to slice reports by extractor area, ecosystem, or failure mode
+without duplicating suites:
+
+```clojure
+{:id "rails-auth-env"
+ :repo-id "rails"
+ :tags [:ruby :runtime-config :auth]
+ :base-sha "BASE"
+ :fix-sha "FIX"
+ :issue {:title "Auth callback fails"}}
+```
+
+Reports include `tags` and `byTag`, so one wide suite can still answer whether
+auth evidence, runtime config, package resolution, or a specific language family
+regressed.
+
+Use graph expectations when a benchmark is meant to prove AGraph extracted
+specific bounded facts, not only that the agent ranked the changed file. The
+matching is exact over mechanical row fields, so these checks remain auditable
+and avoid semantic path or host heuristics:
+
+```clojure
+{:id "rails-auth-env"
+ :repo-id "rails"
+ :tags [:ruby :runtime-config :auth]
+ :expectations {:evidence [{:kind :auth-reference
+                            :path "config/initializers/omniauth.rb"}]
+                :edges [{:relation :calls-external-api}]
+                :forbidden-edges [:shares-config]}}
+```
+
+`run`, `agent-baseline`, and `agent-run --mode agraph` write
+`graphExpectations` into their score/result artifacts after indexing and
+inference. `agent-report` aggregates those checks under
+`graphExpectationDiagnostics`, and `agent-check` can gate them with
+`--max-graph-expectation-failures 0` when the suite should fail on missing
+evidence or forbidden graph edges.
 
 Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
 agents through the filesystem queue:

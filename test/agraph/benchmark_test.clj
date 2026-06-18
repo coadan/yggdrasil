@@ -125,17 +125,62 @@
     (is (= 2 (:localizationFiles scores)))
     (is (= 2 (:scoreableChangedFiles scores)))))
 
+(deftest matches-graph-expectation-rows-with-explicit-fields
+  (let [evidence [{:kind :auth-reference
+                   :path "config/app.yml"
+                   :auth-context :bearer}]
+        edges [{:relation :calls-external-api
+                :source-id "src/app.clj"
+                :target-id "external-api:auth.example.test"}]
+        expected (#'benchmark/expected-row-results
+                  evidence
+                  [{:kind "auth-reference"
+                    :path "config/app.yml"
+                    :authContext "bearer"}]
+                  identity)
+        unsupported (#'benchmark/expected-row-results
+                     evidence
+                     [{:semantic-label "auth config"}]
+                     identity)
+        forbidden (#'benchmark/forbidden-row-results
+                   edges
+                   [:calls-external-api]
+                   identity)]
+    (is (= true (get-in expected [0 :found?])))
+    (is (= {:auth-context "bearer"
+            :kind "auth-reference"
+            :path "config/app.yml"}
+           (get-in expected [0 :expectation])))
+    (is (= false (get-in unsupported [0 :found?])))
+    (is (= true (get-in forbidden [0 :violated?])))))
+
 (deftest reports-agent-score-artifacts
   (let [out (temp-dir "agraph-agent-report")
         suite {:id "suite"
-               :cases [{:id "case-1"}
-                       {:id "case-2"}]}]
+               :cases [{:id "case-1"
+                        :tags [:runtime-config :auth]}
+                       {:id "case-2"
+                        :tags [:dependency]}]}]
     (spit-json! out
                 "suite/cases/case-1/agent-scores/run-1.score.json"
                 {:schema benchmark/agent-score-schema
                  :suite-id "suite"
                  :case-id "case-1"
                  :repo-id "repo"
+                 :tags ["auth" "runtime-config"]
+                 :expectations {:evidence [{:kind "auth-reference"
+                                            :path "src/app.clj"}]
+                                :forbidden-edges ["shares-config"]}
+                 :graphExpectations {:schema benchmark/graph-expectations-schema
+                                     :status "failed"
+                                     :summary {:expectedEvidence 1
+                                               :foundEvidence 1
+                                               :missingEvidence 0
+                                               :expectedEdges 0
+                                               :foundEdges 0
+                                               :missingEdges 0
+                                               :forbiddenEdges 1
+                                               :forbiddenEdgeViolations 1}}
                  :agent {:agentId "codex"
                          :mode "agraph"
                          :topFiles [{:path "src/other.clj"
@@ -271,6 +316,14 @@
               :missingPredictedFileRuns 0
               :missingPredictedFiles 0}
              (:agentDiagnostics report)))
+      (is (= {:configuredRuns 1
+              :passedRuns 0
+              :passedCaseIds []
+              :failedRuns 1
+              :failedCaseIds ["case-1"]
+              :notRunRuns 0
+              :notRunCaseIds []}
+             (:graphExpectationDiagnostics report)))
       (is (= {:runs 2
               :allScoreableFoundRuns 0
               :allScoreableFoundCaseIds []
@@ -318,6 +371,17 @@
               :missingDeclaredSourceKinds [{:case-id "case-1"
                                             :kind "python"}]}
              (:coverage report)))
+      (is (= {:tags ["auth" "dependency" "runtime-config"]
+              :casesByTag [{:tag "auth"
+                            :cases 1
+                            :caseIds ["case-1"]}
+                           {:tag "dependency"
+                            :cases 1
+                            :caseIds ["case-2"]}
+                           {:tag "runtime-config"
+                            :cases 1
+                            :caseIds ["case-1"]}]}
+             (:tags report)))
       (is (= {:cases 2
               :runningCases 1
               :failedCases 1
@@ -372,6 +436,10 @@
               :rankedOutsideTop10Blockers []
               :rankedOutsideTop20Blockers []}
              (get-in report [:results 0 :localization])))
+      (is (= ["auth" "runtime-config"]
+             (get-in report [:results 0 :tags])))
+      (is (= "failed"
+             (get-in report [:results 0 :graphExpectations :status])))
       (is (= {:rawSuspectedFiles 2
               :rankedFiles 2
               :missingPredictedFiles []
@@ -394,7 +462,11 @@
               :inputHintedCaseIds ["case-1"]}
              (get-in (first (:byMode report)) [:inputHints])))
       (is (= #{"agraph" "shell-only"} (set (map :key (:byMode report)))))
-      (is (= ["baseline" "codex"] (mapv :key (:byAgent report)))))
+      (is (= ["baseline" "codex"] (mapv :key (:byAgent report))))
+      (is (= ["auth" "runtime-config"] (mapv :key (:byTag report))))
+      (is (= 1
+             (get-in (first (:byTag report))
+                     [:graphExpectationDiagnostics :failedRuns]))))
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :now "2026-06-18T00:00:05Z"
                                                       :mode "agraph"
@@ -441,6 +513,13 @@
                                    :emptyResultCaseIds ["case-1"]}
                 :artifactDiagnostics {:unverifiedScoreRuns 1
                                       :unverifiedScoreCaseIds ["case-1"]}
+                :graphExpectationDiagnostics {:configuredRuns 1
+                                              :passedRuns 0
+                                              :passedCaseIds []
+                                              :failedRuns 1
+                                              :failedCaseIds ["case-1"]
+                                              :notRunRuns 0
+                                              :notRunCaseIds []}
                 :localizationDiagnostics {:missedRuns 1
                                           :missedCaseIds ["case-1"]
                                           :rankedOutsideTop5Runs 1
@@ -457,6 +536,9 @@
                 :results [{:case-id "case-1"
                            :agent {:agentId "codex"
                                    :mode "agraph"}
+                           :graphExpectations {:status "failed"
+                                               :summary {:expectedEvidence 1
+                                                         :foundEvidence 0}}
                            :scores {:fileRecallAt5 0.5
                                     :fileRecallAt10 0.75
                                     :fileRecallAt20 1.0
@@ -476,6 +558,7 @@
                  :max-unsupported-ground-truth-files 0
                  :max-empty-result-runs 0
                  :max-unverified-score-runs 0
+                 :max-graph-expectation-failures 0
                  :max-missed-runs 0
                  :max-ranked-outside-top-5-runs 0
                  :max-ranked-outside-top-10-runs 0
@@ -506,6 +589,7 @@
                  :max-unsupported-ground-truth-files 1
                  :max-empty-result-runs 1
                  :max-unverified-score-runs 1
+                 :max-graph-expectation-failures 1
                  :max-missed-runs 1
                  :max-ranked-outside-top-5-runs 1
                  :max-ranked-outside-top-10-runs 1
@@ -526,6 +610,8 @@
              "unsupportedGroundTruthFiles"
              "emptyResultRuns"
              "unverifiedScoreRuns"
+             "graphExpectationFailures"
+             "case.graphExpectations"
              "missedRuns"
              "rankedOutsideTop5Runs"
              "rankedOutsideTop10Runs"
@@ -543,7 +629,8 @@
     (is (= "failed" (get-in failed [:caseDiagnostics 0 :status])))
     (is (= #{"case.fileRecallAt10"
              "case.meanReciprocalRankFile"
-             "case.noiseRatioAt20"}
+             "case.noiseRatioAt20"
+             "case.graphExpectations"}
            (set (map :metric (get-in failed [:caseDiagnostics 0 :failures])))))
     (is (= {:fileRecallAt5 0.5
             :fileRecallAt10 0.75
@@ -571,6 +658,7 @@
             :maxUnsupportedGroundTruthFiles 0.0
             :maxEmptyResultRuns 0.0
             :maxUnverifiedScoreRuns 0.0
+            :maxGraphExpectationFailures 0.0
             :maxMissedRuns 0.0
             :maxRankedOutsideTop5Runs 0.0
             :maxRankedOutsideTop10Runs 0.0
@@ -737,6 +825,10 @@
                                 :root root}]
                        :cases [{:id "case-1"
                                 :repo-id "repo"
+                                :tags [:runtime-config :auth]
+                                :expectations {:evidence [{:kind :auth-reference
+                                                           :path "src/app.clj"}]
+                                               :forbidden-edges [:shares-config]}
                                 :coverage {:source-kinds [:code :python]}
                                 :base-sha base-sha
                                 :fix-sha fix-sha
@@ -755,6 +847,11 @@
               progress (json/read-json (slurp progress-path) :key-fn keyword)]
           (is (= benchmark/prepared-case-schema (:schema prepared)))
           (is (str/starts-with? (:caseFingerprint prepared) "sha256:"))
+          (is (= ["auth" "runtime-config"] (:tags prepared)))
+          (is (= {:evidence [{:kind :auth-reference
+                              :path "src/app.clj"}]
+                  :forbidden-edges [:shares-config]}
+                 (:expectations prepared)))
           (is (= #{"docs/release.md" "src/app.clj" "src/new.clj"}
                  (set (get-in prepared [:groundTruth :changedFiles]))))
           (is (= ["docs/release.md" "src/app.clj"]

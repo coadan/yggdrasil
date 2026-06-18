@@ -106,6 +106,7 @@
     "--max-case-noise-at-20"
     "--max-input-hinted-cases" "--max-unsupported-ground-truth-files"
     "--max-empty-result-runs" "--max-unverified-score-runs"
+    "--max-graph-expectation-failures"
     "--max-missed-runs"
     "--max-ranked-outside-top-5-runs"
     "--max-ranked-outside-top-10-runs"
@@ -1851,6 +1852,11 @@
                                                                 (parse-optional-double
                                                                  args
                                                                  "--max-unverified-score-runs"))
+    (parse-optional-double args "--max-graph-expectation-failures") (assoc
+                                                                     :max-graph-expectation-failures
+                                                                     (parse-optional-double
+                                                                      args
+                                                                      "--max-graph-expectation-failures"))
     (parse-optional-double args "--max-missed-runs") (assoc
                                                       :max-missed-runs
                                                       (parse-optional-double
@@ -1957,6 +1963,14 @@
                  (:occurrences blocker)
                  "best-rank"
                  (:bestRank blocker)))
+      (when (pos? (long (get-in result
+                                [:graphExpectationDiagnostics :failedRuns]
+                                0)))
+        (println "- graph-expectation-failures"
+                 (get-in result [:graphExpectationDiagnostics :failedRuns])
+                 "cases"
+                 (str/join "," (get-in result
+                                       [:graphExpectationDiagnostics :failedCaseIds]))))
       (when-let [timings (:timings result)]
         (println "- timing-ms" (:elapsedMs timings)
                  "running" (:runningCases timings)
@@ -2013,6 +2027,18 @@
                  (:occurrences blocker)
                  "best-rank"
                  (:bestRank blocker)))
+      (when (pos? (long (get-in result
+                                [:report
+                                 :graphExpectationDiagnostics
+                                 :failedRuns]
+                                0)))
+        (println "- graph-expectation-failures"
+                 (get-in result [:report :graphExpectationDiagnostics :failedRuns])
+                 "cases"
+                 (str/join "," (get-in result
+                                       [:report
+                                        :graphExpectationDiagnostics
+                                        :failedCaseIds]))))
       (when (seq (:failures result))
         (println "## Failures")
         (doseq [{:keys [metric operator expected actual message]} (:failures result)]
@@ -2179,7 +2205,7 @@
     "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--skip-existing] [--out DIR] [--json]"
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--out DIR] [--json]"
     "  bench agent-report <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--allow-unverified-scores] [--out DIR] [--json]"
-    "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-unverified-score-runs N] [--max-missed-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-active-stage-ms N] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"
+    "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-unverified-score-runs N] [--max-graph-expectation-failures N] [--max-missed-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-active-stage-ms N] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"
     "  bench agent-compare <benchmark.edn> --baseline-report before.json --candidate-report after.json [--regression-tolerance N] [--out DIR] [--json]"
     "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
     ""
