@@ -103,6 +103,9 @@
 (def ^:private rank-score-compound-pair-weight
   0.35)
 
+(def ^:private rank-score-candidate-only-graph-weight
+  3.0)
+
 (def ^:private rank-score-support-count-cap
   2)
 
@@ -1678,6 +1681,12 @@
                (dec first-source-rank))))
     0.0))
 
+(defn- candidate-only-graph-boost
+  [graph-score evidence-score]
+  (* rank-score-candidate-only-graph-weight
+     (double graph-score)
+     (min 1.0 (double evidence-score))))
+
 (defn- doc-prediction
   [root query-tokens idx doc]
   (let [source (:source doc)
@@ -1820,6 +1829,9 @@
                              source-rank-score (retrieved-source-rank-score
                                                 retrieved-source-count
                                                 (:source-rank best-row))
+                             graph-neighbor-boost (candidate-only-graph-boost
+                                                   candidate-only-graph-score
+                                                   max-evidence-score)
                              rank-score (+ max-evidence-score
                                            source-rank-score
                                            (* 0.22 (min rank-score-token-cap
@@ -1837,7 +1849,7 @@
                                            (* 0.12 exact-path-source-count)
                                            (* 0.04 candidate-count)
                                            (* 0.03 entity-count)
-                                           (* 3.0 candidate-only-graph-score))
+                                           graph-neighbor-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
                                               :docCount doc-count
@@ -1861,7 +1873,9 @@
                                        (pos? source-rank-score)
                                        (assoc :sourceRankScore source-rank-score)
                                        (pos? graph-neighbor-score)
-                                       (assoc :graphNeighborScore graph-neighbor-score))]
+                                       (assoc :graphNeighborScore graph-neighbor-score)
+                                       (pos? graph-neighbor-boost)
+                                       (assoc :graphNeighborBoost graph-neighbor-boost))]
                          (cond-> (assoc best-row
                                         :path path
                                         :confidence confidence

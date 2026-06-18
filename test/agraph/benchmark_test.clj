@@ -1593,6 +1593,32 @@
     (is (nil? (get-in files [1 :metrics :graphNeighborScore])))
     (is (= 0.5 (get-in files [0 :metrics :graphNeighborScore])))))
 
+(deftest file-ranking-bounds-candidate-only-graph-boost-by-evidence
+  (let [root (temp-dir "agraph-bench-candidate-graph-bounds")
+        _ (spit-file! root "src/direct.clj" "(ns direct)\n")
+        _ (spit-file! root "src/late-neighbor.clj" "(ns late-neighbor)\n")
+        packet {:query "console unique id selector"
+                :docs [{:source {:path "src/direct.clj"
+                                 :heading "direct unique id selector"}
+                        :score 1.0
+                        :snippet "unique id selector"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "src/late-neighbor.clj"
+                                  :rank 100
+                                  :score 0.35
+                                  :targetKind "node"
+                                  :label "console selector"
+                                  :scoreComponents {:lexical 0.05
+                                                    :graph 1.0}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/direct.clj" "src/late-neighbor.clj"]
+           (mapv :path files)))
+    (is (= 1.0 (get-in files [1 :metrics :graphNeighborScore])))
+    (is (< (get-in files [1 :metrics :graphNeighborBoost])
+           (get-in files [1 :metrics :graphNeighborScore])))))
+
 (deftest file-ranking-uses-ordered-query-token-pairs-in-candidate-labels
   (let [root (temp-dir "agraph-bench-candidate-token-pairs")
         _ (spit-file! root "src/scattered.clj" "(ns scattered)\n")
