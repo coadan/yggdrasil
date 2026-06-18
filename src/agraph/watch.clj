@@ -23,9 +23,12 @@
         parts (remove str/blank? (str/split path #"/"))
         filename (last parts)
         hidden? #(str/starts-with? % ".")
+        hidden-parts (filter hidden? parts)
         root-supported-hidden? (and (= 1 (count parts))
                                     (hidden? filename)
                                     (fs/supported-path? filename))
+        env-hidden-file? (and (= [filename] (vec hidden-parts))
+                              (fs/env-filename? filename))
         supported-hidden? (and (some hidden? parts)
                                (or (re-matches #"^\.devcontainer/devcontainer\.json$" path-lower)
                                    (re-matches #"^\.github/dependabot\.ya?ml$" path-lower)
@@ -38,6 +41,7 @@
     (and (seq filename)
          (not-any? fs/ignored-dirs parts)
          (or root-supported-hidden?
+             env-hidden-file?
              supported-hidden?
              (not (some hidden? parts)))
          (not (fs/ignored-filename? filename))

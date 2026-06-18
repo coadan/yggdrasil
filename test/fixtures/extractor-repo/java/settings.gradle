@@ -1,0 +1,11 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+    }
+}
+
+rootProject.name = 'panels-gradle'
+
+include ':panels-core', ':panels-api'
+project(':panels-api').projectDir = file('apps/api')

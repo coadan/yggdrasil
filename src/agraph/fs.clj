@@ -93,6 +93,15 @@
 (def ignored-filenames
   #{"bun.lockb"})
 
+(defn env-filename?
+  "Return true for dotenv-style files that need sanitized extraction."
+  [filename]
+  (let [filename (str/lower-case (str filename))]
+    (or (= ".env" filename)
+        (= ".envrc" filename)
+        (str/starts-with? filename ".env.")
+        (str/ends-with? filename ".env"))))
+
 (defn canonical-path
   "Return canonical path string for a file/path."
   [path]
@@ -118,7 +127,7 @@
           (re-find #"(^|/)\.github/issue_template/[^/]+\.(?:md|ya?ml|json)$" path-lower)
           (re-find #"(^|/)\.github/pull_request_template(?:/[^/]+\.md|\.md)$" path-lower)
           (re-find #"(^|/)\.github/funding\.ya?ml$" path-lower)) :governance
-      (str/ends-with? filename ".env.example") :env
+      (env-filename? filename) :env
       (str/ends-with? filename ".sh.in") :shell
       (str/ends-with? filename ".rb.template") :ruby
       (= "dockerfile" filename) :docker
@@ -307,7 +316,7 @@
   (let [filename (str/lower-case (.getName (io/file path)))
         path-lower (str/replace (str/lower-case (str path)) "\\" "/")]
     (or (contains? supported-extensions (extension path))
-        (str/ends-with? filename ".env.example")
+        (env-filename? filename)
         (str/ends-with? filename ".sh.in")
         (re-find #"(^|/)\.github/workflows/[^/]+\.ya?ml$" path-lower)
         (re-find #"(^|/)\.github/issue_template/[^/]+\.(?:md|ya?ml|json)$" path-lower)
@@ -471,9 +480,12 @@
 (defn- allowed-hidden-supported-path?
   [rel-path]
   (let [path-lower (str/replace (str/lower-case (str rel-path)) "\\" "/")
-        parts (str/split path-lower #"/")]
+        parts (str/split path-lower #"/")
+        hidden-parts (filter #(str/starts-with? % ".") parts)]
     (or (and (= 1 (count parts))
              (supported-path? path-lower))
+        (and (= [(last parts)] (vec hidden-parts))
+             (env-filename? (last parts)))
         (re-find #"^\.devcontainer/devcontainer\.json$" path-lower)
         (re-find #"^\.github/workflows/[^/]+\.ya?ml$" path-lower)
         (re-find #"^\.github/issue_template/[^/]+\.(?:md|ya?ml|json)$" path-lower)

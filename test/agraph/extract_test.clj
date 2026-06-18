@@ -1649,6 +1649,10 @@
                        "run/test"
                        (fs/file-record "test/fixtures/extractor-repo"
                                        "test/fixtures/extractor-repo/java/build.gradle"))
+        gradle-settings-result (extract/extract-file
+                                "run/test"
+                                (fs/file-record "test/fixtures/extractor-repo"
+                                                "test/fixtures/extractor-repo/java/settings.gradle"))
         csproj-result (extract/extract-file
                        "run/test"
                        (fs/file-record "test/fixtures/extractor-repo"
@@ -1707,6 +1711,7 @@
                                       "test/fixtures/extractor-repo/src/haskell/stack.yaml"))
         pom-labels (set (map :label (:nodes pom-result)))
         gradle-labels (set (map :label (:nodes gradle-result)))
+        gradle-settings-labels (set (map :label (:nodes gradle-settings-result)))
         csproj-labels (set (map :label (:nodes csproj-result)))
         sln-labels (set (map :label (:nodes sln-result)))
         gemfile-labels (set (map :label (:nodes gemfile-result)))
@@ -1726,7 +1731,29 @@
     (is (= 1 (get (frequencies (map :relation (:edges pom-result))) :requires 0)))
     (is (contains? gradle-labels "panels-gradle"))
     (is (contains? gradle-labels "maven:com.fasterxml.jackson.core:jackson-databind"))
-    (is (= 1 (get (frequencies (map :relation (:edges gradle-result))) :requires 0)))
+    (is (contains? gradle-labels "maven:org.junit.jupiter:junit-jupiter"))
+    (is (contains? gradle-labels ":panels-core"))
+    (is (contains? gradle-labels "java"))
+    (is (contains? gradle-labels "org.jetbrains.kotlin.jvm"))
+    (is (contains? gradle-labels "mavenCentral"))
+    (is (contains? gradle-labels "https://repo.example.test/maven"))
+    (is (contains? gradle-labels "generatePanels"))
+    (is (contains? gradle-labels "bb generate-panels"))
+    (is (contains? gradle-labels "dependsOn:generatePanels"))
+    (is (= {:requires 4 :uses 5 :defines 1}
+           (select-keys (frequencies (map :relation (:edges gradle-result)))
+                        [:requires :uses :defines])))
+    (is (= :manifest (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                            "test/fixtures/extractor-repo/java/settings.gradle"))))
+    (is (contains? gradle-settings-labels "panels-gradle"))
+    (is (contains? gradle-settings-labels "gradlePluginPortal"))
+    (is (contains? gradle-settings-labels "google"))
+    (is (contains? gradle-settings-labels ":panels-core"))
+    (is (contains? gradle-settings-labels ":panels-api"))
+    (is (contains? gradle-settings-labels ":panels-api=apps/api"))
+    (is (= {:uses 2 :defines 2 :references 1}
+           (select-keys (frequencies (map :relation (:edges gradle-settings-result)))
+                        [:uses :defines :references])))
     (is (contains? csproj-labels "Acme.Panels"))
     (is (contains? csproj-labels "nuget:Dapper"))
     (is (contains? csproj-labels "../Contracts/Contracts.csproj"))
@@ -3242,6 +3269,28 @@
     (is (= [:shell-file] (mapv :kind (:chunks shell-result))))
     (is (empty? (:nodes shell-result)))
     (is (empty? (:edges shell-result)))))
+
+(deftest extracts-env-files-with-sanitized-variable-chunks
+  (let [root (.toFile (java.nio.file.Files/createTempDirectory
+                       "agraph-env-extract"
+                       (make-array java.nio.file.attribute.FileAttribute 0)))
+        file (doto (io/file root ".env")
+               (spit (str "OPENAI_API_KEY=sk-live-secret\n"
+                          "API_URL=https://api.example.test\n"
+                          "export CLIENT_SECRET=client-secret-value\n")))
+        record (fs/file-record (.getPath root) (.getPath file))
+        result (extract/extract-file "run/test" record)
+        labels (set (map :label (:nodes result)))
+        chunk (first (:chunks result))]
+    (is (= :env (:kind record)))
+    (is (contains? labels ".env"))
+    (is (contains? labels "OPENAI_API_KEY"))
+    (is (contains? labels "API_URL"))
+    (is (contains? labels "CLIENT_SECRET"))
+    (is (= [:env-file] (mapv :kind (:chunks result))))
+    (is (str/includes? (:text chunk) "OPENAI_API_KEY"))
+    (is (not (re-find #"sk-live-secret|client-secret-value|https://api.example.test"
+                      (:text chunk))))))
 
 (deftest extracts-unknown-text-as-searchable-source-chunk
   (let [root (.toFile (java.nio.file.Files/createTempDirectory

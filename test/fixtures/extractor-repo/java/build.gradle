@@ -1,9 +1,25 @@
 plugins {
     id 'java'
+    id 'org.jetbrains.kotlin.jvm' version '2.0.0'
 }
 
 rootProject.name = 'panels-gradle'
 
+repositories {
+    mavenCentral()
+    maven { url 'https://repo.example.test/maven' }
+}
+
 dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.1'
+    testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter', version: '5.10.2'
+    implementation project(':panels-core')
+}
+
+tasks.register('generatePanels', Exec) {
+    commandLine 'bb', 'generate-panels'
+}
+
+tasks.named('check') {
+    dependsOn 'generatePanels'
 }

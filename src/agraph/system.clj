@@ -173,25 +173,28 @@
 
 (defn- evidence-row
   [run-id project-id repo-id system-id fact]
-  {:xt/id (evidence-id project-id
-                       repo-id
-                       system-id
-                       (:kind fact)
-                       (:path fact)
-                       (:source-line fact)
-                       (:normalized-value fact))
-   :project-id project-id
-   :repo-id repo-id
-   :system-id system-id
-   :file-id (:file-id fact)
-   :path (:path fact)
-   :kind (:kind fact)
-   :label (:label fact)
-   :normalized-value (:normalized-value fact)
-   :source-line (long (or (:source-line fact) 1))
-   :confidence (double (:confidence fact))
-   :active? true
-   :run-id run-id})
+  (cond-> {:xt/id (evidence-id project-id
+                                repo-id
+                                system-id
+                                (:kind fact)
+                                (:path fact)
+                                (:source-line fact)
+                                (:normalized-value fact))
+           :project-id project-id
+           :repo-id repo-id
+           :system-id system-id
+           :file-id (:file-id fact)
+           :path (:path fact)
+           :kind (:kind fact)
+           :label (:label fact)
+           :normalized-value (:normalized-value fact)
+           :source-line (long (or (:source-line fact) 1))
+           :confidence (double (:confidence fact))
+           :active? true
+           :run-id run-id}
+    (:file-kind fact) (assoc :file-kind (:file-kind fact))
+    (:url-context fact) (assoc :url-context (:url-context fact))
+    (:auth-context fact) (assoc :auth-context (:auth-context fact))))
 
 (defn- url-host
   [value]
@@ -221,8 +224,16 @@
   [row]
   (= :url (:kind row)))
 
+(defn- external-api-evidence?
+  [row]
+  (and (url-evidence? row)
+       (= :runtime-config (:url-context row))))
+
 (def container-image-evidence-kinds
   #{:container-image-producer :container-image-consumer})
+
+(def evidence-only-kinds
+  #{:auth-reference})
 
 (defn- system-id-for-row
   [project-id repo-by-id candidate-index-by-repo row]
@@ -359,7 +370,9 @@
 (defn- value-system-edges
   [run-id project-id evidence]
   (->> evidence
-       (remove #(contains? (set/union #{:port :route :url} container-image-evidence-kinds)
+       (remove #(contains? (set/union #{:port :route :url}
+                                      container-image-evidence-kinds
+                                      evidence-only-kinds)
                            (:kind %)))
        (group-by :normalized-value)
        (mapcat
@@ -419,7 +432,7 @@
 (defn- external-api-nodes
   [run-id project-id evidence]
   (->> evidence
-       (filter url-evidence?)
+       (filter external-api-evidence?)
        (keep (comp url-host :label))
        (filter external-host?)
        distinct
@@ -429,7 +442,7 @@
 (defn- external-api-edges
   [run-id project-id evidence]
   (->> evidence
-       (filter url-evidence?)
+       (filter external-api-evidence?)
        (keep (fn [row]
                (when-let [host (url-host (:label row))]
                  (when (external-host? host)

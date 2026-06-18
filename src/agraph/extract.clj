@@ -19,7 +19,8 @@
   [:nodes :edges :chunks :diagnostics])
 
 (declare extract-format-facts
-         read-json-map)
+         read-json-map
+         strip-yaml-scalar)
 
 (def extractor-contract-version
   "agraph.extract/v2")
@@ -88,7 +89,7 @@
    :html "html/v1"
    :svg "svg/v1"
    :xml "xml/v1"
-   :env "env/v1"
+   :env "env/v2"
    :text "text/v1"
    :image-asset "asset/v1"
    :font-asset "asset/v1"
@@ -709,6 +710,59 @@
              :active? true
              :run-id run-id}]
    :diagnostics []})
+
+(defn- env-var-facts
+  [content]
+  (->> (str/split-lines content)
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (let [trimmed (str/trim line)]
+                 (when-not (or (str/blank? trimmed)
+                               (str/starts-with? trimmed "#"))
+                   (when-let [[_ key]
+                              (re-matches #"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|:).*$"
+                                          trimmed)]
+                     {:kind :env-var
+                      :label key
+                      :source-line (inc idx)
+                      :relation :defines})))))
+       distinct
+       vec))
+
+(defn extract-env
+  "Extract dotenv-style files without storing assigned values as searchable text."
+  [run-id {:keys [id-scope file-id path content kind]}]
+  (let [root-node (generic-node run-id id-scope file-id path :env-file path 1)
+        facts (env-var-facts content)
+        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
+                           (generic-node run-id id-scope file-id path kind label source-line))
+                         facts)
+        fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
+                           (edge-row run-id
+                                     file-id
+                                     path
+                                     (:xt/id root-node)
+                                     (node-id id-scope kind label)
+                                     relation
+                                     :extracted
+                                     source-line))
+                         facts)
+        sanitized-text (str/join "\n" (cons path (map :label facts)))]
+    {:nodes (into [root-node] fact-nodes)
+     :edges fact-edges
+     :chunks [{:xt/id (chunk-id id-scope path path 1)
+               :file-id file-id
+               :path path
+               :kind :env-file
+               :file-kind kind
+               :label path
+               :text sanitized-text
+               :tokens (text/tokenize sanitized-text)
+               :content-sha (hash/sha256-hex sanitized-text)
+               :source-line 1
+               :active? true
+               :run-id run-id}]
+     :diagnostics []}))
 
 (defn- rust-module-name
   [path]
@@ -5444,16 +5498,211 @@
               second)
       path))
 
-(defn- gradle-dependencies
-  [content]
-  (->> (re-seq #"(?m)^\s*(?:api|compileOnly|implementation|runtimeOnly|testImplementation|testRuntimeOnly)\s*(?:\(?\s*)['\"]([^:'\"]+):([^:'\"]+)(?::[^'\"]+)?['\"]"
-               content)
-       (map (fn [[_ group-id artifact-id]]
-              (package-fact {:ecosystem :maven
-                             :package-name (str group-id ":" artifact-id)
-                             :source-line 1})))
+(defn- gradle-line-facts
+  [content fact-fn]
+  (->> (str/split-lines content)
+       (map-indexed vector)
+       (mapcat (fn [[idx line]]
+                 (fact-fn (inc idx) line)))
+       (remove nil?)
        distinct
        vec))
+
+(defn- gradle-dependencies
+  [content]
+  (gradle-line-facts
+   content
+   (fn [source-line line]
+     (let [scope-pattern #"(api|compileOnly|implementation|runtimeOnly|testImplementation|testRuntimeOnly|testFixturesImplementation|annotationProcessor|kapt|classpath)"
+           string-dep (re-matches (re-pattern (str "^\\s*" scope-pattern
+                                                   "\\s*(?:\\(?\\s*)['\"]([^:'\"]+):([^:'\"]+)(?::([^'\"]+))?['\"].*$"))
+                                  line)
+           map-dep (re-matches (re-pattern (str "^\\s*" scope-pattern
+                                                "\\s*(?:\\(?\\s*)group\\s*:\\s*['\"]([^'\"]+)['\"]\\s*,\\s*name\\s*:\\s*['\"]([^'\"]+)['\"](?:\\s*,\\s*version\\s*:\\s*['\"]([^'\"]+)['\"])?\\s*\\)?.*$"))
+                               line)
+           project-dep (re-matches (re-pattern (str "^\\s*" scope-pattern
+                                                    "\\s*(?:\\(?\\s*)project\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\).*$"))
+                                   line)]
+       (cond
+         string-dep
+         (let [[_ scope group-id artifact-id version] string-dep]
+           [(package-fact {:ecosystem :maven
+                           :package-name (str group-id ":" artifact-id)
+                           :version-range version
+                           :dependency-scope scope
+                           :source-line source-line})])
+
+         map-dep
+         (let [[_ scope group-id artifact-id version] map-dep]
+           [(package-fact {:ecosystem :maven
+                           :package-name (str group-id ":" artifact-id)
+                           :version-range version
+                           :dependency-scope scope
+                           :source-line source-line})])
+
+         project-dep
+         (let [[_ scope project-path] project-dep]
+           [{:kind :gradle-project-dependency
+             :label project-path
+             :dependency-scope scope
+             :source-line source-line
+             :relation :requires}])
+
+         :else [])))))
+
+(defn- gradle-plugins
+  [content]
+  (gradle-line-facts
+   content
+   (fn [source-line line]
+     (cond
+       (re-matches #"^\s*id\s+['\"]([^'\"]+)['\"].*$" line)
+       (let [[_ plugin-id] (re-matches #"^\s*id\s+['\"]([^'\"]+)['\"].*$" line)]
+         [{:kind :gradle-plugin
+           :label plugin-id
+           :source-line source-line
+           :relation :uses}])
+
+       (re-matches #"^\s*id\s*\(\s*['\"]([^'\"]+)['\"]\s*\).*$" line)
+       (let [[_ plugin-id] (re-matches #"^\s*id\s*\(\s*['\"]([^'\"]+)['\"]\s*\).*$" line)]
+         [{:kind :gradle-plugin
+           :label plugin-id
+           :source-line source-line
+           :relation :uses}])
+
+       (re-matches #"^\s*alias\s*\(\s*([A-Za-z0-9_.-]+)\s*\).*$" line)
+       (let [[_ plugin-ref] (re-matches #"^\s*alias\s*\(\s*([A-Za-z0-9_.-]+)\s*\).*$" line)]
+         [{:kind :gradle-plugin
+           :label (str "alias:" plugin-ref)
+           :source-line source-line
+           :relation :uses}])
+
+       (re-matches #"^\s*apply\s+plugin:\s*['\"]([^'\"]+)['\"].*$" line)
+       (let [[_ plugin-id] (re-matches #"^\s*apply\s+plugin:\s*['\"]([^'\"]+)['\"].*$" line)]
+         [{:kind :gradle-plugin
+           :label plugin-id
+           :source-line source-line
+           :relation :uses}])
+
+       :else []))))
+
+(defn- gradle-repositories
+  [content]
+  (gradle-line-facts
+   content
+   (fn [source-line line]
+     (cond
+       (re-matches #"^\s*(mavenCentral|google|gradlePluginPortal)\s*\(\s*\).*$" line)
+       (let [[_ repository] (re-matches #"^\s*(mavenCentral|google|gradlePluginPortal)\s*\(\s*\).*$"
+                                        line)]
+         [{:kind :package-repository
+           :label repository
+           :source-line source-line
+           :relation :uses}])
+
+       (re-matches #"^\s*maven\s*\{\s*url\s+['\"]([^'\"]+)['\"]\s*\}.*$" line)
+       (let [[_ repository] (re-matches #"^\s*maven\s*\{\s*url\s+['\"]([^'\"]+)['\"]\s*\}.*$"
+                                        line)]
+         [{:kind :package-repository
+           :label repository
+           :source-line source-line
+           :relation :uses}])
+
+       (re-matches #"^\s*url\s*(?:=)?\s*(?:uri\s*\()?\s*['\"]([^'\"]+)['\"].*$" line)
+       (let [[_ repository] (re-matches #"^\s*url\s*(?:=)?\s*(?:uri\s*\()?\s*['\"]([^'\"]+)['\"].*$"
+                                        line)]
+         [{:kind :package-repository
+           :label repository
+           :source-line source-line
+           :relation :uses}])
+
+       :else []))))
+
+(defn- gradle-command-label
+  [value]
+  (->> (str/split (str value) #",")
+       (map strip-yaml-scalar)
+       (remove str/blank?)
+       (str/join " ")))
+
+(defn- gradle-modules
+  [content]
+  (gradle-line-facts
+   content
+   (fn [source-line line]
+     (let [include-values (when-let [[_ values]
+                                     (or (re-matches #"^\s*include\s+(.+?)\s*$" line)
+                                         (re-matches #"^\s*include\s*\((.+?)\)\s*$" line))]
+                            (->> (str/split values #",")
+                                 (map #(str/replace % #"^[\s'\"]+|[\s'\"]+$" ""))
+                                 (remove str/blank?)))
+           project-dir (when-let [[_ module dir]
+                                  (re-matches #"^\s*project\s*\(\s*['\"]([^'\"]+)['\"]\s*\)\.projectDir\s*=\s*file\s*\(\s*['\"]([^'\"]+)['\"]\s*\).*$"
+                                              line)]
+                         {:module module
+                          :dir dir})]
+       (cond
+         (seq include-values)
+         (map (fn [module-name]
+                {:kind :gradle-module
+                 :label module-name
+                 :source-line source-line
+                 :relation :defines})
+              include-values)
+
+         project-dir
+         [{:kind :gradle-module-path
+           :label (str (:module project-dir) "=" (:dir project-dir))
+           :source-line source-line
+           :relation :references}]
+
+         :else [])))))
+
+(defn- gradle-tasks
+  [content]
+  (gradle-line-facts
+   content
+   (fn [source-line line]
+     (cond
+       (re-matches #"^\s*tasks\.(?:register|create)\s*\(\s*['\"]([^'\"]+)['\"].*$" line)
+       (let [[_ task-name] (re-matches #"^\s*tasks\.(?:register|create)\s*\(\s*['\"]([^'\"]+)['\"].*$"
+                                       line)]
+         [{:kind :task
+           :label task-name
+           :source-line source-line
+           :relation :defines}])
+
+       (re-matches #"^\s*task\s+([A-Za-z0-9_.-]+)\b.*$" line)
+       (let [[_ task-name] (re-matches #"^\s*task\s+([A-Za-z0-9_.-]+)\b.*$" line)]
+         [{:kind :task
+           :label task-name
+           :source-line source-line
+           :relation :defines}])
+
+       (re-matches #"^\s*commandLine\s+(.+?)\s*$" line)
+       (let [[_ command] (re-matches #"^\s*commandLine\s+(.+?)\s*$" line)]
+         [{:kind :task-command
+           :label (gradle-command-label command)
+           :source-line source-line
+           :relation :uses}])
+
+       (re-matches #"^\s*dependsOn\s*\(?\s*['\"]([^'\"]+)['\"]\s*\)?.*$" line)
+       (let [[_ task-name] (re-matches #"^\s*dependsOn\s*\(?\s*['\"]([^'\"]+)['\"]\s*\)?.*$"
+                                       line)]
+         [{:kind :task-dependency
+           :label (str "dependsOn:" task-name)
+           :source-line source-line
+           :relation :requires}])
+
+       :else []))))
+
+(defn- gradle-facts
+  [content]
+  (vec (distinct (concat (gradle-dependencies content)
+                         (gradle-plugins content)
+                         (gradle-repositories content)
+                         (gradle-modules content)
+                         (gradle-tasks content)))))
 
 (defn- dotnet-package-references
   [content]
@@ -6636,7 +6885,7 @@
                    "settings.gradle.kts" "gradle.properties"}
                  filename)
       {:project-label (gradle-project-name content path)
-       :facts (gradle-dependencies content)}
+       :facts (gradle-facts content)}
 
       (or (contains? #{"csproj" "fsproj" "vbproj" "props" "targets"}
                      extension)
@@ -7504,7 +7753,6 @@
   (extract-config-facts run-id file :db-config :db-config-file))
 
 (declare leading-spaces
-         strip-yaml-scalar
          yaml-key-line
          yaml-scalar-list-values
          yaml-top-section-blocks)
@@ -11931,7 +12179,7 @@
      :svg (extract-svg run-id file)
      :xml (extract-xml run-id file)
      :html (extract-text-source run-id file :html-file)
-     :env (extract-text-source run-id file :env-file)
+     :env (extract-env run-id file)
      :text (extract-text-source run-id file :text-file)
      :unknown (extract-text-source run-id file :unknown-file)
      (:image-asset :font-asset :gettext-binary) (extract-binary-asset run-id file)

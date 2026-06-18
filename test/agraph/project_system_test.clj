@@ -147,14 +147,13 @@
                           (= "api.stripe.com" (:label %)))
                     systems))
           (is (some #(and (= :external-api (:kind %))
-                          (= "docs.example.com" (:label %)))
-                    systems))
-          (is (some #(and (= :external-api (:kind %))
-                          (= "spacetimedb.com" (:label %)))
-                    systems))
-          (is (some #(and (= :external-api (:kind %))
                           (= "api.example.com" (:label %)))
                     systems))
+          (is (not-any? #(and (= :external-api (:kind %))
+                              (contains? #{"docs.example.com"
+                                           "spacetimedb.com"}
+                                         (:label %)))
+                        systems))
           (is (some #(= :code-depends-on (:relation %)) system-edges))
           (is (some #(= :calls-external-api (:relation %)) system-edges))
           (is (pos? (get-in maintenance [:counts :orphaned-systems])))
@@ -375,6 +374,36 @@
               values (set (map :normalized-value evidence))]
           (is (contains? values "container-image:indexed-runtime"))
           (is (not (contains? values "container-image:live-runtime"))))))))
+
+(deftest auth-reference-facts-remain-supporting-evidence
+  (let [xtdb-path (temp-dir "agraph-auth-evidence-xtdb")
+        repo-root (temp-dir "agraph-auth-evidence-repo")
+        project {:id "auth-evidence"
+                 :name "Auth Evidence"
+                 :repos [{:id "app" :root repo-root :role :application}]}]
+    (spit-file! repo-root
+                "services/a/config.json"
+                "{\"OPENAI_API_KEY\":\"sk-a\"}\n")
+    (spit-file! repo-root
+                "services/b/config.json"
+                "{\"OPENAI_API_KEY\":\"sk-b\"}\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (project/index-project! xtdb project {})
+        (project/infer-project! xtdb project)
+        (let [evidence (store/rows-by-field xtdb
+                                            (:system-evidence store/tables)
+                                            :project-id
+                                            "auth-evidence")
+              auth-evidence (filter #(= :auth-reference (:kind %)) evidence)
+              edges (store/rows-by-field xtdb
+                                         (:system-edges store/tables)
+                                         :project-id
+                                         "auth-evidence")]
+          (is (= 2 (count auth-evidence)))
+          (is (= 2 (count (set (map :system-id auth-evidence)))))
+          (is (= #{:api-key} (set (map :auth-context auth-evidence))))
+          (is (not-any? #(= :shares-config (:relation %)) edges)))))))
 
 (deftest maintenance-graph-health-reports-cross-cluster-bridges
   (store/with-node (temp-dir "agraph-health-xtdb")
