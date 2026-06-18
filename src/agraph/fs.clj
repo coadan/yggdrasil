@@ -133,7 +133,7 @@
   (let [filename (str/lower-case (.getName (io/file path)))
         path-lower (str/replace (str/lower-case (str path)) "\\" "/")]
     (cond
-      (contains? #{"license" "copying" "notice"} filename) :doc
+      (contains? #{"license" "copying" "notice"} filename) :governance
       (or (contains? #{"security.md" "contributing.md"} filename)
           (re-find #"(^|/)\.github/issue_template/[^/]+\.(?:md|ya?ml|json)$" path-lower)
           (re-find #"(^|/)\.github/pull_request_template(?:/[^/]+\.md|\.md)$" path-lower)

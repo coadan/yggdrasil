@@ -244,6 +244,10 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/CONTRIBUTING.md")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/LICENSE")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/NOTICE")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/notebooks/panel_analysis.ipynb")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/.devcontainer/devcontainer.json")
@@ -2508,19 +2512,35 @@
         pr (result-for ".github/PULL_REQUEST_TEMPLATE.md")
         funding (result-for ".github/FUNDING.yml")
         security (result-for "SECURITY.md")
-        contributing (result-for "CONTRIBUTING.md")]
+        contributing (result-for "CONTRIBUTING.md")
+        license (result-for "LICENSE")
+        notice (result-for "NOTICE")
+        license-kinds (frequencies (map :kind (:nodes license)))
+        notice-kinds (frequencies (map :kind (:nodes notice)))]
     (is (= :governance (kind-for ".github/ISSUE_TEMPLATE/bug_report.yml")))
     (is (= :governance (kind-for ".github/PULL_REQUEST_TEMPLATE.md")))
     (is (= :governance (kind-for ".github/FUNDING.yml")))
     (is (= :governance (kind-for "SECURITY.md")))
     (is (= :governance (kind-for "CONTRIBUTING.md")))
+    (is (= :governance (kind-for "LICENSE")))
+    (is (= :governance (kind-for "NOTICE")))
     (is (contains? (labels issue) "name=Bug report"))
     (is (contains? (labels issue) "labels=bug, triage"))
     (is (contains? (labels pr) "Summary"))
     (is (contains? (labels pr) "Tests updated"))
     (is (contains? (labels funding) "github=acme"))
     (is (contains? (labels security) "Security Policy"))
-    (is (contains? (labels contributing) "Development"))))
+    (is (contains? (labels contributing) "Development"))
+    (is (contains? (labels license) "Apache-2.0"))
+    (is (contains? (labels license) "2026 Acme Corp"))
+    (is (contains? (labels license) "Apache License"))
+    (is (= 1 (get license-kinds :license-id 0)))
+    (is (= 1 (get license-kinds :license-title 0)))
+    (is (= 1 (get license-kinds :copyright-notice 0)))
+    (is (contains? (labels notice) "Copyright 2026 Acme Corp"))
+    (is (= 1 (get notice-kinds :copyright-notice 0)))
+    (is (= [:governance-config-file] (mapv :kind (:chunks license))))
+    (is (= [:governance-config-file] (mapv :kind (:chunks notice))))))
 
 (deftest extracts-format-support-tranche-facts
   (let [result-for (fn [path]
@@ -3639,11 +3659,11 @@
                            (fs/file-record (.getPath root)
                                            (.getPath template-file)))
           script-result (extract/extract-file "run/test" script-record)]
-      (is (= :doc (fs/file-kind "LICENSE")))
+      (is (= :governance (fs/file-kind "LICENSE")))
       (is (= :doc (fs/file-kind "cytoscape.LICENSE")))
       (is (= :ruby (fs/file-kind "demo.rb.template")))
       (is (= :shell (:kind script-record)))
-      (is (= {"LICENSE" :doc
+      (is (= {"LICENSE" :governance
               "cytoscape.LICENSE" :doc
               "demo.rb.template" :ruby
               "tool" :shell}
