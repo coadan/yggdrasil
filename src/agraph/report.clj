@@ -241,6 +241,7 @@
    :coverage {:totals (:totals coverage)
               :top-file-kinds (vec (take 12 (:files-by-kind coverage)))
               :skipped-by-reason (vec (take 8 (:skipped-by-reason coverage)))
+              :extractors (vec (take 20 (:extractors coverage)))
               :diagnostics (select-keys (:diagnostics coverage)
                                         [:total :by-stage :by-extractor])}
    :graphs {:overview (assoc (graph-counts graph-data)

@@ -53,6 +53,11 @@
           (is (= "agraph.evidence/v1" (get-in report-json [:evidence :schema])))
           (is (= "graph.json" (get-in report-json [:graphs :overview :artifact])))
           (is (= "systems.json" (get-in report-json [:graphs :systems :artifact])))
+          (is (seq (get-in report-json [:coverage :extractors])))
+          (is (every? #(and (:kind %)
+                            (:extractor-version %)
+                            (number? (:files %)))
+                      (get-in report-json [:coverage :extractors])))
           (is (= (get-in report-json [:maintenance :queue :decisions])
                  (get-in report-json [:maintenance :decision-summary :total])))
           (is (= "agraph.context/v1"

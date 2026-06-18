@@ -162,5 +162,8 @@ project-specific semantics enter the graph.
 - Renderer-specific state should stay out of the export contract.
 - New file types should extend the extractor layer while continuing to emit this
   canonical shape.
+- Generated report data includes compact `coverage.extractors` rows so agents
+  can audit source-kind coverage and extractor versions without opening the full
+  coverage artifact.
 - `agraph.graph/v1` consumers should ignore or migrate to the v2 metadata and
   basis fields.
