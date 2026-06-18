@@ -1926,6 +1926,20 @@
            "mrr"
            (format "%.2f" (double (get-in case [:scores :meanReciprocalRankFile] 0.0)))))
 
+(defn- parser-worker-summary-label
+  [profile]
+  (str (:mode profile)
+       "/"
+       (:source profile)
+       ":"
+       (:runs profile)))
+
+(defn- print-parser-worker-summary
+  [profiles]
+  (when (seq profiles)
+    (println "- parser-workers"
+             (str/join ", " (map parser-worker-summary-label profiles)))))
+
 (defn- print-benchmark-summary
   [result]
   (println "# Benchmark")
@@ -1979,6 +1993,7 @@
                (format "%.2f" (double (get-in result [:scores :fileRecallAt10] 0.0))))
       (println "- mrr"
                (format "%.2f" (double (get-in result [:scores :meanReciprocalRankFile] 0.0))))
+      (print-parser-worker-summary (:parserWorkers result))
       (when-let [blocker (first (get-in result
                                         [:localizationDiagnostics
                                          :rankedOutsideTop5BlockingFiles]))]
@@ -2038,6 +2053,7 @@
                (format "%.2f" (double (get-in result
                                               [:report :scores :meanReciprocalRankFile]
                                               0.0))))
+      (print-parser-worker-summary (get-in result [:report :parserWorkers]))
       (println "- noise@20"
                (format "%.2f" (double (get-in result
                                               [:report :scores :noiseRatioAt20]

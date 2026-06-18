@@ -3322,6 +3322,35 @@
                                                second)
                                          missing-predicted))}))
 
+(defn- parser-worker-result-profile
+  [result]
+  (let [profile (:parserWorker result)
+        mode (some-> (:mode profile) str not-empty)
+        source (some-> (:source profile) str not-empty)]
+    {:mode (or mode "unknown")
+     :source (or source (if mode "unknown" "missing"))}))
+
+(defn- parser-worker-profile-key
+  [profile]
+  [(:mode profile) (:source profile)])
+
+(defn- aggregate-parser-worker-profiles
+  [results]
+  (->> results
+       (group-by (comp parser-worker-profile-key parser-worker-result-profile))
+       (map (fn [[[_mode _source] rows]]
+              (let [profile (parser-worker-result-profile (first rows))]
+                (assoc profile
+                       :runs (count rows)
+                       :cases (count (set (map :case-id rows)))
+                       :caseIds (->> rows
+                                     (map :case-id)
+                                     distinct
+                                     sort
+                                     vec)))))
+       (sort-by (juxt :mode :source))
+       vec))
+
 (defn- artifact-diagnostic
   [expected-fingerprints result]
   (let [expected (get expected-fingerprints (:case-id result))
@@ -3491,6 +3520,28 @@
                                        expected-fingerprints
                                        rows)})))
        (sort-by :key)
+       vec))
+
+(defn- group-agent-scores-by-parser-worker
+  [expected-fingerprints results]
+  (->> results
+       (group-by (comp parser-worker-profile-key parser-worker-result-profile))
+       (map (fn [[[_mode _source] rows]]
+              (let [profile (parser-worker-result-profile (first rows))]
+                (assoc profile
+                       :key (str (:mode profile) "/" (:source profile))
+                       :runs (count rows)
+                       :cases (count (set (map :case-id rows)))
+                       :scores (aggregate-agent-scores rows)
+                       :inputHints (input-hint-summary rows)
+                       :agentDiagnostics (aggregate-agent-diagnostics rows)
+                       :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
+                                                     rows)
+                       :localizationDiagnostics (aggregate-localization-diagnostics rows)
+                       :artifactDiagnostics (aggregate-artifact-diagnostics
+                                             expected-fingerprints
+                                             rows)))))
+       (sort-by (juxt :mode :source))
        vec))
 
 (defn- aggregate-case-tags
@@ -3740,6 +3791,7 @@
                 :runs (count results)
                 :missing missing
                 :scores (aggregate-agent-scores results)
+                :parserWorkers (aggregate-parser-worker-profiles results)
                 :inputHints (input-hint-summary results)
                 :agentDiagnostics (aggregate-agent-diagnostics results)
                 :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics results)
@@ -3761,6 +3813,9 @@
                 :byAgent (group-agent-scores expected-fingerprints
                                              results
                                              [:agent :agentId])
+                :byParserWorker (group-agent-scores-by-parser-worker
+                                 expected-fingerprints
+                                 results)
                 :byTag (group-agent-scores-by-tag expected-fingerprints
                                                   results)
                 :results (mapv #(assoc (select-keys % [:case-id
@@ -3774,6 +3829,7 @@
                                                        :inputHints
                                                        :coverage
                                                        :agentResultPath
+                                                       :parserWorker
                                                        :agent
                                                        :progress
                                                        :scores])

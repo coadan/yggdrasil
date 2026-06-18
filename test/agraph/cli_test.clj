@@ -90,6 +90,24 @@
     (is (str/includes? out "case-1 repo agent agraph-baseline-lexical status ran recall@10 0.50 mrr 1.00"))
     (is (not (str/includes? out "- file-recall@10 0.00")))))
 
+(deftest benchmark-summary-prints-parser-worker-profiles
+  (let [out (with-out-str
+              (#'cli/print-benchmark-summary
+               {:schema benchmark/agent-report-schema
+                :suite-id "suite"
+                :cases 1
+                :completed 1
+                :runs 2
+                :scores {:fileRecallAt10 0.5
+                         :meanReciprocalRankFile 0.25}
+                :parserWorkers [{:mode "all"
+                                 :source "option"
+                                 :runs 1}
+                                {:mode "unknown"
+                                 :source "missing"
+                                 :runs 1}]}))]
+    (is (str/includes? out "- parser-workers all/option:1, unknown/missing:1"))))
+
 (deftest install-agent-list-shows-supported-platforms
   (let [out (with-out-str
               (cli/dispatch "install-agent" ["list"]))

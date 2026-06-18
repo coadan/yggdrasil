@@ -265,6 +265,8 @@
                  :case-id "case-1"
                  :repo-id "repo"
                  :tags ["auth" "runtime-config"]
+                 :parserWorker {:mode "all"
+                                :source "option"}
                  :expectations {:evidence [{:kind "auth-reference"
                                             :path "src/app.clj"}]
                                 :forbidden-edges ["shares-config"]}
@@ -400,6 +402,17 @@
       (is (= 0.75 (get-in report [:scores :fileRecallAt10])))
       (is (= 6 (get-in report [:scores :changedFiles])))
       (is (= 4 (get-in report [:scores :scoreableChangedFiles])))
+      (is (= [{:mode "all"
+               :source "option"
+               :runs 1
+               :cases 1
+               :caseIds ["case-1"]}
+              {:mode "unknown"
+               :source "missing"
+               :runs 1
+               :cases 1
+               :caseIds ["case-1"]}]
+             (:parserWorkers report)))
       (is (= {:inputHintedRuns 1
               :inputHintedCases 1
               :inputHintedCaseIds ["case-1"]}
@@ -535,6 +548,9 @@
              (get-in report [:results 0 :localization])))
       (is (= ["auth" "runtime-config"]
              (get-in report [:results 0 :tags])))
+      (is (= {:mode "all"
+              :source "option"}
+             (get-in report [:results 0 :parserWorker])))
       (is (= "failed"
              (get-in report [:results 0 :graphExpectations :status])))
       (is (= {:rawSuspectedFiles 2
@@ -560,6 +576,11 @@
              (get-in (first (:byMode report)) [:inputHints])))
       (is (= #{"agraph" "shell-only"} (set (map :key (:byMode report)))))
       (is (= ["baseline" "codex"] (mapv :key (:byAgent report))))
+      (is (= ["all/option" "unknown/missing"]
+             (mapv :key (:byParserWorker report))))
+      (is (= 1.0
+             (get-in (first (:byParserWorker report))
+                     [:scores :fileRecallAt10])))
       (is (= ["auth" "runtime-config"] (mapv :key (:byTag report))))
       (is (= 1
              (get-in (first (:byTag report))
