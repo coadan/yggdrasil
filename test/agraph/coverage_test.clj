@@ -65,6 +65,13 @@
     (spit-file! root "ml/dvc/dvc.lock" "stages:\n  train:\n    cmd: python train.py\n")
     (spit-file! root "ml/data/raw.csv.dvc" "outs:\n  - path: raw.csv\n")
     (spit-file! root "ml/mlflow/MLproject" "name: panels-ml\nentry_points:\n  train:\n    command: python train.py\n")
+    (spit-file! root "observability/otel/otelcol.yaml" "receivers:\n  otlp:\nprocessors:\n  batch:\nexporters:\n  logging:\nservice:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: [batch]\n      exporters: [logging]\n")
+    (spit-file! root "observability/prometheus/prometheus.yml" "scrape_configs:\n  - job_name: panels\n    static_configs:\n      - targets: [\"localhost:9090\"]\n")
+    (spit-file! root "observability/prometheus/rules.yaml" "groups:\n  - name: panels\n    rules:\n      - alert: PanelLatencyHigh\n")
+    (spit-file! root "observability/prometheus/alertmanager.yml" "route:\n  receiver: team-default\nreceivers:\n  - name: team-default\n")
+    (spit-file! root "observability/grafana/datasources.yaml" "apiVersion: 1\ndatasources:\n  - name: Prometheus\n    type: prometheus\n")
+    (spit-file! root "observability/grafana/dashboard.json" "{\"schemaVersion\":39,\"title\":\"Panels\",\"panels\":[{\"title\":\"Latency\",\"datasource\":{\"uid\":\"prometheus\"}}]}\n")
+    (spit-file! root "observability/logs/vector.yaml" "sources:\n  app:\nsinks:\n  stdout:\n    inputs: [app]\n")
     (spit-file! root ".devcontainer/devcontainer.json" "{\"image\":\"mcr.microsoft.com/devcontainers/base:ubuntu\",\"features\":{\"ghcr.io/devcontainers/features/node:1\":{}},\"runServices\":[\"db\"],\"forwardPorts\":[3000],\"postCreateCommand\":\"bb test\"}\n")
     (spit-file! root "infra/kustomize/kustomization.yaml" "resources:\n  - ../k8s/deployment.yaml\nimages:\n  - name: ghcr.io/acme/panels-web\nconfigMapGenerator:\n  - name: panels-config\n")
     (spit-file! root ".pre-commit-config.yaml" "repos:\n  - repo: https://github.com/pre-commit/pre-commit-hooks\n    rev: v4.6.0\n    hooks:\n      - id: trailing-whitespace\n")
@@ -250,8 +257,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 219
-              :supported 218
+      (is (= {:files 226
+              :supported 225
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -304,6 +311,7 @@
       (is (= 4 (:count (row-by :kind "dbt" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "notebook" (:files-by-kind report)))))
       (is (= 4 (:count (row-by :kind "data-science" (:files-by-kind report)))))
+      (is (= 7 (:count (row-by :kind "observability-config" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "devcontainer" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "kustomize" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "pre-commit-config" (:files-by-kind report)))))
@@ -515,6 +523,10 @@
       (is (some #(and (= "data-science" (:kind %))
                       (= "data-science/v1" (:extractor-version %))
                       (= 4 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "observability-config" (:kind %))
+                      (= "observability-config/v1" (:extractor-version %))
+                      (= 7 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "devcontainer" (:kind %))
                       (= "devcontainer/v1" (:extractor-version %)))

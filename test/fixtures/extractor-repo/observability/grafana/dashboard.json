@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 39,
+  "title": "Panels",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Latency",
+      "datasource": {
+        "uid": "prometheus"
+      }
+    }
+  ]
+}

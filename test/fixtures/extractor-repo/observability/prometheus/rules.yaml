@@ -1,0 +1,5 @@
+groups:
+  - name: panels
+    rules:
+      - alert: PanelLatencyHigh
+        expr: histogram_quantile(0.95, rate(panel_latency_bucket[5m])) > 1

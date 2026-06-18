@@ -73,6 +73,9 @@
     "docusaurus.config.js" "docusaurus.config.cjs" "docusaurus.config.mjs"
     "docusaurus.config.ts" "sidebars.js" "sidebars.ts"
     "mkdocs.yml" "mkdocs.yaml"
+    "otelcol.yaml" "otelcol.yml" "otel-collector.yaml" "otel-collector.yml"
+    "prometheus.yml" "prometheus.yaml" "alertmanager.yml" "alertmanager.yaml"
+    "vector.yaml" "vector.yml" "vector.toml"
     "nginx.conf" "pulumi.yaml"
     ".graphqlrc" ".graphqlrc.json" ".graphqlrc.yaml" ".graphqlrc.yml"
     "graphql.config.json" "graphql.config.yaml" "graphql.config.yml"
@@ -229,6 +232,10 @@
       (or (contains? #{"dvc.yaml" "dvc.yml" "dvc.lock" "mlproject"} filename)
           (= ".dvc" (extension path))) :data-science
       (contains? #{"dbt_project.yml" "dbt_project.yaml"} filename) :dbt
+      (contains? #{"otelcol.yaml" "otelcol.yml" "otel-collector.yaml" "otel-collector.yml"
+                   "prometheus.yml" "prometheus.yaml" "alertmanager.yml" "alertmanager.yaml"
+                   "vector.yaml" "vector.yml" "vector.toml"}
+                 filename) :observability-config
       (or (= "nginx.conf" filename)
           (contains? #{"serverless.yml" "serverless.yaml" "cdk.json"} filename)
           (re-matches #"pulumi(?:\.[a-z0-9_.-]+)?\.ya?ml" filename)) :ops-config
@@ -555,6 +562,32 @@
 
       :else nil)))
 
+(defn- observability-content-kind
+  [path-kind file]
+  (when (contains? #{:config :json-schema :yaml} path-kind)
+    (let [content (text-file-prefix file)]
+      (cond
+        (and (re-find #"(?m)^receivers:\s*$" content)
+             (re-find #"(?m)^exporters:\s*$" content)
+             (re-find #"(?m)^\s*pipelines:\s*$" content))
+        :observability-config
+
+        (or (re-find #"(?m)^scrape_configs:\s*$" content)
+            (and (re-find #"(?m)^groups:\s*$" content)
+                 (re-find #"(?m)^\s*-\s*alert:\s*.+" content))
+            (and (re-find #"(?m)^route:\s*$" content)
+                 (re-find #"(?m)^receivers:\s*$" content))
+            (and (re-find #"(?m)^apiVersion:\s*1\s*$" content)
+                 (re-find #"(?m)^datasources:\s*$" content))
+            (and (re-find #"(?m)^sources:\s*$" content)
+                 (re-find #"(?m)^sinks:\s*$" content))
+            (and (re-find #"(?s)\"schemaVersion\"\s*:" content)
+                 (re-find #"(?s)\"panels\"\s*:" content)
+                 (re-find #"(?s)\"title\"\s*:" content)))
+        :observability-config
+
+        :else nil))))
+
 (defn- sbom-content-kind
   [path-kind file]
   (when (= :config path-kind)
@@ -580,6 +613,7 @@
         (when (web-framework-route-path? path-kind file)
           :web-framework)
         (workflow-orchestration-content-kind path-kind file)
+        (observability-content-kind path-kind file)
         (sphinx-content-kind path-kind file)
         (sbom-content-kind path-kind file)
         (helm-template-content-kind path-kind file)

@@ -1,0 +1,13 @@
+sources:
+  app:
+    type: file
+    include:
+      - /var/log/app.log
+transforms:
+  parse:
+    type: remap
+    inputs: [app]
+sinks:
+  stdout:
+    type: console
+    inputs: [parse]

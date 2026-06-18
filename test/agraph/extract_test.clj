@@ -3615,6 +3615,75 @@
     (is (pos? (get (relations dvc) :produces 0)))
     (is (= [:data-science-file] (mapv :kind (:chunks dvc))))))
 
+(deftest extracts-observability-config-facts
+  (let [result-for (fn [path]
+                     (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      (str "test/fixtures/extractor-repo/" path))))
+        kind-for (fn [path]
+                   (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                          (str "test/fixtures/extractor-repo/" path))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        edge-pairs (fn [result relation]
+                     (set (map (fn [{:keys [source-id target-id]}]
+                                 [source-id target-id])
+                               (filter #(= relation (:relation %))
+                                       (:edges result)))))
+        otel (result-for "observability/otel/otelcol.yaml")
+        prometheus (result-for "observability/prometheus/prometheus.yml")
+        rules (result-for "observability/prometheus/rules.yaml")
+        alertmanager (result-for "observability/prometheus/alertmanager.yml")
+        datasources (result-for "observability/grafana/datasources.yaml")
+        dashboard (result-for "observability/grafana/dashboard.json")
+        vector (result-for "observability/logs/vector.yaml")]
+    (doseq [path ["observability/otel/otelcol.yaml"
+                  "observability/prometheus/prometheus.yml"
+                  "observability/prometheus/rules.yaml"
+                  "observability/prometheus/alertmanager.yml"
+                  "observability/grafana/datasources.yaml"
+                  "observability/grafana/dashboard.json"
+                  "observability/logs/vector.yaml"]]
+      (is (= :observability-config (kind-for path))))
+    (is (contains? (labels otel) "otel-collector"))
+    (is (contains? (labels otel) "otlp"))
+    (is (contains? (labels otel) "batch"))
+    (is (contains? (labels otel) "logging"))
+    (is (contains? (labels otel) "traces"))
+    (is (contains? (edge-pairs otel :uses)
+                   ["node:otel-pipeline:traces" "node:otel-receiver:otlp"]))
+    (is (contains? (labels prometheus) "prometheus"))
+    (is (contains? (labels prometheus) "panels"))
+    (is (contains? (labels prometheus) "panels:/metrics"))
+    (is (contains? (labels prometheus) "panels:localhost:9090"))
+    (is (contains? (edge-pairs prometheus :scrapes)
+                   ["node:prometheus-scrape-job:panels"
+                    "node:prometheus-target:panels:localhost:9090"]))
+    (is (contains? (labels rules) "PanelLatencyHigh"))
+    (is (contains? (labels alertmanager) "alertmanager"))
+    (is (contains? (labels alertmanager) "team-default"))
+    (is (contains? (labels datasources) "grafana"))
+    (is (contains? (labels datasources) "Prometheus"))
+    (is (contains? (labels datasources) "Prometheus:prometheus"))
+    (is (contains? (labels datasources) "Prometheus:http://prometheus:9090"))
+    (is (contains? (labels dashboard) "Panels"))
+    (is (contains? (labels dashboard) "Panels:Latency"))
+    (is (contains? (labels dashboard) "prometheus"))
+    (is (contains? (edge-pairs dashboard :references)
+                   ["node:grafana-panel:Panels:Latency"
+                    "node:grafana-datasource:prometheus"]))
+    (is (contains? (labels vector) "vector"))
+    (is (contains? (labels vector) "app"))
+    (is (contains? (labels vector) "parse"))
+    (is (contains? (labels vector) "stdout"))
+    (is (contains? (edge-pairs vector :uses)
+                   ["node:log-sink:stdout" "node:log-source:parse"]))
+    (is (= 1 (:otel-pipeline (kinds otel))))
+    (is (= 1 (:prometheus-alert-rule (kinds rules))))
+    (is (= 1 (:grafana-panel (kinds dashboard))))
+    (is (= [:observability-file] (mapv :kind (:chunks otel))))))
+
 (deftest extracts-package-and-workspace-manifest-facts
   (let [package-result (extract/extract-file
                         "run/test"

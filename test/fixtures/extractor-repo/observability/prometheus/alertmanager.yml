@@ -1,0 +1,6 @@
+route:
+  receiver: team-default
+receivers:
+  - name: team-default
+    webhook_configs:
+      - url: https://alerts.example.test/hook
