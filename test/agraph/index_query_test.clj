@@ -36,6 +36,23 @@
           (is (pos? (get-in report [:counts :nodes])))
           (is (pos? (get-in report [:counts :search-docs]))))))))
 
+(deftest index-repo-honors-cooperative-deadline
+  (let [repo (io/file (temp-dir "agraph-index-deadline-repo"))
+        src (io/file repo "src")]
+    (.mkdirs src)
+    (spit (io/file src "app.clj") "(ns app)\n(defn value [] 1)\n")
+    (let [error (try
+                  (index/index-repo! nil
+                                     (.getPath repo)
+                                     {:dry-run? true
+                                      :index-deadline-ns (dec (System/nanoTime))})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e
+                    e))]
+      (is (some? error))
+      (is (= "Index deadline exceeded." (ex-message error)))
+      (is (= :canonicalize-root (:phase (ex-data error)))))))
+
 (deftest exact-path-mentions-rank-matching-search-docs
   (let [xtdb-path (temp-dir "agraph-query-path-xtdb")
         repo (.getPath (io/file "test/fixtures/sample-repo"))]

@@ -324,6 +324,7 @@
                                  "--retrieval-limit" "80"
                                  "--vector-command" "fake-vector-worker"
                                  "--vector-model" "fake-vector-model"
+                                 "--index-timeout-ms" "1234"
                                  "--skip-existing"
                                  "--json"]))
             parsed (read-json-output out)]
@@ -341,6 +342,7 @@
                   :limit 3
                   :doc-limit 12
                   :retrieval-limit 80
+                  :index-timeout-ms 1234
                   :skip-existing? true}]]
                @calls))))))
 

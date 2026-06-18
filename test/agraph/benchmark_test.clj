@@ -1069,6 +1069,16 @@
     (is (= 300 (:retrieval-limit defaults)))
     (is (= 42 (:retrieval-limit override)))))
 
+(deftest benchmark-index-options-are-bounded-by-default
+  (is (= {:index-profile :query
+          :index-timeout-ms 600000}
+         (#'benchmark/benchmark-index-options {})))
+  (is (= {:index-profile :query
+          :index-timeout-ms 1234}
+         (#'benchmark/benchmark-index-options {:index-timeout-ms 1234})))
+  (is (= {:index-profile :query}
+         (#'benchmark/benchmark-index-options {:index-timeout-ms 0}))))
+
 (deftest runs-external-agent-command-and-scores-result
   (let [root (temp-dir "agraph-bench-agent-run-repo")
         out (temp-dir "agraph-bench-agent-run-out")

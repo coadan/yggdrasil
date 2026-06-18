@@ -97,7 +97,7 @@
     "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode"
     "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
     "--vector-command" "--vector-model"
-    "--timeout-ms" "--min-cases" "--min-runs"
+    "--timeout-ms" "--index-timeout-ms" "--min-cases" "--min-runs"
     "--retrieval-limit"
     "--min-file-recall-at-5" "--min-file-recall-at-10"
     "--min-file-recall-at-20" "--min-mrr" "--max-noise-at-20"
@@ -1776,6 +1776,10 @@
     (parse-optional-long args "--timeout-ms") (assoc :timeout-ms
                                                      (parse-optional-long args
                                                                           "--timeout-ms"))
+    (parse-optional-long args "--index-timeout-ms") (assoc :index-timeout-ms
+                                                           (parse-optional-long
+                                                            args
+                                                            "--index-timeout-ms"))
     (parse-optional-long args "--min-cases") (assoc :min-cases
                                                     (parse-optional-long args
                                                                          "--min-cases"))
@@ -2198,11 +2202,11 @@
     "  mcp [--root DIR] [--config project.edn] [--map agraph.map.json] [--queue-dir DIR]"
     ""
     "Benchmarks:"
-    "  bench prepare|run|report <benchmark.edn> [--case ID] [--cases ID,ID] [--out DIR] [--json]"
+    "  bench prepare|run|report <benchmark.edn> [--case ID] [--cases ID,ID] [--index-timeout-ms N] [--out DIR] [--json]"
     "  bench show <benchmark.edn> --case ID [--out DIR] [--json]"
     "  bench agent-packet <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--enqueue] [--queue-dir DIR] [--out DIR] [--json]"
-    "  bench agent-baseline <benchmark.edn> [--case ID] [--cases ID,ID] [--retriever auto|hybrid|lexical|semantic|local-vector] [--limit N] [--doc-limit N] [--retrieval-limit N] [--vector-model MODEL] [--vector-command CMD] [--skip-existing] [--out DIR] [--json]"
-    "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--skip-existing] [--out DIR] [--json]"
+    "  bench agent-baseline <benchmark.edn> [--case ID] [--cases ID,ID] [--retriever auto|hybrid|lexical|semantic|local-vector] [--limit N] [--doc-limit N] [--retrieval-limit N] [--vector-model MODEL] [--vector-command CMD] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
+    "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--out DIR] [--json]"
     "  bench agent-report <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--allow-unverified-scores] [--out DIR] [--json]"
     "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-unverified-score-runs N] [--max-graph-expectation-failures N] [--max-missed-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-active-stage-ms N] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"

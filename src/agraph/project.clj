@@ -188,65 +188,76 @@
                            (project-row project updated-at-ms)
                            (mapv #(repo-row (:id project) updated-at-ms %) (:repos project)))))
 
+(defn- with-index-deadline
+  [{:keys [index-timeout-ms index-deadline-ns] :as opts}]
+  (if (or index-deadline-ns (nil? index-timeout-ms))
+    opts
+    (assoc opts :index-deadline-ns (index/deadline-ns index-timeout-ms))))
+
 (defn index-project!
   "Index every repo in project config into XTDB."
-  [xtdb project {:keys [dry-run? index-profile map-overlay]
+  [xtdb project {:keys [dry-run? index-profile map-overlay index-timeout-ms index-deadline-ns]
                  :or {dry-run? false
                       index-profile index/default-index-profile}}]
-  (if dry-run?
-    {:project-id (:id project)
-     :status :dry-run
-     :repos (mapv (fn [{:keys [id root role]}]
-                    (index/index-repo! nil
-                                       root
-                                       {:dry-run? true
-                                        :project-id (:id project)
-                                        :repo-id id
-                                        :repo-role role
-                                        :index-profile index-profile
-                                        :map-overlay map-overlay}))
-                  (:repos project))}
-    (do
-      (persist-project! xtdb project)
+  (let [index-opts (with-index-deadline {:index-profile index-profile
+                                         :map-overlay map-overlay
+                                         :index-timeout-ms index-timeout-ms
+                                         :index-deadline-ns index-deadline-ns})]
+    (if dry-run?
       {:project-id (:id project)
-       :status :completed
+       :status :dry-run
        :repos (mapv (fn [{:keys [id root role]}]
-                      (index/index-repo! xtdb
+                      (index/index-repo! nil
                                          root
-                                         {:project-id (:id project)
-                                          :repo-id id
-                                          :repo-role role
-                                          :index-profile index-profile
-                                          :map-overlay map-overlay}))
-                    (:repos project))})))
+                                         (assoc index-opts
+                                                :dry-run? true
+                                                :project-id (:id project)
+                                                :repo-id id
+                                                :repo-role role)))
+                    (:repos project))}
+      (do
+        (persist-project! xtdb project)
+        {:project-id (:id project)
+         :status :completed
+         :repos (mapv (fn [{:keys [id root role]}]
+                        (index/index-repo! xtdb
+                                           root
+                                           (assoc index-opts
+                                                  :project-id (:id project)
+                                                  :repo-id id
+                                                  :repo-role role)))
+                      (:repos project))}))))
 
 (defn index-project-repo!
   "Index one repo from a project config into XTDB."
-  [xtdb project repo-id {:keys [dry-run? index-profile map-overlay]
+  [xtdb project repo-id {:keys [dry-run? index-profile map-overlay
+                                index-timeout-ms index-deadline-ns]
                          :or {dry-run? false
                               index-profile index/default-index-profile}}]
   (let [repo (or (some #(when (= repo-id (:id %)) %) (:repos project))
                  (throw (ex-info "Project repo not found."
                                  {:project-id (:id project)
-                                  :repo-id repo-id})))]
+                                  :repo-id repo-id})))
+        index-opts (with-index-deadline {:index-profile index-profile
+                                         :map-overlay map-overlay
+                                         :index-timeout-ms index-timeout-ms
+                                         :index-deadline-ns index-deadline-ns})]
     (if dry-run?
       (index/index-repo! nil
                          (:root repo)
-                         {:dry-run? true
-                          :project-id (:id project)
-                          :repo-id (:id repo)
-                          :repo-role (:role repo)
-                          :index-profile index-profile
-                          :map-overlay map-overlay})
+                         (assoc index-opts
+                                :dry-run? true
+                                :project-id (:id project)
+                                :repo-id (:id repo)
+                                :repo-role (:role repo)))
       (do
         (persist-project! xtdb project)
         (index/index-repo! xtdb
                            (:root repo)
-                           {:project-id (:id project)
-                            :repo-id (:id repo)
-                            :repo-role (:role repo)
-                            :index-profile index-profile
-                            :map-overlay map-overlay})))))
+                           (assoc index-opts
+                                  :project-id (:id project)
+                                  :repo-id (:id repo)
+                                  :repo-role (:role repo)))))))
 
 (defn infer-project!
   "Infer and persist a derived system graph for project."

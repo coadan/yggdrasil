@@ -29,6 +29,18 @@
          :timings-ms (assoc timings
                             :total-ms (max 0 (- finished-at-ms started-at-ms)))))
 
+(defn deadline-ns
+  [timeout-ms]
+  (when (and timeout-ms (pos? (long timeout-ms)))
+    (+ (System/nanoTime) (* 1000000 (long timeout-ms)))))
+
+(defn- check-deadline!
+  [deadline-ns phase extra]
+  (when (and deadline-ns (not (pos? (- (long deadline-ns) (System/nanoTime)))))
+    (throw (ex-info "Index deadline exceeded."
+                    (merge {:phase phase}
+                           extra)))))
+
 (defn- git-sha
   [root]
   (let [{:keys [exit out]} (shell/sh "git" "-C" root "rev-parse" "HEAD")]
@@ -218,15 +230,21 @@
 
 (defn index-repo!
   "Index root into XTDB. Returns run summary."
-  [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile map-overlay]
+  [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile map-overlay
+                     index-timeout-ms index-deadline-ns]
               :or {dry-run? false
                    project-id default-project-id
                    repo-id default-repo-id
                    repo-role :repository
                    index-profile default-index-profile}}]
   (let [started (now-ms)
+        index-deadline-ns (or index-deadline-ns (deadline-ns index-timeout-ms))
         index-profile (normalize-index-profile index-profile)
         [root-path timings] (timed {} :canonicalize-root-ms #(fs/canonical-path root))
+        _ (check-deadline! index-deadline-ns
+                           :canonicalize-root
+                           {:project-id project-id
+                            :repo-id repo-id})
         [files timings] (timed timings
                                :scan-ms
                                #(mapv (fn [file]
@@ -234,6 +252,11 @@
                                          index-profile
                                          (scoped-file project-id repo-id file)))
                                       (fs/scan-files root-path)))
+        _ (check-deadline! index-deadline-ns
+                           :scan
+                           {:project-id project-id
+                            :repo-id repo-id
+                            :files-scanned (count files)})
         [snapshot timings] (timed timings
                                   :snapshot-ms
                                   #(source-snapshot project-id
@@ -241,6 +264,10 @@
                                                     root-path
                                                     started
                                                     files))
+        _ (check-deadline! index-deadline-ns
+                           :snapshot
+                           {:project-id project-id
+                            :repo-id repo-id})
         valid-from (:basis-instant snapshot)
         run-id (run-id root-path started project-id repo-id)
         initial {:run-id run-id
@@ -322,11 +349,23 @@
                                                         :valid-from valid-from}))))
                                          {:changed [] :skipped 0}
                                          files))
+              _ (check-deadline! index-deadline-ns
+                                 :plan-changes
+                                 {:project-id project-id
+                                  :repo-id repo-id
+                                  :files-scanned (count files)
+                                  :files-changed (count (:changed planned-files))
+                                  :files-skipped (:skipped planned-files)})
               [parser-worker-facts timings] (timed
                                              timings
                                              :parser-worker-ms
                                              #(extract/parser-worker-batch-facts
                                                (mapv :file (:changed planned-files))))
+              _ (check-deadline! index-deadline-ns
+                                 :parser-worker
+                                 {:project-id project-id
+                                  :repo-id repo-id
+                                  :files-changed (count (:changed planned-files))})
               [planned timings] (timed
                                  timings
                                  :extract-ms
@@ -334,7 +373,15 @@
                                           :changed
                                           (fn [changed]
                                             (mapv
-                                             (fn [{:keys [file existing? valid-from]}]
+                                             (fn [idx {:keys [file existing? valid-from]}]
+                                               (check-deadline!
+                                                index-deadline-ns
+                                                :extract
+                                                {:project-id project-id
+                                                 :repo-id repo-id
+                                                 :files-changed (count changed)
+                                                 :files-extracted idx
+                                                 :path (:path file)})
                                                (let [file (if-let [facts (get parser-worker-facts
                                                                               (:path file))]
                                                             (assoc file
@@ -358,15 +405,31 @@
                                                                (extract/extract-file run-id file))
                                                   :existing? existing?
                                                   :valid-from valid-from}))
+                                             (range)
                                              changed))))
+              _ (check-deadline! index-deadline-ns
+                                 :extract
+                                 {:project-id project-id
+                                  :repo-id repo-id
+                                  :files-extracted (count (:changed planned))})
               [result timings] (timed timings
                                       :commit-files-ms
                                       #(store/commit-files! xtdb (:changed planned)))
+              _ (check-deadline! index-deadline-ns
+                                 :commit-files
+                                 {:project-id project-id
+                                  :repo-id repo-id
+                                  :files-indexed (count (:changed planned))})
               [deletes timings] (timed timings
                                        :delete-files-ms
                                        #(store/commit-file-deletes! xtdb
                                                                     removed-files
                                                                     {:valid-from valid-from}))
+              _ (check-deadline! index-deadline-ns
+                                 :delete-files
+                                 {:project-id project-id
+                                  :repo-id repo-id
+                                  :files-deleted (:files-deleted deletes)})
               [dependency-result timings] (timed
                                            timings
                                            :dependency-ms
@@ -379,6 +442,10 @@
                                               :project-id project-id
                                               :repo-id repo-id
                                               :map-overlay map-overlay}))
+              _ (check-deadline! index-deadline-ns
+                                 :dependency
+                                 {:project-id project-id
+                                  :repo-id repo-id})
               finished-at (now-ms)
               summary (-> (:stats initial)
                           (assoc :files-skipped (:skipped planned)

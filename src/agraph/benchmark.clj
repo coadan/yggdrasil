@@ -124,6 +124,9 @@
 (def default-agent-run-timeout-ms
   600000)
 
+(def default-index-timeout-ms
+  600000)
+
 (def supported-agent-prompt-profiles
   ["standard" "fast"])
 
@@ -131,6 +134,19 @@
   [5 10 20])
 
 (declare agent-baseline-suspect-limit agent-prompt-profile)
+
+(defn- index-timeout-ms
+  [opts]
+  (let [configured (get opts :index-timeout-ms ::default)]
+    (cond
+      (= ::default configured) default-index-timeout-ms
+      (and configured (pos? (long configured))) (long configured)
+      :else nil)))
+
+(defn- benchmark-index-options
+  [opts]
+  (cond-> {:index-profile :query}
+    (some? (index-timeout-ms opts)) (assoc :index-timeout-ms (index-timeout-ms opts))))
 
 (defn- blankish?
   [value]
@@ -1285,7 +1301,7 @@
       (fn [xtdb]
         (let [index-summary (project/index-project! xtdb
                                                     bench-project
-                                                    {:index-profile :query})
+                                                    (benchmark-index-options opts))
               system-summary (project/infer-project! xtdb bench-project)
               graph-expectations (evaluate-graph-expectations xtdb prepared)
               ranked (run-query! xtdb prepared opts)
@@ -1994,7 +2010,7 @@
                              :index-project
                              #(project/index-project! xtdb
                                                       bench-project
-                                                      {:index-profile :query})
+                                                      (benchmark-index-options opts))
                              #(select-keys % [:files :repos :rows :extractors]))
               system-summary (progress-stage!
                               suite
@@ -2648,7 +2664,7 @@
         (let [bench-project (agent-project prepared)]
           {:indexSummary (project/index-project! xtdb
                                                  bench-project
-                                                 {:index-profile :query})
+                                                 (benchmark-index-options opts))
            :systemSummary (project/infer-project! xtdb bench-project)
            :graphExpectations (evaluate-graph-expectations xtdb prepared)})))))
 
