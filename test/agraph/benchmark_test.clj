@@ -255,6 +255,14 @@
               :missingPredictedFileRuns 0
               :missingPredictedFiles 0}
              (:agentDiagnostics report)))
+      (is (= {:currentScoreRuns 0
+              :legacyScoreRuns 2
+              :legacyScoreCaseIds ["case-1"]
+              :staleScoreRuns 0
+              :staleScoreCaseIds []
+              :unverifiedScoreRuns 2
+              :unverifiedScoreCaseIds ["case-1"]}
+             (:artifactDiagnostics report)))
       (is (= {:declaredSourceKinds ["code" "python"]
               :scoreableSourceKinds ["code"]
               :scoreableFilesByKind [{:kind "code"
@@ -312,6 +320,8 @@
               :zeroCandidateFiles false
               :coverageFilteredCandidateFiles 1}
              (get-in report [:results 0 :agentOutput])))
+      (is (= "legacy"
+             (get-in report [:results 0 :artifact :fingerprintStatus])))
       (is (= #{"running" "failed"}
              (set (map :status (:caseProgress report)))))
       (is (= {:inputHintedRuns 1
@@ -350,6 +360,8 @@
                 :inputHints {:inputHintedCases 1}
                 :agentDiagnostics {:emptyResultRuns 1
                                    :emptyResultCaseIds ["case-1"]}
+                :artifactDiagnostics {:unverifiedScoreRuns 1
+                                      :unverifiedScoreCaseIds ["case-1"]}
                 :caseProgress [{:case-id "case-2"
                                 :repo-id "repo"
                                 :status "running"
@@ -376,6 +388,7 @@
                  :max-input-hinted-cases 0
                  :max-unsupported-ground-truth-files 0
                  :max-empty-result-runs 0
+                 :max-unverified-score-runs 0
                  :max-active-stage-ms 1000})
         passed (benchmark/check-agent-report
                 (assoc report :completed 2 :missing [])
@@ -391,6 +404,7 @@
                  :max-input-hinted-cases 1
                  :max-unsupported-ground-truth-files 1
                  :max-empty-result-runs 1
+                 :max-unverified-score-runs 1
                  :max-active-stage-ms 1500})]
     (is (= benchmark/agent-check-schema (:schema failed)))
     (is (= "failed" (:status failed)))
@@ -406,6 +420,7 @@
              "inputHintedCases"
              "unsupportedGroundTruthFiles"
              "emptyResultRuns"
+             "unverifiedScoreRuns"
              "activeStageElapsedMs"}
            (set (map :metric (:failures failed)))))
     (is (= {:case-id "case-1"
@@ -446,6 +461,7 @@
             :maxInputHintedCases 0.0
             :maxUnsupportedGroundTruthFiles 0.0
             :maxEmptyResultRuns 0.0
+            :maxUnverifiedScoreRuns 0.0
             :maxActiveStageMs 1000.0}
            (:thresholds failed)))
     (is (= "passed" (:status passed)))
@@ -625,6 +641,7 @@
                                      "progress.json")
               progress (json/read-json (slurp progress-path) :key-fn keyword)]
           (is (= benchmark/prepared-case-schema (:schema prepared)))
+          (is (str/starts-with? (:caseFingerprint prepared) "sha256:"))
           (is (= #{"docs/release.md" "src/app.clj" "src/new.clj"}
                  (set (get-in prepared [:groundTruth :changedFiles]))))
           (is (= ["docs/release.md" "src/app.clj"]
@@ -1217,6 +1234,7 @@
                   :case-id "case-1"
                   :repo-id "repo"
                   :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
                   :baseSha "base"
                   :fixSha "fix"
                   :worktreeRoot root
@@ -1243,6 +1261,7 @@
                                         :confidence 0.7}]}
         scored (benchmark/score-agent-result prepared agent-result)]
     (is (= benchmark/agent-score-schema (:schema scored)))
+    (is (= "sha256:test-case" (:caseFingerprint scored)))
     (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
     (is (= 0.5 (get-in scored [:scores :meanReciprocalRankFile])))
     (is (= (:inputHints prepared) (:inputHints scored)))

@@ -123,7 +123,10 @@ generated output root.
   the top 5, 10, and 20. Reports also include `agentDiagnostics`, which counts
   empty rankable outputs, zero-candidate AGraph packets, coverage-filtered
   candidates, and missing predicted paths so benchmark failures point to the
-  next mechanical fix instead of only reporting a score.
+  next mechanical fix instead of only reporting a score. Reports also include
+  `artifactDiagnostics`, which classifies score artifacts as current, legacy, or
+  stale against the suite case fingerprint so old scores cannot silently stand
+  in for changed issue text, commits, coverage, or curated ground truth.
 - `bench agent-check <suite.edn>` aggregates agent score artifacts, writes an
   `agent-check.json`, and exits non-zero when selected cases are missing or
   thresholds fail. Useful gates include `--min-cases`, `--min-runs`,
@@ -133,8 +136,10 @@ generated output root.
   `--min-case-mrr`, `--max-noise-at-20`, `--max-case-noise-at-20`,
   `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`, and
   `--max-empty-result-runs` to fail when agents produce no rankable suspected
-  files, plus `--max-active-stage-ms` for partial or interrupted runs with a
-  stuck active stage. Use
+  files, `--max-unverified-score-runs` to fail when matching score artifacts are
+  legacy or stale relative to the current suite file, plus
+  `--max-active-stage-ms` for partial or interrupted runs with a stuck active
+  stage. Use
   `--agent <agent-id>` to avoid mixing baseline, shell-only, and ad hoc agent
   score artifacts in one gate. Selected cases must all have matching score
   artifacts unless `--allow-missing` is set. Matching score artifacts must be

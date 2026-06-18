@@ -2,6 +2,7 @@
   "Issue replay benchmarks for AGraph retrieval quality."
   (:require [agraph.context :as context]
             [agraph.fs :as fs]
+            [agraph.hash :as hash]
             [agraph.project :as project]
             [agraph.query :as query]
             [agraph.text :as text]
@@ -631,6 +632,53 @@
                       (concat [(:title issue) (:body issue)]
                               (issue-comments issue))))))
 
+(defn- canonical-fingerprint-value
+  [value]
+  (cond
+    (map? value)
+    (into (sorted-map)
+          (map (fn [[k v]]
+                 [(cond
+                    (keyword? k) (name k)
+                    (symbol? k) (str k)
+                    :else (str k))
+                  (canonical-fingerprint-value v)]))
+          value)
+
+    (set? value)
+    (->> value
+         (map canonical-fingerprint-value)
+         (sort-by pr-str)
+         vec)
+
+    (sequential? value)
+    (mapv canonical-fingerprint-value value)
+
+    (keyword? value)
+    (name value)
+
+    :else
+    value))
+
+(defn- case-fingerprint-input
+  [suite case]
+  {:schema "agraph.benchmark.case-fingerprint-input/v1"
+   :suite-id (:id suite)
+   :case-id (:id case)
+   :repo-id (:repo-id case)
+   :base-sha (:base-sha case)
+   :fix-sha (:fix-sha case)
+   :query-text (issue-text case)
+   :coverage {:source-kinds (declared-source-kinds case)}
+   :ground-truth (:ground-truth case)})
+
+(defn- case-fingerprint
+  [suite case]
+  (str "sha256:"
+       (hash/sha256-hex
+        (pr-str (canonical-fingerprint-value
+                 (case-fingerprint-input suite case))))))
+
 (defn- input-hints
   [input-text truth]
   (let [text (str input-text)
@@ -646,6 +694,7 @@
 (defn- prepared-case
   [suite case repo worktree-root truth]
   (let [input-text (issue-text case)
+        fingerprint (case-fingerprint suite case)
         unsupported (unsupported-ground-truth-files worktree-root
                                                     (:changedFiles truth))
         truth (assoc truth :unsupportedGroundTruthFiles unsupported)
@@ -656,6 +705,7 @@
      :case-id (:id case)
      :repo-id (:id repo)
      :project-id (str (:project-id suite) "-" (:id case))
+     :caseFingerprint fingerprint
      :baseSha (:base-sha case)
      :fixSha (:fix-sha case)
      :worktreeRoot worktree-root
@@ -883,6 +933,7 @@
                :case-id (:id case)
                :repo-id (:repo-id prepared)
                :project-id (:project-id prepared)
+               :caseFingerprint (:caseFingerprint prepared)
                :baseSha (:baseSha prepared)
                :fixSha (:fixSha prepared)
                :input (:input prepared)
@@ -1427,6 +1478,7 @@
                         :case-id (:case-id prepared)
                         :repo-id (:repo-id prepared)
                         :project-id (:project-id prepared)
+                        :caseFingerprint (:caseFingerprint prepared)
                         :agentId agent-id
                         :mode "agraph"
                         :retriever (name (keyword (or (:retriever opts)
@@ -1569,6 +1621,7 @@
                     :case-id (:case-id prepared)
                     :repo-id (:repo-id prepared)
                     :project-id (:project-id prepared)
+                    :caseFingerprint (:caseFingerprint prepared)
                     :agentId agent-id
                     :mode "local-vector"
                     :retriever "local-vector"
@@ -2209,6 +2262,7 @@
      :case-id (:case-id prepared)
      :repo-id (:repo-id prepared)
      :project-id (:project-id prepared)
+     :caseFingerprint (:caseFingerprint prepared)
      :baseSha (:baseSha prepared)
      :fixSha (:fixSha prepared)
      :input (:input prepared)
@@ -2482,8 +2536,43 @@
                                                second)
                                          missing-predicted))}))
 
+(defn- artifact-diagnostic
+  [expected-fingerprints result]
+  (let [expected (get expected-fingerprints (:case-id result))
+        actual (:caseFingerprint result)
+        status (cond
+                 (blankish? actual) "legacy"
+                 (= actual expected) "current"
+                 :else "stale")]
+    (cond-> {:fingerprintStatus status}
+      actual (assoc :caseFingerprint actual)
+      expected (assoc :expectedCaseFingerprint expected))))
+
+(defn- aggregate-artifact-diagnostics
+  [expected-fingerprints results]
+  (let [result-pairs (map (fn [result]
+                            [result (artifact-diagnostic expected-fingerprints result)])
+                          results)
+        by-status (group-by (comp :fingerprintStatus second) result-pairs)
+        case-ids (fn [status]
+                   (->> (get by-status status)
+                        (map (comp :case-id first))
+                        distinct
+                        sort
+                        vec))]
+    {:currentScoreRuns (count (get by-status "current"))
+     :legacyScoreRuns (count (get by-status "legacy"))
+     :legacyScoreCaseIds (case-ids "legacy")
+     :staleScoreRuns (count (get by-status "stale"))
+     :staleScoreCaseIds (case-ids "stale")
+     :unverifiedScoreRuns (+ (count (get by-status "legacy"))
+                             (count (get by-status "stale")))
+     :unverifiedScoreCaseIds (vec (sort (set/union
+                                         (set (case-ids "legacy"))
+                                         (set (case-ids "stale")))))}))
+
 (defn- group-agent-scores
-  [results key-path]
+  [expected-fingerprints results key-path]
   (->> results
        (group-by #(or (get-in % key-path) "unknown"))
        (map (fn [[k rows]]
@@ -2491,7 +2580,10 @@
                :runs (count rows)
                :scores (aggregate-agent-scores rows)
                :inputHints (input-hint-summary rows)
-               :agentDiagnostics (aggregate-agent-diagnostics rows)}))
+               :agentDiagnostics (aggregate-agent-diagnostics rows)
+               :artifactDiagnostics (aggregate-artifact-diagnostics
+                                     expected-fingerprints
+                                     rows)}))
        (sort-by :key)
        vec))
 
@@ -2565,6 +2657,10 @@
   "Aggregate existing agent score artifacts."
   [suite opts]
   (let [cases (selected-cases suite (case-selector opts))
+        expected-fingerprints (into {}
+                                    (map (fn [case]
+                                           [(:id case) (case-fingerprint suite case)]))
+                                    cases)
         progress (->> cases
                       (keep #(progress-summary suite % opts))
                       vec)
@@ -2588,15 +2684,23 @@
                 :scores (aggregate-agent-scores results)
                 :inputHints (input-hint-summary results)
                 :agentDiagnostics (aggregate-agent-diagnostics results)
+                :artifactDiagnostics (aggregate-artifact-diagnostics
+                                      expected-fingerprints
+                                      results)
                 :coverage (aggregate-coverage results)
                 :timings (aggregate-progress progress)
                 :caseProgress progress
-                :byMode (group-agent-scores results [:agent :mode])
-                :byAgent (group-agent-scores results [:agent :agentId])
+                :byMode (group-agent-scores expected-fingerprints
+                                            results
+                                            [:agent :mode])
+                :byAgent (group-agent-scores expected-fingerprints
+                                             results
+                                             [:agent :agentId])
                 :results (mapv #(assoc (select-keys % [:case-id
                                                        :repo-id
                                                        :baseSha
                                                        :fixSha
+                                                       :caseFingerprint
                                                        :inputHints
                                                        :coverage
                                                        :agentResultPath
@@ -2606,7 +2710,9 @@
                                        :localization
                                        (localization-diagnostic %)
                                        :agentOutput
-                                       (agent-output-diagnostic %))
+                                       (agent-output-diagnostic %)
+                                       :artifact
+                                       (artifact-diagnostic expected-fingerprints %))
                                results)}]
     (write-json-file! (agent-report-path suite opts) report)
     report))
@@ -2637,6 +2743,7 @@
          [:max-input-hinted-cases :maxInputHintedCases]
          [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
          [:max-empty-result-runs :maxEmptyResultRuns]
+         [:max-unverified-score-runs :maxUnverifiedScoreRuns]
          [:max-active-stage-ms :maxActiveStageMs]]))
 
 (defn- metric-failure
@@ -2786,6 +2893,22 @@
                                     :emptyResultCaseIds])
                  :message "Some agent score artifacts produced no rankable suspected files."})]))))
 
+(defn- unverified-score-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :maxUnverifiedScoreRuns])]
+    (let [actual (double (get-in check
+                                 [:report
+                                  :artifactDiagnostics
+                                  :unverifiedScoreRuns]
+                                 0))]
+      (when (> actual expected)
+        [(merge (metric-failure "unverifiedScoreRuns" "<=" expected actual)
+                {:case-ids (get-in check
+                                   [:report
+                                    :artifactDiagnostics
+                                    :unverifiedScoreCaseIds])
+                 :message "Some agent score artifacts are legacy or do not match the current suite case fingerprint."})]))))
+
 (def ^:private case-diagnostic-score-keys
   [:fileRecallAt5
    :fileRecallAt10
@@ -2872,6 +2995,7 @@
                            "unsupportedGroundTruthFiles"]])
                    (case-threshold-failures check-base)
                    (empty-result-failures check-base)
+                   (unverified-score-failures check-base)
                    (active-stage-failures check-base)))]
     (assoc check-base
            :status (if (seq failures) "failed" "passed")
