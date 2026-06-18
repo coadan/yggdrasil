@@ -22,6 +22,7 @@
          read-json-map
          strip-yaml-scalar
          yaml-key-line
+         yaml-section-items
          leading-spaces
          source-definition-chunk
          docs-config-array-property-values
@@ -91,6 +92,7 @@
    :ci "ci/v1"
    :build "build/v1"
    :test-config "test-config/v1"
+   :quality-config "quality-config/v1"
    :tool-config "tool-config/v1"
    :javascript "javascript/v1"
    :typescript "typescript/v1"
@@ -9462,6 +9464,220 @@
   "Extract bounded test runner configuration facts."
   [run-id file]
   (extract-config-facts run-id file :test-config :test-config-file))
+
+(defn- quality-tool
+  [filename]
+  (cond
+    (= ".coveragerc" filename) "coverage.py"
+    (= "coverage.toml" filename) "coverage.py"
+    (contains? #{"mypy.ini" ".mypy.ini"} filename) "mypy"
+    (contains? #{"ruff.toml" ".ruff.toml"} filename) "ruff"
+    (= "sonar-project.properties" filename) "sonar"
+    (= "checkstyle.xml" filename) "checkstyle"
+    (= "pmd.xml" filename) "pmd"
+    (= "spotbugs-exclude.xml" filename) "spotbugs"
+    (contains? #{"phpstan.neon" "phpstan.neon.dist"} filename) "phpstan"
+    (= "psalm.xml" filename) "psalm"
+    (contains? #{".rubocop.yml" ".rubocop.yaml"} filename) "rubocop"
+    (contains? #{".swiftlint.yml" ".swiftlint.yaml"} filename) "swiftlint"
+    (contains? #{"detekt.yml" "detekt.yaml"} filename) "detekt"
+    :else filename))
+
+(defn- quality-assignment-facts
+  [content]
+  (->> (properties-assignment-lines content)
+       (map (fn [{:keys [key value source-line]}]
+              {:kind :quality-setting
+               :label (str key "=" (strip-yaml-scalar value))
+               :source-line source-line
+               :relation :defines}))
+       distinct
+       vec))
+
+(defn- quality-yaml-list-facts
+  [content section-names kind relation]
+  (->> (yaml-section-items content section-names)
+       (map (fn [{:keys [section value source-line]}]
+              {:kind kind
+               :label (str section "=" value)
+               :source-line source-line
+               :relation relation}))
+       distinct
+       vec))
+
+(defn- quality-yaml-rule-facts
+  [content]
+  (vec
+   (distinct
+    (concat
+     (->> (str/split-lines content)
+          (map-indexed vector)
+          (keep (fn [[idx line]]
+                  (when-let [[_ key value]
+                             (re-matches #"^([A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+):\s*(.*?)\s*$"
+                                         line)]
+                    {:kind :quality-rule
+                     :label (if (seq value)
+                              (str key "=" (strip-yaml-scalar value))
+                              key)
+                     :source-line (inc idx)
+                     :relation :defines}))))
+     (->> (str/split-lines content)
+          (map-indexed vector)
+          (keep (fn [[idx line]]
+                  (when-let [{:keys [indent key value source-line]} (yaml-key-line idx line)]
+                    (when (and (zero? indent)
+                               (re-find #"/" key)
+                               (not= "Enabled" key))
+                      {:kind :quality-rule
+                       :label (if (seq value)
+                                (str key "=" (strip-yaml-scalar value))
+                                key)
+                       :source-line source-line
+                       :relation :defines})))))))))
+
+(defn- quality-neon-facts
+  [content]
+  (let [section-list-values (fn [section-name]
+                              (loop [remaining (map-indexed vector (str/split-lines content))
+                                     active? false
+                                     section-indent nil
+                                     out []]
+                                (if-let [[idx line] (first remaining)]
+                                  (let [entry (yaml-key-line idx line)
+                                        active* (cond
+                                                  (and entry
+                                                       (= section-name (:key entry))
+                                                       (str/blank? (:value entry)))
+                                                  true
+
+                                                  (and active?
+                                                       entry
+                                                       (<= (:indent entry) section-indent))
+                                                  false
+
+                                                  :else active?)
+                                        section-indent* (cond
+                                                          (and entry
+                                                               (= section-name (:key entry))
+                                                               (str/blank? (:value entry)))
+                                                          (:indent entry)
+
+                                                          (not active*) nil
+                                                          :else section-indent)
+                                        list-value (when (and active*
+                                                              (> (leading-spaces line)
+                                                                 section-indent*))
+                                                     (some->> (re-matches #"^\s*-\s+(.+?)\s*$"
+                                                                          line)
+                                                              second
+                                                              strip-yaml-scalar))]
+                                    (recur (rest remaining)
+                                           active*
+                                           section-indent*
+                                           (cond-> out
+                                             list-value (conj {:value list-value
+                                                               :source-line (inc idx)}))))
+                                  (vec (distinct out)))))]
+    (vec
+     (concat
+      (map (fn [{:keys [value source-line]}]
+             {:kind :quality-include
+              :label (str "includes=" value)
+              :source-line source-line
+              :relation :references})
+           (section-list-values "includes"))
+      (map (fn [{:keys [value source-line]}]
+             {:kind :quality-path
+              :label (str "paths=" value)
+              :source-line source-line
+              :relation :references})
+           (section-list-values "paths"))
+      (quality-assignment-facts content)))))
+
+(defn- quality-xml-facts
+  [content filename]
+  (let [checkstyle-rules (when (= "checkstyle.xml" filename)
+                           (->> (re-seq #"<module\s+[^>]*name=\"([^\"]+)\"" content)
+                                (map second)
+                                (map (fn [rule]
+                                       {:kind :quality-rule
+                                        :label rule
+                                        :source-line 1
+                                        :relation :defines}))))
+        pmd-rules (when (= "pmd.xml" filename)
+                    (->> (re-seq #"<rule\s+[^>]*ref=\"([^\"]+)\"" content)
+                         (map second)
+                         (map (fn [rule]
+                                {:kind :quality-rule
+                                 :label rule
+                                 :source-line 1
+                                 :relation :references}))))
+        spotbugs (when (= "spotbugs-exclude.xml" filename)
+                   (->> (re-seq #"<(?:Class|Bug)\s+[^>]*(?:name|pattern)=\"([^\"]+)\""
+                                content)
+                        (map second)
+                        (map (fn [rule]
+                               {:kind :quality-rule
+                                :label rule
+                                :source-line 1
+                                :relation :defines}))))
+        psalm-paths (when (= "psalm.xml" filename)
+                      (->> (re-seq #"<directory\s+[^>]*name=\"([^\"]+)\"" content)
+                           (map second)
+                           (map (fn [path]
+                                  {:kind :quality-path
+                                   :label path
+                                   :source-line 1
+                                   :relation :references}))))]
+    (vec (distinct (concat checkstyle-rules pmd-rules spotbugs psalm-paths)))))
+
+(defn- quality-config-facts
+  [{:keys [path content]}]
+  (let [filename (manifest-name path)
+        tool (quality-tool filename)]
+    (vec
+     (distinct
+      (concat
+       [{:kind :quality-tool
+         :label tool
+         :source-line 1
+         :relation :uses}]
+       (cond
+         (contains? #{"checkstyle.xml" "pmd.xml" "spotbugs-exclude.xml" "psalm.xml"}
+                    filename)
+         (quality-xml-facts content filename)
+
+         (contains? #{"phpstan.neon" "phpstan.neon.dist"} filename)
+         (quality-neon-facts content)
+
+         (contains? #{".rubocop.yml" ".rubocop.yaml"} filename)
+         (concat
+          (quality-yaml-list-facts content #{"inherit_from"} :quality-include :references)
+          (quality-yaml-list-facts content #{"require"} :quality-plugin :uses)
+          (quality-yaml-rule-facts content))
+
+         (contains? #{".swiftlint.yml" ".swiftlint.yaml"} filename)
+         (concat
+          (quality-yaml-list-facts content #{"included" "excluded"} :quality-path :references)
+          (quality-yaml-list-facts content #{"opt_in_rules" "disabled_rules"} :quality-rule :defines))
+
+         (contains? #{"detekt.yml" "detekt.yaml"} filename)
+         (concat
+          (quality-yaml-list-facts content #{"config"} :quality-include :references)
+          (quality-assignment-facts content))
+
+         :else
+         (quality-assignment-facts content)))))))
+
+(defn extract-quality-config
+  "Extract bounded coverage and static-analysis configuration facts."
+  [run-id file]
+  (extract-format-facts run-id
+                        file
+                        :quality-config
+                        :quality-config-file
+                        (quality-config-facts file)))
 
 (defn- dependabot-update-blocks
   [content]
@@ -19803,6 +20019,7 @@
      :db-config (extract-db-config run-id file)
      :codegen-config (extract-codegen-config run-id file)
      :test-config (extract-test-config run-id file)
+     :quality-config (extract-quality-config run-id file)
      :editor-config (extract-editor-config run-id file)
      :release-config (extract-release-config run-id file)
      :web-framework (extract-web-framework run-id file)

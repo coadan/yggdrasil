@@ -1,0 +1,3 @@
+<ruleset name="panels">
+  <rule ref="category/java/bestpractices.xml/UnusedPrivateMethod"/>
+</ruleset>

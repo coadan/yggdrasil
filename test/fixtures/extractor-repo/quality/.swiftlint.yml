@@ -1,0 +1,6 @@
+included:
+  - Sources
+opt_in_rules:
+  - explicit_init
+disabled_rules:
+  - force_cast

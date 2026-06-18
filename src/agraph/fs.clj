@@ -14,7 +14,7 @@
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".lua"
     ".kt" ".kts" ".m" ".md" ".mdx" ".mjs" ".ml" ".mli" ".mm" ".mo" ".mts" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
-    ".nix" ".odin" ".out" ".prisma" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
+    ".neon" ".nix" ".odin" ".out" ".prisma" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
     ".service" ".sln" ".socket" ".sql" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".ttf"
     ".license" ".template" ".toml" ".ts" ".tsx" ".txt" ".vb" ".vbproj" ".vue" ".xcconfig"
     ".webp" ".woff" ".woff2" ".yaml" ".yml" ".zig" ".xml"})
@@ -86,6 +86,10 @@
     "playwright.config.js" "playwright.config.cjs" "playwright.config.mjs" "playwright.config.ts"
     "cypress.config.js" "cypress.config.cjs" "cypress.config.mjs" "cypress.config.ts"
     "karma.conf.js" "pytest.ini" "tox.ini" "noxfile.py" "ava.config.js" "ava.config.cjs" "ava.config.mjs"
+    ".coveragerc" "coverage.toml" "mypy.ini" ".mypy.ini" "ruff.toml" ".ruff.toml"
+    "sonar-project.properties" "checkstyle.xml" "pmd.xml" "spotbugs-exclude.xml"
+    "phpstan.neon" "phpstan.neon.dist" "psalm.xml" ".rubocop.yml" ".rubocop.yaml"
+    ".swiftlint.yml" ".swiftlint.yaml" "detekt.yml" "detekt.yaml"
     "eslint.config.js" "eslint.config.cjs" "eslint.config.mjs" "eslint.config.ts"
     ".eslintrc" ".eslintrc.js" ".eslintrc.cjs" ".eslintrc.json" ".eslintrc.yaml" ".eslintrc.yml"
     "prettier.config.js" "prettier.config.cjs" "prettier.config.mjs" "prettier.config.ts"
@@ -251,6 +255,11 @@
                    "karma.conf.js" "pytest.ini" "tox.ini" "noxfile.py"
                    "ava.config.js" "ava.config.cjs" "ava.config.mjs"}
                  filename) :test-config
+      (contains? #{".coveragerc" "coverage.toml" "mypy.ini" ".mypy.ini" "ruff.toml" ".ruff.toml"
+                   "sonar-project.properties" "checkstyle.xml" "pmd.xml" "spotbugs-exclude.xml"
+                   "phpstan.neon" "phpstan.neon.dist" "psalm.xml" ".rubocop.yml" ".rubocop.yaml"
+                   ".swiftlint.yml" ".swiftlint.yaml" "detekt.yml" "detekt.yaml"}
+                 filename) :quality-config
       (contains? #{"eslint.config.js" "eslint.config.cjs" "eslint.config.mjs" "eslint.config.ts"
                    ".eslintrc" ".eslintrc.js" ".eslintrc.cjs" ".eslintrc.json" ".eslintrc.yaml" ".eslintrc.yml"
                    "prettier.config.js" "prettier.config.cjs" "prettier.config.mjs" "prettier.config.ts"

@@ -3684,6 +3684,71 @@
     (is (= 1 (:grafana-panel (kinds dashboard))))
     (is (= [:observability-file] (mapv :kind (:chunks otel))))))
 
+(deftest extracts-quality-config-facts
+  (let [result-for (fn [path]
+                     (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      (str "test/fixtures/extractor-repo/" path))))
+        kind-for (fn [path]
+                   (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                          (str "test/fixtures/extractor-repo/" path))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        coverage (result-for "quality/.coveragerc")
+        mypy (result-for "quality/mypy.ini")
+        ruff (result-for "quality/ruff.toml")
+        sonar (result-for "quality/sonar-project.properties")
+        checkstyle (result-for "quality/checkstyle.xml")
+        pmd (result-for "quality/pmd.xml")
+        spotbugs (result-for "quality/spotbugs-exclude.xml")
+        phpstan (result-for "quality/phpstan.neon")
+        psalm (result-for "quality/psalm.xml")
+        rubocop (result-for "quality/.rubocop.yml")
+        swiftlint (result-for "quality/.swiftlint.yml")
+        detekt (result-for "quality/detekt.yml")]
+    (doseq [path ["quality/.coveragerc"
+                  "quality/mypy.ini"
+                  "quality/ruff.toml"
+                  "quality/sonar-project.properties"
+                  "quality/checkstyle.xml"
+                  "quality/pmd.xml"
+                  "quality/spotbugs-exclude.xml"
+                  "quality/phpstan.neon"
+                  "quality/psalm.xml"
+                  "quality/.rubocop.yml"
+                  "quality/.swiftlint.yml"
+                  "quality/detekt.yml"]]
+      (is (= :quality-config (kind-for path))))
+    (is (contains? (labels coverage) "coverage.py"))
+    (is (contains? (labels coverage) "branch=True"))
+    (is (contains? (labels mypy) "mypy"))
+    (is (contains? (labels mypy) "strict=True"))
+    (is (contains? (labels ruff) "ruff"))
+    (is (contains? (labels ruff) "line-length=100"))
+    (is (contains? (labels sonar) "sonar"))
+    (is (contains? (labels sonar) "sonar.projectKey=panels"))
+    (is (contains? (labels checkstyle) "checkstyle"))
+    (is (contains? (labels checkstyle) "AvoidStarImport"))
+    (is (contains? (labels pmd) "category/java/bestpractices.xml/UnusedPrivateMethod"))
+    (is (contains? (labels spotbugs) "EI_EXPOSE_REP"))
+    (is (contains? (labels phpstan) "phpstan"))
+    (is (contains? (labels phpstan) "includes=vendor/phpstan/phpstan-strict-rules/rules.neon"))
+    (is (contains? (labels phpstan) "paths=src"))
+    (is (contains? (labels psalm) "src"))
+    (is (contains? (labels rubocop) "rubocop"))
+    (is (contains? (labels rubocop) "inherit_from=.rubocop_todo.yml"))
+    (is (contains? (labels rubocop) "require=rubocop-performance"))
+    (is (contains? (labels rubocop) "Style/FrozenStringLiteralComment"))
+    (is (contains? (labels swiftlint) "included=Sources"))
+    (is (contains? (labels swiftlint) "opt_in_rules=explicit_init"))
+    (is (contains? (labels swiftlint) "disabled_rules=force_cast"))
+    (is (contains? (labels detekt) "detekt"))
+    (is (contains? (labels detekt) "maxIssues=0"))
+    (is (= 1 (:quality-tool (kinds sonar))))
+    (is (pos? (:quality-setting (kinds coverage))))
+    (is (= [:quality-config-file] (mapv :kind (:chunks phpstan))))))
+
 (deftest extracts-package-and-workspace-manifest-facts
   (let [package-result (extract/extract-file
                         "run/test"

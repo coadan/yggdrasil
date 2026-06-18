@@ -72,6 +72,18 @@
     (spit-file! root "observability/grafana/datasources.yaml" "apiVersion: 1\ndatasources:\n  - name: Prometheus\n    type: prometheus\n")
     (spit-file! root "observability/grafana/dashboard.json" "{\"schemaVersion\":39,\"title\":\"Panels\",\"panels\":[{\"title\":\"Latency\",\"datasource\":{\"uid\":\"prometheus\"}}]}\n")
     (spit-file! root "observability/logs/vector.yaml" "sources:\n  app:\nsinks:\n  stdout:\n    inputs: [app]\n")
+    (spit-file! root ".coveragerc" "[run]\nbranch = True\n")
+    (spit-file! root "quality/mypy.ini" "[mypy]\nstrict = True\n")
+    (spit-file! root "quality/ruff.toml" "line-length = 100\n")
+    (spit-file! root "quality/sonar-project.properties" "sonar.projectKey=panels\n")
+    (spit-file! root "quality/checkstyle.xml" "<module name=\"Checker\"><module name=\"AvoidStarImport\"/></module>\n")
+    (spit-file! root "quality/pmd.xml" "<ruleset><rule ref=\"category/java/bestpractices.xml/UnusedPrivateMethod\"/></ruleset>\n")
+    (spit-file! root "quality/spotbugs-exclude.xml" "<FindBugsFilter><Match><Bug pattern=\"EI_EXPOSE_REP\"/></Match></FindBugsFilter>\n")
+    (spit-file! root "quality/phpstan.neon" "includes:\n  - rules.neon\nparameters:\n  paths:\n    - src\n")
+    (spit-file! root "quality/psalm.xml" "<psalm><projectFiles><directory name=\"src\"/></projectFiles></psalm>\n")
+    (spit-file! root ".rubocop.yml" "require:\n  - rubocop-performance\n")
+    (spit-file! root ".swiftlint.yml" "opt_in_rules:\n  - explicit_init\n")
+    (spit-file! root "quality/detekt.yml" "build:\n  maxIssues: 0\n")
     (spit-file! root ".devcontainer/devcontainer.json" "{\"image\":\"mcr.microsoft.com/devcontainers/base:ubuntu\",\"features\":{\"ghcr.io/devcontainers/features/node:1\":{}},\"runServices\":[\"db\"],\"forwardPorts\":[3000],\"postCreateCommand\":\"bb test\"}\n")
     (spit-file! root "infra/kustomize/kustomization.yaml" "resources:\n  - ../k8s/deployment.yaml\nimages:\n  - name: ghcr.io/acme/panels-web\nconfigMapGenerator:\n  - name: panels-config\n")
     (spit-file! root ".pre-commit-config.yaml" "repos:\n  - repo: https://github.com/pre-commit/pre-commit-hooks\n    rev: v4.6.0\n    hooks:\n      - id: trailing-whitespace\n")
@@ -257,8 +269,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 226
-              :supported 225
+      (is (= {:files 238
+              :supported 237
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -312,6 +324,7 @@
       (is (= 1 (:count (row-by :kind "notebook" (:files-by-kind report)))))
       (is (= 4 (:count (row-by :kind "data-science" (:files-by-kind report)))))
       (is (= 7 (:count (row-by :kind "observability-config" (:files-by-kind report)))))
+      (is (= 12 (:count (row-by :kind "quality-config" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "devcontainer" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "kustomize" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "pre-commit-config" (:files-by-kind report)))))
@@ -527,6 +540,10 @@
       (is (some #(and (= "observability-config" (:kind %))
                       (= "observability-config/v1" (:extractor-version %))
                       (= 7 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "quality-config" (:kind %))
+                      (= "quality-config/v1" (:extractor-version %))
+                      (= 12 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "devcontainer" (:kind %))
                       (= "devcontainer/v1" (:extractor-version %)))
