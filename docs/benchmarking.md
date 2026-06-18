@@ -63,8 +63,10 @@ generated output root.
   agent-result JSON, and scores it. Use this as the repeatable regression
   baseline before running slower human or LLM agent trials. By default it keeps
   a ranked suspected-file list of ten files and still writes the full
-  context packet; use `--limit <n>` to change the suspected-file shortlist size and
-  `--doc-limit <n>` to change the source context size.
+  context packet; use `--limit <n>` to change the suspected-file shortlist size,
+  `--doc-limit <n>` to change the snippet-bearing source context size, and
+  `--retrieval-limit <n>` to widen the compact candidate-file pool without
+  adding more snippets.
   Use `--retriever local-vector` to run an optional local semantic-vector
   control lane instead of the graph/context packet. The default worker is
   `python3 scripts/local-vector-baseline.py`, which uses

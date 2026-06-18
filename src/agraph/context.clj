@@ -430,9 +430,34 @@
             :clusters (count (:clusters graph-data))}
    :defaultDetail "primary"})
 
+(defn- candidate-files
+  [results]
+  (->> results
+       (map-indexed
+        (fn [idx result]
+          (when-not (str/blank? (str (:path result)))
+            (cond-> {:path (:path result)
+                     :rank (inc idx)
+                     :score (double (or (:score result) 0.0))
+                     :targetKind (some-> (:target-kind result) name)
+                     :label (:label result)}
+              (:source-line result) (assoc :sourceLine (:source-line result))
+              (:result-kind result) (assoc :resultKind (name (:result-kind result)))))))
+       (keep identity)
+       (reduce (fn [best row]
+                 (let [existing (get best (:path row))]
+                   (if (or (nil? existing)
+                           (< (:rank row) (:rank existing)))
+                     (assoc best (:path row) row)
+                     best)))
+               {})
+       vals
+       (sort-by (juxt :rank :path))
+       vec))
+
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns answerability
-   search-instrumentation]
+   search-instrumentation candidate-files]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data)
@@ -440,6 +465,7 @@
            :entities entities
            :edges edges
            :activity activity
+           :candidateFiles candidate-files
            :docs []
            :warnings warnings
            :drilldowns drilldowns}
@@ -461,7 +487,19 @@
 
 (defn- fit-budget
   [packet docs budget]
-  (let [packet (reduce #(add-doc-with-budget %1 %2 budget) packet docs)
+  (let [packet (if (and (seq (:candidateFiles packet))
+                        (> (estimate-tokens packet) budget))
+                 (-> packet
+                     (assoc :candidateFiles [])
+                     (update :warnings conj "candidate files omitted to fit context budget"))
+                 packet)
+        packet (reduce #(add-doc-with-budget %1 %2 budget) packet docs)
+        packet (if (and (seq (:candidateFiles packet))
+                        (> (estimate-tokens packet) budget))
+                 (-> packet
+                     (assoc :candidateFiles [])
+                     (update :warnings conj "candidate files omitted to fit context budget"))
+                 packet)
         estimated (estimate-tokens packet)]
     (assoc packet
            :budget (assoc (:budget packet)
@@ -686,6 +724,7 @@
 (defn context-packet
   "Return compact graph/doc context for an agent query."
   [xtdb query-text {:keys [budget entity-limit edge-limit doc-limit snippet-chars
+                           retrieval-limit
                            retriever embedding-client project-id repo-id map-path
                            map-overlay min-confidence read-context]
                     :or {budget default-budget
@@ -693,6 +732,7 @@
                          edge-limit default-edge-limit
                          doc-limit default-doc-limit
                          snippet-chars default-snippet-chars
+                         retrieval-limit default-retrieval-limit
                          retriever :auto
                          min-confidence 0.55}}]
   (when (str/blank? (str query-text))
@@ -703,7 +743,7 @@
         query-tokens (text/tokenize query-text)
         search-report (query/search-report xtdb
                                            query-text
-                                           {:limit default-retrieval-limit
+                                           {:limit retrieval-limit
                                             :retriever retriever
                                             :embedding-client embedding-client
                                             :project-id project-id
@@ -773,7 +813,8 @@
                                            :query-run-id
                                            :retriever-requested
                                            :retriever-effective
-                                           :instrumentation]))
+                                           :instrumentation])
+                             (candidate-files results))
                 docs
                 budget)))
 

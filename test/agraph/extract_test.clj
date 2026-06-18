@@ -355,6 +355,10 @@
         result (extract/extract-file "run/test" file)
         labels (set (map :label (:nodes result)))
         chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))
+        module-targets (->> (:edges result)
+                            (filter #(= :declares-module (:relation %)))
+                            (map :target-id)
+                            set)
         relations (frequencies (map :relation (:edges result)))]
     (is (contains? labels "src::rust::lib/Config"))
     (is (contains? labels "src::rust::lib/run"))
@@ -362,6 +366,7 @@
            (get-in chunks-by-label ["src::rust::lib/Config" :kind])))
     (is (str/includes? (get-in chunks-by-label ["src::rust::lib/run" :text])
                        "pub async fn run"))
+    (is (contains? module-targets "node:namespace:src::rust::gateway"))
     (is (= 1 (get relations :declares-module 0)))
     (is (= 1 (get relations :uses 0)))
     (is (pos? (get relations :defines 0)))))
@@ -723,6 +728,67 @@
     (is (contains? labels "Acme.Block/PanelKey"))
     (is (contains? labels "Acme.Block/PanelLoaded"))
     (is (empty? (:diagnostics result)))))
+
+(deftest extracts-fsharp-and-visual-basic-dotnet-declarations
+  (let [fsharp (extract/extract-file
+                "run/test"
+                {:file-id "file:PanelService.fs"
+                 :path "src/dotnet/PanelService.fs"
+                 :kind :dotnet
+                 :content (str "namespace Acme.Panels\n"
+                               "open System\n"
+                               "module PanelService =\n"
+                               "  type Panel = { Id: string }\n"
+                               "  let loadPanel id = id\n"
+                               "  type PanelServiceClient() =\n"
+                               "    member _.Refresh() = ()\n")})
+        vb (extract/extract-file
+            "run/test"
+            {:file-id "file:PanelService.vb"
+             :path "src/dotnet/PanelService.vb"
+             :kind :dotnet
+             :content (str "Namespace Acme.Panels\n"
+                           "Imports System.Collections.Generic\n"
+                           "Public Class PanelService\n"
+                           "  Public Function LoadPanel(id As String) As Panel\n"
+                           "  End Function\n"
+                           "  Public Property Name As String\n"
+                           "End Class\n"
+                           "End Namespace\n")})
+        fs-labels (set (map :label (:nodes fsharp)))
+        vb-labels (set (map :label (:nodes vb)))
+        fs-import-targets (set (map :target-id
+                                    (filter #(= :imports (:relation %))
+                                            (:edges fsharp))))
+        vb-import-targets (set (map :target-id
+                                    (filter #(= :imports (:relation %))
+                                            (:edges vb))))
+        fs-chunks (into {} (map (juxt :label identity)) (:chunks fsharp))
+        vb-chunks (into {} (map (juxt :label identity)) (:chunks vb))]
+    (is (= :dotnet (fs/file-kind "PanelService.fsx")))
+    (is (= :dotnet (fs/file-kind "PanelService.fsi")))
+    (is (contains? fs-labels "Acme.Panels"))
+    (is (contains? fs-labels "Acme.Panels/PanelService"))
+    (is (contains? fs-labels "Acme.Panels/PanelService.Panel"))
+    (is (contains? fs-labels "Acme.Panels/PanelService.loadPanel"))
+    (is (contains? fs-labels "Acme.Panels/PanelService.PanelServiceClient"))
+    (is (contains? fs-labels "Acme.Panels/PanelService.PanelServiceClient.Refresh"))
+    (is (contains? fs-import-targets
+                   (extract/node-id :namespace "System")))
+    (is (= :function
+           (get-in fs-chunks ["Acme.Panels/PanelService.loadPanel" :definition-kind])))
+    (is (contains? vb-labels "Acme.Panels"))
+    (is (contains? vb-labels "Acme.Panels/PanelService"))
+    (is (contains? vb-labels "Acme.Panels/PanelService.LoadPanel"))
+    (is (contains? vb-labels "Acme.Panels/PanelService.Name"))
+    (is (contains? vb-import-targets
+                   (extract/node-id :namespace "System.Collections.Generic")))
+    (is (= :method
+           (get-in vb-chunks ["Acme.Panels/PanelService.LoadPanel" :definition-kind])))
+    (is (= :property
+           (get-in vb-chunks ["Acme.Panels/PanelService.Name" :definition-kind])))
+    (is (empty? (:diagnostics fsharp)))
+    (is (empty? (:diagnostics vb)))))
 
 (deftest dotnet-extractor-ignores-call-expressions-inside-method-bodies
   (let [result (extract/extract-file

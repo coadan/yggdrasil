@@ -60,7 +60,12 @@
                                        :retriever-effective :lexical
                                        :instrumentation {:search-docs 1
                                                          :returned-count 1}
-                                       :results []})
+                                       :results [{:path "src/auth.clj"
+                                                  :score 1.2
+                                                  :target-kind :chunk
+                                                  :target-id "chunk:auth"
+                                                  :label "auth/start"
+                                                  :source-line 12}]})
                 graph/system-graph (fn [_ project-id _]
                                      {:basis {:project-id project-id}
                                       :nodes []
@@ -75,4 +80,11 @@
                                           :retriever :lexical})]
       (is (= "query:test" (get-in packet [:search :query-run-id])))
       (is (= :lexical (get-in packet [:search :retriever-effective])))
-      (is (= 1 (get-in packet [:search :instrumentation :search-docs]))))))
+      (is (= 1 (get-in packet [:search :instrumentation :search-docs])))
+      (is (= [{:path "src/auth.clj"
+               :rank 1
+               :score 1.2
+               :targetKind "chunk"
+               :label "auth/start"
+               :sourceLine 12}]
+             (:candidateFiles packet))))))

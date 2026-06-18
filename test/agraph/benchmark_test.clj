@@ -610,6 +610,7 @@
                        :supportCount 2
                        :docCount 2
                        :entityCount 0
+                       :candidateFileCount 0
                        :retrievedSourceCount 0
                        :exactPathSourceCount 0
                        :maxConfidence 1.0
@@ -626,6 +627,7 @@
                        :supportCount 1
                        :docCount 0
                        :entityCount 1
+                       :candidateFileCount 0
                        :retrievedSourceCount 0
                        :exactPathSourceCount 0
                        :maxConfidence 0.7
@@ -658,6 +660,7 @@
                          :supportCount 2
                          :docCount 2
                          :entityCount 0
+                         :candidateFileCount 0
                          :retrievedSourceCount 0
                          :exactPathSourceCount 0
                          :maxConfidence 1.0
@@ -696,6 +699,33 @@
     (is (= 1 (get-in files [1 :metrics :matchedTokenCount])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-uses-retrieved-candidate-file-support
+  (let [root (temp-dir "agraph-bench-candidate-files")
+        _ (spit-file! root "src/seed.clj" "(ns seed)\n")
+        _ (spit-file! root "src/adjacent.clj" "(ns adjacent)\n")
+        packet {:query "open page root"
+                :docs [{:source {:path "src/seed.clj"
+                                 :heading "open-page"}
+                        :score 0.5
+                        :snippet "open page"
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "src/adjacent.clj"
+                                  :rank 30
+                                  :score 0.7
+                                  :targetKind "chunk"
+                                  :label "page root"}
+                                 {:path "src/adjacent.clj"
+                                  :rank 38
+                                  :score 0.6
+                                  :targetKind "node"
+                                  :label "open root"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/adjacent.clj" "src/seed.clj"]
+           (mapv :path files)))
+    (is (= 2 (get-in files [0 :metrics :candidateFileCount])))
+    (is (= 3 (get-in files [0 :metrics :matchedTokenCount])))))
 
 (deftest local-vector-baseline-shells-out-and-scores-agent-result
   (let [repo (temp-dir "agraph-bench-local-vector-repo")
@@ -807,6 +837,7 @@
                        :supportCount 1
                        :docCount 1
                        :entityCount 0
+                       :candidateFileCount 0
                        :retrievedSourceCount 0
                        :exactPathSourceCount 0
                        :maxConfidence 1.0

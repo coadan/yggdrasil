@@ -302,6 +302,7 @@
                                  "--retriever" "lexical"
                                  "--limit" "3"
                                  "--doc-limit" "12"
+                                 "--retrieval-limit" "80"
                                  "--vector-command" "fake-vector-worker"
                                  "--vector-model" "fake-vector-model"
                                  "--json"]))
@@ -318,7 +319,8 @@
                   :vector-command "fake-vector-worker"
                   :vector-model "fake-vector-model"
                   :limit 3
-                  :doc-limit 12}]]
+                  :doc-limit 12
+                  :retrieval-limit 80}]]
                @calls))))))
 
 (deftest bench-agent-run-dispatches-to-benchmark-runner

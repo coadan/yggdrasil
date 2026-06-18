@@ -8,7 +8,7 @@
 
 (def supported-extensions
   #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs"
-    ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs"
+    ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".h" ".hcl" ".hs" ".ini"
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".lua"
@@ -233,7 +233,7 @@
         (".c" ".cc" ".cpp" ".cxx" ".h" ".hh" ".hpp" ".hxx") :cpp
         ".cmake" :build
         (".clj" ".cljc" ".cljs") :code
-        (".cs" ".fs" ".vb") :dotnet
+        (".cs" ".fs" ".fsi" ".fsx" ".vb") :dotnet
         ".go" :go
         (".graphql" ".gql") :graphql
         (".ico" ".jpeg" ".jpg" ".png" ".webp") :image-asset

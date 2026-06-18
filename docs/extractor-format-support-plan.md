@@ -23,6 +23,9 @@ classification in core extractors; store bounded facts and relationships first.
 - Odin: `.odin` source files and `ols.json` project configuration. Extracts
   packages, imports, procedures, structs/enums/unions, constants/variables, and
   foreign import declarations.
+- .NET language breadth: C#, F#, and Visual Basic source files under the
+  `:dotnet` scanner kind. Extracts namespaces, imports, type/module
+  declarations, functions/methods, properties, and source chunks.
 
 ## Future Candidates
 

@@ -68,6 +68,9 @@
 (def default-agent-baseline-doc-limit
   20)
 
+(def default-agent-baseline-retrieval-limit
+  100)
+
 (def default-agent-baseline-suspect-limit
   20)
 
@@ -1059,6 +1062,28 @@
                     path
                     ".")})))
 
+(defn- candidate-file-prediction
+  [root query-tokens idx candidate]
+  (let [path (:path candidate)]
+    (when (existing-file-path? root path)
+      {:path path
+       :source-rank (+ 500 (inc idx))
+       :confidence (bounded-confidence (:score candidate))
+       :evidence-score (* 0.6 (double (or (parse-double-safe (:score candidate)) 0.0)))
+       :evidence-kind :candidate-file
+       :retrieved-source? false
+       :exact-path-source? false
+       :definition-kind (some-> (:targetKind candidate) name)
+       :matched-tokens (token-matches query-tokens
+                                      (str (:path candidate)
+                                           "\n"
+                                           (:label candidate)))
+       :reason (str "AGraph retrieved candidate file "
+                    path
+                    " from result rank "
+                    (:rank candidate)
+                    ".")})))
+
 (defn- ranked-file-predictions
   [rows]
   (let [combine-rows (fn [path grouped-rows]
@@ -1076,6 +1101,8 @@
                                                       ordered))
                              entity-count (count (filter #(= :entity (:evidence-kind %))
                                                          ordered))
+                             candidate-count (count (filter #(= :candidate-file (:evidence-kind %))
+                                                            ordered))
                              retrieved-source-count (count (filter :retrieved-source?
                                                                    ordered))
                              exact-path-source-count (count (filter :exact-path-source?
@@ -1088,11 +1115,13 @@
                                            (* 0.08 support-count)
                                            (* 0.08 retrieved-source-count)
                                            (* 0.12 exact-path-source-count)
+                                           (* 0.04 candidate-count)
                                            (* 0.03 entity-count))
                              metrics {:firstSourceRank (:source-rank best-row)
                                       :supportCount support-count
                                       :docCount doc-count
                                       :entityCount entity-count
+                                      :candidateFileCount candidate-count
                                       :retrievedSourceCount retrieved-source-count
                                       :exactPathSourceCount exact-path-source-count
                                       :maxConfidence confidence
@@ -1169,7 +1198,11 @@
    (let [query-tokens (text/tokenize (:query packet))
          doc-rows (keep-indexed #(doc-prediction root query-tokens %1 %2) (:docs packet))
          entity-rows (keep-indexed #(entity-prediction root query-tokens %1 %2) (:entities packet))
-         candidate-files (ranked-file-predictions (concat doc-rows entity-rows))
+         candidate-file-rows (keep-indexed #(candidate-file-prediction root query-tokens %1 %2)
+                                           (:candidateFiles packet))
+         candidate-files (ranked-file-predictions (concat doc-rows
+                                                          entity-rows
+                                                          candidate-file-rows))
          suspected-files (cond->> candidate-files
                            limit (take (long limit))
                            true vec)]
@@ -1195,6 +1228,7 @@
    :retriever (keyword (or (:retriever opts) :lexical))
    :budget (long (or (:budget opts) default-agent-baseline-budget))
    :doc-limit (long (or (:doc-limit opts) default-agent-baseline-doc-limit))
+   :retrieval-limit (long (or (:retrieval-limit opts) default-agent-baseline-retrieval-limit))
    :snippet-chars (long (or (:snippet-chars opts) context/default-snippet-chars))})
 
 (defn- agent-baseline-suspect-limit
