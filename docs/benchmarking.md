@@ -115,7 +115,10 @@ generated output root.
   one benchmark mode at a time, and `--agent <agent-id>` to target one
   repeatable agent run. Reports also include `caseProgress` and `timings`
   derived from each case `progress.json`, so interrupted or partial runs still
-  show running/failed cases, slowest cases, and cumulative stage timing.
+  show running/failed cases, slowest cases, and cumulative stage timing. Each
+  result also includes `localization`, a compact diagnostic with scoreable
+  files, per-file ranks, misses, coverage exclusions, and files found outside
+  the top five.
 - `bench agent-check <suite.edn>` aggregates agent score artifacts, writes an
   `agent-check.json`, and exits non-zero when selected cases are missing or
   thresholds fail. Useful gates include `--min-cases`, `--min-runs`,

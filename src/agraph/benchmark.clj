@@ -2435,6 +2435,24 @@
      :scoreableFilesByKind files-by-kind
      :missingDeclaredSourceKinds missing}))
 
+(defn- localization-diagnostic
+  [result]
+  (let [ground-truth (:groundTruth result)
+        ranks (get-in result [:groundTruthRanks :files])
+        missed (->> ranks
+                    (remove :found?)
+                    (mapv #(select-keys % [:path])))
+        ranked-outside-top5 (->> ranks
+                                 (filter #(and (:found? %)
+                                               (> (long (:rank %)) 5)))
+                                 (mapv #(select-keys % [:path :rank])))]
+    {:scoreableFiles (scoreable-changed-files ground-truth)
+     :coverageExcludedFiles (vec (:coverageExcludedFiles ground-truth))
+     :unsupportedGroundTruthFiles (vec (:unsupportedGroundTruthFiles ground-truth))
+     :ranks ranks
+     :missedFiles missed
+     :rankedOutsideTop5 ranked-outside-top5}))
+
 (defn report-agent-suite
   "Aggregate existing agent score artifacts."
   [suite opts]
@@ -2466,16 +2484,18 @@
                 :caseProgress progress
                 :byMode (group-agent-scores results [:agent :mode])
                 :byAgent (group-agent-scores results [:agent :agentId])
-                :results (mapv #(select-keys % [:case-id
-                                                :repo-id
-                                                :baseSha
-                                                :fixSha
-                                                :inputHints
-                                                :coverage
-                                                :agentResultPath
-                                                :agent
-                                                :progress
-                                                :scores])
+                :results (mapv #(assoc (select-keys % [:case-id
+                                                       :repo-id
+                                                       :baseSha
+                                                       :fixSha
+                                                       :inputHints
+                                                       :coverage
+                                                       :agentResultPath
+                                                       :agent
+                                                       :progress
+                                                       :scores])
+                                       :localization
+                                       (localization-diagnostic %))
                                results)}]
     (write-json-file! (agent-report-path suite opts) report)
     report))

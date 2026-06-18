@@ -147,6 +147,22 @@
                               :mentionedChangedFiles ["src/app.clj"]
                               :mentionedChangedFileCount 1
                               :changedFileCount 3}
+                 :groundTruth {:changedFiles ["CHANGELOG.md"
+                                              "src/app.clj"
+                                              "src/missing.clj"]
+                               :localizationFiles ["CHANGELOG.md"
+                                                   "src/app.clj"
+                                                   "src/missing.clj"]
+                               :scoreableFiles ["src/app.clj"
+                                                "src/missing.clj"]
+                               :coverageExcludedFiles [{:path "CHANGELOG.md"
+                                                        :kind "doc"}]
+                               :unsupportedGroundTruthFiles []}
+                 :groundTruthRanks {:files [{:path "src/app.clj"
+                                             :rank 7
+                                             :found? true}
+                                            {:path "src/missing.clj"
+                                             :found? false}]}
                  :scores {:fileRecallAt5 1.0
                           :fileRecallAt10 1.0
                           :fileRecallAt20 1.0
@@ -163,6 +179,10 @@
                  :repo-id "repo"
                  :agent {:agentId "baseline"
                          :mode "shell-only"}
+                 :groundTruth {:changedFiles ["src/app.clj"]
+                               :unsupportedGroundTruthFiles []}
+                 :groundTruthRanks {:files [{:path "src/app.clj"
+                                             :found? false}]}
                  :coverage {:declaredSourceKinds ["code" "python"]
                             :scoreableSourceKinds ["code"]
                             :scoreableFilesByKind [{:kind "code"
@@ -242,6 +262,19 @@
                               :elapsedMs 2000}]}
              (:timings report)))
       (is (= "running" (get-in report [:results 0 :progress :status])))
+      (is (= {:scoreableFiles ["src/app.clj" "src/missing.clj"]
+              :coverageExcludedFiles [{:path "CHANGELOG.md"
+                                       :kind "doc"}]
+              :unsupportedGroundTruthFiles []
+              :ranks [{:path "src/app.clj"
+                       :rank 7
+                       :found? true}
+                      {:path "src/missing.clj"
+                       :found? false}]
+              :missedFiles [{:path "src/missing.clj"}]
+              :rankedOutsideTop5 [{:path "src/app.clj"
+                                   :rank 7}]}
+             (get-in report [:results 0 :localization])))
       (is (= #{"running" "failed"}
              (set (map :status (:caseProgress report)))))
       (is (= {:inputHintedRuns 1
