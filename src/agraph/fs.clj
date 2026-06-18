@@ -12,7 +12,7 @@
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".lua"
-    ".kt" ".kts" ".m" ".md" ".mdx" ".mjs" ".ml" ".mli" ".mm" ".mo" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
+    ".kt" ".kts" ".m" ".md" ".mdx" ".mjs" ".ml" ".mli" ".mm" ".mo" ".mts" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
     ".nix" ".odin" ".out" ".prisma" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
     ".service" ".sln" ".socket" ".sql" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".ttf"
     ".license" ".template" ".toml" ".ts" ".tsx" ".txt" ".vb" ".vbproj" ".vue" ".xcconfig"
@@ -231,7 +231,9 @@
                        "docusaurus.config.mjs" "docusaurus.config.ts"
                        "sidebars.js" "sidebars.ts" "mkdocs.yml" "mkdocs.yaml"}
                      filename)
-          (re-find #"(^|/)src/content/config\.(?:js|mjs|ts)$" path-lower))
+          (re-find #"(^|/)src/content/config\.(?:js|mjs|ts)$" path-lower)
+          (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|ts)$" path-lower)
+          (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|ts)$" path-lower))
       :docs-config
       (or (re-find #"(^|/)\.storybook/(?:main|preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
                    path-lower)
@@ -286,7 +288,7 @@
         (".kt" ".kts") :kotlin
         (".m" ".mm") :objective-c
         ".swift" :swift
-        (".ts" ".tsx") :typescript
+        (".ts" ".tsx" ".mts") :typescript
         ".proto" :protobuf
         ".prisma" :prisma
         ".py" :python
@@ -529,6 +531,9 @@
         (re-find #"^\.github/codeowners$" path-lower)
         (re-find #"^\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower)
         (re-find #"^\.storybook/(?:preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
+                 path-lower)
+        (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|ts)$" path-lower)
+        (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|ts)$"
                  path-lower)
         (re-find #"^\.circleci/config\.ya?ml$" path-lower)
         (re-find #"^\.buildkite/pipeline\.ya?ml$" path-lower)

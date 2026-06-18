@@ -172,6 +172,8 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/docs/src/content.config.ts")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/docs/.vitepress/config.ts")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/bobr/pages/index.astro")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/bobr/plugin/bobr-wordpress-connector.php")
@@ -497,6 +499,39 @@
     (is (= 7 (get relations :defines 0)))
     (is (= 3 (get relations :references 0)))
     (is (= 2 (get relations :uses 0)))
+    (is (= [:docs-config-file] (mapv :kind (:chunks result))))
+    (is (empty? (:diagnostics result)))))
+
+(deftest extracts-vitepress-docs-config
+  (let [file (fs/file-record
+              "test/fixtures/extractor-repo"
+              "test/fixtures/extractor-repo/docs/.vitepress/config.ts")
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        kinds (frequencies (map :kind (:nodes result)))
+        relations (frequencies (map :relation (:edges result)))]
+    (is (= :docs-config (:kind file)))
+    (is (= :docs-config (fs/file-kind "docs/.vitepress/config/index.mts")))
+    (is (contains? labels "vitepress"))
+    (is (contains? labels "Panels Handbook"))
+    (is (contains? labels "Guide"))
+    (is (contains? labels "API"))
+    (is (contains? labels "Introduction"))
+    (is (contains? labels "Configuration"))
+    (is (contains? labels "/handbook/"))
+    (is (contains? labels "/guide/"))
+    (is (contains? labels "/api/"))
+    (is (contains? labels "/guide/introduction"))
+    (is (contains? labels "/reference/configuration"))
+    (is (contains? labels "local"))
+    (is (= 1 (get kinds :docs-title 0)))
+    (is (= 4 (get kinds :docs-nav-entry 0)))
+    (is (= 5 (get kinds :docs-route 0)))
+    (is (= 1 (get kinds :docs-search-provider 0)))
+    (is (= 1 (get relations :imports 0)))
+    (is (= 5 (get relations :defines 0)))
+    (is (= 5 (get relations :references 0)))
+    (is (= 1 (get relations :uses 0)))
     (is (= [:docs-config-file] (mapv :kind (:chunks result))))
     (is (empty? (:diagnostics result)))))
 

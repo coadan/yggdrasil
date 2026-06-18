@@ -136,6 +136,8 @@
   (is (watch/watchable-path? "docs/mkdocs.yml"))
   (is (watch/watchable-path? "src/content.config.ts"))
   (is (watch/watchable-path? "src/content/config.ts"))
+  (is (watch/watchable-path? "docs/.vitepress/config.ts"))
+  (is (watch/watchable-path? "docs/.vitepress/config/index.mts"))
   (is (watch/watchable-path? "src/ui/Button.stories.tsx"))
   (is (watch/watchable-path? "tooling/renovate.json"))
   (is (not (watch/watchable-path? "tooling/.prettierrc")))

@@ -9685,6 +9685,53 @@
       (mapcat content-config-loader-facts forms)
       (mapcat content-config-schema-field-facts forms)))))
 
+(defn- vitepress-config-path?
+  [path]
+  (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")]
+    (boolean
+     (or (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|ts)$" path-lower)
+         (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|ts)$"
+                  path-lower)))))
+
+(defn- vitepress-config-import-facts
+  [path content]
+  (->> (str/split-lines content)
+       (map-indexed #(js-import-targets %1 path %2))
+       (mapcat identity)
+       (mapv (fn [{:keys [target source-line]}]
+               {:kind :docs-config-import
+                :label target
+                :source-line source-line
+                :relation :imports}))
+       distinct
+       vec))
+
+(defn- vitepress-config-facts
+  [{:keys [path content]}]
+  (vec
+   (concat
+    (vitepress-config-import-facts path content)
+    (docs-config-title-facts content)
+    (map (fn [value]
+           {:kind :docs-nav-entry
+            :label value
+            :source-line 1
+            :relation :defines})
+         (docs-config-property-values content "text"))
+    (map (fn [value]
+           {:kind :docs-route
+            :label value
+            :source-line 1
+            :relation :references})
+         (distinct (concat (docs-config-property-values content "base")
+                           (docs-config-property-values content "link"))))
+    (map (fn [value]
+           {:kind :docs-search-provider
+            :label value
+            :source-line 1
+            :relation :uses})
+         (docs-config-property-values content "provider")))))
+
 (defn- docs-sidebar-facts
   [content]
   (vec
@@ -9773,14 +9820,20 @@
   [{:keys [path content]}]
   (let [filename (manifest-name path)]
     (case filename
+      ("config.js" "config.mjs" "config.mts" "config.ts"
+                   "index.js" "index.mjs" "index.mts" "index.ts")
+      (cond
+        (vitepress-config-path? path)
+        (vitepress-config-facts {:path path :content content})
+
+        (re-find #"(^|/)src/content/config\.(?:js|mjs|ts)$"
+                 (str/replace (str/lower-case (str path)) "\\" "/"))
+        (astro-content-config-facts {:path path :content content})
+
+        :else [])
+
       ("content.config.js" "content.config.mjs" "content.config.ts")
       (astro-content-config-facts {:path path :content content})
-
-      ("config.js" "config.mjs" "config.ts")
-      (if (re-find #"(^|/)src/content/config\.(?:js|mjs|ts)$"
-                   (str/replace (str/lower-case (str path)) "\\" "/"))
-        (astro-content-config-facts {:path path :content content})
-        [])
 
       ("docusaurus.config.js" "docusaurus.config.cjs"
                               "docusaurus.config.mjs" "docusaurus.config.ts")
