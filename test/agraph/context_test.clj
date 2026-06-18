@@ -92,6 +92,23 @@
     (is (some #{"important.clj"}
               (map #(get-in % [:source :path]) selected)))))
 
+(deftest answerability-warns-when-indexer-diagnostics-exist
+  (let [warnings (#'context/answerability-warnings
+                  {:search-docs 1
+                   :diagnostics 2
+                   :system-nodes 1
+                   :system-edges 0
+                   :activity-items 1
+                   :activity-events 0
+                   :validation-events 1
+                   :embeddings 1}
+                  {:requested :lexical
+                   :effective :lexical
+                   :fallback? false}
+                  [])]
+    (is (some #{"Indexer diagnostics are present; inspect source coverage before relying on missing facts."}
+              warnings))))
+
 (deftest context-packet-includes-search-instrumentation
   (with-redefs [query/search-report (fn [_ query-text opts]
                                       {:schema query/search-report-schema

@@ -892,6 +892,9 @@
     (zero? (:search-docs counts))
     (conj "No search docs are indexed; context retrieval is limited.")
 
+    (pos? (:diagnostics counts))
+    (conj "Indexer diagnostics are present; inspect source coverage before relying on missing facts.")
+
     (zero? (+ (:system-nodes counts) (:system-edges counts)))
     (conj "No system graph rows are indexed for this project.")
 

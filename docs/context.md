@@ -81,6 +81,9 @@ activity and validation-shaped queue results are supported after
 still unsupported. If `status` is `empty` or `limited`, follow `next` or use the
 listed missing planes to decide whether to sync, embed, inspect coverage, import
 activity, or ask the user for another source of truth.
+When indexed diagnostics are present, `answerability.warnings` points agents to
+`sourceCoverage` and `agraph sync coverage`; this is a source-support signal, not
+a semantic classification.
 
 Plain `agraph ask` prints a concise answerability warning only when no query
 results are found. Use `agraph ask --json` for the full structured packet.
