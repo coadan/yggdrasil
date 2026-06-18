@@ -1,0 +1,19 @@
+{
+  "name": "@acme/panels",
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "build": "turbo build",
+    "test": "vitest run"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "dependencies": {
+    "@apollo/client": "^3.10.0",
+    "react": "^18.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

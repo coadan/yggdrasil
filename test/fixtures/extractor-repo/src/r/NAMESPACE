@@ -1,0 +1,3 @@
+import(dplyr)
+importFrom(jsonlite, toJSON)
+export(load_panel)

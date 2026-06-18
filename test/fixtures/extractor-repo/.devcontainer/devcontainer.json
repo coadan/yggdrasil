@@ -1,0 +1,12 @@
+{
+  "name": "panels-dev",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    }
+  },
+  "runServices": ["db"],
+  "forwardPorts": [3000, 5432],
+  "postCreateCommand": "bb test"
+}

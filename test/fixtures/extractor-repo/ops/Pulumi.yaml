@@ -1,0 +1,4 @@
+name: panels-infra
+runtime: nodejs
+config:
+  aws:region: us-east-1

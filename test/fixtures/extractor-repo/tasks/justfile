@@ -1,0 +1,5 @@
+test: lint
+  bb test
+
+lint:
+  bb lint

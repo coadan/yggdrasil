@@ -1,0 +1,8 @@
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/panel_graph"
+    app:startDestination="@id/panelList">
+  <fragment
+      android:id="@+id/panelList"
+      android:name="com.example.panels.PanelListFragment" />
+</navigation>

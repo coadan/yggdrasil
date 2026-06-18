@@ -1,0 +1,6 @@
+name: panels
+version: 0.1.0
+
+library
+  exposed-modules: Acme.Panels.PanelService
+  build-depends: base, text, aeson

@@ -1,0 +1,16 @@
+name: CI
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TEST_DB: panels
+    steps:
+      - run: bb test
+        working-directory: apps/web
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    container: ghcr.io/acme/deploy:latest
+    steps:
+      - run: bb deploy

@@ -1,0 +1,8 @@
+msgid ""
+msgstr ""
+
+msgid "Connect Bobr"
+msgstr "Koble Bobr"
+
+msgid "Open settings"
+msgstr "Aapne innstillinger"

@@ -1,0 +1,4 @@
+Package: panels
+Version: 0.1.0
+Imports: dplyr, jsonlite
+Suggests: testthat

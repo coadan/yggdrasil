@@ -1,0 +1,11 @@
+---
+import SiteHeader from "../components/SiteHeader.astro";
+import { renderOffer } from "../lib/offers";
+
+const title = "Bobr";
+---
+
+<SiteHeader title={title} />
+<main>
+  <h1>{renderOffer(title)}</h1>
+</main>

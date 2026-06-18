@@ -1,0 +1,7 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  PanelBucket:
+    Type: AWS::S3::Bucket
+  PanelFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: PanelBucket

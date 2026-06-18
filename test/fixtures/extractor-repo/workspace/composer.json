@@ -1,0 +1,10 @@
+{
+  "name": "acme/panels",
+  "require": {
+    "php": "^8.3",
+    "symfony/console": "^7.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0"
+  }
+}

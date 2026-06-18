@@ -1,0 +1,23 @@
+{
+  "$id": "https://example.com/schemas/panel",
+  "title": "Panel",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "owner": {
+      "$ref": "#/$defs/User"
+    }
+  },
+  "$defs": {
+    "User": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

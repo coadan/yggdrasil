@@ -1,0 +1,25 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id     String  @id
+  panels Panel[]
+}
+
+model Panel {
+  id      String @id
+  owner   User   @relation(fields: [ownerId], references: [id])
+  ownerId String
+  status  PanelStatus
+}
+
+enum PanelStatus {
+  DRAFT
+  LIVE
+}

@@ -1,0 +1,9 @@
+{
+  "pnpmVersion": "9.0.0",
+  "projects": [
+    {
+      "packageName": "@acme/panels-web",
+      "projectFolder": "apps/web"
+    }
+  ]
+}

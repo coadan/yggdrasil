@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Panels",
+    "slug": "panels",
+    "ios": {
+      "bundleIdentifier": "com.example.panels"
+    },
+    "android": {
+      "package": "com.example.panels"
+    },
+    "plugins": [
+      "expo-router",
+      ["expo-build-properties", {"ios": {"useFrameworks": "static"}}]
+    ]
+  }
+}

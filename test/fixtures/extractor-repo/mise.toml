@@ -1,0 +1,9 @@
+[tools]
+node = "20.11.1"
+python = "3.12.2"
+
+[env]
+PANEL_ENV = "dev"
+
+[tasks.build]
+run = "bb test"

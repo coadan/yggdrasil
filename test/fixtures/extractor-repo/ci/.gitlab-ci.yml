@@ -1,0 +1,13 @@
+stages: [test, deploy]
+
+test:
+  stage: test
+  image: clojure:tools-deps
+  variables:
+    TEST_DB: panels
+  script: bb test
+
+deploy:
+  stage: deploy
+  needs: [test]
+  script: bb deploy

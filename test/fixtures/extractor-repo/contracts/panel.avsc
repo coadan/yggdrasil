@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "PanelEvent",
+  "namespace": "acme.panels",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string"
+    },
+    {
+      "name": "owner",
+      "type": "User"
+    }
+  ]
+}

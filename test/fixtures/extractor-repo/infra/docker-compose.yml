@@ -1,0 +1,6 @@
+services:
+  web:
+    image: ghcr.io/acme/panels-web:latest
+    build: ./web
+  worker:
+    image: ghcr.io/acme/panels-worker:latest

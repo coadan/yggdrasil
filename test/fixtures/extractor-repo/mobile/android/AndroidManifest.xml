@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.panels">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <application android:label="Panels">
+    <activity android:name=".MainActivity" />
+    <service android:name=".PanelSyncService" />
+  </application>
+</manifest>

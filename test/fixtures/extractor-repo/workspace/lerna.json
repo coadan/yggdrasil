@@ -1,0 +1,6 @@
+{
+  "npmClient": "pnpm",
+  "packages": [
+    "packages/*"
+  ]
+}

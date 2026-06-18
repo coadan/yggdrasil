@@ -1,0 +1,12 @@
+resources:
+  - ../k8s/deployment.yaml
+components:
+  - ../components/observability
+patchesStrategicMerge:
+  - patch-replicas.yaml
+images:
+  - name: ghcr.io/acme/panels-web
+configMapGenerator:
+  - name: panels-config
+secretGenerator:
+  - name: panels-secret

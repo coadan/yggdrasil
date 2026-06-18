@@ -187,7 +187,7 @@
 
 (defn- container-image-consumer-facts
   [run-id project-id repo-id file idx line]
-  (when (#{:yaml :helm :compose} (:kind file))
+  (when (#{:yaml :helm :compose :kustomize} (:kind file))
     (let [line-no (inc idx)]
       (->> (image-scalar-values line)
            (keep (fn [value]
@@ -239,7 +239,7 @@
 
 (defn- yaml-facts
   [run-id project-id repo-id file]
-  (when (#{:yaml :helm :compose} (:kind file))
+  (when (#{:yaml :helm :compose :kustomize} (:kind file))
     (->> (yaml-docs (:content file))
          (keep yaml-resource)
          (map (fn [{:keys [kind name]}]

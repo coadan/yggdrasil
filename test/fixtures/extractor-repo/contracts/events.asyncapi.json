@@ -1,0 +1,37 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Panel Events",
+    "version": "1.0.0"
+  },
+  "channels": {
+    "panel.created": {
+      "address": "panel.created",
+      "publish": {
+        "operationId": "publishPanelCreated",
+        "message": {
+          "$ref": "#/components/messages/PanelCreated"
+        }
+      }
+    }
+  },
+  "components": {
+    "messages": {
+      "PanelCreated": {
+        "payload": {
+          "$ref": "#/components/schemas/Panel"
+        }
+      }
+    },
+    "schemas": {
+      "Panel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

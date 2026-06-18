@@ -1,0 +1,9 @@
+[Unit]
+Description=Panels worker
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/panels-worker
+
+[Install]
+WantedBy=multi-user.target

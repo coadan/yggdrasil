@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package acme.panels.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message Panel {
+  string id = 1;
+  User owner = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message User {
+  string id = 1;
+}
+
+message GetPanelRequest {
+  string id = 1;
+}
+
+service PanelService {
+  rpc GetPanel(GetPanelRequest) returns (Panel);
+}

@@ -9,6 +9,12 @@
                        (.getBytes (str value) "UTF-8"))]
     (apply str (map #(format "%02x" (bit-and % 0xff)) bytes))))
 
+(defn sha256-bytes-hex
+  "Return SHA-256 hex for a byte array."
+  [bytes]
+  (let [digest (.digest (MessageDigest/getInstance "SHA-256") bytes)]
+    (apply str (map #(format "%02x" (bit-and % 0xff)) digest))))
+
 (defn short-hash
   "Return a compact stable hash token for ids."
   [value]

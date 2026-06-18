@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: create-panel-audit
+      author: agraph
+      changes:
+        - createTable:
+            tableName: panel_audit
+        - createIndex:
+            indexName: idx_panel_audit_panel_id
+            tableName: panel_audit
+        - addForeignKeyConstraint:
+            constraintName: fk_panel_audit_panel
+            baseTableName: panel_audit
+  - include:
+      file: db/changelog/extra.yaml

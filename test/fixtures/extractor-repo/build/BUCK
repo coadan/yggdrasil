@@ -1,0 +1,9 @@
+cxx_library(
+    name = "core",
+    srcs = ["core.cpp"],
+)
+
+cxx_binary(
+    name = "app",
+    deps = [":core"],
+)
