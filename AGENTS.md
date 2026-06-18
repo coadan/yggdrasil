@@ -37,8 +37,9 @@ depend on one LLM provider, hidden agent loop, or semantic classifier path.
 Keep implementation local-first and deterministic. XTDB stores durable graph
 facts and audit history; semantic/vector providers are optional later backends.
 
-Use `.dev/` for local XTDB data, caches, and generated reports. Do not commit
-generated graph databases.
+Use `.dev/` for local XTDB data, caches, and generated reports. Put local plan
+artifacts under `.dev/plans/` and local report artifacts under `.dev/reports/`.
+Do not commit generated graph databases.
 
 After finishing a bounded work slice and passing the relevant checks, commit it
 before starting the next slice. Prefer several small, coherent commits over one
