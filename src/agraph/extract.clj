@@ -5538,8 +5538,11 @@
 
 (defn- maven-coordinates
   [content]
-  (let [group-id (first (xml-tag-values content "groupId"))
-        artifact-id (first (xml-tag-values content "artifactId"))]
+  (let [project-content (str/replace content
+                                     #"(?is)<parent\b[^>]*>.*?</parent>"
+                                     "")
+        group-id (first (xml-tag-values project-content "groupId"))
+        artifact-id (first (xml-tag-values project-content "artifactId"))]
     (when artifact-id
       (if group-id
         (str group-id ":" artifact-id)
@@ -5562,6 +5565,104 @@
                                   :source-line 1})))))
        distinct
        vec))
+
+(defn- maven-coordinate-fact
+  [kind relation block]
+  (let [group-id (first (xml-tag-values block "groupId"))
+        artifact-id (first (xml-tag-values block "artifactId"))]
+    (when (and group-id artifact-id)
+      {:kind kind
+       :label (str group-id ":" artifact-id)
+       :source-line 1
+       :relation relation})))
+
+(defn- maven-module-facts
+  [content]
+  (->> (xml-tag-values content "module")
+       (map (fn [module]
+              {:kind :maven-module
+               :label module
+               :source-line 1
+               :relation :defines}))
+       distinct
+       vec))
+
+(defn- maven-plugin-facts
+  [content]
+  (->> (re-seq #"(?is)<plugin\b[^>]*>(.*?)</plugin>" content)
+       (map second)
+       (keep #(maven-coordinate-fact :maven-plugin :uses %))
+       distinct
+       vec))
+
+(defn- maven-profile-facts
+  [content]
+  (->> (re-seq #"(?is)<profile\b[^>]*>(.*?)</profile>" content)
+       (map second)
+       (keep (fn [profile]
+               (when-let [profile-id (first (xml-tag-values profile "id"))]
+                 {:kind :maven-profile
+                  :label profile-id
+                  :source-line 1
+                  :relation :defines})))
+       distinct
+       vec))
+
+(defn- maven-repository-facts
+  [content]
+  (->> (re-seq #"(?is)<repository\b[^>]*>(.*?)</repository>" content)
+       (map second)
+       (mapcat (fn [repository]
+                 (let [repo-id (first (xml-tag-values repository "id"))
+                       url (first (xml-tag-values repository "url"))]
+                   (remove nil?
+                           [(when repo-id
+                              {:kind :maven-repository
+                               :label repo-id
+                               :source-line 1
+                               :relation :references})
+                            (when url
+                              {:kind :maven-repository
+                               :label url
+                               :source-line 1
+                               :relation :references})]))))
+       distinct
+       vec))
+
+(defn- maven-build-facts
+  [content]
+  (vec (remove nil?
+               [(when-let [packaging (first (xml-tag-values content "packaging"))]
+                  {:kind :maven-packaging
+                   :label packaging
+                   :source-line 1
+                   :relation :defines})
+                (when-let [directory (first (xml-tag-values content "directory"))]
+                  {:kind :maven-build-output
+                   :label directory
+                   :source-line 1
+                   :relation :defines})
+                (when-let [final-name (first (xml-tag-values content "finalName"))]
+                  {:kind :maven-build-output
+                   :label final-name
+                   :source-line 1
+                   :relation :defines})])))
+
+(defn- maven-facts
+  [content]
+  (vec (concat
+        (maven-dependencies content)
+        (maven-module-facts content)
+        (when-let [parent (some->> (re-find #"(?is)<parent\b[^>]*>(.*?)</parent>"
+                                            content)
+                                   second
+                                   (maven-coordinate-fact :maven-parent
+                                                          :references))]
+          [parent])
+        (maven-plugin-facts content)
+        (maven-profile-facts content)
+        (maven-repository-facts content)
+        (maven-build-facts content))))
 
 (defn- gradle-project-name
   [content path]
@@ -7132,7 +7233,7 @@
     (cond
       (= "pom.xml" filename)
       {:project-label (or (maven-coordinates content) path)
-       :facts (maven-dependencies content)}
+       :facts (maven-facts content)}
 
       (contains? #{"build.gradle" "build.gradle.kts" "settings.gradle"
                    "settings.gradle.kts" "gradle.properties"}
