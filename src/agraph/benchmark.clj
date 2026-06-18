@@ -3443,19 +3443,23 @@
   (let [top-files (get-in result [:agent :topFiles])
         warnings (vec (get-in result [:agent :warnings]))
         missing-files (vec (get-in result [:agent :missingPredictedFiles]))
+        commands (vec (get-in result [:agent :commands]))
         selection (get-in result [:agent :selection])
         raw-count (long (or (get-in result [:agent :rawSuspectedFileCount])
                             (count top-files)))
         ranked-count (long (count top-files))
+        command-count (count commands)
         candidate-count (:candidateFiles selection)
         filtered-count (long (or (:coverageFilteredCandidateFiles selection) 0))]
     (cond-> {:rawSuspectedFiles raw-count
              :rankedFiles ranked-count
+             :commandCount command-count
              :missingPredictedFiles missing-files
              :warnings warnings
              :warningCount (count warnings)
              :hasWarnings (boolean (seq warnings))
              :emptyResult (zero? ranked-count)
+             :commandless (zero? command-count)
              :noRawSuspectedFiles (zero? raw-count)}
       selection
       (assoc :selection selection)
@@ -3483,6 +3487,9 @@
         missing-predicted (filter (fn [[_ diagnostic]]
                                     (seq (:missingPredictedFiles diagnostic)))
                                   result-pairs)
+        commandless-results (filter (fn [[_ diagnostic]]
+                                      (:commandless diagnostic))
+                                    result-pairs)
         warning-results (filter (fn [[_ diagnostic]]
                                   (:hasWarnings diagnostic))
                                 result-pairs)]
@@ -3515,6 +3522,12 @@
                                                :missingPredictedFiles
                                                second)
                                          missing-predicted))
+     :commandlessRuns (count commandless-results)
+     :commandlessCaseIds (->> commandless-results
+                              (map (comp :case-id first))
+                              distinct
+                              sort
+                              vec)
      :warningRuns (count warning-results)
      :warningCaseIds (->> warning-results
                           (map (comp :case-id first))
@@ -4144,6 +4157,7 @@
                  [:max-input-hinted-cases :maxInputHintedCases]
                  [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
                  [:max-empty-result-runs :maxEmptyResultRuns]
+                 [:max-commandless-runs :maxCommandlessRuns]
                  [:max-warning-runs :maxWarningRuns]
                  [:max-unverified-score-runs :maxUnverifiedScoreRuns]
                  [:max-graph-expectation-failures :maxGraphExpectationFailures]
@@ -4321,6 +4335,20 @@
                                     :agentDiagnostics
                                     :warningCaseIds])
                  :message "Some agent score artifacts contain scorer or agent warnings."})]))))
+
+(defn- commandless-run-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :maxCommandlessRuns])]
+    (let [actual (double (get-in check
+                                 [:report :agentDiagnostics :commandlessRuns]
+                                 0))]
+      (when (> actual expected)
+        [(merge (metric-failure "commandlessRuns" "<=" expected actual)
+                {:case-ids (get-in check
+                                   [:report
+                                    :agentDiagnostics
+                                    :commandlessCaseIds])
+                 :message "Some agent score artifacts did not cite any commands."})]))))
 
 (defn- unverified-score-failures
   [check]
@@ -4553,6 +4581,7 @@
                            "unsupportedGroundTruthFiles"]])
                    (case-threshold-failures check-base)
                    (empty-result-failures check-base)
+                   (commandless-run-failures check-base)
                    (warning-run-failures check-base)
                    (unverified-score-failures check-base)
                    (graph-expectation-failures check-base)
@@ -4595,6 +4624,9 @@
 (def ^:private comparison-report-specs
   [{:path [:agentDiagnostics :warningRuns]
     :label "warningRuns"
+    :direction :lower}
+   {:path [:agentDiagnostics :commandlessRuns]
+    :label "commandlessRuns"
     :direction :lower}
    {:path [:coverageDiagnostics :missingDeclaredSourceKindRuns]
     :label "missingDeclaredSourceKindRuns"

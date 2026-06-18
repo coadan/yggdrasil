@@ -170,8 +170,9 @@ generated output root.
   `--min-case-evidence-citation-rate`, `--max-noise-at-20`, `--max-case-noise-at-20`,
   `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`,
   `--max-empty-result-runs` to fail when agents produce no rankable suspected
-  files, `--max-warning-runs` to fail when scorer or agent warnings are present
-  beyond the configured budget, `--max-unverified-score-runs` to fail when
+  files, `--max-commandless-runs` to fail when agents do not cite commands,
+  `--max-warning-runs` to fail when scorer or agent warnings are present beyond
+  the configured budget, `--max-unverified-score-runs` to fail when
   matching score artifacts are legacy or stale relative to the current suite file,
   `--max-graph-expectation-failures` to fail when graph/evidence expectations
   do not match the indexed facts,
@@ -437,11 +438,15 @@ given.
   supported in the base checkout.
 - `unsupportedGroundTruthFiles`: changed files that were missing or unsupported
   in the base tree.
+- `agentDiagnostics.commandlessRuns`: scored agent artifacts whose result did
+  not cite any commands. Gate this with `--max-commandless-runs` when
+  auditability should require a visible command trail.
 - `agentDiagnostics.warningRuns`: scored agent artifacts that carried scorer or
   agent warnings. Gate this with `--max-warning-runs` when benchmark result
   shape quality should be part of the ratchet. `agent-compare` also treats
-  higher aggregate `warningRuns` as a lower-is-better regression when the report
-  case set and parser-worker profiles are comparable.
+  higher aggregate `warningRuns` and `commandlessRuns` as lower-is-better
+  regressions when the report case set and parser-worker profiles are
+  comparable.
 - `coverageDiagnostics`: aggregate source-support counters. `agent-compare`
   treats increases in missing declared source-kind runs, coverage-excluded
   ground-truth files, and unsupported ground-truth files as lower-is-better
