@@ -500,6 +500,20 @@
               :missingDeclaredSourceKinds [{:case-id "case-1"
                                             :kind "python"}]}
              (:coverage report)))
+      (is (= {:runs 2
+              :missingDeclaredSourceKindRuns 2
+              :missingDeclaredSourceKindCaseIds ["case-1"]
+              :missingDeclaredSourceKinds [{:kind "python"
+                                            :runs 2
+                                            :cases 1
+                                            :caseIds ["case-1"]}]
+              :coverageExcludedGroundTruthRuns 1
+              :coverageExcludedGroundTruthCaseIds ["case-1"]
+              :coverageExcludedGroundTruthFiles 1
+              :unsupportedGroundTruthRuns 0
+              :unsupportedGroundTruthCaseIds []
+              :unsupportedGroundTruthFiles 0}
+             (:coverageDiagnostics report)))
       (is (= {:tags ["auth" "dependency" "runtime-config"]
               :casesByTag [{:tag "auth"
                             :cases 1
@@ -600,6 +614,20 @@
               :inputHintedCases 1
               :inputHintedCaseIds ["case-1"]}
              (get-in (first (:byMode report)) [:inputHints])))
+      (is (= {:runs 1
+              :missingDeclaredSourceKindRuns 1
+              :missingDeclaredSourceKindCaseIds ["case-1"]
+              :missingDeclaredSourceKinds [{:kind "python"
+                                            :runs 1
+                                            :cases 1
+                                            :caseIds ["case-1"]}]
+              :coverageExcludedGroundTruthRuns 1
+              :coverageExcludedGroundTruthCaseIds ["case-1"]
+              :coverageExcludedGroundTruthFiles 1
+              :unsupportedGroundTruthRuns 0
+              :unsupportedGroundTruthCaseIds []
+              :unsupportedGroundTruthFiles 0}
+             (get-in (first (:byMode report)) [:coverageDiagnostics])))
       (is (= #{"agraph" "shell-only"} (set (map :key (:byMode report)))))
       (is (= ["baseline" "codex"] (mapv :key (:byAgent report))))
       (is (= ["all/option" "unknown/missing"]

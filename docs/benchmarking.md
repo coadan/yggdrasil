@@ -144,6 +144,12 @@ generated output root.
   Unverified score artifacts are excluded from aggregate report scores by
   default; use `--allow-unverified-scores` only for forensic inspection of older
   benchmark runs.
+  Reports also include `coverageDiagnostics`, both at the top level and in
+  grouped summaries, with case IDs for missing declared source kinds,
+  coverage-excluded ground-truth files, and unsupported ground-truth files. Use
+  this before tuning ranking: a miss caused by source coverage or support gaps
+  needs extractor or suite-scope work, while a miss with covered source kinds is
+  more likely a retrieval/ranking issue.
 - `bench agent-check <suite.edn>` aggregates agent score artifacts, writes an
   `agent-check.json`, and exits non-zero when selected cases are missing or
   thresholds fail. Useful gates include `--min-cases`, `--min-runs`,

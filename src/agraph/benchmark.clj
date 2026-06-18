@@ -3659,7 +3659,7 @@
      :notRunRuns (count (get by-status "not-run"))
      :notRunCaseIds (case-ids "not-run")}))
 
-(declare aggregate-localization-diagnostics)
+(declare aggregate-localization-diagnostics aggregate-coverage-diagnostics)
 
 (defn- group-agent-scores
   [expected-fingerprints results key-path]
@@ -3673,6 +3673,7 @@
                :agentDiagnostics (aggregate-agent-diagnostics rows)
                :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
                :localizationDiagnostics (aggregate-localization-diagnostics rows)
+               :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                :artifactDiagnostics (aggregate-artifact-diagnostics
                                      expected-fingerprints
                                      rows)}))
@@ -3703,6 +3704,7 @@
                  :agentDiagnostics (aggregate-agent-diagnostics rows)
                  :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
                  :localizationDiagnostics (aggregate-localization-diagnostics rows)
+                 :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                  :artifactDiagnostics (aggregate-artifact-diagnostics
                                        expected-fingerprints
                                        rows)})))
@@ -3725,6 +3727,7 @@
                        :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
                                                      rows)
                        :localizationDiagnostics (aggregate-localization-diagnostics rows)
+                       :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                        :artifactDiagnostics (aggregate-artifact-diagnostics
                                              expected-fingerprints
                                              rows)))))
@@ -3795,6 +3798,68 @@
      :scoreableSourceKinds (vec (sort (map :kind files-by-kind)))
      :scoreableFilesByKind files-by-kind
      :missingDeclaredSourceKinds missing}))
+
+(defn- aggregate-kind-case-rows
+  [rows]
+  (->> rows
+       (group-by :kind)
+       (map (fn [[kind kind-rows]]
+              {:kind kind
+               :runs (count kind-rows)
+               :cases (count (set (map :case-id kind-rows)))
+               :caseIds (->> kind-rows
+                             (map :case-id)
+                             distinct
+                             sort
+                             vec)}))
+       (sort-by :kind)
+       vec))
+
+(defn- aggregate-coverage-diagnostics
+  [results]
+  (let [missing-source-kind-rows (->> results
+                                      (mapcat
+                                       (fn [result]
+                                         (map (fn [kind]
+                                                {:case-id (:case-id result)
+                                                 :kind kind})
+                                              (get-in result
+                                                      [:coverage :missingDeclaredSourceKinds])))))
+        coverage-excluded (filter #(seq (get-in % [:groundTruth :coverageExcludedFiles]))
+                                  results)
+        unsupported (filter #(seq (get-in % [:groundTruth :unsupportedGroundTruthFiles]))
+                            results)]
+    {:runs (count results)
+     :missingDeclaredSourceKindRuns (count missing-source-kind-rows)
+     :missingDeclaredSourceKindCaseIds (->> missing-source-kind-rows
+                                            (map :case-id)
+                                            distinct
+                                            sort
+                                            vec)
+     :missingDeclaredSourceKinds (aggregate-kind-case-rows
+                                  missing-source-kind-rows)
+     :coverageExcludedGroundTruthRuns (count coverage-excluded)
+     :coverageExcludedGroundTruthCaseIds (->> coverage-excluded
+                                              (map :case-id)
+                                              distinct
+                                              sort
+                                              vec)
+     :coverageExcludedGroundTruthFiles (reduce + 0
+                                               (map #(count (get-in %
+                                                                    [:groundTruth
+                                                                     :coverageExcludedFiles]))
+                                                    coverage-excluded))
+     :unsupportedGroundTruthRuns (count unsupported)
+     :unsupportedGroundTruthCaseIds (->> unsupported
+                                         (map :case-id)
+                                         distinct
+                                         sort
+                                         vec)
+     :unsupportedGroundTruthFiles (reduce + 0
+                                          (map #(count (get-in %
+                                                               [:groundTruth
+                                                                :unsupportedGroundTruthFiles]))
+                                               unsupported))}))
 
 (defn- localization-diagnostic
   [result]
@@ -3987,6 +4052,7 @@
                 :agentDiagnostics (aggregate-agent-diagnostics results)
                 :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics results)
                 :localizationDiagnostics (aggregate-localization-diagnostics results)
+                :coverageDiagnostics (aggregate-coverage-diagnostics results)
                 :artifactDiagnostics (aggregate-artifact-diagnostics
                                       expected-fingerprints
                                       raw-results)
