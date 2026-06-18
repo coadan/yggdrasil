@@ -113,7 +113,9 @@ generated output root.
 - `bench agent-report <suite.edn>` aggregates existing agent score artifacts
   across selected cases. Use `--mode agraph` or `--mode shell-only` to compare
   one benchmark mode at a time, and `--agent <agent-id>` to target one
-  repeatable agent run.
+  repeatable agent run. Reports also include `caseProgress` and `timings`
+  derived from each case `progress.json`, so interrupted or partial runs still
+  show running/failed cases, slowest cases, and cumulative stage timing.
 - `bench agent-check <suite.edn>` aggregates agent score artifacts, writes an
   `agent-check.json`, and exits non-zero when selected cases are missing or
   thresholds fail. Useful gates include `--min-cases`, `--min-runs`,

@@ -2187,6 +2187,76 @@
                     (= (:agent-id opts) (get-in % [:agent :agentId]))))
        vec))
 
+(defn- progress-summary
+  [suite case opts]
+  (let [path (progress-path suite case opts)]
+    (when (.isFile (io/file path))
+      (let [progress (read-json-file path)
+            events (vec (:events progress))
+            completed (filter #(= "completed" (:status %)) events)
+            failed (filter #(= "failed" (:status %)) events)
+            last-event (last events)
+            stage-rows (->> events
+                            (keep (fn [{:keys [stage status elapsedMs]}]
+                                    (when elapsedMs
+                                      {:stage stage
+                                       :status status
+                                       :elapsedMs elapsedMs})))
+                            vec)
+            stage-elapsed (->> stage-rows
+                               (group-by :stage)
+                               (map (fn [[stage rows]]
+                                      {:stage stage
+                                       :elapsedMs (reduce + (map :elapsedMs rows))}))
+                               (sort-by :stage)
+                               vec)]
+        (cond-> {:case-id (:id case)
+                 :repo-id (:repo-id case)
+                 :path (fs/canonical-path path)
+                 :status (get {"started" "running"
+                               "completed" "completed"
+                               "failed" "failed"}
+                              (:status last-event)
+                              "unknown")
+                 :events (count events)
+                 :completedStages (count completed)
+                 :failedStages (count failed)
+                 :elapsedMs (reduce + (map :elapsedMs stage-rows))
+                 :stages stage-rows
+                 :stageElapsedMs stage-elapsed}
+          (= "started" (:status last-event))
+          (assoc :activeStage (:stage last-event))
+
+          (seq failed)
+          (assoc :failedStage (:stage (last failed))))))))
+
+(defn- aggregate-progress
+  [summaries]
+  (let [summaries (vec summaries)
+        stage-elapsed (->> summaries
+                           (mapcat :stageElapsedMs)
+                           (group-by :stage)
+                           (map (fn [[stage rows]]
+                                  {:stage stage
+                                   :elapsedMs (reduce + (map :elapsedMs rows))}))
+                           (sort-by :stage)
+                           vec)
+        slowest (->> summaries
+                     (sort-by (comp - :elapsedMs))
+                     (take 10)
+                     (mapv #(select-keys % [:case-id
+                                            :repo-id
+                                            :status
+                                            :activeStage
+                                            :elapsedMs
+                                            :failedStage])))]
+    {:cases (count summaries)
+     :runningCases (count (filter #(= "running" (:status %)) summaries))
+     :failedCases (count (filter #(= "failed" (:status %)) summaries))
+     :elapsedMs (reduce + (map :elapsedMs summaries))
+     :stageElapsedMs stage-elapsed
+     :slowestCases slowest}))
+
 (defn- case-result-file
   [suite case opts]
   (let [file (result-path suite case opts)]
@@ -2313,7 +2383,16 @@
   "Aggregate existing agent score artifacts."
   [suite opts]
   (let [cases (selected-cases suite (:case-id opts))
-        results (mapcat #(agent-score-results suite % opts) cases)
+        progress (->> cases
+                      (keep #(progress-summary suite % opts))
+                      vec)
+        progress-by-case (into {} (map (juxt :case-id identity)) progress)
+        results (mapcat (fn [case]
+                          (let [case-progress (get progress-by-case (:id case))]
+                            (map #(cond-> %
+                                    case-progress (assoc :progress case-progress))
+                                 (agent-score-results suite case opts))))
+                        cases)
         completed-cases (set (map :case-id results))
         missing (->> cases
                      (remove #(contains? completed-cases (:id %)))
@@ -2327,6 +2406,8 @@
                 :scores (aggregate-agent-scores results)
                 :inputHints (input-hint-summary results)
                 :coverage (aggregate-coverage results)
+                :timings (aggregate-progress progress)
+                :caseProgress progress
                 :byMode (group-agent-scores results [:agent :mode])
                 :byAgent (group-agent-scores results [:agent :agentId])
                 :results (mapv #(select-keys % [:case-id
@@ -2337,6 +2418,7 @@
                                                 :coverage
                                                 :agentResultPath
                                                 :agent
+                                                :progress
                                                 :scores])
                                results)}]
     (write-json-file! (agent-report-path suite opts) report)

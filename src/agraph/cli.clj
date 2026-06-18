@@ -1873,6 +1873,16 @@
                (format "%.2f" (double (get-in result [:scores :fileRecallAt10] 0.0))))
       (println "- mrr"
                (format "%.2f" (double (get-in result [:scores :meanReciprocalRankFile] 0.0))))
+      (when-let [timings (:timings result)]
+        (println "- timing-ms" (:elapsedMs timings)
+                 "running" (:runningCases timings)
+                 "failed" (:failedCases timings))
+        (when-let [slowest (first (:slowestCases timings))]
+          (println "- slowest"
+                   (:case-id slowest)
+                   (:status slowest)
+                   (:elapsedMs slowest)
+                   "ms")))
       (when (seq (:missing result))
         (println "- missing" (str/join "," (:missing result)))))
 

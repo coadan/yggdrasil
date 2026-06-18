@@ -142,6 +142,33 @@
                           :changedFiles 3
                           :scoreableChangedFiles 2
                           :unsupportedGroundTruthFiles 1}})
+    (spit-json! out
+                "suite/cases/case-1/progress.json"
+                {:schema "agraph.benchmark.case-progress/v1"
+                 :suite-id "suite"
+                 :case-id "case-1"
+                 :events [{:stage "index-project"
+                           :status "started"
+                           :at "2026-06-18T00:00:00Z"}
+                          {:stage "index-project"
+                           :status "completed"
+                           :at "2026-06-18T00:00:02Z"
+                           :elapsedMs 2000}
+                          {:stage "context-packet"
+                           :status "started"
+                           :at "2026-06-18T00:00:02Z"}]})
+    (spit-json! out
+                "suite/cases/case-2/progress.json"
+                {:schema "agraph.benchmark.case-progress/v1"
+                 :suite-id "suite"
+                 :case-id "case-2"
+                 :events [{:stage "index-project"
+                           :status "started"
+                           :at "2026-06-18T00:00:00Z"}
+                          {:stage "index-project"
+                           :status "failed"
+                           :at "2026-06-18T00:00:03Z"
+                           :elapsedMs 3000}]})
     (let [report (benchmark/report-agent-suite suite {:out out})]
       (is (= benchmark/agent-report-schema (:schema report)))
       (is (= 2 (:cases report)))
@@ -163,6 +190,26 @@
               :missingDeclaredSourceKinds [{:case-id "case-1"
                                             :kind "python"}]}
              (:coverage report)))
+      (is (= {:cases 2
+              :runningCases 1
+              :failedCases 1
+              :elapsedMs 5000
+              :stageElapsedMs [{:stage "index-project"
+                                :elapsedMs 5000}]
+              :slowestCases [{:case-id "case-2"
+                              :repo-id nil
+                              :status "failed"
+                              :elapsedMs 3000
+                              :failedStage "index-project"}
+                             {:case-id "case-1"
+                              :repo-id nil
+                              :status "running"
+                              :activeStage "context-packet"
+                              :elapsedMs 2000}]}
+             (:timings report)))
+      (is (= "running" (get-in report [:results 0 :progress :status])))
+      (is (= #{"running" "failed"}
+             (set (map :status (:caseProgress report)))))
       (is (= {:inputHintedRuns 1
               :inputHintedCases 1
               :inputHintedCaseIds ["case-1"]}
