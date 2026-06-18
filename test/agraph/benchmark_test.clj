@@ -862,6 +862,9 @@
                   :cases 2
                   :completed 2
                   :runs 2
+                  :parserWorkers [{:mode "all"
+                                   :source "option"
+                                   :runs 2}]
                   :scores {:fileRecallAt5 0.5
                            :fileRecallAt10 0.75
                            :fileRecallAt20 1.0
@@ -884,6 +887,9 @@
                    :cases 2
                    :completed 2
                    :runs 2
+                   :parserWorkers [{:mode "all"
+                                    :source "option"
+                                    :runs 2}]
                    :scores {:fileRecallAt5 0.5
                             :fileRecallAt10 0.7
                             :fileRecallAt20 1.0
@@ -926,7 +932,15 @@
                                                                         :fileRecallAt20 0.0
                                                                         :meanReciprocalRankFile 0.0
                                                                         :noiseRatioAt20 1.0}}))
-                                                  {})]
+                                                  {})
+        different-parser-worker (benchmark/compare-agent-reports
+                                 baseline
+                                 (assoc candidate
+                                        :parserWorkers [{:mode "java"
+                                                         :source "option"
+                                                         :runs 2}]
+                                        :results (:results baseline))
+                                 {})]
     (is (= benchmark/agent-compare-schema (:schema failed)))
     (is (= "failed" (:status failed)))
     (is (= #{"fileRecallAt10"
@@ -941,8 +955,24 @@
     (is (empty? (:regressions passed)))
     (is (= "passed" (:status expanded)))
     (is (false? (:aggregateComparable expanded)))
+    (is (= ["case-set-changed"]
+           (:aggregateComparableReasons expanded)))
     (is (some #(= "added" (:status %)) (:caseDeltas expanded)))
-    (is (empty? (:regressions expanded)))))
+    (is (empty? (:regressions expanded)))
+    (is (= "passed" (:status different-parser-worker)))
+    (is (false? (:aggregateComparable different-parser-worker)))
+    (is (= ["parser-worker-profile-changed"]
+           (:aggregateComparableReasons different-parser-worker)))
+    (is (= ["parser-worker-profile-changed"]
+           (->> (:aggregateDeltas different-parser-worker)
+                (filter :ignored?)
+                (map :reason)
+                distinct
+                vec)))
+    (is (= [{:mode "all" :source "option"}]
+           (get-in different-parser-worker [:baseline :parserWorkers])))
+    (is (= [{:mode "java" :source "option"}]
+           (get-in different-parser-worker [:candidate :parserWorkers])))))
 
 (deftest prepares-issue-replay-case-from-git-diff
   (let [root (temp-dir "agraph-bench-repo")

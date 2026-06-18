@@ -4295,11 +4295,49 @@
   (= (set (keys baseline-by-case))
      (set (keys candidate-by-case))))
 
+(defn- report-parser-worker-profiles
+  [report]
+  (let [profiles (seq (:parserWorkers report))]
+    (cond
+      profiles
+      (->> profiles
+           (map #(select-keys % [:mode :source]))
+           (sort-by (juxt :mode :source))
+           vec)
+
+      (seq (:results report))
+      (->> (:results report)
+           aggregate-parser-worker-profiles
+           (map #(select-keys % [:mode :source]))
+           (sort-by (juxt :mode :source))
+           vec)
+
+      (pos? (long (:runs report 0)))
+      [{:mode "unknown"
+        :source "missing"}]
+
+      :else [])))
+
+(defn- same-parser-worker-profiles?
+  [baseline-report candidate-report]
+  (= (report-parser-worker-profiles baseline-report)
+     (report-parser-worker-profiles candidate-report)))
+
+(defn- aggregate-comparable-reasons
+  [baseline-report candidate-report baseline-by-case candidate-by-case]
+  (cond-> []
+    (not (same-case-set? baseline-by-case candidate-by-case))
+    (conj "case-set-changed")
+
+    (not (same-parser-worker-profiles? baseline-report candidate-report))
+    (conj "parser-worker-profile-changed")))
+
 (defn- mark-aggregate-deltas-not-comparable
-  [deltas]
+  [deltas reasons]
   (mapv #(cond-> (dissoc % :regression?)
            (:regression? %) (assoc :ignored? true
-                                   :reason "case-set-changed"))
+                                   :reason (first reasons)
+                                   :reasons reasons))
         deltas))
 
 (defn- case-comparison
@@ -4347,15 +4385,20 @@
                       distinct
                       sort
                       vec)
-        aggregate-comparable? (same-case-set? baseline-by-case
-                                              candidate-by-case)
+        aggregate-comparable-reasons (aggregate-comparable-reasons
+                                      baseline-report
+                                      candidate-report
+                                      baseline-by-case
+                                      candidate-by-case)
+        aggregate-comparable? (empty? aggregate-comparable-reasons)
         raw-aggregate-deltas (score-deltas (:scores baseline-report)
                                            (:scores candidate-report)
                                            tolerance)
         aggregate-deltas (if aggregate-comparable?
                            raw-aggregate-deltas
                            (mark-aggregate-deltas-not-comparable
-                            raw-aggregate-deltas))
+                            raw-aggregate-deltas
+                            aggregate-comparable-reasons))
         aggregate-regressions (if aggregate-comparable?
                                 (filterv :regression? aggregate-deltas)
                                 [])
@@ -4372,13 +4415,16 @@
      :status (if (seq regressions) "failed" "passed")
      :tolerance tolerance
      :aggregateComparable aggregate-comparable?
+     :aggregateComparableReasons aggregate-comparable-reasons
      :baseline {:cases (:cases baseline-report)
                 :completed (:completed baseline-report)
                 :runs (:runs baseline-report)
+                :parserWorkers (report-parser-worker-profiles baseline-report)
                 :scores (:scores baseline-report)}
      :candidate {:cases (:cases candidate-report)
                  :completed (:completed candidate-report)
                  :runs (:runs candidate-report)
+                 :parserWorkers (report-parser-worker-profiles candidate-report)
                  :scores (:scores candidate-report)}
      :aggregateDeltas aggregate-deltas
      :caseDeltas cases

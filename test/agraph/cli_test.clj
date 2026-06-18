@@ -109,6 +109,23 @@
                                  :runs 1}]}))]
     (is (str/includes? out "- parser-workers all/option:1, unknown/missing:1"))))
 
+(deftest benchmark-summary-prints-compare-comparability
+  (let [out (with-out-str
+              (#'cli/print-benchmark-summary
+               {:schema benchmark/agent-compare-schema
+                :suite-id "suite"
+                :status "passed"
+                :tolerance 0.0
+                :aggregateComparable false
+                :aggregateComparableReasons ["parser-worker-profile-changed"]
+                :baseline {:scores {:fileRecallAt10 0.8
+                                    :meanReciprocalRankFile 0.5}}
+                :candidate {:scores {:fileRecallAt10 0.9
+                                     :meanReciprocalRankFile 0.6}}
+                :regressions []}))]
+    (is (str/includes? out "- aggregate-comparable false"))
+    (is (str/includes? out "- aggregate-comparable-reasons parser-worker-profile-changed"))))
+
 (deftest install-agent-list-shows-supported-platforms
   (let [out (with-out-str
               (cli/dispatch "install-agent" ["list"]))

@@ -2101,6 +2101,10 @@
     (do
       (println "- status" (:status result))
       (println "- tolerance" (:tolerance result))
+      (println "- aggregate-comparable" (:aggregateComparable result))
+      (when (seq (:aggregateComparableReasons result))
+        (println "- aggregate-comparable-reasons"
+                 (str/join "," (:aggregateComparableReasons result))))
       (println "- file-recall@10"
                (format "%.2f -> %.2f"
                        (double (get-in result [:baseline :scores :fileRecallAt10] 0.0))
