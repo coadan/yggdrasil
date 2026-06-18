@@ -1371,28 +1371,34 @@
   [root query-tokens idx candidate]
   (let [path (:path candidate)]
     (when (existing-file-path? root path)
-      {:path path
-       :source-rank (+ 500 (inc idx))
-       :confidence (bounded-confidence (:score candidate))
-       :evidence-score (* 0.6 (double (or (parse-double-safe (:score candidate)) 0.0)))
-       :evidence-kind :candidate-file
-       :retrieved-source? false
-       :exact-path-source? false
-       :definition-kind (some-> (:targetKind candidate) name)
-       :matched-tokens (token-matches query-tokens
-                                      (str (:path candidate)
-                                           "\n"
-                                           (:label candidate)))
-       :matched-token-pairs (compact-token-pair-matches
-                             query-tokens
-                             (str (:path candidate)
-                                  "\n"
-                                  (:label candidate)))
-       :reason (str "AGraph retrieved candidate file "
-                    path
-                    " from result rank "
-                    (:rank candidate)
-                    ".")})))
+      (let [evidence-text (str (:path candidate)
+                               "\n"
+                               (:label candidate))
+            matched-tokens (token-matches query-tokens evidence-text)
+            matched-token-pairs (compact-token-pair-matches query-tokens evidence-text)
+            score-components (or (:scoreComponents candidate)
+                                 (:score-components candidate))
+            graph-score (double (or (parse-double-safe (:graph score-components))
+                                    0.0))]
+        (cond-> {:path path
+                 :source-rank (+ 500 (inc idx))
+                 :confidence (bounded-confidence (:score candidate))
+                 :evidence-score (* 0.6 (double (or (parse-double-safe (:score candidate))
+                                                    0.0)))
+                 :evidence-kind :candidate-file
+                 :retrieved-source? false
+                 :exact-path-source? false
+                 :definition-kind (some-> (:targetKind candidate) name)
+                 :matched-tokens matched-tokens
+                 :matched-token-pairs matched-token-pairs
+                 :reason (str "AGraph retrieved candidate file "
+                              path
+                              " from result rank "
+                              (:rank candidate)
+                              ".")}
+          (and (pos? graph-score)
+               (seq matched-tokens))
+          (assoc :graph-neighbor-score graph-score))))))
 
 (defn- ranked-file-predictions
   [rows]
@@ -1416,6 +1422,13 @@
                                                          ordered))
                              candidate-count (count (filter #(= :candidate-file (:evidence-kind %))
                                                             ordered))
+                             graph-neighbor-score (apply max
+                                                         0.0
+                                                         (keep :graph-neighbor-score
+                                                               ordered))
+                             candidate-only-graph-score (if (zero? doc-count)
+                                                          graph-neighbor-score
+                                                          0.0)
                              retrieved-source-count (count (filter :retrieved-source?
                                                                    ordered))
                              exact-path-source-count (count (filter :exact-path-source?
@@ -1437,7 +1450,8 @@
                                            (* 0.08 retrieved-source-count)
                                            (* 0.12 exact-path-source-count)
                                            (* 0.04 candidate-count)
-                                           (* 0.03 entity-count))
+                                           (* 0.03 entity-count)
+                                           (* 3.0 candidate-only-graph-score))
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
                                               :docCount doc-count
@@ -1456,7 +1470,9 @@
                                        (assoc :matchedTokenPairCount
                                               (count matched-token-pairs))
                                        (pos? source-rank-score)
-                                       (assoc :sourceRankScore source-rank-score))]
+                                       (assoc :sourceRankScore source-rank-score)
+                                       (pos? graph-neighbor-score)
+                                       (assoc :graphNeighborScore graph-neighbor-score))]
                          (cond-> (assoc best-row
                                         :path path
                                         :confidence confidence

@@ -484,28 +484,46 @@
 
 (defn- candidate-files
   [results]
-  (->> results
-       (map-indexed
-        (fn [idx result]
-          (when-not (str/blank? (str (:path result)))
-            (cond-> {:path (:path result)
-                     :rank (inc idx)
-                     :score (double (or (:score result) 0.0))
-                     :targetKind (some-> (:target-kind result) name)
-                     :label (:label result)}
-              (:source-line result) (assoc :sourceLine (:source-line result))
-              (:result-kind result) (assoc :resultKind (name (:result-kind result)))))))
-       (keep identity)
-       (reduce (fn [best row]
-                 (let [existing (get best (:path row))]
-                   (if (or (nil? existing)
-                           (< (:rank row) (:rank existing)))
-                     (assoc best (:path row) row)
-                     best)))
-               {})
-       vals
-       (sort-by (juxt :rank :path))
-       vec))
+  (let [max-components (fn [a b]
+                         (merge-with #(max (double (or %1 0.0))
+                                           (double (or %2 0.0)))
+                                     (or a {})
+                                     (or b {})))
+        merge-row (fn [existing row]
+                    (let [earlier (if (< (:rank row) (:rank existing))
+                                    row
+                                    existing)]
+                      (cond-> (assoc earlier
+                                     :score (max (double (or (:score existing) 0.0))
+                                                 (double (or (:score row) 0.0))))
+                        (or (:scoreComponents existing)
+                            (:scoreComponents row))
+                        (assoc :scoreComponents
+                               (max-components (:scoreComponents existing)
+                                               (:scoreComponents row))))))]
+    (->> results
+         (map-indexed
+          (fn [idx result]
+            (when-not (str/blank? (str (:path result)))
+              (cond-> {:path (:path result)
+                       :rank (inc idx)
+                       :score (double (or (:score result) 0.0))
+                       :targetKind (some-> (:target-kind result) name)
+                       :label (:label result)}
+                (:source-line result) (assoc :sourceLine (:source-line result))
+                (:result-kind result) (assoc :resultKind (name (:result-kind result)))
+                (:reason result) (assoc :reason (:reason result))
+                (:score-components result) (assoc :scoreComponents
+                                                  (:score-components result))))))
+         (keep identity)
+         (reduce (fn [best row]
+                   (update best (:path row) #(if %
+                                               (merge-row % row)
+                                               row)))
+                 {})
+         vals
+         (sort-by (juxt :rank :path))
+         vec)))
 
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns answerability

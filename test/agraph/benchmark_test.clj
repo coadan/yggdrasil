@@ -1271,6 +1271,34 @@
     (is (= 3 (get-in files [0 :metrics :matchedTokenCount])))
     (is (= 1 (get-in files [0 :metrics :matchedTokenPairCount])))))
 
+(deftest file-ranking-uses-mechanical-graph-neighbor-evidence
+  (let [root (temp-dir "agraph-bench-candidate-graph")
+        _ (spit-file! root "src/direct.clj" "(ns direct)\n")
+        _ (spit-file! root "src/importing.clj" "(ns importing)\n")
+        packet {:query "stream context"
+                :candidateFiles [{:path "src/direct.clj"
+                                  :rank 5
+                                  :score 0.7
+                                  :targetKind "node"
+                                  :label "direct stream context"
+                                  :scoreComponents {:lexical 0.7
+                                                    :graph 0.0}}
+                                 {:path "src/importing.clj"
+                                  :rank 50
+                                  :score 0.35
+                                  :targetKind "node"
+                                  :label "importing stream context"
+                                  :scoreComponents {:lexical 0.2
+                                                    :graph 0.6}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/importing.clj" "src/direct.clj"]
+           (mapv :path files)))
+    (is (= 0.6 (get-in files [0 :metrics :graphNeighborScore])))
+    (is (= 2 (get-in files [0 :metrics :matchedTokenCount])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest file-ranking-uses-ordered-query-token-pairs-in-candidate-labels
   (let [root (temp-dir "agraph-bench-candidate-token-pairs")
         _ (spit-file! root "src/scattered.clj" "(ns scattered)\n")

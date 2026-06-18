@@ -92,3 +92,49 @@
                :label "auth/start"
                :sourceLine 12}]
              (:candidateFiles packet))))))
+
+(deftest candidate-files-preserve-query-score-components
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :instrumentation {:search-docs 1
+                                                         :returned-count 1}
+                                       :results [{:path "src/caller.clj"
+                                                  :score 0.8
+                                                  :target-kind :node
+                                                  :target-id "node:caller"
+                                                  :label "demo/caller"
+                                                  :reason "graph neighbor"
+                                                  :score-components {:lexical 0.2
+                                                                     :graph 0.0}}
+                                                 {:path "src/caller.clj"
+                                                  :score 0.4
+                                                  :target-kind :node
+                                                  :target-id "node:caller-ns"
+                                                  :label "demo"
+                                                  :reason "graph neighbor"
+                                                  :score-components {:lexical 0.1
+                                                                     :graph 0.6}}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                activity/select-activity (fn [& _] [])
+                context/answerability (fn [& _] {:status :ready})]
+    (let [packet (context/context-packet :xtdb
+                                         "caller"
+                                         {:project-id "fixture"
+                                          :retriever :lexical})]
+      (is (= [{:path "src/caller.clj"
+               :rank 1
+               :score 0.8
+               :targetKind "node"
+               :label "demo/caller"
+               :reason "graph neighbor"
+               :scoreComponents {:lexical 0.2
+                                 :graph 0.6}}]
+             (:candidateFiles packet))))))
