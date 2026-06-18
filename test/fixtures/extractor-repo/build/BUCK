@@ -1,9 +1,13 @@
 cxx_library(
     name = "core",
     srcs = ["core.cpp"],
+    deps = ["//third_party/fmt:fmt"],
 )
 
 cxx_binary(
     name = "app",
+    srcs = ["app.cpp"],
     deps = [":core"],
+    data = ["//assets:panels"],
+    visibility = ["PUBLIC"],
 )

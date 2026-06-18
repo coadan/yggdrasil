@@ -12909,15 +12909,27 @@
          out []]
     (if-let [[idx line] (first remaining)]
       (if current
-        (let [name (or (:label current)
+        (let [attr (or (some-> (re-find #"\b(deps|srcs|data|outs|visibility)\s*=\s*\[" line)
+                               second
+                               keyword)
+                       (:attr current))
+              values (mapv second (re-seq #"\"([^\"\s]+)\"" line))
+              attr* (when-not (re-find #"\]" line) attr)
+              name (or (:label current)
                        (some-> (re-find #"\bname\s*=\s*\"([^\"]+)\"" line)
                                second))
-              deps (into (:deps current)
-                         (map second
-                              (re-seq #"\"([:/@A-Za-z0-9_.+-]+)\"" line)))
-              current* (assoc current :label name :deps deps)]
+              current* (cond-> (assoc current :label name :attr attr*)
+                         (= :deps attr) (update :deps into values)
+                         (= :srcs attr) (update :srcs into values)
+                         (= :data attr) (update :data into values)
+                         (= :outs attr) (update :outs into values)
+                         (= :visibility attr) (update :visibility into values))]
           (if (re-find #"\)" line)
-            (recur (rest remaining) nil (cond-> out (:label current*) (conj current*)))
+            (recur (rest remaining)
+                   nil
+                   (cond-> out
+                     (:label current*)
+                     (conj (dissoc current* :attr))))
             (recur (rest remaining) current* out)))
         (if-let [[_ rule] (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*$" line)]
           (recur (rest remaining)
@@ -12925,7 +12937,11 @@
                   :rule rule
                   :label nil
                   :source-line (inc idx)
-                  :deps []}
+                  :deps []
+                  :srcs []
+                  :data []
+                  :outs []
+                  :visibility []}
                  out)
           (recur (rest remaining) nil out)))
       out)))
@@ -12976,12 +12992,71 @@
          distinct
          vec)))
 
+(defn- build-target-facts
+  [targets]
+  (->> targets
+       (mapcat
+        (fn [{:keys [label rule source-line srcs data outs visibility]}]
+          (when label
+            (concat
+             (when rule
+               [{:source label
+                 :kind :build-rule
+                 :label (str label ":" rule)
+                 :source-line source-line
+                 :relation :uses}])
+             (map (fn [source]
+                    {:source label
+                     :kind :build-source
+                     :label source
+                     :source-line source-line
+                     :relation :references})
+                  srcs)
+             (map (fn [entry]
+                    {:source label
+                     :kind :build-data
+                     :label entry
+                     :source-line source-line
+                     :relation :references})
+                  data)
+             (map (fn [entry]
+                    {:source label
+                     :kind :build-output
+                     :label entry
+                     :source-line source-line
+                     :relation :builds})
+                  outs)
+             (map (fn [entry]
+                    {:source label
+                     :kind :build-visibility
+                     :label entry
+                     :source-line source-line
+                     :relation :uses})
+                  visibility)))))
+       (remove nil?)
+       distinct
+       vec))
+
+(defn- build-reference-nodes
+  [run-id id-scope file-id path targets]
+  (let [target-labels (set (keep #(when (= :build-target (:kind %)) (:label %))
+                                 targets))]
+    (->> targets
+         (mapcat :deps)
+         (map bazel-dep-label)
+         (remove target-labels)
+         (remove str/blank?)
+         distinct
+         (mapv #(generic-node run-id id-scope file-id path
+                              :build-reference % 1)))))
+
 (defn extract-build
   "Extract declared build targets and explicit target dependencies."
   [run-id {:keys [id-scope file-id path content] :as file}]
   (let [lines (vec (str/split-lines content))
         build-node (generic-node run-id id-scope file-id path :build-file path 1)
         targets (build-targets path lines)
+        target-facts (build-target-facts targets)
         target-nodes (->> targets
                           (filter #(= :build-target (:kind %)))
                           (mapv (fn [{:keys [label source-line]}]
@@ -12992,6 +13067,16 @@
                                                 :build-target
                                                 label
                                                 source-line))))
+        target-fact-nodes (mapv (fn [{:keys [kind label source-line]}]
+                                  (generic-node run-id
+                                                id-scope
+                                                file-id
+                                                path
+                                                kind
+                                                label
+                                                source-line))
+                                target-facts)
+        reference-nodes (build-reference-nodes run-id id-scope file-id path targets)
         define-edges (mapv #(edge-row run-id file-id path
                                       (:xt/id build-node)
                                       (:xt/id %)
@@ -12999,10 +13084,23 @@
                                       :extracted
                                       (:source-line %))
                            target-nodes)
+        target-fact-edges (mapv (fn [{:keys [source kind label source-line relation]}]
+                                  (edge-row run-id
+                                            file-id
+                                            path
+                                            (node-id id-scope :build-target source)
+                                            (node-id id-scope kind label)
+                                            relation
+                                            :extracted
+                                            source-line))
+                                target-facts)
         reference-edges (build-reference-edges run-id id-scope file-id path targets)
         chunk-result (extract-text-source run-id file :build-file)]
-    {:nodes (into [build-node] target-nodes)
-     :edges (vec (concat define-edges reference-edges))
+    {:nodes (vec (concat [build-node]
+                         target-nodes
+                         target-fact-nodes
+                         reference-nodes))
+     :edges (vec (concat define-edges target-fact-edges reference-edges))
      :chunks (:chunks chunk-result)
      :diagnostics []}))
 

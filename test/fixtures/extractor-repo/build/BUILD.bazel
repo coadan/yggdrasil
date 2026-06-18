@@ -1,9 +1,13 @@
 cc_library(
     name = "core",
     srcs = ["core.cc"],
+    deps = ["@rules_cc//cc:defs"],
 )
 
 cc_binary(
     name = "app",
+    srcs = ["app.cc"],
     deps = [":core"],
+    data = ["//assets:panels"],
+    visibility = ["//visibility:public"],
 )
