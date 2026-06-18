@@ -115,7 +115,9 @@ generated output root.
   shell-only`, only the checkout and packet are provided. Prefer the hints
   artifact first and the context artifact for supporting snippets: sandboxed
   coding agents may block live XTDB/Clojure commands even when the graph store
-  is writable. Use `--timeout-ms <n>` to bound long-running agents. Use
+  is writable. The hints artifact includes compact indexed `sourceCoverage` so
+  agents can distinguish source-support gaps from ranking misses before opening
+  the full context packet. Use `--timeout-ms <n>` to bound long-running agents. Use
   `--skip-existing` to resume interrupted agent runs with the same current-score
   matching rules as `agent-baseline`.
 - `bench agent-score <suite.edn> --case <case-id> --result result.json` scores

@@ -2131,6 +2131,18 @@
                 :drilldowns ["agraph ask 'broken app' --project project"]
                 :warnings []
                 :answerability {:status :ok}
+                :sourceCoverage {:schema "agraph.source-coverage.context/v1"
+                                 :basis "indexed-graph"
+                                 :totals {:indexedFiles 2
+                                          :diagnostics 0
+                                          :fileKinds 1}
+                                 :topFileKinds [{:kind "code"
+                                                 :count 2}]
+                                 :extractors [{:kind "code"
+                                               :extractorVersion "clojure/v9"
+                                               :files 2}]
+                                 :diagnostics {:byStage []
+                                               :byExtractor []}}
                 :docs [{:source {:repo "repo"
                                  :path "src/app.clj"
                                  :kind "code-definition"
@@ -2220,6 +2232,10 @@
              :metrics {:file-count 2}}]
            (:candidateSystems hints)))
     (is (= ["agraph ask 'broken app' --project project"] (:commands hints)))
+    (is (= {:indexedFiles 2
+            :diagnostics 0
+            :fileKinds 1}
+           (get-in hints [:sourceCoverage :totals])))
     (is (not (contains? hints :groundTruth)))
     (is (not (contains? hints :inputHints)))))
 

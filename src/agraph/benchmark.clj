@@ -2561,6 +2561,7 @@
      :candidateSystems (mapv hint-system (range) (take 10 (:entities packet)))
      :commands (:drilldowns packet)
      :answerability (:answerability packet)
+     :sourceCoverage (:sourceCoverage packet)
      :warnings (:warnings packet)}))
 
 (defn- write-agent-agraph-artifacts!
