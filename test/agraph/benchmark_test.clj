@@ -89,6 +89,25 @@
     (is (= 2 (:scoreableChangedFiles scores)))
     (is (= 1 (:unsupportedGroundTruthFiles scores)))))
 
+(deftest scores-explicit-scoreable-ground-truth-files
+  (let [result {:groundTruth {:changedFiles ["CHANGELOG.md"
+                                             "src/app.js"
+                                             "test/app.test.js"]
+                              :localizationFiles ["CHANGELOG.md"
+                                                  "src/app.js"
+                                                  "test/app.test.js"]
+                              :scoreableFiles ["src/app.js"
+                                               "test/app.test.js"]
+                              :coverageExcludedFiles [{:path "CHANGELOG.md"
+                                                       :kind "doc"}]
+                              :unsupportedGroundTruthFiles []}
+                :agraph {:topFiles [{:path "src/app.js" :rank 1}
+                                    {:path "test/app.test.js" :rank 2}]}}
+        scores (benchmark/score-result result)]
+    (is (= 1.0 (:fileRecallAt5 scores)))
+    (is (= 2 (:scoreableChangedFiles scores)))
+    (is (= 1 (:coverageExcludedGroundTruthFiles scores)))))
+
 (deftest scores-explicit-localization-files-when-present
   (let [result {:groundTruth {:changedFiles ["docs/release-notes.md"
                                              "src/app.clj"
@@ -488,8 +507,10 @@
     (git! root "config" "user.email" "agraph@example.test")
     (git! root "config" "user.name" "AGraph Test")
     (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (spit-file! root "docs/release.md" "old app\n")
     (let [base-sha (commit! root "base")]
       (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :fixed)\n")
+      (spit-file! root "docs/release.md" "fixed app\n")
       (spit-file! root "src/new.clj" "(ns new)\n")
       (let [fix-sha (commit! root "fix")]
         (spit suite-path
@@ -501,7 +522,8 @@
                                 :coverage {:source-kinds [:code :python]}
                                 :base-sha base-sha
                                 :fix-sha fix-sha
-                                :ground-truth {:localization-files ["src/app.clj"]}
+                                :ground-truth {:localization-files ["docs/release.md"
+                                                                    "src/app.clj"]}
                                 :issue {:id 1
                                         :title "broken app"
                                         :body "The app returns the old value in src/app.clj."}}]}))
@@ -514,21 +536,28 @@
                                      "progress.json")
               progress (json/read-json (slurp progress-path) :key-fn keyword)]
           (is (= benchmark/prepared-case-schema (:schema prepared)))
-          (is (= #{"src/app.clj" "src/new.clj"}
+          (is (= #{"docs/release.md" "src/app.clj" "src/new.clj"}
                  (set (get-in prepared [:groundTruth :changedFiles]))))
-          (is (= ["src/app.clj"]
+          (is (= ["docs/release.md" "src/app.clj"]
                  (get-in prepared [:groundTruth :localizationFiles])))
+          (is (= ["src/app.clj"]
+                 (get-in prepared [:groundTruth :scoreableFiles])))
+          (is (= [{:path "docs/release.md"
+                   :kind "doc"}]
+                 (get-in prepared [:groundTruth :coverageExcludedFiles])))
           (is (= [{:path "src/new.clj"
                    :reason "missing-at-base"}]
                  (get-in prepared [:groundTruth :unsupportedGroundTruthFiles])))
           (is (= {:hinted true
                   :mentionedChangedFiles ["src/app.clj"]
                   :mentionedChangedFileCount 1
-                  :changedFileCount 2}
+                  :changedFileCount 3}
                  (:inputHints prepared)))
           (is (= {:declaredSourceKinds ["code" "python"]
-                  :scoreableSourceKinds ["code"]
+                  :scoreableSourceKinds ["code" "doc"]
                   :scoreableFilesByKind [{:kind "code"
+                                          :files 1}
+                                         {:kind "doc"
                                           :files 1}]
                   :missingDeclaredSourceKinds ["python"]}
                  (:coverage prepared)))

@@ -275,7 +275,11 @@ kind from the base checkout, and reports aggregate them as `coverage`:
 
 Use this to keep the OSS replay suite honest as source support expands. A case
 that declares `:rust` but only changes docs will show up as missing declared
-coverage.
+coverage. Declared source-kind coverage also scopes scoring: changed or
+localization files outside the declared kinds remain in the prepared ground
+truth as `coverageExcludedFiles`, are counted as
+`coverageExcludedGroundTruthFiles`, and are left out of recall/MRR/noise
+denominators.
 
 Cases may also include `:ground-truth {:localization-files [...]}`. Use this
 when the fixing commit changed collateral files such as release notes,

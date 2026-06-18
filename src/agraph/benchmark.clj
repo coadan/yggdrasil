@@ -532,10 +532,48 @@
        sort
        vec))
 
+(defn- target-ground-truth-files
+  [truth]
+  (or (:localizationFiles truth) (:changedFiles truth)))
+
+(defn- path-source-kind
+  [path]
+  (some-> path fs/file-kind normalize-source-kind))
+
+(defn- scanned-path-kinds
+  [root]
+  (->> (:files (fs/scan-file-coverage root))
+       (map (fn [{:keys [path kind]}]
+              [path (normalize-source-kind kind)]))
+       (into {})))
+
+(defn- coverage-filtered-ground-truth
+  [case root truth]
+  (let [unsupported (set (map :path (:unsupportedGroundTruthFiles truth)))
+        targets (->> (target-ground-truth-files truth)
+                     (remove unsupported)
+                     vec)
+        declared (set (declared-source-kinds case))]
+    (if (empty? declared)
+      {:scoreableFiles targets
+       :coverageExcludedFiles []}
+      (let [kind-by-path (scanned-path-kinds root)
+            grouped (group-by #(contains? declared (:kind %))
+                              (map (fn [path]
+                                     {:path path
+                                      :kind (get kind-by-path path
+                                                 (path-source-kind path))})
+                                   targets))]
+        {:scoreableFiles (mapv :path (get grouped true))
+         :coverageExcludedFiles (mapv (fn [row]
+                                        (cond-> {:path (:path row)}
+                                          (:kind row) (assoc :kind (:kind row))))
+                                      (get grouped false))}))))
+
 (defn- scoreable-files-by-kind
   [root truth]
   (let [unsupported (set (map :path (:unsupportedGroundTruthFiles truth)))
-        scoreable (->> (or (:localizationFiles truth) (:changedFiles truth))
+        scoreable (->> (target-ground-truth-files truth)
                        (remove unsupported)
                        set)]
     (->> (:files (fs/scan-file-coverage root))
@@ -597,7 +635,9 @@
   (let [input-text (issue-text case)
         unsupported (unsupported-ground-truth-files worktree-root
                                                     (:changedFiles truth))
-        truth (assoc truth :unsupportedGroundTruthFiles unsupported)]
+        truth (assoc truth :unsupportedGroundTruthFiles unsupported)
+        coverage-filter (coverage-filtered-ground-truth case worktree-root truth)
+        truth (merge truth coverage-filter)]
     {:schema prepared-case-schema
      :suite-id (:id suite)
      :case-id (:id case)
@@ -743,10 +783,11 @@
 
 (defn- scoreable-changed-files
   [ground-truth]
-  (let [unsupported (unsupported-ground-truth-paths ground-truth)]
-    (->> (or (:localizationFiles ground-truth) (:changedFiles ground-truth))
-         (remove unsupported)
-         vec)))
+  (or (:scoreableFiles ground-truth)
+      (let [unsupported (unsupported-ground-truth-paths ground-truth)]
+        (->> (target-ground-truth-files ground-truth)
+             (remove unsupported)
+             vec))))
 
 (defn- recall-at
   [truth paths k]
@@ -794,7 +835,8 @@
       :localizationFiles (count (or (:localizationFiles groundTruth)
                                     changed-files))
       :scoreableChangedFiles (count scoreable-files)
-      :unsupportedGroundTruthFiles (count (:unsupportedGroundTruthFiles groundTruth))})))
+      :unsupportedGroundTruthFiles (count (:unsupportedGroundTruthFiles groundTruth))
+      :coverageExcludedGroundTruthFiles (count (:coverageExcludedFiles groundTruth))})))
 
 (defn- run-query!
   [xtdb prepared opts]
@@ -1190,10 +1232,6 @@
                                     :definition-kind)
                             (assoc :rank (inc idx)))))
          vec)))
-
-(defn- path-source-kind
-  [path]
-  (some-> path fs/file-kind normalize-source-kind))
 
 (defn- coverage-source-kinds
   [coverage]
@@ -2324,7 +2362,9 @@
   (assoc (aggregate-scores results)
          :changedFiles (sum-score results :changedFiles)
          :scoreableChangedFiles (sum-score results :scoreableChangedFiles)
-         :unsupportedGroundTruthFiles (sum-score results :unsupportedGroundTruthFiles)))
+         :unsupportedGroundTruthFiles (sum-score results :unsupportedGroundTruthFiles)
+         :coverageExcludedGroundTruthFiles (sum-score results
+                                                      :coverageExcludedGroundTruthFiles)))
 
 (defn- input-hint-summary
   [results]
