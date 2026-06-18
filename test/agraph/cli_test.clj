@@ -63,8 +63,11 @@
     (is (str/includes? usage "hook install <project.edn>"))
     (is (str/includes? usage "bench prepare|run|report|show"))
     (is (str/includes? usage "bench agent-packet"))
+    (is (str/includes? usage "bench agent-baseline"))
+    (is (str/includes? usage "bench agent-run"))
     (is (str/includes? usage "bench agent-score"))
     (is (str/includes? usage "bench agent-report"))
+    (is (str/includes? usage "bench agent-check"))
     (is (not (str/includes? usage "overlay")))))
 
 (deftest install-agent-list-shows-supported-platforms
@@ -234,7 +237,8 @@
                 :out nil
                 :retriever nil
                 :mode "agraph"
-                :result-path nil}
+                :result-path nil
+                :command nil}
                (:opts parsed)))
         (is (= ["benchmark-agent"] (mapv :kind (:enqueued parsed))))
         (is (= [benchmark/agent-packet-schema]
@@ -271,7 +275,88 @@
                   :out nil
                   :retriever nil
                   :mode nil
-                  :result-path "agent-result.json"}]]
+                  :result-path "agent-result.json"
+                  :command nil}]]
+               @calls))))))
+
+(deftest bench-agent-baseline-dispatches-to-benchmark-runner
+  (let [calls (atom [])]
+    (with-redefs [benchmark/read-suite (fn [path]
+                                         (swap! calls conj [:read path])
+                                         {:id "suite"})
+                  benchmark/agent-baselines! (fn [suite opts]
+                                               (swap! calls conj [:baseline suite opts])
+                                               {:schema benchmark/agent-baselines-schema
+                                                :suite-id (:id suite)
+                                                :baselines [{:schema benchmark/agent-baseline-schema
+                                                             :case-id "case-1"
+                                                             :repo-id "repo"
+                                                             :agentId "agraph-baseline-lexical"
+                                                             :scores {:fileRecallAt10 1.0
+                                                                      :meanReciprocalRankFile 1.0}}]})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["agent-baseline" "benchmark.edn"
+                                 "--case" "case-1"
+                                 "--retriever" "lexical"
+                                 "--limit" "3"
+                                 "--doc-limit" "12"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= benchmark/agent-baselines-schema (:schema parsed)))
+        (is (= [[:read "benchmark.edn"]
+                [:baseline {:id "suite"}
+                 {:case-id "case-1"
+                  :out nil
+                  :retriever "lexical"
+                  :mode nil
+                  :result-path nil
+                  :command nil
+                  :limit 3
+                  :doc-limit 12}]]
+               @calls))))))
+
+(deftest bench-agent-run-dispatches-to-benchmark-runner
+  (let [calls (atom [])]
+    (with-redefs [benchmark/read-suite (fn [path]
+                                         (swap! calls conj [:read path])
+                                         {:id "suite"})
+                  benchmark/agent-runs! (fn [suite opts]
+                                          (swap! calls conj [:run-agent suite opts])
+                                          {:schema benchmark/agent-runs-schema
+                                           :suite-id (:id suite)
+                                           :completed 1
+                                           :failed 0
+                                           :runs [{:schema benchmark/agent-run-schema
+                                                   :case-id "case-1"
+                                                   :repo-id "repo"
+                                                   :agentId "codex"
+                                                   :status "passed"
+                                                   :scores {:fileRecallAt10 1.0
+                                                            :meanReciprocalRankFile 1.0}}]})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["agent-run" "benchmark.edn"
+                                 "--case" "case-1"
+                                 "--mode" "agraph"
+                                 "--agent" "codex"
+                                 "--command" "codex exec --json"
+                                 "--prompt-profile" "fast"
+                                 "--timeout-ms" "120000"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= benchmark/agent-runs-schema (:schema parsed)))
+        (is (= [[:read "benchmark.edn"]
+                [:run-agent {:id "suite"}
+                 {:case-id "case-1"
+                  :out nil
+                  :retriever nil
+                  :mode "agraph"
+                  :agent-id "codex"
+                  :result-path nil
+                  :command "codex exec --json"
+                  :prompt-profile "fast"
+                  :timeout-ms 120000}]]
                @calls))))))
 
 (deftest bench-agent-report-dispatches-to-benchmark-reporter
@@ -293,6 +378,7 @@
                                 ["agent-report" "benchmark.edn"
                                  "--case" "case-1"
                                  "--mode" "agraph"
+                                 "--agent" "codex"
                                  "--json"]))
             parsed (read-json-output out)]
         (is (= benchmark/agent-report-schema (:schema parsed)))
@@ -302,7 +388,66 @@
                   :out nil
                   :retriever nil
                   :mode "agraph"
-                  :result-path nil}]]
+                  :agent-id "codex"
+                  :result-path nil
+                  :command nil}]]
+               @calls))))))
+
+(deftest bench-agent-check-dispatches-to-benchmark-checker
+  (let [calls (atom [])]
+    (with-redefs [benchmark/read-suite (fn [path]
+                                         (swap! calls conj [:read path])
+                                         {:id "suite"})
+                  benchmark/check-agent-suite (fn [suite opts]
+                                                (swap! calls conj [:check suite opts])
+                                                {:schema benchmark/agent-check-schema
+                                                 :suite-id (:id suite)
+                                                 :status "passed"
+                                                 :failures []
+                                                 :report {:scores {:fileRecallAt10 1.0
+                                                                   :meanReciprocalRankFile 1.0}}})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["agent-check" "benchmark.edn"
+                                 "--case" "case-1"
+                                 "--mode" "agraph"
+                                 "--agent" "agraph-baseline-lexical"
+                                 "--min-cases" "4"
+                                 "--min-runs" "4"
+                                 "--min-file-recall-at-10" "1.0"
+                                 "--min-mrr" "0.9"
+                                 "--max-noise-at-20" "0.5"
+                                 "--min-case-file-recall-at-10" "1.0"
+                                 "--min-case-mrr" "0.9"
+                                 "--max-case-noise-at-20" "0.75"
+                                 "--max-input-hinted-cases" "0"
+                                 "--max-unsupported-ground-truth-files" "0"
+                                 "--allow-missing"
+                                 "--allow-duplicate-runs"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= benchmark/agent-check-schema (:schema parsed)))
+        (is (= [[:read "benchmark.edn"]
+                [:check {:id "suite"}
+                 {:case-id "case-1"
+                  :out nil
+                  :retriever nil
+                  :mode "agraph"
+                  :agent-id "agraph-baseline-lexical"
+                  :result-path nil
+                  :command nil
+                  :min-cases 4
+                  :min-runs 4
+                  :min-file-recall-at-10 1.0
+                  :min-mrr 0.9
+                  :max-noise-at-20 0.5
+                  :min-case-file-recall-at-10 1.0
+                  :min-case-mrr 0.9
+                  :max-case-noise-at-20 0.75
+                  :max-input-hinted-cases 0.0
+                  :max-unsupported-ground-truth-files 0.0
+                  :allow-missing? true
+                  :allow-duplicate-runs? true}]]
                @calls))))))
 
 (deftest init-command-can-run-sync-and-create-explicit-map
@@ -344,7 +489,13 @@
         (is (graph-map/file-exists? map-path))
         (is (= [[:read config-path]
                 [:index :xtdb "fixture" {:dry-run? false
-                                         :index-profile :graph}]
+                                         :index-profile :graph
+                                         :map-overlay {:schema "agraph.map/v1"
+                                                       :project "fixture"
+                                                       :systems []
+                                                       :reject []
+                                                       :edges []
+                                                       :docs []}}]
                 [:infer :xtdb "fixture"]
                 [:check :xtdb "fixture" {:low-confidence-threshold 0.6
                                          :map-overlay {:schema "agraph.map/v1"
@@ -354,7 +505,7 @@
                                                        :edges []
                                                        :docs []}}]]
                (mapv (fn [call]
-                       (if (= :check (first call))
+                       (if (contains? #{:index :check} (first call))
                          (update-in call [3 :map-overlay] #(select-keys %
                                                                         [:schema
                                                                          :project
@@ -457,7 +608,13 @@
         (is (some #(str/includes? % "agraph ask")
                   (:next parsed)))
         (is (= [[:index :xtdb "fixture" {:dry-run? false
-                                         :index-profile :graph}]
+                                         :index-profile :graph
+                                         :map-overlay {:schema "agraph.map/v1"
+                                                       :project "fixture"
+                                                       :systems []
+                                                       :reject []
+                                                       :edges []
+                                                       :docs []}}]
                 [:infer :xtdb "fixture"]
                 [:check :xtdb "fixture" {:low-confidence-threshold 0.6
                                          :map-overlay {:schema "agraph.map/v1"
@@ -472,7 +629,7 @@
                                           :detail :primary
                                           :force? false}]]
                (mapv (fn [call]
-                       (if (= :check (first call))
+                       (if (contains? #{:index :check} (first call))
                          (update-in call [3 :map-overlay] #(select-keys %
                                                                         [:schema
                                                                          :project
@@ -519,8 +676,24 @@
         (is (not (contains? parsed :initialized)))
         (is (not (contains? parsed :sync)))
         (is (= [[:index :xtdb "existing" {:dry-run? false
-                                          :index-profile :graph}]]
-               @calls))))))
+                                          :index-profile :graph
+                                          :map-overlay {:schema "agraph.map/v1"
+                                                        :project "existing"
+                                                        :systems []
+                                                        :reject []
+                                                        :edges []
+                                                        :docs []}}]]
+               (mapv (fn [call]
+                       (if (= :index (first call))
+                         (update-in call [3 :map-overlay] #(select-keys %
+                                                                        [:schema
+                                                                         :project
+                                                                         :systems
+                                                                         :reject
+                                                                         :edges
+                                                                         :docs]))
+                         call))
+                     @calls)))))))
 
 (deftest sync-runs-index-infer-and-optional-check
   (let [calls (atom [])]
@@ -549,7 +722,8 @@
         (cli/dispatch "sync" ["project.edn" "--check" "--json"])))
     (is (= [[:read "project.edn"]
             [:index :xtdb "fixture" {:dry-run? false
-                                     :index-profile :graph}]
+                                     :index-profile :graph
+                                     :map-overlay nil}]
             [:infer :xtdb "fixture"]
             [:check :xtdb "fixture" {:low-confidence-threshold 0.6
                                      :map-overlay nil}]]
@@ -577,7 +751,8 @@
         (cli/dispatch "sync" ["project.edn" "--json"])))
     (is (= [[:read "project.edn"]
             [:index :xtdb "fixture" {:dry-run? false
-                                     :index-profile :query}]
+                                     :index-profile :query
+                                     :map-overlay nil}]
             [:infer :xtdb "fixture"]]
            @calls))))
 
@@ -700,7 +875,8 @@
                   :out ".dev/bench"
                   :retriever nil
                   :mode nil
-                  :result-path nil}]]
+                  :result-path nil
+                  :command nil}]]
                @calls))))))
 
 (deftest sync-work-apply-valid-infra-review-result-updates-map
@@ -998,3 +1174,28 @@
                        :host "docs.example.com"}
                :reason "Documentation reference"}]
              (:reject data))))))
+
+(deftest sync-package-import-updates-map-file
+  (let [dir (temp-dir "agraph-cli-package-import-map")
+        map-path (.getPath (io/file dir "agraph.map.json"))]
+    (spit map-path (json/write-json-str {:schema "agraph.map/v1"
+                                         :project "fixture"
+                                         :systems []
+                                         :reject []
+                                         :edges []
+                                         :docs []
+                                         :packageImports []}))
+    (with-out-str
+      (cli/dispatch "sync"
+                    ["package" "import" "org.slf4j" "maven:org.slf4j:slf4j-api"
+                     "--repo" "app"
+                     "--map" map-path
+                     "--reason" "Maven coordinate exports this Java package"]))
+    (let [data (json/read-json (slurp map-path) :key-fn keyword)]
+      (is (= [{:import "org.slf4j"
+               :ecosystem "maven"
+               :package "org.slf4j:slf4j-api"
+               :status "accepted"
+               :repo "app"
+               :reason "Maven coordinate exports this Java package"}]
+             (:packageImports data))))))

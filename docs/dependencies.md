@@ -17,14 +17,68 @@ Optional:
 - OpenRouter or OpenAI API key, for embedding-backed semantic retrieval.
 - Docker, for zero-install CLI usage.
 
-JavaScript, TypeScript, SQL, Terraform/HCL, OpenAPI, and container manifests are
-handled by deterministic text, JSON, EDN, or YAML extraction adapters. Native
-CLI use does not require a Node.js toolchain, TypeScript compiler, Terraform
-binary, or OpenAPI generator.
+JavaScript, TypeScript, SQL, Terraform/HCL, OpenAPI, dependency manifests,
+selected dependency lockfiles, and container manifests are handled by
+deterministic text, JSON, EDN, TOML-ish, or YAML extraction adapters. Native CLI
+use does not require a Node.js toolchain, TypeScript compiler, Terraform binary,
+OpenAPI generator, or package-manager install.
 
 The graph viewer vendors Cytoscape.js in `resources/agraph/vendor/` so generated
 HTML reports work without a CDN. The canonical graph export remains plain
 `agraph.graph/v2` JSON.
+
+## Package Report
+
+Use the package report for dependency inventory that should stay grounded in
+bounded graph facts:
+
+```sh
+agraph packages --project <project-id> [--repo <repo-id>] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]
+bb packages --project <project-id> [--repo <repo-id>] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]
+```
+
+The JSON schema is `agraph.dependency.report/v1`. The report joins manifest
+declarations, lockfile resolutions, mechanically resolved
+source-import-to-package evidence, and unresolved source imports into:
+
+- `counts`: package, version, declaration, lockfile resolution, import evidence,
+  unresolved import, evidence-gap, and conflict counts.
+- `ecosystems`: per-ecosystem package, version, and import totals.
+- `packages`: package entries with `declared-by`, `resolved-versions`, and
+  `imported-by` evidence arrays.
+- `declared-without-import-evidence`: packages declared by manifests but not
+  mechanically connected to source imports in the indexed graph.
+- `unresolved-imports`: source imports that did not resolve to a declared
+  external package under the current map and manifest evidence.
+- `version-conflicts`: packages with more than one resolved version.
+
+Evidence gaps are not unused dependency findings. They are bounded facts for a
+human or agent to inspect.
+
+Use `agraph view deps <package-label>` for a package evidence graph. For package
+nodes, `deps` includes the declaring manifests, resolved lockfile versions,
+lockfiles that resolved those versions, and source namespaces with import
+evidence.
+
+Python package imports are resolved only when `pyproject.toml` declares explicit
+import names:
+
+```toml
+[project]
+dependencies = ["beautifulsoup4>=4"]
+
+[tool.agraph.import-names]
+beautifulsoup4 = ["bs4"]
+```
+
+JVM package imports are resolved only through accepted map corrections because
+Maven coordinates do not mechanically imply Java package roots:
+
+```sh
+bb sync package import org.slf4j maven:org.slf4j:slf4j-api \
+  --map agraph.map.json \
+  --reason "slf4j-api exports org.slf4j"
+```
 
 ## macOS
 

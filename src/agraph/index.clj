@@ -1,6 +1,7 @@
 (ns agraph.index
   "Index orchestration."
-  (:require [agraph.extract :as extract]
+  (:require [agraph.dependency :as dependency]
+            [agraph.extract :as extract]
             [agraph.file-facts :as file-facts]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
@@ -128,10 +129,18 @@
 
 (def indexed-relations
   "High-confidence relations persisted by default."
-  #{:defines :imports :requires :declares-module :uses})
+  #{:defines
+    :imports
+    :references
+    :imports-package
+    :requires
+    :resolves
+    :version-of
+    :declares-module
+    :uses})
 
 (def indexing-contract-version
-  "agraph.index/v4")
+  "agraph.index/v6")
 
 (def index-profiles
   "Supported persistence profiles.
@@ -196,7 +205,7 @@
 
 (defn index-repo!
   "Index root into XTDB. Returns run summary."
-  [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile]
+  [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile map-overlay]
               :or {dry-run? false
                    project-id default-project-id
                    repo-id default-repo-id
@@ -233,6 +242,7 @@
                          :file-facts 0
                          :search-docs 0
                          :diagnostics 0
+                         :dependency-edges 0
                          :files-deleted 0}}]
     (if dry-run?
       (assoc initial
@@ -289,6 +299,15 @@
                        files)
               result (store/commit-files! xtdb (:changed planned))
               deletes (store/commit-file-deletes! xtdb removed-files {:valid-from valid-from})
+              dependency-result (dependency/refresh-derived-edges!
+                                 xtdb
+                                 project-id
+                                 repo-id
+                                 run-id
+                                 {:valid-from valid-from
+                                  :project-id project-id
+                                  :repo-id repo-id
+                                  :map-overlay map-overlay})
               summary (-> (:stats initial)
                           (assoc :files-skipped (:skipped planned)
                                  :files-indexed (count (:changed planned))
@@ -298,7 +317,8 @@
                           (update :chunks + (:chunks result))
                           (update :file-facts + (:file-facts result))
                           (update :search-docs + (:search-docs result))
-                          (update :diagnostics + (:diagnostics result)))
+                          (update :diagnostics + (:diagnostics result))
+                          (update :dependency-edges + (:dependency-edges dependency-result)))
               finished (assoc initial
                               :xt/id run-id
                               :status :completed

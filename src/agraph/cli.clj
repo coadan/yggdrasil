@@ -6,6 +6,7 @@
             [agraph.context :as context]
             [agraph.coverage :as coverage]
             [agraph.cursor :as cursor]
+            [agraph.dependency :as dependency]
             [agraph.embedding :as embedding]
             [agraph.embedding.openai :as openai]
             [agraph.embedding.openrouter :as openrouter]
@@ -71,6 +72,10 @@
     (Double/parseDouble value)
     default))
 
+(defn- parse-optional-double
+  [args flag]
+  (some-> (option-value args flag) Double/parseDouble))
+
 (def value-options
   #{"--limit" "--retriever" "--model" "--batch-size" "--provider" "--depth" "--out"
     "--project" "--repo" "--min-confidence" "--map" "--reason" "--budget"
@@ -80,11 +85,19 @@
     "--relation" "--base-url" "--detail" "--queue-dir" "--status" "--agent"
     "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
     "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode"
-    "--report-out"})
+    "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
+    "--timeout-ms" "--min-cases" "--min-runs"
+    "--min-file-recall-at-5" "--min-file-recall-at-10"
+    "--min-file-recall-at-20" "--min-mrr" "--max-noise-at-20"
+    "--min-case-file-recall-at-5" "--min-case-file-recall-at-10"
+    "--min-case-file-recall-at-20" "--min-case-mrr"
+    "--max-case-noise-at-20"
+    "--max-input-hinted-cases" "--max-unsupported-ground-truth-files"})
 
 (def boolean-options
   #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer" "--enqueue"
-    "--check" "--query-index" "--force" "--hooks" "--sync"})
+    "--check" "--query-index" "--force" "--hooks" "--sync" "--allow-missing"
+    "--allow-duplicate-runs" "--with-conflicts" "--without-import-evidence"})
 
 (defn- positional-args
   [args]
@@ -368,13 +381,14 @@
   (println "- search-docs" search-docs))
 
 (defn- print-map-summary
-  [path {:keys [schema project systems reject edges]}]
+  [path {:keys [schema project systems reject edges packageImports]}]
   (println "# Graph Map")
   (println "- schema" schema)
   (println "- project" project)
   (println "- systems" (count systems))
   (println "- rejects" (count reject))
   (println "- edges" (count edges))
+  (println "- package-imports" (count packageImports))
   (println "- output" path))
 
 (defn- print-map-system
@@ -518,6 +532,15 @@
   [value]
   (parse-include value))
 
+(defn- parse-package-target
+  [value]
+  (let [idx (.indexOf (str value) ":")]
+    (when (neg? idx)
+      (throw (ex-info "Package target must use ecosystem:package."
+                      {:value value})))
+    {:ecosystem (subs value 0 idx)
+     :package (subs value (inc idx))}))
+
 (defn- reject-match
   [kind value]
   (case kind
@@ -636,19 +659,17 @@
 
 (defn- sync-index-project!
   [xtdb project args]
-  (if-let [repo-id (option-value args "--repo")]
-    (let [run (project/index-project-repo! xtdb
-                                           project
-                                           repo-id
-                                           {:dry-run? (dry-run? args)
-                                            :index-profile (sync-index-profile args)})]
-      {:project-id (:id project)
-       :status (:status run)
-       :repos [(repo-run-summary run)]})
-    (project/index-project! xtdb
-                            project
-                            {:dry-run? (dry-run? args)
-                             :index-profile (sync-index-profile args)})))
+  (let [map-path (default-map-path args)
+        opts {:dry-run? (dry-run? args)
+              :index-profile (sync-index-profile args)
+              :map-overlay (when map-path
+                             (graph-map/read-map map-path))}]
+    (if-let [repo-id (option-value args "--repo")]
+      (let [run (project/index-project-repo! xtdb project repo-id opts)]
+        {:project-id (:id project)
+         :status (:status run)
+         :repos [(repo-run-summary run)]})
+      (project/index-project! xtdb project opts))))
 
 (defn- maintenance-report
   [xtdb project args]
@@ -933,6 +954,23 @@
         (throw (ex-info "Missing ignore kind or value." {:usage (usage)})))
       (dispatch "map" map-args))
 
+    :package
+    (let [[subcommand import-prefix package-target] (positional-args args)]
+      (when-not (= "import" subcommand)
+        (throw (ex-info "Unknown sync package command."
+                        {:command subcommand
+                         :usage (usage)})))
+      (when-not (and import-prefix package-target)
+        (throw (ex-info "Missing package import prefix or ecosystem:package target."
+                        {:usage (usage)})))
+      (dispatch "map"
+                (-> ["package-import"
+                     (required-map-path args)
+                     import-prefix
+                     package-target]
+                    (append-option "--repo" (option-value args "--repo"))
+                    (append-option "--reason" (option-value args "--reason")))))
+
     (throw (ex-info "Unknown sync command." {:command action
                                              :usage (usage)}))))
 
@@ -997,7 +1035,7 @@
       :view
       (dispatch "views" action-args)
 
-      (:init :propose :explain :set-kind :include :ignore)
+      (:init :propose :explain :set-kind :include :ignore :package)
       (sync-map-command! action action-args)
 
       (if action-name
@@ -1121,6 +1159,72 @@
         (println "Defined by:")
         (doseq [edge defined-by]
           (print-edge-source edge))))))
+
+(defn- print-package-source
+  [source]
+  (println (str "  - " (:path source)
+                (when-let [line (:line source)]
+                  (str ":" line))
+                (when-let [version-range (:version-range source)]
+                  (str " " version-range))
+                (when-let [scope (:dependency-scope source)]
+                  (str " [" (name scope) "]")))))
+
+(defn- print-package-entry
+  [entry]
+  (println "-" (:label entry)
+           (str "(declared " (count (:declared-by entry))
+                ", versions " (count (:resolved-versions entry))
+                ", imports " (count (:imported-by entry)) ")")))
+
+(defn- print-package-report
+  [{:keys [project-id repo-id counts ecosystems packages
+           declared-without-import-evidence unresolved-imports version-conflicts]}]
+  (println "# Packages")
+  (when project-id
+    (println "- project" project-id))
+  (when repo-id
+    (println "- repo" repo-id))
+  (println "- packages" (:packages counts))
+  (println "- versions" (:versions counts))
+  (println "- import evidence" (:imports-package counts))
+  (println "- unresolved imports" (:unresolved-imports counts))
+  (println "- declared without import evidence"
+           (:declared-without-import-evidence counts))
+  (println "- version conflicts" (:version-conflicts counts))
+  (when (seq ecosystems)
+    (println)
+    (println "Ecosystems:")
+    (doseq [{:keys [ecosystem packages versions imports]} ecosystems]
+      (println (str "- " (name ecosystem)
+                    ": packages " packages
+                    ", versions " versions
+                    ", imports " imports))))
+  (when (seq version-conflicts)
+    (println)
+    (println "Version conflicts:")
+    (doseq [{:keys [label versions]} version-conflicts]
+      (println "-" label (str/join ", " versions))))
+  (when (seq declared-without-import-evidence)
+    (println)
+    (println "Declared without import evidence:")
+    (doseq [entry declared-without-import-evidence]
+      (print-package-entry entry)
+      (doseq [source (take 3 (:declared-by entry))]
+        (print-package-source source))))
+  (when (seq unresolved-imports)
+    (println)
+    (println "Unresolved imports:")
+    (doseq [{:keys [path line import kind]} unresolved-imports]
+      (println (str "- " path
+                    (when line (str ":" line))
+                    " " import
+                    (when kind (str " [" (name kind) "]"))))))
+  (when (seq packages)
+    (println)
+    (println "Packages:")
+    (doseq [entry packages]
+      (print-package-entry entry))))
 
 (defn- print-path
   [nodes]
@@ -1581,8 +1685,80 @@
            :out (option-value args "--out")
            :retriever (option-value args "--retriever")
            :mode (option-value args "--mode")
-           :result-path (option-value args "--result")}
-    (parse-limit args) (assoc :limit (parse-limit args))))
+           :result-path (option-value args "--result")
+           :command (option-value args "--command")}
+    (option-value args "--agent") (assoc :agent-id (option-value args "--agent"))
+    (option-value args "--prompt-profile") (assoc :prompt-profile
+                                                  (option-value args "--prompt-profile"))
+    (parse-limit args) (assoc :limit (parse-limit args))
+    (parse-optional-long args "--timeout-ms") (assoc :timeout-ms
+                                                     (parse-optional-long args
+                                                                          "--timeout-ms"))
+    (parse-optional-long args "--min-cases") (assoc :min-cases
+                                                    (parse-optional-long args
+                                                                         "--min-cases"))
+    (parse-optional-long args "--min-runs") (assoc :min-runs
+                                                   (parse-optional-long args
+                                                                        "--min-runs"))
+    (parse-optional-long args "--budget") (assoc :budget (parse-optional-long args "--budget"))
+    (parse-optional-long args "--doc-limit") (assoc :doc-limit (parse-optional-long args "--doc-limit"))
+    (parse-optional-long args "--snippet-chars") (assoc :snippet-chars
+                                                        (parse-optional-long args
+                                                                             "--snippet-chars"))
+    (parse-optional-double args "--min-file-recall-at-5") (assoc :min-file-recall-at-5
+                                                                 (parse-optional-double
+                                                                  args
+                                                                  "--min-file-recall-at-5"))
+    (parse-optional-double args "--min-file-recall-at-10") (assoc :min-file-recall-at-10
+                                                                  (parse-optional-double
+                                                                   args
+                                                                   "--min-file-recall-at-10"))
+    (parse-optional-double args "--min-file-recall-at-20") (assoc :min-file-recall-at-20
+                                                                  (parse-optional-double
+                                                                   args
+                                                                   "--min-file-recall-at-20"))
+    (parse-optional-double args "--min-mrr") (assoc :min-mrr
+                                                    (parse-optional-double args
+                                                                           "--min-mrr"))
+    (parse-optional-double args "--max-noise-at-20") (assoc :max-noise-at-20
+                                                            (parse-optional-double
+                                                             args
+                                                             "--max-noise-at-20"))
+    (parse-optional-double args "--min-case-file-recall-at-5") (assoc
+                                                                :min-case-file-recall-at-5
+                                                                (parse-optional-double
+                                                                 args
+                                                                 "--min-case-file-recall-at-5"))
+    (parse-optional-double args "--min-case-file-recall-at-10") (assoc
+                                                                 :min-case-file-recall-at-10
+                                                                 (parse-optional-double
+                                                                  args
+                                                                  "--min-case-file-recall-at-10"))
+    (parse-optional-double args "--min-case-file-recall-at-20") (assoc
+                                                                 :min-case-file-recall-at-20
+                                                                 (parse-optional-double
+                                                                  args
+                                                                  "--min-case-file-recall-at-20"))
+    (parse-optional-double args "--min-case-mrr") (assoc :min-case-mrr
+                                                         (parse-optional-double
+                                                          args
+                                                          "--min-case-mrr"))
+    (parse-optional-double args "--max-case-noise-at-20") (assoc
+                                                           :max-case-noise-at-20
+                                                           (parse-optional-double
+                                                            args
+                                                            "--max-case-noise-at-20"))
+    (parse-optional-double args "--max-input-hinted-cases") (assoc :max-input-hinted-cases
+                                                                   (parse-optional-double
+                                                                    args
+                                                                    "--max-input-hinted-cases"))
+    (parse-optional-double args "--max-unsupported-ground-truth-files") (assoc
+                                                                         :max-unsupported-ground-truth-files
+                                                                         (parse-optional-double
+                                                                          args
+                                                                          "--max-unsupported-ground-truth-files"))
+    (some #{"--allow-missing"} args) (assoc :allow-missing? true)
+    (some #{"--allow-duplicate-runs"} args) (assoc :allow-duplicate-runs? true)))
 
 (defn- print-benchmark-case-summary
   [case]
@@ -1600,6 +1776,25 @@
   (println "- schema" (:schema result))
   (println "- suite" (:suite-id result))
   (cond
+    (= benchmark/agent-runs-schema (:schema result))
+    (do
+      (println "- completed" (:completed result))
+      (println "- failed" (:failed result))
+      (doseq [run (:runs result)]
+        (println "-"
+                 (:case-id run)
+                 (:repo-id run)
+                 "agent"
+                 (:agentId run)
+                 "status"
+                 (:status run)
+                 "recall@10"
+                 (format "%.2f" (double (get-in run [:scores :fileRecallAt10] 0.0)))
+                 "mrr"
+                 (format "%.2f" (double (get-in run
+                                                [:scores :meanReciprocalRankFile]
+                                                0.0))))))
+
     (:completed result)
     (do
       (println "- cases" (:cases result))
@@ -1626,6 +1821,44 @@
                (:mode packet)
                "packet"
                (get-in packet [:artifacts :packetPath])))
+
+    (:baselines result)
+    (doseq [baseline (:baselines result)]
+      (println "-"
+               (:case-id baseline)
+               (:repo-id baseline)
+               "agent"
+               (:agentId baseline)
+               "recall@10"
+               (format "%.2f" (double (get-in baseline [:scores :fileRecallAt10] 0.0)))
+               "mrr"
+               (format "%.2f" (double (get-in baseline
+                                              [:scores :meanReciprocalRankFile]
+                                              0.0)))))
+
+    (= benchmark/agent-check-schema (:schema result))
+    (do
+      (println "- status" (:status result))
+      (println "- completed" (get-in result [:report :completed]) "/" (get-in result [:report :cases]))
+      (println "- runs" (get-in result [:report :runs]))
+      (println "- file-recall@10"
+               (format "%.2f" (double (get-in result
+                                              [:report :scores :fileRecallAt10]
+                                              0.0))))
+      (println "- mrr"
+               (format "%.2f" (double (get-in result
+                                              [:report :scores :meanReciprocalRankFile]
+                                              0.0))))
+      (println "- noise@20"
+               (format "%.2f" (double (get-in result
+                                              [:report :scores :noiseRatioAt20]
+                                              0.0))))
+      (when (seq (:failures result))
+        (println "## Failures")
+        (doseq [{:keys [metric operator expected actual message]} (:failures result)]
+          (println "-" metric operator expected "actual" actual)
+          (when message
+            (println " " message)))))
 
     (= benchmark/agent-score-schema (:schema result))
     (do
@@ -1664,6 +1897,9 @@
                    :run (benchmark/run-suite! suite opts)
                    :report (benchmark/report-suite suite opts)
                    :agent-report (benchmark/report-agent-suite suite opts)
+                   :agent-baseline (benchmark/agent-baselines! suite opts)
+                   :agent-run (benchmark/agent-runs! suite opts)
+                   :agent-check (benchmark/check-agent-suite suite opts)
                    :show (benchmark/show-case suite
                                               (or (:case-id opts)
                                                   (throw (ex-info "Missing --case."
@@ -1686,7 +1922,14 @@
                                     :usage (usage)})))]
       (if (json-output? bench-args)
         (print-json result)
-        (print-benchmark-summary result)))))
+        (print-benchmark-summary result))
+      (when (and (= benchmark/agent-check-schema (:schema result))
+                 (= "failed" (:status result)))
+        (throw (ex-info "Benchmark agent check failed."
+                        {:schema (:schema result)
+                         :suite-id (:suite-id result)
+                         :status (:status result)
+                         :failures (:failures result)}))))))
 
 (defn usage
   []
@@ -1714,6 +1957,7 @@
     "  sync set-kind <target> <kind> [--map agraph.map.json]"
     "  sync include <target> <repo>:<path> [--map agraph.map.json]"
     "  sync ignore external-api <host> [--map agraph.map.json] [--reason TEXT]"
+    "  sync package import <import-prefix> <ecosystem>:<package> [--repo ID] [--map agraph.map.json] [--reason TEXT]"
     "  sync docs candidates <target> [--project ID] [--limit N] [--snippet-chars N]"
     "  sync docs attach <target> <repo>:<path> [--map agraph.map.json] [--role ROLE] [--heading HEADING] [--start-line N] [--end-line N] [--reason TEXT]"
     "  sync docs for <target> [--project ID] [--map PATH] [--snippet-chars N]"
@@ -1735,6 +1979,7 @@
     ""
     "View and report:"
     "  view overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--format html|json] [--out PATH] [--valid-at INSTANT]"
+    "  packages [--project ID] [--repo ID] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]"
     "  report <project.edn> [--map agraph.map.json] [--out agraph-out] [--detail primary|expanded|evidence|raw] [--force]"
     ""
     "Agent integration:"
@@ -1749,8 +1994,11 @@
     "Benchmarks:"
     "  bench prepare|run|report|show <benchmark.edn> [--case ID] [--out DIR] [--json]"
     "  bench agent-packet <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--enqueue] [--queue-dir DIR] [--out DIR] [--json]"
+    "  bench agent-baseline <benchmark.edn> [--case ID] [--retriever auto|hybrid|lexical|semantic] [--limit N] [--doc-limit N] [--out DIR] [--json]"
+    "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--out DIR] [--json]"
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--out DIR] [--json]"
-    "  bench agent-report <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--out DIR] [--json]"
+    "  bench agent-report <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--agent ID] [--out DIR] [--json]"
+    "  bench agent-check <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--allow-missing] [--allow-duplicate-runs] [--out DIR] [--json]"
     "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
     ""
     "Compatibility commands remain during migration: index, project, systems, classify, queue, map, docs, meta, views, context, cursor, query, graph, deps, path."]))
@@ -2073,6 +2321,20 @@
           (let [data (graph-map/add-reject (graph-map/read-map map-path)
                                            (reject-match kind value)
                                            reason)]
+            (print-map-summary (graph-map/write-map! map-path data) data)))
+
+        :package-import
+        (let [[map-path import-prefix package-target] (positional-args map-args)
+              target (some-> package-target parse-package-target)]
+          (when-not (and map-path import-prefix package-target)
+            (throw (ex-info "Missing map path, import prefix, or ecosystem:package target."
+                            {:usage (usage)})))
+          (let [data (graph-map/add-package-import
+                      (graph-map/read-map map-path)
+                      (merge target
+                             {:import import-prefix
+                              :repo (option-value map-args "--repo")
+                              :reason (option-value map-args "--reason")}))]
             (print-map-summary (graph-map/write-map! map-path data) data)))
 
         (throw (ex-info "Unknown map command." {:command action
@@ -2527,6 +2789,25 @@
       (store/with-node (store/storage-path)
         (fn [xtdb]
           (print-deps (query/deps xtdb value scope)))))
+
+    "packages"
+    (let [scope (project-scope args)
+          map-path (default-map-path args)
+          opts (cond-> {:limit (parse-limit args)}
+                 (option-value args "--ecosystem") (assoc :ecosystem
+                                                          (option-value args "--ecosystem"))
+                 (option-value args "--package") (assoc :package
+                                                        (option-value args "--package"))
+                 (some #{"--with-conflicts"} args) (assoc :with-conflicts? true)
+                 (some #{"--without-import-evidence"} args)
+                 (assoc :without-import-evidence? true)
+                 map-path (assoc :map-overlay (graph-map/read-map map-path)))]
+      (store/with-node (store/storage-path)
+        (fn [xtdb]
+          (let [report (dependency/package-report xtdb scope opts)]
+            (if (json-output? args)
+              (print-json report)
+              (print-package-report report))))))
 
     "path"
     (let [[source target] (positional-args args)

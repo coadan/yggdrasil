@@ -24,6 +24,7 @@
    :reject []
    :edges []
    :docs []
+   :packageImports []
    :updated-at-ms (now-ms)})
 
 (defn read-map
@@ -232,7 +233,9 @@
                  :systems (count (:systems overlay))
                  :rejects (count (:reject overlay))
                  :edges (count (:edges overlay))
-                 :docs (count (:docs overlay))})))
+                 :docs (count (:docs overlay))
+                 :packageImports (count (or (:packageImports overlay)
+                                            (:package-imports overlay)))})))
 
 (defn apply-file
   "Apply map overlay from path to canonical graph data."
@@ -270,6 +273,7 @@
    :reject []
    :edges []
    :docs []
+   :packageImports []
    :updated-at-ms (now-ms)})
 
 (defn- find-system-index
@@ -336,6 +340,26 @@
                              start-line (assoc :startLine start-line)
                              end-line (assoc :endLine end-line))
                    :status "accepted"}
+            (seq reason) (assoc :reason reason))))
+
+(defn package-imports
+  "Return accepted explicit import-to-package mappings from an overlay."
+  [overlay]
+  (->> (concat (:packageImports overlay) (:package-imports overlay))
+       (filter #(not= "rejected" (s (:status %))))
+       vec))
+
+(defn add-package-import
+  "Record an accepted source import prefix to external package mapping."
+  [overlay {:keys [repo import ecosystem package reason]}]
+  (update overlay
+          :packageImports
+          (fnil conj [])
+          (cond-> {:import import
+                   :ecosystem ecosystem
+                   :package package
+                   :status "accepted"}
+            repo (assoc :repo repo)
             (seq reason) (assoc :reason reason))))
 
 (defn add-edge

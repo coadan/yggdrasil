@@ -1,6 +1,10 @@
 {:tasks
  {:requires ([babashka.process :refer [shell]])
 
+  start {:doc "Start AGraph for a repo. Usage: bb start <repo-root> [--project ID] [--out project.edn] [--map agraph.map.json] [--report-out agraph-out]"
+         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "start"
+                      *command-line-args*)}
+
   sync {:doc "Sync AGraph with a project. Usage: bb sync <project.edn> [--check] [--enqueue] [--query-index]"
         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "sync"
                      *command-line-args*)}
@@ -17,7 +21,11 @@
         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "view"
                      *command-line-args*)}
 
-  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-score|agent-report|run|report|show <benchmark.edn>"
+  packages {:doc "Report package/dependency evidence. Usage: bb packages [--project ID] [--repo ID] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]"
+            :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "packages"
+                         *command-line-args*)}
+
+  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-baseline|agent-run|agent-score|agent-report|agent-check|run|report|show <benchmark.edn>"
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "bench"
                       *command-line-args*)}
 

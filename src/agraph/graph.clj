@@ -26,6 +26,9 @@
    :integration "#7c3aed"
    :library "#16a34a"
    :package "#16a34a"
+   :external-package "#16a34a"
+   :external-package-version "#22c55e"
+   :dependency-lock "#64748b"
    :repository "#64748b"
    :service "#dc2626"
    :tool "#f59e0b"
@@ -53,7 +56,10 @@
 (def relation-color
   {:defines "#94a3b8"
    :imports "#2563eb"
+   :imports-package "#2563eb"
    :requires "#2563eb"
+   :resolves "#0f766e"
+   :version-of "#64748b"
    :uses "#9333ea"
    :declares-module "#f59e0b"
    :calls-http "#dc2626"
@@ -108,6 +114,12 @@
      :repoRole (some-> (:repo-role node) name)
      :path (:path node)
      :pathPrefix (:path-prefix node)
+     :ecosystem (some-> (:ecosystem node) name)
+     :packageName (:package-name node)
+     :versionRange (:version-range node)
+     :resolvedVersion (:resolved-version node)
+     :dependencyScope (:dependency-scope node)
+     :importNames (:import-names node)
      :source (some-> (:source node) name)
      :candidateTypes (some->> (:candidate-types node) (mapv name))
      :metrics (:metrics node)
@@ -124,6 +136,13 @@
            :target (:target-id edge)
            :relation (name (:relation edge))
            :confidence (some-> (:confidence edge) str)
+           :ecosystem (some-> (:ecosystem edge) name)
+           :packageName (:package-name edge)
+           :versionRange (:version-range edge)
+           :resolvedVersion (:resolved-version edge)
+           :dependencyScope (:dependency-scope edge)
+           :importName (:import-name edge)
+           :resolutionSource (some-> (:resolution-source edge) name)
            :rules (some-> (:rules edge) seq (str/join ", "))
            :evidence (some-> (:evidence-ids edge) seq (str/join ", "))
            :path (:path edge)
@@ -227,6 +246,33 @@
         (recur (set/difference next-ids seen)
                (into seen next-ids)
                (dec remaining))))))
+
+(defn- package-deps-edges
+  [package-id edges]
+  (let [version-edges (filter #(and (= :version-of (:relation %))
+                                    (= package-id (:target-id %)))
+                              edges)
+        version-ids (set (map :source-id version-edges))]
+    (vec
+     (concat
+      (filter #(and (= :requires (:relation %))
+                    (= package-id (:target-id %)))
+              edges)
+      (filter #(and (= :imports-package (:relation %))
+                    (= package-id (:target-id %)))
+              edges)
+      version-edges
+      (filter #(and (= :resolves (:relation %))
+                    (contains? version-ids (:target-id %)))
+              edges)))))
+
+(defn- package-deps-node-ids
+  [package-id edges]
+  (->> edges
+       (mapcat (juxt :source-id :target-id))
+       (cons package-id)
+       distinct
+       vec))
 
 (defn- graph-data
   [title nodes edges score-by-id opts]
@@ -361,16 +407,28 @@
   (let [scope (scope-options opts)
         target (query/find-node xtdb value scope)
         edges (active-edges xtdb scope)
-        node-ids (if target
-                   (expand-node-ids edges [(:xt/id target)] depth)
-                   #{})
         nodes-by-id (into {} (map (juxt :xt/id identity)) (active-items xtdb scope))
+        package-target? (= :external-package (:kind target))
+        chosen-edges (if package-target?
+                       (package-deps-edges (:xt/id target) edges)
+                       nil)
+        node-ids (cond
+                   package-target?
+                   (package-deps-node-ids (:xt/id target) chosen-edges)
+
+                   target
+                   (expand-node-ids edges [(:xt/id target)] depth)
+
+                   :else #{})
         nodes (nodes-for-ids node-ids nodes-by-id limit)
-        chosen-ids (mapv :xt/id nodes)]
+        chosen-ids (mapv :xt/id nodes)
+        edges* (if package-target?
+                 (induced-edges chosen-ids chosen-edges)
+                 (induced-edges chosen-ids edges))]
     (enrich-graph xtdb
                   (graph-data (str "Dependencies: " (or (:label target) value))
                               nodes
-                              (induced-edges chosen-ids edges)
+                              edges*
                               {(:xt/id target) 1.0}
                               opts)
                   opts)))

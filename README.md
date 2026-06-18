@@ -8,17 +8,22 @@ Python/Rust/SQL/style/EDN/Markdown indexing:
 
 - namespaces, requires, vars, tests, Go packages, JS/TS modules, Python modules,
   source imports, Rust modules, and source items
+- canonical external package declarations, selected lockfile resolutions, and
+  mechanically resolved source-import-to-package edges
 - Markdown heading chunks and exact symbol mentions
 - XTDB-backed files, runs, nodes, high-confidence edges, chunks, diagnostics, and query runs
 - OpenRouter/OpenAI embedding-backed hybrid semantic query with graph expansion
 - token-bounded context packets with attached architecture/docs snippets
 - filesystem queue handoff for provider-agnostic agent packets
 - dependency summaries, path search, and Markdown reports
+- package/dependency reports from manifests, lockfiles, and import evidence
 - project-level system graphs, third-party API nodes, and maintenance findings
 
 Default indexing persists high-confidence relations: definitions, namespace
-requires, source imports, and Rust module declarations. Noisy inferred call
-edges are extracted internally but not stored by default yet.
+requires, source imports, Rust module declarations, manifest package
+requirements, selected lockfile resolutions, and mechanically derived package
+import edges. Noisy inferred call edges are extracted internally but not stored
+by default yet.
 
 ## Quickstart
 
@@ -64,7 +69,7 @@ Docker:
 ```sh
 docker build -t agraph:dev .
 docker run --rm -v "$PWD:/workspace:ro" -v "$HOME/.cache/agraph:/data" \
-  agraph:dev project inspect /workspace/project.edn
+  agraph:dev sync inspect /workspace/project.edn
 ```
 
 Homebrew is planned for public releases. The formula template is in
@@ -76,7 +81,7 @@ Embedding defaults:
 - OpenRouter default model: `openai/text-embedding-3-small`
 - OpenAI fallback vars: `AGRAPH_OPENAI_API_KEY`, `OPENAI_API_KEY`
 - OpenAI default model: `text-embedding-3-small`
-- `bb ask --retriever auto` falls back to lexical retrieval when no API key is configured
+- `agraph ask --retriever auto` falls back to lexical retrieval when no API key is configured
 
 Graph HTML reports and canonical JSON exports from `agraph view` are written to
 `.dev/reports/` by default. Use `--out` to choose a path. The export contract is
@@ -117,6 +122,7 @@ agraph sync propose project.edn --out agraph.map.json
 agraph sync ignore external-api docs.xtdb.com --map agraph.map.json --reason "Documentation reference"
 agraph view systems --project sample --out .dev/reports/sample-systems.html
 agraph view systems --project sample --format json --out .dev/reports/sample-systems.json
+agraph packages --project sample --json
 agraph report project.edn --map agraph.map.json --out agraph-out
 agraph ask "api gateway connections" --project sample --retriever lexical
 agraph sync docs candidates system:api-gateway --project sample
@@ -207,9 +213,10 @@ file facts are updated, while heavyweight code/doc search rows are skipped. Add
 chunks for `agraph ask`, `agraph explore`, embeddings, and context packets.
 Use `agraph sync coverage project.edn` to audit source type support across the
 project before adding a parser or changing scanner rules. The report separates
-supported files, unsupported extensions, intentionally ignored lockfiles, active
-extractor versions, and indexed diagnostics; `--json` emits the stable
-`agraph.source-coverage/v1` shape for smoke reports or CI.
+supported files, unsupported extensions, intentionally ignored lockfiles,
+supported dependency lockfiles, active extractor versions, and indexed
+diagnostics; `--json` emits the stable `agraph.source-coverage/v1` shape for
+smoke reports or CI.
 Use `agraph ask --json` when handing graph evidence to an agent prompt; it
 returns a budgeted packet of relevant entities, edges, snippets, warnings, and
 drilldown commands instead of the whole graph.

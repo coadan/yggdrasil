@@ -44,10 +44,14 @@ Node rows use stable, renderer-neutral fields:
 - `id`: graph node id
 - `label`: display label
 - `kind`: node kind, for example `namespace`, `function`, `service`, or
-  `external-api`
+  `external-api`; package nodes use `external-package` and exact version nodes
+  use `external-package-version`
 - `repo`: repo id when known
 - `repoRole`: project repo role when known
 - `path`, `pathPrefix`, `line`: source location hints when known
+- `ecosystem`, `packageName`, `versionRange`, `resolvedVersion`,
+  `dependencyScope`, `importNames`: package details when the node represents an
+  external package declaration or lockfile resolution
 - `degree`: degree within the exported slice
 - `score`: query relevance score when present
 - `attrs`: custom scalar or multi-value metadata, keyed by metadata key
@@ -63,6 +67,9 @@ Edge rows use:
 - `source`, `target`: node ids
 - `relation`: relation kind
 - `confidence`: relation confidence when known
+- `ecosystem`, `packageName`, `versionRange`, `resolvedVersion`,
+  `dependencyScope`, `importName`, `resolutionSource`: package evidence and
+  resolver provenance on dependency edges when known
 - `rules`, `evidence`: compact provenance hints when known
 - `path`, `line`: source location hints when known
 - `attrs`: custom scalar or multi-value metadata, keyed by metadata key
@@ -92,6 +99,22 @@ local report bundle for humans and agents. The bundle includes `index.html`,
 `REPORT.md`, `graph.json`, `systems.json`, and `context-example.json`.
 `graph.json` and `systems.json` use this same `agraph.graph/v2` contract.
 `REPORT.md` is a readable summary, not a data contract.
+
+## Package Reports
+
+Use `agraph packages --project <id> [--repo <id>] [--ecosystem npm|cargo|go]
+[--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N]
+[--json]` when the task is package/dependency inventory rather than a graph
+slice. The report folds manifest declarations, selected lockfile resolutions,
+mechanical source-import-to-package evidence, and unresolved source imports into
+package-focused rows. It is a dependency report, not a replacement for
+`agraph.graph/v2`.
+
+Use `agraph view deps <package-label> --project <id>` to export or render the
+graph slice around a package. For external package nodes, the slice is
+package-focused: manifests that declare the package, exact lockfile version
+nodes, lockfiles that resolved those versions, and source namespaces with import
+evidence.
 
 ## Metadata
 

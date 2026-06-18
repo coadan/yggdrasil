@@ -1,5 +1,7 @@
 (ns agraph.index-query-test
-  (:require [agraph.fs :as fs]
+  (:require [agraph.dependency :as dependency]
+            [agraph.fs :as fs]
+            [agraph.graph :as graph]
             [agraph.index :as index]
             [agraph.query :as query]
             [agraph.xtdb :as store]
@@ -32,6 +34,267 @@
           (is (= ["sample.core" "sample.util"] (mapv :label path)))
           (is (pos? (get-in report [:counts :nodes])))
           (is (pos? (get-in report [:counts :search-docs]))))))))
+
+(deftest exact-path-mentions-rank-matching-search-docs
+  (let [xtdb-path (temp-dir "agraph-query-path-xtdb")
+        repo (.getPath (io/file "test/fixtures/sample-repo"))]
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (index/index-repo! xtdb repo {:index-profile :query})
+        (let [results (query/semantic-query
+                       xtdb
+                       "Pasting fails in src/sample/util.clj after many unrelated workspace details."
+                       {:retriever :lexical
+                        :limit 5})
+              first-result (first results)]
+          (is (= "src/sample/util.clj" (:path first-result)))
+          (is (= 2.0 (get-in first-result [:score-components :exact]))))))))
+
+(deftest exact-path-mentions-enter-query-candidates
+  (store/with-node (temp-dir "agraph-query-path-candidate-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:noise"
+                       :target-id "chunk:noise"
+                       :target-kind :chunk
+                       :file-id "file:noise"
+                       :path "docs/noise.md"
+                       :kind :markdown
+                       :label "Pasting workspace failure details"
+                       :text "Pasting fails after unrelated workspace details"
+                       :tokens ["pasting" "fails" "workspace" "details"]
+                       :input-sha "noise"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:hidden"
+                       :target-id "chunk:hidden"
+                       :target-kind :chunk
+                       :file-id "file:hidden"
+                       :path "src/hidden/file.clj"
+                       :kind :namespace
+                       :label "hidden.file"
+                       :text "hidden.file"
+                       :tokens []
+                       :input-sha "hidden"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})])
+      (with-redefs [query/default-lexical-candidates 1]
+        (let [results (query/semantic-query
+                       xtdb
+                       "Pasting fails in src/hidden/file.clj after unrelated workspace details."
+                       {:retriever :lexical
+                        :limit 5})
+              first-result (first results)]
+          (is (= "src/hidden/file.clj" (:path first-result)))
+          (is (= 2.0 (get-in first-result [:score-components :exact]))))))))
+
+(deftest lexical-query-keeps-node-candidates-when-chunks-dominate
+  (store/with-node (temp-dir "agraph-query-kind-candidate-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:chunk"
+                       :target-id "chunk:dominant"
+                       :target-kind :chunk
+                       :file-id "file:dominant"
+                       :path "docs/dominant.md"
+                       :kind :markdown
+                       :label "Dominant docs"
+                       :text "alpha beta gamma delta"
+                       :tokens ["alpha" "beta" "gamma" "delta"]
+                       :input-sha "dominant"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:node"
+                       :target-id "node:needle"
+                       :target-kind :node
+                       :file-id "file:needle"
+                       :path "src/needle.clj"
+                       :kind :var
+                       :label "demo/needle"
+                       :text "demo/needle"
+                       :tokens ["demo/needle" "demo" "needle"]
+                       :input-sha "needle"
+                       :source-line 10
+                       :active? true
+                       :run-id "run"})])
+      (with-redefs [query/default-lexical-candidates 1
+                    query/default-kind-candidates 1]
+        (let [results (query/semantic-query
+                       xtdb
+                       "alpha beta gamma delta needle"
+                       {:retriever :lexical
+                        :limit 5})]
+          (is (some #(and (= :node (:target-kind %))
+                          (= "src/needle.clj" (:path %)))
+                    results)))))))
+
+(deftest lexical-query-includes-graph-neighbor-candidates
+  (store/with-node (temp-dir "agraph-query-graph-neighbor-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:seed"
+                       :target-id "node:seed"
+                       :target-kind :node
+                       :file-id "file:seed"
+                       :path "src/seed.clj"
+                       :kind :var
+                       :label "demo/seed"
+                       :text "alpha beta"
+                       :tokens ["alpha" "beta"]
+                       :input-sha "seed"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:seed-chunk"
+                       :target-id "chunk:seed"
+                       :target-kind :chunk
+                       :file-id "file:seed"
+                       :path "src/seed.clj"
+                       :kind :code-definition
+                       :label "demo/seed"
+                       :text "alpha beta"
+                       :tokens ["alpha" "beta"]
+                       :input-sha "seed-chunk"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:neighbor"
+                       :target-id "node:neighbor"
+                       :target-kind :node
+                       :file-id "file:neighbor"
+                       :path "src/neighbor.clj"
+                       :kind :var
+                       :label "demo/neighbor"
+                       :text "demo/neighbor"
+                       :tokens []
+                       :input-sha "neighbor"
+                       :source-line 5
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:seed:neighbor"
+                       :source-id "node:seed"
+                       :target-id "node:neighbor"
+                       :relation :references
+                       :active? true
+                       :run-id "run"})])
+      (with-redefs [query/default-lexical-candidates 1
+                    query/default-kind-candidates 0
+                    query/default-seed-count 1]
+        (let [results (query/semantic-query xtdb
+                                            "alpha"
+                                            {:retriever :lexical
+                                             :limit 5})]
+          (is (some #(and (= "src/neighbor.clj" (:path %))
+                          (= 1.0 (get-in % [:score-components :graph])))
+                    results)))))))
+
+(deftest lexical-query-expands-from-chunk-to-same-label-node-neighbors
+  (store/with-node (temp-dir "agraph-query-chunk-graph-neighbor-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:seed-chunk"
+                       :target-id "chunk:seed"
+                       :target-kind :chunk
+                       :file-id "file:seed"
+                       :path "src/seed.clj"
+                       :kind :code-definition
+                       :label "demo/seed"
+                       :text "alpha beta"
+                       :tokens ["alpha" "beta"]
+                       :input-sha "seed-chunk"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:seed-node"
+                       :target-id "node:seed"
+                       :target-kind :node
+                       :file-id "file:seed"
+                       :path "src/seed.clj"
+                       :kind :var
+                       :label "demo/seed"
+                       :text "demo/seed"
+                       :tokens []
+                       :input-sha "seed-node"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:neighbor"
+                       :target-id "node:neighbor"
+                       :target-kind :node
+                       :file-id "file:neighbor"
+                       :path "src/neighbor.clj"
+                       :kind :var
+                       :label "demo/neighbor"
+                       :text "demo/neighbor"
+                       :tokens []
+                       :input-sha "neighbor"
+                       :source-line 5
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:seed:neighbor"
+                       :source-id "node:seed"
+                       :target-id "node:neighbor"
+                       :relation :references
+                       :active? true
+                       :run-id "run"})])
+      (with-redefs [query/default-lexical-candidates 1
+                    query/default-kind-candidates 0
+                    query/default-seed-count 1]
+        (let [results (query/semantic-query xtdb
+                                            "alpha"
+                                            {:retriever :lexical
+                                             :limit 5})]
+          (is (some #(and (= "src/neighbor.clj" (:path %))
+                          (= 1.0 (get-in % [:score-components :graph])))
+                    results)))))))
+
+(deftest index-persists-extracted-reference-edges
+  (let [xtdb-path (temp-dir "agraph-index-reference-edge-xtdb")
+        repo (io/file (temp-dir "agraph-index-reference-edge-repo"))
+        src-dir (io/file repo "src" "main" "java" "demo")]
+    (.mkdirs src-dir)
+    (spit (io/file src-dir "Options.java")
+          (str "package demo;\n"
+               "class Options {\n"
+               "}\n"))
+    (spit (io/file src-dir "OptionsMixin.java")
+          (str "package demo;\n"
+               "class OptionsMixin {\n"
+               "  void applyTo(Options options) {\n"
+               "  }\n"
+               "}\n"))
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (index/index-repo! xtdb
+                           (.getPath repo)
+                           {:project-id "reference-edge-test"
+                            :repo-id "app"
+                            :index-profile :query})
+        (let [edges (query/all-edges xtdb {:project-id "reference-edge-test"
+                                           :repo-id "app"})
+              target-id "project:reference-edge-test:repo:app:node:symbol:demo/Options"]
+          (is (some #(and (= :references (:relation %))
+                          (= target-id (:target-id %)))
+                    edges)))))))
 
 (deftest graph-profile-skips-query-rows-and-query-profile-restores-them
   (let [xtdb-path (temp-dir "agraph-index-profile-xtdb")
@@ -104,9 +367,206 @@
       (is (contains? paths "src/kept.clj"))
       (is (not (contains? paths "src/scratch.secret.edn")))
       (is (not (contains? paths "ignored/ignored.clj")))
-      (is (not (contains? paths "package-lock.json")))
+      (is (contains? paths "package-lock.json"))
       (is (not (contains? paths ".clj-kondo/config.edn")))
       (is (not (contains? paths ".workbench/repos/nested/src/ignored.clj"))))))
+
+(deftest index-derives-and-replaces-import-package-edges
+  (let [xtdb-path (temp-dir "agraph-dependency-xtdb")
+        repo (io/file (temp-dir "agraph-dependency-repo"))
+        src-dir (io/file repo "src")]
+    (.mkdirs src-dir)
+    (spit (io/file repo "package.json")
+          "{\"name\":\"demo\",\"dependencies\":{\"react\":\"^19.0.0\",\"lodash\":\"^4.17.0\"}}\n")
+    (spit (io/file repo "package-lock.json")
+          (str "{\"packages\":{"
+               "\"node_modules/react\":{\"version\":\"19.1.0\"},"
+               "\"node_modules/nested/node_modules/react\":{\"version\":\"18.3.1\"},"
+               "\"node_modules/lodash\":{\"version\":\"4.17.21\"}"
+               "}}\n"))
+    (spit (io/file src-dir "app.ts")
+          "import runtime from 'react/jsx-runtime';\nexport const value = runtime;\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [first-summary (index/index-repo! xtdb
+                                               (.getPath repo)
+                                               {:project-id "dep-test"
+                                                :repo-id "app"})
+              deps (query/deps xtdb "src.app" {:project-id "dep-test"
+                                               :repo-id "app"})
+              package-edges (filter #(= :imports-package (:relation %))
+                                    (:outgoing deps))
+              report (dependency/package-report xtdb
+                                                {:project-id "dep-test"
+                                                 :repo-id "app"}
+                                                {})
+              npm-report (dependency/package-report xtdb
+                                                    {:project-id "dep-test"
+                                                     :repo-id "app"}
+                                                    {:ecosystem "npm"})
+              react-report (dependency/package-report xtdb
+                                                      {:project-id "dep-test"
+                                                       :repo-id "app"}
+                                                      {:package "react"})
+              conflict-report (dependency/package-report xtdb
+                                                         {:project-id "dep-test"
+                                                          :repo-id "app"}
+                                                         {:with-conflicts? true})
+              no-import-report (dependency/package-report xtdb
+                                                          {:project-id "dep-test"
+                                                           :repo-id "app"}
+                                                          {:without-import-evidence? true})
+              deps-graph (graph/deps-graph xtdb
+                                           "npm:react"
+                                           {:project-id "dep-test"
+                                            :repo-id "app"})
+              package-by-label (into {} (map (juxt :label identity)
+                                             (:packages report)))]
+          (is (= 1 (get-in first-summary [:stats :dependency-edges])))
+          (is (= ["npm:react"] (mapv (comp :label :target) package-edges)))
+          (is (= [:declared] (mapv :resolution-source package-edges)))
+          (is (= 2 (get-in report [:counts :packages])))
+          (is (= 3 (get-in report [:counts :versions])))
+          (is (= 1 (get-in report [:counts :imports-package])))
+          (is (= ["npm:lodash"]
+                 (mapv :label (:declared-without-import-evidence report))))
+          (is (= ["18.3.1" "19.1.0"]
+                 (-> report :version-conflicts first :versions)))
+          (is (= ["src/app.ts"]
+                 (mapv :path (get-in package-by-label ["npm:react" :imported-by]))))
+          (is (= ["npm:lodash" "npm:react"]
+                 (mapv :label (:packages npm-report))))
+          (is (= ["npm:react"] (mapv :label (:packages react-report))))
+          (is (= ["npm:react"] (mapv :label (:packages conflict-report))))
+          (is (= ["npm:lodash"] (mapv :label (:packages no-import-report))))
+          (is (contains? (set (map :label (:nodes deps-graph))) "package-lock.json"))
+          (is (contains? (set (map :label (:nodes deps-graph))) "npm:react@19.1.0"))
+          (is (contains? (set (map :label (:nodes deps-graph))) "src.app"))
+          (is (= #{:imports-package :requires :resolves :version-of}
+                 (set (map (comp keyword :relation) (:edges deps-graph)))))
+          (spit (io/file src-dir "app.ts")
+                "import './local';\nexport const value = 1;\n")
+          (let [second-summary (index/index-repo! xtdb
+                                                  (.getPath repo)
+                                                  {:project-id "dep-test"
+                                                   :repo-id "app"})
+                next-deps (query/deps xtdb "src.app" {:project-id "dep-test"
+                                                      :repo-id "app"})]
+            (is (zero? (get-in second-summary [:stats :dependency-edges])))
+            (is (empty? (filter #(= :imports-package (:relation %))
+                                (:outgoing next-deps))))))))))
+
+(deftest index-resolves-python-imports-through-explicit-pyproject-import-names
+  (let [xtdb-path (temp-dir "agraph-python-dependency-xtdb")
+        repo (io/file (temp-dir "agraph-python-dependency-repo"))
+        src-dir (io/file repo "src")]
+    (.mkdirs src-dir)
+    (spit (io/file repo "pyproject.toml")
+          (str "[project]\n"
+               "name = \"demo\"\n"
+               "dependencies = [\"beautifulsoup4>=4\"]\n\n"
+               "[tool.agraph.import-names]\n"
+               "beautifulsoup4 = [\"bs4\"]\n"))
+    (spit (io/file src-dir "app.py")
+          "import bs4\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [summary (index/index-repo! xtdb
+                                         (.getPath repo)
+                                         {:project-id "py-dep-test"
+                                          :repo-id "app"})
+              deps (query/deps xtdb "src.app" {:project-id "py-dep-test"
+                                               :repo-id "app"})
+              package-edges (filter #(= :imports-package (:relation %))
+                                    (:outgoing deps))
+              report (dependency/package-report xtdb
+                                                {:project-id "py-dep-test"
+                                                 :repo-id "app"}
+                                                {})]
+          (is (= 1 (get-in summary [:stats :dependency-edges])))
+          (is (= ["pypi:beautifulsoup4"] (mapv (comp :label :target) package-edges)))
+          (is (= [:manifest-import-name] (mapv :resolution-source package-edges)))
+          (is (empty? (:unresolved-imports report))))))))
+
+(deftest index-resolves-jvm-imports-through-map-corrections
+  (let [xtdb-path (temp-dir "agraph-jvm-dependency-xtdb")
+        repo (io/file (temp-dir "agraph-jvm-dependency-repo"))
+        src-dir (io/file repo "src" "main" "java" "demo")]
+    (.mkdirs src-dir)
+    (spit (io/file repo "pom.xml")
+          (str "<project><dependencies><dependency>"
+               "<groupId>org.slf4j</groupId>"
+               "<artifactId>slf4j-api</artifactId>"
+               "<version>2.0.0</version>"
+               "</dependency></dependencies></project>\n"))
+    (spit (io/file src-dir "App.java")
+          "package demo;\nimport org.slf4j.Logger;\nclass App {}\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [raw-summary (index/index-repo! xtdb
+                                             (.getPath repo)
+                                             {:project-id "jvm-dep-test"
+                                              :repo-id "app"})
+              raw-report (dependency/package-report xtdb
+                                                    {:project-id "jvm-dep-test"
+                                                     :repo-id "app"}
+                                                    {})
+              map-overlay {:schema "agraph.map/v1"
+                           :project "jvm-dep-test"
+                           :systems []
+                           :reject []
+                           :edges []
+                           :docs []
+                           :packageImports [{:import "org.slf4j"
+                                             :ecosystem "maven"
+                                             :package "org.slf4j:slf4j-api"
+                                             :status "accepted"}]}
+              mapped-summary (index/index-repo! xtdb
+                                                (.getPath repo)
+                                                {:project-id "jvm-dep-test"
+                                                 :repo-id "app"
+                                                 :map-overlay map-overlay})
+              deps (query/deps xtdb "demo" {:project-id "jvm-dep-test"
+                                            :repo-id "app"})
+              package-edges (filter #(= :imports-package (:relation %))
+                                    (:outgoing deps))
+              mapped-report (dependency/package-report xtdb
+                                                       {:project-id "jvm-dep-test"
+                                                        :repo-id "app"}
+                                                       {:map-overlay map-overlay})]
+          (is (zero? (get-in raw-summary [:stats :dependency-edges])))
+          (is (= ["org.slf4j.Logger"] (mapv :import (:unresolved-imports raw-report))))
+          (is (= 1 (get-in mapped-summary [:stats :dependency-edges])))
+          (is (= ["maven:org.slf4j:slf4j-api"]
+                 (mapv (comp :label :target) package-edges)))
+          (is (= [:map-overlay] (mapv :resolution-source package-edges)))
+          (is (empty? (:unresolved-imports mapped-report))))))))
+
+(deftest index-resolves-rust-underscore-crate-imports
+  (let [xtdb-path (temp-dir "agraph-rust-dependency-xtdb")
+        repo (io/file (temp-dir "agraph-rust-dependency-repo"))
+        src-dir (io/file repo "src")]
+    (.mkdirs src-dir)
+    (spit (io/file repo "Cargo.toml")
+          "[package]\nname = \"demo\"\n\n[dependencies]\nserde_json = \"1\"\n")
+    (spit (io/file src-dir "lib.rs")
+          "use serde_json::Value;\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [summary (index/index-repo! xtdb
+                                         (.getPath repo)
+                                         {:project-id "rust-dep-test"
+                                          :repo-id "app"})
+              report (dependency/package-report xtdb
+                                                {:project-id "rust-dep-test"
+                                                 :repo-id "app"}
+                                                {})
+              package-by-label (into {} (map (juxt :label identity)
+                                             (:packages report)))]
+          (is (= 1 (get-in summary [:stats :dependency-edges])))
+          (is (= ["src/lib.rs"]
+                 (mapv :path
+                       (get-in package-by-label ["cargo:serde_json" :imported-by])))))))))
 
 (deftest index-writes-temporal-source-snapshots
   (let [xtdb-path (temp-dir "agraph-index-temporal-xtdb")
