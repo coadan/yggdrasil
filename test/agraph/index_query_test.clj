@@ -94,6 +94,89 @@
           (is (= "src/hidden/file.clj" (:path first-result)))
           (is (= 2.0 (get-in first-result [:score-components :exact]))))))))
 
+(deftest search-report-includes-instrumentation-and-persists-query-run
+  (store/with-node (temp-dir "agraph-query-report-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:node"
+                       :target-id "node:auth"
+                       :target-kind :node
+                       :file-id "file:auth"
+                       :path "src/auth.clj"
+                       :kind :var
+                       :label "demo/auth"
+                       :text "auth login"
+                       :tokens ["auth" "login"]
+                       :input-sha "auth"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:chunk"
+                       :target-id "chunk:auth"
+                       :target-kind :chunk
+                       :file-id "file:auth"
+                       :path "src/auth.clj"
+                       :kind :code-definition
+                       :label "demo/auth"
+                       :text "auth login handler"
+                       :tokens ["auth" "login" "handler"]
+                       :input-sha "auth-chunk"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})])
+      (let [report (query/search-report xtdb
+                                        "auth login"
+                                        {:retriever :lexical
+                                         :limit 5})
+            instrumentation (:instrumentation report)
+            query-run (first (store/all-rows xtdb (store/table-ref :query-runs)))]
+        (is (= query/search-report-schema (:schema report)))
+        (is (= :lexical (:retriever-requested report)))
+        (is (= :lexical (:retriever-effective report)))
+        (is (= ["src/auth.clj"] (distinct (map :path (:results report)))))
+        (is (= (:query-run-id report) (:xt/id query-run)))
+        (is (= instrumentation (:instrumentation query-run)))
+        (is (= 2 (:search-docs instrumentation)))
+        (is (= 2 (:returned-count instrumentation)))
+        (is (= {:chunk 1 :node 1} (:search-docs-by-kind instrumentation)))
+        (is (every? #(not (neg? (get instrumentation %)))
+                    [:load-search-docs-ms
+                     :tokenize-ms
+                     :lexical-score-ms
+                     :load-edges-ms
+                     :graph-expansion-ms
+                     :rank-ms
+                     :search-total-ms]))))))
+
+(deftest semantic-query-remains-result-vector
+  (store/with-node (temp-dir "agraph-semantic-query-compat-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:auth"
+                       :target-id "node:auth"
+                       :target-kind :node
+                       :file-id "file:auth"
+                       :path "src/auth.clj"
+                       :kind :var
+                       :label "demo/auth"
+                       :text "auth login"
+                       :tokens ["auth" "login"]
+                       :input-sha "auth"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})])
+      (let [results (query/semantic-query xtdb
+                                          "auth"
+                                          {:retriever :lexical
+                                           :limit 5})]
+        (is (vector? results))
+        (is (= ["src/auth.clj"] (mapv :path results)))))))
+
 (deftest lexical-query-keeps-node-candidates-when-chunks-dominate
   (store/with-node (temp-dir "agraph-query-kind-candidate-xtdb")
     (fn [xtdb]

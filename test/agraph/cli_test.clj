@@ -1158,6 +1158,30 @@
       (is (str/includes? out "lexical match"))
       (is (= "" (str err))))))
 
+(deftest query-json-returns-search-report
+  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                query/search-report (fn [xtdb query-text opts]
+                                      {:schema query/search-report-schema
+                                       :xtdb xtdb
+                                       :query-text query-text
+                                       :retriever-requested (:retriever opts)
+                                       :retriever-effective :lexical
+                                       :project-id (:project-id opts)
+                                       :instrumentation {:search-docs 2
+                                                         :returned-count 1}
+                                       :results [{:label "Auth"}]})]
+    (let [out (with-out-str
+                (cli/dispatch "query" ["auth"
+                                       "--project" "fixture"
+                                       "--retriever" "lexical"
+                                       "--json"]))
+          parsed (read-json-output out)]
+      (is (= query/search-report-schema (:schema parsed)))
+      (is (= "auth" (:query-text parsed)))
+      (is (= "fixture" (:project-id parsed)))
+      (is (= 2 (get-in parsed [:instrumentation :search-docs])))
+      (is (= [{:label "Auth"}] (:results parsed))))))
+
 (deftest explore-routes-to-cursor-implementation
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                 cursor/create! (fn [xtdb opts]

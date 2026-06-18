@@ -2715,15 +2715,25 @@
         (throw (ex-info "Missing query text." {:usage (usage)})))
       (store/with-node (store/storage-path)
         (fn [xtdb]
-          (doseq [result (query/semantic-query xtdb
-                                               query-text
-                                               {:limit limit
-                                                :retriever retriever
-                                                :embedding-client embedding-client
-                                                :project-id project-id
-                                                :repo-id repo-id
-                                                :read-context temporal})]
-            (print-query-result result)))))
+          (if (json-output? args)
+            (print-json
+             (query/search-report xtdb
+                                  query-text
+                                  {:limit limit
+                                   :retriever retriever
+                                   :embedding-client embedding-client
+                                   :project-id project-id
+                                   :repo-id repo-id
+                                   :read-context temporal}))
+            (doseq [result (query/semantic-query xtdb
+                                                 query-text
+                                                 {:limit limit
+                                                  :retriever retriever
+                                                  :embedding-client embedding-client
+                                                  :project-id project-id
+                                                  :repo-id repo-id
+                                                  :read-context temporal})]
+              (print-query-result result))))))
 
     "project"
     (let [action (keyword (first args))

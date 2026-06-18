@@ -1,5 +1,8 @@
 (ns agraph.context-test
   (:require [agraph.context :as context]
+            [agraph.activity :as activity]
+            [agraph.graph :as graph]
+            [agraph.query :as query]
             [clojure.test :refer [deftest is]]))
 
 (deftest inferred-docs-include-source-chunk-for-retrieved-node-result
@@ -47,3 +50,29 @@
                          :definitionKind :class}}])]
     (is (= ["src/A.java" "src/B.java" "src/A.java"]
            (mapv #(get-in % [:source :path]) docs)))))
+
+(deftest context-packet-includes-search-instrumentation
+  (with-redefs [query/search-report (fn [_ query-text opts]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :query-text query-text
+                                       :retriever-requested (:retriever opts)
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 1
+                                                         :returned-count 1}
+                                       :results []})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                activity/select-activity (fn [& _] [])
+                context/answerability (fn [& _] {:status :ready})]
+    (let [packet (context/context-packet :xtdb
+                                         "auth"
+                                         {:project-id "fixture"
+                                          :retriever :lexical})]
+      (is (= "query:test" (get-in packet [:search :query-run-id])))
+      (is (= :lexical (get-in packet [:search :retriever-effective])))
+      (is (= 1 (get-in packet [:search :instrumentation :search-docs]))))))

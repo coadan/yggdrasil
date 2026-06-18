@@ -357,32 +357,53 @@
     (:retrievedSource doc) 2
     :else 3))
 
-(defn- doc-diversity-key
+(defn- doc-path-key
   [doc]
   (let [source (:source doc)]
-    [(doc-priority doc)
-     (or (:repo source) :unknown-repo)
+    [(or (:repo source) :unknown-repo)
      (or (:path source)
          (:heading source)
-         (get-in doc [:source :definitionKind])
          (:target doc)
          :other)]))
 
+(defn- doc-definition-kind-key
+  [doc]
+  (let [source (:source doc)]
+    [(or (:repo source) :unknown-repo)
+     (get-in doc [:source :definitionKind])]))
+
+(defn- doc-novelty-score
+  [seen-paths seen-definition-kinds doc]
+  (+ (if (contains? seen-paths (doc-path-key doc)) 0 2)
+     (if (or (nil? (second (doc-definition-kind-key doc)))
+             (contains? seen-definition-kinds (doc-definition-kind-key doc)))
+       0
+       1)))
+
 (defn- diversify-docs
   [docs]
-  (let [{:keys [firsts rest]}
-        (reduce (fn [{:keys [seen] :as acc} doc]
-                  (let [k (doc-diversity-key doc)]
-                    (if (contains? seen k)
-                      (update acc :rest conj doc)
-                      (-> acc
-                          (update :seen conj k)
-                          (update :firsts conj doc)))))
-                {:seen #{}
-                 :firsts []
-                 :rest []}
-                docs)]
-    (into firsts rest)))
+  (loop [remaining (vec docs)
+         seen-paths #{}
+         seen-definition-kinds #{}
+         out []]
+    (if (empty? remaining)
+      out
+      (let [[idx doc] (->> remaining
+                           (map-indexed (fn [idx doc]
+                                          [idx
+                                           doc
+                                           (doc-novelty-score seen-paths
+                                                              seen-definition-kinds
+                                                              doc)]))
+                           (sort-by (juxt (comp - #(nth % 2)) first))
+                           first)
+            definition-key (doc-definition-kind-key doc)]
+        (recur (vec (concat (subvec remaining 0 idx)
+                            (subvec remaining (inc idx))))
+               (conj seen-paths (doc-path-key doc))
+               (cond-> seen-definition-kinds
+                 (second definition-key) (conj definition-key))
+               (conj out doc))))))
 
 (defn- attached-docs
   [overlay chunks snippet-chars targets]
@@ -401,7 +422,8 @@
    :defaultDetail "primary"})
 
 (defn- base-packet
-  [query-text budget graph-data entities edges activity warnings drilldowns answerability]
+  [query-text budget graph-data entities edges activity warnings drilldowns answerability
+   search-instrumentation]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data)
@@ -412,7 +434,8 @@
            :docs []
            :warnings warnings
            :drilldowns drilldowns}
-    answerability (assoc :answerability answerability)))
+    answerability (assoc :answerability answerability)
+    search-instrumentation (assoc :search search-instrumentation)))
 
 (defn- add-doc-with-budget
   [packet doc budget]
@@ -669,14 +692,15 @@
     (throw (ex-info "Context query requires --project." {})))
   (let [overlay (resolve-map-overlay map-path map-overlay project-id)
         query-tokens (text/tokenize query-text)
-        results (query/semantic-query xtdb
-                                      query-text
-                                      {:limit default-retrieval-limit
-                                       :retriever retriever
-                                       :embedding-client embedding-client
-                                       :project-id project-id
-                                       :repo-id repo-id
-                                       :read-context read-context})
+        search-report (query/search-report xtdb
+                                           query-text
+                                           {:limit default-retrieval-limit
+                                            :retriever retriever
+                                            :embedding-client embedding-client
+                                            :project-id project-id
+                                            :repo-id repo-id
+                                            :read-context read-context})
+        results (:results search-report)
         graph-data (graph/system-graph xtdb
                                        project-id
                                        {:limit graph/default-node-limit
@@ -734,7 +758,13 @@
                              activity
                              warnings
                              drilldowns
-                             answerability)
+                             answerability
+                             (select-keys search-report
+                                          [:schema
+                                           :query-run-id
+                                           :retriever-requested
+                                           :retriever-effective
+                                           :instrumentation]))
                 docs
                 budget)))
 

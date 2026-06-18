@@ -16,6 +16,22 @@
 (def lexical-graph-weight 0.25)
 (def hybrid-graph-weight 0.20)
 
+(def search-report-schema "agraph.search.report/v1")
+
+(defn- now-ns
+  []
+  (System/nanoTime))
+
+(defn- elapsed-ms
+  [started-ns]
+  (long (/ (- (now-ns) started-ns) 1000000)))
+
+(defn- timed
+  [timings k f]
+  (let [started (now-ns)
+        result (f)]
+    [result (assoc timings k (elapsed-ms started))]))
+
 (defn- scope-match?
   [{:keys [project-id repo-id]} row]
   (and (or (nil? project-id) (= project-id (:project-id row)))
@@ -189,14 +205,14 @@
         dl (max 1 (count (:tokens doc)))]
     (reduce
      (fn [score token]
-       (let [tf (double (get freqs token 0))
-             df (double (get doc-freqs token 0))
-             idf (Math/log (+ 1.0 (/ (+ (- n df) 0.5)
-                                     (+ df 0.5))))
-             denom (+ tf (* k1 (+ (- 1.0 b) (* b (/ dl avgdl)))))]
+       (let [tf (double (get freqs token 0))]
          (if (zero? tf)
            score
-           (+ score (* idf (/ (* tf (+ k1 1.0)) denom))))))
+           (let [df (double (get doc-freqs token 0))
+                 idf (Math/log (+ 1.0 (/ (+ (- n df) 0.5)
+                                         (+ df 0.5))))
+                 denom (+ tf (* k1 (+ (- 1.0 b) (* b (/ dl avgdl)))))]
+             (+ score (* idf (/ (* tf (+ k1 1.0)) denom)))))))
      0.0
      query-tokens)))
 
@@ -210,11 +226,16 @@
 (defn- lexical-scores
   [query-tokens docs]
   (let [doc-freqs (document-frequencies docs)
-        avgdl (/ (double (reduce + 0 (map #(count (:tokens %)) docs)))
-                 (max 1 (count docs)))]
+        avgdl (max 1.0
+                   (/ (double (reduce + 0 (map #(count (:tokens %)) docs)))
+                      (max 1 (count docs))))]
     (->> docs
-         (map (fn [doc] [(:target-id doc)
-                         (bm25-score query-tokens docs doc-freqs avgdl doc)]))
+         (map (fn [doc]
+                [(:target-id doc)
+                 (if (and (empty? (:tokens doc))
+                          (number? (:score doc)))
+                   (double (:score doc))
+                   (bm25-score query-tokens docs doc-freqs avgdl doc))]))
          (into {})
          normalize-scores)))
 
@@ -247,6 +268,18 @@
        (sort-by (comp - val))
        (take n)
        (mapv key)))
+
+(defn- positive-count
+  [scores]
+  (count (filter (comp pos? val) scores)))
+
+(defn- rows-by-kind
+  [rows]
+  (->> rows
+       (group-by :target-kind)
+       (map (fn [[kind rows]]
+              [kind (count rows)]))
+       (into (sorted-map))))
 
 (defn- top-ids-by-kind
   [scores docs n]
@@ -343,8 +376,8 @@
       (some token-set (text/tokenize (:label doc))) 0.05
       :else 0.0)))
 
-(defn- ranked-docs
-  [{:keys [query-text query-tokens docs lexical semantic neighbor-scores retriever limit]}]
+(defn- ranked-candidates
+  [{:keys [query-text query-tokens docs lexical semantic neighbor-scores retriever]}]
   (let [docs-by-target (into {} (map (juxt :target-id identity)) docs)
         semantic-candidates (concat (top-ids semantic default-semantic-candidates)
                                     (top-ids-by-kind semantic
@@ -365,37 +398,40 @@
                                   lexical-candidates
                                   exact-path-candidates
                                   (keys neighbor-scores))))]
-    (->> candidates
-         (keep docs-by-target)
-         (map (fn [doc]
-                (let [semantic-score (double (get semantic (:target-id doc) 0.0))
-                      lexical-score (double (get lexical (:target-id doc) 0.0))
-                      graph-score (double (get neighbor-scores (:target-id doc) 0.0))
-                      exact-score (exact-match-boost query-text query-tokens doc)
-                      total (+ (case retriever
-                                 :semantic semantic-score
-                                 :lexical (+ lexical-score
-                                             (* lexical-graph-weight graph-score))
-                                 (+ (* 0.70 semantic-score)
-                                    (* 0.20 lexical-score)
-                                    (* hybrid-graph-weight graph-score)))
-                               exact-score)]
-                  (assoc doc
-                         :result-kind (:target-kind doc)
-                         :score total
-                         :score-components {:semantic semantic-score
-                                            :lexical lexical-score
-                                            :graph graph-score
-                                            :exact exact-score}
-                         :reason (cond
-                                   (pos? semantic-score) "embedding match"
-                                   (pos? lexical-score) "lexical match"
-                                   (pos? graph-score) "graph neighbor"
-                                   :else "candidate")))))
-         (filter #(pos? (:score %)))
-         (sort-by (juxt (comp - :score) :label :path))
-         (take limit)
-         vec)))
+    {:semantic-candidates (set semantic-candidates)
+     :lexical-candidates (set lexical-candidates)
+     :exact-path-candidates (set exact-path-candidates)
+     :candidates (set candidates)
+     :ranked (->> candidates
+                  (keep docs-by-target)
+                  (map (fn [doc]
+                         (let [semantic-score (double (get semantic (:target-id doc) 0.0))
+                               lexical-score (double (get lexical (:target-id doc) 0.0))
+                               graph-score (double (get neighbor-scores (:target-id doc) 0.0))
+                               exact-score (exact-match-boost query-text query-tokens doc)
+                               total (+ (case retriever
+                                          :semantic semantic-score
+                                          :lexical (+ lexical-score
+                                                      (* lexical-graph-weight graph-score))
+                                          (+ (* 0.70 semantic-score)
+                                             (* 0.20 lexical-score)
+                                             (* hybrid-graph-weight graph-score)))
+                                        exact-score)]
+                           (assoc doc
+                                  :result-kind (:target-kind doc)
+                                  :score total
+                                  :score-components {:semantic semantic-score
+                                                     :lexical lexical-score
+                                                     :graph graph-score
+                                                     :exact exact-score}
+                                  :reason (cond
+                                            (pos? semantic-score) "embedding match"
+                                            (pos? lexical-score) "lexical match"
+                                            (pos? graph-score) "graph neighbor"
+                                            :else "candidate")))))
+                  (filter #(pos? (:score %)))
+                  (sort-by (juxt (comp - :score) :label :path))
+                  vec)}))
 
 (defn- query-vector
   [embedding-client query-text]
@@ -407,56 +443,123 @@
     :auto (if embedding-client :hybrid :lexical)
     requested))
 
-(defn semantic-query
-  "Hybrid semantic query over search docs with graph expansion."
+(defn search-report
+  "Return search results and deterministic instrumentation for query-text.
+
+  Persists the query run with instrumentation and returns a report map. Use
+  `semantic-query` when only the ranked result rows are needed."
   [xtdb query-text {:keys [limit retriever embedding-client project-id repo-id]
                     :as opts
                     :or {limit default-limit
                          retriever default-retriever}}]
-  (let [retriever (keyword retriever)
-        retriever (retriever-mode retriever embedding-client)
+  (let [started (now-ns)
+        requested-retriever (keyword retriever)
+        retriever (retriever-mode requested-retriever embedding-client)
         scope {:project-id project-id
                :repo-id repo-id
                :read-context (read-context opts)}
-        docs (vec (all-search-docs xtdb scope))
-        query-tokens (text/tokenize query-text)
-        lexical (lexical-scores query-tokens docs)
-        semantic (if (#{:hybrid :semantic} retriever)
-                   (if embedding-client
-                     (semantic-scores (query-vector embedding-client query-text)
-                                      docs
-                                      (all-embeddings xtdb scope)
-                                      (:provider embedding-client)
-                                      (:model embedding-client))
-                     (throw (ex-info "Semantic retrieval requires an embedding client."
-                                     {:retriever retriever})))
-                   {})
-        seed-ids (concat (top-ids semantic default-seed-count)
-                         (top-ids lexical default-seed-count))
-        seed-ids (set (concat seed-ids
-                              (same-label-node-ids docs seed-ids)))
-        neighbor-scores (graph-neighbor-scores (all-edges xtdb scope) seed-ids)
-        ranked (ranked-docs {:query-text query-text
-                             :query-tokens query-tokens
-                             :docs docs
-                             :lexical lexical
-                             :semantic semantic
-                             :neighbor-scores neighbor-scores
-                             :retriever retriever
-                             :limit limit})
-        query-row {:xt/id (str "query:" (hash/short-hash [query-text (System/currentTimeMillis)]))
+        [docs timings] (timed {} :load-search-docs-ms #(vec (all-search-docs xtdb scope)))
+        [query-tokens timings] (timed timings :tokenize-ms #(text/tokenize query-text))
+        [lexical timings] (timed timings :lexical-score-ms #(lexical-scores query-tokens docs))
+        [semantic timings] (if (#{:hybrid :semantic} retriever)
+                             (if embedding-client
+                               (let [[query-vector timings] (timed timings
+                                                                   :query-embedding-ms
+                                                                   #(query-vector
+                                                                     embedding-client
+                                                                     query-text))
+                                     [embeddings timings] (timed timings
+                                                                 :load-embeddings-ms
+                                                                 #(vec (all-embeddings xtdb scope)))]
+                                 (timed timings
+                                        :semantic-score-ms
+                                        #(semantic-scores query-vector
+                                                          docs
+                                                          embeddings
+                                                          (:provider embedding-client)
+                                                          (:model embedding-client))))
+                               (throw (ex-info "Semantic retrieval requires an embedding client."
+                                               {:retriever retriever})))
+                             [{} (assoc timings
+                                        :query-embedding-ms 0
+                                        :load-embeddings-ms 0
+                                        :semantic-score-ms 0)])
+        [seed-data timings] (timed timings
+                                   :seed-selection-ms
+                                   #(let [base-seed-ids (set (concat
+                                                              (top-ids semantic
+                                                                       default-seed-count)
+                                                              (top-ids lexical
+                                                                       default-seed-count)))
+                                          same-label-ids (same-label-node-ids docs
+                                                                              base-seed-ids)]
+                                      {:base-seed-ids base-seed-ids
+                                       :same-label-ids same-label-ids
+                                       :seed-ids (set (concat base-seed-ids
+                                                              same-label-ids))}))
+        [edges timings] (timed timings :load-edges-ms #(vec (all-edges xtdb scope)))
+        [neighbor-scores timings] (timed timings
+                                         :graph-expansion-ms
+                                         #(graph-neighbor-scores edges (:seed-ids seed-data)))
+        [ranked-data timings] (timed timings
+                                     :rank-ms
+                                     #(ranked-candidates {:query-text query-text
+                                                          :query-tokens query-tokens
+                                                          :docs docs
+                                                          :lexical lexical
+                                                          :semantic semantic
+                                                          :neighbor-scores neighbor-scores
+                                                          :retriever retriever
+                                                          :limit limit}))
+        ranked-all (:ranked ranked-data)
+        ranked (vec (take limit ranked-all))
+        candidate-docs (keep (into {} (map (juxt :target-id identity)) docs)
+                             (:candidates ranked-data))
+        instrumentation (assoc timings
+                               :search-total-ms (elapsed-ms started)
+                               :search-docs (count docs)
+                               :search-docs-by-kind (rows-by-kind docs)
+                               :query-tokens (count query-tokens)
+                               :lexical-positive (positive-count lexical)
+                               :semantic-positive (positive-count semantic)
+                               :seed-count (count (:seed-ids seed-data))
+                               :same-label-seed-count (count (:same-label-ids seed-data))
+                               :neighbor-count (count neighbor-scores)
+                               :exact-path-candidates (count (:exact-path-candidates ranked-data))
+                               :candidate-count (count (:candidates ranked-data))
+                               :candidates-by-kind (rows-by-kind candidate-docs)
+                               :ranked-count (count ranked-all)
+                               :returned-count (count ranked))
+        created-at-ms (System/currentTimeMillis)
+        query-row {:xt/id (str "query:" (hash/short-hash [query-text created-at-ms]))
                    :query-text query-text
                    :retriever retriever
+                   :retriever-requested requested-retriever
                    :provider (:provider embedding-client)
                    :model (:model embedding-client)
                    :project-id project-id
                    :repo-id repo-id
-                   :created-at-ms (System/currentTimeMillis)
+                   :created-at-ms created-at-ms
                    :result-ids (mapv :target-id ranked)
                    :scores (mapv :score ranked)
-                   :score-components (mapv :score-components ranked)}]
+                   :score-components (mapv :score-components ranked)
+                   :instrumentation instrumentation}
+        report {:schema search-report-schema
+                :query-run-id (:xt/id query-row)
+                :query-text query-text
+                :retriever-requested requested-retriever
+                :retriever-effective retriever
+                :project-id project-id
+                :repo-id repo-id
+                :instrumentation instrumentation
+                :results ranked}]
     (store/commit-query-run! xtdb query-row)
-    ranked))
+    report))
+
+(defn semantic-query
+  "Hybrid semantic query over search docs with graph expansion."
+  [xtdb query-text opts]
+  (:results (search-report xtdb query-text opts)))
 
 (defn openai-query-client
   "Return OpenAI query embedding client for CLI use."
