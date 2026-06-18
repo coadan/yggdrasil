@@ -9566,6 +9566,125 @@
        distinct
        vec))
 
+(defn- content-config-import-facts
+  [path content]
+  (->> (str/split-lines content)
+       (map-indexed #(js-import-targets %1 path %2))
+       (mapcat identity)
+       (mapv (fn [{:keys [target source-line]}]
+               {:kind :content-import
+                :label target
+                :source-line source-line
+                :relation :imports}))
+       distinct
+       vec))
+
+(defn- content-config-export-body
+  [content]
+  (some->> (re-find #"(?s)export\s+const\s+collections\s*=\s*\{(.*?)\}\s*;?"
+                    content)
+           second))
+
+(defn- content-config-export-collections
+  [content]
+  (if-let [body (content-config-export-body content)]
+    (let [segments (->> (str/split body #",")
+                        (map str/trim)
+                        (remove str/blank?))]
+      (->> segments
+           (keep (fn [segment]
+                   (let [segment (str/replace segment #"\s+" " ")]
+                     (cond
+                       (re-find #":" segment)
+                       (some->> (re-find #"^['\"]?([A-Za-z0-9_-]+)['\"]?\s*:"
+                                         segment)
+                                second)
+
+                       (re-matches (re-pattern (js-identifier)) segment)
+                       segment
+
+                       :else nil))))
+           distinct
+           vec))
+    []))
+
+(defn- content-config-define-collection-forms
+  [content]
+  (let [line-starts (line-start-offsets content)]
+    (->> (re-seq (re-pattern (str "\\b(?:const|let|var)\\s+("
+                                  (js-identifier)
+                                  ")\\s*=\\s*defineCollection\\s*\\("))
+                 content)
+         (keep (fn [[match collection-name]]
+                 (when-let [match-idx (str/index-of content match)]
+                   (let [start (+ match-idx (str/index-of match "defineCollection"))
+                         line (count (take-while #(<= % match-idx)
+                                                 line-starts))]
+                     {:collection collection-name
+                      :source-line line
+                      :form (or (balanced-form content start) "")}))))
+         vec)))
+
+(defn- content-config-loader-facts
+  [{:keys [collection source-line form]}]
+  (let [loader (some->> (re-find #"\bloader\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\("
+                                 form)
+                        second)
+        direct-loader-source (some->> (re-find #"\bloader\s*:\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*['\"]([^'\"]+)['\"]"
+                                               form)
+                                      second)]
+    (vec
+     (concat
+      (when loader
+        [{:kind :content-loader
+          :label (str collection ":" loader)
+          :source-line source-line
+          :relation :uses}])
+      (map (fn [value]
+             {:kind :content-source
+              :label value
+              :source-line source-line
+              :relation :references})
+           (distinct
+            (concat (docs-config-property-values form "base")
+                    (docs-config-property-values form "pattern")
+                    (when direct-loader-source [direct-loader-source]))))))))
+
+(defn- content-config-schema-field-facts
+  [{:keys [collection source-line form]}]
+  (if-let [body (some->> (re-find #"(?s)\bschema\s*:\s*z\.object\s*\(\s*\{(.*?)\}\s*\)"
+                                  form)
+                         second)]
+    (->> (re-seq #"(?m)^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*:" body)
+         (map second)
+         distinct
+         (mapv (fn [field-name]
+                 {:kind :content-schema-field
+                  :label (str collection "." field-name)
+                  :source-line source-line
+                  :relation :defines})))
+    []))
+
+(defn- astro-content-config-facts
+  [{:keys [path content]}]
+  (let [forms (content-config-define-collection-forms content)
+        declared-collections (set (map :collection forms))
+        exported-collections (content-config-export-collections content)
+        collection-labels (->> (concat declared-collections exported-collections)
+                               distinct
+                               sort)]
+    (vec
+     (concat
+      (content-config-import-facts path content)
+      (map (fn [collection]
+             {:kind :content-collection
+              :label collection
+              :source-line 1
+              :relation :defines})
+           collection-labels)
+      (mapcat content-config-loader-facts forms)
+      (mapcat content-config-schema-field-facts forms)))))
+
 (defn- docs-sidebar-facts
   [content]
   (vec
@@ -9654,6 +9773,15 @@
   [{:keys [path content]}]
   (let [filename (manifest-name path)]
     (case filename
+      ("content.config.js" "content.config.mjs" "content.config.ts")
+      (astro-content-config-facts {:path path :content content})
+
+      ("config.js" "config.mjs" "config.ts")
+      (if (re-find #"(^|/)src/content/config\.(?:js|mjs|ts)$"
+                   (str/replace (str/lower-case (str path)) "\\" "/"))
+        (astro-content-config-facts {:path path :content content})
+        [])
+
       ("docusaurus.config.js" "docusaurus.config.cjs"
                               "docusaurus.config.mjs" "docusaurus.config.ts")
       (vec (concat (docs-config-title-facts content)

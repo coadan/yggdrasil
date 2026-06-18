@@ -52,6 +52,7 @@
     "codeowners" "taskfile.yml" "taskfile.yaml" "justfile" ".justfile"
     ".tool-versions" ".node-version" ".python-version" ".ruby-version"
     "mise.toml" ".mise.toml" "funding.yml" "funding.yaml"
+    "content.config.js" "content.config.mjs" "content.config.ts"
     "docusaurus.config.js" "docusaurus.config.cjs" "docusaurus.config.mjs"
     "docusaurus.config.ts" "sidebars.js" "sidebars.ts"
     "mkdocs.yml" "mkdocs.yaml"
@@ -225,10 +226,12 @@
       (or (re-matches #"tsconfig\.[a-z0-9_.-]+\.json" filename)
           (re-find #"(^|/)\.github/dependabot\.ya?ml$" path-lower))
       :tool-config
-      (contains? #{"docusaurus.config.js" "docusaurus.config.cjs"
-                   "docusaurus.config.mjs" "docusaurus.config.ts"
-                   "sidebars.js" "sidebars.ts" "mkdocs.yml" "mkdocs.yaml"}
-                 filename)
+      (or (contains? #{"content.config.js" "content.config.mjs" "content.config.ts"
+                       "docusaurus.config.js" "docusaurus.config.cjs"
+                       "docusaurus.config.mjs" "docusaurus.config.ts"
+                       "sidebars.js" "sidebars.ts" "mkdocs.yml" "mkdocs.yaml"}
+                     filename)
+          (re-find #"(^|/)src/content/config\.(?:js|mjs|ts)$" path-lower))
       :docs-config
       (or (re-find #"(^|/)\.storybook/(?:main|preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
                    path-lower)

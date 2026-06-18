@@ -170,6 +170,8 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/docs/docusaurus.config.ts")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/docs/src/content.config.ts")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/bobr/pages/index.astro")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/bobr/plugin/bobr-wordpress-connector.php")
@@ -463,6 +465,40 @@
     (is (= [:docs-config-file] (mapv :kind (:chunks docusaurus-result))))
     (is (= [:docs-config-file] (mapv :kind (:chunks sidebar-result))))
     (is (= [:docs-config-file] (mapv :kind (:chunks mkdocs-result))))))
+
+(deftest extracts-astro-content-collection-config
+  (let [file (fs/file-record
+              "test/fixtures/extractor-repo"
+              "test/fixtures/extractor-repo/docs/src/content.config.ts")
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        kinds (frequencies (map :kind (:nodes result)))
+        relations (frequencies (map :relation (:edges result)))]
+    (is (= :docs-config (:kind file)))
+    (is (contains? labels "astro:content"))
+    (is (contains? labels "astro/loaders"))
+    (is (contains? labels "astro/zod"))
+    (is (contains? labels "blog"))
+    (is (contains? labels "authors"))
+    (is (contains? labels "blog:glob"))
+    (is (contains? labels "authors:file"))
+    (is (contains? labels "./src/content/blog"))
+    (is (contains? labels "**/*.{md,mdx}"))
+    (is (contains? labels "./src/content/authors.json"))
+    (is (contains? labels "blog.title"))
+    (is (contains? labels "blog.description"))
+    (is (contains? labels "blog.pubDate"))
+    (is (contains? labels "authors.name"))
+    (is (contains? labels "authors.website"))
+    (is (= 2 (get kinds :content-collection 0)))
+    (is (= 2 (get kinds :content-loader 0)))
+    (is (= 5 (get kinds :content-schema-field 0)))
+    (is (= 3 (get relations :imports 0)))
+    (is (= 7 (get relations :defines 0)))
+    (is (= 3 (get relations :references 0)))
+    (is (= 2 (get relations :uses 0)))
+    (is (= [:docs-config-file] (mapv :kind (:chunks result))))
+    (is (empty? (:diagnostics result)))))
 
 (deftest extracts-rust-modules-definitions-uses-and-calls
   (let [file (fs/file-record "test/fixtures/sample-repo"
