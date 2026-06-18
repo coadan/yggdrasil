@@ -269,6 +269,10 @@
                 {:path [:mapPatch idx :confidence]
                  :error "Confidence must be between 0 and 1."
                  :value (:confidence patch)})
+              (when (and (#{"add-edge" "set-edge-visibility" "reject-edge"} op)
+                         (empty? evidence))
+                {:path [:mapPatch idx :evidence]
+                 :error "Edge patch must cite at least one facts.evidence[].id."})
               (when-let [missing (seq (remove evidence-ids evidence))]
                 {:path [:mapPatch idx :evidence]
                  :error "Patch evidence must come from facts.evidence[].id."

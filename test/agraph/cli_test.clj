@@ -1105,6 +1105,59 @@
       (is (= [evidence-id] (:evidence edge)))
       (is (str/includes? (:rules edge) "infra-review:test")))))
 
+(deftest sync-work-apply-rejects-infra-review-edge-without-evidence
+  (let [root (temp-dir "agraph-cli-work-apply-missing-evidence")
+        dir (temp-dir "agraph-cli-work-map-missing-evidence")
+        map-path (.getPath (io/file dir "agraph.map.json"))
+        result-path (.getPath (io/file dir "result.json"))
+        source-id "system:fixture:app:api"
+        target-id "system:fixture:env:api"
+        evidence-id "evidence:image:api"
+        packet {:schema infra-review/packet-schema
+                :reviewId "infra-review:test"
+                :project-id "fixture"
+                :facts {:systems [{:id source-id}
+                                  {:id target-id}]
+                        :evidence [{:id evidence-id}]}
+                :allowedActions ["add-edge" "none"]}
+        id (get-in (queue/enqueue! packet {:root root
+                                           :kind infra-review/work-kind
+                                           :project-id "fixture"})
+                   [:item :id])]
+    (queue/claim-next! root {:agent-id "codex"
+                             :project-id "fixture"})
+    (spit result-path
+          (json/write-json-str
+           {:schema infra-review/result-schema
+            :reviewId "infra-review:test"
+            :recommendation "add-map-edge"
+            :confidence 0.86
+            :reason "Evidence supports a deploys relationship."
+            :mapPatch [{:op "add-edge"
+                        :source source-id
+                        :target target-id
+                        :relation "deploys"
+                        :confidence 0.86
+                        :reason "Image producer and consumer are verified."}]}
+           {:indent-str "  "}))
+    (with-out-str
+      (cli/dispatch "sync"
+                    ["work" "complete" id
+                     "--result" result-path
+                     "--queue-dir" root]))
+    (let [out (with-out-str
+                (cli/dispatch "sync"
+                              ["work" "apply" id
+                               "--map" map-path
+                               "--queue-dir" root]))
+          parsed (read-json-output out)]
+      (is (= infra-review/apply-schema (:schema parsed)))
+      (is (= "failed" (:status parsed)))
+      (is (= [{:path ["mapPatch" 0 "evidence"]
+               :error "Edge patch must cite at least one facts.evidence[].id."}]
+             (:errors parsed)))
+      (is (false? (graph-map/file-exists? map-path))))))
+
 (deftest sync-work-apply-valid-maintenance-result-updates-map
   (let [root (temp-dir "agraph-cli-work-maintenance-apply")
         dir (temp-dir "agraph-cli-work-maintenance-map")
