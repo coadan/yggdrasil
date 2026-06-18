@@ -135,11 +135,12 @@ generated output root.
   files, per-file ranks, misses, coverage exclusions, and files found outside
   the top 5, 10, and 20. Reports also include `agentDiagnostics`, which counts
   empty rankable outputs, zero-candidate AGraph packets, coverage-filtered
-  candidates, and missing predicted paths so benchmark failures point to the
-  next mechanical fix instead of only reporting a score. Reports also include
-  `artifactDiagnostics`, which classifies score artifacts as current, legacy, or
-  stale against the suite case fingerprint so old scores cannot silently stand
-  in for changed issue text, commits, coverage, or curated ground truth.
+  candidates, warning-bearing runs, and missing predicted paths so benchmark
+  failures point to the next mechanical fix instead of only reporting a score.
+  Reports also include `artifactDiagnostics`, which classifies score artifacts
+  as current, legacy, or stale against the suite case fingerprint so old scores
+  cannot silently stand in for changed issue text, commits, coverage, or curated
+  ground truth.
   Unverified score artifacts are excluded from aggregate report scores by
   default; use `--allow-unverified-scores` only for forensic inspection of older
   benchmark runs.
@@ -151,10 +152,11 @@ generated output root.
   `--min-case-file-recall-at-10`, `--min-case-file-recall-at-20`, `--min-mrr`,
   `--min-case-mrr`, `--min-evidence-citation-rate`,
   `--min-case-evidence-citation-rate`, `--max-noise-at-20`, `--max-case-noise-at-20`,
-  `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`, and
+  `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`,
   `--max-empty-result-runs` to fail when agents produce no rankable suspected
-  files, `--max-unverified-score-runs` to fail when matching score artifacts are
-  legacy or stale relative to the current suite file,
+  files, `--max-warning-runs` to fail when scorer or agent warnings are present
+  beyond the configured budget, `--max-unverified-score-runs` to fail when
+  matching score artifacts are legacy or stale relative to the current suite file,
   `--max-graph-expectation-failures` to fail when graph/evidence expectations
   do not match the indexed facts, plus
   `--max-active-stage-ms` for partial or interrupted runs with a stuck active
