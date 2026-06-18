@@ -64,7 +64,7 @@
     (pos? (+ chunks search-docs)) (conj :docs)
     (pos? embeddings) (conj :embeddings)
     (pos? (+ system-nodes system-edges)) (conj :systems)
-    (pos? packages) (conj :packages)
+    (pos? packages) (conj :dependencies)
     (pos? (+ activity-items activity-events)) (conj :activity)
     (pos? validation-events) (conj :validation-history)
     (pos? (reduce + (vals map-overlay))) (conj :map-overlay)

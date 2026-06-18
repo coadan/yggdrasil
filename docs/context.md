@@ -67,6 +67,8 @@ inventory as `agraph.evidence/v1`. Use that evidence surface when an agent needs
 to see what can be asked about at a glance. Use `agraph ask --json` when the
 agent has a concrete question and needs the smaller query-scoped
 `answerability` packet plus matching entities, edges, docs, and activity.
+Both surfaces use `dependencies` for the evidence plane backed by package
+declarations, lockfile versions, and mechanically resolved package-import edges.
 
 - `status`: `ready`, `limited`, or `empty`
 - `available`: populated evidence planes, such as `source-graph`,
