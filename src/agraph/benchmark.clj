@@ -2571,6 +2571,28 @@
                                          (set (case-ids "legacy"))
                                          (set (case-ids "stale")))))}))
 
+(defn- current-score-artifact?
+  [expected-fingerprints result]
+  (= "current" (:fingerprintStatus (artifact-diagnostic expected-fingerprints result))))
+
+(defn- artifact-policy
+  [expected-fingerprints raw-results included-results allow-unverified?]
+  (let [included (set included-results)
+        excluded (remove included raw-results)]
+    {:allowUnverifiedScores (boolean allow-unverified?)
+     :matchedRuns (count raw-results)
+     :includedRuns (count included-results)
+     :excludedRuns (count excluded)
+     :excludedCaseIds (->> excluded
+                           (map :case-id)
+                           distinct
+                           sort
+                           vec)
+     :excludedUnverifiedRuns (count (remove #(current-score-artifact?
+                                              expected-fingerprints
+                                              %)
+                                            raw-results))}))
+
 (defn- group-agent-scores
   [expected-fingerprints results key-path]
   (->> results
@@ -2665,12 +2687,18 @@
                       (keep #(progress-summary suite % opts))
                       vec)
         progress-by-case (into {} (map (juxt :case-id identity)) progress)
-        results (mapcat (fn [case]
-                          (let [case-progress (get progress-by-case (:id case))]
-                            (map #(cond-> %
-                                    case-progress (assoc :progress case-progress))
-                                 (agent-score-results suite case opts))))
-                        cases)
+        raw-results (vec
+                     (mapcat (fn [case]
+                               (let [case-progress (get progress-by-case (:id case))]
+                                 (map #(cond-> %
+                                         case-progress (assoc :progress case-progress))
+                                      (agent-score-results suite case opts))))
+                             cases))
+        allow-unverified? (:allow-unverified-scores? opts)
+        results (if allow-unverified?
+                  raw-results
+                  (filter #(current-score-artifact? expected-fingerprints %)
+                          raw-results))
         completed-cases (set (map :case-id results))
         missing (->> cases
                      (remove #(contains? completed-cases (:id %)))
@@ -2686,7 +2714,11 @@
                 :agentDiagnostics (aggregate-agent-diagnostics results)
                 :artifactDiagnostics (aggregate-artifact-diagnostics
                                       expected-fingerprints
-                                      results)
+                                      raw-results)
+                :artifactPolicy (artifact-policy expected-fingerprints
+                                                 raw-results
+                                                 results
+                                                 allow-unverified?)
                 :coverage (aggregate-coverage results)
                 :timings (aggregate-progress progress)
                 :caseProgress progress

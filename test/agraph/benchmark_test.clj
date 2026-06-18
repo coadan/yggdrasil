@@ -233,7 +233,8 @@
                            :at "2026-06-18T00:00:03Z"
                            :elapsedMs 3000}]})
     (let [report (benchmark/report-agent-suite suite {:out out
-                                                      :now "2026-06-18T00:00:05Z"})]
+                                                      :now "2026-06-18T00:00:05Z"
+                                                      :allow-unverified-scores? true})]
       (is (= benchmark/agent-report-schema (:schema report)))
       (is (= 2 (:cases report)))
       (is (= 1 (:completed report)))
@@ -263,6 +264,13 @@
               :unverifiedScoreRuns 2
               :unverifiedScoreCaseIds ["case-1"]}
              (:artifactDiagnostics report)))
+      (is (= {:allowUnverifiedScores true
+              :matchedRuns 2
+              :includedRuns 2
+              :excludedRuns 0
+              :excludedCaseIds []
+              :excludedUnverifiedRuns 2}
+             (:artifactPolicy report)))
       (is (= {:declaredSourceKinds ["code" "python"]
               :scoreableSourceKinds ["code"]
               :scoreableFilesByKind [{:kind "code"
@@ -332,17 +340,31 @@
       (is (= ["baseline" "codex"] (mapv :key (:byAgent report)))))
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :now "2026-06-18T00:00:05Z"
-                                                      :mode "agraph"})]
+                                                      :mode "agraph"
+                                                      :allow-unverified-scores? true})]
       (is (= 1 (:runs report)))
       (is (= 1.0 (get-in report [:scores :fileRecallAt10])))
       (is (= ["agraph"] (mapv :key (:byMode report)))))
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :now "2026-06-18T00:00:05Z"
-                                                      :agent-id "baseline"})]
+                                                      :agent-id "baseline"
+                                                      :allow-unverified-scores? true})]
       (is (= 1 (:runs report)))
       (is (= "baseline" (get-in report [:results 0 :agent :agentId])))
       (is (= ["baseline"] (mapv :key (:byAgent report))))
-      (is (= 0.5 (get-in report [:scores :fileRecallAt10]))))))
+      (is (= 0.5 (get-in report [:scores :fileRecallAt10]))))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :now "2026-06-18T00:00:05Z"})]
+      (is (= 0 (:runs report)))
+      (is (= 0 (:completed report)))
+      (is (= ["case-1" "case-2"] (:missing report)))
+      (is (= {:allowUnverifiedScores false
+              :matchedRuns 2
+              :includedRuns 0
+              :excludedRuns 2
+              :excludedCaseIds ["case-1"]
+              :excludedUnverifiedRuns 2}
+             (:artifactPolicy report))))))
 
 (deftest checks-agent-report-thresholds
   (let [report {:schema benchmark/agent-report-schema

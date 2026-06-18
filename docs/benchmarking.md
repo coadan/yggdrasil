@@ -127,6 +127,9 @@ generated output root.
   `artifactDiagnostics`, which classifies score artifacts as current, legacy, or
   stale against the suite case fingerprint so old scores cannot silently stand
   in for changed issue text, commits, coverage, or curated ground truth.
+  Unverified score artifacts are excluded from aggregate report scores by
+  default; use `--allow-unverified-scores` only for forensic inspection of older
+  benchmark runs.
 - `bench agent-check <suite.edn>` aggregates agent score artifacts, writes an
   `agent-check.json`, and exits non-zero when selected cases are missing or
   thresholds fail. Useful gates include `--min-cases`, `--min-runs`,
@@ -143,9 +146,10 @@ generated output root.
   `--agent <agent-id>` to avoid mixing baseline, shell-only, and ad hoc agent
   score artifacts in one gate. Selected cases must all have matching score
   artifacts unless `--allow-missing` is set. Matching score artifacts must be
-  unique per case, agent, and mode unless `--allow-duplicate-runs` is set. The
-  check artifact includes `caseDiagnostics` so CI failures can be triaged
-  without opening every score artifact.
+  current for the suite case fingerprint unless `--allow-unverified-scores` is
+  set, and unique per case, agent, and mode unless `--allow-duplicate-runs` is
+  set. The check artifact includes `caseDiagnostics` so CI failures can be
+  triaged without opening every score artifact.
 - `bench agent-compare <suite.edn>` compares two `agent-report.json` files and
   exits non-zero when aggregate or per-case recall/MRR/noise regress beyond
   `--regression-tolerance` (default `0`). Use this after a candidate change to
