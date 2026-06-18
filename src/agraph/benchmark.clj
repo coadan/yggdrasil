@@ -2134,6 +2134,7 @@
       :suspectedFiles suspected-files
       :suspectedSymbols (context-symbols packet)
       :commands (:drilldowns packet)
+      :warnings (vec (or (:warnings packet) []))
       :selection selection
       :summary (str "Deterministic AGraph baseline ranked "
                     (count suspected-files)

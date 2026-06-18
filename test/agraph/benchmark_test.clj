@@ -1481,6 +1481,7 @@
         _ (spit-file! root "src/db.clj" "(ns db)\n")
         packet {:query "broken app"
                 :drilldowns ["agraph ask 'broken app' --project fixture"]
+                :warnings ["Context warning."]
                 :docs [{:source {:path "src/app.clj"
                                  :heading "broken"
                                  :definitionKind :function
@@ -1553,6 +1554,7 @@
              :kind nil}]
            (:suspectedSymbols result)))
     (is (= ["agraph ask 'broken app' --project fixture"] (:commands result)))
+    (is (= ["Context warning."] (:warnings result)))
     (is (= {:rawCandidateFiles 2
             :candidateFiles 2
             :coverageFilteredCandidateFiles 0
