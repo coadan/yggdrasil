@@ -2179,7 +2179,8 @@
         packet {:query "broken app"
                 :drilldowns ["agraph ask 'broken app' --project project"]
                 :warnings []
-                :answerability {:status :ok}
+                :answerability {:status :ok
+                                :next ["Run agraph packages --project project --json"]}
                 :sourceCoverage {:schema "agraph.source-coverage.context/v1"
                                  :basis "indexed-graph"
                                  :totals {:indexedFiles 2
@@ -2280,7 +2281,9 @@
              :why "retrieval and graph match"
              :metrics {:file-count 2}}]
            (:candidateSystems hints)))
-    (is (= ["agraph ask 'broken app' --project project"] (:commands hints)))
+    (is (= ["agraph ask 'broken app' --project project"
+            "Run agraph packages --project project --json"]
+           (:commands hints)))
     (is (= {:rawCandidateFiles 1
             :candidateFiles 1
             :coverageFilteredCandidateFiles 0

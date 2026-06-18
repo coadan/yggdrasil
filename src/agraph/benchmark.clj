@@ -2535,6 +2535,14 @@
   (select-keys (assoc entity :rank (inc idx))
                [:rank :id :repo :path :label :kind :score :why :metrics :pathPrefix]))
 
+(defn- hint-commands
+  [packet]
+  (->> (concat (:drilldowns packet)
+               (get-in packet [:answerability :next]))
+       (remove blankish?)
+       distinct
+       vec))
+
 (defn context-packet->agent-hints
   "Return a compact agent-facing summary of one AGraph context packet.
 
@@ -2560,7 +2568,7 @@
      :topSymbols (vec (take 10 (:suspectedSymbols agent-result)))
      :topDocs (mapv hint-doc (range) (take 10 (:docs packet)))
      :candidateSystems (mapv hint-system (range) (take 10 (:entities packet)))
-     :commands (:drilldowns packet)
+     :commands (hint-commands packet)
      :selection (:selection agent-result)
      :answerability (:answerability packet)
      :sourceCoverage (:sourceCoverage packet)
