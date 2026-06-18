@@ -1,6 +1,7 @@
 (ns agraph.benchmark
   "Issue replay benchmarks for AGraph retrieval quality."
-  (:require [agraph.fs :as fs]
+  (:require [agraph.context :as context]
+            [agraph.fs :as fs]
             [agraph.project :as project]
             [agraph.query :as query]
             [agraph.xtdb :as store]
@@ -9,7 +10,8 @@
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.set :as set]
-            [clojure.string :as str]))
+            [clojure.string :as str])
+  (:import [java.util.concurrent TimeUnit]))
 
 (def suite-schema
   "agraph.benchmark.suite/v1")
@@ -23,6 +25,9 @@
 (def agent-packet-schema
   "agraph.benchmark.agent-packet/v1")
 
+(def agent-hints-schema
+  "agraph.benchmark.agent-hints/v1")
+
 (def agent-result-schema
   "agraph.benchmark.agent-result/v1")
 
@@ -32,6 +37,21 @@
 (def agent-report-schema
   "agraph.benchmark.agent-report/v1")
 
+(def agent-check-schema
+  "agraph.benchmark.agent-check/v1")
+
+(def agent-baseline-schema
+  "agraph.benchmark.agent-baseline/v1")
+
+(def agent-baselines-schema
+  "agraph.benchmark.agent-baselines/v1")
+
+(def agent-run-schema
+  "agraph.benchmark.agent-run/v1")
+
+(def agent-runs-schema
+  "agraph.benchmark.agent-runs/v1")
+
 (def report-schema
   "agraph.benchmark.report/v1")
 
@@ -40,6 +60,21 @@
 
 (def default-limit
   50)
+
+(def default-agent-baseline-budget
+  16000)
+
+(def default-agent-baseline-doc-limit
+  20)
+
+(def default-agent-baseline-suspect-limit
+  20)
+
+(def default-agent-run-timeout-ms
+  600000)
+
+(def supported-agent-prompt-profiles
+  ["standard" "fast"])
 
 (def recall-limits
   [5 10 20])
@@ -163,6 +198,69 @@
   [suite case opts]
   (io/file (case-output-dir suite case opts) "agent-packet.json"))
 
+(defn- agent-baseline-id
+  [opts]
+  (str "agraph-baseline-" (name (keyword (or (:retriever opts) :lexical)))))
+
+(defn- agent-baseline-result-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-results"
+           (str (safe-id (agent-baseline-id opts)) ".json")))
+
+(defn- agent-baseline-context-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-results"
+           (str (safe-id (agent-baseline-id opts)) ".context.json")))
+
+(defn- agent-run-id
+  [opts]
+  (or (some-> (:agent-id opts) safe-id not-empty)
+      "agent"))
+
+(defn- agent-run-result-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-results"
+           (str (agent-run-id opts) ".json")))
+
+(defn- agent-run-log-path
+  [suite case opts stream]
+  (io/file (case-output-dir suite case opts)
+           "agent-logs"
+           (str (agent-run-id opts) "." stream ".txt")))
+
+(defn- agent-run-prompt-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-prompts"
+           (str (agent-run-id opts) ".md")))
+
+(defn- agent-run-output-schema-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-output-schemas"
+           (str (agent-run-id opts) ".schema.json")))
+
+(defn- agent-run-context-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-contexts"
+           (str (agent-run-id opts) ".agraph-context.json")))
+
+(defn- agent-run-hints-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-contexts"
+           (str (agent-run-id opts) ".agraph-hints.json")))
+
+(defn- agent-run-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-runs"
+           (str (agent-run-id opts) ".json")))
+
 (defn- without-json-suffix
   [path]
   (str/replace (.getName (io/file path)) #"\.json$" ""))
@@ -181,6 +279,10 @@
   [suite opts]
   (io/file (output-root suite opts) "agent-report.json"))
 
+(defn- agent-check-path
+  [suite opts]
+  (io/file (output-root suite opts) "agent-check.json"))
+
 (defn- report-path
   [suite opts]
   (io/file (output-root suite opts) "report.json"))
@@ -193,6 +295,12 @@
   [path value]
   (ensure-parent! path)
   (spit (io/file path) (json/write-json-str value {:indent-str "  "}))
+  path)
+
+(defn- write-text-file!
+  [path value]
+  (ensure-parent! path)
+  (spit (io/file path) (str value))
   path)
 
 (defn- write-edn-file!
@@ -262,11 +370,19 @@
     (when (seq (:changed-files truth))
       (mapv str (:changed-files truth)))))
 
+(defn- explicit-localization-files
+  [case]
+  (let [truth (:ground-truth case)]
+    (when (seq (:localization-files truth))
+      (mapv str (:localization-files truth)))))
+
 (defn- ground-truth
   [repo case]
   (let [files (or (explicit-ground-truth case)
-                  (changed-files (:root repo) (:base-sha case) (:fix-sha case)))]
+                  (changed-files (:root repo) (:base-sha case) (:fix-sha case)))
+        localization-files (or (explicit-localization-files case) files)]
     {:changedFiles files
+     :localizationFiles localization-files
      :changedSymbols (mapv str (get-in case [:ground-truth :changed-symbols] []))}))
 
 (defn- unsupported-ground-truth-files
@@ -287,6 +403,50 @@
                       :ext (:ext row)
                       :reason (name (:skip-reason row))}))))
          vec)))
+
+(defn- normalize-source-kind
+  [value]
+  (when-not (blankish? value)
+    (name (keyword value))))
+
+(defn- declared-source-kinds
+  [case]
+  (->> (or (get-in case [:coverage :source-kinds])
+           (:source-kinds case)
+           [])
+       (keep normalize-source-kind)
+       distinct
+       sort
+       vec))
+
+(defn- scoreable-files-by-kind
+  [root truth]
+  (let [unsupported (set (map :path (:unsupportedGroundTruthFiles truth)))
+        scoreable (->> (or (:localizationFiles truth) (:changedFiles truth))
+                       (remove unsupported)
+                       set)]
+    (->> (:files (fs/scan-file-coverage root))
+         (filter #(contains? scoreable (:path %)))
+         (keep (fn [{:keys [kind]}]
+                 (normalize-source-kind kind)))
+         frequencies
+         (map (fn [[kind files]]
+                {:kind kind
+                 :files files}))
+         (sort-by :kind)
+         vec)))
+
+(defn- ground-truth-coverage
+  [case root truth]
+  (let [declared (declared-source-kinds case)
+        by-kind (scoreable-files-by-kind root truth)
+        observed (set (map :kind by-kind))]
+    {:declaredSourceKinds declared
+     :scoreableSourceKinds (vec (sort observed))
+     :scoreableFilesByKind by-kind
+     :missingDeclaredSourceKinds (->> declared
+                                      (remove observed)
+                                      vec)}))
 
 (defn- issue-comments
   [issue]
@@ -321,7 +481,10 @@
 
 (defn- prepared-case
   [suite case repo worktree-root truth]
-  (let [input-text (issue-text case)]
+  (let [input-text (issue-text case)
+        unsupported (unsupported-ground-truth-files worktree-root
+                                                    (:changedFiles truth))
+        truth (assoc truth :unsupportedGroundTruthFiles unsupported)]
     {:schema prepared-case-schema
      :suite-id (:id suite)
      :case-id (:id case)
@@ -336,10 +499,8 @@
              :comments (issue-comments (:issue case))
              :queryText input-text}
      :inputHints (input-hints input-text truth)
-     :groundTruth (assoc truth
-                         :unsupportedGroundTruthFiles
-                         (unsupported-ground-truth-files worktree-root
-                                                         (:changedFiles truth)))}))
+     :coverage (ground-truth-coverage case worktree-root truth)
+     :groundTruth truth}))
 
 (defn prepare-case!
   "Prepare one benchmark case and write its prepared JSON artifact."
@@ -447,7 +608,7 @@
 (defn- scoreable-changed-files
   [ground-truth]
   (let [unsupported (unsupported-ground-truth-paths ground-truth)]
-    (->> (:changedFiles ground-truth)
+    (->> (or (:localizationFiles ground-truth) (:changedFiles ground-truth))
          (remove unsupported)
          vec)))
 
@@ -494,6 +655,8 @@
                                                          (:topFiles agraph))
       :noiseRatioAt20 (noise-ratio-at scoreable-files paths 20)
       :changedFiles (count changed-files)
+      :localizationFiles (count (or (:localizationFiles groundTruth)
+                                    changed-files))
       :scoreableChangedFiles (count scoreable-files)
       :unsupportedGroundTruthFiles (count (:unsupportedGroundTruthFiles groundTruth))})))
 
@@ -533,6 +696,7 @@
                :fixSha (:fixSha prepared)
                :input (:input prepared)
                :inputHints (:inputHints prepared)
+               :coverage (:coverage prepared)
                :groundTruth (:groundTruth prepared)
                :agraph {:retriever (name (keyword (or (:retriever opts) :lexical)))
                         :limit (long (or (:limit opts) default-limit))
@@ -546,7 +710,8 @@
               (assoc result-base
                      :groundTruthRanks
                      {:files (ground-truth-file-ranks
-                              (get-in result-base [:groundTruth :changedFiles])
+                              (scoreable-changed-files
+                               (get-in result-base [:groundTruth]))
                               (get-in result-base [:agraph :topFiles]))})
               result (assoc result-without-scores
                             :scores (score-result result-without-scores))]
@@ -565,9 +730,23 @@
   [value]
   (str "'" (str/replace (str value) "'" "'\"'\"'") "'"))
 
+(defn- agraph-command-root
+  []
+  (.getCanonicalPath (io/file (System/getProperty "user.dir"))))
+
+(defn- agent-clj-config-dir
+  [prepared]
+  (fs/canonical-path (io/file (:worktreeRoot prepared) ".cpcache" "clj-config")))
+
 (defn- env-command
-  [xtdb-path command & args]
-  (str "AGRAPH_XTDB_PATH="
+  [xtdb-path clj-config-dir command & args]
+  (str "mkdir -p "
+       (shell-quote clj-config-dir)
+       " && cd "
+       (shell-quote (agraph-command-root))
+       " && CLJ_CONFIG="
+       (shell-quote clj-config-dir)
+       " AGRAPH_XTDB_PATH="
        (shell-quote xtdb-path)
        " "
        (str/join " " (cons command (map shell-quote args)))))
@@ -591,28 +770,32 @@
 
 (defn- agent-command-hints
   [prepared project-path xtdb-path mode]
-  (cond-> {:shell ["Inspect the checkout with ordinary local commands such as git, rg, find, sed, and tests."
-                   "Do not read the fixing diff, PR, post-fix commits, or ground-truth artifacts."]}
-    (= "agraph" mode)
-    (assoc :agraph
-           {:projectConfig project-path
-            :xtdbPath xtdb-path
-            :setupCommand (env-command xtdb-path "bb" "sync" project-path)
-            :askCommand (env-command xtdb-path
-                                     "bb"
-                                     "ask"
-                                     (get-in prepared [:input :queryText])
-                                     "--project"
-                                     (:project-id prepared)
-                                     "--json")
-            :exploreCommand (env-command xtdb-path
-                                         "bb"
-                                         "explore"
-                                         "create"
-                                         (get-in prepared [:input :queryText])
-                                         "--project"
-                                         (:project-id prepared)
-                                         "--json")})))
+  (let [clj-config-dir (agent-clj-config-dir prepared)]
+    (cond-> {:shell ["Inspect the checkout with ordinary local commands such as git, rg, find, sed, and tests."
+                     "Do not read the fixing diff, PR, post-fix commits, or ground-truth artifacts."]}
+      (= "agraph" mode)
+      (assoc :agraph
+             {:projectConfig project-path
+              :xtdbPath xtdb-path
+              :cljConfigDir clj-config-dir
+              :setupCommand (env-command xtdb-path clj-config-dir "bb" "sync" project-path)
+              :askCommand (env-command xtdb-path
+                                       clj-config-dir
+                                       "bb"
+                                       "ask"
+                                       (get-in prepared [:input :queryText])
+                                       "--project"
+                                       (:project-id prepared)
+                                       "--json")
+              :exploreCommand (env-command xtdb-path
+                                           clj-config-dir
+                                           "bb"
+                                           "explore"
+                                           "create"
+                                           (get-in prepared [:input :queryText])
+                                           "--project"
+                                           (:project-id prepared)
+                                           "--json")}))))
 
 (defn- agent-result-contract
   []
@@ -623,20 +806,27 @@
    :suspectedFiles [{:path "repo-relative/path.ext"
                      :rank 1
                      :confidence 0.0
-                     :reason "short evidence-based reason"}]
+                     :reason "short evidence-based reason"
+                     :evidence []}]
    :suspectedSymbols []
    :commands []
+   :warnings []
    :summary "brief rationale"})
 
-(defn agent-packet!
-  "Prepare one case and write a provider-neutral agent localization packet."
-  [suite case opts]
-  (let [prepared (prepare-case! suite case opts)
-        mode (agent-mode opts)
+(defn- agent-packet-from-prepared!
+  [suite case prepared opts]
+  (let [mode (agent-mode opts)
         project-path (fs/canonical-path (agent-project-path suite case opts))
         xtdb-path (fs/canonical-path (xtdb-dir suite case opts))
         packet-path (fs/canonical-path (agent-packet-path suite case opts))
         project-config (agent-project prepared)
+        artifacts (cond-> {:projectConfig project-path
+                           :packetPath packet-path
+                           :xtdbPath xtdb-path}
+                    (:agraph-context-path opts)
+                    (assoc :agraphContextPath (:agraph-context-path opts))
+                    (:agraph-hints-path opts)
+                    (assoc :agraphHintsPath (:agraph-hints-path opts)))
         packet {:schema agent-packet-schema
                 :suite-id (:suite-id prepared)
                 :case-id (:case-id prepared)
@@ -656,9 +846,7 @@
                        :expectedResultSchema agent-result-schema
                        :resultContract (agent-result-contract)}
                 :tools (agent-command-hints prepared project-path xtdb-path mode)
-                :artifacts {:projectConfig project-path
-                            :packetPath packet-path
-                            :xtdbPath xtdb-path}
+                :artifacts artifacts
                 :fairness {:allowedInput ["issue title"
                                           "issue body"
                                           "pre-fix issue comments"
@@ -673,6 +861,11 @@
     (write-json-file! packet-path packet)
     packet))
 
+(defn agent-packet!
+  "Prepare one case and write a provider-neutral agent localization packet."
+  [suite case opts]
+  (agent-packet-from-prepared! suite case (prepare-case! suite case opts) opts))
+
 (defn agent-packets!
   "Write agent localization packets for selected benchmark cases."
   [suite opts]
@@ -680,6 +873,726 @@
    :suite-id (:id suite)
    :packets (mapv #(agent-packet! suite % opts)
                   (selected-cases suite (:case-id opts)))})
+
+(declare parse-double-safe score-agent-result)
+
+(defn- existing-file-path?
+  [root path]
+  (and (not (blankish? path))
+       (or (nil? root)
+           (.isFile (io/file root path)))))
+
+(defn- bounded-confidence
+  [value]
+  (if-let [score (parse-double-safe value)]
+    (max 0.0 (min 1.0 score))
+    0.0))
+
+(defn- line-label
+  [source]
+  (when-let [lines (seq (:lines source))]
+    (str " lines " (str/join "-" lines))))
+
+(defn- doc-prediction
+  [root idx doc]
+  (let [source (:source doc)
+        path (:path source)]
+    (when (existing-file-path? root path)
+      {:path path
+       :source-rank (inc idx)
+       :confidence (bounded-confidence (:score doc))
+       :evidence-kind :doc
+       :retrieved-source? (boolean (:retrievedSource doc))
+       :exact-path-source? (boolean (:exactPathSource doc))
+       :definition-kind (some-> (:definitionKind source) name)
+       :reason (str "AGraph context doc"
+                    (when-let [heading (:heading source)]
+                      (str " " (pr-str heading)))
+                    " from " path
+                    (line-label source)
+                    " with provenance "
+                    (or (:provenance doc) "unknown")
+                    ".")})))
+
+(defn- entity-prediction
+  [root idx entity]
+  (let [path (:path entity)]
+    (when (existing-file-path? root path)
+      {:path path
+       :source-rank (+ 1000 (inc idx))
+       :confidence (bounded-confidence (:score entity))
+       :evidence-kind :entity
+       :retrieved-source? false
+       :exact-path-source? false
+       :definition-kind (some-> (:kind entity) name)
+       :reason (str "AGraph graph entity "
+                    (pr-str (:label entity))
+                    " references "
+                    path
+                    ".")})))
+
+(defn- ranked-file-predictions
+  [rows]
+  (let [combine-rows (fn [path grouped-rows]
+                       (let [ordered (sort-by :source-rank grouped-rows)
+                             best-row (first ordered)
+                             support-count (count ordered)
+                             extra-count (dec support-count)
+                             confidence (bounded-confidence
+                                         (apply max
+                                                (map :confidence ordered)))
+                             metrics {:firstSourceRank (:source-rank best-row)
+                                      :supportCount support-count
+                                      :docCount (count (filter #(= :doc (:evidence-kind %))
+                                                               ordered))
+                                      :entityCount (count (filter #(= :entity (:evidence-kind %))
+                                                                  ordered))
+                                      :retrievedSourceCount (count (filter :retrieved-source?
+                                                                           ordered))
+                                      :exactPathSourceCount (count (filter :exact-path-source?
+                                                                           ordered))
+                                      :maxConfidence confidence
+                                      :definitionKinds (->> ordered
+                                                            (keep :definition-kind)
+                                                            distinct
+                                                            vec)}]
+                         (cond-> (assoc best-row
+                                        :path path
+                                        :confidence confidence
+                                        :metrics metrics)
+                           (pos? extra-count)
+                           (update :reason
+                                   str
+                                   " Additional AGraph evidence: "
+                                   extra-count
+                                   " more matching "
+                                   (if (= 1 extra-count) "row" "rows")
+                                   "."))))]
+    (->> rows
+         (group-by :path)
+         (map (fn [[path grouped-rows]]
+                (combine-rows path grouped-rows)))
+         (sort-by (juxt :source-rank :path))
+         (map-indexed (fn [idx row]
+                        (-> row
+                            (dissoc :source-rank
+                                    :evidence-kind
+                                    :retrieved-source?
+                                    :exact-path-source?
+                                    :definition-kind)
+                            (assoc :rank (inc idx)))))
+         vec)))
+
+(defn- context-symbols
+  [packet]
+  (->> (:docs packet)
+       (map-indexed
+        (fn [idx doc]
+          (let [source (:source doc)]
+            (when (and (:path source) (:heading source))
+              {:name (:heading source)
+               :path (:path source)
+               :rank (inc idx)
+               :kind (some-> (:definitionKind source) name)}))))
+       (keep identity)
+       (reduce (fn [best row]
+                 (let [k [(:path row) (:name row)]]
+                   (if (contains? best k)
+                     best
+                     (assoc best k row))))
+               {})
+       vals
+       (sort-by (juxt :rank :path :name))
+       vec))
+
+(defn context-packet->agent-result
+  "Convert one AGraph context packet into the benchmark agent-result contract.
+
+  This is a deterministic agent-help baseline: it ranks files from the same
+  docs/entities packet an agent would receive, without reading hidden ground
+  truth or fix artifacts."
+  ([packet]
+   (context-packet->agent-result packet {}))
+  ([packet {:keys [agent-id mode case-id root limit]}]
+   (let [doc-rows (keep-indexed #(doc-prediction root %1 %2) (:docs packet))
+         entity-rows (keep-indexed #(entity-prediction root %1 %2) (:entities packet))
+         candidate-files (ranked-file-predictions (concat doc-rows entity-rows))
+         suspected-files (cond->> candidate-files
+                           limit (take (long limit))
+                           true vec)]
+     {:schema agent-result-schema
+      :caseId case-id
+      :agentId (or agent-id "agraph-baseline")
+      :mode (or mode "agraph")
+      :suspectedFiles suspected-files
+      :suspectedSymbols (context-symbols packet)
+      :commands (:drilldowns packet)
+      :selection {:candidateFiles (count candidate-files)
+                  :limit limit}
+      :summary (str "Deterministic AGraph baseline ranked "
+                    (count suspected-files)
+                    " suspected files from "
+                    (count candidate-files)
+                    " context packet file candidates.")})))
+
+(defn- agent-baseline-context-options
+  [prepared opts]
+  {:project-id (:project-id prepared)
+   :repo-id (:repo-id prepared)
+   :retriever (keyword (or (:retriever opts) :lexical))
+   :budget (long (or (:budget opts) default-agent-baseline-budget))
+   :doc-limit (long (or (:doc-limit opts) default-agent-baseline-doc-limit))
+   :snippet-chars (long (or (:snippet-chars opts) context/default-snippet-chars))})
+
+(defn- agent-baseline-suspect-limit
+  [opts]
+  (long (or (:limit opts) default-agent-baseline-suspect-limit)))
+
+(defn agent-baseline!
+  "Generate, write, and score one deterministic AGraph agent-result artifact."
+  [suite case opts]
+  (let [prepared (prepare-case! suite case opts)
+        bench-project (agent-project prepared)
+        project-path (fs/canonical-path (agent-project-path suite case opts))
+        result-path (agent-baseline-result-path suite case opts)
+        context-path (agent-baseline-context-path suite case opts)
+        agent-id (agent-baseline-id opts)]
+    (write-edn-file! project-path bench-project)
+    (store/with-node (xtdb-dir suite case opts)
+      (fn [xtdb]
+        (let [index-summary (project/index-project! xtdb
+                                                    bench-project
+                                                    {:index-profile :query})
+              system-summary (project/infer-project! xtdb bench-project)
+              packet (context/context-packet xtdb
+                                             (get-in prepared [:input :queryText])
+                                             (agent-baseline-context-options
+                                              prepared
+                                              opts))
+              agent-result (context-packet->agent-result
+                            packet
+                            {:agent-id agent-id
+                             :mode "agraph"
+                             :case-id (:case-id prepared)
+                             :root (:worktreeRoot prepared)
+                             :limit (agent-baseline-suspect-limit opts)})
+              score-path (agent-score-path suite case opts result-path)
+              scored (assoc (score-agent-result prepared agent-result)
+                            :agentResultPath (fs/canonical-path result-path)
+                            :contextPacketPath (fs/canonical-path context-path))
+              baseline {:schema agent-baseline-schema
+                        :suite-id (:suite-id prepared)
+                        :case-id (:case-id prepared)
+                        :repo-id (:repo-id prepared)
+                        :project-id (:project-id prepared)
+                        :agentId agent-id
+                        :mode "agraph"
+                        :retriever (name (keyword (or (:retriever opts)
+                                                      :lexical)))
+                        :suspectLimit (agent-baseline-suspect-limit opts)
+                        :artifacts {:projectConfig project-path
+                                    :agentResultPath (fs/canonical-path result-path)
+                                    :contextPacketPath (fs/canonical-path context-path)
+                                    :agentScorePath (fs/canonical-path score-path)}
+                        :agraph {:indexSummary index-summary
+                                 :systemSummary system-summary}
+                        :scores (:scores scored)}]
+          (write-json-file! context-path packet)
+          (write-json-file! result-path agent-result)
+          (write-json-file! score-path scored)
+          baseline)))))
+
+(defn agent-baselines!
+  "Generate deterministic AGraph agent-result artifacts for selected cases."
+  [suite opts]
+  {:schema agent-baselines-schema
+   :suite-id (:id suite)
+   :baselines (mapv #(agent-baseline! suite % opts)
+                    (selected-cases suite (:case-id opts)))})
+
+(defn- source-line-range
+  [source]
+  (when-let [lines (seq (:lines source))]
+    {:start (first lines)
+     :end (last lines)}))
+
+(defn- hint-doc
+  [idx doc]
+  (let [source (:source doc)]
+    (cond-> {:rank (inc idx)
+             :path (:path source)
+             :heading (:heading source)
+             :kind (:kind source)
+             :definitionKind (:definitionKind source)
+             :score (:score doc)
+             :provenance (:provenance doc)
+             :snippet (:snippet doc)}
+      (:repo source) (assoc :repo (:repo source))
+      (source-line-range source) (assoc :lines (source-line-range source)))))
+
+(defn- hint-system
+  [idx entity]
+  (select-keys (assoc entity :rank (inc idx))
+               [:rank :id :repo :path :label :kind :score :why :metrics :pathPrefix]))
+
+(defn context-packet->agent-hints
+  "Return a compact agent-facing summary of one AGraph context packet.
+
+  Hints are mechanically derived from retrieval docs and graph entities. They do
+  not include hidden benchmark ground truth or accepted fix metadata."
+  [prepared packet opts]
+  (let [limit (long (or (:limit opts) default-agent-baseline-suspect-limit))
+        agent-result (context-packet->agent-result
+                      packet
+                      {:agent-id (or (:agent-id opts) "agraph-hints")
+                       :mode "agraph"
+                       :case-id (:case-id prepared)
+                       :root (:worktreeRoot prepared)
+                       :limit limit})]
+    {:schema agent-hints-schema
+     :suite-id (:suite-id prepared)
+     :case-id (:case-id prepared)
+     :repo-id (:repo-id prepared)
+     :project-id (:project-id prepared)
+     :query (:query packet)
+     :topFiles (:suspectedFiles agent-result)
+     :topSymbols (vec (take 10 (:suspectedSymbols agent-result)))
+     :topDocs (mapv hint-doc (range) (take 10 (:docs packet)))
+     :candidateSystems (mapv hint-system (range) (take 10 (:entities packet)))
+     :commands (:drilldowns packet)
+     :answerability (:answerability packet)
+     :warnings (:warnings packet)}))
+
+(defn- write-agent-agraph-artifacts!
+  [suite case prepared opts]
+  (when (= "agraph" (agent-mode opts))
+    (let [context-path (agent-run-context-path suite case opts)
+          hints-path (agent-run-hints-path suite case opts)]
+      (store/with-node (xtdb-dir suite case opts)
+        (fn [xtdb]
+          (let [packet (context/context-packet xtdb
+                                               (get-in prepared [:input :queryText])
+                                               (agent-baseline-context-options
+                                                prepared
+                                                opts))
+                hints (context-packet->agent-hints prepared packet opts)]
+            (write-json-file! context-path packet)
+            (write-json-file! hints-path hints)
+            {:context-path (fs/canonical-path context-path)
+             :hints-path (fs/canonical-path hints-path)}))))))
+
+(defn- agent-run-command
+  [opts]
+  (or (some-> (:command opts) not-empty)
+      (throw (ex-info "Missing agent command." {:option "--command"}))))
+
+(defn- agent-run-timeout-ms
+  [opts]
+  (long (or (:timeout-ms opts) default-agent-run-timeout-ms)))
+
+(defn- agent-prompt-profile
+  [opts]
+  (let [profile (name (keyword (or (:prompt-profile opts) :standard)))]
+    (when-not ((set supported-agent-prompt-profiles) profile)
+      (throw (ex-info "Unknown benchmark agent prompt profile."
+                      {:prompt-profile profile
+                       :supported supported-agent-prompt-profiles})))
+    profile))
+
+(defn- ensure-agent-run-id!
+  [opts]
+  (when (blankish? (:agent-id opts))
+    (throw (ex-info "Missing benchmark agent id." {:option "--agent"}))))
+
+(defn- process-output-future
+  [stream]
+  (future (slurp stream)))
+
+(defn- wait-for-process
+  [process timeout-ms]
+  (let [finished? (.waitFor process timeout-ms TimeUnit/MILLISECONDS)]
+    (if finished?
+      {:exit (.exitValue process)
+       :timedOut false}
+      (do
+        (.destroyForcibly process)
+        {:exit -1
+         :timedOut true}))))
+
+(defn- run-process!
+  [command cwd env timeout-ms]
+  (let [started-at (System/currentTimeMillis)
+        process-builder (ProcessBuilder. ["sh" "-lc" command])
+        process-env (.environment process-builder)]
+    (.directory process-builder (io/file cwd))
+    (doseq [[k v] env]
+      (.put process-env k (str v)))
+    (let [process (.start process-builder)
+          out-future (process-output-future (.getInputStream process))
+          err-future (process-output-future (.getErrorStream process))
+          result (wait-for-process process timeout-ms)]
+      (assoc result
+             :durationMs (- (System/currentTimeMillis) started-at)
+             :stdout @out-future
+             :stderr @err-future))))
+
+(defn- write-agent-run-logs!
+  [suite case opts process-result]
+  (let [stdout-path (agent-run-log-path suite case opts "stdout")
+        stderr-path (agent-run-log-path suite case opts "stderr")]
+    (write-text-file! stdout-path (:stdout process-result))
+    (write-text-file! stderr-path (:stderr process-result))
+    {:stdoutPath (fs/canonical-path stdout-path)
+     :stderrPath (fs/canonical-path stderr-path)}))
+
+(defn- json-example
+  [value]
+  (json/write-json-str value {:indent-str "  "}))
+
+(defn- agent-result-json-schema
+  []
+  {"$schema" "https://json-schema.org/draft/2020-12/schema"
+   "title" "AGraph benchmark agent result"
+   "type" "object"
+   "additionalProperties" false
+   "required" ["schema"
+               "caseId"
+               "agentId"
+               "mode"
+               "suspectedFiles"
+               "suspectedSymbols"
+               "commands"
+               "warnings"
+               "summary"]
+   "properties" {"schema" {"type" "string"
+                           "enum" [agent-result-schema]}
+                 "caseId" {"type" "string"}
+                 "agentId" {"type" "string"}
+                 "mode" {"type" "string"
+                         "enum" ["agraph" "shell-only"]}
+                 "suspectedFiles" {"type" "array"
+                                   "items" {"type" "object"
+                                            "additionalProperties" false
+                                            "required" ["path"
+                                                        "rank"
+                                                        "confidence"
+                                                        "reason"
+                                                        "evidence"]
+                                            "properties" {"path" {"type" "string"}
+                                                          "rank" {"type" "integer"
+                                                                  "minimum" 1}
+                                                          "confidence" {"type" "number"
+                                                                        "minimum" 0
+                                                                        "maximum" 1}
+                                                          "reason" {"type" "string"}
+                                                          "evidence" {"type" "array"
+                                                                      "items" {"type" "string"}}}}}
+                 "suspectedSymbols" {"type" "array"
+                                     "items" {"type" "object"
+                                              "additionalProperties" false
+                                              "required" ["name"
+                                                          "path"
+                                                          "kind"
+                                                          "rank"
+                                                          "confidence"
+                                                          "reason"
+                                                          "evidence"]
+                                              "properties" {"name" {"type" "string"}
+                                                            "path" {"type" "string"}
+                                                            "kind" {"type" "string"}
+                                                            "rank" {"type" "integer"
+                                                                    "minimum" 1}
+                                                            "confidence" {"type" "number"
+                                                                          "minimum" 0
+                                                                          "maximum" 1}
+                                                            "reason" {"type" "string"}
+                                                            "evidence" {"type" "array"
+                                                                        "items" {"type" "string"}}}}}
+                 "commands" {"type" "array"
+                             "items" {"type" "string"}}
+                 "warnings" {"type" "array"
+                             "items" {"type" "string"}}
+                 "summary" {"type" "string"}}})
+
+(defn- write-agent-output-schema!
+  [suite case opts]
+  (let [schema-path (agent-run-output-schema-path suite case opts)]
+    (write-json-file! schema-path (agent-result-json-schema))
+    (fs/canonical-path schema-path)))
+
+(defn- agent-prompt-profile-lines
+  [profile]
+  (case profile
+    "fast" ["## Fast Localization Profile"
+            "- Localization only. Do not patch files."
+            "- Do not run full test/build suites."
+            "- Use at most 8 local shell commands."
+            "- Inspect at most 12 files or snippets."
+            "- Prefer `rg`, focused `sed`, and packet-provided AGraph ask/explore commands."
+            "- Return the best 1-5 suspected files as soon as evidence is sufficient."
+            "- If structured output is active, make the final response the result JSON."
+            "- Otherwise write JSON to `AGRAPH_BENCH_RESULT`; do not include prose outside JSON."
+            ""]
+    []))
+
+(defn- agent-run-prompt
+  [packet result-path output-schema-path opts]
+  (let [profile (agent-prompt-profile opts)]
+    (str/join
+     "\n"
+     (concat
+      ["# AGraph Issue Localization Benchmark"
+       ""
+       "You are evaluating a coding-agent workflow against one real issue."
+       "Use only the base checkout, the issue text in the packet, and AGraph output generated from that base checkout."
+       "Do not inspect the fixing diff, PR body, post-fix commits, or benchmark ground-truth artifacts."
+       ""
+       "## Files"
+       (str "- Packet JSON: " (get-in packet [:artifacts :packetPath]))
+       (str "- Result JSON to write: " (fs/canonical-path result-path))
+       (str "- Output JSON Schema: " output-schema-path)
+       (str "- Worktree: " (:worktreeRoot packet))
+       (str "- Project config: " (get-in packet [:artifacts :projectConfig]))
+       (str "- XTDB path: " (get-in packet [:artifacts :xtdbPath]))
+       (when-let [hints-path (get-in packet [:artifacts :agraphHintsPath])]
+         (str "- AGraph hints JSON: " hints-path))
+       (when-let [context-path (get-in packet [:artifacts :agraphContextPath])]
+         (str "- AGraph context JSON: " context-path))
+       ""
+       "## Environment"
+       "- `AGRAPH_BENCH_PACKET` points to the packet JSON."
+       "- `AGRAPH_BENCH_AGRAPH_HINTS` points to compact AGraph hints when available."
+       "- `AGRAPH_BENCH_AGRAPH_CONTEXT` points to precomputed AGraph context when available."
+       "- `AGRAPH_BENCH_OUTPUT_SCHEMA` points to the JSON Schema for the result."
+       "- `AGRAPH_BENCH_PROMPT_PROFILE` identifies the prompt profile for this run."
+       "- `AGRAPH_BENCH_RESULT` is the only result file scored by the benchmark."
+       "- `AGRAPH_BENCH_WORKTREE` is the base checkout."
+       "- `AGRAPH_BENCH_PROJECT` is the generated AGraph project config."
+       "- `AGRAPH_BENCH_XTDB_PATH` and `AGRAPH_XTDB_PATH` point to the graph store."
+       ""]
+      (agent-prompt-profile-lines profile)
+      ["## Task"
+       (get-in packet [:task :objective])
+       ""
+       "Read the packet, inspect the checkout, and write the ranked localization result JSON."
+       "Return files before proposing or applying a patch."
+       ""
+       "## Result Contract"
+       (str "Write JSON with schema `" agent-result-schema "` to `AGRAPH_BENCH_RESULT`.")
+       "When your agent runner supports structured output, use `AGRAPH_BENCH_OUTPUT_SCHEMA`."
+       "For structured-output runners that capture the final response, return only the JSON result as the final response and do not also shell-write the result file."
+       "For plain shell runners, write the JSON result directly to `AGRAPH_BENCH_RESULT`."
+       "Use repo-relative file paths from the base checkout."
+       ""
+       "```json"
+       (json-example (agent-result-contract))
+       "```"
+       ""
+       "## AGraph Mode"
+       (if (= "agraph" (:mode packet))
+         (str "AGraph is available and has already been prepared for this run. "
+              "Read `AGRAPH_BENCH_AGRAPH_HINTS` first when it is set; use "
+              "`AGRAPH_BENCH_AGRAPH_CONTEXT` for supporting snippets. Use live "
+              "ask/explore commands only if the context artifact is missing or "
+              "insufficient; run setup only if graph commands report missing data.")
+         "AGraph is not part of this run. Use ordinary local shell inspection only.")
+       ""
+       "## Run Metadata"
+       (str "- Suite: " (:suite-id packet))
+       (str "- Case: " (:case-id packet))
+       (str "- Repo: " (:repo-id packet))
+       (str "- Project: " (:project-id packet))
+       (str "- Agent: " (:agent-id opts))
+       (str "- Mode: " (:mode packet))
+       (str "- Prompt profile: " profile)
+       ""]))))
+
+(defn- write-agent-run-prompt!
+  [suite case packet result-path output-schema-path opts]
+  (let [prompt-path (agent-run-prompt-path suite case opts)]
+    (write-text-file! prompt-path
+                      (agent-run-prompt packet
+                                        result-path
+                                        output-schema-path
+                                        opts))
+    (fs/canonical-path prompt-path)))
+
+(defn- normalize-agent-run-result
+  [prepared agent-result opts]
+  (assoc agent-result
+         :schema agent-result-schema
+         :caseId (:case-id prepared)
+         :agentId (:agent-id opts)
+         :mode (agent-mode opts)))
+
+(defn- failure-agent-result
+  [prepared opts warning]
+  {:schema agent-result-schema
+   :caseId (:case-id prepared)
+   :agentId (:agent-id opts)
+   :mode (agent-mode opts)
+   :suspectedFiles []
+   :suspectedSymbols []
+   :commands [(agent-run-command opts)]
+   :warnings [warning]
+   :summary warning})
+
+(defn- read-agent-run-result
+  [prepared result-path opts process-result]
+  (cond
+    (not (zero? (:exit process-result)))
+    {:agent-result (failure-agent-result
+                    prepared
+                    opts
+                    (if (:timedOut process-result)
+                      (str "Agent command timed out after "
+                           (agent-run-timeout-ms opts)
+                           " ms.")
+                      (str "Agent command exited with status " (:exit process-result) ".")))
+     :artifact-ok? false}
+
+    (not (.isFile (io/file result-path)))
+    {:agent-result (failure-agent-result
+                    prepared
+                    opts
+                    "Agent command completed but did not write the result JSON artifact.")
+     :artifact-ok? false}
+
+    :else
+    (try
+      {:agent-result (normalize-agent-run-result prepared (read-json-file result-path) opts)
+       :artifact-ok? true}
+      (catch Exception e
+        {:agent-result (failure-agent-result
+                        prepared
+                        opts
+                        (str "Agent command wrote unreadable result JSON: " (.getMessage e)))
+         :artifact-ok? false}))))
+
+(defn- agent-run-env
+  [packet result-path prompt-path output-schema-path opts]
+  (cond-> {"AGRAPH_BENCH_SUITE_ID" (:suite-id packet)
+           "AGRAPH_BENCH_CASE_ID" (:case-id packet)
+           "AGRAPH_BENCH_REPO_ID" (:repo-id packet)
+           "AGRAPH_BENCH_PROJECT_ID" (:project-id packet)
+           "AGRAPH_BENCH_MODE" (:mode packet)
+           "AGRAPH_BENCH_AGENT_ID" (:agent-id opts)
+           "AGRAPH_BENCH_PACKET" (get-in packet [:artifacts :packetPath])
+           "AGRAPH_BENCH_PROMPT" prompt-path
+           "AGRAPH_BENCH_PROMPT_PROFILE" (agent-prompt-profile opts)
+           "AGRAPH_BENCH_OUTPUT_SCHEMA" output-schema-path
+           "AGRAPH_BENCH_RESULT" (fs/canonical-path result-path)
+           "AGRAPH_BENCH_WORKTREE" (:worktreeRoot packet)
+           "AGRAPH_BENCH_PROJECT" (get-in packet [:artifacts :projectConfig])
+           "AGRAPH_BENCH_XTDB_PATH" (get-in packet [:artifacts :xtdbPath])
+           "AGRAPH_XTDB_PATH" (get-in packet [:artifacts :xtdbPath])}
+    (get-in packet [:artifacts :agraphContextPath])
+    (assoc "AGRAPH_BENCH_AGRAPH_CONTEXT"
+           (get-in packet [:artifacts :agraphContextPath]))
+    (get-in packet [:artifacts :agraphHintsPath])
+    (assoc "AGRAPH_BENCH_AGRAPH_HINTS"
+           (get-in packet [:artifacts :agraphHintsPath]))))
+
+(defn- prepare-agent-graph!
+  [suite case prepared opts]
+  (when (= "agraph" (agent-mode opts))
+    (store/with-node (xtdb-dir suite case opts)
+      (fn [xtdb]
+        (let [bench-project (agent-project prepared)]
+          {:indexSummary (project/index-project! xtdb
+                                                 bench-project
+                                                 {:index-profile :query})
+           :systemSummary (project/infer-project! xtdb bench-project)})))))
+
+(defn agent-run!
+  "Run one external agent command against a benchmark packet, then score it."
+  [suite case opts]
+  (ensure-agent-run-id! opts)
+  (let [prepared (prepare-case! suite case opts)
+        agraph-summary (prepare-agent-graph! suite case prepared opts)
+        agraph-artifacts (write-agent-agraph-artifacts! suite case prepared opts)
+        packet (agent-packet-from-prepared! suite
+                                            case
+                                            prepared
+                                            (cond-> opts
+                                              (:context-path agraph-artifacts)
+                                              (assoc :agraph-context-path
+                                                     (:context-path agraph-artifacts))
+                                              (:hints-path agraph-artifacts)
+                                              (assoc :agraph-hints-path
+                                                     (:hints-path agraph-artifacts))))
+        result-path (agent-run-result-path suite case opts)
+        run-path (agent-run-path suite case opts)
+        score-path (agent-score-path suite case opts result-path)
+        output-schema-path (write-agent-output-schema! suite case opts)
+        prompt-path (write-agent-run-prompt! suite
+                                             case
+                                             packet
+                                             result-path
+                                             output-schema-path
+                                             opts)
+        command (agent-run-command opts)
+        timeout-ms (agent-run-timeout-ms opts)
+        _ (ensure-parent! result-path)
+        process-result (run-process! command
+                                     (:worktreeRoot prepared)
+                                     (agent-run-env packet
+                                                    result-path
+                                                    prompt-path
+                                                    output-schema-path
+                                                    opts)
+                                     timeout-ms)
+        logs (write-agent-run-logs! suite case opts process-result)
+        read-result (read-agent-run-result prepared result-path opts process-result)
+        agent-result (:agent-result read-result)
+        _ (write-json-file! result-path agent-result)
+        scored (assoc (score-agent-result prepared agent-result)
+                      :agentResultPath (fs/canonical-path result-path))
+        status (if (:artifact-ok? read-result)
+                 "passed"
+                 "failed")
+        run {:schema agent-run-schema
+             :suite-id (:suite-id prepared)
+             :case-id (:case-id prepared)
+             :repo-id (:repo-id prepared)
+             :project-id (:project-id prepared)
+             :agentId (:agent-id opts)
+             :mode (agent-mode opts)
+             :promptProfile (agent-prompt-profile opts)
+             :status status
+             :command command
+             :timeoutMs timeout-ms
+             :process (select-keys process-result [:exit :timedOut :durationMs])
+             :artifacts (merge {:packetPath (get-in packet [:artifacts :packetPath])
+                                :promptPath prompt-path
+                                :outputSchemaPath output-schema-path
+                                :agraphHintsPath (get-in packet
+                                                         [:artifacts :agraphHintsPath])
+                                :agraphContextPath (get-in packet
+                                                           [:artifacts :agraphContextPath])
+                                :projectConfig (get-in packet [:artifacts :projectConfig])
+                                :xtdbPath (get-in packet [:artifacts :xtdbPath])
+                                :agentResultPath (fs/canonical-path result-path)
+                                :agentScorePath (fs/canonical-path score-path)
+                                :agentRunPath (fs/canonical-path run-path)}
+                               logs)
+             :agraph agraph-summary
+             :scores (:scores scored)
+             :warnings (get-in scored [:agent :warnings])}]
+    (write-json-file! score-path scored)
+    (write-json-file! run-path run)
+    run))
+
+(defn agent-runs!
+  "Run an external agent command for selected benchmark cases."
+  [suite opts]
+  (let [runs (mapv #(agent-run! suite % opts)
+                   (selected-cases suite (:case-id opts)))]
+    {:schema agent-runs-schema
+     :suite-id (:id suite)
+     :runs runs
+     :completed (count runs)
+     :failed (count (filter #(= "failed" (:status %)) runs))}))
 
 (defn- parse-long-safe
   [value]
@@ -748,7 +1661,8 @@
                          :rank (long (or rank (inc idx)))}
                   (map? item) (assoc :confidence (parse-double-safe (:confidence item))
                                      :reason (:reason item)
-                                     :evidence (:evidence item)))))))
+                                     :evidence (:evidence item)
+                                     :metrics (:metrics item)))))))
          (keep identity)
          (reduce (fn [best row]
                    (let [existing (get best (:path row))]
@@ -775,7 +1689,7 @@
   (let [top-files (agent-file-predictions prepared agent-result)
         result-shape {:groundTruth (:groundTruth prepared)
                       :agraph {:topFiles top-files}}
-        warnings (cond-> []
+        warnings (cond-> (vec (or (:warnings agent-result) []))
                    (empty? top-files)
                    (conj "agent result did not contain suspected files")
 
@@ -784,7 +1698,8 @@
         result-with-ranks (assoc result-shape
                                  :groundTruthRanks
                                  {:files (ground-truth-file-ranks
-                                          (get-in result-shape [:groundTruth :changedFiles])
+                                          (scoreable-changed-files
+                                           (get-in result-shape [:groundTruth]))
                                           top-files)})]
     {:schema agent-score-schema
      :suite-id (:suite-id prepared)
@@ -795,6 +1710,7 @@
      :fixSha (:fixSha prepared)
      :input (:input prepared)
      :inputHints (:inputHints prepared)
+     :coverage (:coverage prepared)
      :groundTruth (:groundTruth prepared)
      :agent {:schema (:schema agent-result)
              :agentId (:agentId agent-result)
@@ -843,6 +1759,8 @@
        (map read-json-file)
        (filter #(or (blankish? (:mode opts))
                     (= (:mode opts) (get-in % [:agent :mode]))))
+       (filter #(or (blankish? (:agent-id opts))
+                    (= (:agent-id opts) (get-in % [:agent :agentId]))))
        vec))
 
 (defn- case-result-file
@@ -922,6 +1840,51 @@
        (sort-by :key)
        vec))
 
+(defn- coverage-cases
+  [results]
+  (->> results
+       (group-by :case-id)
+       vals
+       (keep first)))
+
+(defn- aggregate-coverage
+  [results]
+  (let [cases (coverage-cases results)
+        source-rows (mapcat #(get-in % [:coverage :scoreableFilesByKind]) cases)
+        declared (->> cases
+                      (mapcat #(get-in % [:coverage :declaredSourceKinds]))
+                      distinct
+                      sort
+                      vec)
+        missing (->> cases
+                     (mapcat (fn [case]
+                               (map (fn [kind]
+                                      {:case-id (:case-id case)
+                                       :kind kind})
+                                    (get-in case
+                                            [:coverage :missingDeclaredSourceKinds]))))
+                     (sort-by (juxt :kind :case-id))
+                     vec)
+        case-kinds (->> cases
+                        (mapcat (fn [case]
+                                  (map (fn [kind]
+                                         [kind (:case-id case)])
+                                       (get-in case [:coverage :scoreableSourceKinds]))))
+                        (group-by first))
+        files-by-kind (->> source-rows
+                           (group-by :kind)
+                           (map (fn [[kind rows]]
+                                  {:kind kind
+                                   :cases (count (set (map second
+                                                           (get case-kinds kind))))
+                                   :scoreableFiles (reduce + (map :files rows))}))
+                           (sort-by :kind)
+                           vec)]
+    {:declaredSourceKinds declared
+     :scoreableSourceKinds (vec (sort (map :kind files-by-kind)))
+     :scoreableFilesByKind files-by-kind
+     :missingDeclaredSourceKinds missing}))
+
 (defn report-agent-suite
   "Aggregate existing agent score artifacts."
   [suite opts]
@@ -939,6 +1902,7 @@
                 :missing missing
                 :scores (aggregate-agent-scores results)
                 :inputHints (input-hint-summary results)
+                :coverage (aggregate-coverage results)
                 :byMode (group-agent-scores results [:agent :mode])
                 :byAgent (group-agent-scores results [:agent :agentId])
                 :results (mapv #(select-keys % [:case-id
@@ -946,12 +1910,248 @@
                                                 :baseSha
                                                 :fixSha
                                                 :inputHints
+                                                :coverage
                                                 :agentResultPath
                                                 :agent
                                                 :scores])
                                results)}]
     (write-json-file! (agent-report-path suite opts) report)
     report))
+
+(defn- threshold
+  [opts opt-key artifact-key]
+  (when-some [value (get opts opt-key)]
+    [artifact-key (double value)]))
+
+(defn- agent-check-thresholds
+  [opts]
+  (into {:requireComplete (not (:allow-missing? opts))
+         :allowDuplicateRuns (boolean (:allow-duplicate-runs? opts))}
+        (keep (fn [[opt-key artifact-key]]
+                (threshold opts opt-key artifact-key)))
+        [[:min-cases :minCases]
+         [:min-runs :minRuns]
+         [:min-file-recall-at-5 :minFileRecallAt5]
+         [:min-file-recall-at-10 :minFileRecallAt10]
+         [:min-file-recall-at-20 :minFileRecallAt20]
+         [:min-mrr :minMeanReciprocalRankFile]
+         [:max-noise-at-20 :maxNoiseRatioAt20]
+         [:min-case-file-recall-at-5 :minCaseFileRecallAt5]
+         [:min-case-file-recall-at-10 :minCaseFileRecallAt10]
+         [:min-case-file-recall-at-20 :minCaseFileRecallAt20]
+         [:min-case-mrr :minCaseMeanReciprocalRankFile]
+         [:max-case-noise-at-20 :maxCaseNoiseRatioAt20]
+         [:max-input-hinted-cases :maxInputHintedCases]
+         [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]]))
+
+(defn- metric-failure
+  [metric operator expected actual]
+  {:metric metric
+   :operator operator
+   :expected expected
+   :actual actual})
+
+(defn- min-failure
+  [report threshold-key metric-key metric-label]
+  (when-some [expected (get-in report [:thresholds threshold-key])]
+    (let [actual (double (get-in report [:report :scores metric-key] 0.0))]
+      (when (< actual expected)
+        (metric-failure metric-label ">=" expected actual)))))
+
+(defn- max-failure
+  [report threshold-key metric-path metric-label]
+  (when-some [expected (get-in report [:thresholds threshold-key])]
+    (let [actual (double (get-in report (into [:report] metric-path) 0.0))]
+      (when (> actual expected)
+        (metric-failure metric-label "<=" expected actual)))))
+
+(defn- min-count-failure
+  [report threshold-key report-key metric-label]
+  (when-some [expected (get-in report [:thresholds threshold-key])]
+    (let [actual (double (get-in report [:report report-key] 0))]
+      (when (< actual expected)
+        (metric-failure metric-label ">=" expected actual)))))
+
+(defn- completeness-failures
+  [report]
+  (vec
+   (concat
+    (keep (fn [[threshold-key report-key metric-label]]
+            (min-count-failure report threshold-key report-key metric-label))
+          [[:minCases :cases "cases"]
+           [:minRuns :runs "runs"]])
+    (cond-> []
+      (and (nil? (get-in report [:thresholds :minRuns]))
+           (zero? (long (get-in report [:report :runs] 0))))
+      (conj {:metric "runs"
+             :operator ">"
+             :expected 0
+             :actual 0
+             :message "No agent score artifacts matched the selected suite, case, and mode."})
+
+      (and (get-in report [:thresholds :requireComplete])
+           (seq (get-in report [:report :missing])))
+      (conj {:metric "completed"
+             :operator "="
+             :expected (get-in report [:report :cases])
+             :actual (get-in report [:report :completed])
+             :missing (get-in report [:report :missing])
+             :message "Some selected cases do not have matching agent score artifacts."})))))
+
+(defn- run-identity
+  [result]
+  {:case-id (:case-id result)
+   :agentId (or (get-in result [:agent :agentId]) "unknown")
+   :mode (or (get-in result [:agent :mode]) "unknown")})
+
+(defn- duplicate-run-failures
+  [check]
+  (when-not (get-in check [:thresholds :allowDuplicateRuns])
+    (->> (get-in check [:report :results])
+         (group-by run-identity)
+         (keep (fn [[run-key rows]]
+                 (when (> (count rows) 1)
+                   (merge (metric-failure "duplicateRuns" "=" 1 (count rows))
+                          run-key
+                          {:agentResultPaths (mapv :agentResultPath rows)
+                           :message "Multiple agent score artifacts matched one case, agent, and mode."}))))
+         vec)))
+
+(defn- case-metric-failure
+  [result metric operator expected actual]
+  (assoc (metric-failure metric operator expected actual)
+         :case-id (:case-id result)
+         :agentId (get-in result [:agent :agentId])
+         :mode (get-in result [:agent :mode])))
+
+(defn- case-min-failure
+  [check result threshold-key metric-key metric-label]
+  (when-some [expected (get-in check [:thresholds threshold-key])]
+    (let [actual (double (get-in result [:scores metric-key] 0.0))]
+      (when (< actual expected)
+        (case-metric-failure result metric-label ">=" expected actual)))))
+
+(defn- case-max-failure
+  [check result threshold-key metric-key metric-label]
+  (when-some [expected (get-in check [:thresholds threshold-key])]
+    (let [actual (double (get-in result [:scores metric-key] 0.0))]
+      (when (> actual expected)
+        (case-metric-failure result metric-label "<=" expected actual)))))
+
+(defn- case-threshold-failures
+  [check]
+  (let [results (get-in check [:report :results])]
+    (vec
+     (mapcat
+      (fn [result]
+        (concat
+         (keep (fn [[threshold-key metric-key metric-label]]
+                 (case-min-failure check result threshold-key metric-key metric-label))
+               [[:minCaseFileRecallAt5 :fileRecallAt5 "case.fileRecallAt5"]
+                [:minCaseFileRecallAt10 :fileRecallAt10 "case.fileRecallAt10"]
+                [:minCaseFileRecallAt20 :fileRecallAt20 "case.fileRecallAt20"]
+                [:minCaseMeanReciprocalRankFile
+                 :meanReciprocalRankFile
+                 "case.meanReciprocalRankFile"]])
+         (keep (fn [[threshold-key metric-key metric-label]]
+                 (case-max-failure check result threshold-key metric-key metric-label))
+               [[:maxCaseNoiseRatioAt20 :noiseRatioAt20 "case.noiseRatioAt20"]])))
+      results))))
+
+(def ^:private case-diagnostic-score-keys
+  [:fileRecallAt5
+   :fileRecallAt10
+   :fileRecallAt20
+   :meanReciprocalRankFile
+   :noiseRatioAt20
+   :changedFiles
+   :scoreableChangedFiles
+   :unsupportedGroundTruthFiles])
+
+(defn- failure-matches-result?
+  [failure result]
+  (and (= (:case-id failure) (:case-id result))
+       (or (nil? (:agentId failure))
+           (= (:agentId failure) (get-in result [:agent :agentId])))
+       (or (nil? (:mode failure))
+           (= (:mode failure) (get-in result [:agent :mode])))))
+
+(defn- result-case-diagnostic
+  [failures result]
+  (let [result-failures (filterv #(failure-matches-result? % result) failures)]
+    {:case-id (:case-id result)
+     :agentId (get-in result [:agent :agentId])
+     :mode (get-in result [:agent :mode])
+     :agentResultPath (:agentResultPath result)
+     :status (if (seq result-failures) "failed" "passed")
+     :scores (select-keys (:scores result) case-diagnostic-score-keys)
+     :failures result-failures}))
+
+(defn- missing-case-diagnostic
+  [case-id]
+  {:case-id case-id
+   :status "missing"
+   :failures [{:metric "completed"
+               :operator "="
+               :expected 1
+               :actual 0
+               :message "Selected case does not have a matching agent score artifact."}]})
+
+(defn- case-diagnostics
+  [check failures]
+  (vec
+   (concat
+    (map #(result-case-diagnostic failures %)
+         (get-in check [:report :results]))
+    (map missing-case-diagnostic
+         (get-in check [:report :missing])))))
+
+(defn check-agent-report
+  "Return a pass/fail check over an agent benchmark report."
+  [report opts]
+  (let [check-base {:schema agent-check-schema
+                    :suite-id (:suite-id report)
+                    :thresholds (agent-check-thresholds opts)
+                    :report report}
+        failures (vec
+                  (concat
+                   (completeness-failures check-base)
+                   (duplicate-run-failures check-base)
+                   (keep (fn [[threshold-key metric-key metric-label]]
+                           (min-failure check-base
+                                        threshold-key
+                                        metric-key
+                                        metric-label))
+                         [[:minFileRecallAt5 :fileRecallAt5 "fileRecallAt5"]
+                          [:minFileRecallAt10 :fileRecallAt10 "fileRecallAt10"]
+                          [:minFileRecallAt20 :fileRecallAt20 "fileRecallAt20"]
+                          [:minMeanReciprocalRankFile
+                           :meanReciprocalRankFile
+                           "meanReciprocalRankFile"]])
+                   (keep (fn [[threshold-key metric-path metric-label]]
+                           (max-failure check-base
+                                        threshold-key
+                                        metric-path
+                                        metric-label))
+                         [[:maxNoiseRatioAt20 [:scores :noiseRatioAt20] "noiseRatioAt20"]
+                          [:maxInputHintedCases
+                           [:inputHints :inputHintedCases]
+                           "inputHintedCases"]
+                          [:maxUnsupportedGroundTruthFiles
+                           [:scores :unsupportedGroundTruthFiles]
+                           "unsupportedGroundTruthFiles"]])
+                   (case-threshold-failures check-base)))]
+    (assoc check-base
+           :status (if (seq failures) "failed" "passed")
+           :caseDiagnostics (case-diagnostics check-base failures)
+           :failures failures)))
+
+(defn check-agent-suite
+  "Aggregate existing agent score artifacts and check them against thresholds."
+  [suite opts]
+  (let [check (check-agent-report (report-agent-suite suite opts) opts)]
+    (write-json-file! (agent-check-path suite opts) check)
+    check))
 
 (defn report-suite
   "Aggregate existing benchmark result artifacts."

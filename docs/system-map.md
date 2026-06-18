@@ -37,6 +37,7 @@ Then accept or correct what research proves:
 agraph sync set-kind "services/api-gateway" service --map agraph.map.json
 agraph sync include "API Gateway" app:services/api-gateway --map agraph.map.json
 agraph sync ignore external-api docs.xtdb.com --map agraph.map.json --reason "Documentation reference"
+agraph sync package import org.slf4j maven:org.slf4j:slf4j-api --map agraph.map.json --reason "slf4j-api exports org.slf4j"
 agraph sync docs attach "API Gateway" app:docs/api-gateway.md --map agraph.map.json --role contract --heading "API Gateway"
 agraph sync explain "API Gateway" --map agraph.map.json
 ```
@@ -99,6 +100,15 @@ agraph view systems --project sample --format json --no-map --out .dev/reports/r
       "status": "accepted",
       "reason": "Defines the gateway boundary and client contract"
     }
+  ],
+  "packageImports": [
+    {
+      "import": "org.slf4j",
+      "ecosystem": "maven",
+      "package": "org.slf4j:slf4j-api",
+      "status": "accepted",
+      "reason": "Maven coordinate exports this Java package root"
+    }
   ]
 }
 ```
@@ -116,6 +126,11 @@ matching `source`/`target`/`relation`.
 `docs[]` attaches reviewed Markdown snippets to graph targets. `agraph ask --json`
 prioritizes accepted attachments, resolves them back to indexed heading chunks,
 and omits or truncates snippets to stay inside the requested token budget.
+
+`packageImports[]` records accepted import-prefix to external-package mappings
+when manifests cannot prove the relationship. This is required for JVM package
+roots and any other ecosystem where package coordinates do not mechanically map
+to source import names.
 
 ## Maintain
 

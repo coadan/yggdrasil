@@ -3,19 +3,54 @@
   (:require [clojure.string :as str]))
 
 (def manifest-filenames
-  #{"build.gradle"
+  #{"androidmanifest.xml"
+    "app.config.json"
+    "app.json"
+    "build.sbt"
+    "build.gradle"
+    "build.gradle.kts"
     "cargo.toml"
+    "cpanfile"
     "deno.json"
+    "description"
+    "directory.build.props"
+    "directory.build.targets"
     "deps.edn"
+    "eas.json"
+    "gemfile"
+    "global.json"
     "go.mod"
+    "gradle.properties"
+    "info.plist"
     "mix.exs"
+    "nuget.config"
     "package.json"
+    "package.swift"
+    "packages.config"
+    "pnpm-workspace.yaml"
+    "pnpm-workspace.yml"
+    "podfile"
     "pom.xml"
-    "pyproject.toml"})
+    "pubspec.yaml"
+    "project.toml"
+    "pyproject.toml"
+    "rebar.config"
+    "rush.json"
+    "settings.gradle"
+    "settings.gradle.kts"
+    "turbo.json"
+    "workspace.json"
+    "nx.json"
+    "lerna.json"})
 
 (def source-like-kinds
-  #{:code :go :python :rust :edn :config :yaml :helm :compose :docker :manifest
-    :shell})
+  #{:apple-config :astro :build :ci :code :codegen-config :cpp :dart
+    :db-config :dotnet :elixir :env :erlang :gettext :go :graphql :haskell
+    :html :java :julia :php :kotlin :lua :perl :prisma :protobuf :python
+    :r :ruby :rust :scala :svelte :swift :svg :test-config :text
+    :tool-config :vue :zig :edn :config :xml :yaml :helm :compose :docker
+    :manifest :shell :notebook :devcontainer :kustomize :pre-commit-config
+    :codeowners :task-runner :starlark :tool-version-config})
 
 (defn path-parts
   [path]
@@ -68,7 +103,8 @@
 
 (defn- manifest-candidate
   [file]
-  (when (contains? manifest-filenames (file-name (:path file)))
+  (when (or (= :manifest (:kind file))
+            (contains? manifest-filenames (file-name (:path file))))
     (when-let [prefix (dirname (:path file))]
       (path-candidate prefix
                       :manifest-root

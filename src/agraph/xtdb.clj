@@ -419,6 +419,25 @@
      (execute-tx! xtdb ops)
      {:graph-views (count rows)})))
 
+(defn commit-derived-dependency-edges!
+  "Replace derived import-to-package edges for a project/repo scope."
+  [xtdb project-id repo-id rows {:keys [valid-from] :as opts}]
+  (let [temporal (cond-> {}
+                   valid-from (assoc :valid-from valid-from))
+        read-ctx (cond-> (read-context opts)
+                   valid-from (assoc :valid-at valid-from))
+        existing (->> (rows-by-field xtdb (:edges tables) :project-id project-id read-ctx)
+                      (filter #(= :imports-package (:relation %)))
+                      (filter #(or (nil? repo-id) (= repo-id (:repo-id %))))
+                      vec)
+        rows (map validate-edge-row rows)
+        ops (vec (concat
+                  (map #(delete-op (:edges tables) (:xt/id %) temporal) existing)
+                  (map #(put-op (:edges tables) % temporal) rows)))]
+    (execute-tx! xtdb ops)
+    {:dependency-edges (count rows)
+     :dependency-edges-deleted (count existing)}))
+
 (defn graph-views
   "Return graph views visible in read context."
   ([xtdb] (graph-views xtdb {}))

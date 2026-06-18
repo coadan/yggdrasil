@@ -46,13 +46,23 @@ Build locally:
 docker build -t agraph:dev .
 ```
 
-Run with source read-only and XTDB data persisted:
+Inspect a mounted project config:
 
 ```sh
 docker run --rm \
   -v "$PWD:/workspace:ro" \
   -v "$HOME/.cache/agraph:/data" \
   agraph:dev sync inspect /workspace/project.edn
+```
+
+For first-run onboarding in a mounted repo, write generated project files to a
+writable mounted directory:
+
+```sh
+docker run --rm \
+  -v "$PWD:/workspace:ro" \
+  -v "$HOME/.cache/agraph:/data" \
+  agraph:dev start /workspace --out /data/project.edn --map /data/agraph.map.json --report-out /data/agraph-out
 ```
 
 For worktrees, mount the wrapper/workbench root rather than a nested worktree so

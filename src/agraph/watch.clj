@@ -12,17 +12,33 @@
 (def default-debounce-ms
   750)
 
+(def watchable-hidden-dirs
+  #{".buildkite" ".circleci" ".devcontainer" ".github" ".storybook"})
+
 (defn watchable-path?
   "Return true when a repo-relative path should trigger AGraph sync."
   [path]
   (let [path (str/replace (str path) "\\" "/")
+        path-lower (str/lower-case path)
         parts (remove str/blank? (str/split path #"/"))
-        filename (last parts)]
+        filename (last parts)
+        hidden? #(str/starts-with? % ".")
+        root-supported-hidden? (and (= 1 (count parts))
+                                    (hidden? filename)
+                                    (fs/supported-path? filename))
+        supported-hidden? (and (some hidden? parts)
+                               (or (re-matches #"^\.devcontainer/devcontainer\.json$" path-lower)
+                                   (re-matches #"^\.github/dependabot\.ya?ml$" path-lower)
+                                   (re-matches #"^\.github/codeowners$" path-lower)
+                                   (re-matches #"^\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower))
+                               (fs/supported-path? path))]
     (and (seq filename)
          (not-any? fs/ignored-dirs parts)
-         (not (some #(str/starts-with? % ".") parts))
+         (or root-supported-hidden?
+             supported-hidden?
+             (not (some hidden? parts)))
          (not (fs/ignored-filename? filename))
-         (fs/supported-path? filename))))
+         (fs/supported-path? path))))
 
 (defn coalesce-events
   "Return watchable distinct paths from raw event paths."
@@ -70,7 +86,9 @@
                  (let [rel (fs/relative-path repo-root dir)
                        parts (remove str/blank? (str/split rel #"/"))]
                    (or (some fs/ignored-dirs parts)
-                       (some #(str/starts-with? % ".") parts)))))
+                       (some #(and (str/starts-with? % ".")
+                                   (not (contains? watchable-hidden-dirs %)))
+                             parts)))))
        (mapv fs/canonical-path)))
 
 (defn- register-repo!

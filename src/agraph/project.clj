@@ -190,7 +190,7 @@
 
 (defn index-project!
   "Index every repo in project config into XTDB."
-  [xtdb project {:keys [dry-run? index-profile]
+  [xtdb project {:keys [dry-run? index-profile map-overlay]
                  :or {dry-run? false
                       index-profile index/default-index-profile}}]
   (if dry-run?
@@ -203,7 +203,8 @@
                                         :project-id (:id project)
                                         :repo-id id
                                         :repo-role role
-                                        :index-profile index-profile}))
+                                        :index-profile index-profile
+                                        :map-overlay map-overlay}))
                   (:repos project))}
     (do
       (persist-project! xtdb project)
@@ -215,12 +216,13 @@
                                          {:project-id (:id project)
                                           :repo-id id
                                           :repo-role role
-                                          :index-profile index-profile}))
+                                          :index-profile index-profile
+                                          :map-overlay map-overlay}))
                     (:repos project))})))
 
 (defn index-project-repo!
   "Index one repo from a project config into XTDB."
-  [xtdb project repo-id {:keys [dry-run? index-profile]
+  [xtdb project repo-id {:keys [dry-run? index-profile map-overlay]
                          :or {dry-run? false
                               index-profile index/default-index-profile}}]
   (let [repo (or (some #(when (= repo-id (:id %)) %) (:repos project))
@@ -234,7 +236,8 @@
                           :project-id (:id project)
                           :repo-id (:id repo)
                           :repo-role (:role repo)
-                          :index-profile index-profile})
+                          :index-profile index-profile
+                          :map-overlay map-overlay})
       (do
         (persist-project! xtdb project)
         (index/index-repo! xtdb
@@ -242,7 +245,8 @@
                            {:project-id (:id project)
                             :repo-id (:id repo)
                             :repo-role (:role repo)
-                            :index-profile index-profile})))))
+                            :index-profile index-profile
+                            :map-overlay map-overlay})))))
 
 (defn infer-project!
   "Infer and persist a derived system graph for project."

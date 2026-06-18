@@ -1,5 +1,6 @@
 (ns agraph.project-system-test
-  (:require [agraph.context :as context]
+  (:require [agraph.activity :as activity]
+            [agraph.context :as context]
             [agraph.graph :as graph]
             [agraph.infra-review :as infra-review]
             [agraph.map :as graph-map]
@@ -412,9 +413,11 @@
                                              {:project-id "fixture"
                                               :map-path map-path
                                               :retriever :lexical
-                                              :budget 1200
+                                              :budget 1300
+                                              :entity-limit 4
+                                              :edge-limit 6
                                               :doc-limit 4
-                                              :snippet-chars 220})
+                                              :snippet-chars 100})
               labels (set (map :label (:entities packet)))
               doc (first (:docs packet))]
           (is (= context/schema (:schema packet)))
@@ -425,7 +428,7 @@
           (is (contains? (set (get-in packet [:answerability :available])) :system-graph))
           (is (contains? (set (get-in packet [:answerability :missing])) :embeddings))
           (is (contains? (set (get-in packet [:answerability :missing])) :activity))
-          (is (<= (context/estimate-tokens packet) 1200))
+          (is (<= (context/estimate-tokens packet) 1300))
           (is (contains? labels "Fixture API"))
           (is (= "runbook" (:role doc)))
           (is (= "accepted" (:status doc)))
@@ -437,6 +440,230 @@
                                      (get-in % [:source :lines])])
                                 (:docs packet)))))
           (is (str/includes? (:snippet doc) "Fixture API service")))))))
+
+(deftest context-packet-includes-retrieved-source-chunks
+  (store/with-node (temp-dir "agraph-context-source-chunk-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :chunks)
+                      {:xt/id "chunk:source"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :file-id "file:source"
+                       :path "src/app/core.clj"
+                       :kind :namespace
+                       :label "app.core"
+                       :text "(ns app.core)\n(defn fix-paste [] :ok)"
+                       :tokens ["app.core" "fix-paste"]
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:source"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :target-id "chunk:source"
+                       :target-kind :chunk
+                       :file-id "file:source"
+                       :path "src/app/core.clj"
+                       :kind :namespace
+                       :label "app.core"
+                       :text "app.core\nsrc/app/core.clj"
+                       :tokens ["app.core" "src/app/core.clj"]
+                       :input-sha "source"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :chunks)
+                      {:xt/id "chunk:markdown"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :file-id "file:markdown"
+                       :path "docs/paste.md"
+                       :kind :markdown
+                       :label "Paste troubleshooting"
+                       :text "Pasting fails after unrelated workspace details."
+                       :tokens ["paste" "pasting" "fails" "workspace" "details"]
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:markdown"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :target-id "chunk:markdown"
+                       :target-kind :chunk
+                       :file-id "file:markdown"
+                       :path "docs/paste.md"
+                       :kind :markdown
+                       :label "Paste troubleshooting"
+                       :text "Pasting fails after unrelated workspace details."
+                       :tokens ["paste" "pasting" "fails" "workspace" "details"]
+                       :input-sha "markdown"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})])
+      (let [packet (context/context-packet xtdb
+                                           "Pasting fails in src/app/core.clj"
+                                           {:project-id "fixture"
+                                            :retriever :lexical
+                                            :budget 1600
+                                            :doc-limit 2})
+            doc (first (:docs packet))]
+        (is (= "src/app/core.clj" (get-in doc [:source :path])))
+        (is (= "retrieved-doc" (:provenance doc)))
+        (is (:retrievedSource doc))
+        (is (:exactPathSource doc))
+        (is (str/includes? (:snippet doc) "fix-paste"))))))
+
+(deftest context-packet-preserves-retrieval-rank-over-repetitive-token-overlap
+  (store/with-node (temp-dir "agraph-context-retrieval-rank-xtdb")
+    (fn [xtdb]
+      (let [precise {:xt/id "chunk:precise"
+                     :project-id "fixture"
+                     :repo-id "app"
+                     :file-id "file:precise"
+                     :path "src/app/precise.clj"
+                     :kind :code-definition
+                     :label "app.precise/fix"
+                     :text "alpha"
+                     :tokens ["app.precise/fix" "alpha"]
+                     :source-line 10
+                     :active? true
+                     :run-id "run"}
+            noisy {:xt/id "chunk:noisy"
+                   :project-id "fixture"
+                   :repo-id "app"
+                   :file-id "file:noisy"
+                   :path "src/app/noisy.clj"
+                   :kind :code-definition
+                   :label "app.noisy/unrelated"
+                   :text "alpha beta gamma delta alpha beta gamma delta"
+                   :tokens ["app.noisy/unrelated" "alpha" "beta" "gamma" "delta"]
+                   :source-line 20
+                   :active? true
+                   :run-id "run"}
+            results [{:target-id "chunk:precise"
+                      :target-kind :chunk
+                      :path "src/app/precise.clj"
+                      :label "app.precise/fix"
+                      :score 0.9}
+                     {:target-id "chunk:noisy"
+                      :target-kind :chunk
+                      :path "src/app/noisy.clj"
+                      :label "app.noisy/unrelated"
+                      :score 0.1}]]
+        (with-redefs [query/semantic-query (fn [& _] results)
+                      query/all-chunks (fn [& _] [precise noisy])
+                      query/all-nodes (fn [& _] [])
+                      query/all-edges (fn [& _] [])
+                      query/all-search-docs (fn [& _] results)
+                      query/all-embeddings (fn [& _] [])
+                      query/all-system-nodes (fn [& _] [])
+                      query/all-system-edges (fn [& _] [])
+                      query/all-diagnostics (fn [& _] [])
+                      graph/system-graph (fn [& _]
+                                           {:basis nil
+                                            :nodes []
+                                            :edges []
+                                            :clusters []})
+                      activity/select-activity (fn [& _] [])
+                      activity/all-items (fn [& _] [])
+                      activity/all-events (fn [& _] [])]
+          (let [packet (context/context-packet xtdb
+                                               "alpha beta gamma delta"
+                                               {:project-id "fixture"
+                                                :retriever :lexical
+                                                :budget 4000
+                                                :doc-limit 1})]
+            (is (= "src/app/precise.clj"
+                   (get-in packet [:docs 0 :source :path])))))))))
+
+(deftest context-packet-balances-retrieved-source-docs-by-definition-kind
+  (store/with-node (temp-dir "agraph-context-definition-kind-xtdb")
+    (fn [xtdb]
+      (let [test-a {:xt/id "chunk:test-a"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :file-id "file:test-a"
+                    :path "test/app/a_test.clj"
+                    :kind :code-definition
+                    :definition-kind :test
+                    :label "app.a-test/alpha-test"
+                    :text "alpha beta"
+                    :tokens ["alpha" "beta"]
+                    :source-line 10
+                    :active? true
+                    :run-id "run"}
+            test-b {:xt/id "chunk:test-b"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :file-id "file:test-b"
+                    :path "test/app/b_test.clj"
+                    :kind :code-definition
+                    :definition-kind :test
+                    :label "app.b-test/beta-test"
+                    :text "alpha beta"
+                    :tokens ["alpha" "beta"]
+                    :source-line 20
+                    :active? true
+                    :run-id "run"}
+            var-a {:xt/id "chunk:var-a"
+                   :project-id "fixture"
+                   :repo-id "app"
+                   :file-id "file:var-a"
+                   :path "src/app/core.clj"
+                   :kind :code-definition
+                   :definition-kind :var
+                   :label "app.core/cyclic-dependencies"
+                   :text "alpha"
+                   :tokens ["alpha"]
+                   :source-line 30
+                   :active? true
+                   :run-id "run"}
+            results [{:target-id "chunk:test-a"
+                      :target-kind :chunk
+                      :path "test/app/a_test.clj"
+                      :label "app.a-test/alpha-test"
+                      :score 0.9}
+                     {:target-id "chunk:test-b"
+                      :target-kind :chunk
+                      :path "test/app/b_test.clj"
+                      :label "app.b-test/beta-test"
+                      :score 0.8}
+                     {:target-id "chunk:var-a"
+                      :target-kind :chunk
+                      :path "src/app/core.clj"
+                      :label "app.core/cyclic-dependencies"
+                      :score 0.7}]]
+        (with-redefs [query/semantic-query (fn [& _] results)
+                      query/all-chunks (fn [& _] [test-a test-b var-a])
+                      query/all-nodes (fn [& _] [])
+                      query/all-edges (fn [& _] [])
+                      query/all-search-docs (fn [& _] results)
+                      query/all-embeddings (fn [& _] [])
+                      query/all-system-nodes (fn [& _] [])
+                      query/all-system-edges (fn [& _] [])
+                      query/all-diagnostics (fn [& _] [])
+                      graph/system-graph (fn [& _]
+                                           {:basis nil
+                                            :nodes []
+                                            :edges []
+                                            :clusters []})
+                      activity/select-activity (fn [& _] [])
+                      activity/all-items (fn [& _] [])
+                      activity/all-events (fn [& _] [])]
+          (let [packet (context/context-packet xtdb
+                                               "alpha beta"
+                                               {:project-id "fixture"
+                                                :retriever :lexical
+                                                :budget 4000
+                                                :doc-limit 2})]
+            (is (= ["test/app/a_test.clj" "src/app/core.clj"]
+                   (mapv #(get-in % [:source :path]) (:docs packet))))
+            (is (= [:test :var]
+                   (mapv #(get-in % [:source :definitionKind]) (:docs packet))))))))))
 
 (deftest context-packet-reports-answerability-for-empty-project
   (store/with-node (temp-dir "agraph-empty-answerability-xtdb")
