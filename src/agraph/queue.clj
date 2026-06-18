@@ -264,11 +264,16 @@
                            :artifact (:artifact payload)}
 
                           "agraph.maintenance.decision-packet/v1"
-                          {:id (:decisionId payload)
-                           :kind (:kind decision)
-                           :severity (:severity decision)
-                           :target (:target decision)
-                           :reason (:reason decision)}
+                          (cond-> {:id (:decisionId payload)
+                                   :kind (:kind decision)
+                                   :severity (:severity decision)
+                                   :target (:target decision)
+                                   :reason (:reason decision)}
+                            (get-in decision [:basis :hash])
+                            (assoc :basisHash (get-in decision [:basis :hash]))
+
+                            (:allowedActions payload)
+                            (assoc :allowedActions (:allowedActions payload)))
 
                           nil)]
     (cond-> {:schema summary-schema

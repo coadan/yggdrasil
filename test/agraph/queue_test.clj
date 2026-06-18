@@ -93,7 +93,9 @@
                                              :decision {:kind "unclustered-system"
                                                         :severity "low"
                                                         :target "system:demo:api"
-                                                        :reason "Needs review."}}
+                                                        :reason "Needs review."
+                                                        :basis {:hash "basis123"}}
+                                             :allowedActions ["accept-system" "none"]}
                                             {:root root
                                              :kind "maintenance-decision"
                                              :project-id "demo"})
@@ -109,7 +111,9 @@
             :kind "unclustered-system"
             :severity "low"
             :target "system:demo:api"
-            :reason "Needs review."}
+            :reason "Needs review."
+            :basisHash "basis123"
+            :allowedActions ["accept-system" "none"]}
            (:payload-summary (get by-id decision-id))))))
 
 (deftest queue-list-and-claim-can-filter-by-kind

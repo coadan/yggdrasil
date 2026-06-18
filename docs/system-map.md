@@ -167,7 +167,9 @@ agraph sync work apply queue:abc123 --map agraph.map.json
 Do not classify the whole system graph. The classifier receives one decision
 bundle and should return a proposed map patch. Use `--enqueue` when the decision
 should be picked up from `.dev/agraph/queue/ready` by a different agent, model,
-or review process.
+or review process. Queue summaries include the bounded decision target,
+graph-basis hash, and allowed patch actions so agents can choose one item
+without loading the whole graph.
 
 Infrastructure gaps use the same queue. `sync check --enqueue` can emit
 `agraph.infra.review-packet/v1` items when mechanical evidence finds bounded
