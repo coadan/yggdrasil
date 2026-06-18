@@ -1,0 +1,3 @@
+panel_show:
+  path: /panels/{id}
+  controller: App\Controller\PanelController::show

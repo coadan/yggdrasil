@@ -356,7 +356,13 @@
                                         :title "broken app"
                                         :body "The app returns the old value in src/app.clj."}}]}))
         (let [suite (benchmark/read-suite suite-path)
-              prepared (first (:cases (benchmark/prepare-suite! suite {:out out})))]
+              prepared (first (:cases (benchmark/prepare-suite! suite {:out out})))
+              progress-path (io/file out
+                                     "fixture"
+                                     "cases"
+                                     "case-1"
+                                     "progress.json")
+              progress (json/read-json (slurp progress-path) :key-fn keyword)]
           (is (= benchmark/prepared-case-schema (:schema prepared)))
           (is (= #{"src/app.clj" "src/new.clj"}
                  (set (get-in prepared [:groundTruth :changedFiles]))))
@@ -376,7 +382,16 @@
                                           :files 1}]
                   :missingDeclaredSourceKinds ["python"]}
                  (:coverage prepared)))
-          (is (.isDirectory (io/file (:worktreeRoot prepared)))))))))
+          (is (.isDirectory (io/file (:worktreeRoot prepared))))
+          (is (= "agraph.benchmark.case-progress/v1" (:schema progress)))
+          (is (= #{"prepare-worktree"
+                   "prepare-ground-truth"
+                   "write-prepared-case"}
+                 (set (map :stage (:events progress)))))
+          (is (every? pos?
+                      (keep :elapsedMs
+                            (filter #(= "completed" (:status %))
+                                    (:events progress))))))))))
 
 (deftest writes-agent-packet-without-ground-truth
   (let [root (temp-dir "agraph-bench-agent-repo")
@@ -598,6 +613,8 @@
                        :retrievedSourceCount 0
                        :exactPathSourceCount 0
                        :maxConfidence 1.0
+                       :rankScore 3.0
+                       :matchedTokenCount 2
                        :definitionKinds ["function"]}
              :reason (str "AGraph context doc \"broken\" from src/app.clj lines 2-4 "
                           "with provenance retrieved-doc. Additional AGraph evidence: "
@@ -612,6 +629,8 @@
                        :retrievedSourceCount 0
                        :exactPathSourceCount 0
                        :maxConfidence 0.7
+                       :rankScore 0.8099999999999999
+                       :matchedTokenCount 0
                        :definitionKinds []}
              :reason "AGraph graph entity \"db\" references src/db.clj."}]
            (:suspectedFiles result)))
@@ -642,6 +661,8 @@
                          :retrievedSourceCount 0
                          :exactPathSourceCount 0
                          :maxConfidence 1.0
+                         :rankScore 3.0
+                         :matchedTokenCount 2
                          :definitionKinds ["function"]}
                :reason (str "AGraph context doc \"broken\" from src/app.clj lines 2-4 "
                             "with provenance retrieved-doc. Additional AGraph evidence: "
@@ -651,6 +672,94 @@
               :limit 1}
              (:selection limited)))
       (is (= 2 (count (:suspectedSymbols limited)))))))
+
+(deftest file-ranking-uses-mechanical-query-token-coverage
+  (let [root (temp-dir "agraph-bench-token-coverage")
+        _ (spit-file! root "src/early.clj" "(ns early)\n")
+        _ (spit-file! root "src/later.clj" "(ns later)\n")
+        packet {:query "open page root"
+                :docs [{:source {:path "src/early.clj"
+                                 :heading "open-handler"}
+                        :score 2.0
+                        :snippet "open"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/later.clj"
+                                 :heading "page-root-handler"}
+                        :score 1.7
+                        :snippet "open page root"
+                        :provenance "retrieved-doc"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/later.clj" "src/early.clj"]
+           (mapv :path files)))
+    (is (= 3 (get-in files [0 :metrics :matchedTokenCount])))
+    (is (= 1 (get-in files [1 :metrics :matchedTokenCount])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
+(deftest local-vector-baseline-shells-out-and-scores-agent-result
+  (let [repo (temp-dir "agraph-bench-local-vector-repo")
+        out (temp-dir "agraph-bench-local-vector-out")
+        suite-dir (temp-dir "agraph-bench-local-vector-suite")
+        worker-dir (temp-dir "agraph-bench-local-vector-worker")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))
+        worker-path (spit-file!
+                     worker-dir
+                     "fake-vector-worker.sh"
+                     (str "#!/bin/sh\n"
+                          "cat > \"$2\" <<'JSON'\n"
+                          "{\"suspectedFiles\":[{\"path\":\"src/app.clj\",\"rank\":1,"
+                          "\"confidence\":0.9,\"reason\":\"fake local vector match\"}],"
+                          "\"suspectedSymbols\":[],\"commands\":[],\"warnings\":[]}\n"
+                          "JSON\n"))]
+    (.setExecutable (io/file worker-path) true)
+    (sh! "git" "init" repo)
+    (git! repo "config" "user.email" "bench@example.test")
+    (git! repo "config" "user.name" "Benchmark Test")
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (let [base (commit! repo "base")]
+      (spit-file! repo "src/app.clj" "(ns app)\n(defn broken [] :new)\n")
+      (let [fix (commit! repo "fix")]
+        (spit-file!
+         suite-dir
+         "benchmark.edn"
+         (pr-str {:id "fixture"
+                  :repos [{:id "repo" :root repo}]
+                  :cases [{:id "case-1"
+                           :repo-id "repo"
+                           :base-sha base
+                           :fix-sha fix
+                           :issue {:id 1
+                                   :title "broken app"
+                                   :body "The app returns the old value."}}]}))
+        (let [suite (benchmark/read-suite suite-path)
+              result (benchmark/agent-baselines!
+                      suite
+                      {:out out
+                       :case-id "case-1"
+                       :retriever "local-vector"
+                       :vector-command worker-path
+                       :vector-model "fake-local-model"})
+              baseline (first (:baselines result))
+              request (json/read-json
+                       (slurp (get-in baseline [:artifacts :localVectorRequestPath]))
+                       :key-fn keyword)
+              scored (json/read-json
+                      (slurp (get-in baseline [:artifacts :agentScorePath]))
+                      :key-fn keyword)]
+          (is (= benchmark/agent-baselines-schema (:schema result)))
+          (is (= "agraph-baseline-local-vector" (:agentId baseline)))
+          (is (= "local-vector" (:mode baseline)))
+          (is (= "local-vector" (:retriever baseline)))
+          (is (= "fake-local-model" (get-in baseline [:localVector :model])))
+          (is (= 1.0 (get-in baseline [:scores :fileRecallAt5])))
+          (is (= 1.0 (get-in baseline [:scores :meanReciprocalRankFile])))
+          (is (= "agraph.benchmark.local-vector-request/v1" (:schema request)))
+          (is (= "fake-local-model" (:model request)))
+          (is (not (contains? request :groundTruth)))
+          (is (= "local-vector" (get-in scored [:agent :mode])))
+          (is (= ["src/app.clj"]
+                 (mapv :path (get-in scored [:agent :topFiles])))))))))
 
 (deftest context-packet-can-be-written-as-agent-hints
   (let [root (temp-dir "agraph-bench-context-hints")
@@ -701,6 +810,8 @@
                        :retrievedSourceCount 0
                        :exactPathSourceCount 0
                        :maxConfidence 1.0
+                       :rankScore 2.92
+                       :matchedTokenCount 2
                        :definitionKinds ["function"]}
              :reason "AGraph context doc \"app/broken\" from src/app.clj lines 2-4 with provenance retrieved-doc."}]
            (:topFiles hints)))

@@ -1,0 +1,8 @@
+panels:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: localhost
+    prod:
+      type: bigquery

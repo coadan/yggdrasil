@@ -1,0 +1,11 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: panels
+spec:
+  source:
+    repoURL: https://github.com/acme/panels
+    path: deploy/panels
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: panels

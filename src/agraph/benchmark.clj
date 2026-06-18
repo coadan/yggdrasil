@@ -4,6 +4,7 @@
             [agraph.fs :as fs]
             [agraph.project :as project]
             [agraph.query :as query]
+            [agraph.text :as text]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.edn :as edn]
@@ -69,6 +70,12 @@
 
 (def default-agent-baseline-suspect-limit
   20)
+
+(def default-local-vector-model
+  "sentence-transformers/all-MiniLM-L6-v2")
+
+(def default-local-vector-command
+  "python3 scripts/local-vector-baseline.py")
 
 (def default-agent-run-timeout-ms
   600000)
@@ -214,6 +221,12 @@
            "agent-results"
            (str (safe-id (agent-baseline-id opts)) ".context.json")))
 
+(defn- local-vector-request-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-results"
+           (str (safe-id (agent-baseline-id opts)) ".request.json")))
+
 (defn- agent-run-id
   [opts]
   (or (some-> (:agent-id opts) safe-id not-empty)
@@ -283,6 +296,10 @@
   [suite opts]
   (io/file (output-root suite opts) "agent-check.json"))
 
+(defn- progress-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts) "progress.json"))
+
 (defn- report-path
   [suite opts]
   (io/file (output-root suite opts) "report.json"))
@@ -312,6 +329,73 @@
 (defn- read-json-file
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
+
+(defn- now-string
+  []
+  (str (java.time.Instant/now)))
+
+(defn- elapsed-ms
+  [started-ns]
+  (max 1 (long (/ (- (System/nanoTime) started-ns) 1000000))))
+
+(defn- progress-event
+  [stage status extra]
+  (merge {:stage (name stage)
+          :status (name status)
+          :at (now-string)}
+         extra))
+
+(defn- read-progress
+  [path suite case]
+  (if (.isFile (io/file path))
+    (read-json-file path)
+    {:schema "agraph.benchmark.case-progress/v1"
+     :suite-id (:id suite)
+     :case-id (:id case)
+     :events []}))
+
+(defn- append-progress-event!
+  [suite case opts event]
+  (let [path (progress-path suite case opts)
+        progress (read-progress path suite case)]
+    (write-json-file! path
+                      (-> progress
+                          (assoc :updatedAt (now-string))
+                          (update :events (fnil conj []) event)))
+    path))
+
+(defn- progress-stage!
+  ([suite case opts stage f]
+   (progress-stage! suite case opts stage f (constantly nil)))
+  ([suite case opts stage f summarize]
+   (let [started-ns (System/nanoTime)]
+     (append-progress-event! suite
+                             case
+                             opts
+                             (progress-event stage :started {}))
+     (try
+       (let [result (f)
+             summary (summarize result)]
+         (append-progress-event! suite
+                                 case
+                                 opts
+                                 (progress-event
+                                  stage
+                                  :completed
+                                  (cond-> {:elapsedMs (elapsed-ms started-ns)}
+                                    (some? summary) (assoc :summary summary))))
+         result)
+       (catch Throwable t
+         (append-progress-event! suite
+                                 case
+                                 opts
+                                 (progress-event
+                                  stage
+                                  :failed
+                                  {:elapsedMs (elapsed-ms started-ns)
+                                   :error {:class (.getName (class t))
+                                           :message (ex-message t)}}))
+         (throw t))))))
 
 (defn- run-git!
   [repo-root args]
@@ -512,12 +596,35 @@
         _ (when-not (:fix-sha case)
             (throw (ex-info "Benchmark case is missing :fix-sha."
                             {:case-id (:id case)})))
-        worktree-root (ensure-worktree! (:root repo)
-                                        base-sha
-                                        (.getPath (worktree-dir suite case opts)))
-        truth (ground-truth repo case)
+        worktree-root (progress-stage!
+                       suite
+                       case
+                       opts
+                       :prepare-worktree
+                       #(ensure-worktree! (:root repo)
+                                          base-sha
+                                          (.getPath (worktree-dir suite case opts)))
+                       (fn [root]
+                         {:worktreeRoot root
+                          :baseSha base-sha}))
+        truth (progress-stage!
+               suite
+               case
+               opts
+               :prepare-ground-truth
+               #(ground-truth repo case)
+               (fn [truth]
+                 {:changedFiles (count (:changedFiles truth))
+                  :localizationFiles (count (:localizationFiles truth))}))
         prepared (prepared-case suite case repo worktree-root truth)]
-    (write-json-file! (prepared-path suite case opts) prepared)
+    (progress-stage!
+     suite
+     case
+     opts
+     :write-prepared-case
+     #(write-json-file! (prepared-path suite case opts) prepared)
+     (fn [path]
+       {:path (fs/canonical-path path)}))
     prepared))
 
 (defn prepare-suite!
@@ -893,18 +1000,34 @@
   (when-let [lines (seq (:lines source))]
     (str " lines " (str/join "-" lines))))
 
+(defn- evidence-text
+  [doc]
+  (str/join "\n"
+            (remove blankish?
+                    [(get-in doc [:source :path])
+                     (get-in doc [:source :heading])
+                     (:snippet doc)])))
+
+(defn- token-matches
+  [query-tokens text]
+  (let [query-token-set (set query-tokens)
+        evidence-token-set (set (text/tokenize text))]
+    (set/intersection query-token-set evidence-token-set)))
+
 (defn- doc-prediction
-  [root idx doc]
+  [root query-tokens idx doc]
   (let [source (:source doc)
         path (:path source)]
     (when (existing-file-path? root path)
       {:path path
        :source-rank (inc idx)
        :confidence (bounded-confidence (:score doc))
+       :evidence-score (double (or (parse-double-safe (:score doc)) 0.0))
        :evidence-kind :doc
        :retrieved-source? (boolean (:retrievedSource doc))
        :exact-path-source? (boolean (:exactPathSource doc))
        :definition-kind (some-> (:definitionKind source) name)
+       :matched-tokens (token-matches query-tokens (evidence-text doc))
        :reason (str "AGraph context doc"
                     (when-let [heading (:heading source)]
                       (str " " (pr-str heading)))
@@ -915,16 +1038,21 @@
                     ".")})))
 
 (defn- entity-prediction
-  [root idx entity]
+  [root query-tokens idx entity]
   (let [path (:path entity)]
     (when (existing-file-path? root path)
       {:path path
        :source-rank (+ 1000 (inc idx))
        :confidence (bounded-confidence (:score entity))
+       :evidence-score (double (or (parse-double-safe (:score entity)) 0.0))
        :evidence-kind :entity
        :retrieved-source? false
        :exact-path-source? false
        :definition-kind (some-> (:kind entity) name)
+       :matched-tokens (token-matches query-tokens
+                                      (str (:path entity)
+                                           "\n"
+                                           (:label entity)))
        :reason (str "AGraph graph entity "
                     (pr-str (:label entity))
                     " references "
@@ -941,17 +1069,35 @@
                              confidence (bounded-confidence
                                          (apply max
                                                 (map :confidence ordered)))
+                             matched-tokens (->> ordered
+                                                 (mapcat :matched-tokens)
+                                                 set)
+                             doc-count (count (filter #(= :doc (:evidence-kind %))
+                                                      ordered))
+                             entity-count (count (filter #(= :entity (:evidence-kind %))
+                                                         ordered))
+                             retrieved-source-count (count (filter :retrieved-source?
+                                                                   ordered))
+                             exact-path-source-count (count (filter :exact-path-source?
+                                                                    ordered))
+                             max-evidence-score (apply max
+                                                       0.0
+                                                       (map :evidence-score ordered))
+                             rank-score (+ max-evidence-score
+                                           (* 0.22 (count matched-tokens))
+                                           (* 0.08 support-count)
+                                           (* 0.08 retrieved-source-count)
+                                           (* 0.12 exact-path-source-count)
+                                           (* 0.03 entity-count))
                              metrics {:firstSourceRank (:source-rank best-row)
                                       :supportCount support-count
-                                      :docCount (count (filter #(= :doc (:evidence-kind %))
-                                                               ordered))
-                                      :entityCount (count (filter #(= :entity (:evidence-kind %))
-                                                                  ordered))
-                                      :retrievedSourceCount (count (filter :retrieved-source?
-                                                                           ordered))
-                                      :exactPathSourceCount (count (filter :exact-path-source?
-                                                                           ordered))
+                                      :docCount doc-count
+                                      :entityCount entity-count
+                                      :retrievedSourceCount retrieved-source-count
+                                      :exactPathSourceCount exact-path-source-count
                                       :maxConfidence confidence
+                                      :rankScore rank-score
+                                      :matchedTokenCount (count matched-tokens)
                                       :definitionKinds (->> ordered
                                                             (keep :definition-kind)
                                                             distinct
@@ -959,6 +1105,7 @@
                          (cond-> (assoc best-row
                                         :path path
                                         :confidence confidence
+                                        :rank-score rank-score
                                         :metrics metrics)
                            (pos? extra-count)
                            (update :reason
@@ -972,13 +1119,18 @@
          (group-by :path)
          (map (fn [[path grouped-rows]]
                 (combine-rows path grouped-rows)))
-         (sort-by (juxt :source-rank :path))
+         (sort-by (juxt (comp - :rank-score)
+                        :source-rank
+                        :path))
          (map-indexed (fn [idx row]
                         (-> row
                             (dissoc :source-rank
+                                    :rank-score
+                                    :evidence-score
                                     :evidence-kind
                                     :retrieved-source?
                                     :exact-path-source?
+                                    :matched-tokens
                                     :definition-kind)
                             (assoc :rank (inc idx)))))
          vec)))
@@ -1014,8 +1166,9 @@
   ([packet]
    (context-packet->agent-result packet {}))
   ([packet {:keys [agent-id mode case-id root limit]}]
-   (let [doc-rows (keep-indexed #(doc-prediction root %1 %2) (:docs packet))
-         entity-rows (keep-indexed #(entity-prediction root %1 %2) (:entities packet))
+   (let [query-tokens (text/tokenize (:query packet))
+         doc-rows (keep-indexed #(doc-prediction root query-tokens %1 %2) (:docs packet))
+         entity-rows (keep-indexed #(entity-prediction root query-tokens %1 %2) (:entities packet))
          candidate-files (ranked-file-predictions (concat doc-rows entity-rows))
          suspected-files (cond->> candidate-files
                            limit (take (long limit))
@@ -1056,30 +1209,79 @@
         project-path (fs/canonical-path (agent-project-path suite case opts))
         result-path (agent-baseline-result-path suite case opts)
         context-path (agent-baseline-context-path suite case opts)
+        progress-path (progress-path suite case opts)
         agent-id (agent-baseline-id opts)]
-    (write-edn-file! project-path bench-project)
+    (progress-stage!
+     suite
+     case
+     opts
+     :write-agent-project
+     #(write-edn-file! project-path bench-project)
+     (fn [path]
+       {:path (fs/canonical-path path)}))
     (store/with-node (xtdb-dir suite case opts)
       (fn [xtdb]
-        (let [index-summary (project/index-project! xtdb
-                                                    bench-project
-                                                    {:index-profile :query})
-              system-summary (project/infer-project! xtdb bench-project)
-              packet (context/context-packet xtdb
-                                             (get-in prepared [:input :queryText])
-                                             (agent-baseline-context-options
-                                              prepared
-                                              opts))
-              agent-result (context-packet->agent-result
-                            packet
-                            {:agent-id agent-id
-                             :mode "agraph"
-                             :case-id (:case-id prepared)
-                             :root (:worktreeRoot prepared)
-                             :limit (agent-baseline-suspect-limit opts)})
+        (let [index-summary (progress-stage!
+                             suite
+                             case
+                             opts
+                             :index-project
+                             #(project/index-project! xtdb
+                                                      bench-project
+                                                      {:index-profile :query})
+                             #(select-keys % [:files :repos :rows :extractors]))
+              system-summary (progress-stage!
+                              suite
+                              case
+                              opts
+                              :infer-project
+                              #(project/infer-project! xtdb bench-project)
+                              #(select-keys % [:systems :candidates :edges]))
+              packet (progress-stage!
+                      suite
+                      case
+                      opts
+                      :context-packet
+                      #(context/context-packet
+                        xtdb
+                        (get-in prepared [:input :queryText])
+                        (agent-baseline-context-options prepared opts))
+                      (fn [packet]
+                        {:docs (count (:docs packet))
+                         :entities (count (:entities packet))
+                         :edges (count (:edges packet))
+                         :warnings (count (:warnings packet))}))
+              agent-result (progress-stage!
+                            suite
+                            case
+                            opts
+                            :agent-result
+                            #(context-packet->agent-result
+                              packet
+                              {:agent-id agent-id
+                               :mode "agraph"
+                               :case-id (:case-id prepared)
+                               :root (:worktreeRoot prepared)
+                               :limit (agent-baseline-suspect-limit opts)})
+                            (fn [result]
+                              {:suspectedFiles (count (:suspectedFiles result))
+                               :suspectedSymbols (count (:suspectedSymbols result))}))
               score-path (agent-score-path suite case opts result-path)
-              scored (assoc (score-agent-result prepared agent-result)
-                            :agentResultPath (fs/canonical-path result-path)
-                            :contextPacketPath (fs/canonical-path context-path))
+              scored (progress-stage!
+                      suite
+                      case
+                      opts
+                      :score-agent-result
+                      #(assoc (score-agent-result prepared agent-result)
+                              :agentResultPath (fs/canonical-path result-path)
+                              :contextPacketPath (fs/canonical-path context-path))
+                      (fn [scored]
+                        (select-keys (:scores scored)
+                                     [:fileRecallAt5
+                                      :fileRecallAt10
+                                      :fileRecallAt20
+                                      :meanReciprocalRankFile
+                                      :noiseRatioAt20])))
               baseline {:schema agent-baseline-schema
                         :suite-id (:suite-id prepared)
                         :case-id (:case-id prepared)
@@ -1093,21 +1295,175 @@
                         :artifacts {:projectConfig project-path
                                     :agentResultPath (fs/canonical-path result-path)
                                     :contextPacketPath (fs/canonical-path context-path)
-                                    :agentScorePath (fs/canonical-path score-path)}
+                                    :agentScorePath (fs/canonical-path score-path)
+                                    :progressPath (fs/canonical-path progress-path)}
                         :agraph {:indexSummary index-summary
                                  :systemSummary system-summary}
                         :scores (:scores scored)}]
-          (write-json-file! context-path packet)
-          (write-json-file! result-path agent-result)
-          (write-json-file! score-path scored)
+          (progress-stage!
+           suite
+           case
+           opts
+           :write-agent-artifacts
+           (fn []
+             (write-json-file! context-path packet)
+             (write-json-file! result-path agent-result)
+             (write-json-file! score-path scored)
+             {:contextPath context-path
+              :agentResultPath result-path
+              :agentScorePath score-path})
+           (fn [paths]
+             {:contextPacketPath (fs/canonical-path (:contextPath paths))
+              :agentResultPath (fs/canonical-path (:agentResultPath paths))
+              :agentScorePath (fs/canonical-path (:agentScorePath paths))}))
           baseline)))))
+
+(defn- local-vector-model
+  [opts]
+  (str (or (:vector-model opts) default-local-vector-model)))
+
+(defn- local-vector-command
+  [opts]
+  (str (or (:vector-command opts) default-local-vector-command)))
+
+(defn- local-vector-request
+  [prepared opts agent-id]
+  {:schema "agraph.benchmark.local-vector-request/v1"
+   :caseId (:case-id prepared)
+   :agentId agent-id
+   :mode "local-vector"
+   :worktreeRoot (:worktreeRoot prepared)
+   :input (:input prepared)
+   :task {:kind "issue-localization"
+          :objective "Rank repo-relative files by local semantic vector similarity to the issue text."
+          :rules ["Use only the base checkout and issue text in this request."
+                  "Do not inspect the fixing diff, PR body, post-fix commits, or ground-truth artifacts."]}
+   :limit (agent-baseline-suspect-limit opts)
+   :model (local-vector-model opts)})
+
+(defn- run-local-vector-command!
+  [request-path result-path opts]
+  (let [command (local-vector-command opts)
+        model (local-vector-model opts)
+        cmdline (str command
+                     " "
+                     (shell-quote (fs/canonical-path request-path))
+                     " "
+                     (shell-quote (fs/canonical-path result-path))
+                     " "
+                     (shell-quote model))
+        {:keys [exit out err] :as process} (shell/sh "sh" "-c" cmdline)]
+    (when-not (zero? exit)
+      (throw (ex-info "Local vector benchmark worker failed."
+                      {:command command
+                       :exit exit
+                       :out out
+                       :err err})))
+    (select-keys process [:exit :out :err])))
+
+(defn- normalize-local-vector-result
+  [agent-result prepared agent-id]
+  (assoc agent-result
+         :schema agent-result-schema
+         :caseId (:case-id prepared)
+         :agentId agent-id
+         :mode "local-vector"))
+
+(defn local-vector-baseline!
+  "Generate, write, and score one local semantic-vector benchmark baseline.
+
+  This is an optional benchmark control. It shells out to a local worker and
+  keeps vector dependencies outside AGraph core."
+  [suite case opts]
+  (let [prepared (prepare-case! suite case opts)
+        agent-id (agent-baseline-id opts)
+        request-path (local-vector-request-path suite case opts)
+        result-path (agent-baseline-result-path suite case opts)
+        score-path (agent-score-path suite case opts result-path)
+        progress-path (progress-path suite case opts)
+        request (local-vector-request prepared opts agent-id)]
+    (progress-stage!
+     suite
+     case
+     opts
+     :write-local-vector-request
+     #(write-json-file! request-path request)
+     (fn [path]
+       {:path (fs/canonical-path path)}))
+    (let [process (progress-stage!
+                   suite
+                   case
+                   opts
+                   :local-vector-worker
+                   #(run-local-vector-command! request-path result-path opts)
+                   #(select-keys % [:exit]))
+          agent-result (progress-stage!
+                        suite
+                        case
+                        opts
+                        :local-vector-result
+                        #(normalize-local-vector-result
+                          (read-json-file result-path)
+                          prepared
+                          agent-id)
+                        (fn [result]
+                          {:suspectedFiles (count (:suspectedFiles result))
+                           :suspectedSymbols (count (:suspectedSymbols result))}))
+          scored (progress-stage!
+                  suite
+                  case
+                  opts
+                  :score-agent-result
+                  #(assoc (score-agent-result prepared agent-result)
+                          :agentResultPath (fs/canonical-path result-path)
+                          :localVectorRequestPath (fs/canonical-path request-path))
+                  (fn [scored]
+                    (select-keys (:scores scored)
+                                 [:fileRecallAt5
+                                  :fileRecallAt10
+                                  :fileRecallAt20
+                                  :meanReciprocalRankFile
+                                  :noiseRatioAt20])))
+          baseline {:schema agent-baseline-schema
+                    :suite-id (:suite-id prepared)
+                    :case-id (:case-id prepared)
+                    :repo-id (:repo-id prepared)
+                    :project-id (:project-id prepared)
+                    :agentId agent-id
+                    :mode "local-vector"
+                    :retriever "local-vector"
+                    :suspectLimit (agent-baseline-suspect-limit opts)
+                    :artifacts {:localVectorRequestPath (fs/canonical-path request-path)
+                                :agentResultPath (fs/canonical-path result-path)
+                                :agentScorePath (fs/canonical-path score-path)
+                                :progressPath (fs/canonical-path progress-path)}
+                    :localVector {:command (local-vector-command opts)
+                                  :model (local-vector-model opts)
+                                  :process process}
+                    :scores (:scores scored)}]
+      (progress-stage!
+       suite
+       case
+       opts
+       :write-agent-artifacts
+       (fn []
+         (write-json-file! result-path agent-result)
+         (write-json-file! score-path scored)
+         {:agentResultPath result-path
+          :agentScorePath score-path})
+       (fn [paths]
+         {:agentResultPath (fs/canonical-path (:agentResultPath paths))
+          :agentScorePath (fs/canonical-path (:agentScorePath paths))}))
+      baseline)))
 
 (defn agent-baselines!
   "Generate deterministic AGraph agent-result artifacts for selected cases."
   [suite opts]
   {:schema agent-baselines-schema
    :suite-id (:id suite)
-   :baselines (mapv #(agent-baseline! suite % opts)
+   :baselines (mapv #(if (= :local-vector (keyword (or (:retriever opts) :lexical)))
+                       (local-vector-baseline! suite % opts)
+                       (agent-baseline! suite % opts))
                     (selected-cases suite (:case-id opts)))})
 
 (defn- source-line-range

@@ -29,6 +29,15 @@ The report and graph HTML viewer is built from `report-ui/` into
 compiled assets are present. The canonical graph export remains plain
 `agraph.graph/v2` JSON.
 
+For hot-reload development of that viewer, use the Vite server from
+`report-ui/` and point it at a generated report directory:
+
+```sh
+bb report project.edn --map agraph.map.json --out .dev/reports/live --force
+bb report-ui:dev -- --host 0.0.0.0 --port 5173
+open "http://localhost:5173/?reportDir=$(pwd)/.dev/reports/live"
+```
+
 ## Package Report
 
 Use the package report for dependency inventory that should stay grounded in

@@ -142,6 +142,16 @@ agraph.map.json` when you want setup plus sync but no report bundle.
 packet, `REPORT.mdx` is the readable narrative source, and `graph.json` /
 `systems.json` are renderer-neutral graph exports.
 
+For report UI development, run the Vite dev server against a generated report
+bundle. The app reloads report and graph JSON from `reportDir`, so rerunning
+`agraph report` updates the browser without rebuilding bundled assets.
+
+```sh
+bb report project.edn --map agraph.map.json --out .dev/reports/live --force
+bb report-ui:dev -- --host 0.0.0.0 --port 5173
+open "http://localhost:5173/?reportDir=$(pwd)/.dev/reports/live"
+```
+
 For workbench repos that wrap source repos in cached clones or task worktrees,
 point the project at the workbench root instead of listing each repo:
 

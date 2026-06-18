@@ -87,6 +87,7 @@
     "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
     "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode"
     "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
+    "--vector-command" "--vector-model"
     "--timeout-ms" "--min-cases" "--min-runs"
     "--min-file-recall-at-5" "--min-file-recall-at-10"
     "--min-file-recall-at-20" "--min-mrr" "--max-noise-at-20"
@@ -1741,6 +1742,10 @@
            :mode (option-value args "--mode")
            :result-path (option-value args "--result")
            :command (option-value args "--command")}
+    (option-value args "--vector-command") (assoc :vector-command
+                                                  (option-value args "--vector-command"))
+    (option-value args "--vector-model") (assoc :vector-model
+                                                (option-value args "--vector-model"))
     (option-value args "--agent") (assoc :agent-id (option-value args "--agent"))
     (option-value args "--prompt-profile") (assoc :prompt-profile
                                                   (option-value args "--prompt-profile"))
@@ -2048,7 +2053,7 @@
     "Benchmarks:"
     "  bench prepare|run|report|show <benchmark.edn> [--case ID] [--out DIR] [--json]"
     "  bench agent-packet <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--enqueue] [--queue-dir DIR] [--out DIR] [--json]"
-    "  bench agent-baseline <benchmark.edn> [--case ID] [--retriever auto|hybrid|lexical|semantic] [--limit N] [--doc-limit N] [--out DIR] [--json]"
+    "  bench agent-baseline <benchmark.edn> [--case ID] [--retriever auto|hybrid|lexical|semantic|local-vector] [--limit N] [--doc-limit N] [--vector-model MODEL] [--vector-command CMD] [--out DIR] [--json]"
     "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--out DIR] [--json]"
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--out DIR] [--json]"
     "  bench agent-report <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--agent ID] [--out DIR] [--json]"

@@ -1,0 +1,11 @@
+{
+  "Resources": {
+    "PanelQueue": {
+      "Type": "AWS::SQS::Queue"
+    },
+    "PanelWorker": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": "PanelQueue"
+    }
+  }
+}

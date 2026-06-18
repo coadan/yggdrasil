@@ -3,6 +3,9 @@ stages: [test, deploy]
 test:
   stage: test
   image: clojure:tools-deps
+  cache:
+    paths:
+      - .m2/repository
   variables:
     TEST_DB: panels
   script: bb test
@@ -10,4 +13,7 @@ test:
 deploy:
   stage: deploy
   needs: [test]
+  artifacts:
+    paths:
+      - target/report
   script: bb deploy

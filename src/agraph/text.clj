@@ -13,9 +13,31 @@
 (def compound-token-separator-pattern
   #"[._/-]+")
 
+(def ^:dynamic *max-tokenize-chars*
+  "Maximum characters considered for lexical token extraction.
+
+  Large generated/resource files can otherwise spend unbounded time in regex
+  tokenization while contributing little useful retrieval signal. The sample is
+  taken from both ends of the text so file headers and trailing declarations
+  remain searchable."
+  200000)
+
+(defn- bounded-token-text
+  [text]
+  (let [text (str text)
+        limit (long *max-tokenize-chars*)]
+    (if (or (not (pos? limit))
+            (<= (count text) limit))
+      text
+      (let [edge (max 1 (quot limit 2))
+            tail-start (max edge (- (count text) edge))]
+        (str (subs text 0 edge)
+             "\n"
+             (subs text tail-start))))))
+
 (defn- raw-tokens
   [text]
-  (->> (str/split (str text) token-separator-pattern)
+  (->> (str/split (bounded-token-text text) token-separator-pattern)
        (remove str/blank?)))
 
 (defn- token-parts

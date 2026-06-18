@@ -350,6 +350,185 @@ def parse_java(path: str, content: str) -> dict[str, Any]:
     return facts
 
 
+DOTNET_TYPE_NODE_KINDS = {
+    "identifier",
+    "qualified_name",
+    "generic_name",
+}
+
+DOTNET_DEFINITION_KINDS = {
+    "class_declaration": "class",
+    "interface_declaration": "interface",
+    "enum_declaration": "enum",
+    "record_declaration": "record",
+    "record_struct_declaration": "record",
+    "struct_declaration": "struct",
+    "delegate_declaration": "delegate",
+}
+
+
+def tree_sitter_parser_any(languages: Iterable[str]) -> Any | None:
+    for language in languages:
+        parser = tree_sitter_parser(language)
+        if parser is not None:
+            return parser
+    return None
+
+
+def dotnet_name_node(node: Any) -> Any | None:
+    by_field = node_child_by_field_name(node, "name")
+    if by_field is not None:
+        return by_field
+    for child in node_children(node):
+        if node_kind(child) == "identifier":
+            return child
+    return None
+
+
+def dotnet_definition_name(content: str, node: Any, type_stack: list[str]) -> str | None:
+    name_node = dotnet_name_node(node)
+    if name_node is None:
+        return None
+    name = node_text(content, name_node)
+    return ".".join([*type_stack, name]) if type_stack else name
+
+
+def dotnet_namespace(content: str, root: Any) -> str | None:
+    for node in walk_nodes(root):
+        if node_kind(node) in {"namespace_declaration", "file_scoped_namespace_declaration"}:
+            target_node = first_descendant(node, {"qualified_name", "identifier"})
+            if target_node is not None:
+                return node_text(content, target_node)
+    return None
+
+
+def dotnet_usings(content: str, root: Any) -> list[dict[str, Any]]:
+    imports: list[dict[str, Any]] = []
+    for node in walk_nodes(root):
+        if node_kind(node) == "using_directive":
+            target_node = first_descendant(node, {"qualified_name", "identifier"})
+            if target_node is not None:
+                imports.append({"target": node_text(content, target_node), **node_line_range(node)})
+    return imports
+
+
+def dotnet_definitions(content: str, root: Any) -> list[dict[str, Any]]:
+    definitions: list[dict[str, Any]] = []
+
+    def visit(node: Any, type_stack: list[str]) -> None:
+        kind = node_kind(node)
+        next_stack = type_stack
+        if kind in DOTNET_DEFINITION_KINDS:
+            name = dotnet_definition_name(content, node, type_stack)
+            if name:
+                definitions.append(
+                    {
+                        "kind": DOTNET_DEFINITION_KINDS[kind],
+                        "name": name,
+                        **node_line_range(node),
+                    }
+                )
+                next_stack = [*type_stack, name.split(".")[-1]]
+        elif kind in {"method_declaration", "constructor_declaration", "property_declaration"}:
+            name = dotnet_definition_name(content, node, type_stack)
+            if name:
+                definitions.append(
+                    {
+                        "kind": {
+                            "constructor_declaration": "constructor",
+                            "property_declaration": "property",
+                        }.get(kind, "method"),
+                        "name": name,
+                        **node_line_range(node),
+                    }
+                )
+
+        for child in node_children(node):
+            visit(child, next_stack)
+
+    visit(root, [])
+    return definitions
+
+
+def dotnet_reference_source(content: str, node: Any) -> str | None:
+    current = getattr(node, "parent", None)
+    current = current() if callable(current) else current
+    while current is not None:
+        kind = node_kind(current)
+        if kind in DOTNET_DEFINITION_KINDS or kind in {
+            "method_declaration",
+            "constructor_declaration",
+            "property_declaration",
+        }:
+            name = dotnet_name_node(current)
+            return node_text(content, name) if name is not None else None
+        parent = getattr(current, "parent", None)
+        current = parent() if callable(parent) else parent
+    return None
+
+
+def dotnet_references(content: str, root: Any) -> list[dict[str, Any]]:
+    references: list[dict[str, Any]] = []
+    seen: set[tuple[str | None, str, int, str]] = set()
+    for node in walk_nodes(root):
+        kind = node_kind(node)
+        if kind in DOTNET_TYPE_NODE_KINDS:
+            target = node_text(content, node)
+            if not target or target[0].islower():
+                continue
+            key = (dotnet_reference_source(content, node), target, node_line_range(node)["line"], kind)
+            if key not in seen:
+                seen.add(key)
+                references.append(
+                    {
+                        "source": key[0],
+                        "target": target,
+                        "kind": "type",
+                        **node_line_range(node),
+                    }
+                )
+    return references
+
+
+def parse_dotnet(path: str, content: str) -> dict[str, Any]:
+    parser = tree_sitter_parser_any(["c_sharp", "c-sharp", "csharp"])
+    if parser is None:
+        return {
+            "definitions": [],
+            "imports": [],
+            "references": [],
+            "diagnostics": [
+                {
+                    "stage": "parser-worker",
+                    "line": None,
+                    "message": "dotnet parser unavailable: install tree-sitter-language-pack",
+                }
+            ],
+        }
+
+    tree = parser.parse(content)
+    root = tree.root_node()
+    diagnostics = []
+    if node_has_error(root):
+        diagnostics.append(
+            {
+                "stage": "parse",
+                "line": 1,
+                "message": "tree-sitter reported parse errors",
+            }
+        )
+    namespace = dotnet_namespace(content, root)
+    facts = {
+        "definitions": dotnet_definitions(content, root),
+        "imports": dotnet_usings(content, root),
+        "references": dotnet_references(content, root),
+        "diagnostics": diagnostics,
+    }
+    if namespace:
+        facts["namespace"] = namespace
+    return facts
+
+
 def parse_unsupported(kind: str) -> dict[str, Any]:
     return {
         "definitions": [],
@@ -373,6 +552,8 @@ def parse_request(request: dict[str, Any]) -> dict[str, Any]:
         facts = parse_python(path, content)
     elif kind == "java":
         facts = parse_java(path, content)
+    elif kind == "dotnet":
+        facts = parse_dotnet(path, content)
     else:
         facts = parse_unsupported(kind)
     return {

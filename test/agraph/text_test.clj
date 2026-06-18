@@ -48,3 +48,14 @@
           "http"]
          (text/tokenize
           "TypeHandlerTests TestDiscoveryOptions DiscoveryRequestCreatorTests JSONB XMLHttpRequest"))))
+
+(deftest tokenization-bounds-large-input-while-sampling-head-and-tail
+  (binding [text/*max-tokenize-chars* 40]
+    (let [tokens (set (text/tokenize (str "HeadNeedle "
+                                          (apply str (repeat 200 "x"))
+                                          " TailNeedle")))]
+      (is (contains? tokens "headneedle"))
+      (is (contains? tokens "head"))
+      (is (contains? tokens "needle"))
+      (is (contains? tokens "tailneedle"))
+      (is (contains? tokens "tail")))))

@@ -13,7 +13,7 @@
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".lua"
     ".kt" ".kts" ".md" ".mjs" ".mo" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
-    ".nix" ".out" ".prisma" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
+    ".nix" ".odin" ".out" ".prisma" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
     ".service" ".sln" ".socket" ".sql" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".ttf"
     ".license" ".template" ".toml" ".ts" ".tsx" ".txt" ".vb" ".vbproj" ".vue" ".xcconfig"
     ".webp" ".woff" ".woff2" ".yaml" ".yml" ".zig" ".xml"})
@@ -28,7 +28,8 @@
     "pnpm-lock.yaml" "yarn.lock" "gemfile.lock" "poetry.lock"
     "pubspec.lock" "composer.lock" "pipfile.lock" "uv.lock"
     "mix.lock" "requirements.txt" "bun.lock"
-    "pyproject.toml" "pom.xml" "deno.json" "composer.json"
+    "pipfile" "setup.cfg" "setup.py"
+    "pyproject.toml" "pom.xml" "deno.json" "composer.json" "ols.json"
     "gemfile" "rakefile" "pubspec.yaml" "build.sbt" "rebar.config"
     "description" "namespace" "project.toml" "cpanfile" "stack.yaml"
     "build.gradle" "build.gradle.kts" "settings.gradle" "settings.gradle.kts"
@@ -38,7 +39,7 @@
     "app.json" "app.config.json" "eas.json"
     "pnpm-workspace.yaml" "pnpm-workspace.yml" "turbo.json" "nx.json"
     "workspace.json" "lerna.json" "rush.json"
-    "license" "copying" "notice"
+    "license" "copying" "notice" "security.md" "contributing.md"
     "drizzle.config.ts" "drizzle.config.js" "drizzle.config.mjs"
     "drizzle.config.cjs" "drizzle.config.json" "liquibase.properties"
     "flyway.conf" "dbt_project.yml" "dbt_project.yaml"
@@ -46,7 +47,7 @@
     ".pre-commit-config.yaml" ".pre-commit-config.yml"
     "codeowners" "taskfile.yml" "taskfile.yaml" "justfile" ".justfile"
     ".tool-versions" ".node-version" ".python-version" ".ruby-version"
-    "mise.toml" ".mise.toml"
+    "mise.toml" ".mise.toml" "funding.yml" "funding.yaml"
     "nginx.conf" "pulumi.yaml"
     ".graphqlrc" ".graphqlrc.json" ".graphqlrc.yaml" ".graphqlrc.yml"
     "graphql.config.json" "graphql.config.yaml" "graphql.config.yml"
@@ -112,10 +113,15 @@
         path-lower (str/replace (str/lower-case (str path)) "\\" "/")]
     (cond
       (contains? #{"license" "copying" "notice"} filename) :doc
+      (or (contains? #{"security.md" "contributing.md"} filename)
+          (re-find #"(^|/)\.github/issue_template/[^/]+\.(?:md|ya?ml|json)$" path-lower)
+          (re-find #"(^|/)\.github/pull_request_template(?:/[^/]+\.md|\.md)$" path-lower)
+          (re-find #"(^|/)\.github/funding\.ya?ml$" path-lower)) :governance
       (str/ends-with? filename ".env.example") :env
       (str/ends-with? filename ".sh.in") :shell
       (str/ends-with? filename ".rb.template") :ruby
       (= "dockerfile" filename) :docker
+      (= "ols.json" filename) :odin
       (or (re-find #"(^|/)\.github/workflows/[^/]+\.ya?ml$" path-lower)
           (= ".gitlab-ci.yml" filename)
           (= ".gitlab-ci.yaml" filename)
@@ -196,7 +202,8 @@
       :tool-config
       (contains? #{"go.mod" "go.work" "mix.exs" "package.json" "cargo.toml"
                    "pyproject.toml" "pom.xml" "deno.json" "composer.json"
-                   "gemfile" "pubspec.yaml" "build.sbt" "rebar.config"
+                   "gemfile" "pipfile" "setup.cfg" "setup.py"
+                   "pubspec.yaml" "build.sbt" "rebar.config"
                    "description" "namespace" "project.toml" "cpanfile" "stack.yaml"
                    "build.gradle" "build.gradle.kts" "settings.gradle"
                    "settings.gradle.kts" "gradle.properties" "global.json"
@@ -255,6 +262,7 @@
         ".jl" :julia
         (".pl" ".pm") :perl
         ".hs" :haskell
+        ".odin" :odin
         ".zig" :zig
         (".ttf" ".woff" ".woff2") :font-asset
         ".mo" :gettext-binary
@@ -296,6 +304,9 @@
         (str/ends-with? filename ".env.example")
         (str/ends-with? filename ".sh.in")
         (re-find #"(^|/)\.github/workflows/[^/]+\.ya?ml$" path-lower)
+        (re-find #"(^|/)\.github/issue_template/[^/]+\.(?:md|ya?ml|json)$" path-lower)
+        (re-find #"(^|/)\.github/pull_request_template(?:/[^/]+\.md|\.md)$" path-lower)
+        (re-find #"(^|/)\.github/funding\.ya?ml$" path-lower)
         (re-find #"(^|/)\.github/dependabot\.ya?ml$" path-lower)
         (re-find #"(^|/)\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower)
         (re-find #"(^|/)\.circleci/config\.ya?ml$" path-lower)
@@ -343,6 +354,8 @@
       (cond
         (or (str/includes? content "AWSTemplateFormatVersion")
             (and (re-find #"(?m)^Resources:\s*$" content)
+                 (str/includes? content "AWS::"))
+            (and (str/includes? content "\"Resources\"")
                  (str/includes? content "AWS::")))
         :ops-config
 
@@ -353,10 +366,42 @@
 
         :else nil))))
 
+(defn- dbt-content-kind
+  [path-kind file]
+  (when (contains? #{:yaml :config} path-kind)
+    (let [filename (str/lower-case (.getName (io/file file)))
+          content (text-file-prefix file)]
+      (cond
+        (and (contains? #{"packages.yml" "packages.yaml"} filename)
+             (re-find #"(?m)^packages:\s*$" content))
+        :dbt
+
+        (and (contains? #{"profiles.yml" "profiles.yaml"} filename)
+             (re-find #"(?m)^\s*outputs:\s*$" content)
+             (re-find #"(?m)^\s*target:\s*.+" content))
+        :dbt
+
+        (and (re-find #"(?m)^version:\s*2\s*$" content)
+             (re-find #"(?m)^(?:models|sources|exposures|metrics|semantic_models|tests):\s*$"
+                      content))
+        :dbt
+
+        :else nil))))
+
+(defn- helm-template-content-kind
+  [path-kind file]
+  (when (= :yaml path-kind)
+    (let [content (text-file-prefix file)]
+      (when (and (str/includes? content "{{")
+                 (str/includes? content "}}"))
+        :helm))))
+
 (defn- file-kind-for-file
   [file]
   (let [path-kind (file-kind file)]
-    (or (ops-config-content-kind path-kind file)
+    (or (dbt-content-kind path-kind file)
+        (helm-template-content-kind path-kind file)
+        (ops-config-content-kind path-kind file)
         path-kind
         (shebang-kind file)
         :unknown)))
@@ -425,6 +470,9 @@
              (supported-path? path-lower))
         (re-find #"^\.devcontainer/devcontainer\.json$" path-lower)
         (re-find #"^\.github/workflows/[^/]+\.ya?ml$" path-lower)
+        (re-find #"^\.github/issue_template/[^/]+\.(?:md|ya?ml|json)$" path-lower)
+        (re-find #"^\.github/pull_request_template(?:/[^/]+\.md|\.md)$" path-lower)
+        (re-find #"^\.github/funding\.ya?ml$" path-lower)
         (re-find #"^\.github/dependabot\.ya?ml$" path-lower)
         (re-find #"^\.github/codeowners$" path-lower)
         (re-find #"^\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower)

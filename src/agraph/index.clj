@@ -228,12 +228,12 @@
         index-profile (normalize-index-profile index-profile)
         [root-path timings] (timed {} :canonicalize-root-ms #(fs/canonical-path root))
         [files timings] (timed timings
-                                :scan-ms
-                                #(mapv (fn [file]
-                                          (attach-extractor-fingerprint
-                                           index-profile
-                                           (scoped-file project-id repo-id file)))
-                                       (fs/scan-files root-path)))
+                               :scan-ms
+                               #(mapv (fn [file]
+                                        (attach-extractor-fingerprint
+                                         index-profile
+                                         (scoped-file project-id repo-id file)))
+                                      (fs/scan-files root-path)))
         [snapshot timings] (timed timings
                                   :snapshot-ms
                                   #(source-snapshot project-id
@@ -336,7 +336,7 @@
                                             (mapv
                                              (fn [{:keys [file existing? valid-from]}]
                                                (let [file (if-let [facts (get parser-worker-facts
-                                                                               (:path file))]
+                                                                              (:path file))]
                                                             (assoc file
                                                                    :parser-worker-facts
                                                                    facts)
@@ -360,11 +360,11 @@
                                                   :valid-from valid-from}))
                                              changed))))
               [result timings] (timed timings
-                                       :commit-files-ms
-                                       #(store/commit-files! xtdb (:changed planned)))
+                                      :commit-files-ms
+                                      #(store/commit-files! xtdb (:changed planned)))
               [deletes timings] (timed timings
-                                        :delete-files-ms
-                                        #(store/commit-file-deletes! xtdb
+                                       :delete-files-ms
+                                       #(store/commit-file-deletes! xtdb
                                                                     removed-files
                                                                     {:valid-from valid-from}))
               [dependency-result timings] (timed

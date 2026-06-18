@@ -1,0 +1,4 @@
+name: Bug report
+title: "[Bug]: "
+labels: bug, triage
+assignees: platform-team

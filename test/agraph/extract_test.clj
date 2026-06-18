@@ -54,11 +54,19 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/dbt/panel_orders.sql")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/dbt/packages.yml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/dbt/profiles.yml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/dbt/models/schema.yml")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/db/migration/V1__create_panels.sql")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/db/changelog/db.changelog-master.yaml")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/ops/cloudformation.yaml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/infra/cloudformation.json")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/ops/Pulumi.yaml")
                (fs/file-record "test/fixtures/extractor-repo"
@@ -122,6 +130,10 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/src/haskell/panels.cabal")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/src/odin/panel_service.odin")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/src/odin/ols.json")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/src/zig/panel_service.zig")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/tooling/jest.config.js")
@@ -171,6 +183,34 @@
                                "test/fixtures/extractor-repo/infra/chart/Chart.yaml")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/infra/k8s/deployment.yaml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/infra/k8s/crd.yaml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/infra/k8s/crossplane.yaml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/infra/k8s/argocd-application.yaml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/infra/chart/templates/deployment.yaml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/framework/config/routes.yaml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/framework/routes/web.php")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/python/Pipfile")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/python/setup.cfg")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/python/setup.py")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.github/ISSUE_TEMPLATE/bug_report.yml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.github/PULL_REQUEST_TEMPLATE.md")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.github/FUNDING.yml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/SECURITY.md")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/CONTRIBUTING.md")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/notebooks/panel_analysis.ipynb")
                (fs/file-record "test/fixtures/extractor-repo"
@@ -314,9 +354,14 @@
                              "test/fixtures/sample-repo/src/rust/lib.rs")
         result (extract/extract-file "run/test" file)
         labels (set (map :label (:nodes result)))
+        chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))
         relations (frequencies (map :relation (:edges result)))]
     (is (contains? labels "src::rust::lib/Config"))
     (is (contains? labels "src::rust::lib/run"))
+    (is (= :rust-definition
+           (get-in chunks-by-label ["src::rust::lib/Config" :kind])))
+    (is (str/includes? (get-in chunks-by-label ["src::rust::lib/run" :text])
+                       "pub async fn run"))
     (is (= 1 (get relations :declares-module 0)))
     (is (= 1 (get relations :uses 0)))
     (is (pos? (get relations :defines 0)))))
@@ -548,6 +593,73 @@
                        (extract/node-id :symbol "demo/Param")))
         (is (empty? (:diagnostics result)))))))
 
+(deftest java-parser-worker-adapter-covers-rich-java-declarations
+  (let [result (with-redefs [extract/parser-worker-enabled? (constantly true)]
+                 (extract/extract-file
+                  "run/test"
+                  {:file-id "file:Rich.java"
+                   :path "src/Rich.java"
+                   :kind :java
+                   :content "package demo;\n"
+                   :parser-worker-facts
+                   {:package "demo"
+                    :definitions [{:kind "annotation"
+                                   :name "Marker"
+                                   :line 3}
+                                  {:kind "record"
+                                   :name "Item"
+                                   :line 4}
+                                  {:kind "interface"
+                                   :name "Port"
+                                   :line 5}
+                                  {:kind "method"
+                                   :name "Port.load"
+                                   :line 5}
+                                  {:kind "class"
+                                   :name "App"
+                                   :line 6}
+                                  {:kind "constructor"
+                                   :name "App.App"
+                                   :line 7}
+                                  {:kind "method"
+                                   :name "App.load"
+                                   :line 8}
+                                  {:kind "class"
+                                   :name "App.Result"
+                                   :line 9}
+                                  {:kind "class"
+                                   :name "Input"
+                                   :line 11}]
+                    :imports [{:target "java.util.List"
+                               :line 2}]
+                    :references [{:source "App.load"
+                                  :target "Result"
+                                  :kind "type"
+                                  :line 8}
+                                 {:source "App.load"
+                                  :target "Input"
+                                  :kind "type"
+                                  :line 8}]
+                    :diagnostics []}}))
+        kinds-by-label (into {} (map (juxt :label :kind)) (:nodes result))
+        reference-targets (set (map :target-id
+                                    (filter #(= :references (:relation %))
+                                            (:edges result))))]
+    (is (= :annotation (kinds-by-label "demo/Marker")))
+    (is (= :record (kinds-by-label "demo/Item")))
+    (is (= :interface (kinds-by-label "demo/Port")))
+    (is (= :method (kinds-by-label "demo/Port.load")))
+    (is (= :class (kinds-by-label "demo/App")))
+    (is (= :constructor (kinds-by-label "demo/App.App")))
+    (is (= :method (kinds-by-label "demo/App.load")))
+    (is (= :class (kinds-by-label "demo/App.Result")))
+    (is (= :class (kinds-by-label "demo/Input")))
+    (is (contains? reference-targets
+                   (extract/node-id :symbol "demo/Result")))
+    (is (contains? reference-targets
+                   (extract/node-id :symbol "demo/Input")))
+    (is (empty? (:diagnostics result)))))
+
 (deftest extracts-dotnet-namespaces-definitions-and-usings
   (let [file (fs/file-record "test/fixtures/extractor-repo"
                              "test/fixtures/extractor-repo/src/dotnet/PanelService.cs")
@@ -625,13 +737,87 @@
                                "    var text = Convert.ToString(input);\n"
                                "    throw new ArgumentNullException(nameof(input));\n"
                                "  }\n"
+                               "  public string Echo(object input) =>\n"
+                               "    Convert.ToString(input);\n"
                                "}\n")})
         labels (set (map :label (:nodes result)))]
     (is (contains? labels "Demo/App.App"))
     (is (contains? labels "Demo/App.Run"))
+    (is (contains? labels "Demo/App.Echo"))
     (is (not (contains? labels "Demo/App.ToString")))
     (is (not (contains? labels "Demo/App.ArgumentNullException")))
     (is (not (contains? labels "Demo/App.nameof")))
+    (is (empty? (:diagnostics result)))))
+
+(deftest dotnet-parser-worker-adapter-covers-rich-declarations
+  (let [result (with-redefs [extract/parser-worker-enabled? (constantly true)]
+                 (extract/extract-file
+                  "run/test"
+                  {:file-id "file:Rich.cs"
+                   :path "src/Rich.cs"
+                   :kind :dotnet
+                   :content "namespace Demo;\n"
+                   :parser-worker-facts
+                   {:namespace "Demo"
+                    :definitions [{:kind "delegate"
+                                   :name "Loaded"
+                                   :line 3}
+                                  {:kind "interface"
+                                   :name "IPort"
+                                   :line 4}
+                                  {:kind "method"
+                                   :name "IPort.Load"
+                                   :line 4}
+                                  {:kind "record"
+                                   :name "Item"
+                                   :line 5}
+                                  {:kind "class"
+                                   :name "App"
+                                   :line 6}
+                                  {:kind "constructor"
+                                   :name "App.App"
+                                   :line 7}
+                                  {:kind "method"
+                                   :name "App.Load"
+                                   :line 8}
+                                  {:kind "property"
+                                   :name "App.Name"
+                                   :line 9}
+                                  {:kind "class"
+                                   :name "App.Result"
+                                   :line 10}
+                                  {:kind "class"
+                                   :name "Input"
+                                   :line 12}]
+                    :imports [{:target "System.Collections.Generic"
+                               :line 2}]
+                    :references [{:source "App.Load"
+                                  :target "Result"
+                                  :kind "type"
+                                  :line 8}
+                                 {:source "App.Load"
+                                  :target "Input"
+                                  :kind "type"
+                                  :line 8}]
+                    :diagnostics []}}))
+        kinds-by-label (into {} (map (juxt :label :kind)) (:nodes result))
+        reference-targets (set (map :target-id
+                                    (filter #(= :references (:relation %))
+                                            (:edges result))))]
+    (is (= :delegate (kinds-by-label "Demo/Loaded")))
+    (is (= :interface (kinds-by-label "Demo/IPort")))
+    (is (= :method (kinds-by-label "Demo/IPort.Load")))
+    (is (= :record (kinds-by-label "Demo/Item")))
+    (is (= :class (kinds-by-label "Demo/App")))
+    (is (= :constructor (kinds-by-label "Demo/App.App")))
+    (is (= :method (kinds-by-label "Demo/App.Load")))
+    (is (= :property (kinds-by-label "Demo/App.Name")))
+    (is (= :class (kinds-by-label "Demo/App.Result")))
+    (is (= :class (kinds-by-label "Demo/Input")))
+    (is (contains? reference-targets
+                   (extract/node-id :symbol "Demo/Result")))
+    (is (contains? reference-targets
+                   (extract/node-id :symbol "Demo/Input")))
     (is (empty? (:diagnostics result)))))
 
 (deftest extracts-kotlin-packages-definitions-and-imports
@@ -1185,6 +1371,55 @@
                 (remove #(= :code-definition (:kind %)))
                 (mapv :kind))))))
 
+(deftest extracts-odin-packages-imports-definitions-and-config
+  (let [file (fs/file-record "test/fixtures/extractor-repo"
+                             "test/fixtures/extractor-repo/src/odin/panel_service.odin")
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))
+        relations (frequencies (map :relation (:edges result)))
+        import-targets (set (map :target-id
+                                 (filter #(= :imports (:relation %))
+                                         (:edges result))))
+        config-file (fs/file-record "test/fixtures/extractor-repo"
+                                    "test/fixtures/extractor-repo/src/odin/ols.json")
+        config-result (extract/extract-file "run/test" config-file)
+        config-labels (set (map :label (:nodes config-result)))]
+    (is (= :odin (:kind file)))
+    (is (= :odin (:kind config-file)))
+    (is (contains? labels "panels"))
+    (is (contains? labels "panels/Panel"))
+    (is (contains? labels "panels/Status"))
+    (is (contains? labels "panels/Payload"))
+    (is (contains? labels "panels/Default_ID"))
+    (is (contains? labels "panels/active_count"))
+    (is (contains? labels "panels/load_panel"))
+    (is (contains? labels "panels/normalize_id"))
+    (is (contains? labels "libc:system:c"))
+    (is (= 3 (get relations :imports 0)))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "core:fmt")))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "core:encoding/json")))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "system:c")))
+    (is (= :code-definition
+           (get-in chunks-by-label ["panels/load_panel" :kind])))
+    (is (= :function
+           (get-in chunks-by-label ["panels/load_panel" :definition-kind])))
+    (is (= [:odin-file]
+           (->> (:chunks result)
+                (remove #(= :code-definition (:kind %)))
+                (mapv :kind))))
+    (is (contains? config-labels "src/odin/ols.json"))
+    (is (contains? config-labels "panels-odin"))
+    (is (contains? config-labels "odin"))
+    (is (contains? config-labels "panels=src/odin"))
+    (is (contains? config-labels "vendor=vendor/odin"))
+    (is (contains? config-labels "src/odin"))
+    (is (= [:odin-config-file]
+           (mapv :kind (:chunks config-result))))))
+
 (deftest extracts-project-manifest-dependencies-and-references
   (let [pom-result (extract/extract-file
                     "run/test"
@@ -1617,6 +1852,70 @@
     (is (= :parse (:stage diagnostic)))
     (is (str/includes? (:message diagnostic) "top-level name"))))
 
+(deftest extracts-dbt-profile-package-and-schema-yaml
+  (let [result-for (fn [path]
+                     (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      (str "test/fixtures/extractor-repo/" path))))
+        kind-for (fn [path]
+                   (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                          (str "test/fixtures/extractor-repo/" path))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        profiles (result-for "dbt/profiles.yml")
+        packages (result-for "dbt/packages.yml")
+        schema (result-for "dbt/models/schema.yml")]
+    (is (= :dbt (kind-for "dbt/profiles.yml")))
+    (is (= :dbt (kind-for "dbt/packages.yml")))
+    (is (= :dbt (kind-for "dbt/models/schema.yml")))
+    (is (contains? (labels profiles) "panels"))
+    (is (contains? (labels profiles) "dev"))
+    (is (contains? (labels profiles) "postgres"))
+    (is (contains? (labels profiles) "bigquery"))
+    (is (= 1 (:dbt-profile (kinds profiles))))
+    (is (= 2 (:dbt-output (kinds profiles))))
+    (is (contains? (labels packages) "dbt:dbt-labs/dbt_utils"))
+    (is (contains? (labels packages) "dbt:https://github.com/acme/dbt-panels.git"))
+    (is (contains? (labels schema) "billing"))
+    (is (contains? (labels schema) "panel_orders"))
+    (is (contains? (labels schema) "executive_dashboard"))
+    (is (contains? (labels schema) "order_count"))
+    (is (contains? (labels schema) "accepted_values_panel_status"))
+    (is (= 1 (:dbt-source (kinds schema))))
+    (is (= 1 (:dbt-model (kinds schema))))
+    (is (= 1 (:dbt-exposure (kinds schema))))
+    (is (= 1 (:dbt-metric (kinds schema))))
+    (is (= 1 (:dbt-test (kinds schema))))))
+
+(deftest extracts-governance-template-and-policy-facts
+  (let [result-for (fn [path]
+                     (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      (str "test/fixtures/extractor-repo/" path))))
+        kind-for (fn [path]
+                   (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                          (str "test/fixtures/extractor-repo/" path))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        issue (result-for ".github/ISSUE_TEMPLATE/bug_report.yml")
+        pr (result-for ".github/PULL_REQUEST_TEMPLATE.md")
+        funding (result-for ".github/FUNDING.yml")
+        security (result-for "SECURITY.md")
+        contributing (result-for "CONTRIBUTING.md")]
+    (is (= :governance (kind-for ".github/ISSUE_TEMPLATE/bug_report.yml")))
+    (is (= :governance (kind-for ".github/PULL_REQUEST_TEMPLATE.md")))
+    (is (= :governance (kind-for ".github/FUNDING.yml")))
+    (is (= :governance (kind-for "SECURITY.md")))
+    (is (= :governance (kind-for "CONTRIBUTING.md")))
+    (is (contains? (labels issue) "name=Bug report"))
+    (is (contains? (labels issue) "labels=bug, triage"))
+    (is (contains? (labels pr) "Summary"))
+    (is (contains? (labels pr) "Tests updated"))
+    (is (contains? (labels funding) "github=acme"))
+    (is (contains? (labels security) "Security Policy"))
+    (is (contains? (labels contributing) "Development"))))
+
 (deftest extracts-format-support-tranche-facts
   (let [result-for (fn [path]
                      (extract/extract-file
@@ -1957,6 +2256,50 @@
     (is (= [:helm-file] (mapv :kind (:chunks helm-result))))
     (is (= [:yaml-file] (mapv :kind (:chunks yaml-result))))))
 
+(deftest extracts-cloud-iac-and-framework-route-facts
+  (let [result-for (fn [path]
+                     (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      (str "test/fixtures/extractor-repo/" path))))
+        kind-for (fn [path]
+                   (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                          (str "test/fixtures/extractor-repo/" path))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        relations (fn [result] (frequencies (map :relation (:edges result))))
+        cfn-json (result-for "infra/cloudformation.json")
+        crd (result-for "infra/k8s/crd.yaml")
+        crossplane (result-for "infra/k8s/crossplane.yaml")
+        argocd (result-for "infra/k8s/argocd-application.yaml")
+        helm-template (result-for "infra/chart/templates/deployment.yaml")
+        symfony-routes (result-for "framework/config/routes.yaml")
+        php-routes (result-for "framework/routes/web.php")]
+    (is (= :ops-config (kind-for "infra/cloudformation.json")))
+    (is (= :helm (kind-for "infra/chart/templates/deployment.yaml")))
+    (is (contains? (labels cfn-json) "PanelQueue"))
+    (is (contains? (labels cfn-json) "AWS::SQS::Queue"))
+    (is (= 1 (get (relations cfn-json) :references 0)))
+    (is (contains? (labels crd) "CustomResourceDefinition/panels.example.com"))
+    (is (contains? (labels crd) "example.com"))
+    (is (contains? (labels crd) "Panel"))
+    (is (contains? (labels crd) "v1alpha1"))
+    (is (= 1 (:k8s-crd-kind (kinds crd))))
+    (is (contains? (labels crossplane) "Bucket/panel-assets"))
+    (is (contains? (labels crossplane) "aws-prod"))
+    (is (= 1 (:crossplane-resource (kinds crossplane))))
+    (is (contains? (labels argocd) "panels"))
+    (is (contains? (labels argocd) "https://github.com/acme/panels"))
+    (is (contains? (labels argocd) "deploy/panels"))
+    (is (contains? (labels argocd) "https://kubernetes.default.svc"))
+    (is (= 1 (:argocd-application (kinds argocd))))
+    (is (contains? (labels helm-template) "Deployment/{{ include \"panels.fullname\" . }}"))
+    (is (contains? (labels symfony-routes) "/panels/{id}"))
+    (is (contains? (labels symfony-routes) "App\\Controller\\PanelController::show"))
+    (is (contains? (labels php-routes) "GET /panels"))
+    (is (contains? (labels php-routes) "POST /panels/{id}"))
+    (is (contains? (labels php-routes) "/admin/panels"))))
+
 (deftest extracts-package-and-workspace-manifest-facts
   (let [package-result (extract/extract-file
                         "run/test"
@@ -2055,13 +2398,21 @@
                       {:file-id "file:Cargo.toml"
                        :path "Cargo.toml"
                        :kind :manifest
-                       :content "[package]\nname = \"demo\"\n\n[dependencies]\nserde = \"1\"\ntokio = { version = \"1.38\" }\n"})
+                       :content (str "[package]\nname = \"demo\"\n\n"
+                                     "[dependencies]\nserde = \"1\"\ntokio = { version = \"1.38\" }\n\n"
+                                     "[workspace]\nmembers = [\"crates/api\", \"crates/core\"]\n\n"
+                                     "[features]\npostgres = []\n")})
         go-result (extract/extract-file
                    "run/test"
                    {:file-id "file:go.mod"
                     :path "go.mod"
                     :kind :manifest
-                    :content "module example.com/app\n\nrequire (\n  github.com/acme/lib v1.2.3\n)\nrequire golang.org/x/sync v0.7.0\n"})
+                    :content (str "module example.com/app\n\ngo 1.23\n"
+                                  "toolchain go1.23.2\n\n"
+                                  "require (\n  github.com/acme/lib v1.2.3\n)\n"
+                                  "require golang.org/x/sync v0.7.0\n"
+                                  "replace github.com/acme/old => ./local/old\n"
+                                  "exclude github.com/acme/bad v0.1.0\n")})
         pyproject-result (extract/extract-file
                           "run/test"
                           {:file-id "file:pyproject.toml"
@@ -2070,8 +2421,22 @@
                            :content (str "[project]\n"
                                          "name = \"demo-py\"\n"
                                          "dependencies = [\"requests>=2\", \"click\"]\n\n"
+                                         "[project.optional-dependencies]\n"
+                                         "dev = [\"pytest\"]\n\n"
                                          "[tool.agraph.import-names]\n"
                                          "requests = [\"requests\"]\n")})
+        pipfile-result (extract/extract-file
+                        "run/test"
+                        (fs/file-record "test/fixtures/extractor-repo"
+                                        "test/fixtures/extractor-repo/python/Pipfile"))
+        setup-cfg-result (extract/extract-file
+                          "run/test"
+                          (fs/file-record "test/fixtures/extractor-repo"
+                                          "test/fixtures/extractor-repo/python/setup.cfg"))
+        setup-py-result (extract/extract-file
+                         "run/test"
+                         (fs/file-record "test/fixtures/extractor-repo"
+                                         "test/fixtures/extractor-repo/python/setup.py"))
         deps-result (extract/extract-file
                      "run/test"
                      {:file-id "file:deps.edn"
@@ -2083,13 +2448,35 @@
                        (some #(when (= label (:label %)) %) (:nodes result)))]
     (is (contains? (labels cargo-result) "cargo:serde"))
     (is (contains? (labels cargo-result) "cargo:tokio"))
+    (is (contains? (labels cargo-result) "crates/api"))
+    (is (contains? (labels cargo-result) "crates/core"))
+    (is (contains? (labels cargo-result) "postgres"))
     (is (= "serde" (:package-name (package-node cargo-result "cargo:serde"))))
     (is (contains? (labels go-result) "go:github.com/acme/lib"))
     (is (contains? (labels go-result) "go:golang.org/x/sync"))
+    (is (contains? (labels go-result) "1.23"))
+    (is (contains? (labels go-result) "go1.23.2"))
+    (is (contains? (labels go-result) "github.com/acme/old=>./local/old"))
+    (is (contains? (labels go-result) "github.com/acme/bad@v0.1.0"))
     (is (contains? (labels pyproject-result) "pypi:requests"))
     (is (contains? (labels pyproject-result) "pypi:click"))
+    (is (contains? (labels pyproject-result) "pypi:pytest"))
     (is (= ["requests"]
            (:import-names (package-node pyproject-result "pypi:requests"))))
+    (is (= :manifest (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                            "test/fixtures/extractor-repo/python/Pipfile"))))
+    (is (= :manifest (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                            "test/fixtures/extractor-repo/python/setup.cfg"))))
+    (is (= :manifest (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                            "test/fixtures/extractor-repo/python/setup.py"))))
+    (is (contains? (labels pipfile-result) "pypi:requests"))
+    (is (contains? (labels pipfile-result) "pypi:pytest"))
+    (is (contains? (labels setup-cfg-result) "panels-py"))
+    (is (contains? (labels setup-cfg-result) "pypi:requests"))
+    (is (contains? (labels setup-cfg-result) "pypi:click"))
+    (is (contains? (labels setup-py-result) "panels-setup"))
+    (is (contains? (labels setup-py-result) "pypi:fastapi"))
+    (is (contains? (labels setup-py-result) "pypi:uvicorn"))
     (is (contains? (labels deps-result) "maven:org.clojure/data.json"))))
 
 (deftest extracts-dependency-lock-version-facts
@@ -2535,6 +2922,51 @@
       (is (= :parse (:stage diagnostic)))
       (is (= [:python-file] (mapv :kind (:chunks result)))))))
 
+(deftest extract-python-uses-parser-worker-facts-when-present
+  (let [file (assoc (fs/file-record "test/fixtures/sample-repo"
+                                    "test/fixtures/sample-repo/src/python/app.py")
+                    :content "def broken(:\n    pass\n"
+                    :parser-worker-facts
+                    {:definitions [{:kind "function"
+                                    :name "from_worker"
+                                    :line 1}]
+                     :imports [{:target "worker.dep"
+                                :line 1}]
+                     :references []
+                     :diagnostics []})
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        import-targets (set (map :target-id
+                                 (filter #(= :imports (:relation %))
+                                         (:edges result))))]
+    (is (contains? labels "src.python.app/from_worker"))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "worker.dep")))
+    (is (empty? (:diagnostics result)))))
+
+(deftest extracts-continuation-chunks-for-long-clojure-definitions
+  (let [root (doto (java.io.File/createTempFile "agraph-long-cljs" "")
+               (.delete)
+               (.mkdirs)
+               (.deleteOnExit))
+        source (io/file root "src/demo/large.cljs")
+        filler (str/join "\n" (repeat 130 "  (identity :filler)"))
+        content (str "(ns demo.large)\n\n"
+                     "(defn create-context []\n"
+                     filler "\n"
+                     "  (identity :openPage)\n"
+                     "  (identity :createBoard))\n")]
+    (.mkdirs (.getParentFile source))
+    (spit source content)
+    (let [result (extract/extract-file "run/test"
+                                       (fs/file-record (.getPath root)
+                                                       (.getPath source)))
+          fragment (some #(when (= :code-definition-fragment (:kind %)) %)
+                         (:chunks result))]
+      (is fragment)
+      (is (str/includes? (:text fragment) ":openPage"))
+      (is (str/includes? (:text fragment) ":createBoard")))))
+
 (deftest extracts-typescript-modules-definitions-and-imports
   (let [file (fs/file-record "test/fixtures/sample-repo"
                              "test/fixtures/sample-repo/src/web/app.ts")
@@ -2562,7 +2994,15 @@
     (is (contains? import-targets
                    (extract/node-id :namespace "src.web.data")))
     (is (= 4 (get relations :defines 0)))
-    (is (= [:typescript-file] (mapv :kind (:chunks result))))
+    (is (= [:typescript-file
+            :code-definition
+            :code-definition
+            :code-definition
+            :code-definition]
+           (mapv :kind (:chunks result))))
+    (is (some #(and (= "src.web.app/helper" (:label %))
+                    (str/includes? (:text %) "const helper"))
+              (:chunks result)))
     (is (empty? (:diagnostics result)))))
 
 (deftest extracts-style-as-searchable-source-chunk
@@ -2618,30 +3058,41 @@
     (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/ci/.github/workflows/ci.yml"))))
     (is (contains? github-labels "CI"))
+    (is (contains? github-labels "push"))
+    (is (contains? github-labels "pull_request"))
     (is (contains? github-labels "test"))
     (is (contains? github-labels "deploy"))
     (is (contains? github-labels "ubuntu-latest"))
     (is (contains? github-labels "ghcr.io/acme/deploy:latest"))
+    (is (contains? github-labels "actions/checkout@v4"))
+    (is (contains? github-labels "actions/cache@v4"))
+    (is (contains? github-labels "actions/upload-artifact@v4"))
     (is (contains? github-labels "test:TEST_DB"))
     (is (contains? github-labels "apps/web"))
+    (is (= 2 (:ci-trigger github-kinds)))
+    (is (= 3 (:ci-action github-kinds)))
     (is (= 1 (:ci-runner github-kinds)))
     (is (= 1 (:container-image github-kinds)))
     (is (= 1 (:ci-env-var github-kinds)))
     (is (= 1 (:ci-working-directory github-kinds)))
     (is (= 2 (get github-relations :defines 0)))
     (is (= 1 (get github-relations :requires 0)))
-    (is (= 5 (get github-relations :uses 0)))
+    (is (= 10 (get github-relations :uses 0)))
     (is (= #{"bb test" "bb deploy"} (set (map :text github-command-chunks))))
     (is (contains? gitlab-labels "ci/.gitlab-ci.yml"))
     (is (contains? gitlab-labels "test"))
     (is (contains? gitlab-labels "deploy"))
     (is (contains? gitlab-labels "clojure:tools-deps"))
     (is (contains? gitlab-labels "test:TEST_DB"))
+    (is (contains? gitlab-labels "test:cache"))
+    (is (contains? gitlab-labels "deploy:artifacts"))
     (is (= 1 (:container-image gitlab-kinds)))
     (is (= 1 (:ci-env-var gitlab-kinds)))
+    (is (= 1 (:ci-cache gitlab-kinds)))
+    (is (= 1 (:ci-artifact gitlab-kinds)))
     (is (= 2 (get gitlab-relations :defines 0)))
     (is (= 1 (get gitlab-relations :requires 0)))
-    (is (= 2 (get gitlab-relations :uses 0)))
+    (is (= 4 (get gitlab-relations :uses 0)))
     (is (= #{"bb test" "bb deploy"} (set (map :text gitlab-command-chunks))))))
 
 (deftest extracts-build-targets-and-dependencies

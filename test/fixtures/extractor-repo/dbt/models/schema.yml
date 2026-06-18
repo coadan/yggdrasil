@@ -1,0 +1,13 @@
+version: 2
+sources:
+  - name: billing
+models:
+  - name: panel_orders
+    tests:
+      - unique
+exposures:
+  - name: executive_dashboard
+metrics:
+  - name: order_count
+tests:
+  - name: accepted_values_panel_status

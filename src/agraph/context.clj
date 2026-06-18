@@ -395,7 +395,9 @@
                                            (doc-novelty-score seen-paths
                                                               seen-definition-kinds
                                                               doc)]))
-                           (sort-by (juxt (comp - #(nth % 2)) first))
+                           (sort-by (juxt (comp doc-priority second)
+                                          (comp - #(nth % 2))
+                                          first))
                            first)
             definition-key (doc-definition-kind-key doc)]
         (recur (vec (concat (subvec remaining 0 idx)
@@ -407,11 +409,18 @@
 
 (defn- attached-docs
   [overlay chunks snippet-chars targets]
-  (->> (:docs overlay)
-       (filter #(contains? targets (:target %)))
-       (filter #(not= "rejected" (s (:status %))))
-       (map #(attachment->doc chunks snippet-chars %))
-       vec))
+  (let [system-label-by-id (into {}
+                                 (keep (fn [{:keys [id label]}]
+                                         (when (and id label)
+                                           [id label])))
+                                 (:systems overlay))]
+    (->> (:docs overlay)
+         (filter (fn [{:keys [target]}]
+                   (or (contains? targets target)
+                       (contains? targets (get system-label-by-id target)))))
+         (filter #(not= "rejected" (s (:status %))))
+         (map #(attachment->doc chunks snippet-chars %))
+         vec)))
 
 (defn- graph-summary
   [graph-data]

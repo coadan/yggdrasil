@@ -1,0 +1,9 @@
+{
+  "name": "panels-odin",
+  "checkerPath": "odin",
+  "collections": {
+    "panels": "src/odin",
+    "vendor": "vendor/odin"
+  },
+  "packagePaths": ["src/odin"]
+}

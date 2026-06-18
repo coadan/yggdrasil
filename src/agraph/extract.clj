@@ -1,6 +1,7 @@
 (ns agraph.extract
   "Deterministic extraction from supported source, config, and document files."
-  (:require [agraph.hash :as hash]
+  (:require [agraph.fs :as fs]
+            [agraph.hash :as hash]
             [agraph.text :as text]
             [charred.api :as json]
             [clojure.edn :as edn]
@@ -17,8 +18,11 @@
 (def extraction-buckets
   [:nodes :edges :chunks :diagnostics])
 
+(declare extract-format-facts
+         read-json-map)
+
 (def extractor-contract-version
-  "agraph.extract/v1")
+  "agraph.extract/v2")
 
 (def extractor-versions
   {:code "clojure/v9"
@@ -38,6 +42,7 @@
    :julia "julia/v1"
    :perl "perl/v1"
    :haskell "haskell/v1"
+   :odin "odin/v1"
    :zig "zig/v1"
    :apple-config "apple-config/v1"
    :astro "astro/v1"
@@ -51,6 +56,7 @@
    :task-runner "task-runner/v1"
    :starlark "starlark/v1"
    :tool-version-config "tool-version-config/v1"
+   :governance "governance/v1"
    :db-config "db-config/v1"
    :db-migration "db-migration/v1"
    :codegen-config "codegen-config/v1"
@@ -202,6 +208,8 @@
 
 (def ^:private code-file-chunk-lines 80)
 (def ^:private code-definition-chunk-lines 120)
+(def ^:private rust-file-chunk-lines 80)
+(def ^:private rust-definition-chunk-lines 120)
 (def ^:private go-file-chunk-lines 100)
 (def ^:private go-definition-chunk-lines 120)
 
@@ -502,6 +510,37 @@
       (pos? line-count) (assoc :end-line (+ (or line 1) line-count -1))
       (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
 
+(defn- code-definition-fragment-chunks
+  [run-id id-scope file-id path ns-name {:keys [def-sym name line text]}]
+  (let [full-name (if ns-name (str ns-name "/" name) name)
+        def-sym (symbol def-sym)
+        source-line (or line 1)
+        lines (vec (str/split-lines (or text "")))]
+    (->> lines
+         (drop code-definition-chunk-lines)
+         (partition-all code-definition-chunk-lines)
+         (map-indexed
+          (fn [idx part]
+            (let [offset (* (inc idx) code-definition-chunk-lines)
+                  part (vec part)
+                  fragment-line (+ source-line offset)
+                  end-line (+ fragment-line (count part) -1)
+                  label (str full-name "#lines-" fragment-line "-" end-line)
+                  chunk-text (str/join "\n" part)]
+              (cond-> {:xt/id (chunk-id id-scope path label fragment-line)
+                       :file-id file-id
+                       :path path
+                       :kind :code-definition-fragment
+                       :definition-kind (definition-kind def-sym)
+                       :label label
+                       :text chunk-text
+                       :tokens (text/tokenize (str full-name "\n" label "\n" chunk-text))
+                       :source-line fragment-line
+                       :end-line end-line
+                       :active? true
+                       :run-id run-id}
+                (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))))))
+
 (defn extract-code
   "Extract graph rows from a Clojure source file record."
   [run-id {:keys [id-scope file-id path content]}]
@@ -538,10 +577,17 @@
                                                           path
                                                           ns-name
                                                           %)
-                                  def-forms)]
+                                  def-forms)
+          definition-fragment-chunks (mapcat #(code-definition-fragment-chunks run-id
+                                                                               id-scope
+                                                                               file-id
+                                                                               path
+                                                                               ns-name
+                                                                               %)
+                                             def-forms)]
       {:nodes (into [ns-node] defs)
        :edges (vec (concat contains-edges require-edges))
-       :chunks (into [chunk] definition-chunks)
+       :chunks (vec (concat [chunk] definition-chunks definition-fragment-chunks))
        :diagnostics []})
     (catch Exception e
       {:nodes []
@@ -746,29 +792,67 @@
          distinct
          vec)))
 
+(defn- rust-definition-text
+  [lines current-def next-def]
+  (let [source-line (:source-line current-def)
+        end-line (or (some-> next-def :source-line dec)
+                     (count lines))]
+    (->> lines
+         (drop (dec source-line))
+         (take (inc (- end-line source-line)))
+         (take rust-definition-chunk-lines)
+         (str/join "\n"))))
+
+(defn- rust-definition-chunk
+  [run-id id-scope file-id path module-name {:keys [kind name source-line text]}]
+  (let [label (str module-name "/" name)
+        chunk-text (bounded-lines text rust-definition-chunk-lines)
+        line-count (count (str/split-lines chunk-text))]
+    (cond-> {:xt/id (chunk-id id-scope path label source-line)
+             :file-id file-id
+             :path path
+             :kind :rust-definition
+             :definition-kind kind
+             :label label
+             :text chunk-text
+             :tokens (text/tokenize (str label "\n" chunk-text))
+             :source-line source-line
+             :active? true
+             :run-id run-id}
+      (pos? line-count) (assoc :end-line (+ source-line line-count -1))
+      (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
+
 (defn extract-rust
   "Extract graph rows from a Rust source file record."
   [run-id {:keys [id-scope file-id path content]}]
   (let [module-name (rust-module-name path)
         ns-node (namespace-node run-id id-scope file-id path module-name)
         lines (str/split-lines content)
-        defs (->> lines
-                  (map-indexed rust-definition-line)
-                  (keep identity)
-                  (mapv (fn [{:keys [kind name public? source-line]}]
-                          (let [label (str module-name "/" name)]
-                            {:xt/id (node-id id-scope :symbol label)
-                             :label label
-                             :kind kind
-                             :file-id file-id
-                             :path path
-                             :namespace module-name
-                             :name name
-                             :public? public?
-                             :source-line source-line
-                             :tokens (text/tokenize label)
-                             :active? true
-                             :run-id run-id}))))
+        raw-defs (->> lines
+                      (map-indexed rust-definition-line)
+                      (keep identity)
+                      vec)
+        defs-with-text (mapv (fn [current next-def]
+                               (assoc current :text (rust-definition-text lines
+                                                                          current
+                                                                          next-def)))
+                             raw-defs
+                             (concat (rest raw-defs) [nil]))
+        defs (mapv (fn [{:keys [kind name public? source-line]}]
+                     (let [label (str module-name "/" name)]
+                       {:xt/id (node-id id-scope :symbol label)
+                        :label label
+                        :kind kind
+                        :file-id file-id
+                        :path path
+                        :namespace module-name
+                        :name name
+                        :public? public?
+                        :source-line source-line
+                        :tokens (text/tokenize label)
+                        :active? true
+                        :run-id run-id}))
+                   defs-with-text)
         define-edges (mapv #(edge-row run-id file-id path
                                       (:xt/id ns-node)
                                       (:xt/id %)
@@ -793,7 +877,7 @@
                                                 %2)
                                 lines)
         call-edges (rust-call-edges run-id file-id path defs content)
-        chunk-text (str/join "\n" (take 80 lines))
+        chunk-text (str/join "\n" (take rust-file-chunk-lines lines))
         chunk {:xt/id (chunk-id id-scope path module-name 1)
                :file-id file-id
                :path path
@@ -803,10 +887,17 @@
                :tokens (text/tokenize (str module-name "\n" chunk-text))
                :source-line 1
                :active? true
-               :run-id run-id}]
+               :run-id run-id}
+        definition-chunks (mapv #(rust-definition-chunk run-id
+                                                        id-scope
+                                                        file-id
+                                                        path
+                                                        module-name
+                                                        %)
+                                defs-with-text)]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges module-edges use-edges call-edges))
-     :chunks [chunk]
+     :chunks (into [chunk] definition-chunks)
      :diagnostics []}))
 
 (defn- go-namespace-name
@@ -1234,10 +1325,12 @@
 
 (defn extract-python
   "Extract graph rows from a Python source file record using Python's stdlib AST."
-  [run-id {:keys [id-scope file-id path absolute-path content]}]
+  [run-id {:keys [id-scope file-id path absolute-path content] :as file}]
   (let [module-name (python-module-name path)
         ns-node (namespace-node run-id id-scope file-id path module-name)
-        facts (python-facts absolute-path)
+        facts (if (contains? file :parser-worker-facts)
+                (parser-worker-facts file)
+                (python-facts absolute-path))
         defs (->> (:definitions facts)
                   (mapv (fn [{:keys [kind name line]}]
                           (let [label (str module-name "/" name)]
@@ -1303,7 +1396,7 @@
   (-> path
       (str/replace #"\.d\.ts$" "")
       (str/replace #"\.rb\.template$" "")
-      (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|mjs|cjs|jsx|js|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
+      (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|mjs|cjs|jsx|js|odin|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
       (str/replace #"/" ".")
       (str/replace #"-" "_")))
 
@@ -1414,6 +1507,29 @@
                  :source-line (inc idx)}))
          distinct)))
 
+(def ^:private js-definition-chunk-lines 80)
+
+(defn- js-definition-chunk
+  [run-id id-scope file-id path lines {:keys [label kind source-line]}]
+  (let [chunk-text (->> lines
+                        (drop (dec (or source-line 1)))
+                        (take js-definition-chunk-lines)
+                        (str/join "\n"))
+        line-count (count (str/split-lines chunk-text))]
+    (cond-> {:xt/id (chunk-id id-scope path label (or source-line 1))
+             :file-id file-id
+             :path path
+             :kind :code-definition
+             :definition-kind kind
+             :label label
+             :text chunk-text
+             :tokens (text/tokenize (str label "\n" chunk-text))
+             :source-line (or source-line 1)
+             :active? true
+             :run-id run-id}
+      (pos? line-count) (assoc :end-line (+ (or source-line 1) line-count -1))
+      (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
+
 (defn extract-js-family
   "Extract bounded module facts from JavaScript and TypeScript source files."
   [run-id {:keys [id-scope file-id path content kind]}]
@@ -1466,10 +1582,17 @@
                :tokens (text/tokenize (str module-name "\n" chunk-text))
                :source-line 1
                :active? true
-               :run-id run-id}]
+               :run-id run-id}
+        definition-chunks (mapv #(js-definition-chunk run-id
+                                                      id-scope
+                                                      file-id
+                                                      path
+                                                      lines
+                                                      %)
+                                defs)]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges import-edges))
-     :chunks [chunk]
+     :chunks (into [chunk] definition-chunks)
      :diagnostics []}))
 
 (def ^:private jvm-family-file-chunk-lines 100)
@@ -2513,7 +2636,7 @@
   (when current-type
     (when-let [[_ visibility _modifiers return-type name]
                (re-matches
-                #"^\s*(?:(public|protected|private|internal)\s+)?((?:(?:static|virtual|override|abstract|sealed|async|extern|unsafe|new)\s+)*)?(?:(\S(?:.*\S)?)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:where\b[^{]*)?(?:=>.*|;|\{)?\s*$"
+                #"^\s*(?:(public|protected|private|internal)\s+)?((?:(?:static|virtual|override|abstract|sealed|async|extern|unsafe|new)\s+)*)?(?:([^();={}]+?)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:where\b[^{]*)?(?:=>.*|;|\{.*)?\s*$"
                 line)]
       (when-not (contains? dotnet-member-exclusions name)
         (let [constructor? (= name (:name current-type))
@@ -2644,6 +2767,146 @@
                                                ".NET")]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges using-edges))
+     :chunks (into [chunk] definition-chunks)
+     :diagnostics diagnostics}))
+
+(defn- dotnet-worker-definition-kind
+  [kind]
+  (case (keyword kind)
+    :class :class
+    :interface :interface
+    :enum :enum
+    :record :record
+    :struct :struct
+    :delegate :delegate
+    :constructor :constructor
+    :method :method
+    :property :property
+    :symbol))
+
+(defn- dotnet-worker-source-name
+  [source definitions]
+  (let [source (str source)
+        names (set (map :name definitions))]
+    (or (some #(when (or (= source %)
+                         (str/ends-with? % (str "." source)))
+                 %)
+              names)
+        source)))
+
+(defn- dotnet-worker-reference-target-name
+  [target]
+  (some-> target
+          str
+          (str/replace #"<.*$" "")
+          (str/replace #"\[\]$" "")
+          (str/split #"\.")
+          last
+          not-empty))
+
+(defn extract-dotnet-worker
+  "Extract .NET facts through the optional parser worker."
+  [run-id {:keys [id-scope file-id path content] :as file}]
+  (let [facts (parser-worker-facts file)
+        module-name (or (not-empty (str (:namespace facts)))
+                        (dotnet-module-name path content))
+        ns-node (namespace-node run-id id-scope file-id path module-name)
+        definitions (vec (:definitions facts))
+        imports (vec (:imports facts))
+        import-symbols (java-import-symbols-by-simple-name imports)
+        defs (mapv (fn [{:keys [kind name line]}]
+                     (let [label (str module-name "/" name)]
+                       {:xt/id (node-id id-scope :symbol label)
+                        :label label
+                        :kind (dotnet-worker-definition-kind kind)
+                        :file-id file-id
+                        :path path
+                        :namespace module-name
+                        :name name
+                        :public? true
+                        :source-line (or line 1)
+                        :tokens (text/tokenize label)
+                        :active? true
+                        :run-id run-id}))
+                   definitions)
+        defined-names (set (map :name definitions))
+        define-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           defs)
+        import-edges (->> imports
+                          (keep (fn [{:keys [target line]}]
+                                  (when-not (str/blank? (str target))
+                                    (edge-row run-id file-id path
+                                              (:xt/id ns-node)
+                                              (node-id id-scope
+                                                       :namespace
+                                                       (str target))
+                                              :imports
+                                              :extracted
+                                              (or line 1)))))
+                          vec)
+        reference-edges (->> (:references facts)
+                             (keep (fn [{:keys [source target line]}]
+                                     (let [source-name (dotnet-worker-source-name
+                                                        source
+                                                        definitions)
+                                           target-name (dotnet-worker-reference-target-name
+                                                        target)]
+                                       (when (and (seq source-name)
+                                                  (seq target-name)
+                                                  (contains? defined-names source-name)
+                                                  (not= (first (str/split source-name #"\."))
+                                                        target-name))
+                                         (edge-row
+                                          run-id
+                                          file-id
+                                          path
+                                          (node-id id-scope
+                                                   :symbol
+                                                   (str module-name "/" source-name))
+                                          (node-id id-scope
+                                                   :symbol
+                                                   (java-reference-target-label
+                                                    module-name
+                                                    import-symbols
+                                                    target-name))
+                                          :references
+                                          :extracted
+                                          (or line 1))))))
+                             distinct
+                             vec)
+        chunk (source-text-chunk run-id
+                                 id-scope
+                                 file-id
+                                 path
+                                 :dotnet-file
+                                 module-name
+                                 content
+                                 jvm-family-file-chunk-lines)
+        definition-chunks (mapv (fn [{:keys [kind name line]}]
+                                  (source-definition-chunk
+                                   run-id
+                                   id-scope
+                                   file-id
+                                   path
+                                   (str module-name "/" name)
+                                   (dotnet-worker-definition-kind kind)
+                                   (or line 1)
+                                   ""))
+                                definitions)
+        diagnostics (mapv #(diagnostic-row run-id
+                                           file-id
+                                           path
+                                           (:stage %)
+                                           (:line %)
+                                           (:message %))
+                          (:diagnostics facts))]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges reference-edges))
      :chunks (into [chunk] definition-chunks)
      :diagnostics diagnostics}))
 
@@ -4132,6 +4395,207 @@
      :chunks (into [chunk] definition-chunks)
      :diagnostics []}))
 
+(defn- odin-source-file?
+  [path]
+  (= ".odin" (str/lower-case (or (fs/extension path) ""))))
+
+(defn- odin-module-name
+  [path content]
+  (or (some (fn [line]
+              (second (re-matches #"^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)\s*$"
+                                  line)))
+            (str/split-lines content))
+      (source-module-name path)))
+
+(defn- odin-imports
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (when-let [[_ alias target]
+                          (re-matches #"^\s*import\s+(?:(?:([A-Za-z_][A-Za-z0-9_]*)\s+)?\"([^\"]+)\"|\(\s*)\s*$"
+                                      line)]
+                 (when target
+                   {:target target
+                    :alias alias
+                    :source-line (inc idx)}))))
+       distinct
+       vec))
+
+(defn- odin-definition-line
+  [idx line]
+  (or (when-let [[_ public? name]
+                 (re-matches #"^\s*(pub\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*::\s*proc\b.*"
+                             line)]
+        {:kind :function
+         :name name
+         :public? (or (boolean public?) (not (str/starts-with? name "_")))
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ public? name kind]
+                 (re-matches #"^\s*(pub\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*::\s*(struct|enum|union)\b.*"
+                             line)]
+        {:kind (case kind
+                 "struct" :struct
+                 "enum" :enum
+                 "union" :union)
+         :name name
+         :public? (or (boolean public?) (not (str/starts-with? name "_")))
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ public? name]
+                 (re-matches #"^\s*(pub\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*::\s*(?!proc\b|struct\b|enum\b|union\b).+"
+                             line)]
+        {:kind :constant
+         :name name
+         :public? (or (boolean public?) (not (str/starts-with? name "_")))
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ name]
+                 (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*.+"
+                             line)]
+        {:kind :var
+         :name name
+         :public? (not (str/starts-with? name "_"))
+         :source-line (inc idx)
+         :text line})))
+
+(defn- odin-foreign-imports
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (when-let [[_ name target]
+                          (re-matches #"^\s*foreign\s+import\s+([A-Za-z_][A-Za-z0-9_]*)\s+\"([^\"]+)\".*"
+                                      line)]
+                 {:kind :foreign-import
+                  :name name
+                  :target target
+                  :source-line (inc idx)})))
+       distinct
+       vec))
+
+(defn- odin-config-facts
+  [content path]
+  (let [parsed (read-json-map content)
+        scalar-fact (fn [kind label]
+                      (when (seq (str label))
+                        {:kind kind
+                         :label (str label)
+                         :source-line 1
+                         :relation :defines}))]
+    (if (map? parsed)
+      (vec
+       (remove nil?
+               (concat
+                [(scalar-fact :odin-config path)
+                 (scalar-fact :odin-config-name (or (:name parsed) (:project parsed)))
+                 (scalar-fact :odin-collection (some-> (:collections parsed) keys first name))
+                 (scalar-fact :odin-checker-path (:checkerPath parsed))]
+                (map (fn [[k v]]
+                       (scalar-fact :odin-collection
+                                    (str (name k) "="
+                                         (if (string? v)
+                                           v
+                                           (json/write-json-str v)))))
+                     (when (map? (:collections parsed))
+                       (:collections parsed)))
+                (map #(scalar-fact :odin-package-path %)
+                     (filter string? (:packagePaths parsed))))))
+      [{:kind :odin-config
+        :label path
+        :source-line 1
+        :relation :defines}])))
+
+(defn extract-odin
+  "Extract bounded package, import, declaration, and config facts from Odin."
+  [run-id {:keys [id-scope file-id path content] :as file}]
+  (if-not (odin-source-file? path)
+    (extract-format-facts run-id file :odin-config-file :odin-config-file
+                          (odin-config-facts content path))
+    (let [module-name (odin-module-name path content)
+          ns-node (namespace-node run-id id-scope file-id path module-name)
+          package-node (generic-node run-id id-scope file-id path
+                                     :odin-package module-name 1)
+          lines (vec (str/split-lines content))
+          def-forms (->> lines
+                         (map-indexed odin-definition-line)
+                         (keep identity)
+                         vec)
+          defs (mapv (fn [{:keys [kind name public? source-line]}]
+                       (let [label (str module-name "/" name)]
+                         {:xt/id (node-id id-scope :symbol label)
+                          :label label
+                          :kind kind
+                          :file-id file-id
+                          :path path
+                          :namespace module-name
+                          :name name
+                          :public? public?
+                          :source-line source-line
+                          :tokens (text/tokenize label)
+                          :active? true
+                          :run-id run-id}))
+                     def-forms)
+          foreign-imports (odin-foreign-imports lines)
+          foreign-nodes (mapv (fn [{:keys [name target source-line]}]
+                                (generic-node run-id
+                                              id-scope
+                                              file-id
+                                              path
+                                              :foreign-import
+                                              (str name ":" target)
+                                              source-line))
+                              foreign-imports)
+          define-edges (mapv #(edge-row run-id file-id path
+                                        (:xt/id ns-node)
+                                        (:xt/id %)
+                                        :defines
+                                        :extracted
+                                        (:source-line %))
+                             (concat [package-node] defs foreign-nodes))
+          import-edges (mapv #(edge-row run-id file-id path
+                                        (:xt/id ns-node)
+                                        (node-id id-scope :namespace (:target %))
+                                        :imports
+                                        :extracted
+                                        (:source-line %))
+                             (odin-imports lines))
+          foreign-edges (mapv (fn [{:keys [name target source-line]}]
+                                (edge-row run-id
+                                          file-id
+                                          path
+                                          (node-id id-scope :foreign-import (str name ":" target))
+                                          (node-id id-scope :namespace target)
+                                          :imports
+                                          :extracted
+                                          source-line))
+                              foreign-imports)
+          chunk (source-text-chunk run-id
+                                   id-scope
+                                   file-id
+                                   path
+                                   :odin-file
+                                   module-name
+                                   content
+                                   jvm-family-file-chunk-lines)
+          definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
+                                    (source-definition-chunk
+                                     run-id
+                                     id-scope
+                                     file-id
+                                     path
+                                     (str module-name "/" name)
+                                     kind
+                                     source-line
+                                     text))
+                                  def-forms)
+          diagnostics (curly-balance-diagnostics run-id file-id path content "Odin")]
+      {:nodes (vec (concat [ns-node package-node] defs foreign-nodes))
+       :edges (vec (concat define-edges import-edges foreign-edges))
+       :chunks (into [chunk] definition-chunks)
+       :diagnostics diagnostics})))
+
 (defn- zig-module-name
   [path]
   (source-module-name path))
@@ -4887,8 +5351,7 @@
 
 (defn- cargo-dependencies
   [content]
-  (->> ["dependencies" "dev-dependencies" "build-dependencies"]
-       (mapcat
+  (let [dependency-section-facts
         (fn [section]
           (->> (toml-section-lines content section)
                (map-indexed vector)
@@ -4900,9 +5363,31 @@
                                         :package-name package-name
                                         :version-range (or quoted-version map-version)
                                         :dependency-scope section
-                                        :source-line (inc idx)})))))))
-       distinct
-       vec))
+                                        :source-line (inc idx)}))))))
+        deps (->> ["dependencies" "dev-dependencies" "build-dependencies"
+                   "workspace.dependencies"]
+                  (mapcat dependency-section-facts)
+                  distinct)
+        members (->> (toml-section-lines content "workspace")
+                     (keep #(second (re-matches #"^\s*members\s*=\s*(\[.*\])\s*$" %)))
+                     (mapcat toml-array-strings)
+                     (map (fn [member]
+                            {:kind :workspace-pattern
+                             :label member
+                             :source-line 1
+                             :relation :references})))
+        features (->> (toml-section-lines content "features")
+                      (map-indexed vector)
+                      (keep (fn [[idx line]]
+                              (when-let [[_ feature]
+                                         (re-matches #"^\s*([A-Za-z0-9_.-]+)\s*=.*" line)]
+                                {:kind :package-feature
+                                 :label feature
+                                 :source-line (inc idx)
+                                 :relation :defines}))))]
+    (->> (concat deps members features)
+         distinct
+         vec)))
 
 (defn- go-module-name
   [content path]
@@ -4946,6 +5431,41 @@
                                             :version-range version
                                             :source-line (inc idx)})))))))
         (vec (distinct out))))))
+
+(defn- go-mod-extra-facts
+  [content]
+  (let [lines (str/split-lines content)]
+    (->> lines
+         (map-indexed vector)
+         (mapcat
+          (fn [[idx line]]
+            (let [trimmed (-> line
+                              (str/replace #"//.*$" "")
+                              str/trim)
+                  source-line (inc idx)]
+              (concat
+               (when-let [[_ version] (re-matches #"^go\s+(\S+)\s*$" trimmed)]
+                 [{:kind :go-version
+                   :label version
+                   :source-line source-line
+                   :relation :defines}])
+               (when-let [[_ version] (re-matches #"^toolchain\s+(\S+)\s*$" trimmed)]
+                 [{:kind :go-toolchain
+                   :label version
+                   :source-line source-line
+                   :relation :uses}])
+               (when-let [[_ source target] (re-matches #"^replace\s+(\S+)\s+=>\s+(\S+).*$" trimmed)]
+                 [{:kind :project-reference
+                   :label (str source "=>" target)
+                   :source-line source-line
+                   :relation :references}])
+               (when-let [[_ package version] (re-matches #"^exclude\s+(\S+)\s+(\S+).*$" trimmed)]
+                 [{:kind :go-exclude
+                   :label (str package "@" version)
+                   :source-line source-line
+                   :relation :defines}])))))
+         distinct
+         vec)))
 
 (defn- go-work-uses
   [content]
@@ -5049,7 +5569,14 @@
                          (keep #(when-let [[_ dep-name version]
                                            (re-matches #"^\s*([A-Za-z0-9_.-]+)\s*=\s*\"([^\"]+)\".*" %)]
                                   (when-not (= "python" dep-name)
-                                    [dep-name version]))))]
+                                    [dep-name version]))))
+        optional-deps (->> (toml-section-lines content "project.optional-dependencies")
+                           (mapcat (fn [line]
+                                     (when-let [[_ group deps]
+                                                (re-matches #"^\s*([A-Za-z0-9_.-]+)\s*=\s*\[(.*)\]\s*$" line)]
+                                       (map (fn [[_ dep]]
+                                              [group dep])
+                                            (re-seq #"\"([^\"]+)\"" deps))))))]
     (vec
      (concat
       (keep (fn [dep]
@@ -5066,7 +5593,97 @@
                             :version-range version
                             :import-names (get import-name-map dep-name)
                             :source-line 1}))
-           poetry-deps)))))
+           poetry-deps)
+      (keep (fn [[group dep]]
+              (when-let [dep-name (python-dependency-name dep)]
+                (package-fact {:ecosystem :pypi
+                               :package-name dep-name
+                               :version-range dep
+                               :dependency-scope group
+                               :import-names (get import-name-map dep-name)
+                               :source-line 1})))
+            optional-deps)))))
+
+(defn- setup-cfg-name
+  [content path]
+  (or (some->> (str/join "\n" (toml-section-lines content "metadata"))
+               (re-find #"(?m)^\s*name\s*=\s*([A-Za-z0-9_.-]+)\s*$")
+               second)
+      path))
+
+(defn- setup-cfg-dependencies
+  [content]
+  (let [lines (vec (str/split-lines content))]
+    (loop [remaining (map-indexed vector lines)
+           in-install? false
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [trimmed (str/trim line)]
+          (cond
+            (re-matches #"^\[options\]\s*$" trimmed)
+            (recur (rest remaining) false out)
+
+            (re-matches #"^\[.*\]\s*$" trimmed)
+            (recur (rest remaining) false out)
+
+            (re-matches #"^install_requires\s*=.*" trimmed)
+            (recur (rest remaining) true out)
+
+            (and in-install? (seq trimmed))
+            (recur (rest remaining)
+                   in-install?
+                   (cond-> out
+                     (python-dependency-name trimmed)
+                     (conj (package-fact
+                            {:ecosystem :pypi
+                             :package-name (python-dependency-name trimmed)
+                             :version-range trimmed
+                             :source-line (inc idx)}))))
+
+            :else
+            (recur (rest remaining) in-install? out)))
+        (vec (distinct out))))))
+
+(defn- setup-py-name
+  [content path]
+  (or (some-> (re-find #"(?s)\bname\s*=\s*['\"]([^'\"]+)['\"]" content)
+              second)
+      path))
+
+(defn- setup-py-dependencies
+  [content]
+  (->> (re-seq #"(?s)(?:install_requires|setup_requires|tests_require)\s*=\s*\[(.*?)\]"
+               content)
+       (mapcat (fn [[_ deps]]
+                 (re-seq #"['\"]([^'\"]+)['\"]" deps)))
+       (map second)
+       (keep (fn [dep]
+               (when-let [dep-name (python-dependency-name dep)]
+                 (package-fact {:ecosystem :pypi
+                                :package-name dep-name
+                                :version-range dep
+                                :source-line 1}))))
+       distinct
+       vec))
+
+(defn- pipfile-dependencies
+  [content]
+  (->> ["packages" "dev-packages"]
+       (mapcat
+        (fn [section]
+          (->> (toml-section-lines content section)
+               (map-indexed vector)
+               (keep (fn [[idx line]]
+                       (when-let [[_ dep-name version]
+                                  (re-matches #"^\s*([A-Za-z0-9_.-]+)\s*=\s*(.+?)\s*$" line)]
+                         (package-fact {:ecosystem :pypi
+                                        :package-name dep-name
+                                        :version-range (str/replace (str/trim version)
+                                                                    #"^['\"]|['\"]$" "")
+                                        :dependency-scope section
+                                        :source-line (inc idx)})))))))
+       distinct
+       vec))
 
 (defn- deps-edn-project-name
   [path]
@@ -5359,7 +5976,8 @@
 
       (= "go.mod" filename)
       {:project-label (go-module-name content path)
-       :facts (go-mod-requires content)}
+       :facts (vec (concat (go-mod-requires content)
+                           (go-mod-extra-facts content)))}
 
       (= "go.work" filename)
       {:project-label path
@@ -5372,6 +5990,18 @@
       (= "pyproject.toml" filename)
       {:project-label (pyproject-name content path)
        :facts (pyproject-dependencies content)}
+
+      (= "setup.cfg" filename)
+      {:project-label (setup-cfg-name content path)
+       :facts (setup-cfg-dependencies content)}
+
+      (= "setup.py" filename)
+      {:project-label (setup-py-name content path)
+       :facts (setup-py-dependencies content)}
+
+      (= "pipfile" filename)
+      {:project-label path
+       :facts (pipfile-dependencies content)}
 
       (= "deps.edn" filename)
       {:project-label (deps-edn-project-name path)
@@ -6181,6 +6811,12 @@
   [run-id file]
   (extract-config-facts run-id file :db-config :db-config-file))
 
+(declare leading-spaces
+         strip-yaml-scalar
+         yaml-key-line
+         yaml-scalar-list-values
+         yaml-top-section-blocks)
+
 (def dbt-path-sections
   #{"analysis-paths" "macro-paths" "model-paths" "seed-paths"
     "snapshot-paths" "test-paths"})
@@ -6265,10 +6901,146 @@
                       :line 1
                       :message "dbt project file did not declare a top-level name."}])}))
 
+(defn- dbt-package-facts
+  [content]
+  (let [lines (vec (str/split-lines content))]
+    (->> lines
+         (map-indexed vector)
+         (keep (fn [[idx line]]
+                 (when-let [[_ package-name]
+                            (or (re-matches #"^\s*-\s+package:\s+(.+?)\s*$" line)
+                                (re-matches #"^\s*-\s+git:\s+(.+?)\s*$" line))]
+                   (package-fact {:ecosystem :dbt
+                                  :package-name (strip-yaml-scalar package-name)
+                                  :source-line (inc idx)}))))
+         distinct
+         vec)))
+
+(defn- dbt-profile-facts
+  [content path]
+  (let [lines (vec (str/split-lines content))
+        reserved #{"config" "target" "outputs"}
+        profiles (->> lines
+                      (map-indexed vector)
+                      (keep (fn [[idx line]]
+                              (when-let [[_ key]
+                                         (re-matches #"^([A-Za-z0-9_-]+):\s*$" line)]
+                                (when-not (contains? reserved key)
+                                  {:kind :dbt-profile
+                                   :label key
+                                   :source-line (inc idx)
+                                   :relation :defines}))))
+                      distinct)
+        targets (->> lines
+                     (map-indexed vector)
+                     (keep (fn [[idx line]]
+                             (when-let [[_ target]
+                                        (re-matches #"^\s*target:\s+(.+?)\s*$" line)]
+                               {:kind :dbt-target
+                                :label (strip-yaml-scalar target)
+                                :source-line (inc idx)
+                                :relation :references})))
+                     distinct)
+        outputs (->> lines
+                     (map-indexed vector)
+                     (keep (fn [[idx line]]
+                             (when-let [[_ output]
+                                        (re-matches #"^\s{4}([A-Za-z0-9_-]+):\s*$" line)]
+                               {:kind :dbt-output
+                                :label output
+                                :source-line (inc idx)
+                                :relation :defines})))
+                     distinct)
+        adapters (->> lines
+                      (map-indexed vector)
+                      (keep (fn [[idx line]]
+                              (when-let [[_ adapter]
+                                         (re-matches #"^\s*type:\s+(.+?)\s*$" line)]
+                                {:kind :dbt-adapter
+                                 :label (strip-yaml-scalar adapter)
+                                 :source-line (inc idx)
+                                 :relation :uses})))
+                      distinct)]
+    {:project-label path
+     :facts (vec (concat profiles targets outputs adapters))
+     :diagnostics []}))
+
+(def dbt-schema-sections
+  {"models" :dbt-model
+   "sources" :dbt-source
+   "exposures" :dbt-exposure
+   "metrics" :dbt-metric
+   "semantic_models" :dbt-semantic-model
+   "tests" :dbt-test})
+
+(defn- dbt-schema-facts
+  [content path]
+  (let [lines (vec (str/split-lines content))]
+    {:project-label path
+     :facts
+     (loop [remaining (map-indexed vector lines)
+            section nil
+            out []]
+       (if-let [[idx line] (first remaining)]
+         (cond
+           (when-let [[_ key] (re-matches #"^([A-Za-z_][A-Za-z0-9_-]*):\s*$" line)]
+             (contains? dbt-schema-sections key))
+           (let [[_ key] (re-matches #"^([A-Za-z_][A-Za-z0-9_-]*):\s*$" line)]
+             (recur (rest remaining) key out))
+
+           (and section
+                (re-matches #"^\s*-\s+name:\s+(.+?)\s*$" line))
+           (let [[_ value] (re-matches #"^\s*-\s+name:\s+(.+?)\s*$" line)
+                 kind (get dbt-schema-sections section)]
+             (recur (rest remaining)
+                    section
+                    (conj out {:kind kind
+                               :label (strip-yaml-scalar value)
+                               :source-line (inc idx)
+                               :relation :defines})))
+
+           (and section
+                (= "tests" section)
+                (re-matches #"^\s*-\s+([A-Za-z0-9_.-]+)(?:\s*:.*)?\s*$" line))
+           (let [[_ value] (re-matches #"^\s*-\s+([A-Za-z0-9_.-]+)(?:\s*:.*)?\s*$" line)]
+             (recur (rest remaining)
+                    section
+                    (conj out {:kind :dbt-test
+                               :label value
+                               :source-line (inc idx)
+                               :relation :defines})))
+
+           (and (not (str/blank? (str/trim line)))
+                (zero? (leading-spaces line)))
+           (recur (rest remaining) nil out)
+
+           :else
+           (recur (rest remaining) section out))
+         (vec (distinct out))))
+     :diagnostics []}))
+
+(defn- dbt-config-kind
+  [path content]
+  (let [filename (manifest-name path)]
+    (cond
+      (contains? #{"dbt_project.yml" "dbt_project.yaml"} filename) :project
+      (contains? #{"profiles.yml" "profiles.yaml"} filename) :profile
+      (contains? #{"packages.yml" "packages.yaml"} filename) :packages
+      (re-find #"(?m)^(?:models|sources|exposures|metrics|semantic_models|tests):\s*$"
+               content) :schema
+      :else :project)))
+
 (defn extract-dbt
   "Extract bounded dbt project configuration facts."
   [run-id {:keys [id-scope file-id path content] :as file}]
-  (let [{:keys [project-label facts diagnostics]} (dbt-project-facts content path)
+  (let [{:keys [project-label facts diagnostics]}
+        (case (dbt-config-kind path content)
+          :profile (dbt-profile-facts content path)
+          :packages {:project-label path
+                     :facts (dbt-package-facts content)
+                     :diagnostics []}
+          :schema (dbt-schema-facts content path)
+          (dbt-project-facts content path))
         project-node (generic-node run-id id-scope file-id path
                                    :dbt-project project-label 1)
         fact-nodes (mapv (fn [{:keys [kind label source-line]}]
@@ -6312,11 +7084,6 @@
   "Extract bounded lint/format/tool configuration facts."
   [run-id file]
   (extract-config-facts run-id file :tool-config :tool-config-file))
-
-(declare leading-spaces
-         strip-yaml-scalar
-         yaml-scalar-list-values
-         yaml-top-section-blocks)
 
 (defn- extract-format-facts
   [run-id {:keys [id-scope file-id path] :as file} root-kind chunk-kind facts]
@@ -6980,12 +7747,77 @@
                         :tool-version-config-file
                         (tool-version-facts file)))
 
+(defn- governance-facts
+  [{:keys [path content]}]
+  (let [path-lower (str/lower-case path)
+        file-kind (cond
+                    (str/includes? path-lower ".github/issue_template/")
+                    "issue-template"
+                    (str/includes? path-lower "pull_request_template")
+                    "pull-request-template"
+                    (str/ends-with? path-lower "funding.yml")
+                    "funding"
+                    (str/ends-with? path-lower "funding.yaml")
+                    "funding"
+                    (str/ends-with? path-lower "security.md")
+                    "security"
+                    (str/ends-with? path-lower "contributing.md")
+                    "contributing"
+                    :else "governance")]
+    (vec
+     (concat
+      [{:kind :governance-file
+        :label file-kind
+        :source-line 1
+        :relation :defines}]
+      (->> (str/split-lines content)
+           (map-indexed vector)
+           (mapcat
+            (fn [[idx line]]
+              (let [source-line (inc idx)]
+                (concat
+                 (when-let [[_ heading]
+                            (re-matches #"^\s{0,3}#{1,6}\s+(.+?)\s*$" line)]
+                   [{:kind :governance-section
+                     :label heading
+                     :source-line source-line
+                     :relation :defines}])
+                 (when-let [{:keys [key value]} (yaml-key-line idx line)]
+                   (when (seq value)
+                     (if (= "funding" file-kind)
+                       [{:kind :funding-platform
+                         :label (str key "=" (strip-yaml-scalar value))
+                         :source-line source-line
+                         :relation :defines}]
+                       [{:kind :governance-field
+                         :label (str key "=" (strip-yaml-scalar value))
+                         :source-line source-line
+                         :relation :defines}])))
+                 (when-let [[_ item]
+                            (re-matches #"^\s*-\s+\[[ xX]\]\s+(.+?)\s*$" line)]
+                   [{:kind :governance-check
+                     :label item
+                     :source-line source-line
+                     :relation :defines}])))))
+           distinct)))))
+
+(defn extract-governance
+  "Extract bounded repository governance and GitHub template facts."
+  [run-id file]
+  (extract-format-facts run-id
+                        file
+                        :governance-config-file
+                        :governance-config-file
+                        (governance-facts file)))
+
 (defn- ops-config-format
   [{:keys [path content ext]}]
   (let [filename (str/lower-case (.getName (java.io.File. (str path))))]
     (cond
       (or (str/includes? content "AWSTemplateFormatVersion")
           (and (re-find #"(?m)^Resources:\s*$" content)
+               (str/includes? content "AWS::"))
+          (and (str/includes? content "\"Resources\"")
                (str/includes? content "AWS::"))) :cloudformation
       (re-matches #"pulumi(?:\.[a-z0-9_.-]+)?\.ya?ml" filename) :pulumi
       (= "nginx.conf" filename) :nginx
@@ -6995,7 +7827,7 @@
            (re-find #"(?m)^\s*tasks:\s*$" content)) :ansible
       :else :ops)))
 
-(defn- cloudformation-facts
+(defn- cloudformation-yaml-facts
   [content]
   (let [lines (vec (str/split-lines content))]
     (loop [remaining (map-indexed vector lines)
@@ -7051,6 +7883,53 @@
           (recur (rest remaining) in-resources? current-resource facts refs))
         {:facts facts
          :refs refs}))))
+
+(defn- cloudformation-json-facts
+  [content]
+  (if-let [m (read-json-map content)]
+    (let [resources (:Resources m)]
+      (if-not (map? resources)
+        {:facts [] :refs []}
+        (let [facts (->> resources
+                         (mapcat (fn [[resource spec]]
+                                   (let [resource-name (json-key-label resource)
+                                         resource-type (:Type spec)]
+                                     (concat
+                                      [{:kind :cloudformation-resource
+                                        :label resource-name
+                                        :source-line 1
+                                        :relation :defines}]
+                                      (when (string? resource-type)
+                                        [{:kind :cloudformation-resource-type
+                                          :label resource-type
+                                          :source-line 1
+                                          :relation :defines}])))))
+                         distinct
+                         vec)
+              refs (->> resources
+                        (mapcat (fn [[resource spec]]
+                                  (let [depends (:DependsOn spec)
+                                        targets (cond
+                                                  (string? depends) [depends]
+                                                  (vector? depends) (filter string? depends)
+                                                  :else [])]
+                                    (map (fn [target]
+                                           {:source-kind :cloudformation-resource
+                                            :source-label (json-key-label resource)
+                                            :target-kind :cloudformation-resource
+                                            :target-label target
+                                            :source-line 1})
+                                         targets))))
+                        distinct
+                        vec)]
+          {:facts facts :refs refs})))
+    (cloudformation-yaml-facts content)))
+
+(defn- cloudformation-facts
+  [content]
+  (if (read-json-map content)
+    (cloudformation-json-facts content)
+    (cloudformation-yaml-facts content)))
 
 (defn- pulumi-facts
   [content]
@@ -7457,6 +8336,37 @@
        distinct
        vec))
 
+(defn- php-route-facts
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (mapcat
+        (fn [[idx line]]
+          (let [source-line (inc idx)]
+            (concat
+             (when-let [[_ method route]
+                        (re-find #"Route::(get|post|put|patch|delete|options|any)\s*\(\s*['\"]([^'\"]+)['\"]"
+                                 line)]
+               [{:kind :framework-route
+                 :label (str (str/upper-case method) " " route)
+                 :source-line source-line
+                 :relation :defines}])
+             (when-let [[_ method route]
+                        (re-find #"\$routes->(get|post|put|patch|delete|options|add)\s*\(\s*['\"]([^'\"]+)['\"]"
+                                 line)]
+               [{:kind :framework-route
+                 :label (str (str/upper-case method) " " route)
+                 :source-line source-line
+                 :relation :defines}])
+             (when-let [[_ route]
+                        (re-find #"#\[Route\(\s*['\"]([^'\"]+)['\"]" line)]
+               [{:kind :framework-route
+                 :label route
+                 :source-line source-line
+                 :relation :defines}])))))
+       distinct
+       vec))
+
 (defn- php-type-line
   [idx line]
   (when-let [[_ kind name]
@@ -7590,6 +8500,21 @@
                                        :extracted
                                        (:source-line %))
                             (php-include-targets lines))
+        route-facts (php-route-facts lines)
+        route-nodes (mapv (fn [{:keys [kind label source-line]}]
+                            (generic-node run-id id-scope file-id path
+                                          kind label source-line))
+                          route-facts)
+        route-edges (mapv (fn [{:keys [kind label source-line relation]}]
+                            (edge-row run-id
+                                      file-id
+                                      path
+                                      (:xt/id ns-node)
+                                      (node-id id-scope kind label)
+                                      relation
+                                      :extracted
+                                      source-line))
+                          route-facts)
         chunk-result (extract-text-source run-id file :php-file)
         definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
                                   (source-definition-chunk
@@ -7607,8 +8532,8 @@
                                                path
                                                content
                                                "PHP")]
-    {:nodes (into [ns-node] defs)
-     :edges (vec (concat define-edges use-edges include-edges))
+    {:nodes (vec (concat [ns-node] defs route-nodes))
+     :edges (vec (concat define-edges use-edges include-edges route-edges))
      :chunks (vec (concat (:chunks chunk-result) definition-chunks))
      :diagnostics diagnostics}))
 
@@ -7699,7 +8624,7 @@
 (defn- yaml-key-line
   [idx line]
   (when-let [[_ indent key value]
-             (re-matches #"^(\s*)([A-Za-z0-9_.-]+):(?:\s*(.*))?$" line)]
+             (re-matches #"^(\s*)(?:-\s*)?([A-Za-z0-9_.-]+):(?:\s*(.*))?$" line)]
     {:indent (count indent)
      :key key
      :value (str/trim (or value ""))
@@ -7892,15 +8817,103 @@
 (defn- k8s-resource-facts
   [content]
   (->> (yaml-documents content)
-       (keep (fn [doc]
-               (let [kind (yaml-doc-value doc "kind")
-                     name (yaml-doc-metadata-name doc)]
-                 (when (and (:value kind) (:value name))
-                   {:kind :k8s-resource
-                    :label (str (:value kind) "/" (:value name))
-                    :source-line (or (:source-line kind) (:source-line name) 1)
-                    :resource-kind (:value kind)
-                    :resource-name (:value name)}))))
+       (mapcat
+        (fn [doc]
+          (let [doc-text (str/join "\n" (map second doc))
+                api-version (yaml-doc-value doc "apiVersion")
+                kind (yaml-doc-value doc "kind")
+                name (yaml-doc-metadata-name doc)
+                resource-label (when (and (:value kind) (:value name))
+                                 (str (:value kind) "/" (:value name)))
+                base (when resource-label
+                       [{:kind :k8s-resource
+                         :label resource-label
+                         :source-line (or (:source-line kind) (:source-line name) 1)
+                         :resource-kind (:value kind)
+                         :resource-name (:value name)}])
+                crd (when (= "CustomResourceDefinition" (:value kind))
+                      (concat
+                       (when-let [[_ group] (re-find #"(?m)^\s*group:\s*(.+?)\s*$" doc-text)]
+                         [{:kind :k8s-crd-group
+                           :label (strip-yaml-scalar group)
+                           :source-line (:source-line kind 1)
+                           :relation :defines}])
+                       (when-let [[_ crd-kind] (re-find #"(?m)^\s{4}kind:\s*(.+?)\s*$" doc-text)]
+                         [{:kind :k8s-crd-kind
+                           :label (strip-yaml-scalar crd-kind)
+                           :source-line (:source-line kind 1)
+                           :relation :defines}])
+                       (->> (re-seq #"(?m)^\s*-\s+name:\s+(.+?)\s*$" doc-text)
+                            (map second)
+                            (map (fn [version]
+                                   {:kind :k8s-crd-version
+                                    :label (strip-yaml-scalar version)
+                                    :source-line (:source-line kind 1)
+                                    :relation :defines})))))
+                crossplane? (or (some-> (:value api-version)
+                                        (str/includes? "crossplane.io"))
+                                (str/includes? doc-text "providerConfigRef:")
+                                (str/includes? doc-text "compositionRef:"))
+                crossplane (when (and crossplane? resource-label)
+                             (concat
+                              [{:kind :crossplane-resource
+                                :label resource-label
+                                :source-line (or (:source-line kind) 1)
+                                :relation :defines}]
+                              (when-let [[_ provider]
+                                         (re-find #"(?m)^\s*providerConfigRef:\s*\n\s*name:\s*(.+?)\s*$"
+                                                  doc-text)]
+                                [{:kind :crossplane-provider-config
+                                  :label (strip-yaml-scalar provider)
+                                  :source-line (or (:source-line kind) 1)
+                                  :relation :references}])))
+                argocd (when (and (= "Application" (:value kind))
+                                  (some-> (:value api-version)
+                                          (str/includes? "argoproj.io"))
+                                  resource-label)
+                         (concat
+                          [{:kind :argocd-application
+                            :label (:value name)
+                            :source-line (or (:source-line name) 1)
+                            :relation :defines}]
+                          (->> [["repoURL" :argocd-source]
+                                ["path" :argocd-source-path]
+                                ["chart" :argocd-source-chart]
+                                ["server" :argocd-destination]
+                                ["namespace" :argocd-destination]]
+                               (keep (fn [[key kind]]
+                                       (when-let [[_ value]
+                                                  (re-find (re-pattern
+                                                            (str "(?m)^\\s*"
+                                                                 key
+                                                                 ":\\s*(.+?)\\s*$"))
+                                                           doc-text)]
+                                         {:kind kind
+                                          :label (strip-yaml-scalar value)
+                                          :source-line (or (:source-line name) 1)
+                                          :relation :references}))))))]
+            (concat base crd crossplane argocd))))
+       distinct
+       vec))
+
+(defn- framework-yaml-facts
+  [content]
+  (->> (str/split-lines content)
+       (map-indexed vector)
+       (mapcat
+        (fn [[idx line]]
+          (let [source-line (inc idx)]
+            (concat
+             (when-let [[_ route] (re-matches #"^\s*path:\s*['\"]?(/[^'\"\s#]+).*" line)]
+               [{:kind :framework-route
+                 :label route
+                 :source-line source-line
+                 :relation :defines}])
+             (when-let [[_ controller] (re-matches #"^\s*controller:\s*['\"]?([^'\"\s#]+).*" line)]
+               [{:kind :framework-controller
+                 :label controller
+                 :source-line source-line
+                 :relation :references}])))))
        distinct
        vec))
 
@@ -7908,7 +8921,8 @@
   "Extract generic YAML files and explicit Kubernetes resource declarations."
   [run-id {:keys [id-scope file-id path content] :as file}]
   (let [yaml-node (generic-node run-id id-scope file-id path :yaml-file path 1)
-        resource-facts (k8s-resource-facts content)
+        resource-facts (vec (concat (k8s-resource-facts content)
+                                    (framework-yaml-facts content)))
         resource-nodes (mapv (fn [{:keys [kind label source-line]}]
                                (generic-node run-id id-scope file-id path kind label source-line))
                              resource-facts)
@@ -8107,6 +9121,21 @@
                         :label value
                         :source-line source-line}
 
+                       (and (= "uses" key) (seq value))
+                       {:kind :ci-action
+                        :label value
+                        :source-line source-line}
+
+                       (and (= "artifacts" key) (str/blank? value))
+                       {:kind :ci-artifact
+                        :label (str label ":artifacts")
+                        :source-line source-line}
+
+                       (and (= "cache" key) (str/blank? value))
+                       {:kind :ci-cache
+                        :label (str label ":cache")
+                        :source-line source-line}
+
                        (and (= "working-directory" key) (seq value))
                        {:kind :ci-working-directory
                         :label value
@@ -8125,6 +9154,54 @@
                env-indent-next
                (cond-> out fact (conj fact))))
       (->> out distinct vec))))
+
+(defn- ci-workflow-facts
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         in-on-block? false
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (yaml-key-line idx line)]
+        (cond
+          (and entry
+               (zero? (:indent entry))
+               (#{"on" "workflow"} (:key entry))
+               (seq (:value entry)))
+          (let [values (yaml-scalar-list-values (:value entry))]
+            (recur (rest remaining)
+                   false
+                   (into out
+                         (map (fn [value]
+                                {:kind :ci-trigger
+                                 :label value
+                                 :source-line (:source-line entry)
+                                 :relation :uses})
+                              values))))
+
+          (and entry
+               (zero? (:indent entry))
+               (#{"on" "workflow"} (:key entry))
+               (str/blank? (:value entry)))
+          (recur (rest remaining) true out)
+
+          (and in-on-block?
+               entry
+               (zero? (:indent entry)))
+          (recur (rest remaining) false out)
+
+          (and in-on-block?
+               (re-matches #"^\s+([A-Za-z0-9_.-]+):?.*$" line))
+          (let [[_ trigger] (re-matches #"^\s+([A-Za-z0-9_.-]+):?.*$" line)]
+            (recur (rest remaining)
+                   true
+                   (conj out {:kind :ci-trigger
+                              :label trigger
+                              :source-line (inc idx)
+                              :relation :uses})))
+
+          :else
+          (recur (rest remaining) in-on-block? out)))
+      (vec (distinct out)))))
 
 (defn- distinct-facts-by-kind-label
   [facts]
@@ -8168,6 +9245,7 @@
         workflow-label (ci-workflow-label path lines)
         workflow-node (generic-node run-id id-scope file-id path :ci-workflow workflow-label 1)
         jobs (ci-job-blocks lines)
+        workflow-facts (ci-workflow-facts lines)
         job-nodes (mapv (fn [{:keys [label source-line]}]
                           (generic-node run-id
                                         id-scope
@@ -8177,7 +9255,7 @@
                                         label
                                         source-line))
                         jobs)
-        declared-facts (mapcat ci-job-declared-facts jobs)
+        declared-facts (concat workflow-facts (mapcat ci-job-declared-facts jobs))
         declared-node-facts (distinct-facts-by-kind-label declared-facts)
         declared-nodes (mapv (fn [{:keys [kind label source-line]}]
                                (generic-node run-id id-scope file-id path kind label source-line))
@@ -8189,6 +9267,16 @@
                                       :extracted
                                       (:source-line %))
                            job-nodes)
+        workflow-fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
+                                    (edge-row run-id
+                                              file-id
+                                              path
+                                              (:xt/id workflow-node)
+                                              (node-id id-scope kind label)
+                                              (or relation :uses)
+                                              :extracted
+                                              source-line))
+                                  workflow-facts)
         need-edges (->> jobs
                         (mapcat (fn [{:keys [label] :as job}]
                                   (map (fn [{:keys [target source-line]}]
@@ -8220,7 +9308,7 @@
         chunk-result (extract-text-source run-id file :ci-file)
         command-chunks (ci-command-chunks run-id id-scope file-id path jobs)]
     {:nodes (vec (concat [workflow-node] job-nodes declared-nodes))
-     :edges (vec (concat define-edges need-edges declared-edges))
+     :edges (vec (concat define-edges workflow-fact-edges need-edges declared-edges))
      :chunks (vec (concat (:chunks chunk-result) command-chunks))
      :diagnostics []}))
 
@@ -9881,7 +10969,9 @@
              (extract-java run-id file))
      :kotlin (extract-kotlin run-id file)
      :swift (extract-swift run-id file)
-     :dotnet (extract-dotnet run-id file)
+     :dotnet (if (parser-worker-enabled? :dotnet)
+               (extract-dotnet-worker run-id file)
+               (extract-dotnet run-id file))
      :ruby (extract-ruby run-id file)
      :cpp (extract-cpp run-id file)
      :dart (extract-dart run-id file)
@@ -9893,6 +10983,7 @@
      :julia (extract-julia run-id file)
      :perl (extract-perl run-id file)
      :haskell (extract-haskell run-id file)
+     :odin (extract-odin run-id file)
      :zig (extract-zig run-id file)
      :apple-config (extract-apple-config run-id file)
      :prisma (extract-prisma run-id file)
@@ -9912,6 +11003,7 @@
      :task-runner (extract-task-runner run-id file)
      :starlark (extract-starlark run-id file)
      :tool-version-config (extract-tool-version-config run-id file)
+     :governance (extract-governance run-id file)
      :vue (extract-sfc run-id file)
      :svelte (extract-sfc run-id file)
      :ci (extract-ci run-id file)

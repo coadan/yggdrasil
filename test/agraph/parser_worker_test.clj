@@ -131,6 +131,76 @@
         (is (= [] (:imports facts)))
         (is (= [] (:references facts)))))))
 
+(deftest parser-worker-emits-rich-java-facts-when-parser-is-available
+  (let [[response] (worker! [{:id "java-rich"
+                              :kind "java"
+                              :path "Rich.java"
+                              :content (str "package demo;\n"
+                                            "import java.util.List;\n"
+                                            "@interface Marker {}\n"
+                                            "record Item(String id) {}\n"
+                                            "interface Port { Result load(Input input); }\n"
+                                            "class App implements Port {\n"
+                                            "  App() {}\n"
+                                            "  public Result load(Input input) { return new Result(); }\n"
+                                            "  static class Result {}\n"
+                                            "}\n"
+                                            "class Input {}\n")}])
+        facts (:facts response)
+        diagnostic (first (:diagnostics facts))]
+    (if diagnostic
+      (is (str/includes? (:message diagnostic) "java parser unavailable"))
+      (let [definitions (set (map (juxt :kind :name) (:definitions facts)))
+            reference-targets (set (map :target (:references facts)))]
+        (is (= "demo" (:package facts)))
+        (is (contains? definitions ["annotation" "Marker"]))
+        (is (contains? definitions ["record" "Item"]))
+        (is (contains? definitions ["interface" "Port"]))
+        (is (contains? definitions ["method" "Port.load"]))
+        (is (contains? definitions ["class" "App"]))
+        (is (contains? definitions ["constructor" "App.App"]))
+        (is (contains? definitions ["method" "App.load"]))
+        (is (contains? definitions ["class" "App.Result"]))
+        (is (contains? definitions ["class" "Input"]))
+        (is (contains? reference-targets "Result"))
+        (is (contains? reference-targets "Input"))))))
+
+(deftest parser-worker-emits-rich-dotnet-facts-when-parser-is-available
+  (let [[response] (worker! [{:id "dotnet-rich"
+                              :kind "dotnet"
+                              :path "Rich.cs"
+                              :content (str "namespace Demo;\n"
+                                            "using System.Collections.Generic;\n"
+                                            "public delegate void Loaded(string id);\n"
+                                            "public interface IPort { Result Load(Input input); }\n"
+                                            "public record Item(string Id);\n"
+                                            "public class App : IPort {\n"
+                                            "  public App() {}\n"
+                                            "  public Result Load(Input input) => new Result();\n"
+                                            "  public string Name { get; init; }\n"
+                                            "  public class Result {}\n"
+                                            "}\n"
+                                            "public class Input {}\n")}])
+        facts (:facts response)
+        diagnostic (first (:diagnostics facts))]
+    (if diagnostic
+      (is (str/includes? (:message diagnostic) "dotnet parser unavailable"))
+      (let [definitions (set (map (juxt :kind :name) (:definitions facts)))
+            reference-targets (set (map :target (:references facts)))]
+        (is (= "Demo" (:namespace facts)))
+        (is (contains? definitions ["delegate" "Loaded"]))
+        (is (contains? definitions ["interface" "IPort"]))
+        (is (contains? definitions ["method" "IPort.Load"]))
+        (is (contains? definitions ["record" "Item"]))
+        (is (contains? definitions ["class" "App"]))
+        (is (contains? definitions ["constructor" "App.App"]))
+        (is (contains? definitions ["method" "App.Load"]))
+        (is (contains? definitions ["property" "App.Name"]))
+        (is (contains? definitions ["class" "App.Result"]))
+        (is (contains? definitions ["class" "Input"]))
+        (is (contains? reference-targets "Result"))
+        (is (contains? reference-targets "Input"))))))
+
 (deftest parser-worker-reports-unsupported-kinds
   (let [[response] (worker! [{:id "ruby-1"
                               :kind "ruby"

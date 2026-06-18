@@ -37,6 +37,7 @@ Run the suite:
 bb bench prepare benchmark.edn
 bb bench agent-packet benchmark.edn --case penpot-example --json
 bb bench agent-baseline benchmark.edn --case penpot-example
+bb bench agent-baseline benchmark.edn --case penpot-example --retriever local-vector --vector-model sentence-transformers/all-MiniLM-L6-v2
 bb bench agent-run benchmark.edn --agent codex --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' --mode agraph --prompt-profile fast --timeout-ms 120000
 bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
 bb bench agent-report benchmark.edn
@@ -64,6 +65,21 @@ generated output root.
   a ranked suspected-file list of ten files and still writes the full
   context packet; use `--limit <n>` to change the suspected-file shortlist size and
   `--doc-limit <n>` to change the source context size.
+  Use `--retriever local-vector` to run an optional local semantic-vector
+  control lane instead of the graph/context packet. The default worker is
+  `python3 scripts/local-vector-baseline.py`, which uses
+  `sentence-transformers` locally and writes the same agent-result contract for
+  the existing scorer. Install the optional worker dependencies in a local
+  environment with `python3 -m venv .dev/agraph/local-vector-venv &&
+  .dev/agraph/local-vector-venv/bin/python -m pip install -r
+  scripts/local-vector-requirements.txt`, then pass
+  `--vector-command '.dev/agraph/local-vector-venv/bin/python
+  scripts/local-vector-baseline.py'`. Use `--vector-model <model>` to choose a
+  local model and `--vector-command <cmd>` to replace the worker. The command
+  receives `REQUEST_JSON RESULT_JSON MODEL` arguments. This lane is for
+  benchmark diagnosis: if it beats the graph baseline, inspect whether AGraph is
+  missing extractor facts, ranking useful facts poorly, or losing on vocabulary
+  mismatch. It does not make AGraph core depend on a vector provider.
 - `bench agent-run <suite.edn> --agent <id> --command <cmd>` prepares the same
   packet contract, runs an external coding-agent command from the base
   worktree, and scores the JSON result written to `$AGRAPH_BENCH_RESULT`. The

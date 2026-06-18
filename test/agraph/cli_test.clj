@@ -302,6 +302,8 @@
                                  "--retriever" "lexical"
                                  "--limit" "3"
                                  "--doc-limit" "12"
+                                 "--vector-command" "fake-vector-worker"
+                                 "--vector-model" "fake-vector-model"
                                  "--json"]))
             parsed (read-json-output out)]
         (is (= benchmark/agent-baselines-schema (:schema parsed)))
@@ -313,6 +315,8 @@
                   :mode nil
                   :result-path nil
                   :command nil
+                  :vector-command "fake-vector-worker"
+                  :vector-model "fake-vector-model"
                   :limit 3
                   :doc-limit 12}]]
                @calls))))))

@@ -30,6 +30,9 @@
                                (or (re-matches #"^\.devcontainer/devcontainer\.json$" path-lower)
                                    (re-matches #"^\.github/dependabot\.ya?ml$" path-lower)
                                    (re-matches #"^\.github/codeowners$" path-lower)
+                                   (re-matches #"^\.github/issue_template/[^/]+\.(?:md|ya?ml|json)$" path-lower)
+                                   (re-matches #"^\.github/pull_request_template(?:/[^/]+\.md|\.md)$" path-lower)
+                                   (re-matches #"^\.github/funding\.ya?ml$" path-lower)
                                    (re-matches #"^\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower))
                                (fs/supported-path? path))]
     (and (seq filename)
