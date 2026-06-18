@@ -1297,11 +1297,14 @@
          entity-rows (keep-indexed #(entity-prediction root query-tokens %1 %2) (:entities packet))
          candidate-file-rows (keep-indexed #(candidate-file-prediction root query-tokens %1 %2)
                                            (:candidateFiles packet))
-         candidate-files (->> (concat doc-rows
-                                      entity-rows
-                                      candidate-file-rows)
+         raw-candidate-files (ranked-file-predictions (concat doc-rows
+                                                              entity-rows
+                                                              candidate-file-rows))
+         candidate-files (->> raw-candidate-files
                               (filter #(keep-coverage-source-kind? source-kinds %))
-                              ranked-file-predictions)
+                              vec)
+         filtered-files (- (count raw-candidate-files)
+                           (count candidate-files))
          suspected-files (cond->> candidate-files
                            limit (take (long limit))
                            true vec)]
@@ -1312,7 +1315,9 @@
       :suspectedFiles suspected-files
       :suspectedSymbols (context-symbols packet)
       :commands (:drilldowns packet)
-      :selection {:candidateFiles (count candidate-files)
+      :selection {:rawCandidateFiles (count raw-candidate-files)
+                  :candidateFiles (count candidate-files)
+                  :coverageFilteredCandidateFiles filtered-files
                   :limit limit
                   :coverageSourceKinds (vec (sort source-kinds))}
       :summary (str "Deterministic AGraph baseline ranked "
@@ -2166,6 +2171,13 @@
          (sort-by (juxt :rank :path))
          vec)))
 
+(defn- raw-suspected-file-count
+  [agent-result]
+  (count (or (:suspectedFiles agent-result)
+             (:suspected-files agent-result)
+             (:files agent-result)
+             [])))
+
 (defn- missing-predicted-files
   [root predictions]
   (->> predictions
@@ -2211,6 +2223,8 @@
                                    (:suspected-symbols agent-result))
              :commands (:commands agent-result)
              :summary (:summary agent-result)
+             :selection (:selection agent-result)
+             :rawSuspectedFileCount (raw-suspected-file-count agent-result)
              :warnings warnings
              :missingPredictedFiles (missing-predicted-files (:worktreeRoot prepared)
                                                              top-files)}
@@ -2402,6 +2416,72 @@
      :inputHintedCases (count hinted-cases)
      :inputHintedCaseIds hinted-cases}))
 
+(defn- agent-output-diagnostic
+  [result]
+  (let [top-files (get-in result [:agent :topFiles])
+        missing-files (vec (get-in result [:agent :missingPredictedFiles]))
+        selection (get-in result [:agent :selection])
+        raw-count (long (or (get-in result [:agent :rawSuspectedFileCount])
+                            (count top-files)))
+        ranked-count (long (count top-files))
+        candidate-count (:candidateFiles selection)
+        filtered-count (long (or (:coverageFilteredCandidateFiles selection) 0))]
+    (cond-> {:rawSuspectedFiles raw-count
+             :rankedFiles ranked-count
+             :missingPredictedFiles missing-files
+             :emptyResult (zero? ranked-count)
+             :noRawSuspectedFiles (zero? raw-count)}
+      selection
+      (assoc :selection selection)
+
+      (some? candidate-count)
+      (assoc :zeroCandidateFiles (zero? (long candidate-count)))
+
+      (pos? filtered-count)
+      (assoc :coverageFilteredCandidateFiles filtered-count))))
+
+(defn- aggregate-agent-diagnostics
+  [results]
+  (let [diagnostics (map agent-output-diagnostic results)
+        result-pairs (map vector results diagnostics)
+        empty-results (filter (fn [[_ diagnostic]]
+                                (:emptyResult diagnostic))
+                              result-pairs)
+        zero-candidates (filter (fn [[_ diagnostic]]
+                                  (:zeroCandidateFiles diagnostic))
+                                result-pairs)
+        coverage-filtered (filter (fn [[_ diagnostic]]
+                                    (pos? (long (or (:coverageFilteredCandidateFiles diagnostic)
+                                                    0))))
+                                  result-pairs)
+        missing-predicted (filter (fn [[_ diagnostic]]
+                                    (seq (:missingPredictedFiles diagnostic)))
+                                  result-pairs)]
+    {:emptyResultRuns (count empty-results)
+     :emptyResultCaseIds (->> empty-results
+                              (map (comp :case-id first))
+                              distinct
+                              sort
+                              vec)
+     :zeroCandidateRuns (count zero-candidates)
+     :zeroCandidateCaseIds (->> zero-candidates
+                                (map (comp :case-id first))
+                                distinct
+                                sort
+                                vec)
+     :coverageFilteredRuns (count coverage-filtered)
+     :coverageFilteredCaseIds (->> coverage-filtered
+                                   (map (comp :case-id first))
+                                   distinct
+                                   sort
+                                   vec)
+     :missingPredictedFileRuns (count missing-predicted)
+     :missingPredictedFiles (reduce + 0
+                                    (map (comp count
+                                               :missingPredictedFiles
+                                               second)
+                                         missing-predicted))}))
+
 (defn- group-agent-scores
   [results key-path]
   (->> results
@@ -2410,7 +2490,8 @@
               {:key k
                :runs (count rows)
                :scores (aggregate-agent-scores rows)
-               :inputHints (input-hint-summary rows)}))
+               :inputHints (input-hint-summary rows)
+               :agentDiagnostics (aggregate-agent-diagnostics rows)}))
        (sort-by :key)
        vec))
 
@@ -2506,6 +2587,7 @@
                 :missing missing
                 :scores (aggregate-agent-scores results)
                 :inputHints (input-hint-summary results)
+                :agentDiagnostics (aggregate-agent-diagnostics results)
                 :coverage (aggregate-coverage results)
                 :timings (aggregate-progress progress)
                 :caseProgress progress
@@ -2522,7 +2604,9 @@
                                                        :progress
                                                        :scores])
                                        :localization
-                                       (localization-diagnostic %))
+                                       (localization-diagnostic %)
+                                       :agentOutput
+                                       (agent-output-diagnostic %))
                                results)}]
     (write-json-file! (agent-report-path suite opts) report)
     report))
@@ -2552,6 +2636,7 @@
          [:max-case-noise-at-20 :maxCaseNoiseRatioAt20]
          [:max-input-hinted-cases :maxInputHintedCases]
          [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
+         [:max-empty-result-runs :maxEmptyResultRuns]
          [:max-active-stage-ms :maxActiveStageMs]]))
 
 (defn- metric-failure
@@ -2687,6 +2772,20 @@
                             {:message "Active benchmark stage exceeded the configured duration."})))))
          vec)))
 
+(defn- empty-result-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :maxEmptyResultRuns])]
+    (let [actual (double (get-in check
+                                 [:report :agentDiagnostics :emptyResultRuns]
+                                 0))]
+      (when (> actual expected)
+        [(merge (metric-failure "emptyResultRuns" "<=" expected actual)
+                {:case-ids (get-in check
+                                   [:report
+                                    :agentDiagnostics
+                                    :emptyResultCaseIds])
+                 :message "Some agent score artifacts produced no rankable suspected files."})]))))
+
 (def ^:private case-diagnostic-score-keys
   [:fileRecallAt5
    :fileRecallAt10
@@ -2772,6 +2871,7 @@
                            [:scores :unsupportedGroundTruthFiles]
                            "unsupportedGroundTruthFiles"]])
                    (case-threshold-failures check-base)
+                   (empty-result-failures check-base)
                    (active-stage-failures check-base)))]
     (assoc check-base
            :status (if (seq failures) "failed" "passed")

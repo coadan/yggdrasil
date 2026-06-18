@@ -120,7 +120,10 @@ generated output root.
   stage contributes to `elapsedMs` while the report is generated. Each
   result also includes `localization`, a compact diagnostic with scoreable
   files, per-file ranks, misses, coverage exclusions, and files found outside
-  the top 5, 10, and 20.
+  the top 5, 10, and 20. Reports also include `agentDiagnostics`, which counts
+  empty rankable outputs, zero-candidate AGraph packets, coverage-filtered
+  candidates, and missing predicted paths so benchmark failures point to the
+  next mechanical fix instead of only reporting a score.
 - `bench agent-check <suite.edn>` aggregates agent score artifacts, writes an
   `agent-check.json`, and exits non-zero when selected cases are missing or
   thresholds fail. Useful gates include `--min-cases`, `--min-runs`,
@@ -129,8 +132,9 @@ generated output root.
   `--min-case-file-recall-at-10`, `--min-case-file-recall-at-20`, `--min-mrr`,
   `--min-case-mrr`, `--max-noise-at-20`, `--max-case-noise-at-20`,
   `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`, and
-  `--max-active-stage-ms` for partial or interrupted runs with a stuck active
-  stage. Use
+  `--max-empty-result-runs` to fail when agents produce no rankable suspected
+  files, plus `--max-active-stage-ms` for partial or interrupted runs with a
+  stuck active stage. Use
   `--agent <agent-id>` to avoid mixing baseline, shell-only, and ad hoc agent
   score artifacts in one gate. Selected cases must all have matching score
   artifacts unless `--allow-missing` is set. Matching score artifacts must be

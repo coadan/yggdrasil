@@ -137,7 +137,14 @@
                  :case-id "case-1"
                  :repo-id "repo"
                  :agent {:agentId "codex"
-                         :mode "agraph"}
+                         :mode "agraph"
+                         :topFiles [{:path "src/app.clj"
+                                     :rank 7}]
+                         :selection {:rawCandidateFiles 3
+                                     :candidateFiles 2
+                                     :coverageFilteredCandidateFiles 1
+                                     :limit 20
+                                     :coverageSourceKinds ["code"]}}
                  :coverage {:declaredSourceKinds ["code" "python"]
                             :scoreableSourceKinds ["code"]
                             :scoreableFilesByKind [{:kind "code"
@@ -178,7 +185,9 @@
                  :case-id "case-1"
                  :repo-id "repo"
                  :agent {:agentId "baseline"
-                         :mode "shell-only"}
+                         :mode "shell-only"
+                         :topFiles []
+                         :rawSuspectedFileCount 0}
                  :groundTruth {:changedFiles ["src/app.clj"]
                                :unsupportedGroundTruthFiles []}
                  :groundTruthRanks {:files [{:path "src/app.clj"
@@ -237,6 +246,15 @@
               :inputHintedCases 1
               :inputHintedCaseIds ["case-1"]}
              (:inputHints report)))
+      (is (= {:emptyResultRuns 1
+              :emptyResultCaseIds ["case-1"]
+              :zeroCandidateRuns 0
+              :zeroCandidateCaseIds []
+              :coverageFilteredRuns 1
+              :coverageFilteredCaseIds ["case-1"]
+              :missingPredictedFileRuns 0
+              :missingPredictedFiles 0}
+             (:agentDiagnostics report)))
       (is (= {:declaredSourceKinds ["code" "python"]
               :scoreableSourceKinds ["code"]
               :scoreableFilesByKind [{:kind "code"
@@ -281,6 +299,19 @@
               :rankedOutsideTop10 []
               :rankedOutsideTop20 []}
              (get-in report [:results 0 :localization])))
+      (is (= {:rawSuspectedFiles 1
+              :rankedFiles 1
+              :missingPredictedFiles []
+              :emptyResult false
+              :noRawSuspectedFiles false
+              :selection {:rawCandidateFiles 3
+                          :candidateFiles 2
+                          :coverageFilteredCandidateFiles 1
+                          :limit 20
+                          :coverageSourceKinds ["code"]}
+              :zeroCandidateFiles false
+              :coverageFilteredCandidateFiles 1}
+             (get-in report [:results 0 :agentOutput])))
       (is (= #{"running" "failed"}
              (set (map :status (:caseProgress report)))))
       (is (= {:inputHintedRuns 1
@@ -317,6 +348,8 @@
                          :noiseRatioAt20 0.75
                          :unsupportedGroundTruthFiles 1}
                 :inputHints {:inputHintedCases 1}
+                :agentDiagnostics {:emptyResultRuns 1
+                                   :emptyResultCaseIds ["case-1"]}
                 :caseProgress [{:case-id "case-2"
                                 :repo-id "repo"
                                 :status "running"
@@ -342,6 +375,7 @@
                  :max-case-noise-at-20 0.5
                  :max-input-hinted-cases 0
                  :max-unsupported-ground-truth-files 0
+                 :max-empty-result-runs 0
                  :max-active-stage-ms 1000})
         passed (benchmark/check-agent-report
                 (assoc report :completed 2 :missing [])
@@ -356,6 +390,7 @@
                  :max-case-noise-at-20 0.75
                  :max-input-hinted-cases 1
                  :max-unsupported-ground-truth-files 1
+                 :max-empty-result-runs 1
                  :max-active-stage-ms 1500})]
     (is (= benchmark/agent-check-schema (:schema failed)))
     (is (= "failed" (:status failed)))
@@ -370,6 +405,7 @@
              "case.noiseRatioAt20"
              "inputHintedCases"
              "unsupportedGroundTruthFiles"
+             "emptyResultRuns"
              "activeStageElapsedMs"}
            (set (map :metric (:failures failed)))))
     (is (= {:case-id "case-1"
@@ -409,6 +445,7 @@
             :maxCaseNoiseRatioAt20 0.5
             :maxInputHintedCases 0.0
             :maxUnsupportedGroundTruthFiles 0.0
+            :maxEmptyResultRuns 0.0
             :maxActiveStageMs 1000.0}
            (:thresholds failed)))
     (is (= "passed" (:status passed)))
@@ -877,7 +914,9 @@
              :kind nil}]
            (:suspectedSymbols result)))
     (is (= ["agraph ask 'broken app' --project fixture"] (:commands result)))
-    (is (= {:candidateFiles 2
+    (is (= {:rawCandidateFiles 2
+            :candidateFiles 2
+            :coverageFilteredCandidateFiles 0
             :limit nil
             :coverageSourceKinds []}
            (:selection result)))
@@ -903,7 +942,9 @@
                             "with provenance retrieved-doc. Additional AGraph evidence: "
                             "1 more matching row.")}]
              (:suspectedFiles limited)))
-      (is (= {:candidateFiles 2
+      (is (= {:rawCandidateFiles 2
+              :candidateFiles 2
+              :coverageFilteredCandidateFiles 0
               :limit 1
               :coverageSourceKinds []}
              (:selection limited)))
@@ -933,7 +974,9 @@
            (mapv :path (:suspectedFiles unfiltered))))
     (is (= ["src/app.clj"]
            (mapv :path (:suspectedFiles filtered))))
-    (is (= {:candidateFiles 1
+    (is (= {:rawCandidateFiles 2
+            :candidateFiles 1
+            :coverageFilteredCandidateFiles 1
             :limit nil
             :coverageSourceKinds ["code"]}
            (:selection filtered)))))
