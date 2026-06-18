@@ -78,7 +78,8 @@
     ".editorconfig" "browserslist" ".browserslistrc" "renovate.json" ".renovaterc" ".renovaterc.json"
     "biome.json" "pyrightconfig.json"
     "makefile" "gnumakefile" "cmakelists.txt" "build" "build.bazel"
-    "workspace" "module.bazel" "pants.toml" ".gitlab-ci.yml"
+    "workspace" "module.bazel" "pants.toml" "jenkinsfile"
+    "azure-pipelines.yml" "azure-pipelines.yaml" ".gitlab-ci.yml"
     "buck"
     ".gitlab-ci.yaml" "buildkite.yml" "buildkite.yaml"
     "openapi.json" "openapi.yaml" "openapi.yml" "swagger.json"
@@ -123,6 +124,8 @@
       (= "dockerfile" filename) :docker
       (= "ols.json" filename) :odin
       (or (re-find #"(^|/)\.github/workflows/[^/]+\.ya?ml$" path-lower)
+          (= "jenkinsfile" filename)
+          (contains? #{"azure-pipelines.yml" "azure-pipelines.yaml"} filename)
           (= ".gitlab-ci.yml" filename)
           (= ".gitlab-ci.yaml" filename)
           (re-find #"(^|/)\.circleci/config\.ya?ml$" path-lower)

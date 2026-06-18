@@ -3265,6 +3265,14 @@
                        "run/test"
                        (fs/file-record "test/fixtures/extractor-repo"
                                        "test/fixtures/extractor-repo/ci/.gitlab-ci.yml"))
+        jenkins-result (extract/extract-file
+                        "run/test"
+                        (fs/file-record "test/fixtures/extractor-repo"
+                                        "test/fixtures/extractor-repo/ci/Jenkinsfile"))
+        azure-result (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/ci/azure-pipelines.yml"))
         github-labels (set (map :label (:nodes github-result)))
         github-kinds (frequencies (map :kind (:nodes github-result)))
         github-relations (frequencies (map :relation (:edges github-result)))
@@ -3274,9 +3282,23 @@
         gitlab-kinds (frequencies (map :kind (:nodes gitlab-result)))
         gitlab-relations (frequencies (map :relation (:edges gitlab-result)))
         gitlab-command-chunks (filter #(= :ci-command (:kind %))
-                                      (:chunks gitlab-result))]
+                                      (:chunks gitlab-result))
+        jenkins-labels (set (map :label (:nodes jenkins-result)))
+        jenkins-kinds (frequencies (map :kind (:nodes jenkins-result)))
+        jenkins-relations (frequencies (map :relation (:edges jenkins-result)))
+        jenkins-command-chunks (filter #(= :ci-command (:kind %))
+                                       (:chunks jenkins-result))
+        azure-labels (set (map :label (:nodes azure-result)))
+        azure-kinds (frequencies (map :kind (:nodes azure-result)))
+        azure-relations (frequencies (map :relation (:edges azure-result)))
+        azure-command-chunks (filter #(= :ci-command (:kind %))
+                                     (:chunks azure-result))]
     (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/ci/.github/workflows/ci.yml"))))
+    (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/ci/Jenkinsfile"))))
+    (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/ci/azure-pipelines.yml"))))
     (is (contains? github-labels "CI"))
     (is (contains? github-labels "push"))
     (is (contains? github-labels "pull_request"))
@@ -3313,7 +3335,47 @@
     (is (= 2 (get gitlab-relations :defines 0)))
     (is (= 1 (get gitlab-relations :requires 0)))
     (is (= 4 (get gitlab-relations :uses 0)))
-    (is (= #{"bb test" "bb deploy"} (set (map :text gitlab-command-chunks))))))
+    (is (= #{"bb test" "bb deploy"} (set (map :text gitlab-command-chunks))))
+    (is (contains? jenkins-labels "ci/Jenkinsfile"))
+    (is (contains? jenkins-labels "Test"))
+    (is (contains? jenkins-labels "Publish"))
+    (is (contains? jenkins-labels "cron:H 4 * * *"))
+    (is (contains? jenkins-labels "any"))
+    (is (contains? jenkins-labels "Test:TEST_DB"))
+    (is (contains? jenkins-labels "jdk:temurin-21"))
+    (is (contains? jenkins-labels "Publish:target/report"))
+    (is (= 2 (:ci-stage jenkins-kinds)))
+    (is (= 1 (:ci-trigger jenkins-kinds)))
+    (is (= 1 (:ci-runner jenkins-kinds)))
+    (is (= 1 (:ci-env-var jenkins-kinds)))
+    (is (= 1 (:ci-tool jenkins-kinds)))
+    (is (= 1 (:ci-artifact jenkins-kinds)))
+    (is (= 2 (get jenkins-relations :defines 0)))
+    (is (= 5 (get jenkins-relations :uses 0)))
+    (is (= #{"bb test" "bb deploy"} (set (map :text jenkins-command-chunks))))
+    (is (contains? azure-labels "ci/azure-pipelines.yml"))
+    (is (contains? azure-labels "trigger:main"))
+    (is (contains? azure-labels "pr:main"))
+    (is (contains? azure-labels "Test"))
+    (is (contains? azure-labels "Publish"))
+    (is (contains? azure-labels "unit"))
+    (is (contains? azure-labels "deploy"))
+    (is (contains? azure-labels "ubuntu-latest"))
+    (is (contains? azure-labels "unit:TEST_DB"))
+    (is (contains? azure-labels "checkout:self"))
+    (is (contains? azure-labels "PublishPipelineArtifact@1"))
+    (is (contains? azure-labels "report"))
+    (is (= 2 (:ci-stage azure-kinds)))
+    (is (= 2 (:ci-job azure-kinds)))
+    (is (= 2 (:ci-trigger azure-kinds)))
+    (is (= 1 (:ci-runner azure-kinds)))
+    (is (= 1 (:ci-env-var azure-kinds)))
+    (is (= 2 (:ci-action azure-kinds)))
+    (is (= 1 (:ci-artifact azure-kinds)))
+    (is (= 4 (get azure-relations :defines 0)))
+    (is (= 1 (get azure-relations :requires 0)))
+    (is (= 7 (get azure-relations :uses 0)))
+    (is (= #{"bb test" "bb deploy"} (set (map :text azure-command-chunks))))))
 
 (deftest extracts-build-targets-and-dependencies
   (let [make-result (extract/extract-file

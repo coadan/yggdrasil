@@ -1,0 +1,31 @@
+pipeline {
+  agent any
+
+  triggers {
+    cron('H 4 * * *')
+  }
+
+  stages {
+    stage('Test') {
+      environment {
+        TEST_DB = 'panels'
+      }
+      steps {
+        sh 'bb test'
+      }
+    }
+    stage('Publish') {
+      tools {
+        jdk 'temurin-21'
+      }
+      steps {
+        sh 'bb deploy'
+      }
+      post {
+        success {
+          archiveArtifacts artifacts: 'target/report'
+        }
+      }
+    }
+  }
+}

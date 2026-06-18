@@ -1,0 +1,25 @@
+trigger: [main]
+pr:
+  - main
+
+stages:
+  - stage: Test
+    jobs:
+      - job: unit
+        pool:
+          vmImage: ubuntu-latest
+        variables:
+          TEST_DB: panels
+        steps:
+          - checkout: self
+          - script: bb test
+  - stage: Publish
+    dependsOn: Test
+    jobs:
+      - job: deploy
+        steps:
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: target/report
+              artifact: report
+          - bash: bb deploy

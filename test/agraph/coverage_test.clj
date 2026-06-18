@@ -190,6 +190,8 @@
     (spit-file! root "requirements.txt" "django==5.0.0\n")
     (spit-file! root "bun.lock" "{\"packages\":{\"react\":\"19.1.0\"}}\n")
     (spit-file! root ".github/workflows/ci.yml" "name: ci\n")
+    (spit-file! root "Jenkinsfile" "pipeline { stages { stage('test') { steps { sh 'bb test' } } } }\n")
+    (spit-file! root "azure-pipelines.yml" "trigger: [main]\njobs:\n  - job: test\n")
     (spit-file! root "Makefile" "test:\n\tbb test\n")
     (spit-file! root "build/toolchain.cmake" "add_library(shared src/shared.cpp)\n")
     (spit-file! root "build/BUCK" "cxx_library(\n    name = \"core\",\n)\n")
@@ -201,12 +203,12 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 170
-              :supported 169
+      (is (= {:files 172
+              :supported 171
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
-      (is (= 1 (:count (row-by :kind "ci" (:files-by-kind report)))))
+      (is (= 3 (:count (row-by :kind "ci" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "apple-config" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "astro" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "codegen-config" (:files-by-kind report)))))

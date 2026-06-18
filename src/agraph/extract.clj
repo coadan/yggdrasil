@@ -9758,18 +9758,83 @@
                               (re-find #"^\s*(script|stage|needs):(?:\s|$)" line))
                             lines)))))))
 
-(defn- ci-job-blocks
+(defn- ci-jenkins-stage-blocks
   [lines]
-  (let [github-jobs (ci-github-job-blocks lines)]
-    (if (seq github-jobs)
-      github-jobs
-      (ci-gitlab-job-blocks lines))))
+  (loop [remaining (map-indexed vector lines)
+         current nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (if-let [[_ label] (re-matches #"^\s*stage\s*\(\s*['\"]([^'\"]+)['\"]\s*\).*$"
+                                     line)]
+        (recur (rest remaining)
+               {:kind :ci-stage
+                :label label
+                :source-line (inc idx)
+                :lines [[idx line]]}
+               (cond-> out current (conj current)))
+        (recur (rest remaining)
+               (when current
+                 (update current :lines conj [idx line]))
+               out))
+      (cond-> out current (conj current)))))
+
+(defn- ci-azure-job-blocks
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         current nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (if-let [[_ indent kind label]
+               (re-matches #"^(\s*)-\s*(stage|job):\s*(.+?)\s*$" line)]
+        (let [job {:kind (case kind
+                           "stage" :ci-stage
+                           "job" :ci-job)
+                   :label (strip-yaml-scalar label)
+                   :source-line (inc idx)
+                   :indent (count indent)
+                   :lines [[idx line]]}]
+          (recur (rest remaining)
+                 job
+                 (cond-> out current (conj current))))
+        (recur (rest remaining)
+               (when current
+                 (update current :lines conj [idx line]))
+               out))
+      (cond-> out current (conj current)))))
+
+(defn- ci-config-kind
+  [path lines]
+  (let [filename (str/lower-case (.getName (java.io.File. (str path))))
+        path-lower (str/replace (str/lower-case (str path)) "\\" "/")]
+    (cond
+      (= "jenkinsfile" filename) :jenkins
+      (contains? #{"azure-pipelines.yml" "azure-pipelines.yaml"} filename) :azure
+      (re-find #"(^|/)\.github/workflows/[^/]+\.ya?ml$" path-lower) :github
+      (contains? #{".gitlab-ci.yml" ".gitlab-ci.yaml"} filename) :gitlab
+      (seq (ci-github-job-blocks lines)) :github
+      :else :gitlab)))
+
+(defn- ci-job-kind
+  [job]
+  (or (:kind job) :ci-job))
+
+(defn- ci-job-blocks
+  [config-kind lines]
+  (case config-kind
+    :jenkins (ci-jenkins-stage-blocks lines)
+    :azure (ci-azure-job-blocks lines)
+    :github (ci-github-job-blocks lines)
+    :gitlab (ci-gitlab-job-blocks lines)
+    (let [github-jobs (ci-github-job-blocks lines)]
+      (if (seq github-jobs)
+        github-jobs
+        (ci-gitlab-job-blocks lines)))))
 
 (defn- ci-job-needs
   [job]
   (->> (:lines job)
        (mapcat (fn [[idx line]]
-                 (if-let [[_ value] (re-matches #"^\s*needs:\s*(.+?)\s*$" line)]
+                 (if-let [[_ value] (re-matches #"^\s*(?:needs|dependsOn):\s*(.+?)\s*$" line)]
                    (map (fn [target]
                           {:target target
                            :source-line (inc idx)})
@@ -9786,6 +9851,32 @@
          out []]
     (if-let [[idx line] (first remaining)]
       (let [entry (yaml-key-line idx line)
+            jenkins-fact (or
+                          (when-let [[_ runner] (re-matches #"^\s*agent\s+([A-Za-z0-9_.-]+)\s*$"
+                                                            line)]
+                            {:kind :ci-runner
+                             :label runner
+                             :source-line (inc idx)})
+                          (when-let [[_ runner] (re-find #"\blabel\s+['\"]([^'\"]+)['\"]"
+                                                         line)]
+                            {:kind :ci-runner
+                             :label runner
+                             :source-line (inc idx)})
+                          (when-let [[_ key] (re-matches #"^\s*([A-Z_][A-Z0-9_]*)\s*=\s*['\"].*['\"]\s*$"
+                                                         line)]
+                            {:kind :ci-env-var
+                             :label (str label ":" key)
+                             :source-line (inc idx)})
+                          (when-let [[_ tool value] (re-matches #"^\s*(jdk|maven|gradle|nodejs)\s+['\"]([^'\"]+)['\"].*$"
+                                                                line)]
+                            {:kind :ci-tool
+                             :label (str tool ":" value)
+                             :source-line (inc idx)})
+                          (when-let [[_ artifacts] (re-matches #"^\s*archiveArtifacts\s+artifacts:\s*['\"]([^'\"]+)['\"].*$"
+                                                               line)]
+                            {:kind :ci-artifact
+                             :label (str label ":" artifacts)
+                             :source-line (inc idx)}))
             env-indent* (when (and env-indent
                                    (or (nil? entry)
                                        (> (:indent entry) env-indent)))
@@ -9808,19 +9899,34 @@
                         :label value
                         :source-line source-line}
 
+                       (and (= "vmImage" key) (seq value))
+                       {:kind :ci-runner
+                        :label value
+                        :source-line source-line}
+
                        (and (contains? #{"container" "image"} key) (seq value))
                        {:kind :container-image
                         :label value
                         :source-line source-line}
 
-                       (and (= "uses" key) (seq value))
+                       (and (contains? #{"uses" "task"} key) (seq value))
                        {:kind :ci-action
                         :label value
+                        :source-line source-line}
+
+                       (and (= "checkout" key) (seq value))
+                       {:kind :ci-action
+                        :label (str "checkout:" value)
                         :source-line source-line}
 
                        (and (= "artifacts" key) (str/blank? value))
                        {:kind :ci-artifact
                         :label (str label ":artifacts")
+                        :source-line source-line}
+
+                       (and (contains? #{"artifact" "publish"} key) (seq value))
+                       {:kind :ci-artifact
+                        :label value
                         :source-line source-line}
 
                        (and (= "cache" key) (str/blank? value))
@@ -9844,8 +9950,97 @@
                               :else env-indent*)]
         (recur (rest remaining)
                env-indent-next
-               (cond-> out fact (conj fact))))
+               (cond-> out
+                 jenkins-fact (conj jenkins-fact)
+                 fact (conj fact))))
       (->> out distinct vec))))
+
+(defn- ci-yaml-top-list-values
+  [lines key-name]
+  (loop [remaining (map-indexed vector lines)
+         in-block? false
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (yaml-key-line idx line)]
+        (cond
+          (and entry
+               (zero? (:indent entry))
+               (= key-name (:key entry))
+               (seq (:value entry)))
+          (recur (rest remaining)
+                 false
+                 (into out
+                       (map (fn [value]
+                              {:value value
+                               :source-line (:source-line entry)})
+                            (yaml-scalar-list-values (:value entry)))))
+
+          (and entry
+               (zero? (:indent entry))
+               (= key-name (:key entry))
+               (str/blank? (:value entry)))
+          (recur (rest remaining) true out)
+
+          (and in-block?
+               entry
+               (zero? (:indent entry)))
+          (recur (rest remaining) false out)
+
+          in-block?
+          (if-let [[_ value] (re-matches #"^\s*-\s*(.+?)\s*$" line)]
+            (recur (rest remaining)
+                   true
+                   (conj out {:value (strip-yaml-scalar value)
+                              :source-line (inc idx)}))
+            (recur (rest remaining) true out))
+
+          :else
+          (recur (rest remaining) in-block? out)))
+      (vec (distinct out)))))
+
+(defn- ci-azure-workflow-facts
+  [lines]
+  (->> ["trigger" "pr"]
+       (mapcat (fn [key-name]
+                 (map (fn [{:keys [value source-line]}]
+                        {:kind :ci-trigger
+                         :label (str key-name ":" value)
+                         :source-line source-line
+                         :relation :uses})
+                      (ci-yaml-top-list-values lines key-name))))
+       distinct
+       vec))
+
+(defn- ci-jenkins-workflow-facts
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (or (when-let [[_ runner] (re-matches #"^\s*agent\s+([A-Za-z0-9_.-]+)\s*$"
+                                                     line)]
+                     {:kind :ci-runner
+                      :label runner
+                      :source-line (inc idx)
+                      :relation :uses})
+                   (when-let [[_ runner] (re-find #"\blabel\s+['\"]([^'\"]+)['\"]"
+                                                  line)]
+                     {:kind :ci-runner
+                      :label runner
+                      :source-line (inc idx)
+                      :relation :uses})
+                   (when-let [[_ trigger value] (re-matches #"^\s*(cron|pollSCM)\s*\(\s*['\"]([^'\"]+)['\"]\s*\).*$"
+                                                            line)]
+                     {:kind :ci-trigger
+                      :label (str trigger ":" value)
+                      :source-line (inc idx)
+                      :relation :uses})
+                   (when (re-matches #"^\s*githubPush\s*\(\s*\).*$" line)
+                     {:kind :ci-trigger
+                      :label "githubPush"
+                      :source-line (inc idx)
+                      :relation :uses}))))
+       distinct
+       vec))
 
 (defn- ci-workflow-facts
   [lines]
@@ -9912,8 +10107,14 @@
        (mapcat
         (fn [{:keys [label lines]}]
           (keep (fn [[idx line]]
-                  (when-let [[_ command] (re-matches #"^\s*-?\s*(?:run|script):\s*(.+?)\s*$"
-                                                     line)]
+                  (when-let [command (or (when-let [[_ command]
+                                                    (re-matches #"^\s*-?\s*(?:run|script|bash|pwsh|powershell|command|sh|bat):\s*(.+?)\s*$"
+                                                                line)]
+                                           command)
+                                         (when-let [[_ command]
+                                                    (re-matches #"^\s*(?:sh|bat|powershell|pwsh)\s+['\"]([^'\"]+)['\"].*$"
+                                                                line)]
+                                           command))]
                     (let [chunk-label (str label " command " (inc idx))
                           text (strip-yaml-scalar command)]
                       {:xt/id (chunk-id id-scope path chunk-label (inc idx))
@@ -9934,16 +10135,21 @@
   "Extract declared CI workflow jobs and explicit job dependencies."
   [run-id {:keys [id-scope file-id path content] :as file}]
   (let [lines (vec (str/split-lines content))
+        config-kind (ci-config-kind path lines)
         workflow-label (ci-workflow-label path lines)
         workflow-node (generic-node run-id id-scope file-id path :ci-workflow workflow-label 1)
-        jobs (ci-job-blocks lines)
-        workflow-facts (ci-workflow-facts lines)
-        job-nodes (mapv (fn [{:keys [label source-line]}]
+        jobs (ci-job-blocks config-kind lines)
+        workflow-facts (case config-kind
+                         :jenkins (ci-jenkins-workflow-facts lines)
+                         :azure (concat (ci-workflow-facts lines)
+                                        (ci-azure-workflow-facts lines))
+                         (ci-workflow-facts lines))
+        job-nodes (mapv (fn [{:keys [label source-line] :as job}]
                           (generic-node run-id
                                         id-scope
                                         file-id
                                         path
-                                        :ci-job
+                                        (ci-job-kind job)
                                         label
                                         source-line))
                         jobs)
@@ -9975,8 +10181,8 @@
                                          (edge-row run-id
                                                    file-id
                                                    path
-                                                   (node-id id-scope :ci-job label)
-                                                   (node-id id-scope :ci-job target)
+                                                   (node-id id-scope (ci-job-kind job) label)
+                                                   (node-id id-scope (ci-job-kind job) target)
                                                    :requires
                                                    :extracted
                                                    source-line))
@@ -9989,7 +10195,7 @@
                                              (edge-row run-id
                                                        file-id
                                                        path
-                                                       (node-id id-scope :ci-job job-label)
+                                                       (node-id id-scope (ci-job-kind job) job-label)
                                                        (node-id id-scope kind label)
                                                        :uses
                                                        :extracted

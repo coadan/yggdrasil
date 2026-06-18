@@ -23,6 +23,8 @@
   (is (watch/watchable-path? "requirements.txt"))
   (is (watch/watchable-path? "bun.lock"))
   (is (not (watch/watchable-path? "bun.lockb")))
+  (is (watch/watchable-path? "ci/Jenkinsfile"))
+  (is (watch/watchable-path? "ci/azure-pipelines.yml"))
   (is (watch/watchable-path? "web/component.vue"))
   (is (watch/watchable-path? "web/component.svelte"))
   (is (watch/watchable-path? "android/MainActivity.kt"))
