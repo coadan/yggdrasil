@@ -1839,6 +1839,32 @@
                     path
                     ".")})))
 
+(defn- score-component-evidence
+  [score-components]
+  (when (seq score-components)
+    (str " components="
+         (str/join ","
+                   (->> score-components
+                        (map (fn [[k v]]
+                               [(if (keyword? k) (name k) (str k)) v]))
+                        (sort-by first)
+                        (map (fn [[k v]]
+                               (str k ":" v))))))))
+
+(defn- candidate-file-evidence
+  [candidate score-components path]
+  (str "candidate-file:"
+       path
+       " rank="
+       (:rank candidate)
+       (when-let [target-kind (some-> (:targetKind candidate) name)]
+         (str " targetKind=" target-kind))
+       (when-let [label (not-empty (str (:label candidate)))]
+         (str " label=" (pr-str label)))
+       (when-some [score (:score candidate)]
+         (str " score=" score))
+       (score-component-evidence score-components)))
+
 (defn- candidate-file-prediction
   [root query-tokens idx candidate]
   (let [path (:path candidate)]
@@ -1869,10 +1895,9 @@
                  :matched-tokens matched-tokens
                  :matched-token-pairs matched-token-pairs
                  :matched-compound-token-pairs matched-compound-token-pairs
-                 :evidence [(str "candidate-file:"
-                                 path
-                                 " rank="
-                                 (:rank candidate))]
+                 :evidence [(candidate-file-evidence candidate
+                                                     score-components
+                                                     path)]
                  :reason (str "AGraph retrieved candidate file "
                               path
                               " from result rank "

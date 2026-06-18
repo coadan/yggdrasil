@@ -311,7 +311,10 @@ Agents should return JSON shaped like this:
 Recall, MRR, and noise use `suspectedFiles.path` and rank. The citation score
 uses the presence of non-empty `suspectedFiles[].evidence` rows. Reasons,
 commands, warnings, and symbols are still part of the artifact because they make
-failures auditable.
+failures auditable. AGraph-generated baseline evidence uses compact mechanical
+rows such as `context-doc:<path>`, `graph-entity:<label>`, and
+`candidate-file:<path> rank=<n> ... components=<score-components>` so candidate
+files remain traceable even when snippets are trimmed from the context packet.
 
 ## Fair Inputs
 

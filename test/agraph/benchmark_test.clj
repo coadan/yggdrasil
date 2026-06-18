@@ -1808,6 +1808,8 @@
         files (:suspectedFiles result)]
     (is (= ["src/importing.clj" "src/direct.clj"]
            (mapv :path files)))
+    (is (= ["candidate-file:src/importing.clj rank=50 targetKind=node label=\"importing stream context\" score=0.35 components=graph:0.6,lexical:0.2"]
+           (get-in files [0 :evidence])))
     (is (= 0.6 (get-in files [0 :metrics :graphNeighborScore])))
     (is (= 2 (get-in files [0 :metrics :matchedTokenCount])))
     (is (> (get-in files [0 :metrics :rankScore])
