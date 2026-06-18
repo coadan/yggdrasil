@@ -6258,6 +6258,84 @@
            distinct
            vec))))
 
+(defn- package-script-command-facts
+  [m]
+  (let [scripts (:scripts m)]
+    (if-not (map? scripts)
+      []
+      (->> scripts
+           (keep (fn [[script-name command]]
+                   (when (string? command)
+                     {:kind :package-script-command
+                      :label (str (json-key-label script-name) "=" command)
+                      :source-line 1
+                      :relation :defines})))
+           distinct
+           vec))))
+
+(defn- package-json-metadata-facts
+  [m]
+  (vec
+   (concat
+    (when (string? (:version m))
+      [{:kind :package-version
+        :label (:version m)
+        :source-line 1
+        :relation :defines}])
+    (when (string? (:type m))
+      [{:kind :package-type
+        :label (:type m)
+        :source-line 1
+        :relation :defines}])
+    (when (contains? m :private)
+      [{:kind :package-private
+        :label (str "private=" (:private m))
+        :source-line 1
+        :relation :defines}])
+    (let [bin (:bin m)]
+      (cond
+        (string? bin)
+        [{:kind :package-bin
+          :label bin
+          :source-line 1
+          :relation :defines}]
+
+        (map? bin)
+        (map (fn [[name target]]
+               {:kind :package-bin
+                :label (str (json-key-label name) "=" target)
+                :source-line 1
+                :relation :defines})
+             bin)
+
+        :else []))
+    (let [exports (:exports m)]
+      (cond
+        (string? exports)
+        [{:kind :package-export
+          :label exports
+          :source-line 1
+          :relation :defines}]
+
+        (map? exports)
+        (map (fn [[name target]]
+               {:kind :package-export
+                :label (str (json-key-label name)
+                            "="
+                            (if (string? target) target (pr-str target)))
+                :source-line 1
+                :relation :defines})
+             exports)
+
+        :else []))
+    (when (map? (:engines m))
+      (map (fn [[name value]]
+             {:kind :package-engine
+              :label (str (json-key-label name) "=" value)
+              :source-line 1
+              :relation :defines})
+           (:engines m))))))
+
 (defn- workspace-patterns
   [value]
   (cond
@@ -6273,6 +6351,24 @@
                :label pattern
                :source-line 1
                :relation :references}))
+       distinct
+       vec))
+
+(defn- workspace-protocol-dependency-facts
+  [m]
+  (->> [:dependencies :devDependencies :peerDependencies :optionalDependencies]
+       (mapcat (fn [k]
+                 (let [deps (get m k)]
+                   (when (map? deps)
+                     (keep (fn [[dep-name version]]
+                             (when (and (string? version)
+                                        (str/starts-with? version "workspace:"))
+                               {:kind :workspace-dependency
+                                :label (str (json-key-label dep-name) "=" version)
+                                :source-line 1
+                                :relation :references}))
+                           deps)))))
+       (remove nil?)
        distinct
        vec))
 
@@ -6296,7 +6392,10 @@
                                         :peerDependencies
                                         :optionalDependencies])
                  (package-script-facts m)
+                 (package-script-command-facts m)
+                 (package-json-metadata-facts m)
                  (package-workspace-facts m)
+                 (workspace-protocol-dependency-facts m)
                  (package-manager-fact m)))
     []))
 
@@ -6325,21 +6424,32 @@
 (defn- pnpm-workspace-facts
   [content]
   (loop [remaining (map-indexed vector (str/split-lines content))
-         in-packages? false
+         section nil
+         catalog nil
          out []]
     (if-let [[idx line] (first remaining)]
       (let [trimmed (str/trim line)]
         (cond
           (re-matches #"packages:\s*" trimmed)
-          (recur (rest remaining) true out)
+          (recur (rest remaining) :packages nil out)
 
-          (and in-packages? (str/starts-with? trimmed "-"))
+          (re-matches #"catalog:\s*" trimmed)
+          (recur (rest remaining) :catalog nil out)
+
+          (re-matches #"catalogs:\s*" trimmed)
+          (recur (rest remaining) :catalogs nil out)
+
+          (re-matches #"onlyBuiltDependencies:\s*" trimmed)
+          (recur (rest remaining) :built-dependencies nil out)
+
+          (and (= :packages section) (str/starts-with? trimmed "-"))
           (let [pattern (-> trimmed
                             (str/replace #"^-\s*" "")
                             (str/replace #"^['\"]|['\"]$" "")
                             str/trim)]
             (recur (rest remaining)
-                   true
+                   section
+                   catalog
                    (cond-> out
                      (seq pattern)
                      (conj {:kind :workspace-pattern
@@ -6347,11 +6457,68 @@
                             :source-line (inc idx)
                             :relation :references}))))
 
-          (and in-packages? (not (str/blank? trimmed)))
-          (recur (rest remaining) false out)
+          (and (= :built-dependencies section) (str/starts-with? trimmed "-"))
+          (let [dependency (-> trimmed
+                               (str/replace #"^-\s*" "")
+                               (str/replace #"^['\"]|['\"]$" "")
+                               str/trim)]
+            (recur (rest remaining)
+                   section
+                   catalog
+                   (cond-> out
+                     (seq dependency)
+                     (conj {:kind :pnpm-built-dependency
+                            :label dependency
+                            :source-line (inc idx)
+                            :relation :uses}))))
+
+          (and (= :catalog section)
+               (re-matches #"^([A-Za-z0-9@/_-][A-Za-z0-9@/_.-]*):\s*(.+?)\s*$"
+                           trimmed))
+          (let [[_ package-name version]
+                (re-matches #"^([A-Za-z0-9@/_-][A-Za-z0-9@/_.-]*):\s*(.+?)\s*$"
+                            trimmed)]
+            (recur (rest remaining)
+                   section
+                   catalog
+                   (conj out {:kind :pnpm-catalog-package
+                              :label (str package-name "="
+                                          (str/replace version #"^['\"]|['\"]$" ""))
+                              :source-line (inc idx)
+                              :relation :defines})))
+
+          (and (= :catalogs section)
+               (re-matches #"^([A-Za-z0-9_.-]+):\s*$" trimmed))
+          (let [[_ catalog-name] (re-matches #"^([A-Za-z0-9_.-]+):\s*$" trimmed)]
+            (recur (rest remaining)
+                   section
+                   catalog-name
+                   (conj out {:kind :pnpm-catalog
+                              :label catalog-name
+                              :source-line (inc idx)
+                              :relation :defines})))
+
+          (and (= :catalogs section)
+               catalog
+               (re-matches #"^([A-Za-z0-9@/_-][A-Za-z0-9@/_.-]*):\s*(.+?)\s*$"
+                           trimmed))
+          (let [[_ package-name version]
+                (re-matches #"^([A-Za-z0-9@/_-][A-Za-z0-9@/_.-]*):\s*(.+?)\s*$"
+                            trimmed)]
+            (recur (rest remaining)
+                   section
+                   catalog
+                   (conj out {:kind :pnpm-catalog-package
+                              :label (str catalog ":" package-name "="
+                                          (str/replace version #"^['\"]|['\"]$" ""))
+                              :source-line (inc idx)
+                              :relation :defines})))
+
+          (and section (not (str/blank? trimmed)))
+          (recur (rest remaining) nil nil out)
 
           :else
-          (recur (rest remaining) in-packages? out)))
+          (recur (rest remaining) section catalog out)))
       out)))
 
 (defn- json-key-facts

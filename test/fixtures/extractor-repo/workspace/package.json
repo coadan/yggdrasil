@@ -1,8 +1,21 @@
 {
   "name": "@acme/panels",
+  "version": "1.2.3",
+  "private": true,
+  "type": "module",
   "packageManager": "pnpm@9.0.0",
+  "bin": {
+    "panels": "./bin/panels.js"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "turbo build",
+    "dev": "vite dev",
     "test": "vitest run"
   },
   "workspaces": [
@@ -11,6 +24,7 @@
   ],
   "dependencies": {
     "@apollo/client": "^3.10.0",
+    "@acme/shared": "workspace:*",
     "react": "^18.3.0"
   },
   "devDependencies": {
