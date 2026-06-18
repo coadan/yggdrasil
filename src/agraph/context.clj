@@ -78,6 +78,10 @@
   [query-tokens value]
   (text/token-score query-tokens (text/tokenize value)))
 
+(defn- capped-token-score
+  [query-tokens value]
+  (min 1.0 (token-score query-tokens value)))
+
 (defn- result-matches-node?
   [result node]
   (or (= (:target-id result) (:id node))
@@ -178,6 +182,8 @@
   [chunk]
   {:repo (:repo-id chunk)
    :path (:path chunk)
+   :kind (:kind chunk)
+   :definitionKind (:definition-kind chunk)
    :heading (:label chunk)
    :headingPath (:heading-path chunk)
    :lines (lines chunk)
@@ -241,31 +247,87 @@
   [results]
   (into {} (map (juxt :target-id :score)) results))
 
+(defn- result-score-by-path-label
+  [results]
+  (reduce (fn [scores {:keys [path label score]}]
+            (if (and (not (str/blank? (str path)))
+                     (not (str/blank? (str label))))
+              (update scores [path label] #(max (double (or % 0.0))
+                                                (double score)))
+              scores))
+          {}
+          results))
+
+(defn- result-score-for-chunk
+  [result-scores result-scores-by-path-label chunk]
+  (or (get result-scores (:xt/id chunk))
+      (get result-scores-by-path-label [(:path chunk) (:label chunk)])))
+
+(defn- result-by-target
+  [results]
+  (into {} (map (juxt :target-id identity)) results))
+
 (defn- chunk-score
-  [query-tokens selected-labels result-scores chunk]
-  (+ (double (get result-scores (:xt/id chunk) 0.0))
-     (* 0.35 (token-score query-tokens
-                          (compact (:label chunk) (:path chunk) (:text chunk))))
-     (* 0.15 (text/token-score (text/tokenize (str/join " " selected-labels))
-                               (:tokens chunk)))))
+  [query-tokens selected-labels result-scores result-scores-by-path-label chunk]
+  (+ (double (or (result-score-for-chunk result-scores
+                                         result-scores-by-path-label
+                                         chunk)
+                 0.0))
+     (* 0.35 (capped-token-score query-tokens
+                                 (compact (:label chunk) (:path chunk) (:text chunk))))
+     (* 0.15 (min 1.0
+                  (text/token-score (text/tokenize (str/join " " selected-labels))
+                                    (:tokens chunk))))))
 
 (defn- inferred-docs
   [query-tokens results chunks entities snippet-chars]
   (let [result-scores (result-score-by-target results)
+        result-scores-by-path-label (result-score-by-path-label results)
+        results-by-target (result-by-target results)
         selected-labels (map :label entities)]
     (->> chunks
-         (filter #(= :markdown (:kind %)))
-         (map #(assoc % :context-score (chunk-score query-tokens selected-labels result-scores %)))
+         (filter #(or (= :markdown (:kind %))
+                      (result-score-for-chunk result-scores
+                                              result-scores-by-path-label
+                                              %)))
+         (map #(assoc % :context-score (chunk-score query-tokens
+                                                    selected-labels
+                                                    result-scores
+                                                    result-scores-by-path-label
+                                                    %)
+                      :retrieved? (boolean (result-score-for-chunk
+                                            result-scores
+                                            result-scores-by-path-label
+                                            %))
+                      :exact-path? (>= (double (get-in results-by-target
+                                                       [(:xt/id %) :score-components :exact]
+                                                       0.0))
+                                       2.0)))
          (filter #(pos? (:context-score %)))
-         (sort-by (juxt (comp - :context-score) :path :source-line))
+         (sort-by (juxt #(cond
+                           (and (:exact-path? %)
+                                (not= :markdown (:kind %))) 0
+                           (and (:retrieved? %)
+                                (not= :markdown (:kind %))) 1
+                           :else 2)
+                        (comp - :context-score)
+                        :path
+                        :source-line))
          (mapv (fn [chunk]
-                 {:target (:xt/id chunk)
-                  :role "reference"
-                  :status "candidate"
-                  :source (chunk-source chunk)
-                  :score (double (:context-score chunk))
-                  :snippet (truncate (:text chunk) snippet-chars)
-                  :provenance "retrieved-doc"})))))
+                 (cond-> {:target (:xt/id chunk)
+                          :role "reference"
+                          :status "candidate"
+                          :source (chunk-source chunk)
+                          :score (double (:context-score chunk))
+                          :snippet (truncate (:text chunk) snippet-chars)
+                          :provenance "retrieved-doc"}
+                   (and (:retrieved? chunk)
+                        (not= :markdown (:kind chunk)))
+                   (assoc :retrievedSource true)
+
+                   (and (:exact-path? chunk)
+                        (not= :markdown (:kind chunk)))
+                   (assoc :exactPathSource true)))))))
 
 (defn- distinct-docs
   [docs]
@@ -286,6 +348,35 @@
   (set (concat (map :id entities)
                (map :label entities)
                (map :id edges))))
+
+(defn- doc-priority
+  [doc]
+  (cond
+    (= "map-attachment" (:provenance doc)) 0
+    (:exactPathSource doc) 1
+    (:retrievedSource doc) 2
+    :else 3))
+
+(defn- doc-diversity-key
+  [doc]
+  [(doc-priority doc)
+   (or (get-in doc [:source :definitionKind]) :other)])
+
+(defn- diversify-docs
+  [docs]
+  (let [{:keys [firsts rest]}
+        (reduce (fn [{:keys [seen] :as acc} doc]
+                  (let [k (doc-diversity-key doc)]
+                    (if (contains? seen k)
+                      (update acc :rest conj doc)
+                      (-> acc
+                          (update :seen conj k)
+                          (update :firsts conj doc)))))
+                {:seen #{}
+                 :firsts []
+                 :rest []}
+                docs)]
+    (into firsts rest)))
 
 (defn- attached-docs
   [overlay chunks snippet-chars targets]
@@ -608,7 +699,11 @@
         docs (->> (concat (attached-docs overlay chunks snippet-chars targets)
                           (inferred-docs query-tokens results chunks entities snippet-chars))
                   distinct-docs
-                  (sort-by (juxt (comp - :score) :role #(get-in % [:source :path])))
+                  (sort-by (juxt doc-priority
+                                 (comp - :score)
+                                 :role
+                                 #(get-in % [:source :path])))
+                  diversify-docs
                   (take doc-limit)
                   vec)
         answerability (answerability xtdb

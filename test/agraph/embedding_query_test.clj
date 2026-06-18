@@ -54,6 +54,6 @@
                                              :limit 20})
               labels (set (map :label results))]
           (is (seq results))
-          (is (contains? labels "sample.util"))
+          (is (contains? labels "sample.util/shout"))
           (is (contains? labels "Greeting Flow"))
           (is (every? :score-components results)))))))

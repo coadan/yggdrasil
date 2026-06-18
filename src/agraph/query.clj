@@ -11,6 +11,7 @@
 (def default-retriever :auto)
 (def default-semantic-candidates 100)
 (def default-lexical-candidates 100)
+(def default-kind-candidates 50)
 (def default-seed-count 20)
 
 (defn- scope-match?
@@ -245,14 +246,86 @@
        (take n)
        (mapv key)))
 
-(defn- graph-neighbor-ids
+(defn- top-ids-by-kind
+  [scores docs n]
+  (->> docs
+       (group-by :target-kind)
+       vals
+       (mapcat (fn [kind-docs]
+                 (->> kind-docs
+                      (keep (fn [doc]
+                              (let [score (double (get scores (:target-id doc) 0.0))]
+                                (when (pos? score)
+                                  {:target-id (:target-id doc)
+                                   :score score
+                                   :label (:label doc)
+                                   :path (:path doc)}))))
+                      (sort-by (juxt (comp - :score) :label :path))
+                      (take n)
+                      (map :target-id))))
+       vec))
+
+(defn- concrete-path?
+  [path]
+  (and (not (str/blank? path))
+       (or (str/includes? path "/")
+           (str/includes? path "."))))
+
+(defn- exact-path-mentioned?
+  [query path]
+  (let [path (str/lower-case (str path))]
+    (and (concrete-path? path)
+         (str/includes? query path))))
+
+(defn- exact-path-candidate-ids
+  [query-text docs]
+  (let [query (str/lower-case (str query-text))]
+    (->> docs
+         (filter #(exact-path-mentioned? query (:path %)))
+         (mapv :target-id))))
+
+(def relation-graph-weights
+  {:references 1.0
+   :calls 0.9
+   :uses 0.8
+   :imports 0.6
+   :requires 0.6
+   :imports-package 0.5
+   :declares-module 0.4
+   :defines 0.2})
+
+(defn- graph-neighbor-scores
   [edges seed-ids]
   (let [seeds (set seed-ids)]
     (->> edges
          (filter #(or (contains? seeds (:source-id %))
                       (contains? seeds (:target-id %))))
-         (mapcat (juxt :source-id :target-id))
-         (remove seeds)
+         (mapcat (fn [{:keys [source-id target-id relation]}]
+                   (let [score (double (get relation-graph-weights relation 0.25))]
+                     (cond-> []
+                       (and (contains? seeds source-id)
+                            (not (contains? seeds target-id)))
+                       (conj [target-id score])
+
+                       (and (contains? seeds target-id)
+                            (not (contains? seeds source-id)))
+                       (conj [source-id score])))))
+         (reduce (fn [scores [id score]]
+                   (update scores id #(max (double (or % 0.0)) score)))
+                 {}))))
+
+(defn- same-label-node-ids
+  [docs seed-ids]
+  (let [seed-set (set seed-ids)
+        node-ids-by-file-label (->> docs
+                                    (filter #(= :node (:target-kind %)))
+                                    (group-by (juxt :path :label))
+                                    (map (fn [[k rows]]
+                                           [k (set (map :target-id rows))]))
+                                    (into {}))]
+    (->> docs
+         (filter #(contains? seed-set (:target-id %)))
+         (mapcat #(get node-ids-by-file-label [(:path %) (:label %)]))
          set)))
 
 (defn- exact-match-boost
@@ -261,33 +334,49 @@
         label (str/lower-case (:label doc))
         token-set (set query-tokens)]
     (cond
+      (exact-path-mentioned? query (:path doc)) 2.0
+
       (and (not (str/blank? query)) (= query label)) 0.25
       (and (not (str/blank? query)) (str/includes? label query)) 0.15
       (some token-set (text/tokenize (:label doc))) 0.05
       :else 0.0)))
 
 (defn- ranked-docs
-  [{:keys [query-text query-tokens docs lexical semantic neighbor-ids retriever limit]}]
+  [{:keys [query-text query-tokens docs lexical semantic neighbor-scores retriever limit]}]
   (let [docs-by-target (into {} (map (juxt :target-id identity)) docs)
-        semantic-candidates (top-ids semantic default-semantic-candidates)
-        lexical-candidates (top-ids lexical default-lexical-candidates)
+        semantic-candidates (concat (top-ids semantic default-semantic-candidates)
+                                    (top-ids-by-kind semantic
+                                                     docs
+                                                     default-kind-candidates))
+        lexical-candidates (concat (top-ids lexical default-lexical-candidates)
+                                   (top-ids-by-kind lexical
+                                                    docs
+                                                    default-kind-candidates))
+        exact-path-candidates (exact-path-candidate-ids query-text docs)
         candidates (case retriever
-                     :semantic (set semantic-candidates)
-                     :lexical (set lexical-candidates)
-                     (set (concat semantic-candidates lexical-candidates neighbor-ids)))]
+                     :semantic (set (concat semantic-candidates
+                                            exact-path-candidates))
+                     :lexical (set (concat lexical-candidates
+                                           exact-path-candidates
+                                           (keys neighbor-scores)))
+                     (set (concat semantic-candidates
+                                  lexical-candidates
+                                  exact-path-candidates
+                                  (keys neighbor-scores))))]
     (->> candidates
          (keep docs-by-target)
          (map (fn [doc]
                 (let [semantic-score (double (get semantic (:target-id doc) 0.0))
                       lexical-score (double (get lexical (:target-id doc) 0.0))
-                      graph-score (if (contains? neighbor-ids (:target-id doc)) 1.0 0.0)
+                      graph-score (double (get neighbor-scores (:target-id doc) 0.0))
                       exact-score (exact-match-boost query-text query-tokens doc)
                       total (+ (case retriever
                                  :semantic semantic-score
-                                 :lexical lexical-score
+                                 :lexical (+ lexical-score
+                                             (* 0.85 graph-score))
                                  (+ (* 0.70 semantic-score)
                                     (* 0.20 lexical-score)
-                                    (* 0.10 graph-score)))
+                                    (* 0.35 graph-score)))
                                exact-score)]
                   (assoc doc
                          :result-kind (:target-kind doc)
@@ -342,13 +431,15 @@
                    {})
         seed-ids (concat (top-ids semantic default-seed-count)
                          (top-ids lexical default-seed-count))
-        neighbor-ids (graph-neighbor-ids (all-edges xtdb scope) seed-ids)
+        seed-ids (set (concat seed-ids
+                              (same-label-node-ids docs seed-ids)))
+        neighbor-scores (graph-neighbor-scores (all-edges xtdb scope) seed-ids)
         ranked (ranked-docs {:query-text query-text
                              :query-tokens query-tokens
                              :docs docs
                              :lexical lexical
                              :semantic semantic
-                             :neighbor-ids neighbor-ids
+                             :neighbor-scores neighbor-scores
                              :retriever retriever
                              :limit limit})
         query-row {:xt/id (str "query:" (hash/short-hash [query-text (System/currentTimeMillis)]))

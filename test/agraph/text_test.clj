@@ -1,0 +1,50 @@
+(ns agraph.text-test
+  (:require [agraph.text :as text]
+            [clojure.test :refer [deftest is]]))
+
+(deftest tokenization-preserves-compounds-and-adds-mechanical-parts
+  (is (= ["frontend/src/app/main/ui/workspace/main_menu.cljs"
+          "frontend"
+          "src"
+          "app"
+          "main"
+          "ui"
+          "workspace"
+          "menu"
+          "cljs"]
+         (text/tokenize "frontend/src/app/main/ui/workspace/main_menu.cljs")))
+  (is (= ["app.main.ui.workspace.main-menu"
+          "app"
+          "main"
+          "ui"
+          "workspace"
+          "menu"]
+         (text/tokenize "app.main.ui.workspace.main-menu"))))
+
+(deftest tokenization-expands-compounds-while-preserving-frequency
+  (is (= ["mcp-enabled"
+          "mcp"
+          "enabled"
+          "mcp-enabled"
+          "mcp"
+          "enabled"]
+         (text/tokenize-all "mcp-enabled mcp-enabled"))))
+
+(deftest tokenization-expands-camel-and-pascal-identifiers
+  (is (= ["typehandlertests"
+          "type"
+          "handler"
+          "tests"
+          "testdiscoveryoptions"
+          "test"
+          "discovery"
+          "options"
+          "discoveryrequestcreatortests"
+          "request"
+          "creator"
+          "jsonb"
+          "xmlhttprequest"
+          "xml"
+          "http"]
+         (text/tokenize
+          "TypeHandlerTests TestDiscoveryOptions DiscoveryRequestCreatorTests JSONB XMLHttpRequest"))))

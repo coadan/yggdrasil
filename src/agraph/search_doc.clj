@@ -57,6 +57,7 @@
              :source-line (:source-line target)
              :active? true
              :run-id run-id}
+      (:definition-kind target) (assoc :definition-kind (:definition-kind target))
       (:heading-path target) (assoc :heading-path (:heading-path target))
       (:content-sha target) (assoc :content-sha (:content-sha target))
       (:end-line target) (assoc :end-line (:end-line target)))))
