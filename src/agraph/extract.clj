@@ -10769,6 +10769,58 @@
        :source-line 1
        :relation :defines})))
 
+(defn- distinct-migration-facts
+  [facts]
+  (->> facts
+       (reduce (fn [acc {:keys [kind label relation] :as fact}]
+                 (if (contains? acc [kind label relation])
+                   acc
+                   (assoc acc [kind label relation] fact)))
+               {})
+       vals
+       vec))
+
+(defn- migration-sql-line-facts
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (mapcat
+        (fn [[idx line]]
+          (let [source-line (inc idx)]
+            (concat
+             (when-let [[_ index table]
+                        (re-find #"(?i)^\s*create\s+(?:unique\s+)?index\s+(?:if\s+not\s+exists\s+)?([A-Za-z_][A-Za-z0-9_.\"`\[\]]*)\s+on\s+([A-Za-z_][A-Za-z0-9_.\"`\[\]]*)"
+                                 line)]
+               [{:kind :index
+                 :label (sql-name index)
+                 :source-line source-line
+                 :relation :defines}
+                {:kind :table
+                 :label (sql-name table)
+                 :source-line source-line
+                 :relation :references}])
+             (when-let [[_ table]
+                        (re-find #"(?i)^\s*alter\s+table\s+(?:if\s+exists\s+)?([A-Za-z_][A-Za-z0-9_.\"`\[\]]*)"
+                                 line)]
+               [{:kind :table
+                 :label (sql-name table)
+                 :source-line source-line
+                 :relation :references}])
+             (when-let [[_ constraint]
+                        (re-find #"(?i)\b(?:add\s+)?constraint\s+([A-Za-z_][A-Za-z0-9_.\"`\[\]]*)"
+                                 line)]
+               [{:kind :constraint
+                 :label (sql-name constraint)
+                 :source-line source-line
+                 :relation :defines}])
+             (map (fn [target]
+                    {:kind :table
+                     :label target
+                     :source-line source-line
+                     :relation :references})
+                  (sql-reference-targets line))))))
+       distinct-migration-facts))
+
 (defn- migration-sql-facts
   [path lines]
   (let [version-fact (flyway-migration-fact path)
@@ -10779,8 +10831,9 @@
                                    :source-line source-line
                                    :relation :defines})
                                 declarations)]
-    (cond-> declaration-facts
-      version-fact (conj version-fact))))
+    (distinct-migration-facts
+     (cond-> (vec (concat declaration-facts (migration-sql-line-facts lines)))
+       version-fact (conj version-fact)))))
 
 (defn- liquibase-line-facts
   [lines]
@@ -10841,10 +10894,15 @@
   (let [migration-node (generic-node run-id id-scope file-id path
                                      :db-migration path 1)
         facts (migration-facts file)
-        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
-                           (generic-node run-id id-scope file-id path
-                                         kind label source-line))
-                         facts)
+        fact-nodes (->> facts
+                        (map (fn [{:keys [kind label source-line]}]
+                               (generic-node run-id id-scope file-id path
+                                             kind label source-line)))
+                        (reduce (fn [acc node]
+                                  (assoc acc (:xt/id node) node))
+                                {})
+                        vals
+                        vec)
         fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                            (edge-row run-id
                                      file-id
