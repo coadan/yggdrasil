@@ -174,13 +174,25 @@
 
 (deftest evaluates-source-chunk-graph-expectations
   (let [prepared {:project-id "fixture"
-                  :expectations {:chunks [{:kind :code-definition
+                  :expectations {:nodes [{:kind :web-framework-plugin
+                                          :path "site/astro.config.ts"
+                                          :label "astro/config"}]
+                                 :chunks [{:kind :code-definition
                                            :path "scripts/nvm.sh"
                                            :definitionKind :function
                                            :label "nvm_remote_version"}]
+                                 :forbidden-nodes [{:kind :web-framework-plugin
+                                                    :path "site/astro.config.ts"
+                                                    :label "missing-plugin"}]
                                  :forbidden-chunks [{:kind :code-definition
                                                      :path "scripts/nvm.sh"
                                                      :label "legacy_function"}]}}
+        node {:xt/id "node:astro-plugin"
+              :kind :web-framework-plugin
+              :path "site/astro.config.ts"
+              :label "astro/config"
+              :source-line 1
+              :project-id "fixture"}
         chunk {:xt/id "chunk:shell-function"
                :kind :code-definition
                :path "scripts/nvm.sh"
@@ -193,6 +205,7 @@
                   (fn [_ table _field _value]
                     (cond
                       (= table (:chunks store/tables)) [chunk]
+                      (= table (:nodes store/tables)) [node]
                       (= table (:system-evidence store/tables)) []
                       (= table (:system-edges store/tables)) []
                       :else []))]
@@ -202,19 +215,32 @@
         (is (= {:expectedEvidence 0
                 :foundEvidence 0
                 :missingEvidence 0
+                :expectedNodes 1
+                :foundNodes 1
+                :missingNodes 0
                 :expectedChunks 1
                 :foundChunks 1
                 :missingChunks 0
                 :expectedEdges 0
                 :foundEdges 0
                 :missingEdges 0
+                :forbiddenNodes 1
+                :forbiddenNodeViolations 0
                 :forbiddenChunks 1
                 :forbiddenChunkViolations 0
                 :forbiddenEdges 0
                 :forbiddenEdgeViolations 0}
                (:summary result)))
+        (is (= true (get-in result [:expectedNodes 0 :found?])))
         (is (= true (get-in result [:expectedChunks 0 :found?])))
+        (is (= false (get-in result [:forbiddenNodes 0 :violated?])))
         (is (= false (get-in result [:forbiddenChunks 0 :violated?])))
+        (is (= [{:xt/id "node:astro-plugin"
+                 :kind :web-framework-plugin
+                 :path "site/astro.config.ts"
+                 :label "astro/config"
+                 :source-line 1}]
+               (get-in result [:expectedNodes 0 :matches])))
         (is (= [{:xt/id "chunk:shell-function"
                  :kind :code-definition
                  :path "scripts/nvm.sh"
