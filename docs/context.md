@@ -86,6 +86,10 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
 - `warnings`: short mechanical explanations
 - `next`: bounded follow-up commands
 
+If `dependencies` is missing, `next` points at the package report so agents can
+inspect whether the graph has package declarations, import evidence, conflicts,
+or unresolved imports before answering dependency-shaped questions.
+
 Agents should treat `answerability` as a confidence boundary. Local queue
 activity and validation-shaped queue results are supported after
 `agraph sync activity <project.edn>`. Remote work tools and session history are

@@ -153,6 +153,51 @@
       (is (= 1 (get-in answerability [:counts :external-packages])))
       (is (= 1 (get-in answerability [:counts :package-import-edges]))))))
 
+(deftest answerability-reports-missing-dependency-plane
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :active? true}]
+                                   :agraph/index-diagnostics []
+                                   []))
+                query/all-nodes (fn [& _]
+                                  [{:xt/id "node:src.app"
+                                    :kind :namespace
+                                    :active? true}])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _]
+                                   [{:xt/id "chunk:app"
+                                     :active? true}])
+                query/all-search-docs (fn [& _]
+                                        [{:xt/id "search:app"}])
+                query/all-embeddings (fn [& _]
+                                       [{:xt/id "embedding:app"}])
+                query/all-system-nodes (fn [& _]
+                                         [{:xt/id "system:app"}])
+                query/all-system-edges (fn [& _] [])
+                query/all-diagnostics (fn [& _] [])
+                activity/all-items (fn [& _]
+                                     [{:xt/id "work:app"}])
+                activity/all-events (fn [& _]
+                                      [{:xt/id "event:app"
+                                        :event-kind :validation}])]
+    (let [answerability (#'context/answerability
+                         :xtdb
+                         {}
+                         {:project-id "fixture"
+                          :repo-id "app"
+                          :retriever :lexical}
+                         {:entity-count 1
+                          :doc-count 1
+                          :activity-count 1
+                          :validation-count 1})]
+      (is (not (contains? (set (:available answerability)) :dependencies)))
+      (is (contains? (set (:missing answerability)) :dependencies))
+      (is (some #{"No dependency graph rows are indexed; dependency questions are limited."}
+                (:warnings answerability)))
+      (is (some #{"Run agraph packages --project fixture --json"}
+                (:next answerability))))))
+
 (deftest context-packet-includes-search-instrumentation
   (with-redefs [query/search-report (fn [_ query-text opts]
                                       {:schema query/search-report-schema

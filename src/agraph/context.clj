@@ -847,7 +847,7 @@
   [counts]
   (cond-> []
     (pos? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
-    (pos? (+ (:external-packages counts) (:package-import-edges counts))) (conj :dependencies)
+    (pos? (+ (:external-packages counts 0) (:package-import-edges counts 0))) (conj :dependencies)
     (pos? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
     (pos? (:embeddings counts)) (conj :embeddings)
     (pos? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
@@ -863,6 +863,7 @@
   (cond-> []
     (zero? (:files counts)) (conj :source-files)
     (zero? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
+    (zero? (+ (:external-packages counts 0) (:package-import-edges counts 0))) (conj :dependencies)
     (zero? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
     (zero? (:embeddings counts)) (conj :embeddings)
     (zero? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
@@ -900,6 +901,9 @@
     (pos? (:diagnostics counts))
     (conj "Indexer diagnostics are present; inspect source coverage before relying on missing facts.")
 
+    (zero? (+ (:external-packages counts 0) (:package-import-edges counts 0)))
+    (conj "No dependency graph rows are indexed; dependency questions are limited.")
+
     (zero? (+ (:system-nodes counts) (:system-edges counts)))
     (conj "No system graph rows are indexed for this project.")
 
@@ -928,7 +932,7 @@
     (conj "Remote work items and session history are not modeled in the current graph.")))
 
 (defn- next-steps
-  [counts retrieval]
+  [counts retrieval project-id]
   (->> (cond-> []
          (zero? (:files counts))
          (conj "Run agraph sync <project.edn>")
@@ -938,6 +942,9 @@
 
          (and (= :auto (:requested retrieval)) (:fallback? retrieval))
          (conj "Run agraph embed --provider openrouter")
+
+         (zero? (+ (:external-packages counts 0) (:package-import-edges counts 0)))
+         (conj (str "Run agraph packages --project " (or project-id "<project-id>") " --json"))
 
          (zero? (+ (:system-nodes counts) (:system-edges counts)))
          (conj "Run agraph sync <project.edn>")
@@ -976,7 +983,7 @@
      :counts counts
      :retrieval retrieval
      :warnings (answerability-warnings counts retrieval weak)
-     :next (next-steps counts retrieval)}))
+     :next (next-steps counts retrieval (:project-id opts))}))
 
 (defn context-packet
   "Return compact graph/doc context for an agent query."
