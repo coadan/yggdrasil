@@ -524,6 +524,36 @@
     answerability (assoc :answerability answerability)
     search-instrumentation (assoc :search search-instrumentation)))
 
+(defn- add-warning-with-budget
+  [packet warning budget]
+  (let [with-warning (update packet :warnings conj warning)]
+    (if (<= (estimate-tokens with-warning) budget)
+      with-warning
+      packet)))
+
+(defn- trim-optional-context-metadata
+  [packet budget]
+  (let [trim-steps [#(update-in % [:search :instrumentation] dissoc :context-chunks)
+                    #(assoc % :warnings [])
+                    #(assoc % :drilldowns [])]]
+    (reduce (fn [packet trim-step]
+              (if (<= (estimate-tokens packet) budget)
+                (reduced packet)
+                (trim-step packet)))
+            packet
+            trim-steps)))
+
+(defn- finalize-budget
+  [packet budget truncated?]
+  (let [packet (assoc packet
+                      :budget (assoc (:budget packet)
+                                     :truncated truncated?))
+        packet (trim-optional-context-metadata packet budget)
+        with-estimate (assoc-in packet [:budget :estimated] (estimate-tokens packet))]
+    (if (<= (estimate-tokens with-estimate) budget)
+      with-estimate
+      packet)))
+
 (defn- add-doc-with-budget
   [packet doc budget]
   (let [with-snippet (update packet :docs conj doc)]
@@ -534,8 +564,12 @@
                         (assoc :snippetOmitted true))
             with-ref (update packet :docs conj ref-doc)]
         (if (<= (estimate-tokens with-ref) budget)
-          (update with-ref :warnings conj "snippet omitted to fit context budget")
-          (update packet :warnings conj "doc omitted to fit context budget"))))))
+          (add-warning-with-budget with-ref
+                                   "snippet omitted to fit context budget"
+                                   budget)
+          (add-warning-with-budget packet
+                                   "doc omitted to fit context budget"
+                                   budget))))))
 
 (defn- fit-budget
   [packet docs budget]
@@ -543,20 +577,21 @@
                         (> (estimate-tokens packet) budget))
                  (-> packet
                      (assoc :candidateFiles [])
-                     (update :warnings conj "candidate files omitted to fit context budget"))
+                     (add-warning-with-budget
+                      "candidate files omitted to fit context budget"
+                      budget))
                  packet)
         packet (reduce #(add-doc-with-budget %1 %2 budget) packet docs)
         packet (if (and (seq (:candidateFiles packet))
                         (> (estimate-tokens packet) budget))
                  (-> packet
                      (assoc :candidateFiles [])
-                     (update :warnings conj "candidate files omitted to fit context budget"))
+                     (add-warning-with-budget
+                      "candidate files omitted to fit context budget"
+                      budget))
                  packet)
-        estimated (estimate-tokens packet)]
-    (assoc packet
-           :budget (assoc (:budget packet)
-                          :estimated estimated
-                          :truncated (< (count (:docs packet)) (count docs))))))
+        truncated? (< (count (:docs packet)) (count docs))]
+    (finalize-budget packet budget truncated?)))
 
 (defn- resolve-map-overlay
   [path overlay project-id]
