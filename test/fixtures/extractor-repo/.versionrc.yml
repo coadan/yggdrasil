@@ -1,0 +1,4 @@
+tagPrefix: v
+types:
+  - type: fix
+    section: Bug Fixes

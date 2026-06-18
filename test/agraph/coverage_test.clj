@@ -172,6 +172,13 @@
     (spit-file! root ".vscode/tasks.json" "{\"version\":\"2.0.0\",\"tasks\":[{\"label\":\"lint\",\"type\":\"shell\",\"command\":\"bb lint\"}]}\n")
     (spit-file! root ".vscode/extensions.json" "{\"recommendations\":[\"redhat.java\"]}\n")
     (spit-file! root "panels.code-workspace" "{\"folders\":[{\"path\":\".\"}],\"settings\":{\"files.eol\":\"\\n\"}}\n")
+    (spit-file! root ".changeset/config.json" "{\"baseBranch\":\"main\",\"changelog\":\"@changesets/cli/changelog\"}\n")
+    (spit-file! root ".changeset/bright-panels.md" "---\n\"@acme/panels\": minor\n---\n\nAdd panels.\n")
+    (spit-file! root "release-please-config.json" "{\"packages\":{\".\":{\"release-type\":\"node\",\"package-name\":\"panels\",\"changelog-path\":\"CHANGELOG.md\"}}}\n")
+    (spit-file! root ".release-please-manifest.json" "{\".\":\"1.4.0\"}\n")
+    (spit-file! root ".releaserc.json" "{\"branches\":[\"main\"],\"plugins\":[\"@semantic-release/changelog\"]}\n")
+    (spit-file! root "standard-version.json" "{\"tagPrefix\":\"v\",\"types\":[{\"type\":\"feat\",\"section\":\"Features\"}]}\n")
+    (spit-file! root "CHANGELOG.md" "# Changelog\n\n## 1.4.0\n")
     (spit-file! root "infra/docker-compose.yml" "services:\n  web:\n    image: ghcr.io/acme/web:latest\n    build: ./web\n    ports:\n      - \"8080:8080\"\n    environment:\n      PANEL_ENV: dev\n")
     (spit-file! root "runtime/Dockerfile" "FROM alpine:3.20 AS runtime\nCMD [\"demo\"]\n")
     (spit-file! root "runtime/Containerfile" "FROM busybox:1.36\nENTRYPOINT [\"demo\"]\n")
@@ -217,8 +224,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 186
-              :supported 185
+      (is (= {:files 193
+              :supported 192
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -252,6 +259,7 @@
       (is (= 3 (:count (row-by :kind "test-config" (:files-by-kind report)))))
       (is (= 9 (:count (row-by :kind "tool-config" (:files-by-kind report)))))
       (is (= 5 (:count (row-by :kind "editor-config" (:files-by-kind report)))))
+      (is (= 7 (:count (row-by :kind "release-config" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "storybook" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "docker" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "procfile" (:files-by-kind report)))))
@@ -374,6 +382,10 @@
       (is (some #(and (= "editor-config" (:kind %))
                       (= "editor-config/v1" (:extractor-version %))
                       (= 5 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "release-config" (:kind %))
+                      (= "release-config/v1" (:extractor-version %))
+                      (= 7 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "storybook" (:kind %))
                       (= "storybook/v1" (:extractor-version %))
@@ -508,7 +520,7 @@
                       (= "env/v2" (:extractor-version %)))
                 (:extractors report)))
       (is (some #(and (= "shell" (:kind %))
-                      (= "shell/v2" (:extractor-version %)))
+                      (= "shell/v3" (:extractor-version %)))
                 (:extractors report)))
       (is (some #(and (= "manifest" (:kind %))
                       (= "manifest/v2" (:extractor-version %))

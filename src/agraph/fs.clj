@@ -53,6 +53,12 @@
     "codeowners" "taskfile.yml" "taskfile.yaml" "justfile" ".justfile"
     ".tool-versions" ".node-version" ".python-version" ".ruby-version"
     "mise.toml" ".mise.toml" "funding.yml" "funding.yaml"
+    "changelog.md" "changes.md" "release-please-config.json"
+    ".release-please-manifest.json" ".releaserc" ".releaserc.json"
+    ".releaserc.yaml" ".releaserc.yml" "semantic-release.config.js"
+    "semantic-release.config.cjs" "semantic-release.config.mjs"
+    "semantic-release.config.ts" "standard-version.json" ".versionrc"
+    ".versionrc.json" ".versionrc.yaml" ".versionrc.yml"
     "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx"
     "content.config.js" "content.config.mjs" "content.config.ts"
     "docusaurus.config.js" "docusaurus.config.cjs" "docusaurus.config.mjs"
@@ -192,6 +198,16 @@
                    "drizzle.config.cjs" "drizzle.config.json"
                    "liquibase.properties" "flyway.conf"}
                  filename) :db-config
+      (or (contains? #{"changelog.md" "changes.md" "release-please-config.json"
+                       ".release-please-manifest.json" ".releaserc"
+                       ".releaserc.json" ".releaserc.yaml" ".releaserc.yml"
+                       "semantic-release.config.js" "semantic-release.config.cjs"
+                       "semantic-release.config.mjs" "semantic-release.config.ts"
+                       "standard-version.json" ".versionrc" ".versionrc.json"
+                       ".versionrc.yaml" ".versionrc.yml"}
+                     filename)
+          (re-find #"(^|/)\.changeset/(?:config\.json|[^/]+\.md)$"
+                   path-lower)) :release-config
       (contains? #{"dbt_project.yml" "dbt_project.yaml"} filename) :dbt
       (or (= "nginx.conf" filename)
           (contains? #{"serverless.yml" "serverless.yaml" "cdk.json"} filename)
@@ -369,6 +385,7 @@
         (re-find #"(^|/)\.circleci/config\.ya?ml$" path-lower)
         (re-find #"(^|/)\.buildkite/pipeline\.ya?ml$" path-lower)
         (re-find #"(^|/)\.vscode/(?:settings|tasks|extensions)\.json$" path-lower)
+        (re-find #"(^|/)\.changeset/(?:config\.json|[^/]+\.md)$" path-lower)
         (contains? supported-filenames filename))))
 
 (defn relative-path
@@ -587,6 +604,7 @@
         (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|ts)$"
                  path-lower)
         (re-find #"^\.vscode/(?:settings|tasks|extensions)\.json$" path-lower)
+        (re-find #"^\.changeset/(?:config\.json|[^/]+\.md)$" path-lower)
         (re-find #"^\.circleci/config\.ya?ml$" path-lower)
         (re-find #"^\.buildkite/pipeline\.ya?ml$" path-lower)
         (re-find #"(^|/)\.drone\.ya?ml$" path-lower)

@@ -1,0 +1,14 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "panels",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "packages/theme": {
+      "release-type": "node",
+      "package-name": "@acme/theme",
+      "changelog-path": "packages/theme/CHANGELOG.md"
+    }
+  }
+}

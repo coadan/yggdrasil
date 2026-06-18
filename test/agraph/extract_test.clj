@@ -174,6 +174,24 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/panels.code-workspace")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.changeset/config.json")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.changeset/bright-panels.md")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/release-please-config.json")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.release-please-manifest.json")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.releaserc.json")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.releaserc.yaml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/standard-version.json")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.versionrc.yml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/CHANGELOG.md")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/.github/dependabot.yml")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/.storybook/main.ts")
@@ -3073,6 +3091,104 @@
            (mapv :kind (:chunks tasks-result))))
     (is (= [:editor-config-file :editor-task]
            (mapv :kind (:chunks workspace-result))))))
+
+(deftest extracts-release-change-management-facts
+  (let [changeset-config-result (extract/extract-file
+                                 "run/test"
+                                 (fs/file-record "test/fixtures/extractor-repo"
+                                                 "test/fixtures/extractor-repo/.changeset/config.json"))
+        changeset-result (extract/extract-file
+                          "run/test"
+                          (fs/file-record "test/fixtures/extractor-repo"
+                                          "test/fixtures/extractor-repo/.changeset/bright-panels.md"))
+        release-please-result (extract/extract-file
+                               "run/test"
+                               (fs/file-record "test/fixtures/extractor-repo"
+                                               "test/fixtures/extractor-repo/release-please-config.json"))
+        manifest-result (extract/extract-file
+                         "run/test"
+                         (fs/file-record "test/fixtures/extractor-repo"
+                                         "test/fixtures/extractor-repo/.release-please-manifest.json"))
+        semantic-result (extract/extract-file
+                         "run/test"
+                         (fs/file-record "test/fixtures/extractor-repo"
+                                         "test/fixtures/extractor-repo/.releaserc.json"))
+        semantic-yaml-result (extract/extract-file
+                              "run/test"
+                              (fs/file-record "test/fixtures/extractor-repo"
+                                              "test/fixtures/extractor-repo/.releaserc.yaml"))
+        standard-version-result (extract/extract-file
+                                 "run/test"
+                                 (fs/file-record "test/fixtures/extractor-repo"
+                                                 "test/fixtures/extractor-repo/standard-version.json"))
+        versionrc-yaml-result (extract/extract-file
+                               "run/test"
+                               (fs/file-record "test/fixtures/extractor-repo"
+                                               "test/fixtures/extractor-repo/.versionrc.yml"))
+        changelog-result (extract/extract-file
+                          "run/test"
+                          (fs/file-record "test/fixtures/extractor-repo"
+                                          "test/fixtures/extractor-repo/CHANGELOG.md"))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        relations (fn [result] (frequencies (map :relation (:edges result))))]
+    (doseq [path [".changeset/config.json"
+                  ".changeset/bright-panels.md"
+                  "release-please-config.json"
+                  ".release-please-manifest.json"
+                  ".releaserc.json"
+                  ".releaserc.yaml"
+                  "standard-version.json"
+                  ".versionrc.yml"
+                  "CHANGELOG.md"]]
+      (is (= :release-config
+             (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                    (str "test/fixtures/extractor-repo/" path))))))
+    (is (contains? (labels changeset-config-result) "main"))
+    (is (contains? (labels changeset-config-result) "@changesets/cli/changelog"))
+    (is (contains? (labels changeset-result) "@acme/panels"))
+    (is (contains? (labels changeset-result) "@acme/panels:minor"))
+    (is (contains? (labels changeset-result) "@acme/theme:patch"))
+    (is (contains? (labels release-please-result) "."))
+    (is (contains? (labels release-please-result) "packages/theme"))
+    (is (contains? (labels release-please-result) ".:panels"))
+    (is (contains? (labels release-please-result) "packages/theme:@acme/theme"))
+    (is (contains? (labels release-please-result) ".:CHANGELOG.md"))
+    (is (contains? (labels manifest-result) ".=1.4.0"))
+    (is (contains? (labels manifest-result) "packages/theme=0.7.2"))
+    (is (contains? (labels semantic-result) "main"))
+    (is (contains? (labels semantic-result) "next"))
+    (is (contains? (labels semantic-result) "@semantic-release/commit-analyzer"))
+    (is (contains? (labels semantic-result) "@semantic-release/changelog"))
+    (is (contains? (labels semantic-yaml-result) "main"))
+    (is (contains? (labels semantic-yaml-result) "next"))
+    (is (contains? (labels semantic-yaml-result) "@semantic-release/commit-analyzer"))
+    (is (contains? (labels semantic-yaml-result) "@semantic-release/changelog"))
+    (is (contains? (labels standard-version-result) "v"))
+    (is (contains? (labels standard-version-result) "feat"))
+    (is (contains? (labels standard-version-result) "Features"))
+    (is (contains? (labels versionrc-yaml-result) "v"))
+    (is (contains? (labels versionrc-yaml-result) "fix"))
+    (is (contains? (labels versionrc-yaml-result) "Bug Fixes"))
+    (is (contains? (labels changelog-result) "Changelog"))
+    (is (contains? (labels changelog-result) "1.4.0"))
+    (is (contains? (labels changelog-result) "Bug Fixes"))
+    (is (= 1 (:release-branch (kinds changeset-config-result))))
+    (is (= 2 (:release-version-change (kinds changeset-result))))
+    (is (= 2 (:release-package (kinds release-please-result))))
+    (is (= 2 (:release-version (kinds manifest-result))))
+    (is (= 2 (:release-plugin (kinds semantic-result))))
+    (is (= 2 (:release-plugin (kinds semantic-yaml-result))))
+    (is (= 2 (:release-type (kinds standard-version-result))))
+    (is (= 1 (:release-type (kinds versionrc-yaml-result))))
+    (is (= 5 (:changelog-section (kinds changelog-result))))
+    (is (pos? (get (relations release-please-result) :references 0)))
+    (is (pos? (get (relations semantic-result) :uses 0)))
+    (is (= [:release-config-file :release-change]
+           (mapv :kind (:chunks changeset-result))))
+    (is (= [:release-config-file :changelog-section :changelog-section
+            :changelog-section :changelog-section :changelog-section]
+           (mapv :kind (:chunks changelog-result))))))
 
 (deftest extracts-compose-helm-and-yaml-infra-facts
   (let [compose-result (extract/extract-file

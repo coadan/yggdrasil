@@ -1,0 +1,6 @@
+branches:
+  - main
+  - name: next
+plugins:
+  - "@semantic-release/commit-analyzer"
+  - "@semantic-release/changelog"
