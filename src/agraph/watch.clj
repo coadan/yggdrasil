@@ -38,6 +38,8 @@
                                    (re-matches #"^\.github/funding\.ya?ml$" path-lower)
                                    (re-matches #"^(?:.*/)?\.circleci/config\.ya?ml$" path-lower)
                                    (re-matches #"^(?:.*/)?\.buildkite/pipeline\.ya?ml$" path-lower)
+                                   (re-matches #"^(?:.*/)?\.drone\.ya?ml$" path-lower)
+                                   (re-matches #"^(?:.*/)?\.woodpecker\.ya?ml$" path-lower)
                                    (re-matches #"^\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower))
                                (fs/supported-path? path))]
     (and (seq filename)

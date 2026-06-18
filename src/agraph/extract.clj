@@ -12298,6 +12298,69 @@
                                  :label
                                  (ci-buildkite-step-label current)))))))))
 
+(defn- ci-list-step-label
+  [step]
+  (or (some (fn [[idx line]]
+              (when-let [{:keys [key value]} (yaml-key-line idx line)]
+                (when (and (= "name" key) (seq value))
+                  (strip-yaml-scalar value))))
+            (:lines step))
+      (:label step)
+      (str "step-" (:source-line step))))
+
+(defn- ci-list-step-blocks
+  [lines]
+  (let [steps-start (some (fn [[idx line]]
+                            (when (re-matches #"^\s*steps:\s*$" line)
+                              idx))
+                          (map-indexed vector lines))]
+    (if-not steps-start
+      []
+      (loop [remaining (drop (inc steps-start) (map-indexed vector lines))
+             current nil
+             out []]
+        (if-let [[idx line] (first remaining)]
+          (let [top-level? (and (seq (str/trim line))
+                                (zero? (leading-spaces line)))
+                step-start (when-let [[_ label]
+                                      (re-matches #"^\s*-\s+name:\s+(.+?)\s*$"
+                                                  line)]
+                             {:label (strip-yaml-scalar label)
+                              :source-line (inc idx)
+                              :lines [[idx line]]})]
+            (cond
+              top-level?
+              (cond-> out current (conj (assoc current
+                                               :label
+                                               (ci-list-step-label current))))
+
+              step-start
+              (recur (rest remaining)
+                     step-start
+                     (cond-> out
+                       current (conj (assoc current
+                                            :label
+                                            (ci-list-step-label current)))))
+
+              current
+              (recur (rest remaining)
+                     (update current :lines conj [idx line])
+                     out)
+
+              :else
+              (recur (rest remaining) nil out)))
+          (cond-> out
+            current (conj (assoc current
+                                 :label
+                                 (ci-list-step-label current)))))))))
+
+(defn- ci-woodpecker-step-blocks
+  [lines]
+  (let [mapped-steps (yaml-top-section-blocks lines "steps")]
+    (if (seq mapped-steps)
+      mapped-steps
+      (ci-list-step-blocks lines))))
+
 (defn- ci-config-kind
   [path lines]
   (let [filename (str/lower-case (.getName (java.io.File. (str path))))
@@ -12308,6 +12371,8 @@
       (re-find #"(^|/)\.circleci/config\.ya?ml$" path-lower) :circleci
       (or (re-find #"(^|/)\.buildkite/pipeline\.ya?ml$" path-lower)
           (contains? #{"buildkite.yml" "buildkite.yaml"} filename)) :buildkite
+      (contains? #{".drone.yml" ".drone.yaml"} filename) :drone
+      (contains? #{".woodpecker.yml" ".woodpecker.yaml"} filename) :woodpecker
       (re-find #"(^|/)\.github/workflows/[^/]+\.ya?ml$" path-lower) :github
       (contains? #{".gitlab-ci.yml" ".gitlab-ci.yaml"} filename) :gitlab
       (seq (ci-github-job-blocks lines)) :github
@@ -12324,6 +12389,8 @@
     :azure (ci-azure-job-blocks lines)
     :circleci (ci-circleci-job-blocks lines)
     :buildkite (ci-buildkite-step-blocks lines)
+    :drone (ci-list-step-blocks lines)
+    :woodpecker (ci-woodpecker-step-blocks lines)
     :github (ci-github-job-blocks lines)
     :gitlab (ci-gitlab-job-blocks lines)
     (let [github-jobs (ci-github-job-blocks lines)]
@@ -12404,7 +12471,7 @@
                         :label (str label ":" key)
                         :source-line source-line}
 
-                       (and (contains? #{"env" "variables"} key)
+                       (and (contains? #{"env" "variables" "environment"} key)
                             (str/blank? value))
                        nil
 
@@ -12466,7 +12533,8 @@
                         :source-line source-line})))
             env-indent-next (cond
                               (and entry
-                                   (contains? #{"env" "variables"} (:key entry))
+                                   (contains? #{"env" "variables" "environment"}
+                                              (:key entry))
                                    (str/blank? (:value entry)))
                               (:indent entry)
 
@@ -12641,6 +12709,50 @@
           (recur (rest remaining) in-on-block? out)))
       (vec (distinct out)))))
 
+(defn- ci-event-trigger-facts
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         event-indent nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (yaml-key-line idx line)
+            indent (leading-spaces line)
+            event-indent* (cond
+                            (and entry
+                                 (= "event" (:key entry))
+                                 (str/blank? (:value entry)))
+                            (:indent entry)
+
+                            (and event-indent
+                                 entry
+                                 (<= (:indent entry) event-indent))
+                            nil
+
+                            :else event-indent)
+            inline-values (when (and entry
+                                     (= "event" (:key entry))
+                                     (seq (:value entry)))
+                            (map (fn [value]
+                                   {:kind :ci-trigger
+                                    :label value
+                                    :source-line (:source-line entry)
+                                    :relation :uses})
+                                 (yaml-scalar-list-values (:value entry))))
+            list-value (when (and event-indent*
+                                  (> indent event-indent*))
+                         (some-> (re-matches #"^\s*-\s+(.+?)\s*$" line)
+                                 second
+                                 strip-yaml-scalar))]
+        (recur (rest remaining)
+               event-indent*
+               (cond-> out
+                 inline-values (into inline-values)
+                 list-value (conj {:kind :ci-trigger
+                                   :label list-value
+                                   :source-line (inc idx)
+                                   :relation :uses}))))
+      (vec (distinct out)))))
+
 (defn- ci-circleci-workflow-facts
   [lines]
   (->> (yaml-top-section-blocks lines "workflows")
@@ -12736,29 +12848,58 @@
   (->> jobs
        (mapcat
         (fn [{:keys [label lines]}]
-          (keep (fn [[idx line]]
-                  (when-let [command (or (when-let [[_ command]
-                                                    (re-matches #"^\s*-?\s*(?:run|script|bash|pwsh|powershell|command|sh|bat):\s*(.+?)\s*$"
-                                                                line)]
-                                           command)
-                                         (when-let [[_ command]
-                                                    (re-matches #"^\s*(?:sh|bat|powershell|pwsh)\s+['\"]([^'\"]+)['\"].*$"
-                                                                line)]
-                                           command))]
-                    (let [chunk-label (str label " command " (inc idx))
-                          text (strip-yaml-scalar command)]
-                      {:xt/id (chunk-id id-scope path chunk-label (inc idx))
-                       :file-id file-id
-                       :path path
-                       :kind :ci-command
-                       :label chunk-label
-                       :text text
-                       :tokens (text/tokenize (str chunk-label "\n" text))
-                       :source-line (inc idx)
-                       :content-sha (hash/sha256-hex text)
-                       :active? true
-                       :run-id run-id})))
-                lines)))
+          (loop [remaining lines
+                 command-indent nil
+                 out []]
+            (if-let [[idx line] (first remaining)]
+              (let [entry (yaml-key-line idx line)
+                    indent (leading-spaces line)
+                    command-indent* (cond
+                                      (and entry
+                                           (= "commands" (:key entry))
+                                           (str/blank? (:value entry)))
+                                      (:indent entry)
+
+                                      (and command-indent
+                                           entry
+                                           (<= (:indent entry) command-indent))
+                                      nil
+
+                                      :else command-indent)
+                    command (or (when-let [[_ command]
+                                           (re-matches #"^\s*-?\s*(?:run|script|bash|pwsh|powershell|command|sh|bat):\s*(.+?)\s*$"
+                                                       line)]
+                                  command)
+                                (when-let [[_ command]
+                                           (re-matches #"^\s*(?:sh|bat|powershell|pwsh)\s+['\"]([^'\"]+)['\"].*$"
+                                                       line)]
+                                  command)
+                                (when (and command-indent*
+                                           (> indent command-indent*))
+                                  (some-> (re-matches #"^\s*-\s+(.+?)\s*$"
+                                                      line)
+                                          second)))]
+                (recur (rest remaining)
+                       command-indent*
+                       (cond-> out
+                         command
+                         (conj (let [chunk-label (str label " command " (inc idx))
+                                     text (strip-yaml-scalar command)]
+                                 {:xt/id (chunk-id id-scope
+                                                   path
+                                                   chunk-label
+                                                   (inc idx))
+                                  :file-id file-id
+                                  :path path
+                                  :kind :ci-command
+                                  :label chunk-label
+                                  :text text
+                                  :tokens (text/tokenize (str chunk-label "\n" text))
+                                  :source-line (inc idx)
+                                  :content-sha (hash/sha256-hex text)
+                                  :active? true
+                                  :run-id run-id})))))
+              out))))
        vec))
 
 (defn extract-ci
@@ -12775,6 +12916,8 @@
                                         (ci-azure-workflow-facts lines))
                          :circleci (concat (ci-workflow-facts lines)
                                            (ci-circleci-workflow-facts lines))
+                         (:drone :woodpecker) (concat (ci-workflow-facts lines)
+                                                      (ci-event-trigger-facts lines))
                          (ci-workflow-facts lines))
         job-nodes (mapv (fn [{:keys [label source-line] :as job}]
                           (generic-node run-id

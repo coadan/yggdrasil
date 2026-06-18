@@ -3662,6 +3662,14 @@
                           "run/test"
                           (fs/file-record "test/fixtures/extractor-repo"
                                           "test/fixtures/extractor-repo/ci/.buildkite/pipeline.yml"))
+        drone-result (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/ci/.drone.yml"))
+        woodpecker-result (extract/extract-file
+                           "run/test"
+                           (fs/file-record "test/fixtures/extractor-repo"
+                                           "test/fixtures/extractor-repo/ci/.woodpecker.yml"))
         github-labels (set (map :label (:nodes github-result)))
         github-kinds (frequencies (map :kind (:nodes github-result)))
         github-relations (frequencies (map :relation (:edges github-result)))
@@ -3691,7 +3699,17 @@
         buildkite-kinds (frequencies (map :kind (:nodes buildkite-result)))
         buildkite-relations (frequencies (map :relation (:edges buildkite-result)))
         buildkite-command-chunks (filter #(= :ci-command (:kind %))
-                                         (:chunks buildkite-result))]
+                                         (:chunks buildkite-result))
+        drone-labels (set (map :label (:nodes drone-result)))
+        drone-kinds (frequencies (map :kind (:nodes drone-result)))
+        drone-relations (frequencies (map :relation (:edges drone-result)))
+        drone-command-chunks (filter #(= :ci-command (:kind %))
+                                     (:chunks drone-result))
+        woodpecker-labels (set (map :label (:nodes woodpecker-result)))
+        woodpecker-kinds (frequencies (map :kind (:nodes woodpecker-result)))
+        woodpecker-relations (frequencies (map :relation (:edges woodpecker-result)))
+        woodpecker-command-chunks (filter #(= :ci-command (:kind %))
+                                          (:chunks woodpecker-result))]
     (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/ci/.github/workflows/ci.yml"))))
     (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
@@ -3702,6 +3720,10 @@
                                       "test/fixtures/extractor-repo/ci/.circleci/config.yml"))))
     (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/ci/.buildkite/pipeline.yml"))))
+    (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/ci/.drone.yml"))))
+    (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/ci/.woodpecker.yml"))))
     (is (contains? github-labels "CI"))
     (is (contains? github-labels "push"))
     (is (contains? github-labels "pull_request"))
@@ -3803,7 +3825,38 @@
     (is (= 1 (:ci-plugin buildkite-kinds)))
     (is (pos? (get buildkite-relations :requires 0)))
     (is (pos? (get buildkite-relations :uses 0)))
-    (is (= #{"bb test" "bb deploy"} (set (map :text buildkite-command-chunks))))))
+    (is (= #{"bb test" "bb deploy"} (set (map :text buildkite-command-chunks))))
+    (is (contains? drone-labels "default"))
+    (is (contains? drone-labels "push"))
+    (is (contains? drone-labels "test"))
+    (is (contains? drone-labels "deploy"))
+    (is (contains? drone-labels "clojure:tools-deps"))
+    (is (contains? drone-labels "alpine:3.20"))
+    (is (contains? drone-labels "test:TEST_DB"))
+    (is (= 1 (:ci-trigger drone-kinds)))
+    (is (= 2 (:ci-job drone-kinds)))
+    (is (= 2 (:container-image drone-kinds)))
+    (is (= 1 (:ci-env-var drone-kinds)))
+    (is (= 2 (get drone-relations :defines 0)))
+    (is (= 1 (get drone-relations :requires 0)))
+    (is (= 4 (get drone-relations :uses 0)))
+    (is (= #{"bb test" "bb deploy"} (set (map :text drone-command-chunks))))
+    (is (contains? woodpecker-labels "ci/.woodpecker.yml"))
+    (is (contains? woodpecker-labels "push"))
+    (is (contains? woodpecker-labels "test"))
+    (is (contains? woodpecker-labels "deploy"))
+    (is (contains? woodpecker-labels "clojure:tools-deps"))
+    (is (contains? woodpecker-labels "alpine:3.20"))
+    (is (contains? woodpecker-labels "test:TEST_DB"))
+    (is (= 1 (:ci-trigger woodpecker-kinds)))
+    (is (= 2 (:ci-job woodpecker-kinds)))
+    (is (= 2 (:container-image woodpecker-kinds)))
+    (is (= 1 (:ci-env-var woodpecker-kinds)))
+    (is (= 2 (get woodpecker-relations :defines 0)))
+    (is (= 1 (get woodpecker-relations :requires 0)))
+    (is (= 4 (get woodpecker-relations :uses 0)))
+    (is (= #{"bb test" "bb deploy"}
+           (set (map :text woodpecker-command-chunks))))))
 
 (deftest extracts-build-targets-and-dependencies
   (let [make-result (extract/extract-file

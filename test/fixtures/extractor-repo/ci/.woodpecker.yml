@@ -1,0 +1,15 @@
+when:
+  event: push
+
+steps:
+  test:
+    image: clojure:tools-deps
+    environment:
+      TEST_DB: panels
+    commands:
+      - bb test
+  deploy:
+    image: alpine:3.20
+    depends_on: [test]
+    commands:
+      - bb deploy

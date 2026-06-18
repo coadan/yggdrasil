@@ -84,6 +84,7 @@
     "makefile" "gnumakefile" "cmakelists.txt" "build" "build.bazel"
     "workspace" "module.bazel" "pants.toml" "jenkinsfile"
     "azure-pipelines.yml" "azure-pipelines.yaml" ".gitlab-ci.yml"
+    ".drone.yml" ".drone.yaml" ".woodpecker.yml" ".woodpecker.yaml"
     "buck"
     ".gitlab-ci.yaml" "buildkite.yml" "buildkite.yaml"
     "openapi.json" "openapi.yaml" "openapi.yml" "swagger.json"
@@ -142,6 +143,10 @@
           (contains? #{"azure-pipelines.yml" "azure-pipelines.yaml"} filename)
           (= ".gitlab-ci.yml" filename)
           (= ".gitlab-ci.yaml" filename)
+          (= ".drone.yml" filename)
+          (= ".drone.yaml" filename)
+          (= ".woodpecker.yml" filename)
+          (= ".woodpecker.yaml" filename)
           (re-find #"(^|/)\.circleci/config\.ya?ml$" path-lower)
           (re-find #"(^|/)\.buildkite/pipeline\.ya?ml$" path-lower)
           (contains? #{"buildkite.yml" "buildkite.yaml"} filename)) :ci
@@ -515,7 +520,9 @@
         (re-find #"^\.storybook/(?:preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
                  path-lower)
         (re-find #"^\.circleci/config\.ya?ml$" path-lower)
-        (re-find #"^\.buildkite/pipeline\.ya?ml$" path-lower))))
+        (re-find #"^\.buildkite/pipeline\.ya?ml$" path-lower)
+        (re-find #"(^|/)\.drone\.ya?ml$" path-lower)
+        (re-find #"(^|/)\.woodpecker\.ya?ml$" path-lower))))
 
 (defn- ignored-path?
   [rel-path]
