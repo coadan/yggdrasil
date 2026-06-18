@@ -329,6 +329,94 @@
     (is (empty? (:failures passed)))
     (is (= true (get-in passed [:thresholds :allowDuplicateRuns])))))
 
+(deftest compares-agent-reports-for-regressions
+  (let [baseline {:schema benchmark/agent-report-schema
+                  :suite-id "suite"
+                  :cases 2
+                  :completed 2
+                  :runs 2
+                  :scores {:fileRecallAt5 0.5
+                           :fileRecallAt10 0.75
+                           :fileRecallAt20 1.0
+                           :meanReciprocalRankFile 0.5
+                           :noiseRatioAt20 0.75}
+                  :results [{:case-id "case-1"
+                             :scores {:fileRecallAt5 0.5
+                                      :fileRecallAt10 1.0
+                                      :fileRecallAt20 1.0
+                                      :meanReciprocalRankFile 0.5
+                                      :noiseRatioAt20 0.5}}
+                            {:case-id "case-2"
+                             :scores {:fileRecallAt5 0.5
+                                      :fileRecallAt10 0.5
+                                      :fileRecallAt20 1.0
+                                      :meanReciprocalRankFile 0.5
+                                      :noiseRatioAt20 1.0}}]}
+        candidate {:schema benchmark/agent-report-schema
+                   :suite-id "suite"
+                   :cases 2
+                   :completed 2
+                   :runs 2
+                   :scores {:fileRecallAt5 0.5
+                            :fileRecallAt10 0.7
+                            :fileRecallAt20 1.0
+                            :meanReciprocalRankFile 0.6
+                            :noiseRatioAt20 0.8}
+                   :results [{:case-id "case-1"
+                              :scores {:fileRecallAt5 0.5
+                                       :fileRecallAt10 0.75
+                                       :fileRecallAt20 1.0
+                                       :meanReciprocalRankFile 0.5
+                                       :noiseRatioAt20 0.5}}
+                             {:case-id "case-2"
+                              :scores {:fileRecallAt5 0.5
+                                       :fileRecallAt10 0.65
+                                       :fileRecallAt20 1.0
+                                       :meanReciprocalRankFile 0.7
+                                       :noiseRatioAt20 0.9}}]}
+        failed (benchmark/compare-agent-reports baseline candidate {})
+        passed (benchmark/compare-agent-reports baseline
+                                                (assoc candidate
+                                                       :scores (assoc (:scores baseline)
+                                                                      :meanReciprocalRankFile
+                                                                      0.6)
+                                                       :results (:results baseline))
+                                                {})
+        expanded (benchmark/compare-agent-reports baseline
+                                                  (-> baseline
+                                                      (assoc :cases 3
+                                                             :completed 3
+                                                             :runs 3
+                                                             :scores {:fileRecallAt5 0.4
+                                                                      :fileRecallAt10 0.5
+                                                                      :fileRecallAt20 0.75
+                                                                      :meanReciprocalRankFile 0.4
+                                                                      :noiseRatioAt20 0.9})
+                                                      (update :results conj
+                                                              {:case-id "case-3"
+                                                               :scores {:fileRecallAt5 0.0
+                                                                        :fileRecallAt10 0.0
+                                                                        :fileRecallAt20 0.0
+                                                                        :meanReciprocalRankFile 0.0
+                                                                        :noiseRatioAt20 1.0}}))
+                                                  {})]
+    (is (= benchmark/agent-compare-schema (:schema failed)))
+    (is (= "failed" (:status failed)))
+    (is (= #{"fileRecallAt10"
+             "noiseRatioAt20"
+             "case.fileRecallAt10"}
+           (set (map :metric (:regressions failed)))))
+    (is (= "regressed"
+           (get-in (first (filter #(= "case-1" (:case-id %))
+                                  (:caseDeltas failed)))
+                   [:status])))
+    (is (= "passed" (:status passed)))
+    (is (empty? (:regressions passed)))
+    (is (= "passed" (:status expanded)))
+    (is (false? (:aggregateComparable expanded)))
+    (is (some #(= "added" (:status %)) (:caseDeltas expanded)))
+    (is (empty? (:regressions expanded)))))
+
 (deftest prepares-issue-replay-case-from-git-diff
   (let [root (temp-dir "agraph-bench-repo")
         out (temp-dir "agraph-bench-out")

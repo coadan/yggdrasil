@@ -1742,7 +1742,9 @@
            :retriever (option-value args "--retriever")
            :mode (option-value args "--mode")
            :result-path (option-value args "--result")
-           :command (option-value args "--command")}
+           :command (option-value args "--command")
+           :baseline-report (option-value args "--baseline-report")
+           :candidate-report (option-value args "--candidate-report")}
     (option-value args "--vector-command") (assoc :vector-command
                                                   (option-value args "--vector-command"))
     (option-value args "--vector-model") (assoc :vector-model
@@ -1820,6 +1822,11 @@
                                                                          (parse-optional-double
                                                                           args
                                                                           "--max-unsupported-ground-truth-files"))
+    (parse-optional-double args "--regression-tolerance") (assoc
+                                                           :regression-tolerance
+                                                           (parse-optional-double
+                                                            args
+                                                            "--regression-tolerance"))
     (some #{"--allow-missing"} args) (assoc :allow-missing? true)
     (some #{"--allow-duplicate-runs"} args) (assoc :allow-duplicate-runs? true)))
 
@@ -1923,6 +1930,23 @@
           (when message
             (println " " message)))))
 
+    (= benchmark/agent-compare-schema (:schema result))
+    (do
+      (println "- status" (:status result))
+      (println "- tolerance" (:tolerance result))
+      (println "- file-recall@10"
+               (format "%.2f -> %.2f"
+                       (double (get-in result [:baseline :scores :fileRecallAt10] 0.0))
+                       (double (get-in result [:candidate :scores :fileRecallAt10] 0.0))))
+      (println "- mrr"
+               (format "%.2f -> %.2f"
+                       (double (get-in result [:baseline :scores :meanReciprocalRankFile] 0.0))
+                       (double (get-in result [:candidate :scores :meanReciprocalRankFile] 0.0))))
+      (when (seq (:regressions result))
+        (println "## Regressions")
+        (doseq [{:keys [metric baseline candidate delta]} (:regressions result)]
+          (println "-" metric "baseline" baseline "candidate" candidate "delta" delta))))
+
     (= benchmark/agent-score-schema (:schema result))
     (do
       (println "- case" (:case-id result))
@@ -1963,6 +1987,7 @@
                    :agent-baseline (benchmark/agent-baselines! suite opts)
                    :agent-run (benchmark/agent-runs! suite opts)
                    :agent-check (benchmark/check-agent-suite suite opts)
+                   :agent-compare (benchmark/compare-agent-report-files! suite opts)
                    :show (benchmark/show-case suite
                                               (or (:case-id opts)
                                                   (throw (ex-info "Missing --case."
@@ -1986,13 +2011,15 @@
       (if (json-output? bench-args)
         (print-json result)
         (print-benchmark-summary result))
-      (when (and (= benchmark/agent-check-schema (:schema result))
+      (when (and (or (= benchmark/agent-check-schema (:schema result))
+                     (= benchmark/agent-compare-schema (:schema result)))
                  (= "failed" (:status result)))
-        (throw (ex-info "Benchmark agent check failed."
+        (throw (ex-info "Benchmark gate failed."
                         {:schema (:schema result)
                          :suite-id (:suite-id result)
                          :status (:status result)
-                         :failures (:failures result)}))))))
+                         :failures (or (:failures result)
+                                       (:regressions result))}))))))
 
 (defn usage
   []
@@ -2062,6 +2089,7 @@
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--out DIR] [--json]"
     "  bench agent-report <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--agent ID] [--out DIR] [--json]"
     "  bench agent-check <benchmark.edn> [--case ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--allow-missing] [--allow-duplicate-runs] [--out DIR] [--json]"
+    "  bench agent-compare <benchmark.edn> --baseline-report before.json --candidate-report after.json [--regression-tolerance N] [--out DIR] [--json]"
     "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
     ""
     "Compatibility commands remain during migration: index, project, systems, classify, queue, map, docs, meta, views, context, cursor, query, graph, deps, path."]))

@@ -69,6 +69,7 @@
     (is (str/includes? usage "bench agent-score"))
     (is (str/includes? usage "bench agent-report"))
     (is (str/includes? usage "bench agent-check"))
+    (is (str/includes? usage "bench agent-compare"))
     (is (not (str/includes? usage "overlay")))))
 
 (deftest install-agent-list-shows-supported-platforms
@@ -455,6 +456,43 @@
                   :max-unsupported-ground-truth-files 0.0
                   :allow-missing? true
                   :allow-duplicate-runs? true}]]
+               @calls))))))
+
+(deftest bench-agent-compare-dispatches-to-benchmark-comparer
+  (let [calls (atom [])]
+    (with-redefs [benchmark/read-suite (fn [path]
+                                         (swap! calls conj [:read path])
+                                         {:id "suite"})
+                  benchmark/compare-agent-report-files! (fn [suite opts]
+                                                          (swap! calls conj [:compare suite opts])
+                                                          {:schema benchmark/agent-compare-schema
+                                                           :suite-id (:id suite)
+                                                           :status "passed"
+                                                           :regressions []
+                                                           :baseline {:scores {:fileRecallAt10 0.8
+                                                                               :meanReciprocalRankFile 0.5}}
+                                                           :candidate {:scores {:fileRecallAt10 0.9
+                                                                                :meanReciprocalRankFile 0.6}}})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["agent-compare" "benchmark.edn"
+                                 "--baseline-report" "before.json"
+                                 "--candidate-report" "after.json"
+                                 "--regression-tolerance" "0.01"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= benchmark/agent-compare-schema (:schema parsed)))
+        (is (= [[:read "benchmark.edn"]
+                [:compare {:id "suite"}
+                 {:case-id nil
+                  :out nil
+                  :retriever nil
+                  :mode nil
+                  :result-path nil
+                  :command nil
+                  :baseline-report "before.json"
+                  :candidate-report "after.json"
+                  :regression-tolerance 0.01}]]
                @calls))))))
 
 (deftest init-command-can-run-sync-and-create-explicit-map

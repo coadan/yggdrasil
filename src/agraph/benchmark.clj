@@ -41,6 +41,9 @@
 (def agent-check-schema
   "agraph.benchmark.agent-check/v1")
 
+(def agent-compare-schema
+  "agraph.benchmark.agent-compare/v1")
+
 (def agent-baseline-schema
   "agraph.benchmark.agent-baseline/v1")
 
@@ -301,6 +304,10 @@
 (defn- agent-check-path
   [suite opts]
   (io/file (output-root suite opts) "agent-check.json"))
+
+(defn- agent-compare-path
+  [suite opts]
+  (io/file (output-root suite opts) "agent-compare.json"))
 
 (defn- progress-path
   [suite case opts]
@@ -2569,6 +2576,158 @@
   (let [check (check-agent-report (report-agent-suite suite opts) opts)]
     (write-json-file! (agent-check-path suite opts) check)
     check))
+
+(def ^:private comparison-score-specs
+  [{:key :fileRecallAt5
+    :label "fileRecallAt5"
+    :direction :higher}
+   {:key :fileRecallAt10
+    :label "fileRecallAt10"
+    :direction :higher}
+   {:key :fileRecallAt20
+    :label "fileRecallAt20"
+    :direction :higher}
+   {:key :meanReciprocalRankFile
+    :label "meanReciprocalRankFile"
+    :direction :higher}
+   {:key :noiseRatioAt20
+    :label "noiseRatioAt20"
+    :direction :lower}])
+
+(defn- score-delta
+  [baseline candidate {:keys [key label direction]} tolerance]
+  (let [before (double (get baseline key 0.0))
+        after (double (get candidate key 0.0))
+        delta (- after before)
+        regression? (case direction
+                      :higher (< delta (- tolerance))
+                      :lower (> delta tolerance))]
+    (cond-> {:metric label
+             :direction (name direction)
+             :baseline before
+             :candidate after
+             :delta delta}
+      regression? (assoc :regression? true))))
+
+(defn- score-deltas
+  [baseline candidate tolerance]
+  (mapv #(score-delta baseline candidate % tolerance)
+        comparison-score-specs))
+
+(defn- report-result-by-case
+  [report]
+  (->> (:results report)
+       (map (juxt :case-id identity))
+       (into {})))
+
+(defn- same-case-set?
+  [baseline-by-case candidate-by-case]
+  (= (set (keys baseline-by-case))
+     (set (keys candidate-by-case))))
+
+(defn- mark-aggregate-deltas-not-comparable
+  [deltas]
+  (mapv #(cond-> (dissoc % :regression?)
+           (:regression? %) (assoc :ignored? true
+                                   :reason "case-set-changed"))
+        deltas))
+
+(defn- case-comparison
+  [baseline-by-case candidate-by-case case-id tolerance]
+  (let [baseline (get baseline-by-case case-id)
+        candidate (get candidate-by-case case-id)]
+    (cond
+      (nil? candidate)
+      {:case-id case-id
+       :status "missing"
+       :regressions [{:metric "case.present"
+                      :baseline true
+                      :candidate false
+                      :regression? true}]}
+
+      (nil? baseline)
+      {:case-id case-id
+       :status "added"
+       :regressions []}
+
+      :else
+      (let [deltas (mapv #(update % :metric (fn [metric]
+                                              (str "case." metric)))
+                         (score-deltas (:scores baseline)
+                                       (:scores candidate)
+                                       tolerance))
+            regressions (filterv :regression? deltas)]
+        {:case-id case-id
+         :status (if (seq regressions) "regressed" "ok")
+         :deltas deltas
+         :regressions regressions}))))
+
+(defn compare-agent-reports
+  "Compare two agent reports and mark metric regressions.
+
+  Higher is better for recall and MRR; lower is better for noise. The optional
+  `:regression-tolerance` allows tiny floating-point or sampling drift without
+  hiding meaningful regressions."
+  [baseline-report candidate-report opts]
+  (let [tolerance (double (or (:regression-tolerance opts) 0.0))
+        baseline-by-case (report-result-by-case baseline-report)
+        candidate-by-case (report-result-by-case candidate-report)
+        case-ids (->> (concat (keys baseline-by-case)
+                              (keys candidate-by-case))
+                      distinct
+                      sort
+                      vec)
+        aggregate-comparable? (same-case-set? baseline-by-case
+                                              candidate-by-case)
+        raw-aggregate-deltas (score-deltas (:scores baseline-report)
+                                           (:scores candidate-report)
+                                           tolerance)
+        aggregate-deltas (if aggregate-comparable?
+                           raw-aggregate-deltas
+                           (mark-aggregate-deltas-not-comparable
+                            raw-aggregate-deltas))
+        aggregate-regressions (if aggregate-comparable?
+                                (filterv :regression? aggregate-deltas)
+                                [])
+        cases (mapv #(case-comparison baseline-by-case
+                                      candidate-by-case
+                                      %
+                                      tolerance)
+                    case-ids)
+        case-regressions (vec (mapcat :regressions cases))
+        regressions (vec (concat aggregate-regressions case-regressions))]
+    {:schema agent-compare-schema
+     :suite-id (or (:suite-id candidate-report)
+                   (:suite-id baseline-report))
+     :status (if (seq regressions) "failed" "passed")
+     :tolerance tolerance
+     :aggregateComparable aggregate-comparable?
+     :baseline {:cases (:cases baseline-report)
+                :completed (:completed baseline-report)
+                :runs (:runs baseline-report)
+                :scores (:scores baseline-report)}
+     :candidate {:cases (:cases candidate-report)
+                 :completed (:completed candidate-report)
+                 :runs (:runs candidate-report)
+                 :scores (:scores candidate-report)}
+     :aggregateDeltas aggregate-deltas
+     :caseDeltas cases
+     :regressions regressions}))
+
+(defn compare-agent-report-files!
+  "Read, compare, and write an agent report comparison artifact."
+  [suite opts]
+  (let [baseline-path (or (:baseline-report opts)
+                          (throw (ex-info "Missing --baseline-report."
+                                          {:usage "bench agent-compare <benchmark.edn> --baseline-report before.json --candidate-report after.json"})))
+        candidate-path (or (:candidate-report opts)
+                           (throw (ex-info "Missing --candidate-report."
+                                           {:usage "bench agent-compare <benchmark.edn> --baseline-report before.json --candidate-report after.json"})))
+        comparison (compare-agent-reports (read-json-file baseline-path)
+                                          (read-json-file candidate-path)
+                                          opts)]
+    (write-json-file! (agent-compare-path suite opts) comparison)
+    comparison))
 
 (defn report-suite
   "Aggregate existing benchmark result artifacts."

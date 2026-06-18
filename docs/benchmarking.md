@@ -42,6 +42,7 @@ bb bench agent-run benchmark.edn --agent codex --command 'codex -a never exec --
 bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
 bb bench agent-report benchmark.edn
 bb bench agent-check benchmark.edn --mode agraph --agent agraph-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
+bb bench agent-compare benchmark.edn --baseline-report .dev/agraph/bench-before/agent-report.json --candidate-report .dev/agraph/bench-after/agent-report.json
 bb bench run benchmark.edn
 bb bench report benchmark.edn
 bb bench show benchmark.edn --case penpot-example
@@ -127,6 +128,12 @@ generated output root.
   unique per case, agent, and mode unless `--allow-duplicate-runs` is set. The
   check artifact includes `caseDiagnostics` so CI failures can be triaged
   without opening every score artifact.
+- `bench agent-compare <suite.edn>` compares two `agent-report.json` files and
+  exits non-zero when aggregate or per-case recall/MRR/noise regress beyond
+  `--regression-tolerance` (default `0`). Use this after a candidate change to
+  prove it did not trade one benchmark case for another:
+  `bb bench agent-compare benchmark.edn --baseline-report before/agent-report.json
+  --candidate-report after/agent-report.json`.
 - `bench run <suite.edn>` creates a detached worktree at each base SHA, indexes
   it with the query profile, runs lexical retrieval over the issue text, and
   writes one scored result artifact per case.
