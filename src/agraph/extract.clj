@@ -23,6 +23,7 @@
          strip-yaml-scalar
          yaml-key-line
          leading-spaces
+         json-label
          json-ref-tail
          json-ref-values)
 
@@ -8213,10 +8214,224 @@
   [run-id file]
   (extract-config-facts run-id file :test-config :test-config-file))
 
+(defn- dependabot-update-blocks
+  [content]
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         current nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (if (re-matches #"^\s*-\s+package-ecosystem:\s+.+?\s*$" line)
+        (recur (rest remaining)
+               {:source-line (inc idx)
+                :lines [[idx line]]}
+               (cond-> out current (conj current)))
+        (recur (rest remaining)
+               (when current
+                 (update current :lines conj [idx line]))
+               out))
+      (cond-> out current (conj current)))))
+
+(defn- yaml-block-scalar
+  [lines key-name]
+  (some (fn [[idx line]]
+          (when-let [[_ value]
+                     (re-matches (re-pattern (str "^\\s*(?:-\\s*)?"
+                                                  key-name
+                                                  ":\\s+(.+?)\\s*$"))
+                                 line)]
+            {:value (strip-yaml-scalar value)
+             :source-line (inc idx)}))
+        lines))
+
+(defn- dependabot-group-pattern-facts
+  [lines]
+  (loop [remaining lines
+         in-groups? false
+         groups-indent nil
+         current-group nil
+         in-patterns? false
+         patterns-indent nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [trimmed (str/trim line)
+            indent (leading-spaces line)
+            groups-start? (re-matches #"^groups:\s*$" trimmed)
+            patterns-start? (and current-group
+                                 (re-matches #"^patterns:\s*$" trimmed))
+            group-entry (when (and in-groups?
+                                   (not in-patterns?)
+                                   groups-indent
+                                   (> indent groups-indent))
+                          (when-let [[_ label] (re-matches #"^([A-Za-z0-9_.-]+):\s*$"
+                                                           trimmed)]
+                            {:label label
+                             :source-line (inc idx)}))
+            pattern-value (when (and current-group in-patterns?)
+                            (when-let [[_ value] (re-matches #"^-\s+(.+?)\s*$"
+                                                             trimmed)]
+                              (strip-yaml-scalar value)))]
+        (cond
+          groups-start?
+          (recur (rest remaining) true indent nil false nil out)
+
+          (and in-groups?
+               groups-indent
+               (<= indent groups-indent)
+               (seq trimmed))
+          (recur (rest remaining) false nil nil false nil out)
+
+          patterns-start?
+          (recur (rest remaining) true groups-indent current-group true indent out)
+
+          group-entry
+          (recur (rest remaining)
+                 true
+                 groups-indent
+                 (:label group-entry)
+                 false
+                 nil
+                 (conj out {:kind :dependency-update-group
+                            :label (:label group-entry)
+                            :source-line (:source-line group-entry)
+                            :relation :defines}))
+
+          (and in-patterns? pattern-value)
+          (recur (rest remaining)
+                 true
+                 groups-indent
+                 current-group
+                 true
+                 patterns-indent
+                 (conj out {:kind :dependency-update-pattern
+                            :label (str current-group ":" pattern-value)
+                            :source-line (inc idx)
+                            :relation :applies-to}))
+
+          :else
+          (recur (rest remaining)
+                 in-groups?
+                 groups-indent
+                 current-group
+                 (and in-patterns?
+                      patterns-indent
+                      (or (str/blank? trimmed)
+                          (> indent patterns-indent)))
+                 patterns-indent
+                 out)))
+      out)))
+
+(defn- dependabot-update-facts
+  [{:keys [lines source-line]}]
+  (let [ecosystem (yaml-block-scalar lines "package-ecosystem")
+        directory (yaml-block-scalar lines "directory")
+        interval (yaml-block-scalar lines "interval")
+        day (yaml-block-scalar lines "day")
+        update-label (str (:value ecosystem) ":" (:value directory))]
+    (vec (concat
+          (when (and (:value ecosystem) (:value directory))
+            [{:kind :dependency-update
+              :label update-label
+              :source-line source-line
+              :relation :updates}])
+          (when (:value ecosystem)
+            [{:kind :dependency-update-ecosystem
+              :label (:value ecosystem)
+              :source-line (:source-line ecosystem)
+              :relation :updates}])
+          (when (:value directory)
+            [{:kind :dependency-update-directory
+              :label (:value directory)
+              :source-line (:source-line directory)
+              :relation :applies-to}])
+          (when (:value interval)
+            [{:kind :dependency-update-schedule
+              :label (str update-label ":interval=" (:value interval))
+              :source-line (:source-line interval)
+              :relation :defines}])
+          (when (:value day)
+            [{:kind :dependency-update-schedule
+              :label (str update-label ":day=" (:value day))
+              :source-line (:source-line day)
+              :relation :defines}])
+          (dependabot-group-pattern-facts lines)))))
+
+(defn- dependabot-facts
+  [content]
+  (->> (dependabot-update-blocks content)
+       (mapcat dependabot-update-facts)
+       distinct
+       vec))
+
+(defn- renovate-array-values
+  [value]
+  (cond
+    (vector? value) value
+    (string? value) [value]
+    :else []))
+
+(defn- renovate-package-rule-facts
+  [rule]
+  (let [group-name (:groupName rule)]
+    (vec (concat
+          (when (string? group-name)
+            [{:kind :dependency-update-group
+              :label group-name
+              :source-line 1
+              :relation :defines}])
+          (map (fn [manager]
+                 {:kind :dependency-update-manager
+                  :label (json-label manager)
+                  :source-line 1
+                  :relation :updates})
+               (renovate-array-values (:matchManagers rule)))
+          (map (fn [pattern]
+                 {:kind :dependency-update-pattern
+                  :label (if (string? group-name)
+                           (str group-name ":" (json-label pattern))
+                           (json-label pattern))
+                  :source-line 1
+                  :relation :applies-to})
+               (concat (renovate-array-values (:matchPackagePatterns rule))
+                       (renovate-array-values (:matchPackageNames rule))))))))
+
+(defn- renovate-facts
+  [content]
+  (if-let [m (read-json-map content)]
+    (vec (concat
+          (map (fn [preset]
+                 {:kind :dependency-update-preset
+                  :label (json-label preset)
+                  :source-line 1
+                  :relation :references})
+               (renovate-array-values (:extends m)))
+          (mapcat renovate-package-rule-facts
+                  (filter map? (renovate-array-values (:packageRules m))))))
+    []))
+
+(defn- tool-config-facts
+  [{:keys [path content] :as file}]
+  (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")
+        filename (manifest-name path)
+        special-facts (cond
+                        (re-find #"(^|/)\.github/dependabot\.ya?ml$" path-lower)
+                        (dependabot-facts content)
+
+                        (contains? #{"renovate.json" ".renovaterc" ".renovaterc.json"}
+                                   filename)
+                        (renovate-facts content)
+
+                        :else
+                        [])]
+    (vec (concat (config-facts file) special-facts))))
+
 (defn extract-tool-config
   "Extract bounded lint/format/tool configuration facts."
   [run-id file]
-  (extract-config-facts run-id file :tool-config :tool-config-file))
+  (extract-format-facts run-id
+                        file
+                        :tool-config
+                        :tool-config-file
+                        (tool-config-facts file)))
 
 (defn- extract-format-facts
   [run-id {:keys [id-scope file-id path] :as file} root-kind chunk-kind facts]
@@ -8548,6 +8763,28 @@
                         :source-line (inc idx)}))))))
        vec))
 
+(defn- codeowner-pattern-syntax-labels
+  [pattern]
+  (vec (concat
+        (when (= "*" pattern)
+          [(str "wildcard:" pattern)])
+        (when (str/starts-with? pattern "/")
+          [(str "rooted:" pattern)])
+        (when (str/ends-with? pattern "/")
+          [(str "directory:" pattern)])
+        (when (str/includes? pattern "*")
+          [(str "glob:" pattern)])
+        (when (str/starts-with? pattern "!")
+          [(str "negated:" pattern)]))))
+
+(defn- codeowner-owner-syntax-label
+  [owner]
+  (cond
+    (re-matches #"^@[^/\s]+/[^/\s]+$" owner) (str "team:" owner)
+    (str/starts-with? owner "@") (str "handle:" owner)
+    (re-matches #"^[^@\s]+@[^@\s]+\.[^@\s]+$" owner) (str "email:" owner)
+    :else (str "owner:" owner)))
+
 (defn extract-codeowners
   "Extract CODEOWNERS rule patterns and owner handles."
   [run-id {:keys [id-scope file-id path content] :as file}]
@@ -8569,6 +8806,32 @@
                             (generic-node run-id id-scope file-id path
                                           :codeowner label source-line))
                           owners)
+        pattern-syntaxes (->> rules
+                              (mapcat (fn [{:keys [pattern source-line]}]
+                                        (map (fn [label]
+                                               {:label label
+                                                :source-line source-line})
+                                             (codeowner-pattern-syntax-labels pattern))))
+                              distinct
+                              vec)
+        pattern-syntax-nodes (mapv (fn [{:keys [label source-line]}]
+                                     (generic-node run-id id-scope file-id path
+                                                   :codeowner-pattern-syntax
+                                                   label
+                                                   source-line))
+                                   pattern-syntaxes)
+        owner-syntaxes (->> owners
+                            (map (fn [{:keys [label source-line]}]
+                                   {:label (codeowner-owner-syntax-label label)
+                                    :source-line source-line}))
+                            distinct
+                            vec)
+        owner-syntax-nodes (mapv (fn [{:keys [label source-line]}]
+                                   (generic-node run-id id-scope file-id path
+                                                 :codeowner-owner-syntax
+                                                 label
+                                                 source-line))
+                                 owner-syntaxes)
         define-edges (mapv (fn [{:keys [pattern source-line]}]
                              (edge-row run-id
                                        file-id
@@ -8579,6 +8842,36 @@
                                        :extracted
                                        source-line))
                            rules)
+        pattern-syntax-edges (mapcat
+                              (fn [{:keys [pattern source-line]}]
+                                (map (fn [label]
+                                       (edge-row run-id
+                                                 file-id
+                                                 path
+                                                 (node-id id-scope
+                                                          :codeowner-rule
+                                                          pattern)
+                                                 (node-id id-scope
+                                                          :codeowner-pattern-syntax
+                                                          label)
+                                                 :describes
+                                                 :extracted
+                                                 source-line))
+                                     (codeowner-pattern-syntax-labels pattern)))
+                              rules)
+        owner-syntax-edges (mapv
+                            (fn [{:keys [label source-line]}]
+                              (edge-row run-id
+                                        file-id
+                                        path
+                                        (node-id id-scope :codeowner label)
+                                        (node-id id-scope
+                                                 :codeowner-owner-syntax
+                                                 (codeowner-owner-syntax-label label))
+                                        :describes
+                                        :extracted
+                                        source-line))
+                            owners)
         assign-edges (mapv (fn [{:keys [pattern owners source-line]}]
                              (mapv (fn [owner]
                                      (edge-row run-id
@@ -8596,8 +8889,15 @@
                                    owners))
                            rules)
         chunk-result (extract-text-source run-id file :codeowners-file)]
-    {:nodes (vec (concat [file-node] rule-nodes owner-nodes))
-     :edges (vec (concat define-edges (apply concat assign-edges)))
+    {:nodes (vec (concat [file-node]
+                         rule-nodes
+                         owner-nodes
+                         pattern-syntax-nodes
+                         owner-syntax-nodes))
+     :edges (vec (concat define-edges
+                         pattern-syntax-edges
+                         owner-syntax-edges
+                         (apply concat assign-edges)))
      :chunks (:chunks chunk-result)
      :diagnostics []}))
 

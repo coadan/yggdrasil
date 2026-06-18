@@ -1,4 +1,12 @@
 {
   "extends": ["config:recommended"],
-  "dependencyDashboard": true
+  "dependencyDashboard": true,
+  "packageRules": [
+    {
+      "groupName": "ui",
+      "matchManagers": ["npm"],
+      "matchPackagePatterns": ["^@vitejs/"],
+      "matchPackageNames": ["react"]
+    }
+  ]
 }

@@ -2261,7 +2261,10 @@
 
     (is (contains? (labels codeowners) "/frontend/"))
     (is (contains? (labels codeowners) "@acme/web"))
+    (is (contains? (labels codeowners) "directory:/frontend/"))
+    (is (contains? (labels codeowners) "team:@acme/web"))
     (is (= 4 (:assigns (frequencies (map :relation (:edges codeowners))))))
+    (is (pos? (:describes (frequencies (map :relation (:edges codeowners))))))
 
     (is (contains? (labels taskfile) "build"))
     (is (contains? (labels taskfile) "build->lint"))
@@ -2445,6 +2448,10 @@
                            "run/test"
                            (fs/file-record "test/fixtures/extractor-repo"
                                            "test/fixtures/extractor-repo/.github/dependabot.yml"))
+        renovate-result (extract/extract-file
+                         "run/test"
+                         (fs/file-record "test/fixtures/extractor-repo"
+                                         "test/fixtures/extractor-repo/tooling/renovate.json"))
         storybook-result (extract/extract-file
                           "run/test"
                           (fs/file-record "test/fixtures/extractor-repo"
@@ -2472,6 +2479,8 @@
     (is (= :tool-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                                "test/fixtures/extractor-repo/.github/dependabot.yml"))))
     (is (= :tool-config (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                               "test/fixtures/extractor-repo/tooling/renovate.json"))))
+    (is (= :tool-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                                "test/fixtures/extractor-repo/.storybook/main.ts"))))
     (is (contains? (labels jest-result) "tooling/jest.config.js"))
     (is (contains? (labels jest-result) "testEnvironment=jsdom"))
@@ -2489,10 +2498,19 @@
     (is (contains? (labels vite-result) "@vitejs/plugin-react"))
     (is (contains? (labels pytest-result) "testpaths=tests"))
     (is (contains? (labels dependabot-result) "package-ecosystem=npm"))
+    (is (contains? (labels dependabot-result) "npm:/"))
+    (is (contains? (labels dependabot-result) "npm:/:interval=weekly"))
+    (is (contains? (labels dependabot-result) "ui:@vitejs/*"))
+    (is (contains? (labels renovate-result) "config:recommended"))
+    (is (contains? (labels renovate-result) "ui"))
+    (is (contains? (labels renovate-result) "ui:^@vitejs/"))
+    (is (contains? (labels renovate-result) "npm"))
     (is (contains? (labels storybook-result) "stories"))
     (is (contains? (labels editorconfig-result) "indent_style=space"))
     (is (pos? (get (relations jest-result) :defines 0)))
     (is (pos? (get (relations playwright-result) :references 0)))
+    (is (pos? (get (relations dependabot-result) :updates 0)))
+    (is (pos? (get (relations renovate-result) :applies-to 0)))
     (is (= [:test-config-file] (mapv :kind (:chunks jest-result))))
     (is (= [:test-config-file] (mapv :kind (:chunks pytest-result))))
     (is (= [:tool-config-file] (mapv :kind (:chunks tsconfig-result))))
