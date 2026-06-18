@@ -4,11 +4,27 @@
     "title": "Panel Events",
     "version": "1.0.0"
   },
+  "servers": {
+    "production": {
+      "url": "broker.example.test",
+      "protocol": "amqp"
+    }
+  },
   "channels": {
     "panel.created": {
       "address": "panel.created",
+      "bindings": {
+        "amqp": {
+          "is": "routingKey"
+        }
+      },
       "publish": {
         "operationId": "publishPanelCreated",
+        "traits": [
+          {
+            "$ref": "#/components/operationTraits/secured"
+          }
+        ],
         "message": {
           "$ref": "#/components/messages/PanelCreated"
         }
@@ -16,10 +32,30 @@
     }
   },
   "components": {
+    "operationTraits": {
+      "secured": {
+        "bindings": {
+          "amqp": {
+            "ack": true
+          }
+        }
+      }
+    },
     "messages": {
       "PanelCreated": {
+        "headers": {
+          "$ref": "#/components/schemas/EventHeaders"
+        },
+        "correlationId": {
+          "location": "$message.header#/correlationId"
+        },
         "payload": {
           "$ref": "#/components/schemas/Panel"
+        },
+        "bindings": {
+          "amqp": {
+            "contentEncoding": "gzip"
+          }
         }
       }
     },
@@ -28,6 +64,14 @@
         "type": "object",
         "properties": {
           "id": {
+            "type": "string"
+          }
+        }
+      },
+      "EventHeaders": {
+        "type": "object",
+        "properties": {
+          "correlationId": {
             "type": "string"
           }
         }

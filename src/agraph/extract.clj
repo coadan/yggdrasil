@@ -12701,8 +12701,10 @@
   [spec]
   (when spec
     (let [channels (:channels spec)
+          servers (:servers spec)
           messages (get-in spec [:components :messages])
           schemas (get-in spec [:components :schemas])
+          operation-traits (get-in spec [:components :operationTraits])
           operations (->> channels
                           (mapcat
                            (fn [[channel operations]]
@@ -12726,13 +12728,29 @@
                                                                        %))
                                                                distinct
                                                                vec)
+                                            :trait-refs (->> (json-ref-values (:traits details))
+                                                             (keep #(json-ref-tail
+                                                                     "#/components/operationTraits/"
+                                                                     %))
+                                                             distinct
+                                                             vec)
                                             :source-line 1}))))))
                           vec)]
       {:channels (mapv (fn [channel]
                          {:label (json-key-label channel)
                           :source-line 1})
                        (keys channels))
+       :servers (mapv (fn [[server server-value]]
+                        {:label (json-key-label server)
+                         :url (json-label (:url server-value))
+                         :protocol (json-label (:protocol server-value))
+                         :source-line 1})
+                      servers)
        :operations operations
+       :operation-traits (mapv (fn [trait]
+                                 {:label (json-key-label trait)
+                                  :source-line 1})
+                               (keys operation-traits))
        :messages (mapv (fn [message]
                          {:label (json-key-label message)
                           :source-line 1})
@@ -12740,7 +12758,64 @@
        :schemas (mapv (fn [schema]
                         {:label (json-key-label schema)
                          :source-line 1})
-                      (keys schemas))})))
+                      (keys schemas))
+       :bindings (vec
+                  (concat
+                   (mapcat
+                    (fn [[channel channel-value]]
+                      (map (fn [[binding binding-value]]
+                             {:label (str (json-key-label channel)
+                                          ":"
+                                          (json-key-label binding))
+                              :source-line 1
+                              :value (json/write-json-str binding-value)})
+                           (:bindings channel-value)))
+                    channels)
+                   (mapcat
+                    (fn [[message message-value]]
+                      (map (fn [[binding binding-value]]
+                             {:label (str (json-key-label message)
+                                          ":"
+                                          (json-key-label binding))
+                              :source-line 1
+                              :value (json/write-json-str binding-value)})
+                           (:bindings message-value)))
+                    messages)))
+       :headers (mapv (fn [[message message-value]]
+                        (when (:headers message-value)
+                          {:label (json-key-label message)
+                           :source-line 1
+                           :refs (json-ref-values (:headers message-value))}))
+                      messages)
+       :correlation-ids (mapv (fn [[message message-value]]
+                                (when-let [location (get-in message-value
+                                                            [:correlationId
+                                                             :location])]
+                                  {:label (str (json-key-label message)
+                                               ":"
+                                               (json-label location))
+                                   :source-line 1}))
+                              messages)
+       :message-schema-refs (->> messages
+                                 (mapcat
+                                  (fn [[message message-value]]
+                                    (map (fn [ref]
+                                           {:source-label (json-key-label message)
+                                            :source-kind :asyncapi-message
+                                            :ref ref
+                                            :source-line 1})
+                                         (json-ref-values message-value))))
+                                 vec)
+       :schema-refs (->> schemas
+                         (mapcat
+                          (fn [[schema schema-value]]
+                            (map (fn [ref]
+                                   {:source-label (json-key-label schema)
+                                    :source-kind :asyncapi-schema
+                                    :ref ref
+                                    :source-line 1})
+                                 (json-ref-values schema-value))))
+                         vec)})))
 
 (defn- asyncapi-yaml-facts
   [content]
@@ -12829,9 +12904,16 @@
   (or (asyncapi-json-facts (asyncapi-json-spec content))
       (asyncapi-yaml-facts content)
       {:channels []
+       :servers []
        :operations []
+       :operation-traits []
        :messages []
        :schemas []
+       :bindings []
+       :headers []
+       :correlation-ids []
+       :message-schema-refs []
+       :schema-refs []
        :diagnostics [{:stage :parse
                       :line 1
                       :message "AsyncAPI extractor did not find asyncapi declaration."}]}))
@@ -12841,6 +12923,10 @@
   [run-id {:keys [id-scope file-id path content] :as file}]
   (let [facts (asyncapi-facts content)
         spec-node (generic-node run-id id-scope file-id path :asyncapi-spec path 1)
+        server-nodes (mapv (fn [{:keys [label source-line]}]
+                             (generic-node run-id id-scope file-id path
+                                           :asyncapi-server label source-line))
+                           (:servers facts))
         channel-nodes (mapv (fn [{:keys [label source-line]}]
                               (generic-node run-id id-scope file-id path
                                             :asyncapi-channel label source-line))
@@ -12857,13 +12943,40 @@
                              (generic-node run-id id-scope file-id path
                                            :asyncapi-schema label source-line))
                            (:schemas facts))
+        trait-nodes (mapv (fn [{:keys [label source-line]}]
+                            (generic-node run-id id-scope file-id path
+                                          :asyncapi-operation-trait
+                                          label
+                                          source-line))
+                          (:operation-traits facts))
+        binding-nodes (mapv (fn [{:keys [label source-line]}]
+                              (generic-node run-id id-scope file-id path
+                                            :asyncapi-binding label source-line))
+                            (:bindings facts))
+        header-nodes (mapv (fn [{:keys [label source-line]}]
+                             (generic-node run-id id-scope file-id path
+                                           :asyncapi-header label source-line))
+                           (remove nil? (:headers facts)))
+        correlation-id-nodes (mapv (fn [{:keys [label source-line]}]
+                                     (generic-node run-id id-scope file-id path
+                                                   :asyncapi-correlation-id
+                                                   label
+                                                   source-line))
+                                   (remove nil? (:correlation-ids facts)))
         define-edges (mapv #(edge-row run-id file-id path
                                       (:xt/id spec-node)
                                       (:xt/id %)
                                       :defines
                                       :extracted
                                       (:source-line %))
-                           (concat channel-nodes message-nodes schema-nodes))
+                           (concat server-nodes
+                                   channel-nodes
+                                   message-nodes
+                                   schema-nodes
+                                   trait-nodes
+                                   binding-nodes
+                                   header-nodes
+                                   correlation-id-nodes))
         channel-id-by-label (into {} (map (juxt :label :xt/id)) channel-nodes)
         operation-edges (mapv (fn [{:keys [channel label source-line]}]
                                 (edge-row run-id
@@ -12877,23 +12990,65 @@
                               (:operations facts))
         reference-edges (->> (:operations facts)
                              (mapcat
-                              (fn [{:keys [label message-refs source-line]}]
-                                (map (fn [target]
-                                       (edge-row run-id
-                                                 file-id
-                                                 path
-                                                 (node-id id-scope
-                                                          :asyncapi-operation
-                                                          label)
-                                                 (node-id id-scope
-                                                          :asyncapi-message
-                                                          target)
-                                                 :references
-                                                 :extracted
-                                                 source-line))
-                                     message-refs)))
+                              (fn [{:keys [label message-refs trait-refs
+                                           source-line]}]
+                                (concat
+                                 (map (fn [target]
+                                        (edge-row run-id
+                                                  file-id
+                                                  path
+                                                  (node-id id-scope
+                                                           :asyncapi-operation
+                                                           label)
+                                                  (node-id id-scope
+                                                           :asyncapi-message
+                                                           target)
+                                                  :references
+                                                  :extracted
+                                                  source-line))
+                                      message-refs)
+                                 (map (fn [target]
+                                        (edge-row run-id
+                                                  file-id
+                                                  path
+                                                  (node-id id-scope
+                                                           :asyncapi-operation
+                                                           label)
+                                                  (node-id id-scope
+                                                           :asyncapi-operation-trait
+                                                           target)
+                                                  :references
+                                                  :extracted
+                                                  source-line))
+                                      trait-refs))))
                              distinct
                              vec)
+        schema-id-by-label (into {} (map (juxt :label :xt/id)) schema-nodes)
+        schema-reference-edges (->> (concat (:message-schema-refs facts)
+                                            (:schema-refs facts))
+                                    (keep
+                                     (fn [{:keys [source-kind source-label ref
+                                                  source-line]}]
+                                       (when-let [schema-name
+                                                  (json-ref-tail
+                                                   "#/components/schemas/"
+                                                   ref)]
+                                         (when-let [target-id
+                                                    (get schema-id-by-label
+                                                         schema-name)]
+                                           (edge-row run-id
+                                                     file-id
+                                                     path
+                                                     (node-id id-scope
+                                                              (or source-kind
+                                                                  :asyncapi-message)
+                                                              source-label)
+                                                     target-id
+                                                     :references
+                                                     :extracted
+                                                     source-line)))))
+                                    distinct
+                                    vec)
         chunk-result (extract-text-source run-id file :asyncapi-file)
         diagnostics (mapv #(diagnostic-row run-id
                                            file-id
@@ -12903,11 +13058,19 @@
                                            (:message %))
                           (:diagnostics facts))]
     {:nodes (vec (concat [spec-node]
+                         server-nodes
                          channel-nodes
                          operation-nodes
                          message-nodes
-                         schema-nodes))
-     :edges (vec (concat define-edges operation-edges reference-edges))
+                         schema-nodes
+                         trait-nodes
+                         binding-nodes
+                         header-nodes
+                         correlation-id-nodes))
+     :edges (vec (concat define-edges
+                         operation-edges
+                         reference-edges
+                         schema-reference-edges))
      :chunks (:chunks chunk-result)
      :diagnostics diagnostics}))
 
