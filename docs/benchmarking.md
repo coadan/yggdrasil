@@ -185,6 +185,28 @@ triage than a brittle top-three shortlist. Keep the stricter narrow-suite gate
 around when you want to track already-strong localization behavior without
 penalizing newly added source kinds.
 
+## Quality Ratchet
+
+Treat issue replay as the ratchet for source support and ranking changes. A
+change should name the benchmark case that motivated it, keep before and after
+outputs under `.dev/agraph/`, and record the exact `agent-check` or
+`agent-compare` command that proves the candidate is no worse. Prefer a narrow
+case gate while developing the fix, then rerun the wide gate before relying on
+the result.
+
+For extractor work, the first success criterion is that the relevant fix files
+move into the agent's useful shortlist without hiding other misses. Check the
+per-case `localization.ranks`, `rankedOutsideTop5`, `missedRuns`, and
+`noiseRatioAt20` fields before tuning. If a change improves one case but
+regresses another, keep the better facts only when the regression is understood
+and tracked as a separate benchmark finding.
+
+Example narrow gate for the Bootstrap style case:
+
+```sh
+bb bench agent-check .dev/benchmarks/oss-issue-replay.edn --out .dev/agraph/bench-bootstrap-style-rules-v1 --case bootstrap-34852-form-select-border-radius --mode agraph --agent agraph-baseline-lexical --min-case-file-recall-at-5 1.0 --min-file-recall-at-5 1.0 --max-missed-runs 0
+```
+
 When a benchmark miss points at extractor noise or missing syntax facts, prefer
 testing a parser-backed extractor behind the parser-worker contract before
 adding more regex matching. See `docs/parser-workers.md`. Parser workers must
