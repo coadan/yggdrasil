@@ -2627,6 +2627,8 @@
                                               %)
                                             raw-results))}))
 
+(declare aggregate-localization-diagnostics)
+
 (defn- group-agent-scores
   [expected-fingerprints results key-path]
   (->> results
@@ -2637,6 +2639,7 @@
                :scores (aggregate-agent-scores rows)
                :inputHints (input-hint-summary rows)
                :agentDiagnostics (aggregate-agent-diagnostics rows)
+               :localizationDiagnostics (aggregate-localization-diagnostics rows)
                :artifactDiagnostics (aggregate-artifact-diagnostics
                                      expected-fingerprints
                                      rows)}))
@@ -2709,6 +2712,43 @@
      :rankedOutsideTop10 (ranked-outside 10)
      :rankedOutsideTop20 (ranked-outside 20)}))
 
+(defn- aggregate-localization-diagnostics
+  [results]
+  (let [diagnostics (map localization-diagnostic results)
+        result-pairs (map vector results diagnostics)
+        case-ids (fn [pairs]
+                   (->> pairs
+                        (map (comp :case-id first))
+                        distinct
+                        sort
+                        vec))
+        all-found (filter (fn [[_ diagnostic]]
+                            (empty? (:missedFiles diagnostic)))
+                          result-pairs)
+        missed (filter (fn [[_ diagnostic]]
+                         (seq (:missedFiles diagnostic)))
+                       result-pairs)
+        outside-top5 (filter (fn [[_ diagnostic]]
+                               (seq (:rankedOutsideTop5 diagnostic)))
+                             result-pairs)
+        outside-top10 (filter (fn [[_ diagnostic]]
+                                (seq (:rankedOutsideTop10 diagnostic)))
+                              result-pairs)
+        outside-top20 (filter (fn [[_ diagnostic]]
+                                (seq (:rankedOutsideTop20 diagnostic)))
+                              result-pairs)]
+    {:runs (count results)
+     :allScoreableFoundRuns (count all-found)
+     :allScoreableFoundCaseIds (case-ids all-found)
+     :missedRuns (count missed)
+     :missedCaseIds (case-ids missed)
+     :rankedOutsideTop5Runs (count outside-top5)
+     :rankedOutsideTop5CaseIds (case-ids outside-top5)
+     :rankedOutsideTop10Runs (count outside-top10)
+     :rankedOutsideTop10CaseIds (case-ids outside-top10)
+     :rankedOutsideTop20Runs (count outside-top20)
+     :rankedOutsideTop20CaseIds (case-ids outside-top20)}))
+
 (defn report-agent-suite
   "Aggregate existing agent score artifacts."
   [suite opts]
@@ -2746,6 +2786,7 @@
                 :scores (aggregate-agent-scores results)
                 :inputHints (input-hint-summary results)
                 :agentDiagnostics (aggregate-agent-diagnostics results)
+                :localizationDiagnostics (aggregate-localization-diagnostics results)
                 :artifactDiagnostics (aggregate-artifact-diagnostics
                                       expected-fingerprints
                                       raw-results)

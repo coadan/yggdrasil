@@ -256,6 +256,18 @@
               :missingPredictedFileRuns 0
               :missingPredictedFiles 0}
              (:agentDiagnostics report)))
+      (is (= {:runs 2
+              :allScoreableFoundRuns 0
+              :allScoreableFoundCaseIds []
+              :missedRuns 2
+              :missedCaseIds ["case-1"]
+              :rankedOutsideTop5Runs 1
+              :rankedOutsideTop5CaseIds ["case-1"]
+              :rankedOutsideTop10Runs 0
+              :rankedOutsideTop10CaseIds []
+              :rankedOutsideTop20Runs 0
+              :rankedOutsideTop20CaseIds []}
+             (:localizationDiagnostics report)))
       (is (= {:currentScoreRuns 0
               :legacyScoreRuns 2
               :legacyScoreCaseIds ["case-1"]
