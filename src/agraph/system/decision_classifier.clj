@@ -14,6 +14,13 @@
 (def apply-schema
   "agraph.sync.work.apply/v1")
 
+(defn- s
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (nil? value) nil
+    :else (str value)))
+
 (def ^:private allowed-actions
   ["accept-system"
    "reject-system"
@@ -26,31 +33,49 @@
 (def ^:private allowed-ops
   (set allowed-actions))
 
+(defn- allowed-actions-for-decision
+  [decision]
+  (let [recommended (set (map s (:recommended-actions decision)))
+        selected (if (seq recommended)
+                   (filterv recommended allowed-actions)
+                   allowed-actions)]
+    (if (seq selected)
+      (vec (distinct (conj selected "none")))
+      ["none"])))
+
+(defn- packet-allowed-actions
+  [packet]
+  (let [actions (set (map s (:allowedActions packet)))]
+    (if (seq actions)
+      actions
+      allowed-ops)))
+
 (def ^:private allowed-recommendations
   #{"accept" "reject" "change" "investigate"})
 
 (defn prompt
   "Return OpenAI-compatible chat messages for one maintenance decision."
   [decision]
-  [{:role "system"
-    :content (str "You classify one AGraph maintenance decision. Return JSON only. "
-                  "Do not classify a whole repository. Use only the provided decision data. "
-                  "Prefer hiding or rejecting noisy references over promoting weak edges.")}
-   {:role "user"
-    :content (str
-              "Return this JSON shape:\n"
-              "{"
-              "\"schema\":\"" schema "\","
-              "\"decisionId\":\"...\","
-              "\"recommendation\":\"accept|reject|change|investigate\","
-              "\"confidence\":0.0,"
-              "\"reason\":\"brief rationale\","
-              "\"mapPatch\":[{\"op\":\"" (str/join "|" allowed-actions) "\","
-              "\"target\":\"id or label\",\"value\":{},\"reason\":\"brief rationale\"}]"
-              "}\n\n"
-              (json/write-json-str {:decision decision
-                                    :allowedActions allowed-actions}
-                                   {:indent-str "  "}))}])
+  (let [allowed-actions (allowed-actions-for-decision decision)]
+    [{:role "system"
+      :content (str "You classify one AGraph maintenance decision. Return JSON only. "
+                    "Do not classify a whole repository. Use only the provided decision data. "
+                    "Prefer hiding or rejecting noisy references over promoting weak edges.")}
+     {:role "user"
+      :content (str
+                "Return this JSON shape:\n"
+                "{"
+                "\"schema\":\"" schema "\","
+                "\"decisionId\":\"...\","
+                "\"recommendation\":\"accept|reject|change|investigate\","
+                "\"confidence\":0.0,"
+                "\"reason\":\"brief rationale\","
+                "\"mapPatch\":[{\"op\":\"" (str/join "|" allowed-actions) "\","
+                "\"target\":\"id or label\",\"value\":{},\"reason\":\"brief rationale\"}]"
+                "}\n\n"
+                (json/write-json-str {:decision decision
+                                      :allowedActions allowed-actions}
+                                     {:indent-str "  "}))}]))
 
 (defn classify
   "Classify one maintenance decision with an OpenAI-compatible JSON client."
@@ -70,20 +95,21 @@
   [decision]
   (when-not decision
     (throw (ex-info "Missing maintenance decision." {})))
-  {:schema packet-schema
-   :decisionId (:id decision)
-   :project-id (:project-id decision)
-   :goal "Resolve one bounded AGraph maintenance decision without classifying the whole graph."
-   :decision decision
-   :allowedActions allowed-actions
-   :messages (prompt decision)
-   :expectedResultSchema schema
-   :expectedOutput {:schema schema
-                    :decisionId (:id decision)
-                    :recommendation "accept|reject|change|investigate"
-                    :confidence 0.0
-                    :reason "brief rationale"
-                    :mapPatch []}})
+  (let [allowed-actions (allowed-actions-for-decision decision)]
+    {:schema packet-schema
+     :decisionId (:id decision)
+     :project-id (:project-id decision)
+     :goal "Resolve one bounded AGraph maintenance decision without classifying the whole graph."
+     :decision decision
+     :allowedActions allowed-actions
+     :messages (prompt decision)
+     :expectedResultSchema schema
+     :expectedOutput {:schema schema
+                      :decisionId (:id decision)
+                      :recommendation "accept|reject|change|investigate"
+                      :confidence 0.0
+                      :reason "brief rationale"
+                      :mapPatch []}}))
 
 (defn decision-by-id
   "Find a decision by id or by its shortest unique suffix."
@@ -106,13 +132,6 @@
 (defn- present?
   [value]
   (not (str/blank? (str value))))
-
-(defn- s
-  [value]
-  (cond
-    (keyword? value) (name value)
-    (nil? value) nil
-    :else (str value)))
 
 (defn- confidence
   [value default]
@@ -194,6 +213,7 @@
 (defn- patch-errors
   [packet patch idx]
   (let [op (s (:op patch))
+        allowed-ops (packet-allowed-actions packet)
         target (patch-target patch)
         source (patch-source patch)
         edge-target (patch-target patch)
@@ -204,7 +224,7 @@
      (remove nil?
              [(when-not (contains? allowed-ops op)
                 {:path [:mapPatch idx :op]
-                 :error "Unsupported maintenance map patch op."
+                 :error "Maintenance map patch op is not allowed for this decision."
                  :value op})
               (when (and (#{"accept-system" "reject-system" "set-system-kind"} op)
                          (not (target-system? packet target)))

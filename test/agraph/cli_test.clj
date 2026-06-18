@@ -1201,7 +1201,7 @@
                   :severity :low
                   :target target-id
                   :reason "Candidate has enough local evidence to name explicitly."
-                  :recommended-actions [:set-system-kind]
+                  :recommended-actions [:set-system-kind :add-edge]
                   :basis {:schema "agraph.graph-basis/v1"
                           :project-id "fixture"
                           :hash "basis"}
@@ -1265,6 +1265,7 @@
                 {:id "maintenance-decision:test"
                  :project-id "fixture"
                  :target target-id
+                 :recommended-actions [:set-system-kind]
                  :data {:system {:xt/id target-id
                                  :label "cmd/api"}}})
         invalid {:status :done
@@ -1292,6 +1293,41 @@
                                  :confidence 0.5
                                  :reason "The packet does not contain enough bounded evidence."
                                  :mapPatch []}))))))
+
+(deftest maintenance-decision-result-rejects-unadvertised-patch-actions
+  (let [target-id "system:fixture:app:cmd-api"
+        packet (decision-classifier/decision-packet
+                {:id "maintenance-decision:test"
+                 :project-id "fixture"
+                 :target target-id
+                 :recommended-actions [:set-system-kind]
+                 :data {:system {:xt/id target-id
+                                 :label "cmd/api"}}})
+        item {:status :done
+              :payload packet
+              :result {:schema decision-classifier/schema
+                       :decisionId "maintenance-decision:test"
+                       :recommendation "change"
+                       :confidence 0.5
+                       :reason "A bounded correction is warranted."
+                       :mapPatch [{:op "add-edge"
+                                   :value {:source target-id
+                                           :target "external-api:api.fixture.test"
+                                           :relation "references"}
+                                   :reason "This patch was not advertised by the decision."}]}}]
+    (is (= ["set-system-kind" "none"]
+           (:allowedActions packet)))
+    (is (= [{:path [:mapPatch 0 :op]
+             :error "Maintenance map patch op is not allowed for this decision."
+             :value "add-edge"}]
+           (decision-classifier/validate-result item)))
+    (is (empty? (decision-classifier/validate-result
+                 (assoc-in item
+                           [:result :mapPatch]
+                           [{:op "set-system-kind"
+                             :target target-id
+                             :value {:kind "application"}
+                             :reason "Accept the bounded system candidate."}]))))))
 
 (deftest sync-work-show-returns-summary-with-full-item
   (let [root (temp-dir "agraph-cli-work-show")

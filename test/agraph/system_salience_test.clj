@@ -95,14 +95,9 @@
   (let [packet (decision-classifier/decision-packet
                 {:id "maintenance-decision:123"
                  :kind :unclustered-system
-                 :target "system:fixture:api"})]
-    (is (= ["accept-system"
-            "reject-system"
-            "set-system-kind"
-            "add-edge"
-            "set-edge-visibility"
-            "reject-external-api"
-            "none"]
+                 :target "system:fixture:api"
+                 :recommended-actions [:accept-system :none]})]
+    (is (= ["accept-system" "none"]
            (:allowedActions packet)))
     (is (str/includes? (-> packet :messages second :content)
                        "\"allowedActions\""))))

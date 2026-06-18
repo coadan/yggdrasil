@@ -766,8 +766,7 @@
                              {:scope {:target-kind :system-edge}
                               :evidence-ids (edge-evidence-ids edge)
                               :recommended-actions [:set-edge-visibility
-                                                    :hide-edge
-                                                    :investigate]})))))
+                                                    :none]})))))
 
 (defn- orphan-decisions
   [project-id basis orphaned]
@@ -783,8 +782,7 @@
                              {:system (system-summary system)}
                              {:scope {:target-kind :system-node}
                               :recommended-actions [:accept-system
-                                                    :merge-system
-                                                    :hide-system]})))))
+                                                    :none]})))))
 
 (def noisy-supporting-relations
   #{:calls-external-api
@@ -984,8 +982,7 @@
                  :evidence-ids evidence-ids
                  :recommended-actions [:reject-external-api
                                        :set-edge-visibility
-                                       :none
-                                       :investigate]})))))
+                                       :none]})))))
 
 (defn- covered-external-api-ids
   [external-api-review]
@@ -1021,8 +1018,7 @@
                              :relation relation}
                      :evidence-ids (mapcat edge-evidence-ids edges)
                      :recommended-actions [:set-edge-visibility
-                                           :none
-                                           :investigate]})))))
+                                           :none]})))))
        (sort-by (fn [decision]
                   [(- (long (get-in decision [:data :edge-count] 0)))
                    (:target decision)]))
@@ -1065,8 +1061,7 @@
                                :kind :external-api}
                        :evidence-ids (mapcat edge-evidence-ids edges)
                        :recommended-actions [:reject-external-api
-                                             :none
-                                             :investigate]})))))
+                                             :none]})))))
          (sort-by (fn [decision]
                     [(- (long (get-in decision [:data :edge-count] 0)))
                      (:target decision)]))
@@ -1109,8 +1104,7 @@
                                :kind :external-api}
                        :evidence-ids evidence-ids
                        :recommended-actions [:reject-external-api
-                                             :none
-                                             :investigate]})))))
+                                             :none]})))))
          (sort-by :target)
          (take max-maintenance-decisions-per-kind)
          vec)))
@@ -1143,9 +1137,8 @@
                                             :target-cluster target-cluster
                                             :target-kind :system-edge}
                                     :evidence-ids (edge-evidence-ids edge)
-                                    :recommended-actions [:promote-edge
-                                                          :split-system
-                                                          :hide-edge]})))))
+                                    :recommended-actions [:set-edge-visibility
+                                                          :none]})))))
          vec)))
 
 (defn- severity-rank
