@@ -191,14 +191,16 @@
         targets ["system:noise:app:path/target-a"
                  "system:noise:app:path/target-b"
                  "system:noise:app:path/target-c"]
-        external "system:noise:__external:external-api/noise.example"]
+        external "system:noise:__external:external-api/noise.example"
+        sparse-external "system:noise:__external:external-api/sparse.example"]
     (store/with-node xtdb-path
       (fn [xtdb]
         (store/commit-system-graph!
          xtdb
          "noise"
          {:nodes (concat [(test-system-node source "source" :candidate-system)
-                          (test-system-node external "noise.example" :external-api)]
+                          (test-system-node external "noise.example" :external-api)
+                          (test-system-node sparse-external "sparse.example" :external-api)]
                          (map #(test-system-node % % :candidate-system) targets))
           :edges (concat
                   (map-indexed
@@ -217,7 +219,12 @@
                                      source
                                      external
                                      :references
-                                     ["external-evidence"])])
+                                     ["external-evidence"])
+                   (test-system-edge "system-edge:noise:sparse-external"
+                                     source
+                                     sparse-external
+                                     :calls-external-api
+                                     ["sparse-external-evidence"])])
           :evidence []
           :search-docs []})
         (let [maintenance (project/maintain-project
@@ -227,7 +234,8 @@
                            {})
               by-kind (group-by :kind (:decision-queue maintenance))
               fanout (first (:low-confidence-edge-fanout by-kind))
-              external-decision (first (:noisy-external-api by-kind))]
+              external-decision (first (:noisy-external-api by-kind))
+              sparse-decision (first (:sparse-external-api by-kind))]
           (is (some? fanout))
           (is (= source (get-in fanout [:data :source :xt/id])))
           (is (= 3 (get-in fanout [:data :edge-count])))
@@ -237,6 +245,11 @@
           (is (some? external-decision))
           (is (= external (:target external-decision)))
           (is (contains? (set (:recommended-actions external-decision))
+                         :reject-external-api))
+          (is (some? sparse-decision))
+          (is (= sparse-external (:target sparse-decision)))
+          (is (= 1 (get-in sparse-decision [:data :evidence-count])))
+          (is (contains? (set (:recommended-actions sparse-decision))
                          :reject-external-api)))))))
 
 (deftest container-image-artifacts-connect-producers-to-deployment-manifests

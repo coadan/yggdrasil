@@ -899,6 +899,47 @@
          (take max-maintenance-decisions-per-kind)
          vec)))
 
+(defn- sparse-external-api-decisions
+  [project-id basis system-by-id semantic-edges]
+  (let [incident (group-by (fn [edge]
+                             (if (external-api-system? (get system-by-id (:target-id edge)))
+                               (:target-id edge)
+                               (:source-id edge)))
+                           (filter (fn [edge]
+                                     (or (external-api-system?
+                                          (get system-by-id (:source-id edge)))
+                                         (external-api-system?
+                                          (get system-by-id (:target-id edge)))))
+                                   semantic-edges))]
+    (->> incident
+         (keep (fn [[system-id edges]]
+                 (let [system (get system-by-id system-id)
+                       evidence-ids (vec (distinct (mapcat edge-evidence-ids edges)))]
+                   (when (and (external-api-system? system)
+                              (= 1 (count edges))
+                              (= 1 (count evidence-ids))
+                              (some primary-or-secondary? edges))
+                     (decision-row
+                      project-id
+                      basis
+                      :sparse-external-api
+                      :low
+                      (:xt/id system)
+                      "External API node has exactly one incident connection and one evidence row."
+                      {:system (system-summary system)
+                       :edge (edge-summary system-by-id (first edges))
+                       :edge-count (count edges)
+                       :evidence-count (count evidence-ids)}
+                      {:scope {:target-kind :system-node
+                               :kind :external-api}
+                       :evidence-ids evidence-ids
+                       :recommended-actions [:reject-external-api
+                                             :none
+                                             :investigate]})))))
+         (sort-by :target)
+         (take max-maintenance-decisions-per-kind)
+         vec)))
+
 (defn- cluster-bridge-decisions
   [project-id basis system-by-id semantic-edges clusters]
   (let [cluster-by-source (into {}
@@ -942,6 +983,7 @@
                (cluster-bridge-decisions project-id basis system-by-id semantic-edges clusters)
                (supporting-edge-fanout-decisions project-id basis system-by-id semantic-edges)
                (support-only-external-api-decisions project-id basis system-by-id semantic-edges)
+               (sparse-external-api-decisions project-id basis system-by-id semantic-edges)
                (orphan-decisions project-id basis orphaned))
        (sort-by (fn [decision]
                   [(severity-rank (:severity decision))
