@@ -387,7 +387,7 @@
                       (= 3 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "db-migration" (:kind %))
-                      (= "db-migration/v1" (:extractor-version %))
+                      (= "db-migration/v2" (:extractor-version %))
                       (= 2 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "dependency-lock" (:kind %))

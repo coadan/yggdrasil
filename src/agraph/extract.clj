@@ -69,7 +69,7 @@
    :storybook "storybook/v1"
    :governance "governance/v1"
    :db-config "db-config/v1"
-   :db-migration "db-migration/v1"
+   :db-migration "db-migration/v2"
    :codegen-config "codegen-config/v1"
    :ops-config "ops-config/v1"
    :php "php/v1"
@@ -13642,7 +13642,27 @@
                      :source-line source-line
                      :relation :references})
                   (re-seq #"(?i)(?:\bfile\s*[:=]\s*|\"file\"\s*:\s*\")\"?([^\"'\s,}]+)"
-                          line))))))
+                          line))
+             (map (fn [[_ author]]
+                    {:kind :db-changeset-author
+                     :label author
+                     :source-line source-line
+                     :relation :defines})
+                  (re-seq #"(?i)(?:\bauthor\s*[:=]\s*|\"author\"\s*:\s*\")\"?([A-Za-z0-9_.:-]+)"
+                          line))
+             (map (fn [[_ operation]]
+                    {:kind :db-change-operation
+                     :label operation
+                     :source-line source-line
+                     :relation :uses})
+                  (remove #(contains? #{"changeSet" "include"} (second %))
+                          (re-seq #"^\s*-\s+([A-Za-z][A-Za-z0-9]*):\s*$"
+                                  line)))
+             (when (re-matches #"(?i)^\s*rollback\s*:\s*.*$" line)
+               [{:kind :db-rollback
+                 :label "rollback"
+                 :source-line source-line
+                 :relation :defines}])))))
        distinct
        vec))
 

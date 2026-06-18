@@ -11,5 +11,8 @@ databaseChangeLog:
         - addForeignKeyConstraint:
             constraintName: fk_panel_audit_panel
             baseTableName: panel_audit
+      rollback:
+        - dropTable:
+            tableName: panel_audit
   - include:
       file: db/changelog/extra.yaml
