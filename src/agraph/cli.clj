@@ -1885,6 +1885,11 @@
                                                             (parse-optional-double
                                                              args
                                                              "--max-empty-result-runs"))
+    (parse-optional-double args "--max-warning-runs") (assoc
+                                                       :max-warning-runs
+                                                       (parse-optional-double
+                                                        args
+                                                        "--max-warning-runs"))
     (parse-optional-double args "--max-unverified-score-runs") (assoc
                                                                 :max-unverified-score-runs
                                                                 (parse-optional-double
@@ -2018,6 +2023,11 @@
       (println "- evidence-citation"
                (format "%.2f" (double (get-in result [:scores :evidenceCitationRate] 0.0))))
       (print-parser-worker-summary (:parserWorkers result))
+      (when (pos? (long (get-in result [:agentDiagnostics :warningRuns] 0)))
+        (println "- warning-runs"
+                 (get-in result [:agentDiagnostics :warningRuns])
+                 "cases"
+                 (str/join "," (get-in result [:agentDiagnostics :warningCaseIds]))))
       (when-let [blocker (first (get-in result
                                         [:localizationDiagnostics
                                          :rankedOutsideTop5BlockingFiles]))]
@@ -2082,6 +2092,14 @@
                                               [:report :scores :evidenceCitationRate]
                                               0.0))))
       (print-parser-worker-summary (get-in result [:report :parserWorkers]))
+      (when (pos? (long (get-in result [:report :agentDiagnostics :warningRuns] 0)))
+        (println "- warning-runs"
+                 (get-in result [:report :agentDiagnostics :warningRuns])
+                 "cases"
+                 (str/join "," (get-in result
+                                       [:report
+                                        :agentDiagnostics
+                                        :warningCaseIds]))))
       (println "- noise@20"
                (format "%.2f" (double (get-in result
                                               [:report :scores :noiseRatioAt20]
@@ -2278,7 +2296,7 @@
     "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--parser-worker none|java|dotnet|all] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--parser-worker none|java|dotnet|all] [--out DIR] [--json]"
     "  bench agent-report <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--allow-unverified-scores] [--out DIR] [--json]"
-    "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--min-evidence-citation-rate N] [--min-case-evidence-citation-rate N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-unverified-score-runs N] [--max-graph-expectation-failures N] [--max-missed-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-active-stage-ms N] [--max-parser-worker-profiles N] [--require-parser-worker none|java|dotnet|all] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"
+    "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--min-evidence-citation-rate N] [--min-case-evidence-citation-rate N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-warning-runs N] [--max-unverified-score-runs N] [--max-graph-expectation-failures N] [--max-missed-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-active-stage-ms N] [--max-parser-worker-profiles N] [--require-parser-worker none|java|dotnet|all] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"
     "  bench agent-compare <benchmark.edn> --baseline-report before.json --candidate-report after.json [--regression-tolerance N] [--out DIR] [--json]"
     "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
     ""

@@ -410,6 +410,9 @@ given.
   supported in the base checkout.
 - `unsupportedGroundTruthFiles`: changed files that were missing or unsupported
   in the base tree.
+- `agentDiagnostics.warningRuns`: scored agent artifacts that carried scorer or
+  agent warnings. Gate this with `--max-warning-runs` when benchmark result
+  shape quality should be part of the ratchet.
 
 Each result also records `groundTruthRanks.files`, which lists every scoreable
 localization file and the rank where AGraph found it, or `found? false` when it

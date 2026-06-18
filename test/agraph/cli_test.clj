@@ -75,6 +75,7 @@
     (is (str/includes? usage "--cases ID,ID"))
     (is (str/includes? usage "--min-evidence-citation-rate N"))
     (is (str/includes? usage "--min-case-evidence-citation-rate N"))
+    (is (str/includes? usage "--max-warning-runs N"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|all"))
     (is (not (str/includes? usage "overlay")))))
 
@@ -505,6 +506,7 @@
                                  "--max-case-noise-at-20" "0.75"
                                  "--max-input-hinted-cases" "0"
                                  "--max-unsupported-ground-truth-files" "0"
+                                 "--max-warning-runs" "0"
                                  "--max-missed-runs" "0"
                                  "--max-ranked-outside-top-5-runs" "0"
                                  "--max-ranked-outside-top-10-runs" "0"
@@ -539,6 +541,7 @@
                   :max-case-noise-at-20 0.75
                   :max-input-hinted-cases 0.0
                   :max-unsupported-ground-truth-files 0.0
+                  :max-warning-runs 0.0
                   :max-missed-runs 0.0
                   :max-ranked-outside-top-5-runs 0.0
                   :max-ranked-outside-top-10-runs 0.0

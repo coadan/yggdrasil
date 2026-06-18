@@ -303,6 +303,7 @@
                                                :docCount 1}}
                                     {:path "src/app.clj"
                                      :rank 7}]
+                         :warnings ["agent result suspectedFiles row 1 missing evidence"]
                          :selection {:rawCandidateFiles 3
                                      :candidateFiles 2
                                      :coverageFilteredCandidateFiles 1
@@ -439,7 +440,10 @@
               :coverageFilteredRuns 1
               :coverageFilteredCaseIds ["case-1"]
               :missingPredictedFileRuns 0
-              :missingPredictedFiles 0}
+              :missingPredictedFiles 0
+              :warningRuns 1
+              :warningCaseIds ["case-1"]
+              :warnings 1}
              (:agentDiagnostics report)))
       (is (= {:configuredRuns 1
               :passedRuns 0
@@ -575,6 +579,9 @@
       (is (= {:rawSuspectedFiles 2
               :rankedFiles 2
               :missingPredictedFiles []
+              :warnings ["agent result suspectedFiles row 1 missing evidence"]
+              :warningCount 1
+              :hasWarnings true
               :emptyResult false
               :noRawSuspectedFiles false
               :selection {:rawCandidateFiles 3
@@ -676,7 +683,9 @@
                                  :runs 1}]
                 :inputHints {:inputHintedCases 1}
                 :agentDiagnostics {:emptyResultRuns 1
-                                   :emptyResultCaseIds ["case-1"]}
+                                   :emptyResultCaseIds ["case-1"]
+                                   :warningRuns 1
+                                   :warningCaseIds ["case-1"]}
                 :artifactDiagnostics {:unverifiedScoreRuns 1
                                       :unverifiedScoreCaseIds ["case-1"]}
                 :graphExpectationDiagnostics {:configuredRuns 1
@@ -728,6 +737,7 @@
                  :max-input-hinted-cases 0
                  :max-unsupported-ground-truth-files 0
                  :max-empty-result-runs 0
+                 :max-warning-runs 0
                  :max-unverified-score-runs 0
                  :max-graph-expectation-failures 0
                  :max-missed-runs 0
@@ -766,6 +776,7 @@
                  :max-input-hinted-cases 1
                  :max-unsupported-ground-truth-files 1
                  :max-empty-result-runs 1
+                 :max-warning-runs 1
                  :max-unverified-score-runs 1
                  :max-graph-expectation-failures 1
                  :max-missed-runs 1
@@ -791,6 +802,7 @@
              "inputHintedCases"
              "unsupportedGroundTruthFiles"
              "emptyResultRuns"
+             "warningRuns"
              "unverifiedScoreRuns"
              "graphExpectationFailures"
              "case.graphExpectations"
@@ -848,6 +860,7 @@
             :maxInputHintedCases 0.0
             :maxUnsupportedGroundTruthFiles 0.0
             :maxEmptyResultRuns 0.0
+            :maxWarningRuns 0.0
             :maxUnverifiedScoreRuns 0.0
             :maxGraphExpectationFailures 0.0
             :maxMissedRuns 0.0

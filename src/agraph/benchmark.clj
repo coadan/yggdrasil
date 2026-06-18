@@ -3405,6 +3405,7 @@
 (defn- agent-output-diagnostic
   [result]
   (let [top-files (get-in result [:agent :topFiles])
+        warnings (vec (get-in result [:agent :warnings]))
         missing-files (vec (get-in result [:agent :missingPredictedFiles]))
         selection (get-in result [:agent :selection])
         raw-count (long (or (get-in result [:agent :rawSuspectedFileCount])
@@ -3415,6 +3416,9 @@
     (cond-> {:rawSuspectedFiles raw-count
              :rankedFiles ranked-count
              :missingPredictedFiles missing-files
+             :warnings warnings
+             :warningCount (count warnings)
+             :hasWarnings (boolean (seq warnings))
              :emptyResult (zero? ranked-count)
              :noRawSuspectedFiles (zero? raw-count)}
       selection
@@ -3442,7 +3446,10 @@
                                   result-pairs)
         missing-predicted (filter (fn [[_ diagnostic]]
                                     (seq (:missingPredictedFiles diagnostic)))
-                                  result-pairs)]
+                                  result-pairs)
+        warning-results (filter (fn [[_ diagnostic]]
+                                  (:hasWarnings diagnostic))
+                                result-pairs)]
     {:emptyResultRuns (count empty-results)
      :emptyResultCaseIds (->> empty-results
                               (map (comp :case-id first))
@@ -3466,7 +3473,16 @@
                                     (map (comp count
                                                :missingPredictedFiles
                                                second)
-                                         missing-predicted))}))
+                                         missing-predicted))
+     :warningRuns (count warning-results)
+     :warningCaseIds (->> warning-results
+                          (map (comp :case-id first))
+                          distinct
+                          sort
+                          vec)
+     :warnings (reduce + 0
+                       (map (comp count :warnings second)
+                            warning-results))}))
 
 (defn- parser-worker-result-profile
   [result]
@@ -4021,6 +4037,7 @@
                  [:max-input-hinted-cases :maxInputHintedCases]
                  [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
                  [:max-empty-result-runs :maxEmptyResultRuns]
+                 [:max-warning-runs :maxWarningRuns]
                  [:max-unverified-score-runs :maxUnverifiedScoreRuns]
                  [:max-graph-expectation-failures :maxGraphExpectationFailures]
                  [:max-missed-runs :maxMissedRuns]
@@ -4182,6 +4199,20 @@
                                     :agentDiagnostics
                                     :emptyResultCaseIds])
                  :message "Some agent score artifacts produced no rankable suspected files."})]))))
+
+(defn- warning-run-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :maxWarningRuns])]
+    (let [actual (double (get-in check
+                                 [:report :agentDiagnostics :warningRuns]
+                                 0))]
+      (when (> actual expected)
+        [(merge (metric-failure "warningRuns" "<=" expected actual)
+                {:case-ids (get-in check
+                                   [:report
+                                    :agentDiagnostics
+                                    :warningCaseIds])
+                 :message "Some agent score artifacts contain scorer or agent warnings."})]))))
 
 (defn- unverified-score-failures
   [check]
@@ -4389,6 +4420,7 @@
                            "unsupportedGroundTruthFiles"]])
                    (case-threshold-failures check-base)
                    (empty-result-failures check-base)
+                   (warning-run-failures check-base)
                    (unverified-score-failures check-base)
                    (graph-expectation-failures check-base)
                    (parser-worker-profile-failures check-base)
