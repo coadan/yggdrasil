@@ -40,14 +40,21 @@ facts and audit history; semantic/vector providers are optional later backends.
 Use `.dev/` for local XTDB data, caches, and generated reports. Do not commit
 generated graph databases.
 
+After finishing a bounded work slice and passing the relevant checks, commit it
+before starting the next slice. Prefer several small, coherent commits over one
+large catch-all commit; if files are hard to separate cleanly, commit the
+uncertain group with a clear message rather than leaving finished work dirty.
+
 Core commands:
 
+- `bb start <repo-root> --project <project-id>`
 - `bb sync <project.edn>`
 - `bb sync <project.edn> --check --map agraph.map.json`
 - `bb sync work pull --project <project-id> --agent <agent-id>`
 - `bb ask "text" --project <project-id>`
 - `bb explore create "text" --project <project-id>`
 - `bb view systems --project <project-id>`
+- `bb packages --project <project-id> --json`
 - `bb report <project.edn> --map agraph.map.json --out agraph-out`
 - `agraph-mcp --config project.edn --map agraph.map.json`
 - `bb test`
