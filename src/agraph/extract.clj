@@ -15546,15 +15546,224 @@
         :relation :uses}])
     (mlproject-entry-point-facts content))))
 
+(defn- data-science-top-level-scalar
+  [content key-name]
+  (some (fn [[idx line]]
+          (when-let [{:keys [indent key value source-line]} (yaml-key-line idx line)]
+            (when (and (zero? indent) (= key-name key) (seq value))
+              {:value (strip-yaml-scalar value)
+               :source-line source-line})))
+        (map-indexed vector (str/split-lines content))))
+
+(defn- data-science-top-list-values
+  [content key-name]
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         in-section? false
+         section-indent nil
+         nested-list-indent nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (yaml-key-line idx line)
+            indent (leading-spaces line)
+            section-start? (and entry
+                                (zero? (:indent entry))
+                                (= key-name (:key entry)))
+            section-end? (and in-section?
+                              entry
+                              (<= (:indent entry) section-indent)
+                              (not section-start?))
+            inline-values (when (and section-start? (seq (:value entry)))
+                            (map (fn [value]
+                                   {:value value
+                                    :source-line (:source-line entry)})
+                                 (yaml-scalar-list-values (:value entry))))
+            pip-section? (and in-section?
+                              (re-matches #"^\s*-\s+pip:\s*$" line))
+            list-entry (when (and in-section?
+                                  (or (= indent (+ section-indent 2))
+                                      (and nested-list-indent
+                                           (> indent nested-list-indent))))
+                         (some->> (re-matches #"^\s*-\s+(.+?)\s*$" line)
+                                  second
+                                  strip-yaml-scalar))]
+        (cond
+          section-start?
+          (recur (rest remaining)
+                 true
+                 (:indent entry)
+                 nil
+                 (into out inline-values))
+
+          section-end?
+          (recur remaining false nil nil out)
+
+          pip-section?
+          (recur (rest remaining) true section-indent indent out)
+
+          (and list-entry (not (str/ends-with? list-entry ":")))
+          (recur (rest remaining)
+                 true
+                 section-indent
+                 nested-list-indent
+                 (conj out {:value list-entry
+                            :source-line (inc idx)}))
+
+          :else
+          (recur (rest remaining) in-section? section-indent nested-list-indent out)))
+      (vec (distinct out)))))
+
+(defn- conda-environment-facts
+  [content path]
+  (let [environment (or (:value (data-science-top-level-scalar content "name"))
+                        path)
+        environment-line (or (:source-line (data-science-top-level-scalar content "name"))
+                             1)]
+    (vec
+     (concat
+      [{:kind :ml-environment
+        :label environment
+        :source-line environment-line
+        :relation :defines}]
+      (->> (data-science-top-list-values content "channels")
+           (map (fn [{:keys [value source-line]}]
+                  {:kind :environment-channel
+                   :label value
+                   :source-line source-line
+                   :relation :uses
+                   :source-kind :ml-environment
+                   :source environment})))
+      (->> (data-science-top-list-values content "dependencies")
+           (map (fn [{:keys [value source-line]}]
+                  {:kind :environment-dependency
+                   :label value
+                   :source-line source-line
+                   :relation :uses
+                   :source-kind :ml-environment
+                   :source environment})))))))
+
+(defn- data-science-front-matter
+  [content]
+  (let [lines (vec (str/split-lines content))]
+    (when (= "---" (first lines))
+      (let [end-idx (->> (map-indexed vector (rest lines))
+                         (some (fn [[idx line]]
+                                 (when (= "---" line)
+                                   (inc idx)))))]
+        (when end-idx
+          {:lines (subvec lines 1 end-idx)
+           :content (str/join "\n" (subvec lines 1 end-idx))})))))
+
+(defn- data-card-kind
+  [front-matter-content]
+  (cond
+    (or (data-science-top-level-scalar front-matter-content "model_name")
+        (data-science-top-level-scalar front-matter-content "model-name")
+        (data-science-top-level-scalar front-matter-content "model_id")
+        (data-science-top-level-scalar front-matter-content "model-id")
+        (re-find #"(?m)^model[_-](?:index|details):\s*$" front-matter-content))
+    :model-card
+
+    (or (data-science-top-level-scalar front-matter-content "dataset_name")
+        (data-science-top-level-scalar front-matter-content "dataset-name")
+        (re-find #"(?m)^datasets?:\s*(?:.+)?$" front-matter-content))
+    :data-card
+
+    :else nil))
+
+(defn- card-metadata-facts
+  [card-kind card-label front-matter-content]
+  (let [source-kind card-kind
+        metadata-kind (case card-kind
+                        :model-card :model-metadata
+                        :data-card :data-metadata)]
+    (->> (map-indexed vector (str/split-lines front-matter-content))
+         (keep (fn [[idx line]]
+                 (when-let [{:keys [indent key value]} (yaml-key-line idx line)]
+                   (when (and (zero? indent) (seq value))
+                     {:kind metadata-kind
+                      :label (str key ":" (strip-yaml-scalar value))
+                      :source-line (+ 2 idx)
+                      :relation :defines
+                      :source-kind source-kind
+                      :source card-label}))))
+         distinct
+         vec)))
+
+(defn- data-card-dataset-facts
+  [card-kind card-label front-matter-content]
+  (let [scalar-keys ["dataset" "datasets" "dataset_name" "dataset-name"]]
+    (vec
+     (distinct
+      (concat
+       (->> scalar-keys
+            (keep #(data-science-top-level-scalar front-matter-content %))
+            (map (fn [{:keys [value source-line]}]
+                   {:kind :data-artifact
+                    :label value
+                    :source-line (inc source-line)
+                    :relation :references
+                    :source-kind card-kind
+                    :source card-label})))
+       (->> (data-science-top-list-values front-matter-content "datasets")
+            (map (fn [{:keys [value source-line]}]
+                   {:kind :data-artifact
+                    :label value
+                    :source-line (inc source-line)
+                    :relation :references
+                    :source-kind card-kind
+                    :source card-label}))))))))
+
+(defn- data-card-facts
+  [content path]
+  (if-let [{front-matter-content :content} (data-science-front-matter content)]
+    (if-let [card-kind (data-card-kind front-matter-content)]
+      (let [model-entry (or (data-science-top-level-scalar front-matter-content "model_name")
+                            (data-science-top-level-scalar front-matter-content "model-name")
+                            (data-science-top-level-scalar front-matter-content "model_id")
+                            (data-science-top-level-scalar front-matter-content "model-id"))
+            model-name (:value model-entry)]
+        (vec
+         (concat
+          [{:kind card-kind
+            :label path
+            :source-line 1
+            :relation :defines}]
+          (when (seq model-name)
+            [{:kind :ml-model
+              :label model-name
+              :source-line (inc (:source-line model-entry))
+              :relation :defines
+              :source-kind card-kind
+              :source path}])
+          (data-card-dataset-facts card-kind path front-matter-content)
+          (card-metadata-facts card-kind path front-matter-content))))
+      [])
+    []))
+
 (defn- data-science-facts
   [{:keys [path content]}]
   (let [filename (manifest-name path)]
     (case filename
       ("dvc.yaml" "dvc.yml" "dvc.lock") (dvc-file-facts content path)
       "mlproject" (mlproject-facts content)
-      (if (= ".dvc" (fs/extension path))
+      (cond
+        (= ".dvc" (fs/extension path))
         (dvc-file-facts content path)
+
+        (and (re-find #"(?m)^channels:\s*$" content)
+             (re-find #"(?m)^dependencies:\s*$" content))
+        (conda-environment-facts content path)
+
+        (= ".md" (fs/extension path))
+        (data-card-facts content path)
+
+        :else
         []))))
+
+(defn- data-science-base-result
+  [run-id {:keys [path] :as file}]
+  (when (= ".md" (fs/extension path))
+    (extract-doc run-id (assoc file :kind :doc))))
 
 (defn- data-science-reference-edges
   [run-id id-scope file-id path facts]
@@ -15573,7 +15782,7 @@
        vec))
 
 (defn extract-data-science
-  "Extract bounded DVC and MLflow project facts."
+  "Extract bounded data-science project facts."
   [run-id {:keys [id-scope file-id path] :as file}]
   (let [facts (data-science-facts file)
         result (extract-format-facts run-id
@@ -15581,12 +15790,23 @@
                                      :data-science-file
                                      :data-science-file
                                      facts)
+        base-result (data-science-base-result run-id file)
         reference-edges (data-science-reference-edges run-id
                                                       id-scope
                                                       file-id
                                                       path
                                                       facts)]
-    (update result :edges #(vec (distinct (concat % reference-edges))))))
+    (if base-result
+      {:nodes (vec (distinct (concat (:nodes base-result)
+                                     (:nodes result))))
+       :edges (vec (distinct (concat (:edges base-result)
+                                     (:edges result)
+                                     reference-edges)))
+       :chunks (vec (distinct (concat (:chunks base-result)
+                                      (:chunks result))))
+       :diagnostics (vec (concat (:diagnostics base-result)
+                                 (:diagnostics result)))}
+      (update result :edges #(vec (distinct (concat % reference-edges)))))))
 
 (defn- obs-section-blocks
   [content section-name]

@@ -571,6 +571,27 @@
 
       :else nil)))
 
+(defn- data-science-content-kind
+  [path-kind file]
+  (let [content (text-file-prefix file)]
+    (cond
+      (and (contains? #{:yaml :config} path-kind)
+           (re-find #"(?m)^channels:\s*$" content)
+           (re-find #"(?m)^dependencies:\s*$" content))
+      :data-science
+
+      (and (contains? #{:doc :text} path-kind)
+           (str/starts-with? content "---")
+           (or (re-find #"(?m)^model[_-]name:\s*.+" content)
+               (re-find #"(?m)^model[_-]id:\s*.+" content)
+               (re-find #"(?m)^model[_-]index:\s*$" content)
+               (re-find #"(?m)^model[_-]details:\s*$" content)
+               (re-find #"(?m)^dataset[_-]name:\s*.+" content)
+               (re-find #"(?m)^datasets?:\s*(?:.+)?$" content)))
+      :data-science
+
+      :else nil)))
+
 (defn- observability-content-kind
   [path-kind file]
   (when (contains? #{:config :json-schema :yaml} path-kind)
@@ -622,6 +643,7 @@
         (when (web-framework-route-path? path-kind file)
           :web-framework)
         (workflow-orchestration-content-kind path-kind file)
+        (data-science-content-kind path-kind file)
         (observability-content-kind path-kind file)
         (sphinx-content-kind path-kind file)
         (sbom-content-kind path-kind file)

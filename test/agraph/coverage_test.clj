@@ -65,6 +65,9 @@
     (spit-file! root "ml/dvc/dvc.lock" "stages:\n  train:\n    cmd: python train.py\n")
     (spit-file! root "ml/data/raw.csv.dvc" "outs:\n  - path: raw.csv\n")
     (spit-file! root "ml/mlflow/MLproject" "name: panels-ml\nentry_points:\n  train:\n    command: python train.py\n")
+    (spit-file! root "ml/env/environment.yml" "name: panel-lab\nchannels:\n  - conda-forge\ndependencies:\n  - python=3.11\n  - pip:\n      - mlflow==2.12.1\n")
+    (spit-file! root "ml/cards/model-card.md" "---\nmodel_name: panel-forecast\ndatasets:\n  - panel_orders\nlicense: apache-2.0\n---\n\n# Panel Forecast\n")
+    (spit-file! root "ml/cards/data-card.md" "---\ndataset_name: panel_orders\nschema: schemas/panel_orders.json\n---\n\n# Panel Orders\n")
     (spit-file! root "observability/otel/otelcol.yaml" "receivers:\n  otlp:\nprocessors:\n  batch:\nexporters:\n  logging:\nservice:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: [batch]\n      exporters: [logging]\n")
     (spit-file! root "observability/prometheus/prometheus.yml" "scrape_configs:\n  - job_name: panels\n    static_configs:\n      - targets: [\"localhost:9090\"]\n")
     (spit-file! root "observability/prometheus/rules.yaml" "groups:\n  - name: panels\n    rules:\n      - alert: PanelLatencyHigh\n")
@@ -269,8 +272,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 238
-              :supported 237
+      (is (= {:files 241
+              :supported 240
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -322,7 +325,7 @@
       (is (= 1 (:count (row-by :kind "prisma" (:files-by-kind report)))))
       (is (= 4 (:count (row-by :kind "dbt" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "notebook" (:files-by-kind report)))))
-      (is (= 4 (:count (row-by :kind "data-science" (:files-by-kind report)))))
+      (is (= 7 (:count (row-by :kind "data-science" (:files-by-kind report)))))
       (is (= 7 (:count (row-by :kind "observability-config" (:files-by-kind report)))))
       (is (= 12 (:count (row-by :kind "quality-config" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "devcontainer" (:files-by-kind report)))))
@@ -535,7 +538,7 @@
                 (:extractors report)))
       (is (some #(and (= "data-science" (:kind %))
                       (= "data-science/v1" (:extractor-version %))
-                      (= 4 (:files %)))
+                      (= 7 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "observability-config" (:kind %))
                       (= "observability-config/v1" (:extractor-version %))

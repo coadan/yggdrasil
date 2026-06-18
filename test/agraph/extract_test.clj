@@ -3580,11 +3580,17 @@
         dvc (result-for "ml/dvc/dvc.yaml")
         dvc-lock (result-for "ml/dvc/dvc.lock")
         dvc-file (result-for "ml/data/raw.csv.dvc")
-        mlproject (result-for "ml/mlflow/MLproject")]
+        mlproject (result-for "ml/mlflow/MLproject")
+        conda-env (result-for "ml/env/environment.yml")
+        model-card (result-for "ml/cards/model-card.md")
+        data-card (result-for "ml/cards/data-card.md")]
     (doseq [path ["ml/dvc/dvc.yaml"
                   "ml/dvc/dvc.lock"
                   "ml/data/raw.csv.dvc"
-                  "ml/mlflow/MLproject"]]
+                  "ml/mlflow/MLproject"
+                  "ml/env/environment.yml"
+                  "ml/cards/model-card.md"
+                  "ml/cards/data-card.md"]]
       (is (= :data-science (kind-for path))))
     (is (contains? (labels dvc) "dvc"))
     (is (contains? (labels dvc) "prepare"))
@@ -3603,16 +3609,40 @@
     (is (contains? (labels mlproject) "train"))
     (is (contains? (labels mlproject) "train:python train.py --epochs {epochs}"))
     (is (contains? (labels mlproject) "train:epochs"))
+    (is (contains? (labels conda-env) "panel-lab"))
+    (is (contains? (labels conda-env) "conda-forge"))
+    (is (contains? (labels conda-env) "python=3.11"))
+    (is (contains? (labels conda-env) "mlflow==2.12.1"))
+    (is (contains? (labels model-card) "ml/cards/model-card.md"))
+    (is (contains? (labels model-card) "panel-forecast"))
+    (is (contains? (labels model-card) "panel_orders"))
+    (is (contains? (labels model-card) "pipeline_tag:tabular-classification"))
+    (is (contains? (labels data-card) "ml/cards/data-card.md"))
+    (is (contains? (labels data-card) "dataset_name:panel_orders"))
+    (is (contains? (labels data-card) "schema:schemas/panel_orders.json"))
     (is (contains? (edge-pairs dvc :produces)
                    ["node:ml-pipeline-stage:train"
                     "node:data-artifact:models/panel.pkl"]))
     (is (contains? (edge-pairs mlproject :uses)
                    ["node:mlflow-entry-point:train"
                     "node:pipeline-command:train:python train.py --epochs {epochs}"]))
+    (is (contains? (edge-pairs conda-env :uses)
+                   ["node:ml-environment:panel-lab"
+                    "node:environment-dependency:pandas>=2"]))
+    (is (contains? (edge-pairs model-card :defines)
+                   ["node:model-card:ml/cards/model-card.md"
+                    "node:ml-model:panel-forecast"]))
+    (is (contains? (edge-pairs data-card :references)
+                   ["node:data-card:ml/cards/data-card.md"
+                    "node:data-artifact:panel_orders"]))
     (is (= 2 (:ml-pipeline-stage (kinds dvc))))
     (is (= 1 (:mlflow-project (kinds mlproject))))
     (is (= 1 (:mlflow-entry-point (kinds mlproject))))
+    (is (= 4 (:environment-dependency (kinds conda-env))))
+    (is (= 1 (:model-card (kinds model-card))))
+    (is (= 1 (:data-card (kinds data-card))))
     (is (pos? (get (relations dvc) :produces 0)))
+    (is (some #(= :markdown (:kind %)) (:chunks model-card)))
     (is (= [:data-science-file] (mapv :kind (:chunks dvc))))))
 
 (deftest extracts-observability-config-facts

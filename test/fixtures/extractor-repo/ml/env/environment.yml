@@ -1,0 +1,10 @@
+name: panel-lab
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pandas>=2
+  - pip:
+      - mlflow==2.12.1
+      - dvc[s3]
