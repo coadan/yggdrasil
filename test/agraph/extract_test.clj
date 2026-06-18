@@ -3560,6 +3560,61 @@
     (is (some #(= :workflow-file (:kind %)) (:chunks airflow)))
     (is (= [:workflow-file] (mapv :kind (:chunks argo))))))
 
+(deftest extracts-data-science-and-ml-facts
+  (let [result-for (fn [path]
+                     (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      (str "test/fixtures/extractor-repo/" path))))
+        kind-for (fn [path]
+                   (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                          (str "test/fixtures/extractor-repo/" path))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        relations (fn [result] (frequencies (map :relation (:edges result))))
+        edge-pairs (fn [result relation]
+                     (set (map (fn [{:keys [source-id target-id]}]
+                                 [source-id target-id])
+                               (filter #(= relation (:relation %))
+                                       (:edges result)))))
+        dvc (result-for "ml/dvc/dvc.yaml")
+        dvc-lock (result-for "ml/dvc/dvc.lock")
+        dvc-file (result-for "ml/data/raw.csv.dvc")
+        mlproject (result-for "ml/mlflow/MLproject")]
+    (doseq [path ["ml/dvc/dvc.yaml"
+                  "ml/dvc/dvc.lock"
+                  "ml/data/raw.csv.dvc"
+                  "ml/mlflow/MLproject"]]
+      (is (= :data-science (kind-for path))))
+    (is (contains? (labels dvc) "dvc"))
+    (is (contains? (labels dvc) "prepare"))
+    (is (contains? (labels dvc) "train"))
+    (is (contains? (labels dvc) "prepare:python prepare.py"))
+    (is (contains? (labels dvc) "data/raw.csv"))
+    (is (contains? (labels dvc) "data/prepared.csv"))
+    (is (contains? (labels dvc) "metrics.json"))
+    (is (contains? (labels dvc) "train.epochs"))
+    (is (contains? (labels dvc-lock) "models/panel.pkl"))
+    (is (contains? (labels dvc-file) "ml/data/raw.csv.dvc"))
+    (is (contains? (labels dvc-file) "raw.csv"))
+    (is (contains? (labels mlproject) "mlflow"))
+    (is (contains? (labels mlproject) "panels-ml"))
+    (is (contains? (labels mlproject) "conda.yaml"))
+    (is (contains? (labels mlproject) "train"))
+    (is (contains? (labels mlproject) "train:python train.py --epochs {epochs}"))
+    (is (contains? (labels mlproject) "train:epochs"))
+    (is (contains? (edge-pairs dvc :produces)
+                   ["node:ml-pipeline-stage:train"
+                    "node:data-artifact:models/panel.pkl"]))
+    (is (contains? (edge-pairs mlproject :uses)
+                   ["node:mlflow-entry-point:train"
+                    "node:pipeline-command:train:python train.py --epochs {epochs}"]))
+    (is (= 2 (:ml-pipeline-stage (kinds dvc))))
+    (is (= 1 (:mlflow-project (kinds mlproject))))
+    (is (= 1 (:mlflow-entry-point (kinds mlproject))))
+    (is (pos? (get (relations dvc) :produces 0)))
+    (is (= [:data-science-file] (mapv :kind (:chunks dvc))))))
+
 (deftest extracts-package-and-workspace-manifest-facts
   (let [package-result (extract/extract-file
                         "run/test"
@@ -4336,6 +4391,30 @@
                     (str/includes? (:text %) "const helper"))
               (:chunks result)))
     (is (empty? (:diagnostics result)))))
+
+(deftest extracts-typescript-declaration-member-chunks
+  (let [root (doto (java.io.File/createTempFile "agraph-types" "")
+               (.delete)
+               (.mkdirs)
+               (.deleteOnExit))
+        source (io/file root "src/plugin-types/index.d.ts")
+        content "export interface Context {\n  /**\n   * Opens a page in the current file.\n   * @example\n   * ```js\n   * penpot.openPage(page);\n   * ```\n   */\n  openPage(page: Page | string): void;\n  /**\n   * Creates a board and then appends a child.\n   * @example\n   * ```js\n   * const board = penpot.createBoard();\n   * board.appendChild(shape);\n   * ```\n   */\n  createBoard(): Board;\n}\nexport interface Board {\n  appendChild(child: Shape): void;\n}\nexport interface Page {\n  readonly root: Shape;\n}\n"
+        _ (.mkdirs (.getParentFile source))
+        _ (spit source content)
+        result (extract/extract-file "run/test"
+                                     (fs/file-record (.getPath root)
+                                                     (.getPath source)))
+        chunks-by-label (group-by :label (:chunks result))]
+    (is (some? (get chunks-by-label "src.plugin_types.index/openPage")))
+    (is (some? (get chunks-by-label "src.plugin_types.index/createBoard")))
+    (is (some? (get chunks-by-label "src.plugin_types.index/appendChild")))
+    (is (some? (get chunks-by-label "src.plugin_types.index/root")))
+    (is (some #(and (= :method (:definition-kind %))
+                    (str/includes? (:text %) "penpot.openPage(page)"))
+              (get chunks-by-label "src.plugin_types.index/openPage")))
+    (is (some #(and (= :property (:definition-kind %))
+                    (str/includes? (:text %) "readonly root"))
+              (get chunks-by-label "src.plugin_types.index/root")))))
 
 (deftest extracts-style-as-searchable-source-chunk
   (let [style-result (extract/extract-file

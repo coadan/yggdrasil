@@ -61,6 +61,10 @@
     (spit-file! root "dbt/profiles.yml" "panels:\n  target: dev\n  outputs:\n    dev:\n      type: postgres\n")
     (spit-file! root "dbt/models/schema.yml" "version: 2\nmodels:\n  - name: panel_orders\nsources:\n  - name: billing\n")
     (spit-file! root "notebooks/panel_analysis.ipynb" "{\"cells\":[{\"cell_type\":\"code\",\"source\":[\"print(1)\\n\"]}],\"metadata\":{\"kernelspec\":{\"name\":\"python3\"},\"language_info\":{\"name\":\"python\"}},\"nbformat\":4}\n")
+    (spit-file! root "ml/dvc/dvc.yaml" "stages:\n  train:\n    cmd: python train.py\n    outs:\n      - models/panel.pkl\n")
+    (spit-file! root "ml/dvc/dvc.lock" "stages:\n  train:\n    cmd: python train.py\n")
+    (spit-file! root "ml/data/raw.csv.dvc" "outs:\n  - path: raw.csv\n")
+    (spit-file! root "ml/mlflow/MLproject" "name: panels-ml\nentry_points:\n  train:\n    command: python train.py\n")
     (spit-file! root ".devcontainer/devcontainer.json" "{\"image\":\"mcr.microsoft.com/devcontainers/base:ubuntu\",\"features\":{\"ghcr.io/devcontainers/features/node:1\":{}},\"runServices\":[\"db\"],\"forwardPorts\":[3000],\"postCreateCommand\":\"bb test\"}\n")
     (spit-file! root "infra/kustomize/kustomization.yaml" "resources:\n  - ../k8s/deployment.yaml\nimages:\n  - name: ghcr.io/acme/panels-web\nconfigMapGenerator:\n  - name: panels-config\n")
     (spit-file! root ".pre-commit-config.yaml" "repos:\n  - repo: https://github.com/pre-commit/pre-commit-hooks\n    rev: v4.6.0\n    hooks:\n      - id: trailing-whitespace\n")
@@ -246,8 +250,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 215
-              :supported 214
+      (is (= {:files 219
+              :supported 218
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -299,6 +303,7 @@
       (is (= 1 (:count (row-by :kind "prisma" (:files-by-kind report)))))
       (is (= 4 (:count (row-by :kind "dbt" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "notebook" (:files-by-kind report)))))
+      (is (= 4 (:count (row-by :kind "data-science" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "devcontainer" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "kustomize" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "pre-commit-config" (:files-by-kind report)))))
@@ -506,6 +511,10 @@
                 (:extractors report)))
       (is (some #(and (= "notebook" (:kind %))
                       (= "notebook/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "data-science" (:kind %))
+                      (= "data-science/v1" (:extractor-version %))
+                      (= 4 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "devcontainer" (:kind %))
                       (= "devcontainer/v1" (:extractor-version %)))

@@ -9,6 +9,7 @@
 (def supported-extensions
   #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs"
     ".code-workspace" ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
+    ".dvc"
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".lua"
@@ -66,6 +67,7 @@
     "astro.config.js" "astro.config.cjs" "astro.config.mjs" "astro.config.ts"
     "angular.json"
     "dagster.yaml" "dagster.yml" "prefect.yaml" "prefect.yml"
+    "dvc.yaml" "dvc.yml" "dvc.lock" "mlproject"
     "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx"
     "content.config.js" "content.config.mjs" "content.config.ts"
     "docusaurus.config.js" "docusaurus.config.cjs" "docusaurus.config.mjs"
@@ -224,6 +226,8 @@
                  filename) :web-framework
       (contains? #{"dagster.yaml" "dagster.yml" "prefect.yaml" "prefect.yml"}
                  filename) :workflow-orchestration
+      (or (contains? #{"dvc.yaml" "dvc.yml" "dvc.lock" "mlproject"} filename)
+          (= ".dvc" (extension path))) :data-science
       (contains? #{"dbt_project.yml" "dbt_project.yaml"} filename) :dbt
       (or (= "nginx.conf" filename)
           (contains? #{"serverless.yml" "serverless.yaml" "cdk.json"} filename)

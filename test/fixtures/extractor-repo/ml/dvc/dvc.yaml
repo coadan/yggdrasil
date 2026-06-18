@@ -1,0 +1,17 @@
+stages:
+  prepare:
+    cmd: python prepare.py
+    deps:
+      - data/raw.csv
+    outs:
+      - data/prepared.csv
+  train:
+    cmd: python train.py
+    deps:
+      - data/prepared.csv
+    params:
+      - train.epochs
+    metrics:
+      - metrics.json
+    outs:
+      - models/panel.pkl

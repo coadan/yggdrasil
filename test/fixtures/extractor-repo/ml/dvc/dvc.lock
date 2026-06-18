@@ -1,0 +1,7 @@
+stages:
+  train:
+    cmd: python train.py
+    deps:
+      - path: data/prepared.csv
+    outs:
+      - path: models/panel.pkl

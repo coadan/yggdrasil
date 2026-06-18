@@ -1,0 +1,7 @@
+name: panels-ml
+conda_env: conda.yaml
+entry_points:
+  train:
+    parameters:
+      epochs: int
+    command: "python train.py --epochs {epochs}"
