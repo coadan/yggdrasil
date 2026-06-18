@@ -174,12 +174,12 @@
 (defn- evidence-row
   [run-id project-id repo-id system-id fact]
   (cond-> {:xt/id (evidence-id project-id
-                                repo-id
-                                system-id
-                                (:kind fact)
-                                (:path fact)
-                                (:source-line fact)
-                                (:normalized-value fact))
+                               repo-id
+                               system-id
+                               (:kind fact)
+                               (:path fact)
+                               (:source-line fact)
+                               (:normalized-value fact))
            :project-id project-id
            :repo-id repo-id
            :system-id system-id
