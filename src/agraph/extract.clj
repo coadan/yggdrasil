@@ -10723,6 +10723,106 @@
                out))
       (cond-> out current (conj current)))))
 
+(defn- ci-circleci-job-blocks
+  [lines]
+  (let [jobs-start (some (fn [[idx line]]
+                           (when (re-matches #"^jobs:\s*$" line)
+                             idx))
+                         (map-indexed vector lines))]
+    (if-not jobs-start
+      []
+      (loop [remaining (drop (inc jobs-start) (map-indexed vector lines))
+             current nil
+             out []]
+        (if-let [[idx line] (first remaining)]
+          (let [entry (yaml-key-line idx line)
+                top-level? (and (seq (str/trim line))
+                                (zero? (leading-spaces line)))
+                job-entry (when (and entry (= 2 (:indent entry)))
+                            {:label (:key entry)
+                             :source-line (:source-line entry)
+                             :lines [[idx line]]})]
+            (cond
+              top-level?
+              (cond-> out current (conj current))
+
+              job-entry
+              (recur (rest remaining)
+                     job-entry
+                     (cond-> out current (conj current)))
+
+              current
+              (recur (rest remaining)
+                     (update current :lines conj [idx line])
+                     out)
+
+              :else
+              (recur (rest remaining) nil out)))
+          (cond-> out current (conj current)))))))
+
+(defn- ci-buildkite-step-label
+  [step]
+  (or (some (fn [[idx line]]
+              (when-let [{:keys [key value]} (yaml-key-line idx line)]
+                (when (and (= "key" key) (seq value))
+                  (strip-yaml-scalar value))))
+            (:lines step))
+      (:label step)
+      (str "step-" (:source-line step))))
+
+(defn- ci-buildkite-step-blocks
+  [lines]
+  (let [steps-start (some (fn [[idx line]]
+                            (when (re-matches #"^\s*steps:\s*$" line)
+                              idx))
+                          (map-indexed vector lines))]
+    (if-not steps-start
+      []
+      (loop [remaining (drop (inc steps-start) (map-indexed vector lines))
+             current nil
+             out []]
+        (if-let [[idx line] (first remaining)]
+          (let [top-level? (and (seq (str/trim line))
+                                (zero? (leading-spaces line)))
+                step-start (or
+                            (when-let [[_ label]
+                                       (re-matches #"^\s*-\s+label:\s+(.+?)\s*$"
+                                                   line)]
+                              {:label (strip-yaml-scalar label)
+                               :source-line (inc idx)
+                               :lines [[idx line]]})
+                            (when-let [[_ command]
+                                       (re-matches #"^\s*-\s+command:\s+(.+?)\s*$"
+                                                   line)]
+                              {:label (str "command:" (strip-yaml-scalar command))
+                               :source-line (inc idx)
+                               :lines [[idx line]]}))]
+            (cond
+              top-level?
+              (cond-> out current (conj (assoc current
+                                               :label
+                                               (ci-buildkite-step-label current))))
+
+              step-start
+              (recur (rest remaining)
+                     step-start
+                     (cond-> out
+                       current (conj (assoc current
+                                            :label
+                                            (ci-buildkite-step-label current)))))
+
+              current
+              (recur (rest remaining)
+                     (update current :lines conj [idx line])
+                     out)
+
+              :else
+              (recur (rest remaining) nil out)))
+          (cond-> out
+            current (conj (assoc current
+                                 :label
+                                 (ci-buildkite-step-label current)))))))))
+
 (defn- ci-config-kind
   [path lines]
   (let [filename (str/lower-case (.getName (java.io.File. (str path))))
@@ -10730,6 +10830,9 @@
     (cond
       (= "jenkinsfile" filename) :jenkins
       (contains? #{"azure-pipelines.yml" "azure-pipelines.yaml"} filename) :azure
+      (re-find #"(^|/)\.circleci/config\.ya?ml$" path-lower) :circleci
+      (or (re-find #"(^|/)\.buildkite/pipeline\.ya?ml$" path-lower)
+          (contains? #{"buildkite.yml" "buildkite.yaml"} filename)) :buildkite
       (re-find #"(^|/)\.github/workflows/[^/]+\.ya?ml$" path-lower) :github
       (contains? #{".gitlab-ci.yml" ".gitlab-ci.yaml"} filename) :gitlab
       (seq (ci-github-job-blocks lines)) :github
@@ -10744,6 +10847,8 @@
   (case config-kind
     :jenkins (ci-jenkins-stage-blocks lines)
     :azure (ci-azure-job-blocks lines)
+    :circleci (ci-circleci-job-blocks lines)
+    :buildkite (ci-buildkite-step-blocks lines)
     :github (ci-github-job-blocks lines)
     :gitlab (ci-gitlab-job-blocks lines)
     (let [github-jobs (ci-github-job-blocks lines)]
@@ -10755,7 +10860,8 @@
   [job]
   (->> (:lines job)
        (mapcat (fn [[idx line]]
-                 (if-let [[_ value] (re-matches #"^\s*(?:needs|dependsOn):\s*(.+?)\s*$" line)]
+                 (if-let [[_ value] (re-matches #"^\s*(?:needs|dependsOn|depends_on):\s*(.+?)\s*$"
+                                                line)]
                    (map (fn [target]
                           {:target target
                            :source-line (inc idx)})
@@ -10769,6 +10875,7 @@
   [{:keys [label lines]}]
   (loop [remaining lines
          env-indent nil
+         artifact-indent nil
          out []]
     (if-let [[idx line] (first remaining)]
       (let [entry (yaml-key-line idx line)
@@ -10798,10 +10905,21 @@
                             {:kind :ci-artifact
                              :label (str label ":" artifacts)
                              :source-line (inc idx)}))
+            artifact-fact (when (and artifact-indent
+                                     (> (leading-spaces line) artifact-indent))
+                            (when-let [[_ artifact]
+                                       (re-matches #"^\s*-\s+(.+?)\s*$" line)]
+                              {:kind :ci-artifact
+                               :label (strip-yaml-scalar artifact)
+                               :source-line (inc idx)}))
             env-indent* (when (and env-indent
                                    (or (nil? entry)
                                        (> (:indent entry) env-indent)))
                           env-indent)
+            artifact-indent* (when (and artifact-indent
+                                        (or (nil? entry)
+                                            (> (:indent entry) artifact-indent)))
+                               artifact-indent)
             fact (when entry
                    (let [{:keys [indent key value source-line]} entry
                          value (strip-yaml-scalar value)]
@@ -10830,6 +10948,11 @@
                         :label value
                         :source-line source-line}
 
+                       (and (contains? #{"executor" "queue"} key) (seq value))
+                       {:kind :ci-runner
+                        :label value
+                        :source-line source-line}
+
                        (and (contains? #{"uses" "task"} key) (seq value))
                        {:kind :ci-action
                         :label value
@@ -10840,17 +10963,24 @@
                         :label (str "checkout:" value)
                         :source-line source-line}
 
-                       (and (= "artifacts" key) (str/blank? value))
+                       (and (contains? #{"artifacts" "store_artifacts"
+                                         "artifact_paths"}
+                                       key)
+                            (str/blank? value))
                        {:kind :ci-artifact
                         :label (str label ":artifacts")
                         :source-line source-line}
 
-                       (and (contains? #{"artifact" "publish"} key) (seq value))
+                       (and (contains? #{"artifact" "publish" "path"
+                                         "artifact_paths"}
+                                       key)
+                            (seq value))
                        {:kind :ci-artifact
                         :label value
                         :source-line source-line}
 
-                       (and (= "cache" key) (str/blank? value))
+                       (and (contains? #{"cache" "restore_cache" "save_cache"} key)
+                            (str/blank? value))
                        {:kind :ci-cache
                         :label (str label ":cache")
                         :source-line source-line}
@@ -10868,11 +10998,36 @@
                               (and env-indent entry (<= (:indent entry) env-indent))
                               nil
 
-                              :else env-indent*)]
+                              :else env-indent*)
+            artifact-indent-next (cond
+                                   (and entry
+                                        (contains? #{"artifact_paths"} (:key entry))
+                                        (str/blank? (:value entry)))
+                                   (:indent entry)
+
+                                   (and artifact-indent
+                                        entry
+                                        (<= (:indent entry) artifact-indent))
+                                   nil
+
+                                   :else artifact-indent*)]
         (recur (rest remaining)
                env-indent-next
+               artifact-indent-next
                (cond-> out
                  jenkins-fact (conj jenkins-fact)
+                 artifact-fact (conj artifact-fact)
+                 (re-matches #"^\s*-\s+checkout\s*$" line)
+                 (conj {:kind :ci-action
+                        :label "checkout"
+                        :source-line (inc idx)})
+                 (re-matches #"^\s*-\s+[A-Za-z0-9_.-]+#[A-Za-z0-9_.-]+:\s*$" line)
+                 (conj (let [[_ plugin]
+                             (re-matches #"^\s*-\s+([A-Za-z0-9_.-]+#[A-Za-z0-9_.-]+):\s*$"
+                                         line)]
+                         {:kind :ci-plugin
+                          :label plugin
+                          :source-line (inc idx)}))
                  fact (conj fact))))
       (->> out distinct vec))))
 
@@ -11011,6 +11166,85 @@
           (recur (rest remaining) in-on-block? out)))
       (vec (distinct out)))))
 
+(defn- ci-circleci-workflow-facts
+  [lines]
+  (->> (yaml-top-section-blocks lines "workflows")
+       (map (fn [{:keys [label source-line]}]
+              {:kind :ci-workflow-entry
+               :label label
+               :source-line source-line
+               :relation :defines}))
+       distinct
+       vec))
+
+(defn- ci-circleci-workflow-needs
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         in-workflows? false
+         current-job nil
+         in-requires? false
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [trimmed (str/trim line)
+            indent (leading-spaces line)
+            entry (yaml-key-line idx line)
+            workflow-start? (and entry
+                                 (zero? (:indent entry))
+                                 (= "workflows" (:key entry)))
+            job-entry (when (and in-workflows?
+                                 (re-matches #"^-\s+[A-Za-z0-9_.-]+:\s*$"
+                                             trimmed))
+                        (-> trimmed
+                            (str/replace #"^-\s+" "")
+                            (str/replace #":$" "")))
+            simple-job (when (and in-workflows?
+                                  (re-matches #"^-\s+[A-Za-z0-9_.-]+\s*$"
+                                              trimmed))
+                         (-> trimmed
+                             (str/replace #"^-\s+" "")
+                             str/trim))
+            requires-start? (and current-job
+                                 (re-matches #"^requires:\s*$" trimmed))
+            required-job (when (and current-job in-requires?)
+                           (when-let [[_ target]
+                                      (re-matches #"^-\s+([A-Za-z0-9_.-]+)\s*$"
+                                                  trimmed)]
+                             target))]
+        (cond
+          workflow-start?
+          (recur (rest remaining) true nil false out)
+
+          (and in-workflows? (zero? indent) (seq trimmed))
+          (recur (rest remaining) false nil false out)
+
+          job-entry
+          (recur (rest remaining) true job-entry false out)
+
+          requires-start?
+          (recur (rest remaining) true current-job true out)
+
+          required-job
+          (recur (rest remaining)
+                 true
+                 current-job
+                 true
+                 (conj out {:source current-job
+                            :target required-job
+                            :source-line (inc idx)}))
+
+          simple-job
+          (recur (rest remaining) true simple-job false out)
+
+          :else
+          (recur (rest remaining)
+                 in-workflows?
+                 current-job
+                 (and in-requires?
+                      (or (str/blank? trimmed)
+                          (> indent 10)))
+                 out)))
+      (vec (distinct out)))))
+
 (defn- distinct-facts-by-kind-label
   [facts]
   (->> facts
@@ -11064,6 +11298,8 @@
                          :jenkins (ci-jenkins-workflow-facts lines)
                          :azure (concat (ci-workflow-facts lines)
                                         (ci-azure-workflow-facts lines))
+                         :circleci (concat (ci-workflow-facts lines)
+                                           (ci-circleci-workflow-facts lines))
                          (ci-workflow-facts lines))
         job-nodes (mapv (fn [{:keys [label source-line] :as job}]
                           (generic-node run-id
@@ -11110,6 +11346,19 @@
                                        (ci-job-needs job))))
                         distinct
                         vec)
+        workflow-need-edges (case config-kind
+                              :circleci
+                              (mapv (fn [{:keys [source target source-line]}]
+                                      (edge-row run-id
+                                                file-id
+                                                path
+                                                (node-id id-scope :ci-job source)
+                                                (node-id id-scope :ci-job target)
+                                                :requires
+                                                :extracted
+                                                source-line))
+                                    (ci-circleci-workflow-needs lines))
+                              [])
         declared-edges (->> jobs
                             (mapcat (fn [{job-label :label :as job}]
                                       (map (fn [{:keys [kind label source-line]}]
@@ -11127,7 +11376,11 @@
         chunk-result (extract-text-source run-id file :ci-file)
         command-chunks (ci-command-chunks run-id id-scope file-id path jobs)]
     {:nodes (vec (concat [workflow-node] job-nodes declared-nodes))
-     :edges (vec (concat define-edges workflow-fact-edges need-edges declared-edges))
+     :edges (vec (concat define-edges
+                         workflow-fact-edges
+                         need-edges
+                         workflow-need-edges
+                         declared-edges))
      :chunks (vec (concat (:chunks chunk-result) command-chunks))
      :diagnostics []}))
 

@@ -1,0 +1,15 @@
+steps:
+  - label: "Test"
+    key: test
+    command: bb test
+    agents:
+      queue: default
+    plugins:
+      - docker#v5.9.0:
+          image: clojure:tools-deps
+    artifact_paths:
+      - target/report
+  - label: "Deploy"
+    key: deploy
+    depends_on: test
+    command: bb deploy

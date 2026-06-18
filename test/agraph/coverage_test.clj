@@ -196,6 +196,8 @@
     (spit-file! root ".github/workflows/ci.yml" "name: ci\n")
     (spit-file! root "Jenkinsfile" "pipeline { stages { stage('test') { steps { sh 'bb test' } } } }\n")
     (spit-file! root "azure-pipelines.yml" "trigger: [main]\njobs:\n  - job: test\n")
+    (spit-file! root ".circleci/config.yml" "version: 2.1\njobs:\n  test:\n    docker:\n      - image: cimg/clojure:1.11\n    steps:\n      - checkout\n      - run: bb test\nworkflows:\n  build:\n    jobs:\n      - test\n")
+    (spit-file! root ".buildkite/pipeline.yml" "steps:\n  - label: Test\n    key: test\n    command: bb test\n")
     (spit-file! root "Makefile" "test:\n\tbb test\n")
     (spit-file! root "build/toolchain.cmake" "add_library(shared src/shared.cpp)\n")
     (spit-file! root "build/BUCK" "cxx_library(\n    name = \"core\",\n)\n")
@@ -207,12 +209,12 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 176
-              :supported 175
+      (is (= {:files 178
+              :supported 177
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
-      (is (= 3 (:count (row-by :kind "ci" (:files-by-kind report)))))
+      (is (= 5 (:count (row-by :kind "ci" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "apple-config" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "astro" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "codegen-config" (:files-by-kind report)))))
@@ -489,7 +491,8 @@
                       (= 3 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "ci" (:kind %))
-                      (= "ci/v1" (:extractor-version %)))
+                      (= "ci/v1" (:extractor-version %))
+                      (= 5 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "build" (:kind %))
                       (= "build/v1" (:extractor-version %))

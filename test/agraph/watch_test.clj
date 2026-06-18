@@ -29,6 +29,8 @@
   (is (watch/watchable-path? "infra/support.env.example"))
   (is (watch/watchable-path? "ci/Jenkinsfile"))
   (is (watch/watchable-path? "ci/azure-pipelines.yml"))
+  (is (watch/watchable-path? "ci/.circleci/config.yml"))
+  (is (watch/watchable-path? "ci/.buildkite/pipeline.yml"))
   (is (watch/watchable-path? "web/component.vue"))
   (is (watch/watchable-path? "web/component.svelte"))
   (is (watch/watchable-path? "android/MainActivity.kt"))

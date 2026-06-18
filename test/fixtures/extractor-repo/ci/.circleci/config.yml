@@ -1,0 +1,30 @@
+version: 2.1
+
+executors:
+  clojure:
+    docker:
+      - image: cimg/clojure:1.11
+
+jobs:
+  test:
+    executor: clojure
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - deps-v1
+      - run: bb test
+      - store_artifacts:
+          path: target/report
+  deploy:
+    executor: clojure
+    steps:
+      - run: bb deploy
+
+workflows:
+  build:
+    jobs:
+      - test
+      - deploy:
+          requires:
+            - test

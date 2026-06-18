@@ -3419,6 +3419,14 @@
                       "run/test"
                       (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/ci/azure-pipelines.yml"))
+        circleci-result (extract/extract-file
+                         "run/test"
+                         (fs/file-record "test/fixtures/extractor-repo"
+                                         "test/fixtures/extractor-repo/ci/.circleci/config.yml"))
+        buildkite-result (extract/extract-file
+                          "run/test"
+                          (fs/file-record "test/fixtures/extractor-repo"
+                                          "test/fixtures/extractor-repo/ci/.buildkite/pipeline.yml"))
         github-labels (set (map :label (:nodes github-result)))
         github-kinds (frequencies (map :kind (:nodes github-result)))
         github-relations (frequencies (map :relation (:edges github-result)))
@@ -3438,13 +3446,27 @@
         azure-kinds (frequencies (map :kind (:nodes azure-result)))
         azure-relations (frequencies (map :relation (:edges azure-result)))
         azure-command-chunks (filter #(= :ci-command (:kind %))
-                                     (:chunks azure-result))]
+                                     (:chunks azure-result))
+        circleci-labels (set (map :label (:nodes circleci-result)))
+        circleci-kinds (frequencies (map :kind (:nodes circleci-result)))
+        circleci-relations (frequencies (map :relation (:edges circleci-result)))
+        circleci-command-chunks (filter #(= :ci-command (:kind %))
+                                        (:chunks circleci-result))
+        buildkite-labels (set (map :label (:nodes buildkite-result)))
+        buildkite-kinds (frequencies (map :kind (:nodes buildkite-result)))
+        buildkite-relations (frequencies (map :relation (:edges buildkite-result)))
+        buildkite-command-chunks (filter #(= :ci-command (:kind %))
+                                         (:chunks buildkite-result))]
     (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/ci/.github/workflows/ci.yml"))))
     (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/ci/Jenkinsfile"))))
     (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/ci/azure-pipelines.yml"))))
+    (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/ci/.circleci/config.yml"))))
+    (is (= :ci (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/ci/.buildkite/pipeline.yml"))))
     (is (contains? github-labels "CI"))
     (is (contains? github-labels "push"))
     (is (contains? github-labels "pull_request"))
@@ -3521,7 +3543,32 @@
     (is (= 4 (get azure-relations :defines 0)))
     (is (= 1 (get azure-relations :requires 0)))
     (is (= 7 (get azure-relations :uses 0)))
-    (is (= #{"bb test" "bb deploy"} (set (map :text azure-command-chunks))))))
+    (is (= #{"bb test" "bb deploy"} (set (map :text azure-command-chunks))))
+    (is (contains? circleci-labels "ci/.circleci/config.yml"))
+    (is (contains? circleci-labels "build"))
+    (is (contains? circleci-labels "test"))
+    (is (contains? circleci-labels "deploy"))
+    (is (contains? circleci-labels "clojure"))
+    (is (contains? circleci-labels "checkout"))
+    (is (contains? circleci-labels "test:cache"))
+    (is (contains? circleci-labels "target/report"))
+    (is (= 2 (:ci-job circleci-kinds)))
+    (is (= 1 (:ci-workflow-entry circleci-kinds)))
+    (is (pos? (get circleci-relations :requires 0)))
+    (is (pos? (get circleci-relations :uses 0)))
+    (is (= #{"bb test" "bb deploy"} (set (map :text circleci-command-chunks))))
+    (is (contains? buildkite-labels "ci/.buildkite/pipeline.yml"))
+    (is (contains? buildkite-labels "test"))
+    (is (contains? buildkite-labels "deploy"))
+    (is (contains? buildkite-labels "default"))
+    (is (contains? buildkite-labels "docker#v5.9.0"))
+    (is (contains? buildkite-labels "clojure:tools-deps"))
+    (is (contains? buildkite-labels "target/report"))
+    (is (= 2 (:ci-job buildkite-kinds)))
+    (is (= 1 (:ci-plugin buildkite-kinds)))
+    (is (pos? (get buildkite-relations :requires 0)))
+    (is (pos? (get buildkite-relations :uses 0)))
+    (is (= #{"bb test" "bb deploy"} (set (map :text buildkite-command-chunks))))))
 
 (deftest extracts-build-targets-and-dependencies
   (let [make-result (extract/extract-file
