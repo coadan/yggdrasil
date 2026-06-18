@@ -12,7 +12,8 @@
             [clojure.java.shell :as shell]
             [clojure.set :as set]
             [clojure.string :as str])
-  (:import [java.util.concurrent TimeUnit]))
+  (:import [java.time Duration Instant]
+           [java.util.concurrent TimeUnit]))
 
 (def suite-schema
   "agraph.benchmark.suite/v1")
@@ -362,6 +363,18 @@
 (defn- now-string
   []
   (str (java.time.Instant/now)))
+
+(defn- instant-value
+  [value]
+  (cond
+    (instance? Instant value) value
+    (string? value) (Instant/parse value)
+    :else (Instant/now)))
+
+(defn- elapsed-between-ms
+  [started-at ended-at]
+  (max 0 (.toMillis (Duration/between (instant-value started-at)
+                                      (instant-value ended-at)))))
 
 (defn- elapsed-ms
   [started-ns]
@@ -2250,13 +2263,22 @@
             completed (filter #(= "completed" (:status %)) events)
             failed (filter #(= "failed" (:status %)) events)
             last-event (last events)
-            stage-rows (->> events
-                            (keep (fn [{:keys [stage status elapsedMs]}]
-                                    (when elapsedMs
-                                      {:stage stage
-                                       :status status
-                                       :elapsedMs elapsedMs})))
-                            vec)
+            running? (= "started" (:status last-event))
+            active-elapsed-ms (when running?
+                                (elapsed-between-ms (:at last-event)
+                                                    (:now opts)))
+            stage-rows (cond-> (->> events
+                                    (keep (fn [{:keys [stage status elapsedMs]}]
+                                            (when elapsedMs
+                                              {:stage stage
+                                               :status status
+                                               :elapsedMs elapsedMs})))
+                                    vec)
+                         active-elapsed-ms
+                         (conj {:stage (:stage last-event)
+                                :status "running"
+                                :elapsedMs active-elapsed-ms
+                                :active? true}))
             stage-elapsed (->> stage-rows
                                (group-by :stage)
                                (map (fn [[stage rows]]
@@ -2278,8 +2300,9 @@
                  :elapsedMs (reduce + (map :elapsedMs stage-rows))
                  :stages stage-rows
                  :stageElapsedMs stage-elapsed}
-          (= "started" (:status last-event))
-          (assoc :activeStage (:stage last-event))
+          running?
+          (assoc :activeStage (:stage last-event)
+                 :activeElapsedMs active-elapsed-ms)
 
           (seq failed)
           (assoc :failedStage (:stage (last failed))))))))
@@ -2302,6 +2325,7 @@
                                             :repo-id
                                             :status
                                             :activeStage
+                                            :activeElapsedMs
                                             :elapsedMs
                                             :failedStage])))]
     {:cases (count summaries)

@@ -223,7 +223,8 @@
                            :status "failed"
                            :at "2026-06-18T00:00:03Z"
                            :elapsedMs 3000}]})
-    (let [report (benchmark/report-agent-suite suite {:out out})]
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :now "2026-06-18T00:00:05Z"})]
       (is (= benchmark/agent-report-schema (:schema report)))
       (is (= 2 (:cases report)))
       (is (= 1 (:completed report)))
@@ -247,19 +248,22 @@
       (is (= {:cases 2
               :runningCases 1
               :failedCases 1
-              :elapsedMs 5000
-              :stageElapsedMs [{:stage "index-project"
+              :elapsedMs 8000
+              :stageElapsedMs [{:stage "context-packet"
+                                :elapsedMs 3000}
+                               {:stage "index-project"
                                 :elapsedMs 5000}]
-              :slowestCases [{:case-id "case-2"
-                              :repo-id nil
-                              :status "failed"
-                              :elapsedMs 3000
-                              :failedStage "index-project"}
-                             {:case-id "case-1"
+              :slowestCases [{:case-id "case-1"
                               :repo-id nil
                               :status "running"
                               :activeStage "context-packet"
-                              :elapsedMs 2000}]}
+                              :activeElapsedMs 3000
+                              :elapsedMs 5000}
+                             {:case-id "case-2"
+                              :repo-id nil
+                              :status "failed"
+                              :elapsedMs 3000
+                              :failedStage "index-project"}]}
              (:timings report)))
       (is (= "running" (get-in report [:results 0 :progress :status])))
       (is (= {:scoreableFiles ["src/app.clj" "src/missing.clj"]
@@ -286,11 +290,13 @@
       (is (= #{"agraph" "shell-only"} (set (map :key (:byMode report)))))
       (is (= ["baseline" "codex"] (mapv :key (:byAgent report)))))
     (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :now "2026-06-18T00:00:05Z"
                                                       :mode "agraph"})]
       (is (= 1 (:runs report)))
       (is (= 1.0 (get-in report [:scores :fileRecallAt10])))
       (is (= ["agraph"] (mapv :key (:byMode report)))))
     (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :now "2026-06-18T00:00:05Z"
                                                       :agent-id "baseline"})]
       (is (= 1 (:runs report)))
       (is (= "baseline" (get-in report [:results 0 :agent :agentId])))

@@ -116,6 +116,8 @@ generated output root.
   repeatable agent run. Reports also include `caseProgress` and `timings`
   derived from each case `progress.json`, so interrupted or partial runs still
   show running/failed cases, slowest cases, and cumulative stage timing. Each
+  running case includes `activeStage` and `activeElapsedMs`, and the active
+  stage contributes to `elapsedMs` while the report is generated. Each
   result also includes `localization`, a compact diagnostic with scoreable
   files, per-file ranks, misses, coverage exclusions, and files found outside
   the top 5, 10, and 20.
