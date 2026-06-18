@@ -88,6 +88,12 @@
 (def ^:private rank-score-token-cap
   5)
 
+(def ^:private rank-blocker-limit
+  5)
+
+(def ^:private aggregate-rank-blocker-limit
+  20)
+
 (def ^:private retrieved-source-rank-bonus-window
   20)
 
@@ -2609,6 +2615,18 @@
   [expected-fingerprints result]
   (= "current" (:fingerprintStatus (artifact-diagnostic expected-fingerprints result))))
 
+(defn- ranked-outside-blockers
+  [ranks blockers-before n]
+  (->> ranks
+       (filter #(and (:found? %)
+                     (> (long (:rank %)) n)))
+       (mapv (fn [ranked-file]
+               (let [blocking-files (blockers-before (:rank ranked-file))]
+                 {:path (:path ranked-file)
+                  :rank (:rank ranked-file)
+                  :blockingFileCount (count blocking-files)
+                  :blockingFiles blocking-files})))))
+
 (defn- artifact-policy
   [expected-fingerprints raw-results included-results allow-unverified?]
   (let [included (set included-results)
@@ -2695,9 +2713,25 @@
   [result]
   (let [ground-truth (:groundTruth result)
         ranks (get-in result [:groundTruthRanks :files])
+        top-files (get-in result [:agent :topFiles])
+        scoreable-file-set (set (scoreable-changed-files ground-truth))
         missed (->> ranks
                     (remove :found?)
                     (mapv #(select-keys % [:path])))
+        blocker-summary (fn [row]
+                          (select-keys row
+                                       [:path
+                                        :rank
+                                        :confidence
+                                        :metrics]))
+        blockers-before (fn [rank]
+                          (->> top-files
+                               (filter #(and (:rank %)
+                                             (< (long (:rank %)) (long rank))))
+                               (remove #(contains? scoreable-file-set (:path %)))
+                               (sort-by (juxt :rank :path))
+                               (take rank-blocker-limit)
+                               (mapv blocker-summary)))
         ranked-outside (fn [n]
                          (->> ranks
                               (filter #(and (:found? %)
@@ -2710,7 +2744,42 @@
      :missedFiles missed
      :rankedOutsideTop5 (ranked-outside 5)
      :rankedOutsideTop10 (ranked-outside 10)
-     :rankedOutsideTop20 (ranked-outside 20)}))
+     :rankedOutsideTop20 (ranked-outside 20)
+     :rankedOutsideTop5Blockers (ranked-outside-blockers
+                                 ranks
+                                 blockers-before
+                                 5)
+     :rankedOutsideTop10Blockers (ranked-outside-blockers
+                                  ranks
+                                  blockers-before
+                                  10)
+     :rankedOutsideTop20Blockers (ranked-outside-blockers
+                                  ranks
+                                  blockers-before
+                                  20)}))
+
+(defn- aggregate-rank-blockers
+  [result-pairs blocker-key]
+  (let [rows (mapcat
+              (fn [[result diagnostic]]
+                (map (fn [blocking-file]
+                       (assoc blocking-file :case-id (:case-id result)))
+                     (mapcat :blockingFiles (get diagnostic blocker-key))))
+              result-pairs)]
+    (->> rows
+         (group-by :path)
+         (map (fn [[path path-rows]]
+                (cond-> {:path path
+                         :occurrences (count path-rows)
+                         :runs (count (set (map :case-id path-rows)))
+                         :bestRank (apply min (map :rank path-rows))}
+                  (:metrics (first path-rows))
+                  (assoc :metrics (:metrics (first path-rows))))))
+         (sort-by (juxt (comp - :occurrences)
+                        :bestRank
+                        :path))
+         (take aggregate-rank-blocker-limit)
+         vec)))
 
 (defn- aggregate-localization-diagnostics
   [results]
@@ -2747,7 +2816,16 @@
      :rankedOutsideTop10Runs (count outside-top10)
      :rankedOutsideTop10CaseIds (case-ids outside-top10)
      :rankedOutsideTop20Runs (count outside-top20)
-     :rankedOutsideTop20CaseIds (case-ids outside-top20)}))
+     :rankedOutsideTop20CaseIds (case-ids outside-top20)
+     :rankedOutsideTop5BlockingFiles (aggregate-rank-blockers
+                                      result-pairs
+                                      :rankedOutsideTop5Blockers)
+     :rankedOutsideTop10BlockingFiles (aggregate-rank-blockers
+                                       result-pairs
+                                       :rankedOutsideTop10Blockers)
+     :rankedOutsideTop20BlockingFiles (aggregate-rank-blockers
+                                       result-pairs
+                                       :rankedOutsideTop20Blockers)}))
 
 (defn report-agent-suite
   "Aggregate existing agent score artifacts."

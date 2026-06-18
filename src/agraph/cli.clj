@@ -1927,6 +1927,15 @@
                (format "%.2f" (double (get-in result [:scores :fileRecallAt10] 0.0))))
       (println "- mrr"
                (format "%.2f" (double (get-in result [:scores :meanReciprocalRankFile] 0.0))))
+      (when-let [blocker (first (get-in result
+                                        [:localizationDiagnostics
+                                         :rankedOutsideTop5BlockingFiles]))]
+        (println "- top5-blocker"
+                 (:path blocker)
+                 "occurrences"
+                 (:occurrences blocker)
+                 "best-rank"
+                 (:bestRank blocker)))
       (when-let [timings (:timings result)]
         (println "- timing-ms" (:elapsedMs timings)
                  "running" (:runningCases timings)
@@ -1987,6 +1996,16 @@
                (format "%.2f" (double (get-in result
                                               [:report :scores :noiseRatioAt20]
                                               0.0))))
+      (when-let [blocker (first (get-in result
+                                        [:report
+                                         :localizationDiagnostics
+                                         :rankedOutsideTop5BlockingFiles]))]
+        (println "- top5-blocker"
+                 (:path blocker)
+                 "occurrences"
+                 (:occurrences blocker)
+                 "best-rank"
+                 (:bestRank blocker)))
       (when (seq (:failures result))
         (println "## Failures")
         (doseq [{:keys [metric operator expected actual message]} (:failures result)]

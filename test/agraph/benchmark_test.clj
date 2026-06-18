@@ -138,7 +138,11 @@
                  :repo-id "repo"
                  :agent {:agentId "codex"
                          :mode "agraph"
-                         :topFiles [{:path "src/app.clj"
+                         :topFiles [{:path "src/other.clj"
+                                     :rank 1
+                                     :metrics {:supportCount 2
+                                               :docCount 1}}
+                                    {:path "src/app.clj"
                                      :rank 7}]
                          :selection {:rawCandidateFiles 3
                                      :candidateFiles 2
@@ -266,7 +270,15 @@
               :rankedOutsideTop10Runs 0
               :rankedOutsideTop10CaseIds []
               :rankedOutsideTop20Runs 0
-              :rankedOutsideTop20CaseIds []}
+              :rankedOutsideTop20CaseIds []
+              :rankedOutsideTop5BlockingFiles [{:path "src/other.clj"
+                                                :occurrences 1
+                                                :runs 1
+                                                :bestRank 1
+                                                :metrics {:supportCount 2
+                                                          :docCount 1}}]
+              :rankedOutsideTop10BlockingFiles []
+              :rankedOutsideTop20BlockingFiles []}
              (:localizationDiagnostics report)))
       (is (= {:currentScoreRuns 0
               :legacyScoreRuns 2
@@ -325,10 +337,19 @@
               :rankedOutsideTop5 [{:path "src/app.clj"
                                    :rank 7}]
               :rankedOutsideTop10 []
-              :rankedOutsideTop20 []}
+              :rankedOutsideTop20 []
+              :rankedOutsideTop5Blockers [{:path "src/app.clj"
+                                           :rank 7
+                                           :blockingFileCount 1
+                                           :blockingFiles [{:path "src/other.clj"
+                                                            :rank 1
+                                                            :metrics {:supportCount 2
+                                                                      :docCount 1}}]}]
+              :rankedOutsideTop10Blockers []
+              :rankedOutsideTop20Blockers []}
              (get-in report [:results 0 :localization])))
-      (is (= {:rawSuspectedFiles 1
-              :rankedFiles 1
+      (is (= {:rawSuspectedFiles 2
+              :rankedFiles 2
               :missingPredictedFiles []
               :emptyResult false
               :noRawSuspectedFiles false
