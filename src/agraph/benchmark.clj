@@ -170,6 +170,21 @@
                env-mode "env"
                :else "default")}))
 
+(defn- normalize-parser-worker-profile
+  [profile]
+  (let [mode (extract/normalize-parser-worker-mode (:mode profile))
+        source (some-> (:source profile) str str/trim not-empty)]
+    (when mode
+      {:mode mode
+       :source (or source "unknown")})))
+
+(defn- agent-score-parser-worker-profile
+  [opts agent-result]
+  (or (when (parser-worker-option opts)
+        (parser-worker-profile opts))
+      (normalize-parser-worker-profile (:parserWorker agent-result))
+      (parser-worker-profile opts)))
+
 (defn- with-benchmark-parser-worker
   [opts f]
   (extract/with-parser-worker-mode (parser-worker-option opts)
@@ -3080,6 +3095,9 @@
         prepared (prepare-case! suite case opts)
         agent-result (read-json-file result-file)
         scored (assoc (score-agent-result prepared agent-result)
+                      :parserWorker (agent-score-parser-worker-profile
+                                     opts
+                                     agent-result)
                       :agentResultPath (fs/canonical-path result-file))]
     (write-json-file! (agent-score-path suite case opts result-file) scored)
     scored))

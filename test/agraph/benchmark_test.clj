@@ -2144,6 +2144,55 @@
              :found? true}]
            (get-in scored [:groundTruthRanks :files])))))
 
+(deftest score-agent-result-writes-parser-worker-provenance
+  (let [root (temp-dir "agraph-bench-agent-score-worker")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :agentId "codex"
+                      :mode "agraph"
+                      :parserWorker {:mode "dotnet"
+                                     :source "agent-result"}
+                      :suspectedFiles [{:path "src/app.clj"}]}
+        suite {:id "suite"}
+        case {:id "case-1"}
+        result-path (.getPath (io/file root "agent-result.json"))
+        score-path (.getPath (io/file root
+                                      "suite"
+                                      "cases"
+                                      "case-1"
+                                      "agent-scores"
+                                      "agent-result.score.json"))]
+    (spit-json! root "agent-result.json" agent-result)
+    (with-redefs [benchmark/prepare-case! (fn [_suite _case _opts] prepared)]
+      (let [scored (benchmark/score-agent-result! suite
+                                                  case
+                                                  {:out root
+                                                   :result-path result-path
+                                                   :parser-worker "all"})]
+        (is (= {:mode "all"
+                :source "option"}
+               (:parserWorker scored)))
+        (is (= (:parserWorker scored)
+               (:parserWorker (json/read-json (slurp score-path) :key-fn keyword))))))
+    (with-redefs [benchmark/prepare-case! (fn [_suite _case _opts] prepared)]
+      (let [scored (benchmark/score-agent-result! suite
+                                                  case
+                                                  {:out root
+                                                   :result-path result-path})]
+        (is (= {:mode "dotnet"
+                :source "agent-result"}
+               (:parserWorker scored)))))))
+
 (deftest context-ground-truth-ranks-show-context-misses-separately
   (let [root (temp-dir "agraph-bench-context-ground-truth")
         _ (spit-file! root "src/visible.clj" "(ns visible)\n")

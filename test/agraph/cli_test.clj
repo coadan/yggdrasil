@@ -68,6 +68,7 @@
     (is (str/includes? usage "bench agent-baseline"))
     (is (str/includes? usage "bench agent-run"))
     (is (str/includes? usage "bench agent-score"))
+    (is (str/includes? usage "bench agent-score <benchmark.edn> --case ID --result result.json [--parser-worker none|java|dotnet|all]"))
     (is (str/includes? usage "bench agent-report"))
     (is (str/includes? usage "bench agent-check"))
     (is (str/includes? usage "bench agent-compare"))
@@ -322,6 +323,7 @@
                                 ["agent-score" "benchmark.edn"
                                  "--case" "case-1"
                                  "--result" "agent-result.json"
+                                 "--parser-worker" "dotnet"
                                  "--json"]))
             parsed (read-json-output out)]
         (is (= benchmark/agent-score-schema (:schema parsed)))
@@ -332,7 +334,7 @@
                  {:case-id "case-1"
                   :out nil
                   :retriever nil
-                  :parser-worker nil
+                  :parser-worker "dotnet"
                   :mode nil
                   :result-path "agent-result.json"
                   :command nil}]]
