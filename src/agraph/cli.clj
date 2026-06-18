@@ -1921,6 +1921,25 @@
                                                 [:scores :meanReciprocalRankFile]
                                                 0.0))))))
 
+    (:baselines result)
+    (do
+      (when (contains? result :skipped)
+        (println "- skipped" (:skipped result 0)))
+      (doseq [baseline (:baselines result)]
+        (println "-"
+                 (:case-id baseline)
+                 (:repo-id baseline)
+                 "agent"
+                 (:agentId baseline)
+                 "status"
+                 (or (:status baseline) "ran")
+                 "recall@10"
+                 (format "%.2f" (double (get-in baseline [:scores :fileRecallAt10] 0.0)))
+                 "mrr"
+                 (format "%.2f" (double (get-in baseline
+                                                [:scores :meanReciprocalRankFile]
+                                                0.0))))))
+
     (:completed result)
     (do
       (println "- cases" (:cases result))
@@ -1966,25 +1985,6 @@
                (:mode packet)
                "packet"
                (get-in packet [:artifacts :packetPath])))
-
-    (:baselines result)
-    (do
-      (when (contains? result :skipped)
-        (println "- skipped" (:skipped result 0)))
-      (doseq [baseline (:baselines result)]
-        (println "-"
-                 (:case-id baseline)
-                 (:repo-id baseline)
-                 "agent"
-                 (:agentId baseline)
-                 "status"
-                 (or (:status baseline) "ran")
-                 "recall@10"
-                 (format "%.2f" (double (get-in baseline [:scores :fileRecallAt10] 0.0)))
-                 "mrr"
-                 (format "%.2f" (double (get-in baseline
-                                                [:scores :meanReciprocalRankFile]
-                                                0.0))))))
 
     (= benchmark/agent-check-schema (:schema result))
     (do

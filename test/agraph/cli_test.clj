@@ -74,6 +74,22 @@
     (is (str/includes? usage "--cases ID,ID"))
     (is (not (str/includes? usage "overlay")))))
 
+(deftest benchmark-summary-prints-agent-baseline-scores
+  (let [out (with-out-str
+              (#'cli/print-benchmark-summary
+               {:schema benchmark/agent-baselines-schema
+                :suite-id "suite"
+                :completed 1
+                :skipped 0
+                :baselines [{:case-id "case-1"
+                             :repo-id "repo"
+                             :agentId "agraph-baseline-lexical"
+                             :scores {:fileRecallAt10 0.5
+                                      :meanReciprocalRankFile 1.0}}]}))]
+    (is (str/includes? out "- skipped 0"))
+    (is (str/includes? out "case-1 repo agent agraph-baseline-lexical status ran recall@10 0.50 mrr 1.00"))
+    (is (not (str/includes? out "- file-recall@10 0.00")))))
+
 (deftest install-agent-list-shows-supported-platforms
   (let [out (with-out-str
               (cli/dispatch "install-agent" ["list"]))
