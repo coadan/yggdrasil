@@ -273,7 +273,9 @@
                        :found? false}]
               :missedFiles [{:path "src/missing.clj"}]
               :rankedOutsideTop5 [{:path "src/app.clj"
-                                   :rank 7}]}
+                                   :rank 7}]
+              :rankedOutsideTop10 []
+              :rankedOutsideTop20 []}
              (get-in report [:results 0 :localization])))
       (is (= #{"running" "failed"}
              (set (map :status (:caseProgress report)))))

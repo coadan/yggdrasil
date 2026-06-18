@@ -118,7 +118,7 @@ generated output root.
   show running/failed cases, slowest cases, and cumulative stage timing. Each
   result also includes `localization`, a compact diagnostic with scoreable
   files, per-file ranks, misses, coverage exclusions, and files found outside
-  the top five.
+  the top 5, 10, and 20.
 - `bench agent-check <suite.edn>` aggregates agent score artifacts, writes an
   `agent-check.json`, and exits non-zero when selected cases are missing or
   thresholds fail. Useful gates include `--min-cases`, `--min-runs`,
@@ -316,7 +316,9 @@ Each result also records `groundTruthRanks.files`, which lists every scoreable
 localization file and the rank where AGraph found it, or `found? false` when it
 was outside the collected result window. Use that before tuning ranking;
 aggregate recall alone does not show whether a miss is close or completely
-absent.
+absent. Agent reports also copy this into `localization.ranks` and summarize
+`rankedOutsideTop5`, `rankedOutsideTop10`, and `rankedOutsideTop20` for quick
+threshold debugging.
 
 These scores do not claim the graph understands the project. They measure
 whether deterministic facts and ranking put the real fix area close enough for a

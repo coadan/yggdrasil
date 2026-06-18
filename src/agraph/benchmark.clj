@@ -2442,16 +2442,19 @@
         missed (->> ranks
                     (remove :found?)
                     (mapv #(select-keys % [:path])))
-        ranked-outside-top5 (->> ranks
-                                 (filter #(and (:found? %)
-                                               (> (long (:rank %)) 5)))
-                                 (mapv #(select-keys % [:path :rank])))]
+        ranked-outside (fn [n]
+                         (->> ranks
+                              (filter #(and (:found? %)
+                                            (> (long (:rank %)) n)))
+                              (mapv #(select-keys % [:path :rank]))))]
     {:scoreableFiles (scoreable-changed-files ground-truth)
      :coverageExcludedFiles (vec (:coverageExcludedFiles ground-truth))
      :unsupportedGroundTruthFiles (vec (:unsupportedGroundTruthFiles ground-truth))
      :ranks ranks
      :missedFiles missed
-     :rankedOutsideTop5 ranked-outside-top5}))
+     :rankedOutsideTop5 (ranked-outside 5)
+     :rankedOutsideTop10 (ranked-outside 10)
+     :rankedOutsideTop20 (ranked-outside 20)}))
 
 (defn report-agent-suite
   "Aggregate existing agent score artifacts."
