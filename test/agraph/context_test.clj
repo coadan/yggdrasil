@@ -1,9 +1,9 @@
 (ns agraph.context-test
   (:require [agraph.context :as context]
             [agraph.activity :as activity]
+            [agraph.coverage :as coverage]
             [agraph.graph :as graph]
             [agraph.query :as query]
-            [agraph.xtdb :as store]
             [clojure.test :refer [deftest is]]))
 
 (deftest inferred-docs-include-source-chunk-for-retrieved-node-result
@@ -92,88 +92,6 @@
     (is (some #{"important.clj"}
               (map #(get-in % [:source :path]) selected)))))
 
-(deftest source-coverage-summary-groups-indexed-files-and-diagnostics
-  (with-redefs [store/all-rows (fn [_ table _]
-                                 (case table
-                                   :agraph/files
-                                   [{:xt/id "file:app"
-                                     :project-id "fixture"
-                                     :repo-id "app"
-                                     :path "src/app.clj"
-                                     :kind :code
-                                     :active? true}
-                                    {:xt/id "file:service"
-                                     :project-id "fixture"
-                                     :repo-id "app"
-                                     :path "src/Service.java"
-                                     :kind :java
-                                     :active? true}
-                                    {:xt/id "file:other"
-                                     :project-id "other"
-                                     :repo-id "app"
-                                     :path "src/Other.java"
-                                     :kind :java
-                                     :active? true}
-                                    {:xt/id "file:inactive"
-                                     :project-id "fixture"
-                                     :repo-id "app"
-                                     :path "src/Old.java"
-                                     :kind :java
-                                     :active? false}]
-                                   []))
-                query/all-diagnostics (fn [_ opts]
-                                        (is (= {:project-id "fixture"
-                                                :repo-id "app"
-                                                :read-context nil}
-                                               opts))
-                                        [{:file-id "file:service"
-                                          :project-id "fixture"
-                                          :repo-id "app"
-                                          :stage :parse
-                                          :active? true}
-                                         {:file-id "file:missing"
-                                          :project-id "fixture"
-                                          :repo-id "app"
-                                          :stage :extract
-                                          :active? true}
-                                         {:file-id "file:inactive"
-                                          :project-id "fixture"
-                                          :repo-id "app"
-                                          :stage :parse
-                                          :active? false}])]
-    (let [summary (#'context/source-coverage-summary
-                   :xtdb
-                   {:project-id "fixture"
-                    :repo-id "app"
-                    :read-context nil})]
-      (is (= "agraph.source-coverage.context/v1" (:schema summary)))
-      (is (= {:indexedFiles 2
-              :diagnostics 2
-              :fileKinds 2}
-             (:totals summary)))
-      (is (= [{:kind "code" :count 1}
-              {:kind "java" :count 1}]
-             (:topFileKinds summary)))
-      (is (= [{:kind "code"
-               :extractorVersion "clojure/v9"
-               :files 1}
-              {:kind "java"
-               :extractorVersion "java/v2"
-               :files 1}]
-             (:extractors summary)))
-      (is (= [{:stage "extract" :count 1}
-              {:stage "parse" :count 1}]
-             (get-in summary [:diagnostics :byStage])))
-      (is (= [{:kind "java"
-               :extractorVersion "java/v2"
-               :stage "parse"
-               :count 1}
-              {:kind "unknown"
-               :extractorVersion "unknown"
-               :stage "extract"
-               :count 1}]
-             (get-in summary [:diagnostics :byExtractor]))))))
-
 (deftest context-packet-includes-search-instrumentation
   (with-redefs [query/search-report (fn [_ query-text opts]
                                       {:schema query/search-report-schema
@@ -200,9 +118,9 @@
                 query/chunks-by-paths (fn [& _] [])
                 activity/select-activity (fn [& _] [])
                 context/answerability (fn [& _] {:status :ready})
-                context/source-coverage-summary (fn [& _]
-                                                  {:schema "agraph.source-coverage.context/v1"
-                                                   :totals {:indexedFiles 1}})]
+                coverage/context-summary (fn [& _]
+                                           {:schema "agraph.source-coverage.context/v1"
+                                            :totals {:indexedFiles 1}})]
     (let [packet (context/context-packet :xtdb
                                          "auth"
                                          {:project-id "fixture"
@@ -253,7 +171,7 @@
                 query/chunks-by-paths (fn [& _] [])
                 activity/select-activity (fn [& _] [])
                 context/answerability (fn [& _] {:status :ready})
-                context/source-coverage-summary (fn [& _] nil)]
+                coverage/context-summary (fn [& _] nil)]
     (let [packet (context/context-packet :xtdb
                                          "caller"
                                          {:project-id "fixture"
@@ -299,7 +217,7 @@
                   query/chunks-by-paths (fn [& _] [])
                   activity/select-activity (fn [& _] [])
                   context/answerability (fn [& _] {:status :ready})
-                  context/source-coverage-summary (fn [& _] nil)]
+                  coverage/context-summary (fn [& _] nil)]
       (let [packet (context/context-packet :xtdb
                                            "open page root"
                                            {:project-id "fixture"

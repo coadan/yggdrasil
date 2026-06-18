@@ -8,6 +8,9 @@
 (def schema
   "agraph.source-coverage/v1")
 
+(def context-schema
+  "agraph.source-coverage.context/v1")
+
 (defn- display-value
   [value]
   (cond
@@ -122,6 +125,78 @@
 (defn- active-rows
   [rows]
   (filter :active? rows))
+
+(defn- active-index-row?
+  [row]
+  (not= false (:active? row)))
+
+(defn- scope-match?
+  [{:keys [project-id repo-id]} row]
+  (and (or (str/blank? (str project-id)) (= project-id (:project-id row)))
+       (or (str/blank? (str repo-id)) (= repo-id (:repo-id row)))))
+
+(defn- scoped-active-index-rows
+  [xtdb table {:keys [project-id repo-id read-context]}]
+  (->> (store/all-rows xtdb table (store/read-context read-context))
+       (filter active-index-row?)
+       (filter #(scope-match? {:project-id project-id :repo-id repo-id} %))
+       vec))
+
+(defn- context-extractor-rows
+  [files]
+  (->> files
+       (group-by :kind)
+       (map (fn [[kind kind-files]]
+              {:kind (display-value kind)
+               :extractorVersion (get extract/extractor-versions kind "none/v1")
+               :files (count kind-files)}))
+       (sort-by (juxt :kind :extractorVersion))
+       vec))
+
+(defn- context-diagnostic-extractor-rows
+  [files diagnostics]
+  (let [file-by-id (into {} (map (juxt :xt/id identity)) files)]
+    (->> diagnostics
+         (map (fn [diagnostic]
+                (let [kind (or (:kind (get file-by-id (:file-id diagnostic)))
+                               :unknown)]
+                  {:kind (display-value kind)
+                   :extractorVersion (if (= :unknown kind)
+                                       "unknown"
+                                       (get extract/extractor-versions kind "none/v1"))
+                   :stage (display-value (:stage diagnostic))})))
+         (group-by (juxt :kind :extractorVersion :stage))
+         (map (fn [[[kind version stage] rows]]
+                {:kind kind
+                 :extractorVersion version
+                 :stage stage
+                 :count (count rows)}))
+         (sort-by (fn [row]
+                    [(- (long (:count row)))
+                     (:kind row)
+                     (:stage row)]))
+         vec)))
+
+(defn context-summary
+  "Return compact indexed source coverage for context packets.
+
+  This summarizes the graph rows currently available to the selected
+  project/repo/read context. It does not scan the filesystem for skipped or
+  unsupported source candidates; use `project-coverage` for full repo coverage."
+  [xtdb opts]
+  (let [files (scoped-active-index-rows xtdb (:files store/tables) opts)
+        diagnostics (scoped-active-index-rows xtdb (:diagnostics store/tables) opts)]
+    {:schema context-schema
+     :basis "indexed-graph"
+     :totals {:indexedFiles (count files)
+              :diagnostics (count diagnostics)
+              :fileKinds (count (set (keep :kind files)))}
+     :topFileKinds (vec (take 8 (count-rows :kind :kind files)))
+     :extractors (vec (take 12 (context-extractor-rows files)))
+     :diagnostics {:byStage (vec (take 8 (count-rows :stage :stage diagnostics)))
+                   :byExtractor (vec (take 8 (context-diagnostic-extractor-rows
+                                              files
+                                              diagnostics)))}}))
 
 (defn- diagnostics-summary
   [xtdb project-id]

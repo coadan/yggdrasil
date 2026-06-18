@@ -1,5 +1,6 @@
 (ns agraph.coverage-test
   (:require [agraph.coverage :as coverage]
+            [agraph.xtdb :as store]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]))
 
@@ -20,6 +21,91 @@
 (defn- row-by
   [k value rows]
   (some #(when (= value (get % k)) %) rows))
+
+(deftest context-summary-groups-indexed-files-and-diagnostics
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files
+                                   [{:xt/id "file:app"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :path "src/app.clj"
+                                     :kind :code
+                                     :active? true}
+                                    {:xt/id "file:service"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :path "src/Service.java"
+                                     :kind :java
+                                     :active? true}
+                                    {:xt/id "file:other"
+                                     :project-id "other"
+                                     :repo-id "app"
+                                     :path "src/Other.java"
+                                     :kind :java
+                                     :active? true}
+                                    {:xt/id "file:inactive"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :path "src/Old.java"
+                                     :kind :java
+                                     :active? false}]
+
+                                   :agraph/index-diagnostics
+                                   [{:file-id "file:service"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :stage :parse
+                                     :active? true}
+                                    {:file-id "file:missing"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :stage :extract
+                                     :active? true}
+                                    {:file-id "file:other"
+                                     :project-id "other"
+                                     :repo-id "app"
+                                     :stage :parse
+                                     :active? true}
+                                    {:file-id "file:inactive"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :stage :parse
+                                     :active? false}]
+
+                                   []))]
+    (let [summary (coverage/context-summary
+                   :xtdb
+                   {:project-id "fixture"
+                    :repo-id "app"
+                    :read-context nil})]
+      (is (= coverage/context-schema (:schema summary)))
+      (is (= {:indexedFiles 2
+              :diagnostics 2
+              :fileKinds 2}
+             (:totals summary)))
+      (is (= [{:kind "code" :count 1}
+              {:kind "java" :count 1}]
+             (:topFileKinds summary)))
+      (is (= [{:kind "code"
+               :extractorVersion "clojure/v9"
+               :files 1}
+              {:kind "java"
+               :extractorVersion "java/v2"
+               :files 1}]
+             (:extractors summary)))
+      (is (= [{:stage "extract" :count 1}
+              {:stage "parse" :count 1}]
+             (get-in summary [:diagnostics :byStage])))
+      (is (= [{:kind "java"
+               :extractorVersion "java/v2"
+               :stage "parse"
+               :count 1}
+              {:kind "unknown"
+               :extractorVersion "unknown"
+               :stage "extract"
+               :count 1}]
+             (get-in summary [:diagnostics :byExtractor]))))))
 
 (deftest project-coverage-reports-supported-and-skipped-source-types
   (let [root (temp-dir "agraph-coverage-repo")]

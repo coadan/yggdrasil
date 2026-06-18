@@ -1,7 +1,7 @@
 (ns agraph.context
   "Token-bounded, graph-grounded context packets for agents."
   (:require [agraph.activity :as activity]
-            [agraph.extract :as extract]
+            [agraph.coverage :as coverage]
             [agraph.graph :as graph]
             [agraph.map :as graph-map]
             [agraph.query :as query]
@@ -74,26 +74,6 @@
        (map str)
        (remove str/blank?)
        (str/join " ")))
-
-(defn- display-value
-  [value]
-  (cond
-    (keyword? value) (name value)
-    (str/blank? (str value)) "(none)"
-    :else (str value)))
-
-(defn- count-rows
-  [label-key value-fn rows]
-  (->> rows
-       (map value-fn)
-       frequencies
-       (map (fn [[value n]]
-              {label-key (display-value value)
-               :count n}))
-       (sort-by (fn [row]
-                  [(- (long (:count row)))
-                   (get row label-key)]))
-       vec))
 
 (defn- token-score
   [query-tokens value]
@@ -798,64 +778,6 @@
        (filter #(scope-match? {:project-id project-id :repo-id repo-id} %))
        count))
 
-(defn- scoped-active-files
-  [xtdb {:keys [project-id repo-id read-context]}]
-  (->> (store/all-rows xtdb (:files store/tables) (store/read-context read-context))
-       (filter active-row?)
-       (filter #(scope-match? {:project-id project-id :repo-id repo-id} %))
-       vec))
-
-(defn- extractor-coverage-rows
-  [files]
-  (->> files
-       (group-by :kind)
-       (map (fn [[kind kind-files]]
-              {:kind (display-value kind)
-               :extractorVersion (get extract/extractor-versions kind "none/v1")
-               :files (count kind-files)}))
-       (sort-by (juxt :kind :extractorVersion))
-       vec))
-
-(defn- diagnostic-extractor-rows
-  [files diagnostics]
-  (let [file-by-id (into {} (map (juxt :xt/id identity)) files)]
-    (->> diagnostics
-         (map (fn [diagnostic]
-                (let [kind (or (:kind (get file-by-id (:file-id diagnostic)))
-                               :unknown)]
-                  {:kind (display-value kind)
-                   :extractorVersion (if (= :unknown kind)
-                                       "unknown"
-                                       (get extract/extractor-versions kind "none/v1"))
-                   :stage (display-value (:stage diagnostic))})))
-         (group-by (juxt :kind :extractorVersion :stage))
-         (map (fn [[[kind version stage] rows]]
-                {:kind kind
-                 :extractorVersion version
-                 :stage stage
-                 :count (count rows)}))
-         (sort-by (fn [row]
-                    [(- (long (:count row)))
-                     (:kind row)
-                     (:stage row)]))
-         vec)))
-
-(defn- source-coverage-summary
-  [xtdb opts]
-  (let [files (scoped-active-files xtdb opts)
-        diagnostics (vec (filter active-row? (query/all-diagnostics xtdb opts)))]
-    {:schema "agraph.source-coverage.context/v1"
-     :basis "indexed-graph"
-     :totals {:indexedFiles (count files)
-              :diagnostics (count diagnostics)
-              :fileKinds (count (set (keep :kind files)))}
-     :topFileKinds (vec (take 8 (count-rows :kind :kind files)))
-     :extractors (vec (take 12 (extractor-coverage-rows files)))
-     :diagnostics {:byStage (vec (take 8 (count-rows :stage :stage diagnostics)))
-                   :byExtractor (vec (take 8 (diagnostic-extractor-rows
-                                              files
-                                              diagnostics)))}}))
-
 (defn- overlay-counts
   [overlay]
   {:map-systems (count (:systems overlay))
@@ -1131,10 +1053,10 @@
                                                                                 (= :validation (:event-kind event)))
                                                                               (:events %))
                                                                        activity))})
-        source-coverage (source-coverage-summary xtdb
-                                                 {:project-id project-id
-                                                  :repo-id repo-id
-                                                  :read-context read-context})]
+        source-coverage (coverage/context-summary xtdb
+                                                  {:project-id project-id
+                                                   :repo-id repo-id
+                                                   :read-context read-context})]
     (fit-budget (base-packet query-text
                              budget
                              graph-data
