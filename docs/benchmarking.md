@@ -373,6 +373,8 @@ the scoreable localization files against the full AGraph context ranking before
 the agent answer limit is applied. Use it to distinguish missing evidence from
 ranking/selection misses: if a target appears there but not in
 `groundTruthRanks`, the context had the file and the top-N answer needs work.
+Agent reports summarize this as `missedButPresentInContextRuns` and
+`missedAndAbsentFromContextRuns`.
 
 These scores do not claim the graph understands the project. They measure
 whether deterministic facts and ranking put the real fix area close enough for a

@@ -2892,11 +2892,24 @@
   [result]
   (let [ground-truth (:groundTruth result)
         ranks (get-in result [:groundTruthRanks :files])
+        context-ranks (get-in result [:contextGroundTruthRanks :files])
+        context-rank-by-path (into {} (map (juxt :path identity)) context-ranks)
         top-files (get-in result [:agent :topFiles])
         scoreable-file-set (set (scoreable-changed-files ground-truth))
         missed (->> ranks
                     (remove :found?)
                     (mapv #(select-keys % [:path])))
+        missed-present-in-context (->> missed
+                                       (keep (fn [{:keys [path]}]
+                                               (when-let [row (get context-rank-by-path path)]
+                                                 (when (:found? row)
+                                                   (select-keys row [:path :rank])))))
+                                       vec)
+        missed-absent-from-context (when (seq context-ranks)
+                                     (->> missed
+                                          (remove #(get-in context-rank-by-path
+                                                           [(:path %) :found?]))
+                                          (mapv #(select-keys % [:path]))))
         blocker-summary (fn [row]
                           (select-keys row
                                        [:path
@@ -2915,27 +2928,33 @@
                          (->> ranks
                               (filter #(and (:found? %)
                                             (> (long (:rank %)) n)))
-                              (mapv #(select-keys % [:path :rank]))))]
-    {:scoreableFiles (scoreable-changed-files ground-truth)
-     :coverageExcludedFiles (vec (:coverageExcludedFiles ground-truth))
-     :unsupportedGroundTruthFiles (vec (:unsupportedGroundTruthFiles ground-truth))
-     :ranks ranks
-     :missedFiles missed
-     :rankedOutsideTop5 (ranked-outside 5)
-     :rankedOutsideTop10 (ranked-outside 10)
-     :rankedOutsideTop20 (ranked-outside 20)
-     :rankedOutsideTop5Blockers (ranked-outside-blockers
-                                 ranks
-                                 blockers-before
-                                 5)
-     :rankedOutsideTop10Blockers (ranked-outside-blockers
-                                  ranks
-                                  blockers-before
-                                  10)
-     :rankedOutsideTop20Blockers (ranked-outside-blockers
-                                  ranks
-                                  blockers-before
-                                  20)}))
+                              (mapv #(select-keys % [:path :rank]))))
+        diagnostic {:scoreableFiles (scoreable-changed-files ground-truth)
+                    :coverageExcludedFiles (vec (:coverageExcludedFiles ground-truth))
+                    :unsupportedGroundTruthFiles (vec (:unsupportedGroundTruthFiles ground-truth))
+                    :ranks ranks
+                    :missedFiles missed
+                    :rankedOutsideTop5 (ranked-outside 5)
+                    :rankedOutsideTop10 (ranked-outside 10)
+                    :rankedOutsideTop20 (ranked-outside 20)
+                    :rankedOutsideTop5Blockers (ranked-outside-blockers
+                                                ranks
+                                                blockers-before
+                                                5)
+                    :rankedOutsideTop10Blockers (ranked-outside-blockers
+                                                 ranks
+                                                 blockers-before
+                                                 10)
+                    :rankedOutsideTop20Blockers (ranked-outside-blockers
+                                                 ranks
+                                                 blockers-before
+                                                 20)}]
+    (if (seq context-ranks)
+      (assoc diagnostic
+             :contextRanks context-ranks
+             :missedFilesPresentInContext missed-present-in-context
+             :missedFilesAbsentFromContext missed-absent-from-context)
+      diagnostic)))
 
 (defn- aggregate-rank-blockers
   [result-pairs blocker-key]
@@ -2984,12 +3003,22 @@
                               result-pairs)
         outside-top20 (filter (fn [[_ diagnostic]]
                                 (seq (:rankedOutsideTop20 diagnostic)))
-                              result-pairs)]
+                              result-pairs)
+        missed-present-in-context (filter (fn [[_ diagnostic]]
+                                            (seq (:missedFilesPresentInContext diagnostic)))
+                                          result-pairs)
+        missed-absent-from-context (filter (fn [[_ diagnostic]]
+                                             (seq (:missedFilesAbsentFromContext diagnostic)))
+                                           result-pairs)]
     {:runs (count results)
      :allScoreableFoundRuns (count all-found)
      :allScoreableFoundCaseIds (case-ids all-found)
      :missedRuns (count missed)
      :missedCaseIds (case-ids missed)
+     :missedButPresentInContextRuns (count missed-present-in-context)
+     :missedButPresentInContextCaseIds (case-ids missed-present-in-context)
+     :missedAndAbsentFromContextRuns (count missed-absent-from-context)
+     :missedAndAbsentFromContextCaseIds (case-ids missed-absent-from-context)
      :rankedOutsideTop5Runs (count outside-top5)
      :rankedOutsideTop5CaseIds (case-ids outside-top5)
      :rankedOutsideTop10Runs (count outside-top10)

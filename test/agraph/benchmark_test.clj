@@ -174,6 +174,17 @@
                                              :found? true}
                                             {:path "src/missing.clj"
                                              :found? false}]}
+                 :contextGroundTruthRanks {:files [{:path "src/app.clj"
+                                                    :rank 7
+                                                    :found? true}
+                                                   {:path "src/missing.clj"
+                                                    :rank 12
+                                                    :found? true}]
+                                           :selection {:rawCandidateFiles 4
+                                                       :candidateFiles 3
+                                                       :coverageFilteredCandidateFiles 1
+                                                       :limit nil
+                                                       :coverageSourceKinds ["code"]}}
                  :scores {:fileRecallAt5 1.0
                           :fileRecallAt10 1.0
                           :fileRecallAt20 1.0
@@ -265,6 +276,10 @@
               :allScoreableFoundCaseIds []
               :missedRuns 2
               :missedCaseIds ["case-1"]
+              :missedButPresentInContextRuns 1
+              :missedButPresentInContextCaseIds ["case-1"]
+              :missedAndAbsentFromContextRuns 0
+              :missedAndAbsentFromContextCaseIds []
               :rankedOutsideTop5Runs 1
               :rankedOutsideTop5CaseIds ["case-1"]
               :rankedOutsideTop10Runs 0
@@ -333,7 +348,16 @@
                        :found? true}
                       {:path "src/missing.clj"
                        :found? false}]
+              :contextRanks [{:path "src/app.clj"
+                              :rank 7
+                              :found? true}
+                             {:path "src/missing.clj"
+                              :rank 12
+                              :found? true}]
               :missedFiles [{:path "src/missing.clj"}]
+              :missedFilesPresentInContext [{:path "src/missing.clj"
+                                             :rank 12}]
+              :missedFilesAbsentFromContext []
               :rankedOutsideTop5 [{:path "src/app.clj"
                                    :rank 7}]
               :rankedOutsideTop10 []
