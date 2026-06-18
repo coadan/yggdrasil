@@ -2551,7 +2551,8 @@
          [:min-case-mrr :minCaseMeanReciprocalRankFile]
          [:max-case-noise-at-20 :maxCaseNoiseRatioAt20]
          [:max-input-hinted-cases :maxInputHintedCases]
-         [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]]))
+         [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
+         [:max-active-stage-ms :maxActiveStageMs]]))
 
 (defn- metric-failure
   [metric operator expected actual]
@@ -2667,6 +2668,25 @@
                [[:maxCaseNoiseRatioAt20 :noiseRatioAt20 "case.noiseRatioAt20"]])))
       results))))
 
+(defn- active-stage-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :maxActiveStageMs])]
+    (->> (get-in check [:report :caseProgress])
+         (keep (fn [progress]
+                 (let [actual (double (:activeElapsedMs progress 0))]
+                   (when (> actual expected)
+                     (merge (metric-failure "activeStageElapsedMs"
+                                            "<="
+                                            expected
+                                            actual)
+                            (select-keys progress
+                                         [:case-id
+                                          :repo-id
+                                          :status
+                                          :activeStage])
+                            {:message "Active benchmark stage exceeded the configured duration."})))))
+         vec)))
+
 (def ^:private case-diagnostic-score-keys
   [:fileRecallAt5
    :fileRecallAt10
@@ -2697,14 +2717,16 @@
      :failures result-failures}))
 
 (defn- missing-case-diagnostic
-  [case-id]
+  [failures case-id]
   {:case-id case-id
    :status "missing"
-   :failures [{:metric "completed"
-               :operator "="
-               :expected 1
-               :actual 0
-               :message "Selected case does not have a matching agent score artifact."}]})
+   :failures (into [{:metric "completed"
+                     :operator "="
+                     :expected 1
+                     :actual 0
+                     :message "Selected case does not have a matching agent score artifact."}]
+                   (filter #(= case-id (:case-id %)))
+                   failures)})
 
 (defn- case-diagnostics
   [check failures]
@@ -2712,7 +2734,7 @@
    (concat
     (map #(result-case-diagnostic failures %)
          (get-in check [:report :results]))
-    (map missing-case-diagnostic
+    (map #(missing-case-diagnostic failures %)
          (get-in check [:report :missing])))))
 
 (defn check-agent-report
@@ -2749,7 +2771,8 @@
                           [:maxUnsupportedGroundTruthFiles
                            [:scores :unsupportedGroundTruthFiles]
                            "unsupportedGroundTruthFiles"]])
-                   (case-threshold-failures check-base)))]
+                   (case-threshold-failures check-base)
+                   (active-stage-failures check-base)))]
     (assoc check-base
            :status (if (seq failures) "failed" "passed")
            :caseDiagnostics (case-diagnostics check-base failures)

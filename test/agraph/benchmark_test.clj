@@ -317,6 +317,11 @@
                          :noiseRatioAt20 0.75
                          :unsupportedGroundTruthFiles 1}
                 :inputHints {:inputHintedCases 1}
+                :caseProgress [{:case-id "case-2"
+                                :repo-id "repo"
+                                :status "running"
+                                :activeStage "context-packet"
+                                :activeElapsedMs 1500}]
                 :results [{:case-id "case-1"
                            :agent {:agentId "codex"
                                    :mode "agraph"}
@@ -336,7 +341,8 @@
                  :min-case-mrr 0.8
                  :max-case-noise-at-20 0.5
                  :max-input-hinted-cases 0
-                 :max-unsupported-ground-truth-files 0})
+                 :max-unsupported-ground-truth-files 0
+                 :max-active-stage-ms 1000})
         passed (benchmark/check-agent-report
                 (assoc report :completed 2 :missing [])
                 {:allow-missing? true
@@ -349,7 +355,8 @@
                  :min-case-mrr 0.5
                  :max-case-noise-at-20 0.75
                  :max-input-hinted-cases 1
-                 :max-unsupported-ground-truth-files 1})]
+                 :max-unsupported-ground-truth-files 1
+                 :max-active-stage-ms 1500})]
     (is (= benchmark/agent-check-schema (:schema failed)))
     (is (= "failed" (:status failed)))
     (is (= #{"completed"
@@ -362,7 +369,8 @@
              "case.meanReciprocalRankFile"
              "case.noiseRatioAt20"
              "inputHintedCases"
-             "unsupportedGroundTruthFiles"}
+             "unsupportedGroundTruthFiles"
+             "activeStageElapsedMs"}
            (set (map :metric (:failures failed)))))
     (is (= {:case-id "case-1"
             :agentId "codex"
@@ -387,6 +395,8 @@
             :status "missing"}
            (select-keys (get-in failed [:caseDiagnostics 1])
                         [:case-id :status])))
+    (is (= #{"completed" "activeStageElapsedMs"}
+           (set (map :metric (get-in failed [:caseDiagnostics 1 :failures])))))
     (is (= {:requireComplete true
             :allowDuplicateRuns false
             :minCases 3.0
@@ -398,7 +408,8 @@
             :minCaseMeanReciprocalRankFile 0.8
             :maxCaseNoiseRatioAt20 0.5
             :maxInputHintedCases 0.0
-            :maxUnsupportedGroundTruthFiles 0.0}
+            :maxUnsupportedGroundTruthFiles 0.0
+            :maxActiveStageMs 1000.0}
            (:thresholds failed)))
     (is (= "passed" (:status passed)))
     (is (empty? (:failures passed)))

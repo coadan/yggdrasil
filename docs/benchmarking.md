@@ -128,7 +128,9 @@ generated output root.
   `--min-file-recall-at-20`, `--min-case-file-recall-at-5`,
   `--min-case-file-recall-at-10`, `--min-case-file-recall-at-20`, `--min-mrr`,
   `--min-case-mrr`, `--max-noise-at-20`, `--max-case-noise-at-20`,
-  `--max-input-hinted-cases`, and `--max-unsupported-ground-truth-files`. Use
+  `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`, and
+  `--max-active-stage-ms` for partial or interrupted runs with a stuck active
+  stage. Use
   `--agent <agent-id>` to avoid mixing baseline, shell-only, and ad hoc agent
   score artifacts in one gate. Selected cases must all have matching score
   artifacts unless `--allow-missing` is set. Matching score artifacts must be
