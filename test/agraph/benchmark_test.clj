@@ -1013,6 +1013,8 @@
            (mapv :path (:suspectedFiles unfiltered))))
     (is (= ["src/app.clj"]
            (mapv :path (:suspectedFiles filtered))))
+    (is (= [1]
+           (mapv :rank (:suspectedFiles filtered))))
     (is (= {:rawCandidateFiles 2
             :candidateFiles 1
             :coverageFilteredCandidateFiles 1
@@ -1094,6 +1096,50 @@
            (mapv :path files)))
     (is (= 2 (get-in files [0 :metrics :candidateFileCount])))
     (is (= 3 (get-in files [0 :metrics :matchedTokenCount])))))
+
+(deftest file-ranking-preserves-early-retrieved-source-order
+  (let [root (temp-dir "agraph-bench-retrieved-rank")
+        _ (spit-file! root "src/early.clj" "(ns early)\n")
+        _ (spit-file! root "src/later.clj" "(ns later)\n")
+        packet {:query "json handler conversion"
+                :docs [{:source {:path "src/unrelated-1.clj"
+                                 :heading "unrelated"}
+                        :score 9.0
+                        :snippet "json handler conversion"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/early.clj"
+                                 :heading "handler"}
+                        :score 1.0
+                        :snippet "json handler conversion"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/unrelated-2.clj"
+                                 :heading "unrelated"}
+                        :score 9.0
+                        :snippet "json handler conversion"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/unrelated-3.clj"
+                                 :heading "unrelated"}
+                        :score 9.0
+                        :snippet "json handler conversion"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/later.clj"
+                                 :heading "handler"}
+                        :score 1.05
+                        :snippet "json handler conversion"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/early.clj" "src/later.clj"]
+           (mapv :path files)))
+    (is (> (get-in files [0 :metrics :sourceRankScore])
+           (get-in files [1 :metrics :sourceRankScore])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
 
 (deftest local-vector-baseline-shells-out-and-scores-agent-result
   (let [repo (temp-dir "agraph-bench-local-vector-repo")

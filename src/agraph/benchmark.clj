@@ -88,6 +88,15 @@
 (def ^:private rank-score-token-cap
   5)
 
+(def ^:private retrieved-source-rank-bonus-window
+  20)
+
+(def ^:private retrieved-source-rank-bonus-max
+  0.55)
+
+(def ^:private retrieved-source-rank-bonus-step
+  0.025)
+
 (def default-agent-run-timeout-ms
   600000)
 
@@ -1149,6 +1158,17 @@
         evidence-token-set (set (text/tokenize text))]
     (set/intersection query-token-set evidence-token-set)))
 
+(defn- retrieved-source-rank-score
+  [retrieved-source-count first-source-rank]
+  (if (and (pos? retrieved-source-count)
+           (pos? (long (or first-source-rank 0)))
+           (<= first-source-rank retrieved-source-rank-bonus-window))
+    (max 0.0
+         (- retrieved-source-rank-bonus-max
+            (* retrieved-source-rank-bonus-step
+               (dec first-source-rank))))
+    0.0))
+
 (defn- doc-prediction
   [root query-tokens idx doc]
   (let [source (:source doc)
@@ -1242,7 +1262,11 @@
                              max-evidence-score (apply max
                                                        0.0
                                                        (map :evidence-score ordered))
+                             source-rank-score (retrieved-source-rank-score
+                                                retrieved-source-count
+                                                (:source-rank best-row))
                              rank-score (+ max-evidence-score
+                                           source-rank-score
                                            (* 0.22 (min rank-score-token-cap
                                                         (count matched-tokens)))
                                            (* 0.08 support-count)
@@ -1250,20 +1274,22 @@
                                            (* 0.12 exact-path-source-count)
                                            (* 0.04 candidate-count)
                                            (* 0.03 entity-count))
-                             metrics {:firstSourceRank (:source-rank best-row)
-                                      :supportCount support-count
-                                      :docCount doc-count
-                                      :entityCount entity-count
-                                      :candidateFileCount candidate-count
-                                      :retrievedSourceCount retrieved-source-count
-                                      :exactPathSourceCount exact-path-source-count
-                                      :maxConfidence confidence
-                                      :rankScore rank-score
-                                      :matchedTokenCount (count matched-tokens)
-                                      :definitionKinds (->> ordered
-                                                            (keep :definition-kind)
-                                                            distinct
-                                                            vec)}]
+                             metrics (cond-> {:firstSourceRank (:source-rank best-row)
+                                              :supportCount support-count
+                                              :docCount doc-count
+                                              :entityCount entity-count
+                                              :candidateFileCount candidate-count
+                                              :retrievedSourceCount retrieved-source-count
+                                              :exactPathSourceCount exact-path-source-count
+                                              :maxConfidence confidence
+                                              :rankScore rank-score
+                                              :matchedTokenCount (count matched-tokens)
+                                              :definitionKinds (->> ordered
+                                                                    (keep :definition-kind)
+                                                                    distinct
+                                                                    vec)}
+                                       (pos? source-rank-score)
+                                       (assoc :sourceRankScore source-rank-score))]
                          (cond-> (assoc best-row
                                         :path path
                                         :confidence confidence
@@ -1311,6 +1337,13 @@
   (or (empty? source-kinds)
       (contains? source-kinds (path-source-kind (:path row)))))
 
+(defn- renumber-file-ranks
+  [rows]
+  (mapv (fn [idx row]
+          (assoc row :rank (inc idx)))
+        (range)
+        rows))
+
 (defn- context-symbols
   [packet]
   (->> (:docs packet)
@@ -1353,6 +1386,7 @@
                                                               candidate-file-rows))
          candidate-files (->> raw-candidate-files
                               (filter #(keep-coverage-source-kind? source-kinds %))
+                              renumber-file-ranks
                               vec)
          filtered-files (- (count raw-candidate-files)
                            (count candidate-files))
