@@ -6,6 +6,8 @@
 (deftest watchable-path-detects-supported-non-ignored-files
   (is (watch/watchable-path? "src/app.clj"))
   (is (watch/watchable-path? "Dockerfile"))
+  (is (watch/watchable-path? "Containerfile"))
+  (is (watch/watchable-path? "Procfile"))
   (is (watch/watchable-path? "infra/deploy.yaml"))
   (is (not (watch/watchable-path? ".dev/report.json")))
   (is (not (watch/watchable-path? "target/classes/app.clj")))

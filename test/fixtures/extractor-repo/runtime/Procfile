@@ -1,0 +1,2 @@
+web: bin/panels-web --port $PORT
+worker: bin/panels-worker

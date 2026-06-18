@@ -22,7 +22,8 @@
   #{:font-asset :gettext-binary :image-asset})
 
 (def supported-filenames
-  #{"dockerfile" "docker-compose.yml" "docker-compose.yaml"
+  #{"dockerfile" "containerfile" "procfile"
+    "docker-compose.yml" "docker-compose.yaml"
     "compose.yml" "compose.yaml" "chart.yaml" "go.mod" "mix.exs"
     "package.json" "package-lock.json" "cargo.toml" "cargo.lock" "go.work" "go.sum"
     "pnpm-lock.yaml" "yarn.lock" "gemfile.lock" "poetry.lock"
@@ -141,7 +142,8 @@
       (env-filename? filename) :env
       (str/ends-with? filename ".sh.in") :shell
       (str/ends-with? filename ".rb.template") :ruby
-      (= "dockerfile" filename) :docker
+      (contains? #{"dockerfile" "containerfile"} filename) :docker
+      (= "procfile" filename) :procfile
       (= "ols.json" filename) :odin
       (or (re-find #"(^|/)\.github/workflows/[^/]+\.ya?ml$" path-lower)
           (= "jenkinsfile" filename)

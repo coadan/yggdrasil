@@ -212,6 +212,12 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/infra/docker-compose.yml")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/runtime/Dockerfile")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/runtime/Containerfile")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/runtime/Procfile")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/infra/chart/Chart.yaml")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/infra/k8s/deployment.yaml")
@@ -3057,6 +3063,62 @@
     (is (= [:helm-file] (mapv :kind (:chunks helm-result))))
     (is (= [:helm-file] (mapv :kind (:chunks helm-values-result))))
     (is (= [:yaml-file] (mapv :kind (:chunks yaml-result))))))
+
+(deftest extracts-container-runtime-facts
+  (let [result-for (fn [path]
+                     (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      (str "test/fixtures/extractor-repo/" path))))
+        kind-for (fn [path]
+                   (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                          (str "test/fixtures/extractor-repo/" path))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        relations (fn [result] (frequencies (map :relation (:edges result))))
+        docker (result-for "runtime/Dockerfile")
+        containerfile (result-for "runtime/Containerfile")
+        procfile (result-for "runtime/Procfile")]
+    (is (= :docker (kind-for "runtime/Dockerfile")))
+    (is (= :docker (kind-for "runtime/Containerfile")))
+    (is (= :procfile (kind-for "runtime/Procfile")))
+    (is (contains? (labels docker) "deps"))
+    (is (contains? (labels docker) "build"))
+    (is (contains? (labels docker) "runtime"))
+    (is (contains? (labels docker) "eclipse-temurin:21-jdk"))
+    (is (contains? (labels docker) "eclipse-temurin:21-jre"))
+    (is (contains? (labels docker) "/workspace"))
+    (is (contains? (labels docker) "runtime:PANEL_ENV"))
+    (is (contains? (labels docker) "runtime:PANEL_DEBUG"))
+    (is (contains? (labels docker) "8080"))
+    (is (contains? (labels docker) "CMD [\"/app/bin/panels\"]"))
+    (is (contains? (labels docker) "build.gradle"))
+    (is (= 3 (:docker-stage (kinds docker))))
+    (is (= 2 (:container-image (kinds docker))))
+    (is (= 2 (:docker-workdir (kinds docker))))
+    (is (= 2 (:runtime-env-var (kinds docker))))
+    (is (= 1 (:container-port (kinds docker))))
+    (is (= 3 (:runtime-command (kinds docker))))
+    (is (= 4 (:docker-copy-source (kinds docker))))
+    (is (= 11 (:defines (relations docker))))
+    (is (= 2 (:uses (relations docker))))
+    (is (= 1 (:depends-on (relations docker))))
+    (is (= 4 (:references (relations docker))))
+    (is (= [:docker-file :docker-stage :docker-stage :docker-stage]
+           (mapv :kind (:chunks docker))))
+    (is (contains? (labels containerfile) "alpine:3.20"))
+    (is (= 1 (:docker-stage (kinds containerfile))))
+    (is (= 1 (:container-image (kinds containerfile))))
+    (is (= 2 (:runtime-command (kinds containerfile))))
+    (is (contains? (labels procfile) "web"))
+    (is (contains? (labels procfile) "worker"))
+    (is (contains? (labels procfile) "web:bin/panels-web --port $PORT"))
+    (is (contains? (labels procfile) "worker:bin/panels-worker"))
+    (is (= 2 (:runtime-process (kinds procfile))))
+    (is (= 2 (:runtime-command (kinds procfile))))
+    (is (= 4 (:defines (relations procfile))))
+    (is (= [:procfile :runtime-process :runtime-process]
+           (mapv :kind (:chunks procfile))))))
 
 (deftest extracts-cloud-iac-and-framework-route-facts
   (let [result-for (fn [path]

@@ -169,6 +169,9 @@
     (spit-file! root "tooling/renovate.json" "{\"extends\":[\"config:recommended\"]}\n")
     (spit-file! root ".editorconfig" "root = true\nindent_style = space\n")
     (spit-file! root "infra/docker-compose.yml" "services:\n  web:\n    image: ghcr.io/acme/web:latest\n    build: ./web\n")
+    (spit-file! root "runtime/Dockerfile" "FROM alpine:3.20 AS runtime\nCMD [\"demo\"]\n")
+    (spit-file! root "runtime/Containerfile" "FROM busybox:1.36\nENTRYPOINT [\"demo\"]\n")
+    (spit-file! root "runtime/Procfile" "web: demo web\n")
     (spit-file! root "infra/chart/Chart.yaml" "apiVersion: v2\nname: panels\nversion: 0.1.0\n")
     (spit-file! root "infra/k8s/deployment.yaml" "kind: Deployment\nmetadata:\n  name: panels-web\n")
     (spit-file! root "infra/k8s/crd.yaml" "apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: panels.example.com\n")
@@ -210,8 +213,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 179
-              :supported 178
+      (is (= {:files 182
+              :supported 181
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -245,6 +248,8 @@
       (is (= 3 (:count (row-by :kind "test-config" (:files-by-kind report)))))
       (is (= 10 (:count (row-by :kind "tool-config" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "storybook" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "docker" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "procfile" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "compose" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "helm" (:files-by-kind report)))))
       (is (= 6 (:count (row-by :kind "ops-config" (:files-by-kind report)))))
@@ -429,6 +434,14 @@
                 (:extractors report)))
       (is (some #(and (= "dbt" (:kind %))
                       (= "dbt/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "docker" (:kind %))
+                      (= "docker/v1" (:extractor-version %))
+                      (= 2 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "procfile" (:kind %))
+                      (= "procfile/v1" (:extractor-version %))
+                      (= 1 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "governance" (:kind %))
                       (= "governance/v1" (:extractor-version %))
