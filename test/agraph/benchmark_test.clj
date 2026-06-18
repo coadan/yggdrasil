@@ -1130,6 +1130,37 @@
             :coverageSourceKinds ["code"]}
            (:selection filtered)))))
 
+(deftest context-packet-agent-result-uses-scanned-kind-for-extensionless-files
+  (let [root (temp-dir "agraph-bench-extensionless-coverage")
+        _ (spit-file! root "test/fast/Unit tests/nvm_remote_version"
+                      "#!/usr/bin/env bash\necho ok\n")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        packet {:query "remote version app"
+                :candidateFiles [{:path "test/fast/Unit tests/nvm_remote_version"
+                                  :rank 1
+                                  :score 1.0
+                                  :targetKind :chunk
+                                  :label "nvm_remote_version"}
+                                 {:path "src/app.clj"
+                                  :rank 2
+                                  :score 1.0
+                                  :targetKind :chunk
+                                  :label "app"}]}
+        filtered (benchmark/context-packet->agent-result
+                  packet
+                  {:root root
+                   :coverage {:declaredSourceKinds ["shell"]}})]
+    (is (= ["test/fast/Unit tests/nvm_remote_version"]
+           (mapv :path (:suspectedFiles filtered))))
+    (is (= [1]
+           (mapv :rank (:suspectedFiles filtered))))
+    (is (= {:rawCandidateFiles 2
+            :candidateFiles 1
+            :coverageFilteredCandidateFiles 1
+            :limit nil
+            :coverageSourceKinds ["shell"]}
+           (:selection filtered)))))
+
 (deftest file-ranking-uses-mechanical-query-token-coverage
   (let [root (temp-dir "agraph-bench-token-coverage")
         _ (spit-file! root "src/early.clj" "(ns early)\n")

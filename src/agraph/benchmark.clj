@@ -605,8 +605,11 @@
   (or (:localizationFiles truth) (:changedFiles truth)))
 
 (defn- path-source-kind
-  [path]
-  (some-> path fs/file-kind normalize-source-kind))
+  ([path]
+   (some-> path fs/file-kind normalize-source-kind))
+  ([kind-by-path path]
+   (or (get kind-by-path path)
+       (path-source-kind path))))
 
 (defn- scanned-path-kinds
   [root]
@@ -1459,9 +1462,9 @@
        set))
 
 (defn- keep-coverage-source-kind?
-  [source-kinds row]
+  [source-kinds kind-by-path row]
   (or (empty? source-kinds)
-      (contains? source-kinds (path-source-kind (:path row)))))
+      (contains? source-kinds (path-source-kind kind-by-path (:path row)))))
 
 (defn- renumber-file-ranks
   [rows]
@@ -1503,6 +1506,10 @@
   ([packet {:keys [agent-id mode case-id root limit coverage]}]
    (let [query-tokens (text/tokenize (:query packet))
          source-kinds (coverage-source-kinds coverage)
+         kind-by-path (if (or (empty? source-kinds)
+                              (str/blank? (str root)))
+                        {}
+                        (scanned-path-kinds root))
          doc-rows (keep-indexed #(doc-prediction root query-tokens %1 %2) (:docs packet))
          entity-rows (keep-indexed #(entity-prediction root query-tokens %1 %2) (:entities packet))
          candidate-file-rows (keep-indexed #(candidate-file-prediction root query-tokens %1 %2)
@@ -1511,7 +1518,9 @@
                                                               entity-rows
                                                               candidate-file-rows))
          candidate-files (->> raw-candidate-files
-                              (filter #(keep-coverage-source-kind? source-kinds %))
+                              (filter #(keep-coverage-source-kind? source-kinds
+                                                                   kind-by-path
+                                                                   %))
                               renumber-file-ranks
                               vec)
          filtered-files (- (count raw-candidate-files)
