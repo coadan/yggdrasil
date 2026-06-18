@@ -73,6 +73,8 @@
     (is (str/includes? usage "bench agent-check"))
     (is (str/includes? usage "bench agent-compare"))
     (is (str/includes? usage "--cases ID,ID"))
+    (is (str/includes? usage "--min-evidence-citation-rate N"))
+    (is (str/includes? usage "--min-case-evidence-citation-rate N"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|all"))
     (is (not (str/includes? usage "overlay")))))
 

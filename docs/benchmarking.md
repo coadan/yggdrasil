@@ -297,17 +297,20 @@ Agents should return JSON shaped like this:
       "path": "repo-relative/path.ext",
       "rank": 1,
       "confidence": 0.84,
-      "reason": "Short evidence-based reason."
+      "reason": "Short evidence-based reason.",
+      "evidence": ["command, snippet, or AGraph context row used"]
     }
   ],
   "suspectedSymbols": [],
   "commands": [],
+  "warnings": [],
   "summary": "Brief rationale."
 }
 ```
 
-The scorer only uses `suspectedFiles.path` and rank for localization metrics.
-Reasons, commands, and symbols are still part of the artifact because they make
+Recall, MRR, and noise use `suspectedFiles.path` and rank. The citation score
+uses the presence of non-empty `suspectedFiles[].evidence` rows. Reasons,
+commands, warnings, and symbols are still part of the artifact because they make
 failures auditable.
 
 ## Fair Inputs
