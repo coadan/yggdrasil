@@ -3100,13 +3100,19 @@
 
 (defn- agent-score-results
   [suite case opts]
-  (->> (agent-score-files suite case opts)
-       (map read-json-file)
-       (filter #(or (blankish? (:mode opts))
-                    (= (:mode opts) (get-in % [:agent :mode]))))
-       (filter #(or (blankish? (:agent-id opts))
-                    (= (:agent-id opts) (get-in % [:agent :agentId]))))
-       vec))
+  (let [expected-parser-worker-mode (parser-worker-option opts)
+        parser-worker-match? (fn [score]
+                               (or (blankish? expected-parser-worker-mode)
+                                   (= expected-parser-worker-mode
+                                      (get-in score [:parserWorker :mode]))))]
+    (->> (agent-score-files suite case opts)
+         (map read-json-file)
+         (filter #(or (blankish? (:mode opts))
+                      (= (:mode opts) (get-in % [:agent :mode]))))
+         (filter #(or (blankish? (:agent-id opts))
+                      (= (:agent-id opts) (get-in % [:agent :agentId]))))
+         (filter parser-worker-match?)
+         vec)))
 
 (defn- progress-summary
   [suite case opts]

@@ -453,6 +453,7 @@
                                  "--cases" "case-1, case-2"
                                  "--mode" "agraph"
                                  "--agent" "codex"
+                                 "--parser-worker" "all"
                                  "--json"]))
             parsed (read-json-output out)]
         (is (= benchmark/agent-report-schema (:schema parsed)))
@@ -462,7 +463,7 @@
                   :case-ids ["case-1" "case-2"]
                   :out nil
                   :retriever nil
-                  :parser-worker nil
+                  :parser-worker "all"
                   :mode "agraph"
                   :agent-id "codex"
                   :result-path nil

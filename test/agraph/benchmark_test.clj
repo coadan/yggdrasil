@@ -594,6 +594,28 @@
       (is (= ["agraph"] (mapv :key (:byMode report)))))
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :now "2026-06-18T00:00:05Z"
+                                                      :parser-worker "all"
+                                                      :allow-unverified-scores? true})]
+      (is (= 1 (:runs report)))
+      (is (= [{:mode "all"
+               :source "option"
+               :runs 1
+               :cases 1
+               :caseIds ["case-1"]}]
+             (:parserWorkers report)))
+      (is (= {:mode "all"
+              :source "option"}
+             (get-in report [:results 0 :parserWorker]))))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :now "2026-06-18T00:00:05Z"
+                                                      :parser-worker "java"
+                                                      :allow-unverified-scores? true})]
+      (is (= 0 (:runs report)))
+      (is (= 0 (:completed report)))
+      (is (= [] (:parserWorkers report)))
+      (is (= ["case-1" "case-2"] (:missing report))))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :now "2026-06-18T00:00:05Z"
                                                       :agent-id "baseline"
                                                       :allow-unverified-scores? true})]
       (is (= 1 (:runs report)))
