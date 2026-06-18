@@ -52,6 +52,7 @@
     "codeowners" "taskfile.yml" "taskfile.yaml" "justfile" ".justfile"
     ".tool-versions" ".node-version" ".python-version" ".ruby-version"
     "mise.toml" ".mise.toml" "funding.yml" "funding.yaml"
+    "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx"
     "content.config.js" "content.config.mjs" "content.config.ts"
     "docusaurus.config.js" "docusaurus.config.cjs" "docusaurus.config.mjs"
     "docusaurus.config.ts" "sidebars.js" "sidebars.ts"
@@ -227,6 +228,7 @@
           (re-find #"(^|/)\.github/dependabot\.ya?ml$" path-lower))
       :tool-config
       (or (contains? #{"content.config.js" "content.config.mjs" "content.config.ts"
+                       "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx"
                        "docusaurus.config.js" "docusaurus.config.cjs"
                        "docusaurus.config.mjs" "docusaurus.config.ts"
                        "sidebars.js" "sidebars.ts" "mkdocs.yml" "mkdocs.yaml"}
@@ -429,6 +431,24 @@
                      (re-find #"(?m)^\s*html_theme\s*=" content)))
         :docs-config))))
 
+(defn- nextra-content-kind
+  [path-kind file]
+  (let [filename (str/lower-case (.getName (io/file file)))]
+    (cond
+      (contains? #{"_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx"}
+                 filename)
+      :docs-config
+
+      (and (contains? #{:javascript :typescript} path-kind)
+           (re-matches #"next\.config\.(?:cjs|js|mjs|ts)" filename))
+      (let [content (text-file-prefix file)]
+        (when (or (re-find #"(?m)\bfrom\s+['\"]nextra['\"]" content)
+                  (re-find #"(?m)\brequire\(['\"]nextra['\"]\)" content)
+                  (re-find #"(?m)\bnextra\s*\(" content))
+          :docs-config))
+
+      :else nil)))
+
 (defn- dbt-content-kind
   [path-kind file]
   (when (contains? #{:yaml :config} path-kind)
@@ -463,6 +483,7 @@
   [file]
   (let [path-kind (file-kind file)]
     (or (dbt-content-kind path-kind file)
+        (nextra-content-kind path-kind file)
         (sphinx-content-kind path-kind file)
         (helm-template-content-kind path-kind file)
         (ops-config-content-kind path-kind file)

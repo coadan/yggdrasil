@@ -9856,6 +9856,95 @@
          (distinct (concat (python-config-array-values content "templates_path")
                            (python-config-array-values content "html_static_path")))))))
 
+(defn- nextra-next-config-facts
+  [path content]
+  (let [imports (vitepress-config-import-facts path content)
+        uses-nextra? (or (some #(= "nextra" (:label %)) imports)
+                         (re-find #"(?m)\bnextra\s*\(" content))]
+    (vec
+     (concat
+      imports
+      (when uses-nextra?
+        [{:kind :docs-plugin
+          :label "nextra"
+          :source-line 1
+          :relation :uses}])
+      (map (fn [value]
+             {:kind :docs-route
+              :label value
+              :source-line 1
+              :relation :references})
+           (docs-config-property-values content "contentDirBasePath"))
+      (map (fn [value]
+             {:kind :docs-locale
+              :label value
+              :source-line 1
+              :relation :defines})
+           (storybook-array-values content "locales"))
+      (map (fn [value]
+             {:kind :docs-locale-default
+              :label value
+              :source-line 1
+              :relation :defines})
+           (docs-config-property-values content "defaultLocale"))))))
+
+(defn- nextra-meta-object-entry-facts
+  [key body source-line]
+  (vec
+   (concat
+    [{:kind :docs-meta-entry
+      :label key
+      :source-line source-line
+      :relation :defines}]
+    (map (fn [value]
+           {:kind :docs-sidebar-entry
+            :label value
+            :source-line source-line
+            :relation :defines})
+         (docs-config-property-values body "title"))
+    (map (fn [value]
+           {:kind :docs-route
+            :label value
+            :source-line source-line
+            :relation :references})
+         (docs-config-property-values body "href"))
+    (map (fn [value]
+           {:kind :docs-meta-type
+            :label (str key ":" value)
+            :source-line source-line
+            :relation :uses})
+         (docs-config-property-values body "type"))
+    (map (fn [value]
+           {:kind :docs-meta-display
+            :label (str key ":" value)
+            :source-line source-line
+            :relation :uses})
+         (docs-config-property-values body "display")))))
+
+(defn- nextra-meta-facts
+  [content]
+  (let [scalar-entries (->> (re-seq #"(?m)^\s*['\"]?([A-Za-z0-9_-]+)['\"]?\s*:\s*['\"]([^'\"]+)['\"]"
+                                    content)
+                            (remove (fn [[_ key _]]
+                                      (contains? #{"display" "href" "theme" "title" "type"}
+                                                 key)))
+                            (mapcat (fn [[_ key title]]
+                                      [{:kind :docs-meta-entry
+                                        :label key
+                                        :source-line 1
+                                        :relation :defines}
+                                       {:kind :docs-sidebar-entry
+                                        :label title
+                                        :source-line 1
+                                        :relation :defines}]))
+                            vec)
+        object-entries (->> (re-seq #"(?ms)^\s*['\"]?([A-Za-z0-9_-]+)['\"]?\s*:\s*\{(.*?)^\s*\},?"
+                                    content)
+                            (mapcat (fn [[_ key body]]
+                                      (nextra-meta-object-entry-facts key body 1)))
+                            vec)]
+    (vec (distinct (concat scalar-entries object-entries)))))
+
 (defn- docs-sidebar-facts
   [content]
   (vec
@@ -9944,6 +10033,12 @@
   [{:keys [path content]}]
   (let [filename (manifest-name path)]
     (case filename
+      ("next.config.cjs" "next.config.js" "next.config.mjs" "next.config.ts")
+      (nextra-next-config-facts path content)
+
+      ("_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx")
+      (nextra-meta-facts content)
+
       "conf.py"
       (sphinx-config-facts content)
 

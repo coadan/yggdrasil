@@ -178,6 +178,10 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/docs/sphinx/index.rst")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/docs/nextra/next.config.mjs")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/docs/nextra/content/_meta.ts")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/bobr/pages/index.astro")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/bobr/plugin/bobr-wordpress-connector.php")
@@ -586,6 +590,59 @@
     (is (= [:markdown] (mapv :kind (:chunks rst-result))))
     (is (empty? (:diagnostics config-result)))
     (is (empty? (:diagnostics rst-result)))))
+
+(deftest extracts-nextra-docs-config
+  (let [next-file (fs/file-record
+                   "test/fixtures/extractor-repo"
+                   "test/fixtures/extractor-repo/docs/nextra/next.config.mjs")
+        next-result (extract/extract-file "run/test" next-file)
+        meta-file (fs/file-record
+                   "test/fixtures/extractor-repo"
+                   "test/fixtures/extractor-repo/docs/nextra/content/_meta.ts")
+        meta-result (extract/extract-file "run/test" meta-file)
+        next-labels (set (map :label (:nodes next-result)))
+        meta-labels (set (map :label (:nodes meta-result)))
+        next-kinds (frequencies (map :kind (:nodes next-result)))
+        meta-kinds (frequencies (map :kind (:nodes meta-result)))
+        next-relations (frequencies (map :relation (:edges next-result)))
+        meta-relations (frequencies (map :relation (:edges meta-result)))]
+    (is (= :docs-config (:kind next-file)))
+    (is (= :docs-config (:kind meta-file)))
+    (is (contains? next-labels "nextra"))
+    (is (contains? next-labels "/handbook"))
+    (is (contains? next-labels "en"))
+    (is (contains? next-labels "de"))
+    (is (= 1 (get next-kinds :docs-plugin 0)))
+    (is (= 1 (get next-kinds :docs-route 0)))
+    (is (= 2 (get next-kinds :docs-locale 0)))
+    (is (= 1 (get next-kinds :docs-locale-default 0)))
+    (is (= 1 (get next-relations :imports 0)))
+    (is (= 1 (get next-relations :uses 0)))
+    (is (= 3 (get next-relations :defines 0)))
+    (is (= 1 (get next-relations :references 0)))
+    (is (contains? meta-labels "index"))
+    (is (contains? meta-labels "guide"))
+    (is (contains? meta-labels "api"))
+    (is (contains? meta-labels "github_link"))
+    (is (contains? meta-labels "Overview"))
+    (is (contains? meta-labels "Guide"))
+    (is (contains? meta-labels "API Reference"))
+    (is (contains? meta-labels "GitHub"))
+    (is (contains? meta-labels "https://github.com/example/panels"))
+    (is (contains? meta-labels "guide:page"))
+    (is (contains? meta-labels "api:children"))
+    (is (= 4 (get meta-kinds :docs-meta-entry 0)))
+    (is (= 4 (get meta-kinds :docs-sidebar-entry 0)))
+    (is (= 1 (get meta-kinds :docs-route 0)))
+    (is (= 1 (get meta-kinds :docs-meta-type 0)))
+    (is (= 1 (get meta-kinds :docs-meta-display 0)))
+    (is (= 8 (get meta-relations :defines 0)))
+    (is (= 2 (get meta-relations :uses 0)))
+    (is (= 1 (get meta-relations :references 0)))
+    (is (= [:docs-config-file] (mapv :kind (:chunks next-result))))
+    (is (= [:docs-config-file] (mapv :kind (:chunks meta-result))))
+    (is (empty? (:diagnostics next-result)))
+    (is (empty? (:diagnostics meta-result)))))
 
 (deftest extracts-rust-modules-definitions-uses-and-calls
   (let [file (fs/file-record "test/fixtures/sample-repo"
