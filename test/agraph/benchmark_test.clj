@@ -1704,6 +1704,33 @@
             :coverageSourceKinds ["code"]}
            (:selection filtered)))))
 
+(deftest context-packet-agent-hints-respect-declared-source-coverage
+  (let [root (temp-dir "agraph-bench-hints-source-coverage")
+        _ (spit-file! root ".github/ISSUE_TEMPLATE/bug_report.md" "bug report\n")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "project"
+                  :worktreeRoot root
+                  :coverage {:declaredSourceKinds ["code"]}}
+        packet {:query "bug report app"
+                :docs [{:source {:path ".github/ISSUE_TEMPLATE/bug_report.md"
+                                 :heading "bug report"}
+                        :score 10.0
+                        :snippet "bug report app"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/app.clj"
+                                 :heading "app"}
+                        :score 1.0
+                        :snippet "app"
+                        :provenance "retrieved-doc"}]}
+        hints (benchmark/context-packet->agent-hints prepared packet {})]
+    (is (= ["src/app.clj"]
+           (mapv :path (:topFiles hints))))
+    (is (= [1]
+           (mapv :rank (:topFiles hints))))))
+
 (deftest context-packet-agent-result-uses-scanned-kind-for-extensionless-files
   (let [root (temp-dir "agraph-bench-extensionless-coverage")
         _ (spit-file! root "test/fast/Unit tests/nvm_remote_version"

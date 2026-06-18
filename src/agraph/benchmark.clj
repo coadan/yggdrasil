@@ -2548,7 +2548,8 @@
                        :mode "agraph"
                        :case-id (:case-id prepared)
                        :root (:worktreeRoot prepared)
-                       :limit limit})]
+                       :limit limit
+                       :coverage (:coverage prepared)})]
     {:schema agent-hints-schema
      :suite-id (:suite-id prepared)
      :case-id (:case-id prepared)

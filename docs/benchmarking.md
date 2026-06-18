@@ -117,9 +117,11 @@ generated output root.
   coding agents may block live XTDB/Clojure commands even when the graph store
   is writable. The hints artifact includes compact indexed `sourceCoverage` so
   agents can distinguish source-support gaps from ranking misses before opening
-  the full context packet. Use `--timeout-ms <n>` to bound long-running agents. Use
-  `--skip-existing` to resume interrupted agent runs with the same current-score
-  matching rules as `agent-baseline`.
+  the full context packet. When a case declares `coverage.source-kinds`, hints
+  filter top file candidates to those mechanical source kinds so agents see the
+  same scope that scoring uses. Use `--timeout-ms <n>` to bound long-running
+  agents. Use `--skip-existing` to resume interrupted agent runs with the same
+  current-score matching rules as `agent-baseline`.
 - `bench agent-score <suite.edn> --case <case-id> --result result.json` scores
   one agent result JSON against hidden ground truth.
 - `bench agent-report <suite.edn>` aggregates existing agent score artifacts
