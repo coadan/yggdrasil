@@ -6521,6 +6521,213 @@
           (recur (rest remaining) section catalog out)))
       out)))
 
+(def yarnrc-setting-keys
+  #{"nodeLinker" "yarnPath" "npmRegistryServer" "checksumBehavior"
+    "enableGlobalCache" "enableImmutableInstalls" "compressionLevel"})
+
+(defn- yarnrc-setting-facts
+  [content]
+  (->> (str/split-lines content)
+       (map-indexed vector)
+       (mapcat
+        (fn [[idx line]]
+          (when-let [[_ key value]
+                     (re-matches #"^([A-Za-z][A-Za-z0-9_-]*):\s*(.+?)\s*$"
+                                 line)]
+            (let [value (str/replace value #"^['\"]|['\"]$" "")
+                  source-line (inc idx)]
+              (when (contains? yarnrc-setting-keys key)
+                (concat
+                 [{:kind :yarn-setting
+                   :label (str key "=" value)
+                   :source-line source-line
+                   :relation :defines}]
+                 (case key
+                   "nodeLinker" [{:kind :yarn-node-linker
+                                  :label value
+                                  :source-line source-line
+                                  :relation :defines}]
+                   "yarnPath" [{:kind :yarn-path
+                                :label value
+                                :source-line source-line
+                                :relation :references}]
+                   "npmRegistryServer" [{:kind :yarn-registry
+                                         :label value
+                                         :source-line source-line
+                                         :relation :uses}]
+                   [])))))))
+       (remove nil?)
+       distinct
+       vec))
+
+(defn- yarnrc-plugin-facts
+  [content]
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         in-plugins? false
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [trimmed (str/trim line)]
+        (cond
+          (re-matches #"plugins:\s*$" trimmed)
+          (recur (rest remaining) true out)
+
+          (and in-plugins?
+               (re-matches #"^[A-Za-z0-9_.-]+:\s*.*$" line))
+          (recur (rest remaining) false out)
+
+          (and in-plugins?
+               (re-matches #"^-\s*(path|spec):\s*(.+?)\s*$" trimmed))
+          (let [[_ key value] (re-matches #"^-\s*(path|spec):\s*(.+?)\s*$"
+                                          trimmed)]
+            (recur (rest remaining)
+                   true
+                   (conj out {:kind :yarn-plugin
+                              :label (str key "="
+                                          (str/replace value #"^['\"]|['\"]$" ""))
+                              :source-line (inc idx)
+                              :relation :references})))
+
+          (and in-plugins?
+               (re-matches #"^(path|spec):\s*(.+?)\s*$" trimmed))
+          (let [[_ key value] (re-matches #"^(path|spec):\s*(.+?)\s*$"
+                                          trimmed)]
+            (recur (rest remaining)
+                   true
+                   (conj out {:kind :yarn-plugin
+                              :label (str key "="
+                                          (str/replace value #"^['\"]|['\"]$" ""))
+                              :source-line (inc idx)
+                              :relation :references})))
+
+          :else
+          (recur (rest remaining) in-plugins? out)))
+      (vec (distinct out)))))
+
+(defn- yarnrc-npm-scope-facts
+  [content]
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         in-scopes? false
+         current-scope nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [trimmed (str/trim line)]
+        (cond
+          (re-matches #"npmScopes:\s*$" trimmed)
+          (recur (rest remaining) true nil out)
+
+          (and in-scopes?
+               (re-matches #"^[A-Za-z0-9_.-]+:\s*.*$" line))
+          (recur (rest remaining) false nil out)
+
+          (and in-scopes?
+               (re-matches #"^([A-Za-z0-9_.-]+):\s*$" trimmed))
+          (let [[_ scope] (re-matches #"^([A-Za-z0-9_.-]+):\s*$" trimmed)]
+            (recur (rest remaining)
+                   true
+                   scope
+                   (conj out {:kind :yarn-npm-scope
+                              :label scope
+                              :source-line (inc idx)
+                              :relation :defines})))
+
+          (and in-scopes?
+               current-scope
+               (re-matches #"^npmRegistryServer:\s*(.+?)\s*$" trimmed))
+          (let [[_ registry] (re-matches #"^npmRegistryServer:\s*(.+?)\s*$"
+                                         trimmed)]
+            (recur (rest remaining)
+                   true
+                   current-scope
+                   (conj out {:kind :yarn-scope-registry
+                              :label (str current-scope "="
+                                          (str/replace registry #"^['\"]|['\"]$" ""))
+                              :source-line (inc idx)
+                              :relation :uses})))
+
+          (and in-scopes?
+               current-scope
+               (re-matches #"^npmAuth(?:Token|Ident):\s*(.+?)\s*$" trimmed))
+          (let [[_ auth-key _] (re-matches #"^(npmAuth(?:Token|Ident)):\s*(.+?)\s*$"
+                                           trimmed)]
+            (recur (rest remaining)
+                   true
+                   current-scope
+                   (conj out {:kind :yarn-auth-key
+                              :label (str current-scope ":" auth-key)
+                              :source-line (inc idx)
+                              :relation :defines})))
+
+          :else
+          (recur (rest remaining) in-scopes? current-scope out)))
+      (vec (distinct out)))))
+
+(defn- yarnrc-package-extension-facts
+  [content]
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         in-extensions? false
+         current-extension nil
+         in-deps? false
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [trimmed (str/trim line)]
+        (cond
+          (re-matches #"packageExtensions:\s*$" trimmed)
+          (recur (rest remaining) true nil false out)
+
+          (and in-extensions?
+               (re-matches #"^[A-Za-z0-9_.-]+:\s*.*$" line))
+          (recur (rest remaining) false nil false out)
+
+          (and in-extensions?
+               (re-matches #"^['\"]?([^'\"]+@[^'\"]+)['\"]?:\s*$" trimmed))
+          (let [[_ extension] (re-matches #"^['\"]?([^'\"]+@[^'\"]+)['\"]?:\s*$"
+                                          trimmed)]
+            (recur (rest remaining)
+                   true
+                   extension
+                   false
+                   (conj out {:kind :yarn-package-extension
+                              :label extension
+                              :source-line (inc idx)
+                              :relation :defines})))
+
+          (and in-extensions?
+               current-extension
+               (contains? #{"dependencies:" "peerDependencies:"} trimmed))
+          (recur (rest remaining) true current-extension true out)
+
+          (and in-extensions?
+               current-extension
+               in-deps?
+               (re-matches #"^([A-Za-z0-9@/_-][A-Za-z0-9@/_.-]*):\s*(.+?)\s*$"
+                           trimmed))
+          (let [[_ package-name version]
+                (re-matches #"^([A-Za-z0-9@/_-][A-Za-z0-9@/_.-]*):\s*(.+?)\s*$"
+                            trimmed)]
+            (recur (rest remaining)
+                   true
+                   current-extension
+                   true
+                   (conj out {:kind :yarn-extension-dependency
+                              :label (str current-extension
+                                          ":"
+                                          package-name
+                                          "="
+                                          (str/replace version #"^['\"]|['\"]$" ""))
+                              :source-line (inc idx)
+                              :relation :references})))
+
+          :else
+          (recur (rest remaining) in-extensions? current-extension in-deps? out)))
+      (vec (distinct out)))))
+
+(defn- yarnrc-facts
+  [content]
+  (vec (concat (yarnrc-setting-facts content)
+               (yarnrc-plugin-facts content)
+               (yarnrc-npm-scope-facts content)
+               (yarnrc-package-extension-facts content))))
+
 (defn- json-key-facts
   [m key kind relation]
   (let [value (get m key)]
@@ -7517,6 +7724,10 @@
       (contains? #{"pnpm-workspace.yaml" "pnpm-workspace.yml"} filename)
       {:project-label path
        :facts (pnpm-workspace-facts content)}
+
+      (contains? #{".yarnrc.yml" ".yarnrc.yaml"} filename)
+      {:project-label path
+       :facts (yarnrc-facts content)}
 
       (contains? #{"turbo.json" "nx.json" "workspace.json" "lerna.json" "rush.json"} filename)
       {:project-label path

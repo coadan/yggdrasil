@@ -100,6 +100,8 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/workspace/pnpm-workspace.yaml")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/workspace/.yarnrc.yml")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/workspace/turbo.json")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/src/ruby/panel_service.rb")
@@ -2807,6 +2809,10 @@
                      "run/test"
                      (fs/file-record "test/fixtures/extractor-repo"
                                      "test/fixtures/extractor-repo/workspace/pnpm-workspace.yaml"))
+        yarnrc-result (extract/extract-file
+                       "run/test"
+                       (fs/file-record "test/fixtures/extractor-repo"
+                                       "test/fixtures/extractor-repo/workspace/.yarnrc.yml"))
         turbo-result (extract/extract-file
                       "run/test"
                       (fs/file-record "test/fixtures/extractor-repo"
@@ -2834,6 +2840,8 @@
                                             "test/fixtures/extractor-repo/workspace/go.work"))))
     (is (= :manifest (:kind (fs/file-record "test/fixtures/extractor-repo"
                                             "test/fixtures/extractor-repo/workspace/pnpm-workspace.yaml"))))
+    (is (= :manifest (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                            "test/fixtures/extractor-repo/workspace/.yarnrc.yml"))))
     (is (contains? (labels package-result) "@acme/panels"))
     (is (contains? (labels package-result) "1.2.3"))
     (is (contains? (labels package-result) "module"))
@@ -2885,6 +2893,26 @@
     (is (= 2 (:pnpm-catalog-package (kinds pnpm-result))))
     (is (= 1 (:pnpm-built-dependency (kinds pnpm-result))))
     (is (= 2 (get (relations pnpm-result) :references 0)))
+    (is (contains? (labels yarnrc-result) "yarnPath=.yarn/releases/yarn-4.1.0.cjs"))
+    (is (contains? (labels yarnrc-result) "nodeLinker=pnp"))
+    (is (contains? (labels yarnrc-result) "pnp"))
+    (is (contains? (labels yarnrc-result) "https://registry.yarnpkg.com"))
+    (is (contains? (labels yarnrc-result) "path=.yarn/plugins/@yarnpkg/plugin-workspace-tools.cjs"))
+    (is (contains? (labels yarnrc-result) "spec=@yarnpkg/plugin-workspace-tools"))
+    (is (contains? (labels yarnrc-result) "acme"))
+    (is (contains? (labels yarnrc-result) "acme=https://npm.pkg.github.com"))
+    (is (contains? (labels yarnrc-result) "acme:npmAuthToken"))
+    (is (not (contains? (labels yarnrc-result) "${GITHUB_TOKEN}")))
+    (is (contains? (labels yarnrc-result) "react-dom@*"))
+    (is (contains? (labels yarnrc-result) "react-dom@*:react=*"))
+    (is (= 4 (:yarn-setting (kinds yarnrc-result))))
+    (is (= 2 (:yarn-plugin (kinds yarnrc-result))))
+    (is (= 1 (:yarn-npm-scope (kinds yarnrc-result))))
+    (is (= 1 (:yarn-auth-key (kinds yarnrc-result))))
+    (is (= 1 (:yarn-package-extension (kinds yarnrc-result))))
+    (is (= 1 (:yarn-extension-dependency (kinds yarnrc-result))))
+    (is (= {:defines 8 :references 4 :uses 2}
+           (select-keys (relations yarnrc-result) [:defines :references :uses])))
     (is (contains? (labels turbo-result) "build"))
     (is (contains? (labels turbo-result) "test"))
     (is (= 2 (get (relations turbo-result) :defines 0)))
@@ -2899,6 +2927,7 @@
     (is (contains? (labels rush-result) "@acme/panels-web"))
     (is (contains? (labels rush-result) "9.0.0"))
     (is (= [:manifest-file] (mapv :kind (:chunks package-result))))
+    (is (= [:manifest-file] (mapv :kind (:chunks yarnrc-result))))
     (is (= [:manifest-file] (mapv :kind (:chunks composer-result))))
     (is (= [:manifest-file] (mapv :kind (:chunks go-work-result))))
     (is (= [:manifest-file] (mapv :kind (:chunks turbo-result))))))

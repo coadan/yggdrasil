@@ -40,6 +40,7 @@
     "capacitor.config.json" "capacitor.config.ts" "capacitor.config.js"
     "capacitor.config.mjs" "capacitor.config.cjs"
     "tauri.conf.json" "tauri.conf.json5"
+    ".yarnrc.yml" ".yarnrc.yaml"
     "pnpm-workspace.yaml" "pnpm-workspace.yml" "turbo.json" "nx.json"
     "workspace.json" "lerna.json" "rush.json"
     "license" "copying" "notice" "security.md" "contributing.md"
@@ -234,7 +235,8 @@
                    "capacitor.config.json" "capacitor.config.ts"
                    "capacitor.config.js" "capacitor.config.mjs"
                    "capacitor.config.cjs" "tauri.conf.json"
-                   "tauri.conf.json5" "pnpm-workspace.yaml"
+                   "tauri.conf.json5" ".yarnrc.yml" ".yarnrc.yaml"
+                   "pnpm-workspace.yaml"
                    "pnpm-workspace.yml" "turbo.json" "nx.json"
                    "workspace.json" "lerna.json" "rush.json"}
                  filename) :manifest
