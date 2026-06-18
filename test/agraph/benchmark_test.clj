@@ -1258,7 +1258,67 @@
     (is (= ["src/adjacent.clj" "src/seed.clj"]
            (mapv :path files)))
     (is (= 2 (get-in files [0 :metrics :candidateFileCount])))
-    (is (= 3 (get-in files [0 :metrics :matchedTokenCount])))))
+    (is (= 3 (get-in files [0 :metrics :matchedTokenCount])))
+    (is (= 1 (get-in files [0 :metrics :matchedTokenPairCount])))))
+
+(deftest file-ranking-uses-ordered-query-token-pairs-in-candidate-labels
+  (let [root (temp-dir "agraph-bench-candidate-token-pairs")
+        _ (spit-file! root "src/scattered.clj" "(ns scattered)\n")
+        _ (spit-file! root "src/phrase.clj" "(ns phrase)\n")
+        packet {:query "remote version descriptions"
+                :candidateFiles [{:path "src/scattered.clj"
+                                  :rank 1
+                                  :score 0.8
+                                  :targetKind "chunk"
+                                  :label "remote docs version"}
+                                 {:path "src/phrase.clj"
+                                  :rank 2
+                                  :score 0.55
+                                  :targetKind "chunk"
+                                  :label "remote version"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/phrase.clj" "src/scattered.clj"]
+           (mapv :path files)))
+    (is (= 1 (get-in files [0 :metrics :matchedTokenPairCount])))
+    (is (nil? (get-in files [1 :metrics :matchedTokenPairCount])))))
+
+(deftest limited-agent-result-reserves-candidate-file-only-evidence
+  (let [root (temp-dir "agraph-bench-candidate-file-quota")
+        _ (doseq [path ["src/doc-1.clj" "src/doc-2.clj" "src/doc-3.clj"
+                        "src/doc-4.clj" "src/doc-5.clj" "src/candidate.clj"]]
+            (spit-file! root path "(ns fixture)\n"))
+        packet {:query "remote version"
+                :docs (mapv (fn [idx]
+                              {:source {:path (str "src/doc-" idx ".clj")
+                                        :heading (str "doc " idx)}
+                               :score (- 2.0 (* 0.1 idx))
+                               :snippet "remote"
+                               :provenance "retrieved-doc"})
+                            (range 1 6))
+                :candidateFiles [{:path "src/candidate.clj"
+                                  :rank 99
+                                  :score 0.4
+                                  :targetKind "chunk"
+                                  :label "remote version"}]}
+        result (benchmark/context-packet->agent-result packet {:root root
+                                                               :limit 5})
+        files (:suspectedFiles result)]
+    (is (= ["src/doc-1.clj"
+            "src/doc-2.clj"
+            "src/doc-3.clj"
+            "src/doc-4.clj"
+            "src/candidate.clj"]
+           (mapv :path files)))
+    (is (= 1 (get-in files [4 :metrics :matchedTokenPairCount])))
+    (is (= {:rawCandidateFiles 6
+            :candidateFiles 6
+            :coverageFilteredCandidateFiles 0
+            :limit 5
+            :coverageSourceKinds []
+            :candidateFileOnlyQuota 5
+            :candidateFileOnlySelected 1}
+           (:selection result)))))
 
 (deftest file-ranking-preserves-early-retrieved-source-order
   (let [root (temp-dir "agraph-bench-retrieved-rank")

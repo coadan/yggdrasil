@@ -79,6 +79,9 @@
 (def default-agent-baseline-suspect-limit
   20)
 
+(def default-agent-baseline-candidate-file-only-quota
+  5)
+
 (def default-local-vector-model
   "sentence-transformers/all-MiniLM-L6-v2")
 
@@ -87,6 +90,12 @@
 
 (def ^:private rank-score-token-cap
   5)
+
+(def ^:private rank-score-ordered-pair-cap
+  2)
+
+(def ^:private rank-score-ordered-pair-weight
+  0.45)
 
 (def ^:private rank-blocker-limit
   5)
@@ -1287,6 +1296,16 @@
         evidence-token-set (set (text/tokenize text))]
     (set/intersection query-token-set evidence-token-set)))
 
+(defn- ordered-token-pairs
+  [tokens]
+  (set (map vector tokens (rest tokens))))
+
+(defn- compact-token-pair-matches
+  [query-tokens text]
+  (let [query-pairs (ordered-token-pairs query-tokens)
+        evidence-pairs (ordered-token-pairs (text/tokenize text))]
+    (set/intersection query-pairs evidence-pairs)))
+
 (defn- retrieved-source-rank-score
   [retrieved-source-count first-source-rank]
   (if (and (pos? retrieved-source-count)
@@ -1337,6 +1356,11 @@
                                       (str (:path entity)
                                            "\n"
                                            (:label entity)))
+       :matched-token-pairs (compact-token-pair-matches
+                             query-tokens
+                             (str (:path entity)
+                                  "\n"
+                                  (:label entity)))
        :reason (str "AGraph graph entity "
                     (pr-str (:label entity))
                     " references "
@@ -1359,6 +1383,11 @@
                                       (str (:path candidate)
                                            "\n"
                                            (:label candidate)))
+       :matched-token-pairs (compact-token-pair-matches
+                             query-tokens
+                             (str (:path candidate)
+                                  "\n"
+                                  (:label candidate)))
        :reason (str "AGraph retrieved candidate file "
                     path
                     " from result rank "
@@ -1378,6 +1407,9 @@
                              matched-tokens (->> ordered
                                                  (mapcat :matched-tokens)
                                                  set)
+                             matched-token-pairs (->> ordered
+                                                      (mapcat :matched-token-pairs)
+                                                      set)
                              doc-count (count (filter #(= :doc (:evidence-kind %))
                                                       ordered))
                              entity-count (count (filter #(= :entity (:evidence-kind %))
@@ -1398,6 +1430,9 @@
                                            source-rank-score
                                            (* 0.22 (min rank-score-token-cap
                                                         (count matched-tokens)))
+                                           (* rank-score-ordered-pair-weight
+                                              (min rank-score-ordered-pair-cap
+                                                   (count matched-token-pairs)))
                                            (* 0.08 support-count)
                                            (* 0.08 retrieved-source-count)
                                            (* 0.12 exact-path-source-count)
@@ -1417,6 +1452,9 @@
                                                                     (keep :definition-kind)
                                                                     distinct
                                                                     vec)}
+                                       (seq matched-token-pairs)
+                                       (assoc :matchedTokenPairCount
+                                              (count matched-token-pairs))
                                        (pos? source-rank-score)
                                        (assoc :sourceRankScore source-rank-score))]
                          (cond-> (assoc best-row
@@ -1448,6 +1486,7 @@
                                     :retrieved-source?
                                     :exact-path-source?
                                     :matched-tokens
+                                    :matched-token-pairs
                                     :definition-kind)
                             (assoc :rank (inc idx)))))
          vec)))
@@ -1472,6 +1511,35 @@
           (assoc row :rank (inc idx)))
         (range)
         rows))
+
+(defn- candidate-file-only-row?
+  [row]
+  (let [metrics (:metrics row)]
+    (and (pos? (long (or (:candidateFileCount metrics) 0)))
+         (zero? (long (or (:docCount metrics) 0)))
+         (zero? (long (or (:entityCount metrics) 0))))))
+
+(defn- select-limited-suspected-files
+  [candidate-files limit]
+  (if-not limit
+    {:files (vec candidate-files)}
+    (let [limit (long limit)
+          quota (min default-agent-baseline-candidate-file-only-quota limit)
+          candidate-file-only (take quota
+                                    (filter candidate-file-only-row?
+                                            candidate-files))
+          quota-paths (set (map :path candidate-file-only))
+          remaining-limit (max 0 (- limit (count candidate-file-only)))
+          primary (->> candidate-files
+                       (remove #(contains? quota-paths (:path %)))
+                       (take remaining-limit))
+          selected (->> (concat primary candidate-file-only)
+                        (sort-by :rank)
+                        renumber-file-ranks)]
+      (cond-> {:files selected}
+        (seq candidate-file-only)
+        (assoc :candidateFileOnlyQuota quota
+               :candidateFileOnlySelected (count candidate-file-only))))))
 
 (defn- context-symbols
   [packet]
@@ -1525,9 +1593,16 @@
                               vec)
          filtered-files (- (count raw-candidate-files)
                            (count candidate-files))
-         suspected-files (cond->> candidate-files
-                           limit (take (long limit))
-                           true vec)]
+         selected-files (select-limited-suspected-files candidate-files limit)
+         selection (cond-> {:rawCandidateFiles (count raw-candidate-files)
+                            :candidateFiles (count candidate-files)
+                            :coverageFilteredCandidateFiles filtered-files
+                            :limit limit
+                            :coverageSourceKinds (vec (sort source-kinds))}
+                     (:candidateFileOnlyQuota selected-files)
+                     (assoc :candidateFileOnlyQuota (:candidateFileOnlyQuota selected-files)
+                            :candidateFileOnlySelected (:candidateFileOnlySelected selected-files)))
+         suspected-files (:files selected-files)]
      {:schema agent-result-schema
       :caseId case-id
       :agentId (or agent-id "agraph-baseline")
@@ -1535,11 +1610,7 @@
       :suspectedFiles suspected-files
       :suspectedSymbols (context-symbols packet)
       :commands (:drilldowns packet)
-      :selection {:rawCandidateFiles (count raw-candidate-files)
-                  :candidateFiles (count candidate-files)
-                  :coverageFilteredCandidateFiles filtered-files
-                  :limit limit
-                  :coverageSourceKinds (vec (sort source-kinds))}
+      :selection selection
       :summary (str "Deterministic AGraph baseline ranked "
                     (count suspected-files)
                     " suspected files from "
