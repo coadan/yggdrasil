@@ -100,6 +100,12 @@
 (def ^:private rank-score-ordered-pair-weight
   0.45)
 
+(def ^:private rank-score-support-count-cap
+  2)
+
+(def ^:private rank-score-retrieved-source-count-cap
+  2)
+
 (def ^:private rank-blocker-limit
   5)
 
@@ -1655,8 +1661,10 @@
                                            (* rank-score-ordered-pair-weight
                                               (min rank-score-ordered-pair-cap
                                                    (count matched-token-pairs)))
-                                           (* 0.08 support-count)
-                                           (* 0.08 retrieved-source-count)
+                                           (* 0.08 (min rank-score-support-count-cap
+                                                        support-count))
+                                           (* 0.08 (min rank-score-retrieved-source-count-cap
+                                                        retrieved-source-count))
                                            (* 0.12 exact-path-source-count)
                                            (* 0.04 candidate-count)
                                            (* 0.03 entity-count)

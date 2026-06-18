@@ -1368,6 +1368,33 @@
     (is (= 3 (get-in files [0 :metrics :matchedTokenCount])))
     (is (= 1 (get-in files [0 :metrics :matchedTokenPairCount])))))
 
+(deftest file-ranking-caps-repeated-file-support-bonus
+  (let [root (temp-dir "agraph-bench-repeated-file-support")
+        _ (spit-file! root "src/early.tf" "resource \"demo\" \"early\" {}\n")
+        _ (spit-file! root "src/repeated.tf" "variable \"demo\" {}\n")
+        packet {:query "flow log policy stream"
+                :docs (concat
+                       [{:source {:path "src/early.tf"
+                                  :heading "src/early.tf"}
+                         :score 1.0
+                         :snippet "flow log policy stream"
+                         :retrievedSource true
+                         :provenance "retrieved-doc"}]
+                       (for [idx (range 7)]
+                         {:source {:path "src/repeated.tf"
+                                   :heading (str "var.repeated_" idx)}
+                          :score 0.95
+                          :snippet "flow log policy"
+                          :retrievedSource true
+                          :provenance "retrieved-doc"}))}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/early.tf" "src/repeated.tf"]
+           (mapv :path files)))
+    (is (= 7 (get-in files [1 :metrics :docCount])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest file-ranking-uses-mechanical-graph-neighbor-evidence
   (let [root (temp-dir "agraph-bench-candidate-graph")
         _ (spit-file! root "src/direct.clj" "(ns direct)\n")
