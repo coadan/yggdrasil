@@ -81,20 +81,54 @@ function DetailRows({ row }: { row: AGraphNode | AGraphEdge | null }) {
   );
 }
 
-export function GraphPanel({ graph }: { graph: AGraphGraph }) {
-  const [filters, setFilters] = useState<GraphFilters>({
+function externalApiCount(graph: AGraphGraph): number {
+  return graph.nodes.filter((node) => node.kind === "external-api").length;
+}
+
+function defaultExternalApiMode(graph: AGraphGraph): GraphFilters["externalApiMode"] {
+  return externalApiCount(graph) >= 20 ? "group" : "show";
+}
+
+function emptyFiltersForGraph(graph: AGraphGraph): GraphFilters {
+  return {
     query: "",
     kind: "",
     relation: "",
-    cluster: ""
-  });
+    cluster: "",
+    externalApiMode: defaultExternalApiMode(graph),
+    minDegree: "0"
+  };
+}
+
+function untouchedFilters(filters: GraphFilters): boolean {
+  return (
+    filters.query === "" &&
+    filters.kind === "" &&
+    filters.relation === "" &&
+    filters.cluster === "" &&
+    filters.minDegree === "0"
+  );
+}
+
+export function GraphPanel({ graph }: { graph: AGraphGraph }) {
+  const [filters, setFilters] = useState<GraphFilters>(() => emptyFiltersForGraph(graph));
   const [layout, setLayout] = useState<GraphLayout>("circle");
   const [selection, setSelection] = useState<Selection | null>(null);
   const [fitSignal, setFitSignal] = useState(0);
   const options = useMemo(() => graphFilterOptions(graph), [graph]);
   const filtered = useMemo(() => filterGraph(graph, filters), [filters, graph]);
   const graphology = useMemo(() => toGraphology(filtered.graph, layout), [filtered.graph, layout]);
-  const row = useMemo(() => selectedRow(graph, selection), [graph, selection]);
+  const row = useMemo(() => selectedRow(filtered.graph, selection), [filtered.graph, selection]);
+
+  useEffect(() => {
+    const nextMode = defaultExternalApiMode(graph);
+    setFilters((current) =>
+      untouchedFilters(current) && current.externalApiMode !== nextMode
+        ? { ...current, externalApiMode: nextMode }
+        : current
+    );
+    setSelection(null);
+  }, [graph]);
 
   function setFilter<Key extends keyof GraphFilters>(key: Key, value: GraphFilters[Key]) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -102,7 +136,7 @@ export function GraphPanel({ graph }: { graph: AGraphGraph }) {
   }
 
   function resetControls() {
-    setFilters({ query: "", kind: "", relation: "", cluster: "" });
+    setFilters(emptyFiltersForGraph(graph));
     setLayout("circle");
     setSelection(null);
     setFitSignal((value) => value + 1);
@@ -168,6 +202,28 @@ export function GraphPanel({ graph }: { graph: AGraphGraph }) {
                   </select>
                 </label>
               ) : null}
+              <label>
+                <span>External APIs</span>
+                <select
+                  value={filters.externalApiMode}
+                  onChange={(event) =>
+                    setFilter("externalApiMode", event.target.value as GraphFilters["externalApiMode"])
+                  }
+                >
+                  <option value="show">Show</option>
+                  <option value="group">Group</option>
+                  <option value="hide">Hide</option>
+                </select>
+              </label>
+              <label>
+                <span>Min degree</span>
+                <select value={filters.minDegree} onChange={(event) => setFilter("minDegree", event.target.value)}>
+                  <option value="0">Any</option>
+                  <option value="1">1+</option>
+                  <option value="2">2+</option>
+                  <option value="3">3+</option>
+                </select>
+              </label>
               <label>
                 <span>Layout</span>
                 <select value={layout} onChange={(event) => setLayout(event.target.value as GraphLayout)}>

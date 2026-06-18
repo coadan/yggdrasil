@@ -800,6 +800,9 @@
 (def max-maintenance-decisions-per-kind
   100)
 
+(def max-external-api-review-groups
+  40)
+
 (defn- external-api-system?
   [system]
   (= :external-api (:kind system)))
@@ -833,6 +836,163 @@
    :target (:target-id edge)
    :relation (name (:relation edge))
    :visibility "noise"})
+
+(defn- external-api-edge-context
+  [system-by-id edge]
+  (let [source (get system-by-id (:source-id edge))
+        target (get system-by-id (:target-id edge))
+        source-external? (external-api-system? source)
+        target-external? (external-api-system? target)]
+    (when (and (not= source-external? target-external?)
+               (or source-external? target-external?))
+      {:edge edge
+       :external (if source-external? source target)
+       :peer (if source-external? target source)
+       :direction (if source-external? :inbound :outbound)})))
+
+(defn- external-api-reject-patch
+  [system]
+  {:op "reject-external-api"
+   :target (:label system)
+   :reason "External API review group accepted this host as non-architectural evidence."})
+
+(defn- external-api-profile
+  [edges evidence-count]
+  (let [visibilities (set (map :visibility edges))]
+    (cond
+      (empty? edges) :isolated
+      (and (= 1 (count edges)) (= 1 evidence-count)) :single-evidence
+      (every? support-or-noise? edges) :support-only
+      (contains? visibilities "primary") :primary
+      (contains? visibilities "secondary") :secondary
+      :else :connected)))
+
+(defn- external-api-target-summaries
+  [contexts]
+  (->> contexts
+       (group-by (comp :xt/id :external))
+       (map (fn [[_ rows]]
+              (let [system (:external (first rows))
+                    edges (map :edge rows)
+                    evidence-ids (vec (distinct (mapcat edge-evidence-ids edges)))]
+                (assoc (system-summary system)
+                       :edge-count (count edges)
+                       :evidence-count (count evidence-ids)
+                       :relations (->> edges (map :relation) distinct vec)
+                       :visibilities (->> edges (map :visibility) distinct vec)))))
+       (sort-by (juxt :label :xt/id))
+       vec))
+
+(defn- external-api-review-groups
+  [project-id system-by-id semantic-edges]
+  (let [contexts (->> semantic-edges
+                      (keep #(external-api-edge-context system-by-id %))
+                      vec)
+        by-external (group-by (comp :xt/id :external) contexts)
+        targets (external-api-target-summaries contexts)
+        target-profiles (mapv (fn [{:keys [evidence-count] :as target}]
+                                (let [edges (map :edge (get by-external (:xt/id target)))]
+                                  (assoc target
+                                         :profile (external-api-profile edges evidence-count))))
+                              targets)
+        profile-counts (->> target-profiles
+                            (group-by :profile)
+                            (map (fn [[profile rows]]
+                                   {:profile profile
+                                    :count (count rows)
+                                    :samples (mapv #(select-keys % [:xt/id :label :edge-count
+                                                                    :evidence-count])
+                                                   (take 8 rows))}))
+                            (sort-by (comp name :profile))
+                            vec)
+        source-fanouts (->> contexts
+                            (group-by (fn [{:keys [edge peer direction]}]
+                                        [(:xt/id peer)
+                                         (:relation edge)
+                                         (:visibility edge)
+                                         direction]))
+                            (keep (fn [[[_ relation visibility direction] rows]]
+                                    (let [peer (:peer (first rows))
+                                          targets (external-api-target-summaries rows)
+                                          edges (map :edge rows)
+                                          evidence-ids (vec (distinct (mapcat edge-evidence-ids edges)))
+                                          group-id (str "external-api-review:"
+                                                        (hash/short-hash
+                                                         [project-id
+                                                          (:xt/id peer)
+                                                          relation
+                                                          visibility
+                                                          direction]))]
+                                      (when (<= fanout-decision-min-edges (count targets))
+                                        {:id group-id
+                                         :project-id project-id
+                                         :peer (system-summary peer)
+                                         :direction direction
+                                         :relation relation
+                                         :visibility visibility
+                                         :target-count (count targets)
+                                         :edge-count (count edges)
+                                         :evidence-count (count evidence-ids)
+                                         :evidence-ids evidence-ids
+                                         :targets (mapv #(select-keys % [:xt/id :label :edge-count
+                                                                         :evidence-count :relations
+                                                                         :visibilities])
+                                                        (take max-fanout-decision-edges targets))
+                                         :edges (mapv #(edge-summary system-by-id %)
+                                                      (take max-fanout-decision-edges
+                                                            (sort-by :target-id edges)))
+                                         :mapPatch (mapv external-api-reject-patch
+                                                         (take max-fanout-decision-edges
+                                                               (keep #(get system-by-id (:xt/id %)) targets)))}))))
+                            (sort-by (fn [{:keys [target-count peer relation visibility direction]}]
+                                       [(- (long target-count))
+                                        (get peer :label)
+                                        (name relation)
+                                        (str visibility)
+                                        (name direction)]))
+                            (take max-external-api-review-groups)
+                            vec)]
+    {:schema "agraph.external-api-review/v1"
+     :project-id project-id
+     :counts {:nodes (count targets)
+              :edges (count contexts)
+              :source-fanouts (count source-fanouts)
+              :single-evidence-nodes (count (filter #(= :single-evidence (:profile %))
+                                                    target-profiles))
+              :support-only-nodes (count (filter #(= :support-only (:profile %))
+                                                 target-profiles))}
+     :profiles profile-counts
+     :source-fanouts source-fanouts}))
+
+(defn- external-api-review-group-decisions
+  [project-id basis external-api-review]
+  (->> (:source-fanouts external-api-review)
+       (mapv (fn [{:keys [id target-count evidence-ids] :as group}]
+               (decision-row
+                project-id
+                basis
+                :external-api-review-group
+                (if (<= 10 target-count) :medium :low)
+                id
+                "One graph neighborhood has many external API nodes with the same source, relation, direction, and visibility."
+                group
+                {:scope {:target-kind :external-api-group
+                         :source (get-in group [:peer :xt/id])
+                         :relation (:relation group)
+                         :direction (:direction group)
+                         :visibility (:visibility group)}
+                 :evidence-ids evidence-ids
+                 :recommended-actions [:reject-external-api
+                                       :set-edge-visibility
+                                       :none
+                                       :investigate]})))))
+
+(defn- covered-external-api-ids
+  [external-api-review]
+  (->> (:source-fanouts external-api-review)
+       (mapcat :targets)
+       (map :xt/id)
+       set))
 
 (defn- supporting-edge-fanout-decisions
   [project-id basis system-by-id semantic-edges]
@@ -870,7 +1030,7 @@
        vec))
 
 (defn- support-only-external-api-decisions
-  [project-id basis system-by-id semantic-edges]
+  [project-id basis system-by-id semantic-edges excluded-system-ids]
   (let [incident (group-by (fn [edge]
                              (if (external-api-system? (get system-by-id (:target-id edge)))
                                (:target-id edge)
@@ -885,6 +1045,7 @@
          (keep (fn [[system-id edges]]
                  (let [system (get system-by-id system-id)]
                    (when (and (external-api-system? system)
+                              (not (contains? excluded-system-ids (:xt/id system)))
                               (seq edges)
                               (every? support-or-noise? edges)
                               (not-any? primary-or-secondary? edges))
@@ -913,7 +1074,7 @@
          vec)))
 
 (defn- sparse-external-api-decisions
-  [project-id basis system-by-id semantic-edges]
+  [project-id basis system-by-id semantic-edges excluded-system-ids]
   (let [incident (group-by (fn [edge]
                              (if (external-api-system? (get system-by-id (:target-id edge)))
                                (:target-id edge)
@@ -929,6 +1090,7 @@
                  (let [system (get system-by-id system-id)
                        evidence-ids (vec (distinct (mapcat edge-evidence-ids edges)))]
                    (when (and (external-api-system? system)
+                              (not (contains? excluded-system-ids (:xt/id system)))
                               (= 1 (count edges))
                               (= 1 (count evidence-ids))
                               (some primary-or-secondary? edges))
@@ -991,18 +1153,28 @@
   ({:high 0 :medium 1 :low 2} severity 3))
 
 (defn- maintenance-decision-queue
-  [project-id basis system-by-id semantic-edges orphaned clusters]
-  (->> (concat (ambiguous-edge-decisions project-id basis system-by-id semantic-edges)
-               (cluster-bridge-decisions project-id basis system-by-id semantic-edges clusters)
-               (supporting-edge-fanout-decisions project-id basis system-by-id semantic-edges)
-               (support-only-external-api-decisions project-id basis system-by-id semantic-edges)
-               (sparse-external-api-decisions project-id basis system-by-id semantic-edges)
-               (orphan-decisions project-id basis orphaned))
-       (sort-by (fn [decision]
-                  [(severity-rank (:severity decision))
-                   (:kind decision)
-                   (:target decision)]))
-       vec))
+  [project-id basis system-by-id semantic-edges orphaned clusters external-api-review]
+  (let [grouped-external-api-ids (covered-external-api-ids external-api-review)]
+    (->> (concat (ambiguous-edge-decisions project-id basis system-by-id semantic-edges)
+                 (cluster-bridge-decisions project-id basis system-by-id semantic-edges clusters)
+                 (supporting-edge-fanout-decisions project-id basis system-by-id semantic-edges)
+                 (external-api-review-group-decisions project-id basis external-api-review)
+                 (support-only-external-api-decisions project-id
+                                                      basis
+                                                      system-by-id
+                                                      semantic-edges
+                                                      grouped-external-api-ids)
+                 (sparse-external-api-decisions project-id
+                                                basis
+                                                system-by-id
+                                                semantic-edges
+                                                grouped-external-api-ids)
+                 (orphan-decisions project-id basis orphaned))
+         (sort-by (fn [decision]
+                    [(severity-rank (:severity decision))
+                     (:kind decision)
+                     (:target decision)]))
+         vec)))
 
 (defn- ratio
   [numerator denominator]
@@ -1226,12 +1398,16 @@
                                    evidence
                                    visible-edges
                                    orphaned)
+        external-api-review (external-api-review-groups project-id
+                                                        system-by-id
+                                                        semantic-edges)
         decision-queue (maintenance-decision-queue project-id
                                                    basis
                                                    system-by-id
                                                    semantic-edges
                                                    orphaned
-                                                   clusters)
+                                                   clusters
+                                                   external-api-review)
         infra-review-queue (infra-review/review-packets
                             {:project-id project-id
                              :basis basis
@@ -1260,6 +1436,7 @@
               :maintenance-decisions (count decision-queue)
               :infra-review-items (count infra-review-queue)}
      :scale scale
+     :external-api-review external-api-review
      :graph-health graph-health
      :fold-in (fold-in-report project-id scale decision-queue)
      :orphaned-systems orphaned

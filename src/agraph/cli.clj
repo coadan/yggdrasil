@@ -627,7 +627,7 @@
 (defn- print-maintenance-report
   [{:keys [project-id graph-basis map counts scale graph-health fold-in orphaned-systems
            dangling-edges low-confidence-edges
-           decision-queue infra-review-queue]}]
+           external-api-review decision-queue infra-review-queue]}]
   (println "# Maintain")
   (println "- project" project-id)
   (when graph-basis
@@ -666,6 +666,26 @@
                "[" (name kind) "]"
                "count"
                count)))
+  (when (or (pos? (long (get-in external-api-review [:counts :nodes] 0)))
+            (seq (:source-fanouts external-api-review)))
+    (println)
+    (println "## External API Review")
+    (doseq [[k v] (:counts external-api-review)]
+      (println "-" (name k) v))
+    (when (seq (:source-fanouts external-api-review))
+      (println)
+      (println "### Source Fanouts")
+      (doseq [{:keys [peer relation visibility direction target-count evidence-count]} (take 10 (:source-fanouts external-api-review))]
+        (println "-"
+                 (:label peer)
+                 (or (some-> relation name) relation)
+                 (or (some-> direction name) direction)
+                 "visibility"
+                 visibility
+                 "targets"
+                 target-count
+                 "evidence"
+                 evidence-count))))
   (when (seq orphaned-systems)
     (println)
     (println "## Orphaned Systems")

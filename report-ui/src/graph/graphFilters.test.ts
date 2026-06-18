@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixtureGraph } from "../fixtures/sampleData";
+import { externalApiHeavyGraph, fixtureGraph } from "../fixtures/sampleData";
 import { filterGraph, graphFilterOptions } from "./graphFilters";
 
 describe("graphFilters", () => {
@@ -32,5 +32,28 @@ describe("graphFilters", () => {
     expect(filtered.visibleNodes).toBe(2);
     expect(filtered.visibleEdges).toBe(1);
     expect(filtered.graph.edges[0].id).toBe("edge:b-xtdb");
+  });
+
+  it("groups external API fanouts by graph topology", () => {
+    const before = structuredClone(externalApiHeavyGraph);
+    const filtered = filterGraph(externalApiHeavyGraph, { externalApiMode: "group" });
+    const groupNode = filtered.graph.nodes.find((node) => node.kind === "external-api-group");
+
+    expect(filtered.visibleNodes).toBe(2);
+    expect(filtered.visibleEdges).toBe(1);
+    expect(groupNode?.label).toBe("20 external APIs");
+    expect(groupNode?.virtual).toBe(true);
+    expect(groupNode?.attrs?.externalApis).toHaveLength(20);
+    expect(externalApiHeavyGraph).toEqual(before);
+  });
+
+  it("hides external APIs and applies minimum degree filters", () => {
+    const hidden = filterGraph(externalApiHeavyGraph, { externalApiMode: "hide" });
+    const minDegree = filterGraph(fixtureGraph, { minDegree: "2" });
+
+    expect(hidden.graph.nodes.map((node) => node.id)).toEqual(["system:checkout"]);
+    expect(hidden.visibleEdges).toBe(0);
+    expect(minDegree.graph.nodes.map((node) => node.id)).toEqual(["node:b"]);
+    expect(minDegree.visibleEdges).toBe(0);
   });
 });

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { emptyGraph, fixtureGraph, packageFocusedDepsGraph } from "../fixtures/sampleData";
+import { emptyGraph, externalApiHeavyGraph, fixtureGraph, packageFocusedDepsGraph } from "../fixtures/sampleData";
 import { GraphPanel } from "./GraphPanel";
 
 vi.mock("@react-sigma/core", () => ({
@@ -38,5 +38,17 @@ describe("GraphPanel", () => {
     expect(screen.getByText("3 of 3 nodes, 2 of 2 edges")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "package" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "declares" })).toBeInTheDocument();
+  });
+
+  it("groups large external API fanouts by default", () => {
+    render(<GraphPanel graph={externalApiHeavyGraph} />);
+
+    expect(screen.getByText("External API Fixture")).toBeInTheDocument();
+    expect(screen.getByText("2 of 21 nodes, 1 of 20 edges")).toBeInTheDocument();
+    expect(screen.getByLabelText("External APIs")).toHaveValue("group");
+
+    fireEvent.change(screen.getByLabelText("External APIs"), { target: { value: "hide" } });
+
+    expect(screen.getByText("1 of 21 nodes, 0 of 20 edges")).toBeInTheDocument();
   });
 });

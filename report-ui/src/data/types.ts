@@ -69,6 +69,7 @@ export type AGraphNode = {
   metrics?: Record<string, number>;
   attrs?: Record<string, unknown>;
   tags?: string[];
+  virtual?: boolean;
 };
 
 export type AGraphEdge = {
@@ -84,6 +85,7 @@ export type AGraphEdge = {
   package_name?: string;
   metrics?: Record<string, number>;
   attrs?: Record<string, unknown>;
+  virtual?: boolean;
 };
 
 export type AGraphGraph = {

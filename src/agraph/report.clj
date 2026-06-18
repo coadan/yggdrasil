@@ -251,6 +251,7 @@
               :ecosystems (:ecosystems package-report)
               :artifact "report.json"}
    :maintenance {:counts (:counts maintenance)
+                 :external-api-review (:external-api-review maintenance)
                  :top-hubs (vec (take 10 (or (get-in maintenance [:graph-health :high-degree-hubs])
                                              (get-in maintenance [:scale :top-hubs]))))
                  :visible-connections (->> (:semantic-connections maintenance)

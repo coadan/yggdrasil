@@ -72,6 +72,34 @@ export const denseGraph: AGraphGraph = {
   ]
 };
 
+const externalApiNodes = Array.from({ length: 20 }, (_, index) => ({
+  id: `external:${index}`,
+  label: `api-${index}.example.test`,
+  kind: "external-api",
+  color: "#be123c"
+}));
+
+export const externalApiHeavyGraph: AGraphGraph = {
+  schema: "agraph.graph/v2",
+  title: "External API Fixture",
+  nodes: [
+    {
+      id: "system:checkout",
+      label: "checkout",
+      kind: "candidate-system",
+      color: "#2563eb"
+    },
+    ...externalApiNodes
+  ],
+  edges: externalApiNodes.map((node, index) => ({
+    id: `edge:checkout-external-${index}`,
+    source: "system:checkout",
+    target: node.id,
+    relation: "calls-external-api",
+    color: "#be123c"
+  }))
+};
+
 export const fixtureReport: AGraphReport = {
   schema: "agraph.report/v2",
   project: { id: "fixture", name: "Fixture", detail: "primary" },
@@ -93,6 +121,26 @@ export const fixtureReport: AGraphReport = {
   graphs: {
     overview: { nodes: 2, edges: 1, artifact: "graph.json" },
     systems: { nodes: 2, edges: 1, artifact: "systems.json" }
+  },
+  maintenance: {
+    "external-api-review": {
+      counts: {
+        nodes: 20,
+        edges: 20,
+        "source-fanouts": 1,
+        "single-evidence-nodes": 20,
+        "support-only-nodes": 0
+      },
+      "source-fanouts": [
+        {
+          id: "external-api-review:checkout",
+          peer: { "xt/id": "system:checkout", label: "checkout" },
+          relation: "calls-external-api",
+          visibility: "primary",
+          "target-count": 20
+        }
+      ]
+    }
   },
   commands: ["agraph ask \"where is this handled?\" --project fixture --json"]
 };

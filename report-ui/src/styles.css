@@ -185,7 +185,7 @@ td:last-child {
   align-items: end;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(180px, 1.5fr) repeat(4, minmax(120px, 1fr)) auto;
+  grid-template-columns: minmax(180px, 1.5fr) repeat(6, minmax(110px, 1fr)) auto;
   margin-bottom: 12px;
 }
 

@@ -14,6 +14,8 @@ describe("ReportPage", () => {
     expect(screen.getByText("Fixture")).toBeInTheDocument();
     expect(screen.getByText("Available Evidence")).toBeInTheDocument();
     expect(screen.getByText("source-graph")).toBeInTheDocument();
+    expect(screen.getByText("External API Review")).toBeInTheDocument();
+    expect(screen.getByText("20 targets")).toBeInTheDocument();
     expect(screen.getByText(/agraph ask/)).toBeInTheDocument();
   });
 

@@ -191,15 +191,22 @@
                  "system:noise:app:path/target-b"
                  "system:noise:app:path/target-c"]
         external "system:noise:__external:external-api/noise.example"
-        sparse-external "system:noise:__external:external-api/sparse.example"]
+        sparse-external "system:noise:__external:external-api/sparse.example"
+        group-source "system:noise:app:path/external-group-source"
+        grouped-externals ["system:noise:__external:external-api/group-a.example"
+                           "system:noise:__external:external-api/group-b.example"
+                           "system:noise:__external:external-api/group-c.example"]]
     (store/with-node xtdb-path
       (fn [xtdb]
         (store/commit-system-graph!
          xtdb
          "noise"
          {:nodes (concat [(test-system-node source "source" :candidate-system)
+                          (test-system-node group-source "external group source" :candidate-system)
                           (test-system-node external "noise.example" :external-api)
                           (test-system-node sparse-external "sparse.example" :external-api)]
+                         (map #(test-system-node % (last (str/split % #"/")) :external-api)
+                              grouped-externals)
                          (map #(test-system-node % % :candidate-system) targets))
           :edges (concat
                   (map-indexed
@@ -223,7 +230,16 @@
                                      source
                                      sparse-external
                                      :calls-external-api
-                                     ["sparse-external-evidence"])])
+                                     ["sparse-external-evidence"])]
+                  (map-indexed
+                   (fn [idx target]
+                     (test-system-edge
+                      (str "system-edge:noise:external-group-" idx)
+                      group-source
+                      target
+                      :calls-external-api
+                      [(str "group-external-evidence-" idx)]))
+                   grouped-externals))
           :evidence []
           :search-docs []})
         (let [maintenance (project/maintain-project
@@ -233,6 +249,7 @@
                            {})
               by-kind (group-by :kind (:decision-queue maintenance))
               fanout (first (:low-confidence-edge-fanout by-kind))
+              group-decision (first (:external-api-review-group by-kind))
               external-decision (first (:noisy-external-api by-kind))
               sparse-decision (first (:sparse-external-api by-kind))]
           (is (some? fanout))
@@ -241,6 +258,13 @@
           (is (= 3 (count (get-in fanout [:data :mapPatch]))))
           (is (contains? (set (:recommended-actions fanout))
                          :set-edge-visibility))
+          (is (= 1 (get-in maintenance [:external-api-review :counts :source-fanouts])))
+          (is (some? group-decision))
+          (is (= group-source (get-in group-decision [:data :peer :xt/id])))
+          (is (= 3 (get-in group-decision [:data :target-count])))
+          (is (= 3 (count (get-in group-decision [:data :mapPatch]))))
+          (is (contains? (set (:recommended-actions group-decision))
+                         :reject-external-api))
           (is (some? external-decision))
           (is (= external (:target external-decision)))
           (is (contains? (set (:recommended-actions external-decision))
