@@ -1178,6 +1178,9 @@
           (is (= benchmark/agent-packet-schema (:schema packet)))
           (is (= benchmark/agent-result-schema
                  (get-in packet [:task :expectedResultSchema])))
+          (is (= {:mode "none|java|dotnet|all"
+                  :source "option|env|default|agent-result|unknown"}
+                 (get-in packet [:task :resultContract :parserWorker])))
           (is (not (contains? packet :groundTruth)))
           (is (not (contains? packet :inputHints)))
           (is (= {:mode "java"
@@ -1379,6 +1382,14 @@
                        (slurp (get-in run [:artifacts :outputSchemaPath]))
                        :key-fn keyword)
                       :required)))
+          (is (= {:type "object"
+                  :additionalProperties false
+                  :properties {:mode {:type "string"}
+                               :source {:type "string"}}}
+                 (get-in (json/read-json
+                          (slurp (get-in run [:artifacts :outputSchemaPath]))
+                          :key-fn keyword)
+                         [:properties :parserWorker])))
           (is (not (str/includes? (slurp (get-in run [:artifacts :promptPath]))
                                   "changedFiles")))
           (is (str/includes? (slurp (get-in run [:artifacts :stdoutPath]))

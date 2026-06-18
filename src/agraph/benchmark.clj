@@ -1618,6 +1618,8 @@
    :caseId "case id from the packet"
    :agentId "stable id for the agent run"
    :mode "agraph or shell-only"
+   :parserWorker {:mode "none|java|dotnet|all"
+                  :source "option|env|default|agent-result|unknown"}
    :suspectedFiles [{:path "repo-relative/path.ext"
                      :rank 1
                      :confidence 0.0
@@ -2593,6 +2595,10 @@
                  "agentId" {"type" "string"}
                  "mode" {"type" "string"
                          "enum" ["agraph" "shell-only"]}
+                 "parserWorker" {"type" "object"
+                                 "additionalProperties" false
+                                 "properties" {"mode" {"type" "string"}
+                                               "source" {"type" "string"}}}
                  "suspectedFiles" {"type" "array"
                                    "items" {"type" "object"
                                             "additionalProperties" false
