@@ -116,6 +116,9 @@ slice. The report folds manifest declarations, selected lockfile resolutions,
 mechanical source-import-to-package evidence, and unresolved source imports into
 package-focused rows. It is a dependency report, not a replacement for
 `agraph.graph/v2`.
+Generated project report data includes compact package diagnostics for declared
+packages without import evidence, unresolved imports, and version conflicts so
+agents can triage dependency gaps before opening the full package report.
 
 Use `agraph view deps <package-label> --project <id>` to export or render the
 graph slice around a package. For external package nodes, the slice is

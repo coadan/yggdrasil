@@ -20,6 +20,9 @@
 (def default-detail
   :primary)
 
+(def ^:private report-package-diagnostic-limit
+  20)
+
 (def ^:private report-ui-dir
   "resources/agraph/report-ui")
 
@@ -223,6 +226,33 @@
   {:decisions (count (:decision-queue maintenance))
    :infra-review (count (:infra-review-queue maintenance))})
 
+(defn- compact-declared-package
+  [entry]
+  (select-keys entry [:id
+                      :label
+                      :ecosystem
+                      :package-name
+                      :declared-by
+                      :resolved-versions]))
+
+(defn- compact-unresolved-import
+  [entry]
+  (select-keys entry [:source-id
+                      :source-label
+                      :target-id
+                      :import
+                      :path
+                      :line
+                      :kind]))
+
+(defn- compact-version-conflict
+  [entry]
+  (select-keys entry [:id
+                      :label
+                      :ecosystem
+                      :package-name
+                      :versions]))
+
 (defn report-data
   "Return the canonical project report packet for a generated report bundle."
   [{:keys [project map-path detail generated-at-ms graph-data systems-data coverage
@@ -252,6 +282,16 @@
                             :artifact "systems.json")}
    :packages {:counts (:counts package-report)
               :ecosystems (:ecosystems package-report)
+              :declared-without-import-evidence (mapv compact-declared-package
+                                                      (take report-package-diagnostic-limit
+                                                            (:declared-without-import-evidence
+                                                             package-report)))
+              :unresolved-imports (mapv compact-unresolved-import
+                                        (take report-package-diagnostic-limit
+                                              (:unresolved-imports package-report)))
+              :version-conflicts (mapv compact-version-conflict
+                                       (take report-package-diagnostic-limit
+                                             (:version-conflicts package-report)))
               :artifact "report.json"}
    :maintenance {:counts (:counts maintenance)
                  :external-api-review (:external-api-review maintenance)
@@ -428,7 +468,7 @@
         package-report (dependency/package-report xtdb
                                                   {:project-id (:id project)}
                                                   {:map-overlay overlay
-                                                   :limit 0})
+                                                   :limit report-package-diagnostic-limit})
         evidence-summary (evidence/summarize xtdb
                                              project
                                              {:map-overlay overlay

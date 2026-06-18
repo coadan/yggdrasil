@@ -24,6 +24,75 @@
             :root (.getPath (io/file "test/fixtures/project-repo"))
             :role :application}]})
 
+(deftest report-data-includes-compact-package-diagnostics
+  (let [packet (report/report-data
+                {:project {:id "fixture"
+                           :name "Fixture"
+                           :repos []}
+                 :detail :primary
+                 :generated-at-ms 1
+                 :graph-data {:nodes [] :edges []}
+                 :systems-data {:nodes [] :edges []}
+                 :coverage {}
+                 :maintenance {}
+                 :context-example {}
+                 :evidence {}
+                 :package-report {:counts {:packages 2
+                                           :unresolved-imports 1
+                                           :declared-without-import-evidence 1
+                                           :version-conflicts 1}
+                                  :ecosystems [{:ecosystem :npm
+                                                :packages 2
+                                                :versions 3
+                                                :imports 1}]
+                                  :declared-without-import-evidence
+                                  [{:id "package:npm:lodash"
+                                    :label "npm:lodash"
+                                    :ecosystem :npm
+                                    :package-name "lodash"
+                                    :declared-by [{:path "package.json"
+                                                   :line 1}]
+                                    :imported-by [{:path "src/app.ts"}]
+                                    :extra "drop"}]
+                                  :unresolved-imports
+                                  [{:source-id "node:namespace:src.app"
+                                    :source-label "src.app"
+                                    :target-id "node:namespace:left-pad"
+                                    :import "left-pad"
+                                    :path "src/app.ts"
+                                    :line 4
+                                    :kind :typescript
+                                    :extra "drop"}]
+                                  :version-conflicts
+                                  [{:id "package:npm:react"
+                                    :label "npm:react"
+                                    :ecosystem :npm
+                                    :package-name "react"
+                                    :versions ["18.3.1" "19.1.0"]
+                                    :declared-by [{:path "package.json"}]}]}
+                 :artifacts {}})]
+    (is (= [{:id "package:npm:lodash"
+             :label "npm:lodash"
+             :ecosystem :npm
+             :package-name "lodash"
+             :declared-by [{:path "package.json"
+                            :line 1}]}]
+           (get-in packet [:packages :declared-without-import-evidence])))
+    (is (= [{:source-id "node:namespace:src.app"
+             :source-label "src.app"
+             :target-id "node:namespace:left-pad"
+             :import "left-pad"
+             :path "src/app.ts"
+             :line 4
+             :kind :typescript}]
+           (get-in packet [:packages :unresolved-imports])))
+    (is (= [{:id "package:npm:react"
+             :label "npm:react"
+             :ecosystem :npm
+             :package-name "react"
+             :versions ["18.3.1" "19.1.0"]}]
+           (get-in packet [:packages :version-conflicts])))))
+
 (deftest writes-report-bundle-from-project-fixture
   (let [xtdb-path (temp-dir "agraph-report-xtdb")
         out-dir (io/file (temp-dir "agraph-report-out") "bundle")
@@ -53,6 +122,9 @@
           (is (= "agraph.evidence/v1" (get-in report-json [:evidence :schema])))
           (is (= "graph.json" (get-in report-json [:graphs :overview :artifact])))
           (is (= "systems.json" (get-in report-json [:graphs :systems :artifact])))
+          (is (vector? (get-in report-json [:packages :declared-without-import-evidence])))
+          (is (vector? (get-in report-json [:packages :unresolved-imports])))
+          (is (vector? (get-in report-json [:packages :version-conflicts])))
           (is (seq (get-in report-json [:coverage :extractors])))
           (is (every? #(and (:kind %)
                             (:extractor-version %)
