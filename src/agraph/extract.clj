@@ -67,6 +67,7 @@
    :starlark "starlark/v1"
    :tool-version-config "tool-version-config/v1"
    :storybook "storybook/v1"
+   :docs-config "docs-config/v1"
    :governance "governance/v1"
    :db-config "db-config/v2"
    :db-migration "db-migration/v2"
@@ -9500,6 +9501,183 @@
                         :storybook-file
                         (storybook-facts file)))
 
+(defn- docs-config-property-values
+  [content property-name]
+  (->> (re-seq (re-pattern (str "\\b"
+                                (java.util.regex.Pattern/quote property-name)
+                                "\\s*:\\s*['\"]([^'\"]+)['\"]"))
+               content)
+       (map second)
+       (remove str/blank?)
+       distinct
+       vec))
+
+(defn- docs-config-title-facts
+  [content]
+  (mapv (fn [value]
+          {:kind :docs-title
+           :label value
+           :source-line 1
+           :relation :defines})
+        (docs-config-property-values content "title")))
+
+(defn- docs-config-route-facts
+  [content]
+  (->> (concat (docs-config-property-values content "to")
+               (docs-config-property-values content "href")
+               (docs-config-property-values content "baseUrl")
+               (docs-config-property-values content "id"))
+       distinct
+       (mapv (fn [value]
+               {:kind :docs-route
+                :label value
+                :source-line 1
+                :relation :references}))))
+
+(defn- docs-config-reference-facts
+  [content]
+  (mapv (fn [value]
+          {:kind :docs-config-reference
+           :label value
+           :source-line 1
+           :relation :references})
+        (docs-config-property-values content "sidebarPath")))
+
+(defn- docs-config-plugin-facts
+  [content]
+  (->> (concat (docs-config-property-values content "preset")
+               (docs-config-property-values content "plugin")
+               (docs-config-property-values content "name"))
+       distinct
+       (mapv (fn [value]
+               {:kind :docs-plugin
+                :label value
+                :source-line 1
+                :relation :uses}))))
+
+(defn- docs-config-array-property-values
+  [content property-name]
+  (->> (re-seq (re-pattern (str "\\b"
+                                (java.util.regex.Pattern/quote property-name)
+                                "\\s*:\\s*\\[(.*?)\\]"))
+               content)
+       (mapcat (fn [[_ body]] (storybook-quoted-values body)))
+       (remove str/blank?)
+       distinct
+       vec))
+
+(defn- docs-sidebar-facts
+  [content]
+  (vec
+   (concat
+    (map (fn [value]
+           {:kind :docs-sidebar-entry
+            :label value
+            :source-line 1
+            :relation :defines})
+         (docs-config-property-values content "label"))
+    (map (fn [value]
+           {:kind :docs-route
+            :label value
+            :source-line 1
+            :relation :references})
+         (docs-config-property-values content "id"))
+    (map (fn [value]
+           {:kind :docs-route
+            :label value
+            :source-line 1
+            :relation :references})
+         (docs-config-array-property-values content "items")))))
+
+(defn- mkdocs-line-facts
+  [content]
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         section nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (yaml-key-line idx line)
+            section* (cond
+                       (and entry (zero? (:indent entry)) (str/blank? (:value entry)))
+                       (:key entry)
+
+                       (and entry (zero? (:indent entry)))
+                       nil
+
+                       :else section)
+            site-name (when (and entry
+                                 (zero? (:indent entry))
+                                 (= "site_name" (:key entry))
+                                 (seq (:value entry)))
+                        {:kind :docs-title
+                         :label (strip-yaml-scalar (:value entry))
+                         :source-line (:source-line entry)
+                         :relation :defines})
+            nav-entry (when (and (= "nav" section)
+                                 (re-matches #"^\s*-\s+[^:]+:.*$" line))
+                        (let [[_ label route]
+                              (re-matches #"^\s*-\s+([^:]+):\s*(.*?)\s*$" line)]
+                          [{:kind :docs-nav-entry
+                            :label (strip-yaml-scalar label)
+                            :source-line (inc idx)
+                            :relation :defines}
+                           (when (seq route)
+                             {:kind :docs-route
+                              :label (strip-yaml-scalar route)
+                              :source-line (inc idx)
+                              :relation :references})]))
+            plugin-entry (when (and (= "plugins" section)
+                                    (re-matches #"^\s*-\s+.+$" line))
+                           {:kind :docs-plugin
+                            :label (-> line
+                                       (str/replace #"^\s*-\s+" "")
+                                       strip-yaml-scalar)
+                            :source-line (inc idx)
+                            :relation :uses})
+            theme-entry (when (and (= "theme" section)
+                                   entry
+                                   (= "name" (:key entry))
+                                   (seq (:value entry)))
+                          {:kind :docs-theme
+                           :label (strip-yaml-scalar (:value entry))
+                           :source-line (:source-line entry)
+                           :relation :uses})]
+        (recur (rest remaining)
+               section*
+               (cond-> out
+                 site-name (conj site-name)
+                 nav-entry (into (remove nil? nav-entry))
+                 plugin-entry (conj plugin-entry)
+                 theme-entry (conj theme-entry))))
+      (vec (distinct out)))))
+
+(defn- docs-config-facts
+  [{:keys [path content]}]
+  (let [filename (manifest-name path)]
+    (case filename
+      ("docusaurus.config.js" "docusaurus.config.cjs"
+                              "docusaurus.config.mjs" "docusaurus.config.ts")
+      (vec (concat (docs-config-title-facts content)
+                   (docs-config-route-facts content)
+                   (docs-config-reference-facts content)
+                   (docs-config-plugin-facts content)))
+
+      ("sidebars.js" "sidebars.ts")
+      (docs-sidebar-facts content)
+
+      ("mkdocs.yml" "mkdocs.yaml")
+      (mkdocs-line-facts content)
+
+      [])))
+
+(defn extract-docs-config
+  "Extract deterministic docs/content-system configuration facts."
+  [run-id file]
+  (extract-format-facts run-id
+                        file
+                        :docs-config
+                        :docs-config-file
+                        (docs-config-facts file)))
+
 (defn- extract-format-facts
   [run-id {:keys [id-scope file-id path] :as file} root-kind chunk-kind facts]
   (let [root-node (generic-node run-id id-scope file-id path root-kind path 1)
@@ -15849,6 +16027,7 @@
      :starlark (extract-starlark run-id file)
      :tool-version-config (extract-tool-version-config run-id file)
      :storybook (extract-storybook run-id file)
+     :docs-config (extract-docs-config run-id file)
      :governance (extract-governance run-id file)
      :vue (extract-sfc run-id file)
      :svelte (extract-sfc run-id file)

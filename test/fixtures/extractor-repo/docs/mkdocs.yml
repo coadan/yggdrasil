@@ -1,0 +1,9 @@
+site_name: Panels Docs
+nav:
+  - Home: index.md
+  - Guides:
+    - Install: guides/install.md
+plugins:
+  - search
+theme:
+  name: material

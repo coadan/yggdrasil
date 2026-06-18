@@ -168,6 +168,8 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/.storybook/main.ts")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/docs/docusaurus.config.ts")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/bobr/pages/index.astro")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/bobr/plugin/bobr-wordpress-connector.php")
@@ -382,7 +384,23 @@
                       (fs/file-record
                        "test/fixtures/extractor-repo"
                        "test/fixtures/extractor-repo/src/ui/Button.stories.tsx"))
+        docusaurus-result (extract/extract-file
+                           "run/test"
+                           (fs/file-record
+                            "test/fixtures/extractor-repo"
+                            "test/fixtures/extractor-repo/docs/docusaurus.config.ts"))
+        sidebar-result (extract/extract-file
+                        "run/test"
+                        (fs/file-record
+                         "test/fixtures/extractor-repo"
+                         "test/fixtures/extractor-repo/docs/sidebars.ts"))
+        mkdocs-result (extract/extract-file
+                       "run/test"
+                       (fs/file-record
+                        "test/fixtures/extractor-repo"
+                        "test/fixtures/extractor-repo/docs/mkdocs.yml"))
         labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
         relations (fn [result] (frequencies (map :relation (:edges result))))]
     (is (= :doc (:kind (fs/file-record
                         "test/fixtures/extractor-repo"
@@ -393,6 +411,15 @@
     (is (= :storybook (:kind (fs/file-record
                               "test/fixtures/extractor-repo"
                               "test/fixtures/extractor-repo/src/ui/Button.stories.tsx"))))
+    (is (= :docs-config (:kind (fs/file-record
+                                "test/fixtures/extractor-repo"
+                                "test/fixtures/extractor-repo/docs/docusaurus.config.ts"))))
+    (is (= :docs-config (:kind (fs/file-record
+                                "test/fixtures/extractor-repo"
+                                "test/fixtures/extractor-repo/docs/sidebars.ts"))))
+    (is (= :docs-config (:kind (fs/file-record
+                                "test/fixtures/extractor-repo"
+                                "test/fixtures/extractor-repo/docs/mkdocs.yml"))))
     (is (contains? (labels mdx-result) "Components"))
     (is (contains? (labels mdx-result) "./panels.md"))
     (is (contains? (labels mdx-result) "src.ui.Button"))
@@ -412,7 +439,30 @@
     (is (contains? (labels story-result) "Primary"))
     (is (pos? (get (relations story-result) :references 0)))
     (is (= [:storybook-file] (mapv :kind (:chunks storybook-config-result))))
-    (is (= [:storybook-file] (mapv :kind (:chunks story-result))))))
+    (is (= [:storybook-file] (mapv :kind (:chunks story-result))))
+    (is (contains? (labels docusaurus-result) "Panels Docs"))
+    (is (contains? (labels docusaurus-result) "/panels/"))
+    (is (contains? (labels docusaurus-result) "/docs/intro"))
+    (is (contains? (labels docusaurus-result) "https://example.com/support"))
+    (is (contains? (labels docusaurus-result) "./sidebars.ts"))
+    (is (= 1 (get (kinds docusaurus-result) :docs-title 0)))
+    (is (pos? (get (relations docusaurus-result) :references 0)))
+    (is (contains? (labels sidebar-result) "Guides"))
+    (is (contains? (labels sidebar-result) "intro"))
+    (is (contains? (labels sidebar-result) "guides/install"))
+    (is (= 1 (get (kinds sidebar-result) :docs-sidebar-entry 0)))
+    (is (contains? (labels mkdocs-result) "Panels Docs"))
+    (is (contains? (labels mkdocs-result) "Home"))
+    (is (contains? (labels mkdocs-result) "index.md"))
+    (is (contains? (labels mkdocs-result) "Install"))
+    (is (contains? (labels mkdocs-result) "guides/install.md"))
+    (is (contains? (labels mkdocs-result) "search"))
+    (is (contains? (labels mkdocs-result) "material"))
+    (is (= 1 (get (kinds mkdocs-result) :docs-title 0)))
+    (is (= 3 (get (kinds mkdocs-result) :docs-nav-entry 0)))
+    (is (= [:docs-config-file] (mapv :kind (:chunks docusaurus-result))))
+    (is (= [:docs-config-file] (mapv :kind (:chunks sidebar-result))))
+    (is (= [:docs-config-file] (mapv :kind (:chunks mkdocs-result))))))
 
 (deftest extracts-rust-modules-definitions-uses-and-calls
   (let [file (fs/file-record "test/fixtures/sample-repo"
