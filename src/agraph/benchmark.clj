@@ -4580,6 +4580,15 @@
 (def ^:private comparison-report-specs
   [{:path [:agentDiagnostics :warningRuns]
     :label "warningRuns"
+    :direction :lower}
+   {:path [:coverageDiagnostics :missingDeclaredSourceKindRuns]
+    :label "missingDeclaredSourceKindRuns"
+    :direction :lower}
+   {:path [:coverageDiagnostics :coverageExcludedGroundTruthFiles]
+    :label "coverageExcludedGroundTruthFiles"
+    :direction :lower}
+   {:path [:coverageDiagnostics :unsupportedGroundTruthFiles]
+    :label "unsupportedGroundTruthFiles"
     :direction :lower}])
 
 (defn- comparison-delta
@@ -4749,12 +4758,14 @@
                 :runs (:runs baseline-report)
                 :parserWorkers (report-parser-worker-profiles baseline-report)
                 :agentDiagnostics (:agentDiagnostics baseline-report)
+                :coverageDiagnostics (:coverageDiagnostics baseline-report)
                 :scores (:scores baseline-report)}
      :candidate {:cases (:cases candidate-report)
                  :completed (:completed candidate-report)
                  :runs (:runs candidate-report)
                  :parserWorkers (report-parser-worker-profiles candidate-report)
                  :agentDiagnostics (:agentDiagnostics candidate-report)
+                 :coverageDiagnostics (:coverageDiagnostics candidate-report)
                  :scores (:scores candidate-report)}
      :aggregateDeltas aggregate-deltas
      :caseDeltas cases

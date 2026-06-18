@@ -183,7 +183,11 @@ generated output root.
   `--regression-tolerance` (default `0`). Use this after a candidate change to
   prove it did not trade one benchmark case for another:
   `bb bench agent-compare benchmark.edn --baseline-report before/agent-report.json
-  --candidate-report after/agent-report.json`.
+  --candidate-report after/agent-report.json`. It also treats higher aggregate
+  warning runs, missing declared source-kind runs, coverage-excluded
+  ground-truth files, and unsupported ground-truth files as lower-is-better
+  regressions when the compared report case set and parser-worker profiles are
+  unchanged.
 - `bench run <suite.edn>` creates a detached worktree at each base SHA, indexes
   it with the query profile, runs lexical retrieval over the issue text, and
   writes one scored result artifact per case.
@@ -430,6 +434,10 @@ given.
   shape quality should be part of the ratchet. `agent-compare` also treats
   higher aggregate `warningRuns` as a lower-is-better regression when the report
   case set and parser-worker profiles are comparable.
+- `coverageDiagnostics`: aggregate source-support counters. `agent-compare`
+  treats increases in missing declared source-kind runs, coverage-excluded
+  ground-truth files, and unsupported ground-truth files as lower-is-better
+  regressions when reports are comparable.
 
 Each result also records `groundTruthRanks.files`, which lists every scoreable
 localization file and the rank where AGraph found it, or `found? false` when it

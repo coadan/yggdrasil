@@ -970,6 +970,9 @@
                                    :source "option"
                                    :runs 2}]
                   :agentDiagnostics {:warningRuns 0}
+                  :coverageDiagnostics {:missingDeclaredSourceKindRuns 0
+                                        :coverageExcludedGroundTruthFiles 0
+                                        :unsupportedGroundTruthFiles 1}
                   :scores {:fileRecallAt5 0.5
                            :fileRecallAt10 0.75
                            :fileRecallAt20 1.0
@@ -996,6 +999,9 @@
                                     :source "option"
                                     :runs 2}]
                    :agentDiagnostics {:warningRuns 1}
+                   :coverageDiagnostics {:missingDeclaredSourceKindRuns 1
+                                         :coverageExcludedGroundTruthFiles 1
+                                         :unsupportedGroundTruthFiles 2}
                    :scores {:fileRecallAt5 0.5
                             :fileRecallAt10 0.7
                             :fileRecallAt20 1.0
@@ -1018,6 +1024,8 @@
                                                 (assoc candidate
                                                        :agentDiagnostics
                                                        (:agentDiagnostics baseline)
+                                                       :coverageDiagnostics
+                                                       (:coverageDiagnostics baseline)
                                                        :scores (assoc (:scores baseline)
                                                                       :meanReciprocalRankFile
                                                                       0.6)
@@ -1054,6 +1062,9 @@
     (is (= #{"fileRecallAt10"
              "noiseRatioAt20"
              "warningRuns"
+             "missingDeclaredSourceKindRuns"
+             "coverageExcludedGroundTruthFiles"
+             "unsupportedGroundTruthFiles"
              "case.fileRecallAt10"}
            (set (map :metric (:regressions failed)))))
     (is (= "regressed"
@@ -1081,7 +1092,11 @@
     (is (= [{:mode "all" :source "option"}]
            (get-in different-parser-worker [:baseline :parserWorkers])))
     (is (= [{:mode "java" :source "option"}]
-           (get-in different-parser-worker [:candidate :parserWorkers])))))
+           (get-in different-parser-worker [:candidate :parserWorkers])))
+    (is (= (:coverageDiagnostics baseline)
+           (get-in failed [:baseline :coverageDiagnostics])))
+    (is (= (:coverageDiagnostics candidate)
+           (get-in failed [:candidate :coverageDiagnostics])))))
 
 (deftest prepares-issue-replay-case-from-git-diff
   (let [root (temp-dir "agraph-bench-repo")
