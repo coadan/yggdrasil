@@ -119,9 +119,12 @@ generated output root.
   agents can distinguish source-support gaps from ranking misses before opening
   the full context packet. When a case declares `coverage.source-kinds`, hints
   filter top file candidates to those mechanical source kinds so agents see the
-  same scope that scoring uses. Use `--timeout-ms <n>` to bound long-running
-  agents. Use `--skip-existing` to resume interrupted agent runs with the same
-  current-score matching rules as `agent-baseline`.
+  same scope that scoring uses. Hints also include `selection` counters for raw
+  candidates, coverage-filtered candidates, applied limits, and coverage source
+  kinds so benchmark misses can be debugged from the same artifact the agent
+  saw. Use `--timeout-ms <n>` to bound long-running agents. Use
+  `--skip-existing` to resume interrupted agent runs with the same current-score
+  matching rules as `agent-baseline`.
 - `bench agent-score <suite.edn> --case <case-id> --result result.json` scores
   one agent result JSON against hidden ground truth.
 - `bench agent-report <suite.edn>` aggregates existing agent score artifacts

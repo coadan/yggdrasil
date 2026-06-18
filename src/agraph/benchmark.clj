@@ -2561,6 +2561,7 @@
      :topDocs (mapv hint-doc (range) (take 10 (:docs packet)))
      :candidateSystems (mapv hint-system (range) (take 10 (:entities packet)))
      :commands (:drilldowns packet)
+     :selection (:selection agent-result)
      :answerability (:answerability packet)
      :sourceCoverage (:sourceCoverage packet)
      :warnings (:warnings packet)}))

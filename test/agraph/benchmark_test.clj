@@ -1729,7 +1729,13 @@
     (is (= ["src/app.clj"]
            (mapv :path (:topFiles hints))))
     (is (= [1]
-           (mapv :rank (:topFiles hints))))))
+           (mapv :rank (:topFiles hints))))
+    (is (= {:rawCandidateFiles 2
+            :candidateFiles 1
+            :coverageFilteredCandidateFiles 1
+            :limit 20
+            :coverageSourceKinds ["code"]}
+           (:selection hints)))))
 
 (deftest context-packet-agent-result-uses-scanned-kind-for-extensionless-files
   (let [root (temp-dir "agraph-bench-extensionless-coverage")
@@ -2274,6 +2280,12 @@
              :metrics {:file-count 2}}]
            (:candidateSystems hints)))
     (is (= ["agraph ask 'broken app' --project project"] (:commands hints)))
+    (is (= {:rawCandidateFiles 1
+            :candidateFiles 1
+            :coverageFilteredCandidateFiles 0
+            :limit 1
+            :coverageSourceKinds []}
+           (:selection hints)))
     (is (= {:indexedFiles 2
             :diagnostics 0
             :fileKinds 1}
