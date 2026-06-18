@@ -4184,8 +4184,7 @@
                       (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/scripts/setup.sh"))]
     (is (= [:shell-file] (mapv :kind (:chunks shell-result))))
-    (is (= [:shell-file] (mapv :kind (:nodes shell-result))))
-    (is (empty? (:edges shell-result)))))
+    (is (= [:shell-file] (mapv :kind (:nodes shell-result))))))
 
 (deftest extracts-shell-functions-as-source-definitions
   (let [root (.toFile (java.nio.file.Files/createTempDirectory
@@ -4203,6 +4202,9 @@
         result (extract/extract-file "run/test" record)
         labels (set (map :label (:nodes result)))
         relations (frequencies (map :relation (:edges result)))
+        call-targets (set (map :target-id
+                               (filter #(= :calls (:relation %))
+                                       (:edges result))))
         chunks-by-label (group-by :label (:chunks result))]
     (is (= :shell (:kind record)))
     (is (= #{:shell-file :code-definition}
@@ -4211,6 +4213,9 @@
     (is (contains? labels "tool.sh/nvm_remote_version"))
     (is (contains? labels "tool.sh/install_lts"))
     (is (= 2 (get relations :defines 0)))
+    (is (= 1 (get relations :calls 0)))
+    (is (contains? call-targets
+                   (extract/node-id :shell-function "nvm_remote_version")))
     (is (= :function
            (get-in chunks-by-label ["tool.sh/nvm_remote_version" 0 :definition-kind])))
     (is (str/includes?

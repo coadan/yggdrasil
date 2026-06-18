@@ -22,9 +22,6 @@
          read-json-map
          strip-yaml-scalar
          yaml-key-line
-         yaml-scalar-list-values
-         yaml-top-section-blocks
-         block-key-values
          leading-spaces
          source-definition-chunk
          json-label
@@ -120,7 +117,7 @@
    :procfile "procfile/v1"
    :compose "compose/v1"
    :helm "helm/v1"
-   :shell "shell/v2"})
+   :shell "shell/v3"})
 
 (def ^:private python-ast-helper
   (str
@@ -903,12 +900,43 @@
                       :text text}))))
          vec)))
 
+(def ^:private shell-command-pattern
+  (re-pattern (str "(?:^|[;&|({]|\\$\\()\\s*(" shell-function-name-pattern ")\\b")))
+
+(def ^:private shell-syntax-commands
+  #{"case" "do" "done" "echo" "elif" "else" "esac" "exit" "export" "fi" "for" "function" "if" "in"
+    "return" "set" "then" "unset" "until" "while"})
+
+(defn- shell-command-names
+  [line]
+  (when-not (str/starts-with? (str/trim (or line "")) "#")
+    (->> (re-seq shell-command-pattern (or line ""))
+         (map second)
+         (remove shell-syntax-commands)
+         distinct
+         vec)))
+
+(defn- shell-call-facts
+  [content]
+  (let [lines (vec (str/split-lines (or content "")))]
+    (->> lines
+         (map-indexed vector)
+         (mapcat (fn [[idx line]]
+                   (when-not (shell-function-start? lines idx line)
+                     (map (fn [name]
+                            {:name name
+                             :source-line (inc idx)})
+                          (shell-command-names line)))))
+         distinct
+         vec)))
+
 (defn extract-shell
   "Extract shell scripts as file chunks plus function definitions."
   [run-id {:keys [id-scope file-id path content] :as file}]
   (let [file-node (generic-node run-id id-scope file-id path :shell-file path 1)
         file-chunk-result (extract-text-source run-id file :shell-file)
         functions (shell-function-facts content)
+        calls (shell-call-facts content)
         function-label (fn [{:keys [name]}]
                          (str path "/" name))
         function-nodes (mapv (fn [{:keys [source-line] :as function}]
@@ -932,6 +960,16 @@
                                          :extracted
                                          source-line))
                              functions)
+        call-edges (mapv (fn [{:keys [name source-line]}]
+                           (edge-row run-id
+                                     file-id
+                                     path
+                                     (:xt/id file-node)
+                                     (node-id id-scope :shell-function name)
+                                     :calls
+                                     :extracted
+                                     source-line))
+                         calls)
         function-chunks (mapv (fn [{:keys [source-line text] :as function}]
                                 (source-definition-chunk run-id
                                                          id-scope
@@ -943,7 +981,7 @@
                                                          text))
                               functions)]
     {:nodes (into [file-node] function-nodes)
-     :edges function-edges
+     :edges (vec (concat function-edges call-edges))
      :chunks (vec (concat (:chunks file-chunk-result) function-chunks))
      :diagnostics []}))
 
@@ -9068,7 +9106,8 @@
      :diagnostics []}))
 
 (declare yaml-scalar-list-values
-         yaml-top-section-blocks)
+         yaml-top-section-blocks
+         block-key-values)
 
 (def dbt-path-sections
   #{"analysis-paths" "macro-paths" "model-paths" "seed-paths"
@@ -10131,13 +10170,13 @@
                    "semantic-release.config.js" "semantic-release.config.cjs"
                    "semantic-release.config.mjs" "semantic-release.config.ts"}
                  filename) (if (contains? #{".releaserc.yaml" ".releaserc.yml"} filename)
-                              (semantic-release-yaml-facts content)
-                              (semantic-release-facts content))
+                             (semantic-release-yaml-facts content)
+                             (semantic-release-facts content))
       (contains? #{"standard-version.json" ".versionrc" ".versionrc.json"
                    ".versionrc.yaml" ".versionrc.yml"}
                  filename) (if (contains? #{".versionrc.yaml" ".versionrc.yml"} filename)
-                              (standard-version-yaml-facts content)
-                              (standard-version-facts content))
+                             (standard-version-yaml-facts content)
+                             (standard-version-facts content))
       (contains? #{"changelog.md" "changes.md"} filename) (changelog-facts content)
       :else [])))
 
