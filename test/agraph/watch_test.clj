@@ -26,6 +26,7 @@
   (is (watch/watchable-path? ".env"))
   (is (watch/watchable-path? "apps/api/.env.local"))
   (is (watch/watchable-path? "config/prod.env"))
+  (is (watch/watchable-path? "infra/support.env.example"))
   (is (watch/watchable-path? "ci/Jenkinsfile"))
   (is (watch/watchable-path? "ci/azure-pipelines.yml"))
   (is (watch/watchable-path? "web/component.vue"))

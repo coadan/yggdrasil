@@ -103,7 +103,8 @@
     (or (= ".env" filename)
         (= ".envrc" filename)
         (str/starts-with? filename ".env.")
-        (str/ends-with? filename ".env"))))
+        (str/ends-with? filename ".env")
+        (str/includes? filename ".env."))))
 
 (defn canonical-path
   "Return canonical path string for a file/path."

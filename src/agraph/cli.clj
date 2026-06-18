@@ -104,12 +104,15 @@
     "--min-case-file-recall-at-5" "--min-case-file-recall-at-10"
     "--min-case-file-recall-at-20" "--min-case-mrr"
     "--max-case-noise-at-20"
-    "--max-input-hinted-cases" "--max-unsupported-ground-truth-files"})
+    "--max-input-hinted-cases" "--max-unsupported-ground-truth-files"
+    "--max-empty-result-runs" "--max-unverified-score-runs"
+    "--max-active-stage-ms" "--regression-tolerance"})
 
 (def boolean-options
   #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer" "--enqueue"
     "--check" "--query-index" "--force" "--hooks" "--sync" "--allow-missing"
-    "--allow-duplicate-runs" "--with-conflicts" "--without-import-evidence"})
+    "--allow-duplicate-runs" "--allow-unverified-scores"
+    "--with-conflicts" "--without-import-evidence"})
 
 (defn- positional-args
   [args]

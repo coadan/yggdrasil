@@ -206,8 +206,8 @@
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
       (is (= {:files 174
-              :supported 172
-              :skipped 2}
+              :supported 173
+              :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "ci" (:files-by-kind report)))))
@@ -269,6 +269,7 @@
       (is (= 2 (:count (row-by :kind "shell" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "text" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "config" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "env" (:files-by-kind report)))))
       (is (= 35 (:count (row-by :kind "manifest" (:files-by-kind report)))))
       (is (= 5 (:count (row-by :kind "governance" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "xml" (:files-by-kind report)))))
@@ -465,6 +466,9 @@
                 (:extractors report)))
       (is (some #(and (= "text" (:kind %))
                       (= "text/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "env" (:kind %))
+                      (= "env/v2" (:extractor-version %)))
                 (:extractors report)))
       (is (some #(and (= "shell" (:kind %))
                       (= "shell/v1" (:extractor-version %)))
