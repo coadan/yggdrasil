@@ -1,6 +1,7 @@
 (ns agraph.graph-test
   (:require [agraph.graph :as graph]
             [agraph.index :as index]
+            [agraph.map :as graph-map]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -31,3 +32,30 @@
           (is (= (:nodes query) (:nodes exported)))
           (is (= (:edges query) (:edges exported)))
           (is (.exists (io/file json-path))))))))
+
+(deftest map-overlay-noise-edges-hide-rendered-edges
+  (let [graph-data {:schema graph/schema
+                    :nodes [{:id "system:fixture:app:path/api"
+                             :label "api"
+                             :kind "candidate-system"}
+                            {:id "system:fixture:app:path/config"
+                             :label "config"
+                             :kind "candidate-system"}]
+                    :edges [{:id "edge:api-config"
+                             :source "system:fixture:app:path/api"
+                             :target "system:fixture:app:path/config"
+                             :relation "shares-config"
+                             :visibility "supporting"}]}
+        overlay {:schema graph-map/schema
+                 :project "fixture"
+                 :systems []
+                 :reject []
+                 :edges [{:source "system:fixture:app:path/api"
+                          :target "system:fixture:app:path/config"
+                          :relation "shares-config"
+                          :visibility "noise"
+                          :reason "Reviewed low-confidence fanout."}]
+                 :docs []}
+        updated (graph-map/apply-overlay graph-data overlay)]
+    (is (empty? (:edges updated)))
+    (is (= 1 (get-in updated [:map :edges])))))

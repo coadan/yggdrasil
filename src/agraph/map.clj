@@ -178,6 +178,14 @@
     (assoc row :id (or (:id edge)
                        (str "map-edge:" (hash/short-hash row))))))
 
+(defn- hidden-edge?
+  [edge]
+  (contains? #{"hidden" "noise"} (s (:visibility edge))))
+
+(defn- edge-key
+  [edge]
+  [(s (:source edge)) (s (:target edge)) (s (:relation edge))])
+
 (defn- distinct-by
   [f coll]
   (loop [remaining (seq coll)
@@ -218,7 +226,11 @@
                              (remove #(or (contains? rejected (:source %))
                                           (contains? rejected (:target %)))))
         map-edges (map overlay-edge (:edges overlay))
-        edges* (->> (concat map-edges rewritten-edges)
+        hidden-edge-keys (set (map edge-key (filter hidden-edge? map-edges)))
+        visible-map-edges (remove hidden-edge? map-edges)
+        visible-rewritten-edges (remove #(contains? hidden-edge-keys (edge-key %))
+                                        rewritten-edges)
+        edges* (->> (concat visible-map-edges visible-rewritten-edges)
                     (remove #(or (contains? rejected (:source %))
                                  (contains? rejected (:target %))))
                     (filter #(and (contains? node-ids (:source %))

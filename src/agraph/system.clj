@@ -638,6 +638,25 @@
   [overlay]
   (keep :match (:reject overlay)))
 
+(defn- hidden-edge-overlay?
+  [edge]
+  (contains? #{"hidden" "noise"} (s (:visibility edge))))
+
+(defn- overlay-edge-key
+  [edge]
+  [(s (:source edge)) (s (:target edge)) (s (:relation edge))])
+
+(defn- system-edge-key
+  [edge]
+  [(s (:source-id edge)) (s (:target-id edge)) (s (:relation edge))])
+
+(defn- hidden-edge-keys
+  [overlay]
+  (->> (:edges overlay)
+       (filter hidden-edge-overlay?)
+       (map overlay-edge-key)
+       set))
+
 (defn- apply-maintenance-overlay
   [systems edges evidence overlay]
   (if-not overlay
@@ -646,6 +665,7 @@
      :evidence evidence
      :map nil}
     (let [matches (vec (reject-matches overlay))
+          hidden-edges (hidden-edge-keys overlay)
           rejected-ids (->> systems
                             (filter (fn [system]
                                       (some #(system-matches-reject? system %) matches)))
@@ -653,7 +673,8 @@
                             set)]
       {:systems (vec (remove #(contains? rejected-ids (:xt/id %)) systems))
        :edges (vec (remove #(or (contains? rejected-ids (:source-id %))
-                                (contains? rejected-ids (:target-id %)))
+                                (contains? rejected-ids (:target-id %))
+                                (contains? hidden-edges (system-edge-key %)))
                            edges))
        :evidence (vec (remove #(contains? rejected-ids (:system-id %)) evidence))
        :map {:schema graph-map/schema
@@ -752,6 +773,132 @@
                                                     :merge-system
                                                     :hide-system]})))))
 
+(def noisy-supporting-relations
+  #{:calls-external-api
+    :references
+    :shares-config})
+
+(def fanout-decision-min-edges
+  3)
+
+(def max-fanout-decision-edges
+  50)
+
+(def max-maintenance-decisions-per-kind
+  100)
+
+(defn- external-api-system?
+  [system]
+  (= :external-api (:kind system)))
+
+(defn- support-or-noise?
+  [edge]
+  (contains? #{"supporting" "noise"} (:visibility edge)))
+
+(defn- primary-or-secondary?
+  [edge]
+  (contains? #{"primary" "secondary"} (:visibility edge)))
+
+(defn- noisy-supporting-edge?
+  [edge]
+  (and (= "supporting" (:visibility edge))
+       (seq (set/intersection (set (:relations edge))
+                              noisy-supporting-relations))))
+
+(defn- fanout-edge-key
+  [edge]
+  [(:source-id edge) (:relation edge)])
+
+(defn- fanout-decision-target
+  [project-id source-id relation]
+  (str "edge-fanout:"
+       (hash/short-hash [project-id source-id relation])))
+
+(defn- edge-visibility-patch
+  [edge]
+  {:source (:source-id edge)
+   :target (:target-id edge)
+   :relation (name (:relation edge))
+   :visibility "noise"})
+
+(defn- supporting-edge-fanout-decisions
+  [project-id basis system-by-id semantic-edges]
+  (->> semantic-edges
+       (filter noisy-supporting-edge?)
+       (group-by fanout-edge-key)
+       (keep (fn [[[source-id relation] edges]]
+               (let [edges (sort-by :target-id edges)
+                     edge-count (count edges)]
+                 (when (<= fanout-decision-min-edges edge-count)
+                   (decision-row
+                    project-id
+                    basis
+                    :low-confidence-edge-fanout
+                    (if (<= 10 edge-count) :medium :low)
+                    (fanout-decision-target project-id source-id relation)
+                    "One source has many support-level visible connections of the same relation."
+                    {:source (system-summary (get system-by-id source-id))
+                     :relation relation
+                     :edge-count edge-count
+                     :edges (mapv #(edge-summary system-by-id %)
+                                  (take max-fanout-decision-edges edges))
+                     :mapPatch (mapv edge-visibility-patch edges)}
+                    {:scope {:target-kind :system-edge-fanout
+                             :source source-id
+                             :relation relation}
+                     :evidence-ids (mapcat edge-evidence-ids edges)
+                     :recommended-actions [:set-edge-visibility
+                                           :none
+                                           :investigate]})))))
+       (sort-by (fn [decision]
+                  [(- (long (get-in decision [:data :edge-count] 0)))
+                   (:target decision)]))
+       (take max-maintenance-decisions-per-kind)
+       vec))
+
+(defn- support-only-external-api-decisions
+  [project-id basis system-by-id semantic-edges]
+  (let [incident (group-by (fn [edge]
+                             (if (external-api-system? (get system-by-id (:target-id edge)))
+                               (:target-id edge)
+                               (:source-id edge)))
+                           (filter (fn [edge]
+                                     (or (external-api-system?
+                                          (get system-by-id (:source-id edge)))
+                                         (external-api-system?
+                                          (get system-by-id (:target-id edge)))))
+                                   semantic-edges))]
+    (->> incident
+         (keep (fn [[system-id edges]]
+                 (let [system (get system-by-id system-id)]
+                   (when (and (external-api-system? system)
+                              (seq edges)
+                              (every? support-or-noise? edges)
+                              (not-any? primary-or-secondary? edges))
+                     (decision-row
+                      project-id
+                      basis
+                      :noisy-external-api
+                      :low
+                      (:xt/id system)
+                      "External API node has only support/noise visible connections and no accepted map correction."
+                      {:system (system-summary system)
+                       :edge-count (count edges)
+                       :edges (mapv #(edge-summary system-by-id %)
+                                    (take max-fanout-decision-edges
+                                          (sort-by :source-id edges)))}
+                      {:scope {:target-kind :system-node
+                               :kind :external-api}
+                       :evidence-ids (mapcat edge-evidence-ids edges)
+                       :recommended-actions [:reject-external-api
+                                             :none
+                                             :investigate]})))))
+         (sort-by (fn [decision]
+                    [(- (long (get-in decision [:data :edge-count] 0)))
+                     (:target decision)]))
+         (take max-maintenance-decisions-per-kind)
+         vec)))
+
 (defn- cluster-bridge-decisions
   [project-id basis system-by-id semantic-edges clusters]
   (let [cluster-by-source (into {}
@@ -793,6 +940,8 @@
   [project-id basis system-by-id semantic-edges orphaned clusters]
   (->> (concat (ambiguous-edge-decisions project-id basis system-by-id semantic-edges)
                (cluster-bridge-decisions project-id basis system-by-id semantic-edges clusters)
+               (supporting-edge-fanout-decisions project-id basis system-by-id semantic-edges)
+               (support-only-external-api-decisions project-id basis system-by-id semantic-edges)
                (orphan-decisions project-id basis orphaned))
        (sort-by (fn [decision]
                   [(severity-rank (:severity decision))

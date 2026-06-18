@@ -25,6 +25,35 @@
     (spit file content)
     (.getPath file)))
 
+(defn- test-system-node
+  [id label kind]
+  {:xt/id id
+   :project-id "noise"
+   :repo-id (if (= :external-api kind) "__external" "app")
+   :system-key label
+   :label label
+   :kind kind
+   :source :test
+   :candidate-types []
+   :evidence []
+   :metrics {}
+   :aliases []
+   :active? true
+   :run-id "system-run:test"})
+
+(defn- test-system-edge
+  [id source target relation evidence-ids]
+  {:xt/id id
+   :project-id "noise"
+   :source-id source
+   :target-id target
+   :relation relation
+   :confidence 0.58
+   :evidence-ids evidence-ids
+   :rules ["test"]
+   :active? true
+   :run-id "system-run:test"})
+
 (deftest path-system-returns-neutral-structural-candidates
   (is (= {:system-key "path/bases/flows-api"
           :label "bases/flows-api"
@@ -155,6 +184,60 @@
           (is (every? :basis (:decision-queue maintenance)))
           (is (every? #(= :open (:status %)) (:decision-queue maintenance)))
           (is (<= (count (:edges graph-data)) (count (:edges raw-graph-data)))))))))
+
+(deftest maintenance-queues-bounded-noise-decisions
+  (let [xtdb-path (temp-dir "agraph-maintenance-noise-xtdb")
+        source "system:noise:app:path/source"
+        targets ["system:noise:app:path/target-a"
+                 "system:noise:app:path/target-b"
+                 "system:noise:app:path/target-c"]
+        external "system:noise:__external:external-api/noise.example"]
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (store/commit-system-graph!
+         xtdb
+         "noise"
+         {:nodes (concat [(test-system-node source "source" :candidate-system)
+                          (test-system-node external "noise.example" :external-api)]
+                         (map #(test-system-node % % :candidate-system) targets))
+          :edges (concat
+                  (map-indexed
+                   (fn [idx target]
+                     (test-system-edge
+                      (str "system-edge:noise:config-" idx)
+                      source
+                      target
+                      :shares-config
+                      [(str "e" idx "-1")
+                       (str "e" idx "-2")
+                       (str "e" idx "-3")
+                       (str "e" idx "-4")]))
+                   targets)
+                  [(test-system-edge "system-edge:noise:external"
+                                     source
+                                     external
+                                     :references
+                                     ["external-evidence"])])
+          :evidence []
+          :search-docs []})
+        (let [maintenance (project/maintain-project
+                           xtdb
+                           {:id "noise"
+                            :repos [{:id "app" :root "/tmp/app"}]}
+                           {})
+              by-kind (group-by :kind (:decision-queue maintenance))
+              fanout (first (:low-confidence-edge-fanout by-kind))
+              external-decision (first (:noisy-external-api by-kind))]
+          (is (some? fanout))
+          (is (= source (get-in fanout [:data :source :xt/id])))
+          (is (= 3 (get-in fanout [:data :edge-count])))
+          (is (= 3 (count (get-in fanout [:data :mapPatch]))))
+          (is (contains? (set (:recommended-actions fanout))
+                         :set-edge-visibility))
+          (is (some? external-decision))
+          (is (= external (:target external-decision)))
+          (is (contains? (set (:recommended-actions external-decision))
+                         :reject-external-api)))))))
 
 (deftest container-image-artifacts-connect-producers-to-deployment-manifests
   (let [xtdb-path (temp-dir "agraph-image-xtdb")
