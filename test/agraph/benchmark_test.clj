@@ -1547,11 +1547,17 @@
     (is (= [{:name "broken"
              :path "src/app.clj"
              :rank 1
-             :kind "function"}
+             :kind "function"
+             :confidence 1.0
+             :reason "AGraph context doc \"broken\" references src/app.clj lines 2-4."
+             :evidence ["context-doc:src/app.clj lines 2-4 provenance=retrieved-doc"]}
             {:name "missing"
              :path "src/missing.clj"
              :rank 3
-             :kind nil}]
+             :kind "unknown"
+             :confidence 1.0
+             :reason "AGraph context doc \"missing\" references src/missing.clj."
+             :evidence ["context-doc:src/missing.clj provenance=retrieved-doc"]}]
            (:suspectedSymbols result)))
     (is (= ["agraph ask 'broken app' --project fixture"] (:commands result)))
     (is (= ["Context warning."] (:warnings result)))
@@ -2109,6 +2115,21 @@
              :evidence ["context-doc:src/app.clj lines 2-4 provenance=retrieved-doc"]
              :reason "AGraph context doc \"app/broken\" from src/app.clj lines 2-4 with provenance retrieved-doc."}]
            (:topFiles hints)))
+    (is (= [{:name "app/broken"
+             :path "src/app.clj"
+             :rank 1
+             :kind "function"
+             :confidence 1.0
+             :reason "AGraph context doc \"app/broken\" references src/app.clj lines 2-4."
+             :evidence ["context-doc:src/app.clj lines 2-4 provenance=retrieved-doc"]}
+            {:name "missing"
+             :path "src/missing.clj"
+             :rank 2
+             :kind "unknown"
+             :confidence 1.0
+             :reason "AGraph context doc \"missing\" references src/missing.clj."
+             :evidence ["context-doc:src/missing.clj provenance=retrieved-doc"]}]
+           (:topSymbols hints)))
     (is (= [{:rank 1
              :path "src/app.clj"
              :heading "app/broken"

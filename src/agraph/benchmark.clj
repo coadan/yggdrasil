@@ -2070,12 +2070,26 @@
   (->> (:docs packet)
        (map-indexed
         (fn [idx doc]
-          (let [source (:source doc)]
+          (let [source (:source doc)
+                path (:path source)]
             (when (and (:path source) (:heading source))
               {:name (:heading source)
-               :path (:path source)
+               :path path
                :rank (inc idx)
-               :kind (some-> (:definitionKind source) name)}))))
+               :kind (or (some-> (:definitionKind source) name)
+                         "unknown")
+               :confidence (bounded-confidence (:score doc))
+               :reason (str "AGraph context doc "
+                            (pr-str (:heading source))
+                            " references "
+                            path
+                            (line-label source)
+                            ".")
+               :evidence [(str "context-doc:"
+                               path
+                               (line-label source)
+                               " provenance="
+                               (or (:provenance doc) "unknown"))]}))))
        (keep identity)
        (reduce (fn [best row]
                  (let [k [(:path row) (:name row)]]
