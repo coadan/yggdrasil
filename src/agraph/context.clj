@@ -787,45 +787,49 @@
 
 (defn- capability-counts
   [xtdb overlay {:keys [project-id repo-id read-context]}]
-  (merge
-   {:files (scoped-active-count xtdb (:files store/tables)
-                                {:project-id project-id
-                                 :repo-id repo-id
-                                 :read-context read-context})
-    :nodes (count (filter active-row?
-                          (query/all-nodes xtdb {:project-id project-id
-                                                 :repo-id repo-id
-                                                 :read-context read-context})))
-    :edges (count (filter active-row?
-                          (query/all-edges xtdb {:project-id project-id
-                                                 :repo-id repo-id
-                                                 :read-context read-context})))
-    :chunks (count (filter active-row?
-                           (query/all-chunks xtdb {:project-id project-id
-                                                   :repo-id repo-id
-                                                   :read-context read-context})))
-    :search-docs (count (query/all-search-docs xtdb {:project-id project-id
+  (let [nodes (filter active-row?
+                      (query/all-nodes xtdb {:project-id project-id
+                                             :repo-id repo-id
+                                             :read-context read-context}))
+        edges (filter active-row?
+                      (query/all-edges xtdb {:project-id project-id
+                                             :repo-id repo-id
+                                             :read-context read-context}))
+        activity-events (activity/all-events xtdb {:project-id project-id
+                                                   :read-context read-context})]
+    (merge
+     {:files (scoped-active-count xtdb (:files store/tables)
+                                  {:project-id project-id
+                                   :repo-id repo-id
+                                   :read-context read-context})
+      :nodes (count nodes)
+      :edges (count edges)
+      :external-packages (count (filter #(= :external-package (:kind %)) nodes))
+      :package-import-edges (count (filter #(= :imports-package (:relation %)) edges))
+      :chunks (count (filter active-row?
+                             (query/all-chunks xtdb {:project-id project-id
+                                                     :repo-id repo-id
+                                                     :read-context read-context})))
+      :search-docs (count (query/all-search-docs xtdb {:project-id project-id
+                                                       :repo-id repo-id
+                                                       :read-context read-context}))
+      :embeddings (count (query/all-embeddings xtdb {:project-id project-id
                                                      :repo-id repo-id
                                                      :read-context read-context}))
-    :embeddings (count (query/all-embeddings xtdb {:project-id project-id
-                                                   :repo-id repo-id
-                                                   :read-context read-context}))
-    :system-nodes (count (query/all-system-nodes xtdb {:project-id project-id
+      :system-nodes (count (query/all-system-nodes xtdb {:project-id project-id
+                                                         :read-context read-context}))
+      :system-edges (count (query/all-system-edges xtdb {:project-id project-id
+                                                         :read-context read-context}))
+      :activity-items (count (activity/all-items xtdb {:project-id project-id
                                                        :read-context read-context}))
-    :system-edges (count (query/all-system-edges xtdb {:project-id project-id
-                                                       :read-context read-context}))
-    :activity-items (count (activity/all-items xtdb {:project-id project-id
-                                                     :read-context read-context}))
-    :activity-events (count (activity/all-events xtdb {:project-id project-id
-                                                       :read-context read-context}))
-    :validation-events (count (filter #(= :validation (:event-kind %))
-                                      (activity/all-events xtdb {:project-id project-id
-                                                                 :read-context read-context})))
-    :diagnostics (count (filter active-row?
-                                (query/all-diagnostics xtdb {:project-id project-id
-                                                             :repo-id repo-id
-                                                             :read-context read-context})))}
-   (overlay-counts overlay)))
+      :activity-events (count activity-events)
+      :validation-events (count (filter #(= :validation (:event-kind %))
+                                        activity-events))
+      :diagnostics (count (filter active-row?
+                                  (query/all-diagnostics xtdb {:project-id project-id
+                                                               :repo-id repo-id
+                                                               :read-context read-context})))}
+     (overlay-counts overlay))))
 
 (defn- retrieval-summary
   [{:keys [retriever embedding-client]}]
@@ -843,6 +847,7 @@
   [counts]
   (cond-> []
     (pos? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
+    (pos? (+ (:external-packages counts) (:package-import-edges counts))) (conj :dependencies)
     (pos? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
     (pos? (:embeddings counts)) (conj :embeddings)
     (pos? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)

@@ -30,11 +30,17 @@ The packet schema is `agraph.context/v1`:
   },
   "answerability": {
     "status": "limited",
-    "available": ["source-graph", "docs"],
+    "available": ["source-graph", "dependencies", "docs"],
     "missing": ["embeddings", "system-graph", "activity", "validation-history"],
     "weak": [],
     "unsupported": ["remote-work", "session-history"],
-    "counts": {"nodes": 120, "search-docs": 40, "activity-items": 0},
+    "counts": {
+      "nodes": 120,
+      "external-packages": 12,
+      "package-import-edges": 8,
+      "search-docs": 40,
+      "activity-items": 0
+    },
     "retrieval": {"requested": "auto", "effective": "lexical", "fallback?": true},
     "warnings": [],
     "next": []
@@ -63,15 +69,17 @@ agent has a concrete question and needs the smaller query-scoped
 `answerability` packet plus matching entities, edges, docs, and activity.
 
 - `status`: `ready`, `limited`, or `empty`
-- `available`: populated evidence planes, such as `source-graph`, `docs`,
-  `system-graph`, `embeddings`, `activity`, `validation-history`, or
-  `map-overlay`
+- `available`: populated evidence planes, such as `source-graph`,
+  `dependencies`, `docs`, `system-graph`, `embeddings`, `activity`,
+  `validation-history`, or `map-overlay`
 - `missing`: supported evidence planes with no useful rows for this project or
   read context
 - `weak`: evidence exists, but did not match this query well
 - `unsupported`: useful evidence planes AGraph cannot model yet, currently
   `remote-work` and `session-history`
-- `counts`: compact row counts used to make the decision
+- `counts`: compact row counts used to make the decision, including
+  `external-packages` and `package-import-edges` when dependency facts are
+  indexed
 - `retrieval`: requested and effective retriever, including lexical fallback
 - `warnings`: short mechanical explanations
 - `next`: bounded follow-up commands

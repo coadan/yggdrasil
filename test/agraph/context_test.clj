@@ -4,6 +4,7 @@
             [agraph.coverage :as coverage]
             [agraph.graph :as graph]
             [agraph.query :as query]
+            [agraph.xtdb :as store]
             [clojure.test :refer [deftest is]]))
 
 (deftest inferred-docs-include-source-chunk-for-retrieved-node-result
@@ -108,6 +109,49 @@
                   [])]
     (is (some #{"Indexer diagnostics are present; inspect source coverage before relying on missing facts."}
               warnings))))
+
+(deftest answerability-exposes-indexed-dependency-plane
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files []
+                                   :agraph/index-diagnostics []
+                                   []))
+                query/all-nodes (fn [& _]
+                                  [{:xt/id "package:npm:react"
+                                    :kind :external-package
+                                    :active? true}
+                                   {:xt/id "node:src.app"
+                                    :kind :namespace
+                                    :active? true}])
+                query/all-edges (fn [& _]
+                                  [{:xt/id "edge:src.app-react"
+                                    :relation :imports-package
+                                    :active? true}
+                                   {:xt/id "edge:other"
+                                    :relation :imports
+                                    :active? true}])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                query/all-diagnostics (fn [& _] [])
+                activity/all-items (fn [& _] [])
+                activity/all-events (fn [& _] [])]
+    (let [answerability (#'context/answerability
+                         :xtdb
+                         {}
+                         {:project-id "fixture"
+                          :repo-id "app"
+                          :retriever :lexical}
+                         {:entity-count 1
+                          :doc-count 0
+                          :activity-count 0
+                          :validation-count 0})]
+      (is (contains? (set (:available answerability)) :dependencies))
+      (is (not (contains? (set (:missing answerability)) :dependencies)))
+      (is (= 1 (get-in answerability [:counts :external-packages])))
+      (is (= 1 (get-in answerability [:counts :package-import-edges]))))))
 
 (deftest context-packet-includes-search-instrumentation
   (with-redefs [query/search-report (fn [_ query-text opts]
