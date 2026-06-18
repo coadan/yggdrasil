@@ -32,6 +32,8 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/mobile/ios/PanelViewModel.swift")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/mobile/ios/PanelService.m")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/mobile/ios/Panels.entitlements")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/mobile/ios/Debug.xcconfig")
@@ -972,6 +974,58 @@
                                       :path "Broken.swift"
                                       :kind :swift
                                       :content "public class Broken {\n"})
+        diagnostic (first (:diagnostics result))]
+    (is (= :parse (:stage diagnostic)))
+    (is (str/includes? (:message diagnostic) "unbalanced curly braces"))))
+
+(deftest extracts-objective-c-imports-declarations-and-methods
+  (let [file (fs/file-record "test/fixtures/extractor-repo"
+                             "test/fixtures/extractor-repo/mobile/ios/PanelService.m")
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        kinds-by-label (into {} (map (juxt :label :kind)) (:nodes result))
+        chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))
+        relations (frequencies (map :relation (:edges result)))
+        import-targets (set (map :target-id
+                                 (filter #(= :imports (:relation %))
+                                         (:edges result))))]
+    (is (= :objective-c (:kind file)))
+    (is (= :objective-c (fs/file-kind "PanelService.mm")))
+    (is (contains? labels "mobile.ios.PanelService"))
+    (is (= :forward-class (kinds-by-label "mobile.ios.PanelService/PanelClient")))
+    (is (= :enum (kinds-by-label "mobile.ios.PanelService/PanelState")))
+    (is (= :protocol (kinds-by-label "mobile.ios.PanelService/PanelStore")))
+    (is (= :method (kinds-by-label "mobile.ios.PanelService/PanelStore.loadPanel")))
+    (is (= :interface (kinds-by-label "mobile.ios.PanelService/PanelService")))
+    (is (= :implementation (kinds-by-label "mobile.ios.PanelService/PanelService.implementation")))
+    (is (= :class-method (kinds-by-label "mobile.ios.PanelService/PanelService.sharedService")))
+    (is (= :method (kinds-by-label "mobile.ios.PanelService/PanelService.loadPanel")))
+    (is (= :category (kinds-by-label "mobile.ios.PanelService/PanelService.Testing")))
+    (is (= :method (kinds-by-label "mobile.ios.PanelService/PanelService.Testing.resetForTesting")))
+    (is (= 3 (get relations :imports 0)))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "Foundation/Foundation.h")))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "PanelClient.h")))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "UIKit")))
+    (is (= :code-definition
+           (get-in chunks-by-label ["mobile.ios.PanelService/PanelService.loadPanel" :kind])))
+    (is (= :method
+           (get-in chunks-by-label ["mobile.ios.PanelService/PanelService.loadPanel" :definition-kind])))
+    (is (str/includes?
+         (get-in chunks-by-label ["mobile.ios.PanelService/PanelService.loadPanel" :text])
+         "[Panel new]"))
+    (is (= [:objective-c-file]
+           (->> (:chunks result)
+                (remove #(= :code-definition (:kind %)))
+                (mapv :kind))))
+    (is (empty? (:diagnostics result))))
+  (let [result (extract/extract-file "run/test"
+                                     {:file-id "file:Broken.m"
+                                      :path "Broken.m"
+                                      :kind :objective-c
+                                      :content "@implementation Broken\n- (void)run {\n@end\n"})
         diagnostic (first (:diagnostics result))]
     (is (= :parse (:stage diagnostic)))
     (is (str/includes? (:message diagnostic) "unbalanced curly braces"))))

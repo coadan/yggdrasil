@@ -26,6 +26,9 @@ classification in core extractors; store bounded facts and relationships first.
 - .NET language breadth: C#, F#, and Visual Basic source files under the
   `:dotnet` scanner kind. Extracts namespaces, imports, type/module
   declarations, functions/methods, properties, and source chunks.
+- Objective-C and Objective-C++: `.m` and `.mm` source files. Extracts imports,
+  forward class declarations, interfaces, implementations, protocols,
+  categories, enum typedefs, methods, class methods, and source chunks.
 
 ## Future Candidates
 

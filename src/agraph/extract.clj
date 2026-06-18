@@ -30,6 +30,7 @@
    :java "java/v2"
    :kotlin "kotlin/v1"
    :swift "swift/v1"
+   :objective-c "objective-c/v1"
    :dotnet "dotnet/v1"
    :ruby "ruby/v1"
    :cpp "cpp/v1"
@@ -1406,7 +1407,7 @@
   (-> path
       (str/replace #"\.d\.ts$" "")
       (str/replace #"\.rb\.template$" "")
-      (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|mjs|cjs|jsx|js|odin|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
+      (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|m|mm|mjs|cjs|jsx|js|odin|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
       (str/replace #"/" ".")
       (str/replace #"-" "_")))
 
@@ -3435,6 +3436,196 @@
                                                "C/C++")]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges include-edges))
+     :chunks (into [chunk] definition-chunks)
+     :diagnostics diagnostics}))
+
+(defn- objective-c-module-name
+  [path]
+  (source-module-name path))
+
+(defn- objective-c-imports
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (mapcat
+        (fn [[idx line]]
+          (concat
+           (map (fn [[_ target]]
+                  {:target target
+                   :source-line (inc idx)})
+                (re-seq #"^\s*#\s*import\s*[<\"]([^>\"]+)[>\"].*" line))
+           (map (fn [[_ target]]
+                  {:target target
+                   :source-line (inc idx)})
+                (re-seq #"^\s*@import\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;.*" line)))))
+       distinct
+       vec))
+
+(defn- objective-c-definition-kind
+  [kind]
+  (case kind
+    "interface" :interface
+    "implementation" :implementation
+    "protocol" :protocol
+    "category" :category
+    "enum" :enum
+    "class" :forward-class
+    :objective-c-symbol))
+
+(defn- objective-c-type-line
+  [idx line]
+  (or (when-let [[_ kind name category]
+                 (re-matches
+                  #"^\s*@(interface|implementation)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\))?.*"
+                  line)]
+        (let [name (if (str/blank? category)
+                     name
+                     (str name "." category))]
+          {:kind (objective-c-definition-kind (if (str/blank? category)
+                                                kind
+                                                "category"))
+           :name (if (and (= "implementation" kind)
+                          (str/blank? category))
+                   (str name ".implementation")
+                   name)
+           :container name
+           :public? true
+           :source-line (inc idx)
+           :text line}))
+      (when-let [[_ name]
+                 (re-matches #"^\s*@protocol\s+([A-Za-z_][A-Za-z0-9_]*)\b.*"
+                             line)]
+        {:kind :protocol
+         :name name
+         :container name
+         :public? true
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ names]
+                 (re-matches #"^\s*@class\s+([^;]+);.*" line)]
+        {:kind :forward-class
+         :name (-> names
+                   (str/split #",")
+                   first
+                   str/trim)
+         :public? true
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ name]
+                 (re-matches
+                  #"^\s*typedef\s+NS_(?:CLOSED_)?(?:ENUM|OPTIONS)\s*\([^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\).*"
+                  line)]
+        {:kind :enum
+         :name name
+         :public? true
+         :source-line (inc idx)
+         :text line})))
+
+(defn- objective-c-method-line
+  [current-type idx line content line-starts]
+  (when current-type
+    (when-let [[_ marker name]
+               (re-matches #"^\s*([-+])\s*\([^)]*\)\s*([A-Za-z_][A-Za-z0-9_]*)\b.*"
+                           line)]
+      (let [start (+ (get line-starts idx 0)
+                     (or (str/index-of line marker) 0))]
+        {:kind (if (= "+" marker) :class-method :method)
+         :name (str (:name current-type) "." name)
+         :public? true
+         :source-line (inc idx)
+         :text (or (balanced-curly-block content start) line)}))))
+
+(defn- objective-c-definition-forms
+  [content]
+  (let [lines (vec (str/split-lines content))
+        line-starts (line-start-offsets content)]
+    (loop [remaining (map-indexed vector lines)
+           type-stack []
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [end-type? (boolean (re-matches #"^\s*@end\b.*" line))
+              type-stack (if end-type? (pop type-stack) type-stack)
+              current-type (peek type-stack)
+              type-form (when-not end-type?
+                          (objective-c-type-line idx line))
+              method-form (when-not type-form
+                            (objective-c-method-line current-type
+                                                     idx
+                                                     line
+                                                     content
+                                                     line-starts))
+              type-stack* (cond-> type-stack
+                            (:container type-form)
+                            (conj {:name (:container type-form)}))]
+          (recur (rest remaining)
+                 type-stack*
+                 (cond-> out
+                   type-form (conj (dissoc type-form :container))
+                   method-form (conj method-form))))
+        out))))
+
+(defn extract-objective-c
+  "Extract bounded import and declaration facts from Objective-C source."
+  [run-id {:keys [id-scope file-id path content]}]
+  (let [module-name (objective-c-module-name path)
+        ns-node (namespace-node run-id id-scope file-id path module-name)
+        lines (vec (str/split-lines content))
+        def-forms (objective-c-definition-forms content)
+        defs (mapv (fn [{:keys [kind name public? source-line]}]
+                     (let [label (str module-name "/" name)]
+                       {:xt/id (node-id id-scope :symbol label)
+                        :label label
+                        :kind kind
+                        :file-id file-id
+                        :path path
+                        :namespace module-name
+                        :name name
+                        :public? public?
+                        :source-line source-line
+                        :tokens (text/tokenize label)
+                        :active? true
+                        :run-id run-id}))
+                   def-forms)
+        define-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           defs)
+        import-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (node-id id-scope :namespace (:target %))
+                                      :imports
+                                      :extracted
+                                      (:source-line %))
+                           (objective-c-imports lines))
+        chunk (source-text-chunk run-id
+                                 id-scope
+                                 file-id
+                                 path
+                                 :objective-c-file
+                                 module-name
+                                 content
+                                 jvm-family-file-chunk-lines)
+        definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
+                                  (source-definition-chunk
+                                   run-id
+                                   id-scope
+                                   file-id
+                                   path
+                                   (str module-name "/" name)
+                                   kind
+                                   source-line
+                                   text))
+                                def-forms)
+        diagnostics (curly-balance-diagnostics run-id
+                                               file-id
+                                               path
+                                               content
+                                               "Objective-C")]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges))
      :chunks (into [chunk] definition-chunks)
      :diagnostics diagnostics}))
 
@@ -11140,6 +11331,7 @@
                (extract-dotnet run-id file))
      :ruby (extract-ruby run-id file)
      :cpp (extract-cpp run-id file)
+     :objective-c (extract-objective-c run-id file)
      :dart (extract-dart run-id file)
      :scala (extract-scala run-id file)
      :elixir (extract-elixir run-id file)

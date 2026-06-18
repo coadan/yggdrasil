@@ -12,7 +12,7 @@
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".h" ".hcl" ".hs" ".ini"
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".lua"
-    ".kt" ".kts" ".md" ".mjs" ".mo" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
+    ".kt" ".kts" ".m" ".md" ".mjs" ".mm" ".mo" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
     ".nix" ".odin" ".out" ".prisma" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
     ".service" ".sln" ".socket" ".sql" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".ttf"
     ".license" ".template" ".toml" ".ts" ".tsx" ".txt" ".vb" ".vbproj" ".vue" ".xcconfig"
@@ -241,6 +241,7 @@
         ".java" :java
         (".js" ".jsx" ".mjs" ".cjs") :javascript
         (".kt" ".kts") :kotlin
+        (".m" ".mm") :objective-c
         ".swift" :swift
         (".ts" ".tsx") :typescript
         ".proto" :protobuf

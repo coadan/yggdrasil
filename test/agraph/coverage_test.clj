@@ -123,6 +123,7 @@
     (spit-file! root "packaging/homebrew/Formula/demo.rb.template" "class Demo < Formula\nend\n")
     (spit-file! root "src/native/panel_service.cpp" "#include <vector>\nint build_panel() { return 1; }\n")
     (spit-file! root "src/native/panel_service.hpp" "class PanelService {};\n")
+    (spit-file! root "mobile/ios/PanelService.m" "#import <Foundation/Foundation.h>\n@implementation PanelService\n@end\n")
     (spit-file! root "flutter/lib/panel_store.dart" "class PanelStore {}\n")
     (spit-file! root "flutter/pubspec.yaml" "name: panels_flutter\ndependencies:\n  http: ^1.0.0\n")
     (spit-file! root "src/scala/PanelService.scala" "package demo\nclass PanelService\n")
@@ -197,8 +198,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 166
-              :supported 165
+      (is (= {:files 167
+              :supported 166
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -212,6 +213,7 @@
       (is (= 1 (:count (row-by :kind "java" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "kotlin" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "swift" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "objective-c" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "dotnet" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "ruby" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "cpp" (:files-by-kind report)))))
@@ -280,6 +282,9 @@
                 (:extractors report)))
       (is (some #(and (= "swift" (:kind %))
                       (= "swift/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "objective-c" (:kind %))
+                      (= "objective-c/v1" (:extractor-version %)))
                 (:extractors report)))
       (is (some #(and (= "dotnet" (:kind %))
                       (= "dotnet/v1" (:extractor-version %)))
