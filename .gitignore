@@ -6,3 +6,5 @@ target/
 /.clj-kondo/.cache/
 __pycache__/
 *.pyc
+node_modules/
+report-ui/node_modules/

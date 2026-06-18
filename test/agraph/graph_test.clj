@@ -22,7 +22,6 @@
         (let [overview (graph/overview-graph xtdb {:limit 20})
               deps (graph/deps-graph xtdb "sample.core" {:depth 1 :limit 20})
               query (graph/query-graph xtdb "greeting" {:retriever :lexical :limit 5})
-              html-path (graph/write-html! (str out-dir "/graph.html") query)
               json-path (graph/write-canonical! (str out-dir "/graph.json") query)
               exported (json/read-json (slurp json-path) :key-fn keyword)]
           (is (seq (:nodes overview)))
@@ -31,6 +30,4 @@
           (is (= graph/schema (:schema exported)))
           (is (= (:nodes query) (:nodes exported)))
           (is (= (:edges query) (:edges exported)))
-          (is (.exists (io/file html-path)))
-          (is (.exists (io/file json-path)))
-          (is (re-find #"const graph =" (slurp html-path))))))))
+          (is (.exists (io/file json-path))))))))

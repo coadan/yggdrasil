@@ -6,6 +6,7 @@
             [agraph.context :as context]
             [agraph.coverage :as coverage]
             [agraph.cursor :as cursor]
+            [agraph.evidence :as evidence]
             [agraph.graph :as graph]
             [agraph.hook :as hook]
             [agraph.init :as init]
@@ -563,6 +564,9 @@
                                    {:schema report/schema
                                     :project-id (:id project)
                                     :out (:out opts)
+                                    :evidence {:schema evidence/schema
+                                               :available [:source-graph]
+                                               :counts {:files 1}}
                                     :files {:index "index.html"}})]
       (let [out (with-out-str
                   (cli/dispatch "start" [root
@@ -582,6 +586,8 @@
         (is (not (contains? parsed :check-report)))
         (is (not (contains? parsed :semantic-connections)))
         (is (= report-out (get-in parsed [:report :out])))
+        (is (= "agraph.evidence/v1" (get-in parsed [:evidence :schema])))
+        (is (= ["source-graph"] (get-in parsed [:evidence :available])))
         (is (= {:scanned 0
                 :indexed 0
                 :skipped 0
@@ -824,6 +830,36 @@
       (is (= "fixture" (:project-id parsed)))
       (is (= {:files 2 :supported 1 :skipped 1}
              (:totals parsed))))))
+
+(deftest sync-inspect-json-includes-evidence-surface
+  (with-redefs [project/read-project (constantly project-fixture)
+                graph-map/file-exists? (constantly false)
+                store/with-node (fn [_ f] (f :xtdb))
+                evidence/summarize (fn [xtdb project opts]
+                                     {:schema evidence/schema
+                                      :xtdb xtdb
+                                      :project-id (:id project)
+                                      :config-path (:config-path opts)
+                                      :available [:source-graph :docs]
+                                      :counts {:files 2
+                                               :nodes 3
+                                               :edges 4}
+                                      :next ["agraph ask \"where is this handled?\" --project fixture --json"]})]
+    (let [out (with-out-str
+                (cli/dispatch "sync" ["inspect" "project.edn" "--json"]))
+          parsed (read-json-output out)]
+      (is (= "agraph.project.inspect/v1" (:schema parsed)))
+      (is (= "fixture" (get-in parsed [:project :id])))
+      (is (= [{:id "app"
+               :root "/tmp/app"
+               :role "application"}]
+             (:repos parsed)))
+      (is (= "agraph.evidence/v1" (get-in parsed [:evidence :schema])))
+      (is (= ["source-graph" "docs"] (get-in parsed [:evidence :available])))
+      (is (= {:files 2
+              :nodes 3
+              :edges 4}
+             (get-in parsed [:evidence :counts]))))))
 
 (deftest sync-activity-routes-through-project-config
   (let [calls (atom [])]

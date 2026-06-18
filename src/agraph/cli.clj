@@ -10,6 +10,7 @@
             [agraph.embedding :as embedding]
             [agraph.embedding.openai :as openai]
             [agraph.embedding.openrouter :as openrouter]
+            [agraph.evidence :as evidence]
             [agraph.graph :as graph]
             [agraph.hash :as hash]
             [agraph.hook :as hook]
@@ -263,17 +264,59 @@
   (println "- embedded" embedded)
   (println "- skipped" skipped))
 
+(defn- project-inspect-result
+  [xtdb project {:keys [config-path map-path]}]
+  (let [overlay (when (and map-path (graph-map/file-exists? map-path))
+                  (graph-map/read-map map-path))]
+    {:schema "agraph.project.inspect/v1"
+     :project {:id (:id project)
+               :name (:name project)
+               :config-path (or config-path (:path project))}
+     :repos (mapv #(select-keys % [:id :root :role]) (:repos project))
+     :evidence (evidence/summarize xtdb
+                                   project
+                                   {:map-overlay overlay
+                                    :config-path (or config-path (:path project))
+                                    :map-path map-path})}))
+
+(defn- print-evidence-summary
+  [{:keys [available counts next]}]
+  (println)
+  (println "## Evidence Surface")
+  (println "- available"
+           (if (seq available)
+             (str/join ", " (map name available))
+             "none"))
+  (println "- files" (:files counts 0))
+  (println "- nodes" (:nodes counts 0))
+  (println "- edges" (:edges counts 0))
+  (println "- docs" (:search-docs counts 0))
+  (println "- packages" (:packages counts 0))
+  (println "- systems" (+ (:system-nodes counts 0) (:system-edges counts 0)))
+  (println "- diagnostics" (:diagnostics counts 0))
+  (when (seq next)
+    (println)
+    (println "## Next")
+    (doseq [command next]
+      (println "-" command))))
+
 (defn- print-project-inspect
-  [{:keys [id repos path] project-name :name}]
+  [{:keys [project repos evidence]}]
   (println "# Project")
-  (println "- id" id)
-  (println "- name" project-name)
-  (when path
-    (println "- config" path))
+  (println "- id" (:id project))
+  (println "- name" (:name project))
+  (when (:config-path project)
+    (println "- config" (:config-path project)))
   (println)
   (println "## Repos")
   (doseq [{:keys [id root role]} repos]
-    (println "-" id (clojure.core/name role) root)))
+    (println "-" id (clojure.core/name role) root))
+  (print-evidence-summary evidence))
+
+(defn- timing-total-text
+  [stats]
+  (when-let [total-ms (get-in stats [:timings-ms :total-ms])]
+    (str ", " total-ms "ms total")))
 
 (defn- print-project-index-summary
   [{:keys [project-id status repos]}]
@@ -290,7 +333,7 @@
              (:files-indexed stats)
              "indexed,"
              (:files-skipped stats)
-             "skipped")))
+             (str "skipped" (or (timing-total-text stats) "")))))
 
 (defn- print-project-add-repo-summary
   [{:keys [project repo index-summary system-summary next]}]
@@ -359,7 +402,7 @@
                (:files-indexed stats)
                "indexed,"
                (:files-skipped stats)
-               "skipped")))
+               (str "skipped" (or (timing-total-text stats) "")))))
   (when system-summary
     (println "- system-evidence" (:system-evidence system-summary))
     (println "- system-nodes" (:system-nodes system-summary))
@@ -1009,7 +1052,17 @@
       (let [config-path (first (positional-args action-args))]
         (when-not config-path
           (throw (ex-info "Missing project config path." {:usage (usage)})))
-        (print-project-inspect (project/read-project config-path)))
+        (let [project (project/read-project config-path)
+              map-path (default-map-path action-args)]
+          (store/with-node (store/storage-path)
+            (fn [xtdb]
+              (let [result (project-inspect-result xtdb
+                                                   project
+                                                   {:config-path config-path
+                                                    :map-path map-path})]
+                (if (json-output? action-args)
+                  (print-json result)
+                  (print-project-inspect result)))))))
 
       :add-repo
       (sync-add-repo! action-args)
@@ -1638,6 +1691,7 @@
            :map map-path
            :report (compact-report report-result)
            :counts (compact-counts sync-result activity-result)
+           :evidence (:evidence report-result)
            :next (start-next-commands (:id project)
                                       (:config start-info)
                                       map-path
@@ -2722,7 +2776,16 @@
         (let [project (project/read-project config-path)]
           (case action
             :inspect
-            (print-project-inspect project)
+            (store/with-node (store/storage-path)
+              (fn [xtdb]
+                (let [map-path (default-map-path project-args)
+                      result (project-inspect-result xtdb
+                                                     project
+                                                     {:config-path config-path
+                                                      :map-path map-path})]
+                  (if (json-output? project-args)
+                    (print-json result)
+                    (print-project-inspect result)))))
 
             :index
             (if (dry-run? project-args)
@@ -2778,7 +2841,7 @@
                (graph/write-canonical! (graph-json-output graph-args mode value) data)
                data)
               (print-graph-output
-               (graph/write-html! (graph-output graph-args mode value) data)
+               (report/write-graph-viewer! (graph-output graph-args mode value) data)
                data))))))
 
     "deps"

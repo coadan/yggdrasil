@@ -1,0 +1,300 @@
+:root {
+  color: #0f172a;
+  background: #f8fafc;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.topbar {
+  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  padding: 18px 24px;
+}
+
+h1,
+h2 {
+  letter-spacing: 0;
+  margin: 0;
+}
+
+h1 {
+  font-size: 24px;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+h3 {
+  font-size: 14px;
+  letter-spacing: 0;
+  margin: 0 0 12px;
+}
+
+.eyebrow {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+
+.mode-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.mode-tabs a {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #334155;
+  padding: 6px 10px;
+  text-decoration: none;
+}
+
+.mode-tabs a[aria-current="page"] {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.report-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 24px;
+}
+
+.span-2 {
+  grid-column: 1 / -1;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.panel-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.metric-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.count-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.count-card span,
+.muted {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.count-card strong {
+  display: block;
+  font-size: 22px;
+  margin-top: 4px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.chips span {
+  background: #e0f2fe;
+  border-radius: 999px;
+  color: #075985;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.command-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+code {
+  background: #f1f5f9;
+  border-radius: 4px;
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 4px 6px;
+}
+
+table {
+  border-collapse: collapse;
+  margin-top: 12px;
+  width: 100%;
+}
+
+td {
+  border-top: 1px solid #e2e8f0;
+  padding: 8px 0;
+}
+
+td:last-child {
+  text-align: right;
+}
+
+.graph-canvas {
+  height: 520px;
+  min-height: 320px;
+  position: relative;
+}
+
+.graph-workspace {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.graph-main {
+  min-width: 0;
+}
+
+.graph-toolbar {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(180px, 1.5fr) repeat(4, minmax(120px, 1fr)) auto;
+  margin-bottom: 12px;
+}
+
+.graph-toolbar label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.graph-toolbar span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.graph-toolbar input,
+.graph-toolbar select {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #0f172a;
+  font: inherit;
+  min-width: 0;
+  padding: 7px 8px;
+}
+
+.graph-toolbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.graph-toolbar-actions button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #334155;
+  cursor: pointer;
+  font: inherit;
+  padding: 7px 10px;
+}
+
+.graph-toolbar-actions button:hover {
+  border-color: #64748b;
+}
+
+.graph-inspector {
+  border-left: 1px solid #e2e8f0;
+  min-width: 0;
+  padding-left: 16px;
+}
+
+.detail-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.detail-list div {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 8px;
+}
+
+.detail-list dt {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.detail-list dd {
+  color: #0f172a;
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.graph-empty {
+  left: 16px;
+  position: absolute;
+  top: 16px;
+}
+
+.notice {
+  background: #fef3c7;
+  border-bottom: 1px solid #fde68a;
+  color: #92400e;
+  padding: 10px 24px;
+}
+
+@media (max-width: 860px) {
+  .topbar,
+  .report-grid {
+    padding: 16px;
+  }
+
+  .report-grid,
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .graph-workspace,
+  .graph-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .graph-inspector {
+    border-left: 0;
+    border-top: 1px solid #e2e8f0;
+    padding-left: 0;
+    padding-top: 16px;
+  }
+}

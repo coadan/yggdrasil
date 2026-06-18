@@ -23,3 +23,27 @@
               900)]
     (is (= ["src/Target.java"] (mapv #(get-in % [:source :path]) docs)))
     (is (true? (:retrievedSource (first docs))))))
+
+(deftest diversify-docs-promotes-distinct-source-files
+  (let [diversify-docs @#'context/diversify-docs
+        docs (diversify-docs
+              [{:target "chunk:a1"
+                :score 1.0
+                :retrievedSource true
+                :source {:repo "app"
+                         :path "src/A.java"
+                         :definitionKind :class}}
+               {:target "chunk:a2"
+                :score 0.9
+                :retrievedSource true
+                :source {:repo "app"
+                         :path "src/A.java"
+                         :definitionKind :method}}
+               {:target "chunk:b1"
+                :score 0.5
+                :retrievedSource true
+                :source {:repo "app"
+                         :path "src/B.java"
+                         :definitionKind :class}}])]
+    (is (= ["src/A.java" "src/B.java" "src/A.java"]
+           (mapv #(get-in % [:source :path]) docs)))))

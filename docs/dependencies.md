@@ -14,6 +14,7 @@ Required for native CLI use:
 Optional:
 
 - Babashka, for `bb` development shortcuts.
+- Node.js and npm, for rebuilding the React/MDX report viewer assets.
 - OpenRouter or OpenAI API key, for embedding-backed semantic retrieval.
 - Docker, for zero-install CLI usage.
 
@@ -23,8 +24,9 @@ deterministic text, JSON, EDN, TOML-ish, or YAML extraction adapters. Native CLI
 use does not require a Node.js toolchain, TypeScript compiler, Terraform binary,
 OpenAPI generator, or package-manager install.
 
-The graph viewer vendors Cytoscape.js in `resources/agraph/vendor/` so generated
-HTML reports work without a CDN. The canonical graph export remains plain
+The report and graph HTML viewer is built from `report-ui/` into
+`resources/agraph/report-ui/`. Runtime CLI use does not require Node when those
+compiled assets are present. The canonical graph export remains plain
 `agraph.graph/v2` JSON.
 
 ## Package Report
@@ -110,11 +112,14 @@ Recommended tools:
 - Babashka
 - Git
 - Python 3
+- Node.js and npm
 - Docker
 
 Validation commands:
 
 ```sh
+bb report-ui:build
+bb report-ui:test
 bb test
 bb lint
 bb format:check

@@ -12,6 +12,12 @@ Graph data has one maintained export contract: `agraph.graph/v2` JSON from
 `agraph view ... --format json`. The bundled HTML graph viewer consumes the same graph
 shape and should not require separate renderer-specific export formats.
 
+The React/MDX report viewer is a build-time asset. Contributors build it with
+`bb report-ui:build`, which writes compiled files under
+`resources/agraph/report-ui/`. Runtime commands such as `agraph report` and
+`agraph view ... --format html` copy those compiled assets into local bundles;
+installed users should not need Node for normal report or graph viewing.
+
 ## Native CLI
 
 Local install on macOS:
@@ -68,6 +74,9 @@ docker run --rm \
 For worktrees, mount the wrapper/workbench root rather than a nested worktree so
 Git metadata and `repos.json` can be resolved.
 
+Docker release images must include `resources/agraph/report-ui/`; they should
+not need Node installed to run `agraph report`.
+
 ## Homebrew
 
 The formula template lives at:
@@ -92,6 +101,10 @@ Release process:
    brew install --build-from-source ./Formula/agraph.rb
    agraph help
    ```
+
+Source releases used by Homebrew must include the compiled
+`resources/agraph/report-ui/` assets, or the formula needs to run
+`bb report-ui:build` during source installation.
 
 Do not put release-specific checksums in this repository until the upstream GitHub
 location and first tag are final.

@@ -161,14 +161,47 @@
   [file]
   (boolean (re-find #"(?m)\bdocker\s+build\b" (:content file))))
 
+(defn- line-break-index
+  [^String content ^long start]
+  (let [length (.length content)]
+    (loop [idx start]
+      (cond
+        (>= idx length) -1
+        (let [ch (.charAt content (int idx))]
+          (or (= \newline ch)
+              (= \return ch))) idx
+        :else (recur (inc idx))))))
+
+(defn- next-line-start
+  [^String content ^long break-idx]
+  (if (and (= \return (.charAt content (int break-idx)))
+           (< (inc break-idx) (.length content))
+           (= \newline (.charAt content (int (inc break-idx)))))
+    (+ break-idx 2)
+    (inc break-idx)))
+
+(defn- indexed-lines
+  [content]
+  (let [^String content (or content "")
+        length (.length content)]
+    (letfn [(step [start idx]
+              (lazy-seq
+               (when (< start length)
+                 (let [break-idx (line-break-index content start)]
+                   (if (neg? break-idx)
+                     [[idx (subs content start)]]
+                     (cons [idx (subs content start break-idx)]
+                           (step (next-line-start content break-idx)
+                                 (inc idx))))))))]
+      (step 0 0))))
+
 (defn- shell-container-image-facts
   [run-id project-id repo-id file]
   (when (= :shell (:kind file))
     (let [fact-kind (if (shell-build-file? file)
                       :container-image-producer
                       :container-image-consumer)]
-      (->> (str/split-lines (:content file))
-           (map-indexed vector)
+      (->> (indexed-lines (:content file))
            (mapcat (fn [[idx line]]
                      (let [line-no (inc idx)]
                        (keep (fn [value]
@@ -267,7 +300,7 @@
      (concat
       (mapcat (fn [[idx line]]
                 (line-facts run-id project-id repo-id file idx line))
-              (map-indexed vector (str/split-lines (:content file))))
+              (indexed-lines (:content file)))
       (dockerfile-producer-facts run-id project-id repo-id file)
       (shell-container-image-facts run-id project-id repo-id file)
       (yaml-facts run-id project-id repo-id file)))))

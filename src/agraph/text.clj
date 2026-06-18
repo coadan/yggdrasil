@@ -50,14 +50,22 @@
   (and (not (str/blank? token))
        (not (contains? stopwords token))))
 
+(defn- distinct-vec
+  [values]
+  (let [seen (java.util.HashSet.)
+        out (java.util.ArrayList.)]
+    (doseq [value values]
+      (when (.add seen value)
+        (.add out value)))
+    (vec out)))
+
 (defn tokenize
   "Return lowercase lexical tokens from text."
   [text]
   (->> (raw-tokens text)
        (mapcat expanded-token)
        (filter keep-token?)
-       distinct
-       vec))
+       distinct-vec))
 
 (defn tokenize-all
   "Return lowercase lexical tokens from text, preserving frequency."

@@ -109,6 +109,21 @@ printf '%s\n' '{"id":"demo","kind":"java","path":"Demo.java","content":"package 
   | .dev/parser-worker-venv/bin/python scripts/parser-worker.py
 ```
 
+Run AGraph with the experimental Java worker adapter:
+
+```sh
+AGRAPH_PARSER_WORKER=java \
+AGRAPH_PARSER_WORKER_PYTHON=.dev/parser-worker-venv/bin/python \
+bb bench agent-baseline .dev/benchmarks/oss-issue-replay.edn \
+  --case junit-framework-4587-console-uid-selector \
+  --out .dev/agraph/bench-junit-worker-java
+```
+
+When indexing a repository, AGraph batches changed worker-enabled files through
+one JSONL worker invocation before converting facts into canonical graph rows.
+Direct calls to `extract-file` still use a single-file fallback, so benchmark
+and production-style evaluations should go through normal indexing commands.
+
 Run the worker contract tests:
 
 ```sh

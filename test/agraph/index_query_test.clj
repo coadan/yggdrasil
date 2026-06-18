@@ -1,5 +1,6 @@
 (ns agraph.index-query-test
   (:require [agraph.dependency :as dependency]
+            [agraph.extract :as extract]
             [agraph.fs :as fs]
             [agraph.graph :as graph]
             [agraph.index :as index]
@@ -267,6 +268,72 @@
                           (= 1.0 (get-in % [:score-components :graph])))
                     results)))))))
 
+(deftest lexical-query-keeps-strong-lexical-results-ahead-of-weak-graph-neighbors
+  (store/with-node (temp-dir "agraph-query-graph-neighbor-rank-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:seed"
+                       :target-id "node:seed"
+                       :target-kind :node
+                       :file-id "file:seed"
+                       :path "src/seed.clj"
+                       :kind :var
+                       :label "demo/seed"
+                       :text "alpha"
+                       :tokens ["alpha"]
+                       :input-sha "seed"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:strong"
+                       :target-id "chunk:strong"
+                       :target-kind :chunk
+                       :file-id "file:strong"
+                       :path "src/strong.clj"
+                       :kind :code-definition
+                       :label "demo/strong"
+                       :text "alpha focus focus"
+                       :tokens ["alpha" "focus" "focus"]
+                       :input-sha "strong"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:neighbor"
+                       :target-id "node:neighbor"
+                       :target-kind :node
+                       :file-id "file:neighbor"
+                       :path "src/neighbor.clj"
+                       :kind :var
+                       :label "demo/neighbor"
+                       :text "demo/neighbor"
+                       :tokens []
+                       :input-sha "neighbor"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:seed:neighbor"
+                       :source-id "node:seed"
+                       :target-id "node:neighbor"
+                       :relation :references
+                       :active? true
+                       :run-id "run"})])
+      (with-redefs [query/default-kind-candidates 0
+                    query/default-seed-count 2]
+        (let [results (query/semantic-query xtdb
+                                            "alpha focus"
+                                            {:retriever :lexical
+                                             :limit 5})
+              ranks (into {} (map-indexed (fn [idx row]
+                                            [(:path row) (inc idx)])
+                                          results))]
+          (is (< (get ranks "src/strong.clj")
+                 (get ranks "src/neighbor.clj"))))))))
+
 (deftest index-persists-extracted-reference-edges
   (let [xtdb-path (temp-dir "agraph-index-reference-edge-xtdb")
         repo (io/file (temp-dir "agraph-index-reference-edge-repo"))
@@ -295,6 +362,66 @@
           (is (some #(and (= :references (:relation %))
                           (= target-id (:target-id %)))
                     edges)))))))
+
+(deftest index-batches-parser-worker-facts-for-changed-files
+  (let [xtdb-path (temp-dir "agraph-index-parser-worker-xtdb")
+        repo (io/file (temp-dir "agraph-index-parser-worker-repo"))
+        src-dir (io/file repo "src" "main" "java" "demo")
+        batch-calls (atom [])]
+    (.mkdirs src-dir)
+    (spit (io/file src-dir "App.java")
+          (str "package demo;\n"
+               "class App {\n"
+               "  Target make() { return new Target(); }\n"
+               "}\n"))
+    (spit (io/file src-dir "Target.java")
+          (str "package demo;\n"
+               "class Target {\n"
+               "}\n"))
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (with-redefs [extract/parser-worker-enabled? #(= :java %)
+                      extract/parser-worker-batch-facts
+                      (fn [files]
+                        (swap! batch-calls conj (mapv :path files))
+                        {"src/main/java/demo/App.java"
+                         {:package "demo"
+                          :definitions [{:kind "class"
+                                         :name "App"
+                                         :line 2}
+                                        {:kind "method"
+                                         :name "App.make"
+                                         :line 3}]
+                          :imports []
+                          :references [{:source "App.make"
+                                        :target "Target"
+                                        :kind "type"
+                                        :line 3}]
+                          :diagnostics []}
+                         "src/main/java/demo/Target.java"
+                         {:package "demo"
+                          :definitions [{:kind "class"
+                                         :name "Target"
+                                         :line 2}]
+                          :imports []
+                          :references []
+                          :diagnostics []}})]
+          (let [summary (index/index-repo! xtdb
+                                           (.getPath repo)
+                                           {:project-id "parser-worker-test"
+                                            :repo-id "app"
+                                            :index-profile :query})
+                edges (query/all-edges xtdb {:project-id "parser-worker-test"
+                                             :repo-id "app"})
+                target-id "project:parser-worker-test:repo:app:node:symbol:demo/Target"]
+            (is (= 1 (count @batch-calls)))
+            (is (= #{"src/main/java/demo/App.java"
+                     "src/main/java/demo/Target.java"}
+                   (set (first @batch-calls))))
+            (is (= 2 (get-in summary [:stats :files-indexed])))
+            (is (some #(and (= :references (:relation %))
+                            (= target-id (:target-id %)))
+                      edges))))))))
 
 (deftest graph-profile-skips-query-rows-and-query-profile-restores-them
   (let [xtdb-path (temp-dir "agraph-index-profile-xtdb")
@@ -623,6 +750,11 @@
               second-summary (index/index-repo! xtdb (.getPath repo) {})
               row (store/file-row xtdb "src/demo.clj")]
           (is (= 1 (get-in first-summary [:stats :files-indexed])))
+          (is (pos? (get-in first-summary [:stats :timings-ms :total-ms])))
+          (is (contains? (get-in first-summary [:stats :timings-ms])
+                         :scan-ms))
+          (is (contains? (get-in first-summary [:stats :timings-ms])
+                         :extract-ms))
           (is (= 1 (get-in second-summary [:stats :files-skipped])))
           (is (string? (:extractor-fingerprint row)))
           (with-redefs [index/extractor-fingerprint (fn [_]

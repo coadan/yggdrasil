@@ -15,16 +15,33 @@
       (some-> id (str/replace #"^node:[^:]+:" ""))
       id))
 
-(defn- edge-neighbor-labels
-  [nodes-by-id edges target-id]
-  (->> edges
-       (keep (fn [edge]
-               (cond
-                 (= target-id (:source-id edge))
-                 (str (name (:relation edge)) " " (node-label nodes-by-id (:target-id edge)))
+(defn- add-neighbor-label
+  [neighbors target-id label]
+  (if (and target-id (not (str/blank? label)))
+    (update neighbors target-id (fnil conj []) label)
+    neighbors))
 
-                 (= target-id (:target-id edge))
-                 (str (name (:relation edge)) " by " (node-label nodes-by-id (:source-id edge))))))
+(defn- edge-neighbor-labels-by-id
+  [nodes-by-id edges]
+  (reduce
+   (fn [neighbors {:keys [source-id target-id relation]}]
+     (let [relation-name (some-> relation name)]
+       (cond-> neighbors
+         (and source-id target-id relation-name)
+         (add-neighbor-label source-id
+                             (str relation-name " "
+                                  (node-label nodes-by-id target-id)))
+
+         (and source-id target-id relation-name)
+         (add-neighbor-label target-id
+                             (str relation-name " by "
+                                  (node-label nodes-by-id source-id))))))
+   {}
+   edges))
+
+(defn- edge-neighbor-labels
+  [neighbor-labels-by-id target-id]
+  (->> (get neighbor-labels-by-id target-id)
        distinct
        (take 24)
        vec))
@@ -66,6 +83,7 @@
   "Return searchable documents for extracted nodes and chunks."
   [run-id {:keys [nodes edges chunks]}]
   (let [nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
+        neighbor-labels-by-id (edge-neighbor-labels-by-id nodes-by-id edges)
         node-docs (mapv (fn [node]
                           (->search-doc run-id
                                         :node
@@ -76,7 +94,8 @@
                                                 (:path node)
                                                 (:namespace node)
                                                 (:name node)
-                                                (edge-neighbor-labels nodes-by-id edges (:xt/id node)))}))
+                                                (edge-neighbor-labels neighbor-labels-by-id
+                                                                      (:xt/id node)))}))
                         nodes)
         chunk-docs (mapv (fn [chunk]
                            (->search-doc run-id

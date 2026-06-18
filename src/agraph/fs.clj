@@ -358,7 +358,8 @@
   (let [path-kind (file-kind file)]
     (or (ops-config-content-kind path-kind file)
         path-kind
-        (shebang-kind file))))
+        (shebang-kind file)
+        :unknown)))
 
 (defn- binary-file?
   [kind]

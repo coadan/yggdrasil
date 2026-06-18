@@ -89,16 +89,23 @@ bundles including noise, and `--detail raw` to bypass salience and export raw
 relation-level system edges. `clusters[]` is present for semantic system exports
 and summarizes discovered node groups plus bridge counts.
 
-Generated HTML graph reports consume this canonical graph shape and transform it
-internally for Cytoscape.js. External tools should consume `agraph.graph/v2`
-rather than depending on Cytoscape element JSON or another renderer-specific
-format.
+Generated report viewers consume this canonical graph shape and transform it
+internally for their renderer. External tools should consume `agraph.graph/v2`
+rather than depending on Cytoscape, Sigma, or another renderer-specific format.
 
 `agraph report <project.edn> --map agraph.map.json --out agraph-out` writes a
 local report bundle for humans and agents. The bundle includes `index.html`,
-`REPORT.md`, `graph.json`, `systems.json`, and `context-example.json`.
-`graph.json` and `systems.json` use this same `agraph.graph/v2` contract.
-`REPORT.md` is a readable summary, not a data contract.
+`report.json`, `REPORT.mdx`, `graph.json`, `systems.json`, and
+`context-example.json`. `index.html` is the unified report and graph viewer.
+`report.json` is the structured report packet. `graph.json` and `systems.json`
+use this same `agraph.graph/v2` contract. `REPORT.mdx` is readable narrative
+source, not a data contract.
+
+`agraph view ... --format html --out systems.html` uses the same packaged
+viewer in graph mode. It writes `systems.html`, sibling `systems.assets/`, and
+`systems.graph.json`. The HTML embeds a boot packet for local opening, while the
+sibling JSON remains the inspectable `agraph.graph/v2` artifact. Use
+`--format json` when another tool needs only the graph contract.
 
 ## Package Reports
 

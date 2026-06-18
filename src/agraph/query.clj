@@ -13,6 +13,8 @@
 (def default-lexical-candidates 100)
 (def default-kind-candidates 50)
 (def default-seed-count 20)
+(def lexical-graph-weight 0.25)
+(def hybrid-graph-weight 0.20)
 
 (defn- scope-match?
   [{:keys [project-id repo-id]} row]
@@ -373,10 +375,10 @@
                       total (+ (case retriever
                                  :semantic semantic-score
                                  :lexical (+ lexical-score
-                                             (* 0.85 graph-score))
+                                             (* lexical-graph-weight graph-score))
                                  (+ (* 0.70 semantic-score)
                                     (* 0.20 lexical-score)
-                                    (* 0.35 graph-score)))
+                                    (* hybrid-graph-weight graph-score)))
                                exact-score)]
                   (assoc doc
                          :result-kind (:target-kind doc)

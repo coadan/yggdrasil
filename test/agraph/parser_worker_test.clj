@@ -1,5 +1,6 @@
 (ns agraph.parser-worker-test
-  (:require [charred.api :as json]
+  (:require [agraph.extract :as extract]
+            [charred.api :as json]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
@@ -67,6 +68,35 @@
            (:imports facts)))
     (is (= [] (:references facts)))
     (is (= [] (:diagnostics facts)))))
+
+(deftest parser-worker-batch-facts-returns-facts-by-path
+  (let [facts-by-path (with-redefs [extract/parser-worker-enabled? #(= :python %)
+                                    extract/parser-worker-python (constantly "python3")]
+                        (extract/parser-worker-batch-facts
+                         [{:path "one.py"
+                           :kind :python
+                           :content "class One:\n    pass\n"}
+                          {:path "two.py"
+                           :kind :python
+                           :content "def two():\n    pass\n"}]))]
+    (is (= #{"one.py" "two.py"} (set (keys facts-by-path))))
+    (is (= [{:kind "class"
+             :name "One"
+             :line 1
+             :endLine 2}]
+           (get-in facts-by-path ["one.py" :definitions])))
+    (is (= [{:kind "function"
+             :name "two"
+             :line 1
+             :endLine 2}]
+           (get-in facts-by-path ["two.py" :definitions])))))
+
+(deftest parser-worker-batch-facts-ignores-files-without-kind
+  (is (= {}
+         (extract/parser-worker-batch-facts
+          [{:path "unknown"
+            :kind nil
+            :content "opaque\n"}]))))
 
 (deftest parser-worker-reports-python-syntax-diagnostics
   (let [[response] (worker! [{:id "bad-python"

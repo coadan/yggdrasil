@@ -141,6 +141,10 @@ testing a parser-backed extractor behind the parser-worker contract before
 adding more regex matching. See `docs/parser-workers.md`. Parser workers must
 emit concrete syntax facts only; benchmark the effect on recall, MRR, noise@20,
 edge count, and index time before making a worker-backed extractor the default.
+Index summaries include `:stats :timings-ms` / `stats.timings-ms` with phase
+timings such as `scan-ms`, `parser-worker-ms`, `extract-ms`,
+`commit-files-ms`, `dependency-ms`, and `total-ms`; use those fields to separate
+parser cost from XTDB writes, search-doc construction, and derived edge refresh.
 
 Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
 agents through the filesystem queue:

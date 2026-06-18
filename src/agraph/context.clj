@@ -359,8 +359,14 @@
 
 (defn- doc-diversity-key
   [doc]
-  [(doc-priority doc)
-   (or (get-in doc [:source :definitionKind]) :other)])
+  (let [source (:source doc)]
+    [(doc-priority doc)
+     (or (:repo source) :unknown-repo)
+     (or (:path source)
+         (:heading source)
+         (get-in doc [:source :definitionKind])
+         (:target doc)
+         :other)]))
 
 (defn- diversify-docs
   [docs]

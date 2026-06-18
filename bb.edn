@@ -77,6 +77,19 @@
           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "report"
                        *command-line-args*)}
 
+  report-ui:install {:doc "Install report UI dependencies."
+                     :task (shell {:dir "report-ui"} "npm install")}
+
+  report-ui:build {:doc "Build the React/MDX report UI into resources."
+                   :task (shell {:dir "report-ui"} "npm run build")}
+
+  report-ui:test {:doc "Run report UI tests."
+                  :task (shell {:dir "report-ui"} "npm test")}
+
+  report-ui:dev {:doc "Run the report UI dev server."
+                 :task (apply shell {:dir "report-ui"} "npm run dev"
+                              *command-line-args*)}
+
   test {:doc "Run tests."
         :task (shell "clojure -M:test")}
 

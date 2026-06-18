@@ -2,6 +2,16 @@
   "Malli schemas for graph records."
   (:require [malli.core :as m]))
 
+(defonce ^:private validators
+  (atom {}))
+
+(defn- validator
+  [schema]
+  (if-let [validate (@validators schema)]
+    validate
+    (let [validate (m/validator schema)]
+      (get (swap! validators assoc schema validate) schema))))
+
 (def file-row
   [:map
    [:xt/id string?]
@@ -321,7 +331,7 @@
 (defn assert!
   "Validate value against schema and return value."
   [schema value message]
-  (when-not (m/validate schema value)
+  (when-not ((validator schema) value)
     (throw (ex-info message {:value value
                              :explain (m/explain schema value)})))
   value)

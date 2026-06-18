@@ -23,7 +23,7 @@
 (def extractor-versions
   {:code "clojure/v9"
    :go "go/v3"
-   :java "java/v1"
+   :java "java/v2"
    :kotlin "kotlin/v1"
    :swift "swift/v1"
    :dotnet "dotnet/v1"
@@ -87,6 +87,7 @@
    :doc "markdown/v1"
    :edn "edn/v1"
    :config "config/v1"
+   :unknown "unknown/v1"
    :yaml "yaml/v1"
    :manifest "manifest/v2"
    :dependency-lock "dependency-lock/v1"
@@ -166,11 +167,11 @@
   "Return the stable extractor fingerprint for a file record."
   [file]
   (let [kind (:kind file)]
-     (str "extractor:"
-          (hash/short-hash [extractor-contract-version
-                             kind
-                             (get extractor-versions kind "none/v1")
-                             (parser-worker-fingerprint)]))))
+    (str "extractor:"
+         (hash/short-hash [extractor-contract-version
+                           kind
+                           (get extractor-versions kind "none/v1")
+                           (parser-worker-fingerprint)]))))
 
 (defn node-id
   "Return stable node id for kind/name."
@@ -242,8 +243,9 @@
       starts)))
 
 (defn- balanced-curly-block
-  [content start]
-  (let [length (count content)
+  [^String content ^long start]
+  (let [content (or content "")
+        length (count content)
         open-idx (str/index-of content "{" start)]
     (when open-idx
       (loop [idx open-idx
@@ -252,7 +254,7 @@
              string-delim nil
              escaped? false]
         (when (< idx length)
-          (let [ch (.charAt content idx)
+          (let [ch (.charAt content (int idx))
                 escaped-next? (and in-string?
                                    (not escaped?)
                                    (= \\ ch)
@@ -555,15 +557,29 @@
                       :active? true
                       :run-id run-id}]})))
 
+(def ^:private markdown-chunk-lines 120)
+
+(defn- split-doc-chunk
+  [{:keys [start-line lines] :as chunk}]
+  (->> (partition-all markdown-chunk-lines lines)
+       (map-indexed (fn [idx part]
+                      (let [part (vec part)
+                            start (+ start-line (* idx markdown-chunk-lines))]
+                        (assoc chunk
+                               :start-line start
+                               :end-line (+ start (count part) -1)
+                               :lines part))))))
+
 (defn extract-doc
   "Extract Markdown chunks."
   [run-id {:keys [id-scope file-id path content]}]
   (let [lines (str/split-lines content)
         total-lines (count lines)
         close-chunk (fn [out current end-line]
-                      (cond-> out
-                        (seq (:lines current))
-                        (conj (assoc current :end-line end-line))))
+                      (if (seq (:lines current))
+                        (into out (split-doc-chunk
+                                   (assoc current :end-line end-line)))
+                        out))
         chunks (loop [remaining (map-indexed vector lines)
                       heading-stack []
                       current {:label path
@@ -1094,8 +1110,9 @@
 (defn- parser-worker-enabled?
   [kind]
   (let [mode (parser-worker-mode)]
-    (or (= "all" mode)
-        (= (name kind) mode))))
+    (and kind
+         (or (= "all" mode)
+             (= (name kind) mode)))))
 
 (defn- parser-worker-python
   []
@@ -1111,37 +1128,81 @@
                   :line nil
                   :message message}]})
 
-(defn- parser-worker-facts
+(defn- parser-worker-request
   [{:keys [kind path absolute-path content]}]
-  (try
-    (let [request (json/write-json-str
-                   (cond-> {:schema "agraph.parser.request/v1"
-                            :id path
-                            :kind (name kind)
-                            :path (or absolute-path path)}
-                     (nil? absolute-path) (assoc :content content))
-                   {:escape-slash false})
-          {:keys [exit out err]} (shell/sh (parser-worker-python)
-                                           "scripts/parser-worker.py"
-                                           :in (str request "\n"))]
-      (if (zero? exit)
-        (try
-          (let [response (json/read-json out :key-fn keyword)]
-            (or (:facts response)
-                (parser-worker-failure
-                 "parser-worker"
-                 "Parser worker response did not include facts.")))
-          (catch Exception e
-            (parser-worker-failure
-             "parser-worker"
-             (str "Parser worker returned unreadable JSON: " (ex-message e)))))
-        (parser-worker-failure
-         "parser-worker"
-         (str "parser worker exited " exit ": " (or (not-empty err) out)))))
-    (catch Exception e
+  (cond-> {:schema "agraph.parser.request/v1"
+           :id path
+           :kind (name kind)
+           :path (or absolute-path path)}
+    (nil? absolute-path) (assoc :content content)))
+
+(defn- parser-worker-response->facts
+  [response]
+  (or (:facts response)
       (parser-worker-failure
        "parser-worker"
-       (str "Could not run parser worker: " (ex-message e))))))
+       "Parser worker response did not include facts.")))
+
+(defn parser-worker-batch-facts
+  "Return parser-worker facts by file path for worker-enabled file records."
+  [files]
+  (let [files (vec (filter #(parser-worker-enabled? (:kind %)) files))]
+    (if (empty? files)
+      {}
+      (try
+        (let [input (str (str/join "\n"
+                                   (map #(json/write-json-str
+                                          (parser-worker-request %)
+                                          {:escape-slash false})
+                                        files))
+                         "\n")
+              {:keys [exit out err]} (shell/sh (parser-worker-python)
+                                               "scripts/parser-worker.py"
+                                               :in input)]
+          (if (zero? exit)
+            (try
+              (let [responses (->> (str/split-lines out)
+                                   (remove str/blank?)
+                                   (map #(json/read-json % :key-fn keyword)))
+                    by-id (->> responses
+                               (map (fn [response]
+                                      [(:id response)
+                                       (parser-worker-response->facts response)]))
+                               (into {}))]
+                (->> files
+                     (map (fn [{:keys [path]}]
+                            [path
+                             (or (get by-id path)
+                                 (parser-worker-failure
+                                  "parser-worker"
+                                  "Parser worker did not return a response for this file."))]))
+                     (into {})))
+              (catch Exception e
+                (let [failure (parser-worker-failure
+                               "parser-worker"
+                               (str "Parser worker returned unreadable JSON: "
+                                    (ex-message e)))]
+                  (into {} (map (juxt :path (constantly failure)) files)))))
+            (let [failure (parser-worker-failure
+                           "parser-worker"
+                           (str "parser worker exited " exit ": "
+                                (or (not-empty err) out)))]
+              (into {} (map (juxt :path (constantly failure)) files)))))
+        (catch Exception e
+          (let [failure (parser-worker-failure
+                         "parser-worker"
+                         (str "Could not run parser worker: " (ex-message e)))]
+            (into {} (map (juxt :path (constantly failure)) files))))))))
+
+(defn- parser-worker-facts
+  [{:keys [path] :as file}]
+  (if (contains? file :parser-worker-facts)
+    (:parser-worker-facts file)
+    (get (parser-worker-batch-facts [file])
+         path
+         (parser-worker-failure
+          "parser-worker"
+          "Parser worker did not return facts for this file."))))
 
 (defn- python-helper-failure
   [message]
@@ -1539,6 +1600,36 @@
        distinct
        vec))
 
+(defn- java-import-symbol-label
+  [{:keys [target static? static]}]
+  (let [target (str target)]
+    (when (and (not (or static? static))
+               (not (str/ends-with? target ".*"))
+               (str/includes? target "."))
+      (let [parts (str/split target #"\.")
+            type-name (peek parts)
+            namespace-name (str/join "." (pop parts))]
+        (when (and (seq namespace-name) (seq type-name))
+          (str namespace-name "/" type-name))))))
+
+(defn- java-import-symbols-by-simple-name
+  [imports]
+  (->> imports
+       (keep (fn [import]
+               (when-let [label (java-import-symbol-label import)]
+                 [(last (str/split label #"/")) label])))
+       (group-by first)
+       (keep (fn [[simple-name rows]]
+               (let [labels (set (map second rows))]
+                 (when (= 1 (count labels))
+                   [simple-name (first labels)]))))
+       (into {})))
+
+(defn- java-reference-target-label
+  [module-name import-symbols target-name]
+  (or (get import-symbols target-name)
+      (str module-name "/" target-name)))
+
 (def ^:private java-type-reference-pattern
   #"\b[A-Z][A-Za-z0-9_$]*\b")
 
@@ -1549,8 +1640,8 @@
        vec))
 
 (defn- java-starts-with-at?
-  [^String text idx prefix]
-  (.startsWith text prefix idx))
+  [^String text ^long idx ^String prefix]
+  (.startsWith text prefix (int idx)))
 
 (defn- java-mask-char!
   [^StringBuilder sb ch]
@@ -1636,19 +1727,73 @@
               (do (java-mask-char! sb ch)
                   (recur (inc idx) :text-block nil false)))))))))
 
-(def ^:private java-type-position-patterns
-  [#"\b(?:extends|implements|throws)\s+([^;{]+)"
-   #"\bnew\s+([A-Z][A-Za-z0-9_$.]*)\s*(?:<[^>]*>)?\s*[\(\{]"
-   #"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|static|final|abstract|synchronized|native|strictfp|default)\s+)*([A-Za-z_$][A-Za-z0-9_$.?<>,\s\[\]]*)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\("
-   #"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|static|final|abstract|synchronized|native|strictfp|default|transient|volatile)\s+)*(?:[A-Za-z0-9_$.?<>,\s\[\]]+\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*\(([^)]*)\)"
-   #"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|static|final|transient|volatile)\s+)*([A-Za-z_$][A-Za-z0-9_$.?<>,\s\[\]]*)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*(?:=|;|,)"])
+(def ^:private java-reference-line-char-limit 4096)
+
+(def ^:private java-inheritance-line-pattern
+  #"\b(?:extends|implements|throws)\s+([^;{]+)")
+
+(def ^:private java-new-line-pattern
+  #"\bnew\s+([A-Z][A-Za-z0-9_$.]*)\s*(?:<[^>]*>)?\s*[\(\{]")
+
+(def ^:private java-method-return-line-pattern
+  #"^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|static|final|abstract|synchronized|native|strictfp|default)\s+)*([A-Za-z_$][A-Za-z0-9_$.?<>,\s\[\]]*)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\(")
+
+(def ^:private java-constructor-params-line-pattern
+  #"^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|static|final|abstract|synchronized|native|strictfp|default|transient|volatile)\s+)*(?:[A-Za-z0-9_$.?<>,\s\[\]]+\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*\(([^)]*)\)")
+
+(def ^:private java-field-type-line-pattern
+  #"^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|static|final|transient|volatile)\s+)*([A-Za-z_$][A-Za-z0-9_$.?<>,\s\[\]]*)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*(?:=|;|,)")
+
+(def ^:private java-body-control-line-prefixes
+  ["if " "if(" "for " "for(" "while " "while(" "switch " "switch("
+   "catch " "catch(" "return " "throw " "else" "do " "try " "case "
+   "default:"])
+
+(defn- java-reference-scan-line
+  [line]
+  (let [line (or line "")]
+    (if (> (count line) java-reference-line-char-limit)
+      (subs line 0 java-reference-line-char-limit)
+      line)))
+
+(defn- java-declaration-like-line?
+  [line]
+  (let [trimmed (str/triml (or line ""))]
+    (not-any? #(str/starts-with? trimmed %)
+              java-body-control-line-prefixes)))
+
+(defn- java-capture-segments
+  [pattern line]
+  (map second (re-seq pattern line)))
+
+(defn- java-type-position-line-segments
+  [line]
+  (let [line (java-reference-scan-line line)
+        declaration-like? (java-declaration-like-line? line)]
+    (->> (concat
+          (when (or (str/includes? line "extends")
+                    (str/includes? line "implements")
+                    (str/includes? line "throws"))
+            (java-capture-segments java-inheritance-line-pattern line))
+          (when (str/includes? line "new ")
+            (java-capture-segments java-new-line-pattern line))
+          (when (and declaration-like?
+                     (str/includes? line "("))
+            (concat
+             (java-capture-segments java-method-return-line-pattern line)
+             (java-capture-segments java-constructor-params-line-pattern line)))
+          (when (and declaration-like?
+                     (or (str/includes? line "=")
+                         (str/includes? line ";")
+                         (str/includes? line ",")))
+            (java-capture-segments java-field-type-line-pattern line)))
+         (remove str/blank?))))
 
 (defn- java-type-position-reference-names
   [text]
   (let [code (java-code-without-comments-or-strings text)
-        segments (mapcat (fn [pattern]
-                           (map second (re-seq pattern code)))
-                         java-type-position-patterns)]
+        segments (mapcat java-type-position-line-segments
+                         (str/split-lines code))]
     (->> segments
          (mapcat java-type-reference-names)
          distinct
@@ -1706,6 +1851,8 @@
   (let [module-name (java-module-name path content)
         ns-node (namespace-node run-id id-scope file-id path module-name)
         lines (vec (str/split-lines content))
+        imports (java-imports lines)
+        import-symbols (java-import-symbols-by-simple-name imports)
         def-forms (java-definition-forms content)
         defs (mapv (fn [{:keys [kind name public? source-line]}]
                      (let [label (str module-name "/" name)]
@@ -1735,7 +1882,7 @@
                                       :imports
                                       :extracted
                                       (:source-line %))
-                           (java-imports lines))
+                           imports)
         reference-edges (->> def-forms
                              (mapcat
                               (fn [{:keys [name source-line text]}]
@@ -1754,7 +1901,10 @@
                                                source-id
                                                (node-id id-scope
                                                         :symbol
-                                                        (str module-name "/" target-name))
+                                                        (java-reference-target-label
+                                                         module-name
+                                                         import-symbols
+                                                         target-name))
                                                :references
                                                :extracted
                                                source-line)))))))
@@ -1829,6 +1979,8 @@
                         (java-module-name path content))
         ns-node (namespace-node run-id id-scope file-id path module-name)
         definitions (vec (:definitions facts))
+        imports (vec (:imports facts))
+        import-symbols (java-import-symbols-by-simple-name imports)
         defs (mapv (fn [{:keys [kind name line]}]
                      (let [label (str module-name "/" name)]
                        {:xt/id (node-id id-scope :symbol label)
@@ -1852,7 +2004,7 @@
                                       :extracted
                                       (:source-line %))
                            defs)
-        import-edges (->> (:imports facts)
+        import-edges (->> imports
                           (keep (fn [{:keys [target line]}]
                                   (when-not (str/blank? (str target))
                                     (edge-row run-id file-id path
@@ -1886,7 +2038,10 @@
                                                    (str module-name "/" source-name))
                                           (node-id id-scope
                                                    :symbol
-                                                   (str module-name "/" target-name))
+                                                   (java-reference-target-label
+                                                    module-name
+                                                    import-symbols
+                                                    target-name))
                                           :references
                                           :extracted
                                           (or line 1))))))
@@ -2384,10 +2539,12 @@
       (if-let [[idx line] (first remaining)]
         (let [type-stack (pop-closed-type-scopes type-stack depth)
               current-type (last type-stack)
+              direct-member? (and current-type
+                                  (= depth (:end-depth current-type)))
               type-form (dotnet-type-line idx line)
-              property-form (when-not type-form
+              property-form (when (and direct-member? (not type-form))
                               (dotnet-property-line current-type idx line))
-              method-form (when-not type-form
+              method-form (when (and direct-member? (not type-form))
                             (dotnet-method-line current-type idx line))
               forms (cond-> []
                       type-form (conj type-form)
@@ -6341,8 +6498,6 @@
 (def kustomize-generator-sections
   #{"configMapGenerator" "secretGenerator"})
 
-(declare leading-spaces strip-yaml-scalar yaml-scalar-list-values yaml-top-section-blocks)
-
 (defn- yaml-section-items
   [content section-names]
   (let [sections (set section-names)]
@@ -9785,6 +9940,7 @@
      :html (extract-text-source run-id file :html-file)
      :env (extract-text-source run-id file :env-file)
      :text (extract-text-source run-id file :text-file)
+     :unknown (extract-text-source run-id file :unknown-file)
      (:image-asset :font-asset :gettext-binary) (extract-binary-asset run-id file)
      :doc (extract-doc run-id file)
      :edn (extract-edn run-id file)

@@ -292,6 +292,23 @@
     (is (string? (:content-sha chunk)))
     (is (empty? (:diagnostics result)))))
 
+(deftest extracts-large-markdown-sections-as-bounded-chunks
+  (let [body (str/join "\n" (map #(str "line " %) (range 1 251)))
+        result (extract/extract-file
+                "run/test"
+                {:file-id "file:docs/large.md"
+                 :path "docs/large.md"
+                 :kind :doc
+                 :content (str "# Large Guide\n" body "\n")})
+        chunks (:chunks result)]
+    (is (= ["Large Guide" "Large Guide" "Large Guide"]
+           (mapv :label chunks)))
+    (is (= [1 121 241] (mapv :source-line chunks)))
+    (is (= [120 240 251] (mapv :end-line chunks)))
+    (is (every? #(<= (count (str/split-lines (:text %))) 120) chunks))
+    (is (every? string? (map :content-sha chunks)))
+    (is (empty? (:diagnostics result)))))
+
 (deftest extracts-rust-modules-definitions-uses-and-calls
   (let [file (fs/file-record "test/fixtures/sample-repo"
                              "test/fixtures/sample-repo/src/rust/lib.rs")
@@ -402,6 +419,30 @@
     (is (not (contains? labels "demo/Options.emptyList")))
     (is (empty? (:diagnostics result)))))
 
+(deftest java-reference-extraction-resolves-explicit-imports
+  (let [result (extract/extract-file
+                "run/test"
+                {:file-id "file:DiscoveryRequestCreatorTests.java"
+                 :path "src/DiscoveryRequestCreatorTests.java"
+                 :kind :java
+                 :content (str "package org.example.tasks;\n"
+                               "import org.example.options.TestDiscoveryOptions;\n"
+                               "class DiscoveryRequestCreatorTests {\n"
+                               "  private final TestDiscoveryOptions options = new TestDiscoveryOptions();\n"
+                               "}\n")})
+        reference-targets (set (map :target-id
+                                    (filter #(= :references (:relation %))
+                                            (:edges result))))]
+    (is (contains? reference-targets
+                   (extract/node-id
+                    :symbol
+                    "org.example.options/TestDiscoveryOptions")))
+    (is (not (contains? reference-targets
+                        (extract/node-id
+                         :symbol
+                         "org.example.tasks/TestDiscoveryOptions"))))
+    (is (empty? (:diagnostics result)))))
+
 (deftest java-reference-extraction-ignores-comments-and-strings
   (let [result (extract/extract-file
                 "run/test"
@@ -435,6 +476,40 @@
                         (extract/node-id :symbol "demo/BlockType"))))
     (is (not (contains? reference-targets
                         (extract/node-id :symbol "demo/BodyType"))))))
+
+(deftest java-reference-extraction-handles-large-method-bodies
+  (let [body-lines (apply str
+                          (repeat
+                           1200
+                           "    if (input > 0) { total += helper.compute(input); }\n"))
+        result (extract/extract-file
+                "run/test"
+                {:file-id "file:LargeBody.java"
+                 :path "src/LargeBody.java"
+                 :kind :java
+                 :content (str "package demo;\n"
+                               "class LargeBody {\n"
+                               "  Result build(Input input) throws BuildException {\n"
+                               body-lines
+                               "    String ignored = \"BodyMention\";\n"
+                               "    return new Result();\n"
+                               "  }\n"
+                               "  static class Result {}\n"
+                               "  static class Input {}\n"
+                               "  static class BuildException extends RuntimeException {}\n"
+                               "}\n")})
+        reference-targets (set (map :target-id
+                                    (filter #(= :references (:relation %))
+                                            (:edges result))))]
+    (is (contains? reference-targets
+                   (extract/node-id :symbol "demo/Result")))
+    (is (contains? reference-targets
+                   (extract/node-id :symbol "demo/Input")))
+    (is (contains? reference-targets
+                   (extract/node-id :symbol "demo/BuildException")))
+    (is (not (contains? reference-targets
+                        (extract/node-id :symbol "demo/BodyMention"))))
+    (is (empty? (:diagnostics result)))))
 
 (deftest java-parser-worker-extractor-emits-canonical-rows-when-enabled
   (let [python-bin (or (not-empty (System/getenv "AGRAPH_PARSER_WORKER_PYTHON"))
@@ -535,6 +610,28 @@
     (is (contains? labels "Acme.Block/PanelKind"))
     (is (contains? labels "Acme.Block/PanelKey"))
     (is (contains? labels "Acme.Block/PanelLoaded"))
+    (is (empty? (:diagnostics result)))))
+
+(deftest dotnet-extractor-ignores-call-expressions-inside-method-bodies
+  (let [result (extract/extract-file
+                "run/test"
+                {:file-id "file:Noisy.cs"
+                 :path "Noisy.cs"
+                 :kind :dotnet
+                 :content (str "namespace Demo;\n"
+                               "public class App {\n"
+                               "  public App() {}\n"
+                               "  public string Run(object input) {\n"
+                               "    var text = Convert.ToString(input);\n"
+                               "    throw new ArgumentNullException(nameof(input));\n"
+                               "  }\n"
+                               "}\n")})
+        labels (set (map :label (:nodes result)))]
+    (is (contains? labels "Demo/App.App"))
+    (is (contains? labels "Demo/App.Run"))
+    (is (not (contains? labels "Demo/App.ToString")))
+    (is (not (contains? labels "Demo/App.ArgumentNullException")))
+    (is (not (contains? labels "Demo/App.nameof")))
     (is (empty? (:diagnostics result)))))
 
 (deftest extracts-kotlin-packages-definitions-and-imports
@@ -2485,6 +2582,19 @@
     (is (= [:shell-file] (mapv :kind (:chunks shell-result))))
     (is (empty? (:nodes shell-result)))
     (is (empty? (:edges shell-result)))))
+
+(deftest extracts-unknown-text-as-searchable-source-chunk
+  (let [root (.toFile (java.nio.file.Files/createTempDirectory
+                       "agraph-unknown-extract"
+                       (make-array java.nio.file.attribute.FileAttribute 0)))
+        file (doto (io/file root "facts.ini")
+               (spit "owner=postgres\n"))
+        record (fs/file-record (.getPath root) (.getPath file))
+        result (extract/extract-file "run/test" record)]
+    (is (= :unknown (:kind record)))
+    (is (= [:unknown-file] (mapv :kind (:chunks result))))
+    (is (empty? (:nodes result)))
+    (is (empty? (:edges result)))))
 
 (deftest extracts-ci-workflows-jobs-needs-and-command-chunks
   (let [github-result (extract/extract-file

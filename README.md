@@ -34,7 +34,8 @@ agraph start . --project my-project
 `start` is the shortest local setup path: it writes or reuses `project.edn`,
 creates `agraph.map.json`, runs `sync --check`, imports local queue activity,
 and writes an `agraph-out/` report bundle. Its JSON output is a compact summary;
-open the report bundle or run the lower-level commands for full graph details.
+open `agraph-out/index.html` for the unified report and graph viewer, or run the
+lower-level commands for full graph details.
 
 For separate steps:
 
@@ -135,6 +136,11 @@ agraph sync work list --status ready
 Use `agraph start .` for one-command local setup when the default single-repo
 config and report output are enough. Use `agraph init . --sync --map
 agraph.map.json` when you want setup plus sync but no report bundle.
+
+`agraph report` writes the same local bundle without rerunning initialization:
+`index.html` is the report/graph viewer, `report.json` is the structured report
+packet, `REPORT.mdx` is the readable narrative source, and `graph.json` /
+`systems.json` are renderer-neutral graph exports.
 
 For workbench repos that wrap source repos in cached clones or task worktrees,
 point the project at the workbench root instead of listing each repo:

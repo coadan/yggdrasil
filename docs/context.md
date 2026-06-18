@@ -45,6 +45,12 @@ Every context packet reports `answerability`: a mechanical summary of which
 evidence planes were available for the query and which were missing, weak, or
 not supported by the current model.
 
+Project-level reports and `sync inspect --json` expose the same mechanical
+inventory as `agraph.evidence/v1`. Use that evidence surface when an agent needs
+to see what can be asked about at a glance. Use `agraph ask --json` when the
+agent has a concrete question and needs the smaller query-scoped
+`answerability` packet plus matching entities, edges, docs, and activity.
+
 - `status`: `ready`, `limited`, or `empty`
 - `available`: populated evidence planes, such as `source-graph`, `docs`,
   `system-graph`, `embeddings`, `activity`, `validation-history`, or

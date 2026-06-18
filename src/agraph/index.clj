@@ -16,6 +16,19 @@
   []
   (System/currentTimeMillis))
 
+(defn- timed
+  [timings k f]
+  (let [started (now-ms)
+        result (f)
+        finished (now-ms)]
+    [result (assoc timings k (max 0 (- finished started)))]))
+
+(defn- stats-with-timings
+  [stats timings started-at-ms finished-at-ms]
+  (assoc stats
+         :timings-ms (assoc timings
+                            :total-ms (max 0 (- finished-at-ms started-at-ms)))))
+
 (defn- git-sha
   [root]
   (let [{:keys [exit out]} (shell/sh "git" "-C" root "rev-parse" "HEAD")]
@@ -213,11 +226,21 @@
                    index-profile default-index-profile}}]
   (let [started (now-ms)
         index-profile (normalize-index-profile index-profile)
-        root-path (fs/canonical-path root)
-        files (mapv #(attach-extractor-fingerprint index-profile
-                                                   (scoped-file project-id repo-id %))
-                    (fs/scan-files root-path))
-        snapshot (source-snapshot project-id repo-id root-path started files)
+        [root-path timings] (timed {} :canonicalize-root-ms #(fs/canonical-path root))
+        [files timings] (timed timings
+                                :scan-ms
+                                #(mapv (fn [file]
+                                          (attach-extractor-fingerprint
+                                           index-profile
+                                           (scoped-file project-id repo-id file)))
+                                       (fs/scan-files root-path)))
+        [snapshot timings] (timed timings
+                                  :snapshot-ms
+                                  #(source-snapshot project-id
+                                                    repo-id
+                                                    root-path
+                                                    started
+                                                    files))
         valid-from (:basis-instant snapshot)
         run-id (run-id root-path started project-id repo-id)
         initial {:run-id run-id
@@ -228,7 +251,7 @@
                  :repo-root root-path
                  :repo-role repo-role
                  :index-profile index-profile
-                 :git-sha (git-sha root-path)
+                 :git-sha (:git-sha snapshot)
                  :tree-sha (:tree-sha snapshot)
                  :status :running
                  :started-at-ms started
@@ -245,14 +268,19 @@
                          :dependency-edges 0
                          :files-deleted 0}}]
     (if dry-run?
-      (assoc initial
-             :status :dry-run
-             :finished-at-ms (now-ms)
-             :files (mapv #(select-keys % [:path
-                                           :kind
-                                           :content-sha
-                                           :extractor-fingerprint])
-                          files))
+      (let [finished-at (now-ms)]
+        (assoc initial
+               :status :dry-run
+               :finished-at-ms finished-at
+               :stats (stats-with-timings (:stats initial)
+                                          timings
+                                          started
+                                          finished-at)
+               :files (mapv #(select-keys % [:path
+                                             :kind
+                                             :content-sha
+                                             :extractor-fingerprint])
+                            files)))
       (do
         (store/commit-run! xtdb (assoc initial :xt/id run-id))
         (store/commit-temporal-bundle!
@@ -260,54 +288,98 @@
          {:snapshot snapshot
           :run (assoc initial :xt/id run-id :status :running)
           :valid-from valid-from})
-        (let [existing-by-path (->> (store/all-rows xtdb (:files store/tables))
-                                    (filter #(and (= project-id (:project-id %))
-                                                  (= repo-id (:repo-id %))))
-                                    (map (juxt :path identity))
-                                    (into {}))
+        (let [[existing-by-path timings] (timed
+                                          timings
+                                          :load-existing-ms
+                                          #(->> (store/all-rows xtdb (:files store/tables))
+                                                (filter (fn [row]
+                                                          (and (= project-id (:project-id row))
+                                                               (= repo-id (:repo-id row)))))
+                                                (map (juxt :path identity))
+                                                (into {})))
               current-paths (set (map :path files))
-              removed-files (->> existing-by-path
-                                 vals
-                                 (remove #(contains? current-paths (:path %)))
-                                 vec)
-              planned (reduce
-                       (fn [acc file]
-                         (let [existing (get existing-by-path (:path file))]
-                           (if (and (= (:content-sha existing) (:content-sha file))
-                                    (= (:extractor-fingerprint existing)
-                                       (:extractor-fingerprint file)))
-                             (update acc :skipped inc)
-                             (update acc :changed conj
-                                     {:file-row (->file-row run-id
-                                                            (:xt/id snapshot)
-                                                            valid-from
-                                                            project-id
-                                                            repo-id
-                                                            root-path
-                                                            repo-role
-                                                            file)
-                                      :extraction (indexable-extraction
-                                                   run-id
-                                                   project-id
-                                                   repo-id
-                                                   index-profile
-                                                   file
-                                                   (extract/extract-file run-id file))
-                                      :existing? (boolean existing)
-                                      :valid-from valid-from}))))
-                       {:changed [] :skipped 0}
-                       files)
-              result (store/commit-files! xtdb (:changed planned))
-              deletes (store/commit-file-deletes! xtdb removed-files {:valid-from valid-from})
-              dependency-result (dependency/refresh-derived-edges!
-                                 xtdb
-                                 project-id
-                                 repo-id
-                                 run-id
-                                 {:valid-from valid-from
-                                  :project-id project-id
-                                  :repo-id repo-id
-                                  :map-overlay map-overlay})
+              [removed-files timings] (timed
+                                       timings
+                                       :plan-deletes-ms
+                                       #(->> existing-by-path
+                                             vals
+                                             (remove (fn [row]
+                                                       (contains? current-paths (:path row))))
+                                             vec))
+              [planned-files timings] (timed
+                                       timings
+                                       :plan-changes-ms
+                                       #(reduce
+                                         (fn [acc file]
+                                           (let [existing (get existing-by-path (:path file))]
+                                             (if (and (= (:content-sha existing) (:content-sha file))
+                                                      (= (:extractor-fingerprint existing)
+                                                         (:extractor-fingerprint file)))
+                                               (update acc :skipped inc)
+                                               (update acc :changed conj
+                                                       {:file file
+                                                        :existing? (boolean existing)
+                                                        :valid-from valid-from}))))
+                                         {:changed [] :skipped 0}
+                                         files))
+              [parser-worker-facts timings] (timed
+                                             timings
+                                             :parser-worker-ms
+                                             #(extract/parser-worker-batch-facts
+                                               (mapv :file (:changed planned-files))))
+              [planned timings] (timed
+                                 timings
+                                 :extract-ms
+                                 #(update planned-files
+                                          :changed
+                                          (fn [changed]
+                                            (mapv
+                                             (fn [{:keys [file existing? valid-from]}]
+                                               (let [file (if-let [facts (get parser-worker-facts
+                                                                               (:path file))]
+                                                            (assoc file
+                                                                   :parser-worker-facts
+                                                                   facts)
+                                                            file)]
+                                                 {:file-row (->file-row run-id
+                                                                        (:xt/id snapshot)
+                                                                        valid-from
+                                                                        project-id
+                                                                        repo-id
+                                                                        root-path
+                                                                        repo-role
+                                                                        file)
+                                                  :extraction (indexable-extraction
+                                                               run-id
+                                                               project-id
+                                                               repo-id
+                                                               index-profile
+                                                               file
+                                                               (extract/extract-file run-id file))
+                                                  :existing? existing?
+                                                  :valid-from valid-from}))
+                                             changed))))
+              [result timings] (timed timings
+                                       :commit-files-ms
+                                       #(store/commit-files! xtdb (:changed planned)))
+              [deletes timings] (timed timings
+                                        :delete-files-ms
+                                        #(store/commit-file-deletes! xtdb
+                                                                    removed-files
+                                                                    {:valid-from valid-from}))
+              [dependency-result timings] (timed
+                                           timings
+                                           :dependency-ms
+                                           #(dependency/refresh-derived-edges!
+                                             xtdb
+                                             project-id
+                                             repo-id
+                                             run-id
+                                             {:valid-from valid-from
+                                              :project-id project-id
+                                              :repo-id repo-id
+                                              :map-overlay map-overlay}))
+              finished-at (now-ms)
               summary (-> (:stats initial)
                           (assoc :files-skipped (:skipped planned)
                                  :files-indexed (count (:changed planned))
@@ -318,11 +390,12 @@
                           (update :file-facts + (:file-facts result))
                           (update :search-docs + (:search-docs result))
                           (update :diagnostics + (:diagnostics result))
-                          (update :dependency-edges + (:dependency-edges dependency-result)))
+                          (update :dependency-edges + (:dependency-edges dependency-result))
+                          (stats-with-timings timings started finished-at))
               finished (assoc initial
                               :xt/id run-id
                               :status :completed
-                              :finished-at-ms (now-ms)
+                              :finished-at-ms finished-at
                               :stats summary)]
           (store/commit-temporal-bundle!
            xtdb

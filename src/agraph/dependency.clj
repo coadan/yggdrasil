@@ -4,20 +4,48 @@
             [agraph.xtdb :as store]
             [clojure.string :as str]))
 
-(defn- active-project-rows
-  [xtdb table project-id]
-  (->> (store/rows-by-field xtdb table :project-id project-id)
-       (filter :active?)
-       vec))
-
 (defn- active-scope-rows
   [xtdb table {:keys [project-id repo-id]}]
-  (cond->> (if project-id
-             (store/rows-by-field xtdb table :project-id project-id)
-             (store/all-rows xtdb table))
+  (cond->> (cond
+             repo-id (store/rows-by-field xtdb table :repo-id repo-id)
+             project-id (store/rows-by-field xtdb table :project-id project-id)
+             :else (store/all-rows xtdb table))
     true (filter :active?)
+    project-id (filter #(= project-id (:project-id %)))
     repo-id (filter #(= repo-id (:repo-id %)))
     true vec))
+
+(defn- relation-scope-query
+  [table scope-field]
+  (list 'fn
+        ['scope-value 'relation-value]
+        (list 'from table [{scope-field 'scope-value
+                            :relation 'relation-value}
+                           '*])))
+
+(defn- active-scope-edge-rows
+  [xtdb {:keys [project-id repo-id] :as scope} relations]
+  (->> relations
+       (mapcat (fn [relation]
+                 (cond
+                   repo-id
+                   (store/q xtdb
+                            [(relation-scope-query (:edges store/tables) :repo-id)
+                             repo-id
+                             relation])
+
+                   project-id
+                   (store/q xtdb
+                            [(relation-scope-query (:edges store/tables) :project-id)
+                             project-id
+                             relation])
+
+                   :else
+                   (active-scope-rows xtdb (:edges store/tables) scope))))
+       (filter :active?)
+       (filter #(or (nil? project-id) (= project-id (:project-id %))))
+       (filter #(or (nil? repo-id) (= repo-id (:repo-id %))))
+       vec))
 
 (defn- package-node?
   [node]
@@ -157,6 +185,19 @@
        (filter #(not= "rejected" (str (:status %))))
        vec))
 
+(def ^:private directly-resolvable-import-ecosystems
+  #{:npm :cargo :go :pypi})
+
+(defn- directly-resolvable-package?
+  [package]
+  (contains? directly-resolvable-import-ecosystems (:ecosystem package)))
+
+(defn- can-resolve-import-packages?
+  [packages-by-manifest map-overlay]
+  (or (seq (mapping-entries map-overlay))
+      (some directly-resolvable-package?
+            (mapcat identity (vals packages-by-manifest)))))
+
 (defn- mapping-package
   [packages-by-id mapping]
   (let [ecosystem (some-> (:ecosystem mapping) keyword)
@@ -246,31 +287,35 @@
   ([xtdb project-id repo-id run-id]
    (resolve-import-package-edges xtdb project-id repo-id run-id {}))
   ([xtdb project-id repo-id run-id {:keys [map-overlay]}]
-   (let [files (active-project-rows xtdb (:files store/tables) project-id)
-         nodes (active-project-rows xtdb (:nodes store/tables) project-id)
-         edges (active-project-rows xtdb (:edges store/tables) project-id)
+   (let [scope {:project-id project-id
+                :repo-id repo-id}
+         files (active-scope-rows xtdb (:files store/tables) scope)
+         nodes (active-scope-rows xtdb (:nodes store/tables) scope)
+         requires-edges (active-scope-edge-rows xtdb scope #{:requires})
          files-by-path (into {} (map (juxt :path identity)) files)
          packages-by-id (->> nodes
                              (filter package-node?)
                              (map (juxt :xt/id identity))
                              (into {}))
-         packages-by-manifest (package-by-manifest nodes edges)
-         manifest-paths (set (keys packages-by-manifest))
-         source-edges (->> edges
-                           (filter #(contains? #{:imports :uses} (:relation %)))
-                           (filter #(= repo-id (:repo-id %))))]
-     (->> source-edges
-          (keep (fn [edge]
-                  (when-let [result (resolve-import packages-by-id
-                                                    packages-by-manifest
-                                                    manifest-paths
-                                                    files-by-path
-                                                    map-overlay
-                                                    repo-id
-                                                    edge)]
-                    (import-package-edge run-id project-id repo-id edge result))))
-          distinct
-          vec))))
+         packages-by-manifest (package-by-manifest nodes requires-edges)
+         manifest-paths (set (keys packages-by-manifest))]
+     (if-not (can-resolve-import-packages? packages-by-manifest map-overlay)
+       []
+       (let [source-edges (active-scope-edge-rows xtdb scope #{:imports :uses})
+             candidate-edges (->> source-edges
+                                  (filter #(package-import-candidate? files-by-path %)))]
+         (->> candidate-edges
+              (keep (fn [edge]
+                      (when-let [result (resolve-import packages-by-id
+                                                        packages-by-manifest
+                                                        manifest-paths
+                                                        files-by-path
+                                                        map-overlay
+                                                        repo-id
+                                                        edge)]
+                        (import-package-edge run-id project-id repo-id edge result))))
+              distinct
+              vec))))))
 
 (defn refresh-derived-edges!
   "Replace derived package import edges for one project/repo."
