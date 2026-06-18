@@ -12909,9 +12909,15 @@
          out []]
     (if-let [[idx line] (first remaining)]
       (if current
-        (let [attr (or (some-> (re-find #"\b(deps|srcs|data|outs|visibility)\s*=\s*\[" line)
+        (let [attr (or (some-> (re-find #"\b(deps|dependencies|srcs|sources|data|outs|visibility)\s*=\s*\[" line)
                                second
-                               keyword)
+                               {"deps" :deps
+                                "dependencies" :deps
+                                "srcs" :srcs
+                                "sources" :srcs
+                                "data" :data
+                                "outs" :outs
+                                "visibility" :visibility})
                        (:attr current))
               values (mapv second (re-seq #"\"([^\"\s]+)\"" line))
               attr* (when-not (re-find #"\]" line) attr)
@@ -12949,6 +12955,94 @@
 (defn- bazel-dep-label
   [dep]
   (str/replace dep #"^:" ""))
+
+(defn- pants-toml-scalar-value
+  [value]
+  (let [trimmed (-> value
+                    (str/replace #"\s+#.*$" "")
+                    str/trim)]
+    (or (second (re-matches #"\"([^\"]*)\"" trimmed))
+        (second (re-matches #"'([^']*)'" trimmed))
+        (when-not (str/blank? trimmed)
+          trimmed))))
+
+(defn- pants-toml-entries
+  [content]
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         section nil
+         pending nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [trimmed (str/trim line)]
+        (cond
+          pending
+          (let [pending* (update pending :value str "\n" line)]
+            (if (str/includes? line "]")
+              (recur (rest remaining)
+                     section
+                     nil
+                     (conj out pending*))
+              (recur (rest remaining) section pending* out)))
+
+          (or (str/blank? trimmed)
+              (str/starts-with? trimmed "#"))
+          (recur (rest remaining) section nil out)
+
+          (re-matches #"\[[^\]]+\]" trimmed)
+          (recur (rest remaining)
+                 (subs trimmed 1 (dec (count trimmed)))
+                 nil
+                 out)
+
+          :else
+          (if-let [[_ key value]
+                   (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*?)\s*$"
+                               line)]
+            (let [entry {:section section
+                         :key key
+                         :value value
+                         :source-line (inc idx)}]
+              (if (and (str/starts-with? (str/trim value) "[")
+                       (not (str/includes? value "]")))
+                (recur (rest remaining) section entry out)
+                (recur (rest remaining) section nil (conj out entry))))
+            (recur (rest remaining) section nil out))))
+      out)))
+
+(defn- pants-toml-facts
+  [content]
+  (->> (pants-toml-entries content)
+       (mapcat
+        (fn [{:keys [section key value source-line]}]
+          (let [values (if (str/starts-with? (str/trim value) "[")
+                         (toml-array-strings value)
+                         (some-> (pants-toml-scalar-value value) vector))]
+            (case key
+              "backend_packages"
+              (map (fn [entry]
+                     {:kind :build-plugin
+                      :label entry
+                      :source-line source-line
+                      :relation :uses})
+                   values)
+
+              "root_patterns"
+              (map (fn [entry]
+                     {:kind :build-source-root
+                      :label entry
+                      :source-line source-line
+                      :relation :references})
+                   values)
+
+              (map (fn [entry]
+                     {:kind :build-setting
+                      :label (str section "." key "=" entry)
+                      :source-line source-line
+                      :relation :defines})
+                   values)))))
+       (remove nil?)
+       distinct
+       vec))
 
 (defn- build-targets
   [path lines]
@@ -13037,6 +13131,13 @@
        distinct
        vec))
 
+(defn- build-file-facts
+  [path content]
+  (let [filename (manifest-name path)]
+    (cond
+      (= "pants.toml" filename) (pants-toml-facts content)
+      :else [])))
+
 (defn- build-reference-nodes
   [run-id id-scope file-id path targets]
   (let [target-labels (set (keep #(when (= :build-target (:kind %)) (:label %))
@@ -13057,6 +13158,7 @@
         build-node (generic-node run-id id-scope file-id path :build-file path 1)
         targets (build-targets path lines)
         target-facts (build-target-facts targets)
+        file-facts (build-file-facts path content)
         target-nodes (->> targets
                           (filter #(= :build-target (:kind %)))
                           (mapv (fn [{:keys [label source-line]}]
@@ -13076,6 +13178,15 @@
                                                 label
                                                 source-line))
                                 target-facts)
+        file-fact-nodes (mapv (fn [{:keys [kind label source-line]}]
+                                (generic-node run-id
+                                              id-scope
+                                              file-id
+                                              path
+                                              kind
+                                              label
+                                              source-line))
+                              file-facts)
         reference-nodes (build-reference-nodes run-id id-scope file-id path targets)
         define-edges (mapv #(edge-row run-id file-id path
                                       (:xt/id build-node)
@@ -13094,13 +13205,27 @@
                                             :extracted
                                             source-line))
                                 target-facts)
+        file-fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
+                                (edge-row run-id
+                                          file-id
+                                          path
+                                          (:xt/id build-node)
+                                          (node-id id-scope kind label)
+                                          relation
+                                          :extracted
+                                          source-line))
+                              file-facts)
         reference-edges (build-reference-edges run-id id-scope file-id path targets)
         chunk-result (extract-text-source run-id file :build-file)]
     {:nodes (vec (concat [build-node]
                          target-nodes
                          target-fact-nodes
+                         file-fact-nodes
                          reference-nodes))
-     :edges (vec (concat define-edges target-fact-edges reference-edges))
+     :edges (vec (concat define-edges
+                         target-fact-edges
+                         file-fact-edges
+                         reference-edges))
      :chunks (:chunks chunk-result)
      :diagnostics []}))
 

@@ -3826,15 +3826,30 @@
                      "run/test"
                      (fs/file-record "test/fixtures/extractor-repo"
                                      "test/fixtures/extractor-repo/build/BUCK"))
+        pants-result (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/build/pants/BUILD"))
+        pants-toml-result (extract/extract-file
+                           "run/test"
+                           (fs/file-record
+                            "test/fixtures/extractor-repo"
+                            "test/fixtures/extractor-repo/build/pants.toml"))
         make-labels (set (map :label (:nodes make-result)))
         cmake-labels (set (map :label (:nodes cmake-result)))
         cmake-module-labels (set (map :label (:nodes cmake-module-result)))
         bazel-labels (set (map :label (:nodes bazel-result)))
         buck-labels (set (map :label (:nodes buck-result)))
+        pants-labels (set (map :label (:nodes pants-result)))
+        pants-toml-labels (set (map :label (:nodes pants-toml-result)))
         bazel-kinds (frequencies (map :kind (:nodes bazel-result)))
         buck-kinds (frequencies (map :kind (:nodes buck-result)))
+        pants-kinds (frequencies (map :kind (:nodes pants-result)))
+        pants-toml-kinds (frequencies (map :kind (:nodes pants-toml-result)))
         bazel-relations (frequencies (map :relation (:edges bazel-result)))
         buck-relations (frequencies (map :relation (:edges buck-result)))
+        pants-relations (frequencies (map :relation (:edges pants-result)))
+        pants-toml-relations (frequencies (map :relation (:edges pants-toml-result)))
         requires-targets (fn [result]
                            (set (map :target-id
                                      (filter #(= :requires (:relation %))
@@ -3896,7 +3911,44 @@
     (is (= {:defines 2 :uses 3 :references 3 :requires 2}
            (select-keys buck-relations [:defines :uses :references :requires])))
     (is (contains? (requires-targets buck-result)
-                   (extract/node-id :build-target "core")))))
+                   (extract/node-id :build-target "core")))
+    (is (= :build (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                         "test/fixtures/extractor-repo/build/pants/BUILD"))))
+    (is (contains? pants-labels "build/pants/BUILD"))
+    (is (contains? pants-labels "lib"))
+    (is (contains? pants-labels "resources"))
+    (is (contains? pants-labels "tests"))
+    (is (contains? pants-labels "lib:python_sources"))
+    (is (contains? pants-labels "resources:resources"))
+    (is (contains? pants-labels "tests:python_tests"))
+    (is (contains? pants-labels "*.py"))
+    (is (contains? pants-labels "templates/*.html"))
+    (is (contains? pants-labels "3rdparty/python#requests"))
+    (is (= 3 (:build-target pants-kinds)))
+    (is (= 3 (:build-rule pants-kinds)))
+    (is (= 2 (:build-source pants-kinds)))
+    (is (= 1 (:build-reference pants-kinds)))
+    (is (= {:defines 3 :uses 3 :references 2 :requires 3}
+           (select-keys pants-relations [:defines :uses :references :requires])))
+    (is (contains? (requires-targets pants-result)
+                   (extract/node-id :build-target "resources")))
+    (is (contains? (requires-targets pants-result)
+                   (extract/node-id :build-target "lib")))
+    (is (= :build (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                         "test/fixtures/extractor-repo/build/pants.toml"))))
+    (is (contains? pants-toml-labels "build/pants.toml"))
+    (is (contains? pants-toml-labels "pants.backend.python"))
+    (is (contains? pants-toml-labels "pants.backend.python.lint.ruff"))
+    (is (contains? pants-toml-labels "/src/python"))
+    (is (contains? pants-toml-labels "/tests/python"))
+    (is (contains? pants-toml-labels "GLOBAL.pants_version=2.24.0"))
+    (is (contains? pants-toml-labels
+                   "python.interpreter_constraints=CPython>=3.11,<3.13"))
+    (is (= 2 (:build-plugin pants-toml-kinds)))
+    (is (= 2 (:build-source-root pants-toml-kinds)))
+    (is (= 2 (:build-setting pants-toml-kinds)))
+    (is (= {:uses 2 :references 2 :defines 2}
+           (select-keys pants-toml-relations [:uses :references :defines])))))
 
 (deftest extracts-sql-tables-views-and-foreign-keys
   (let [result (extract/extract-file
