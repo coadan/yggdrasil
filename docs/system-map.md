@@ -137,14 +137,16 @@ to source import names.
 Agents should maintain the map while working. Start with
 `agraph sync check --json --map agraph.map.json` and address the ranked
 decision queue. The report includes a graph-basis hash, scale/noise ratios, top
-hubs, and fold-in actions. A check/enqueue sync uses the graph-maintenance index
-profile by default, which updates files, graph rows, diagnostics, and bounded
-file facts without writing code/doc search chunks. Add `--query-index` when the
-same run should also refresh searchable chunks for `agraph ask`, `agraph
-explore`, embeddings, and context packets. Use those signals to make small
-corrections as work reveals them, rather than trying to classify the whole
-project. Use `--map agraph.map.json` when reviewing after corrections so
-rejected systems and incident edges stay out of the maintenance queue.
+hubs, fold-in actions, and `decision-summary` counts by severity and kind so an
+agent can triage the queue before opening individual decision packets. A
+check/enqueue sync uses the graph-maintenance index profile by default, which
+updates files, graph rows, diagnostics, and bounded file facts without writing
+code/doc search chunks. Add `--query-index` when the same run should also
+refresh searchable chunks for `agraph ask`, `agraph explore`, embeddings, and
+context packets. Use those signals to make small corrections as work reveals
+them, rather than trying to classify the whole project. Use `--map
+agraph.map.json` when reviewing after corrections so rejected systems and
+incident edges stay out of the maintenance queue.
 
 If a task reveals a better system boundary, a stale external API node, an
 orphaned system, a noisy visible edge, a missing connection, or a repo that

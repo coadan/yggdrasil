@@ -95,6 +95,25 @@
     (is (str/includes? out "case-1 repo agent agraph-baseline-lexical status ran recall@10 0.50 mrr 1.00"))
     (is (not (str/includes? out "- file-recall@10 0.00")))))
 
+(deftest maintenance-summary-prints-decision-breakdown
+  (let [out (with-out-str
+              (#'cli/print-maintenance-report
+               {:project-id "fixture"
+                :graph-basis {:hash "basis123"}
+                :counts {:maintenance-decisions 2}
+                :decision-summary {:total 2
+                                   :bySeverity [{:severity :high
+                                                 :count 1}
+                                                {:severity :low
+                                                 :count 1}]
+                                   :byKind [{:kind :ambiguous-high-salience-edge
+                                             :count 1}
+                                            {:kind :unclustered-system
+                                             :count 1}]}
+                :decision-queue []}))]
+    (is (str/includes? out "# Maintain"))
+    (is (str/includes? out "- decision-summary severity high:1,low:1 kind ambiguous-high-salience-edge:1,unclustered-system:1"))))
+
 (deftest benchmark-summary-prints-parser-worker-profiles
   (let [out (with-out-str
               (#'cli/print-benchmark-summary

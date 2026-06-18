@@ -53,6 +53,8 @@
           (is (= "agraph.evidence/v1" (get-in report-json [:evidence :schema])))
           (is (= "graph.json" (get-in report-json [:graphs :overview :artifact])))
           (is (= "systems.json" (get-in report-json [:graphs :systems :artifact])))
+          (is (= (get-in report-json [:maintenance :queue :decisions])
+                 (get-in report-json [:maintenance :decision-summary :total])))
           (is (= "agraph.context/v1"
                  (:schema (json/read-json (slurp (:context-example files))
                                           :key-fn keyword))))

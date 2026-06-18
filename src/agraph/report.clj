@@ -260,6 +260,7 @@
                                            vec)
                  :orphaned-candidates (vec (take 20 (:orphaned-systems maintenance)))
                  :queue (queue-summary maintenance)
+                 :decision-summary (:decision-summary maintenance)
                  :decision-queue (vec (take 20 (:decision-queue maintenance)))
                  :infra-review-queue (vec (take 20 (:infra-review-queue maintenance)))}
    :context-example {:artifact "context-example.json"

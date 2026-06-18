@@ -252,6 +252,19 @@
               group-decision (first (:external-api-review-group by-kind))
               external-decision (first (:noisy-external-api by-kind))
               sparse-decision (first (:sparse-external-api by-kind))]
+          (is (= (count (:decision-queue maintenance))
+                 (get-in maintenance [:decision-summary :total])))
+          (is (= [{:severity :low
+                   :count (count (:decision-queue maintenance))}]
+                 (get-in maintenance [:decision-summary :bySeverity])))
+          (is (= #{:external-api-review-group
+                   :low-confidence-edge-fanout
+                   :noisy-external-api
+                   :sparse-external-api}
+                 (set (map :kind (get-in maintenance [:decision-summary :byKind])))))
+          (is (= (select-keys (first (:decision-queue maintenance))
+                              [:id :kind :severity :target :reason :scope :recommended-actions])
+                 (get-in maintenance [:decision-summary :next])))
           (is (some? fanout))
           (is (= source (get-in fanout [:data :source :xt/id])))
           (is (= 3 (get-in fanout [:data :edge-count])))

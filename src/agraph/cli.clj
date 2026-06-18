@@ -629,7 +629,7 @@
 
 (defn- print-maintenance-report
   [{:keys [project-id graph-basis map counts scale graph-health fold-in orphaned-systems
-           dangling-edges low-confidence-edges
+           dangling-edges low-confidence-edges decision-summary
            external-api-review decision-queue infra-review-queue]}]
   (println "# Maintain")
   (println "- project" project-id)
@@ -644,6 +644,18 @@
     (println "- scale" (name (:tier scale)))
     (println "- noise-ratio" (format "%.2f" (double (get-in scale [:ratios :noise]))))
     (println "- orphan-ratio" (format "%.2f" (double (get-in scale [:ratios :orphaned])))))
+  (when (pos? (long (:total decision-summary 0)))
+    (println "- decision-summary"
+             "severity"
+             (str/join ","
+                       (clojure.core/map (fn [{:keys [severity count]}]
+                                           (str (name severity) ":" count))
+                                         (:bySeverity decision-summary)))
+             "kind"
+             (str/join ","
+                       (clojure.core/map (fn [{:keys [kind count]}]
+                                           (str (name kind) ":" count))
+                                         (:byKind decision-summary)))))
   (when (seq (or (:high-degree-hubs graph-health) (:top-hubs scale)))
     (println)
     (println "## Top Hubs")

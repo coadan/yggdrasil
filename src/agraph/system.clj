@@ -1169,6 +1169,44 @@
                      (:target decision)]))
          vec)))
 
+(defn- grouped-decision-counts
+  [decisions k sort-key]
+  (->> decisions
+       (group-by k)
+       (map (fn [[value rows]]
+              {k value
+               :count (count rows)}))
+       (sort-by sort-key)
+       vec))
+
+(defn- decision-preview
+  [decision]
+  (select-keys decision
+               [:id
+                :kind
+                :severity
+                :target
+                :reason
+                :scope
+                :recommended-actions]))
+
+(defn- decision-queue-summary
+  [decision-queue]
+  (cond-> {:total (count decision-queue)
+           :bySeverity (grouped-decision-counts decision-queue
+                                                :severity
+                                                (fn [row]
+                                                  [(severity-rank (:severity row))
+                                                   (or (some-> (:severity row) name)
+                                                       "")]))
+           :byKind (grouped-decision-counts decision-queue
+                                            :kind
+                                            (fn [row]
+                                              [(or (some-> (:kind row) name)
+                                                   "")]))}
+    (seq decision-queue)
+    (assoc :next (decision-preview (first decision-queue)))))
+
 (defn- ratio
   [numerator denominator]
   (if (pos? denominator)
@@ -1432,6 +1470,7 @@
      :external-api-review external-api-review
      :graph-health graph-health
      :fold-in (fold-in-report project-id scale decision-queue)
+     :decision-summary (decision-queue-summary decision-queue)
      :orphaned-systems orphaned
      :dangling-edges dangling-edges
      :evidence-with-missing-system missing-evidence-systems
