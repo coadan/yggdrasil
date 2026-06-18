@@ -74,6 +74,8 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/ops/Pulumi.yaml")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/ops/Pulumi.dev.yaml")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/ops/serverless.yml")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/ops/template.yaml")
@@ -2432,6 +2434,10 @@
                        "run/test"
                        (fs/file-record "test/fixtures/extractor-repo"
                                        "test/fixtures/extractor-repo/ops/Pulumi.yaml"))
+        pulumi-stack-result (extract/extract-file
+                             "run/test"
+                             (fs/file-record "test/fixtures/extractor-repo"
+                                             "test/fixtures/extractor-repo/ops/Pulumi.dev.yaml"))
         serverless-result (extract/extract-file
                            "run/test"
                            (fs/file-record "test/fixtures/extractor-repo"
@@ -2464,6 +2470,8 @@
     (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                               "test/fixtures/extractor-repo/ops/Pulumi.yaml"))))
     (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                              "test/fixtures/extractor-repo/ops/Pulumi.dev.yaml"))))
+    (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                               "test/fixtures/extractor-repo/ops/serverless.yml"))))
     (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                               "test/fixtures/extractor-repo/ops/template.yaml"))))
@@ -2478,14 +2486,36 @@
     (is (contains? (labels cloudformation-result) "PanelBucket"))
     (is (contains? (labels cloudformation-result) "PanelFunction"))
     (is (contains? (labels cloudformation-result) "AWS::S3::Bucket"))
+    (is (contains? (labels cloudformation-result) "StageName"))
+    (is (contains? (labels cloudformation-result) "RegionMap"))
+    (is (contains? (labels cloudformation-result) "IsProd"))
+    (is (contains? (labels cloudformation-result) "PanelBucketName"))
     (is (= 2 (:cloudformation-resource (kinds cloudformation-result))))
     (is (= 2 (:cloudformation-resource-type (kinds cloudformation-result))))
-    (is (= 4 (get (relations cloudformation-result) :defines 0)))
-    (is (= 1 (get (relations cloudformation-result) :references 0)))
+    (is (= 1 (:cloudformation-parameter (kinds cloudformation-result))))
+    (is (= 1 (:cloudformation-mapping (kinds cloudformation-result))))
+    (is (= 1 (:cloudformation-condition (kinds cloudformation-result))))
+    (is (= 1 (:cloudformation-output (kinds cloudformation-result))))
+    (is (= 8 (get (relations cloudformation-result) :defines 0)))
+    (is (= 6 (get (relations cloudformation-result) :references 0)))
     (is (contains? (labels pulumi-result) "panels-infra"))
     (is (contains? (labels pulumi-result) "nodejs"))
+    (is (contains? (labels pulumi-result) "aws:region"))
+    (is (contains? (labels pulumi-result) "aws:region=us-east-1"))
     (is (= 1 (:pulumi-project (kinds pulumi-result))))
     (is (= 1 (:pulumi-runtime (kinds pulumi-result))))
+    (is (= 1 (:pulumi-config-key (kinds pulumi-result))))
+    (is (= 1 (:pulumi-config-value (kinds pulumi-result))))
+    (is (contains? (labels pulumi-stack-result) "dev"))
+    (is (contains? (labels pulumi-stack-result) "awskms://alias/pulumi"))
+    (is (contains? (labels pulumi-stack-result) "panels:replicas=2"))
+    (is (contains? (labels pulumi-stack-result) "panels:apiToken"))
+    (is (not (contains? (labels pulumi-stack-result) "panels:apiToken={secure: ciphertext}")))
+    (is (= 1 (:pulumi-stack (kinds pulumi-stack-result))))
+    (is (= 1 (:pulumi-secrets-provider (kinds pulumi-stack-result))))
+    (is (= 3 (:pulumi-config-key (kinds pulumi-stack-result))))
+    (is (= 2 (:pulumi-config-value (kinds pulumi-stack-result))))
+    (is (= 1 (:pulumi-secret-config (kinds pulumi-stack-result))))
     (is (contains? (labels serverless-result) "panels-api"))
     (is (contains? (labels serverless-result) "listPanels"))
     (is (contains? (labels serverless-result) "src/handlers/list.main"))
@@ -3465,10 +3495,29 @@
   (let [style-result (extract/extract-file
                       "run/test"
                       (fs/file-record "test/fixtures/sample-repo"
-                                      "test/fixtures/sample-repo/src/web/theme.scss"))]
-    (is (= [:style-file] (mapv :kind (:chunks style-result))))
-    (is (empty? (:nodes style-result)))
-    (is (empty? (:edges style-result)))))
+                                      "test/fixtures/sample-repo/src/web/theme.scss"))
+        chunks-by-label (group-by :label (:chunks style-result))
+        labels (set (map :label (:nodes style-result)))
+        relations (frequencies (map :relation (:edges style-result)))]
+    (is (= [:style-file
+            :style-section
+            :style-rule
+            :style-variable
+            :style-variable
+            :style-variable]
+           (mapv :kind (:chunks style-result))))
+    (is (contains? labels "src/web/theme.scss"))
+    (is (contains? labels "$panel-padding"))
+    (is (contains? labels "$panel-radius"))
+    (is (contains? labels "panel-variables"))
+    (is (contains? labels ".panel"))
+    (is (= 5 (get relations :defines 0)))
+    (is (str/includes? (:text (first (get chunks-by-label "panel-variables")))
+                       "$panel-radius-sm"))
+    (is (str/includes? (:text (first (get chunks-by-label ".panel")))
+                       "border-radius: $panel-radius"))
+    (is (str/includes? (:text (first (get chunks-by-label "$panel-radius")))
+                       "$panel-radius: .25rem"))))
 
 (deftest extracts-shell-as-searchable-source-chunk
   (let [shell-result (extract/extract-file

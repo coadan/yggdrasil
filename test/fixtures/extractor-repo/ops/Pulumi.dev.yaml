@@ -1,0 +1,5 @@
+secretsprovider: awskms://alias/pulumi
+config:
+  aws:region: us-east-1
+  panels:replicas: "2"
+  panels:apiToken: {secure: ciphertext}

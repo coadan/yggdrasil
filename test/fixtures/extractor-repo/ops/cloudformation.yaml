@@ -1,7 +1,25 @@
 AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  StageName:
+    Type: String
+Mappings:
+  RegionMap:
+    us-east-1:
+      bucketSuffix: east
+Conditions:
+  IsProd: !Equals [!Ref StageName, prod]
 Resources:
   PanelBucket:
     Type: AWS::S3::Bucket
+    Condition: IsProd
   PanelFunction:
     Type: AWS::Lambda::Function
     DependsOn: PanelBucket
+    Properties:
+      Environment:
+        Variables:
+          BUCKET: !Ref PanelBucket
+          STAGE: !Ref StageName
+Outputs:
+  PanelBucketName:
+    Value: !Ref PanelBucket

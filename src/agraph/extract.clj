@@ -9804,6 +9804,37 @@
           (recur (rest remaining) in-section? section-indent out)))
       out)))
 
+(defn- ops-section-name-facts
+  [content section-name kind]
+  (->> (ops-yaml-section-blocks content section-name)
+       (mapv (fn [{:keys [label source-line]}]
+               {:kind kind
+                :label label
+                :source-line source-line
+                :relation :defines}))))
+
+(defn- json-intrinsic-reference-targets
+  [value]
+  (let [get-att-key (keyword "Fn::GetAtt")]
+    (cond
+      (map? value)
+      (vec
+       (distinct
+        (concat
+         (when (string? (:Ref value))
+           [(:Ref value)])
+         (let [get-att (get value get-att-key)]
+           (cond
+             (and (vector? get-att) (string? (first get-att))) [(first get-att)]
+             (string? get-att) [(first (str/split get-att #"\."))]
+             :else []))
+         (mapcat json-intrinsic-reference-targets (vals value)))))
+
+      (vector? value)
+      (vec (distinct (mapcat json-intrinsic-reference-targets value)))
+
+      :else [])))
+
 (defn- ops-config-format
   [{:keys [path content ext]}]
   (let [filename (str/lower-case (.getName (java.io.File. (str path))))]
@@ -9827,67 +9858,157 @@
 
 (defn- cloudformation-yaml-facts
   [content]
-  (let [lines (vec (str/split-lines content))]
-    (loop [remaining (map-indexed vector lines)
-           in-resources? false
-           current-resource nil
-           facts []
-           refs []]
-      (if-let [[idx line] (first remaining)]
-        (cond
-          (re-matches #"^\s*Resources:\s*$" line)
-          (recur (rest remaining) true nil facts refs)
+  (let [lines (vec (str/split-lines content))
+        base (loop [remaining (map-indexed vector lines)
+                    in-resources? false
+                    current-resource nil
+                    facts []
+                    refs []]
+               (if-let [[idx line] (first remaining)]
+                 (cond
+                   (re-matches #"^\s*Resources:\s*$" line)
+                   (recur (rest remaining) true nil facts refs)
 
-          (and in-resources?
-               (re-matches #"^\s{2}([A-Za-z0-9]+):\s*$" line))
-          (let [resource (second (re-matches #"^\s{2}([A-Za-z0-9]+):\s*$" line))]
-            (recur (rest remaining)
-                   true
-                   resource
-                   (conj facts {:kind :cloudformation-resource
-                                :label resource
-                                :source-line (inc idx)
-                                :relation :defines})
-                   refs))
+                   (and in-resources?
+                        (re-matches #"^[A-Za-z0-9_.-]+:\s*.*$" line)
+                        (not (re-matches #"^\s*Resources:\s*$" line)))
+                   (recur (rest remaining) false nil facts refs)
 
-          (and current-resource
-               (re-matches #"^\s+Type:\s*([A-Za-z0-9:_.-]+)\s*$" line))
-          (let [resource-type (second (re-matches #"^\s+Type:\s*([A-Za-z0-9:_.-]+)\s*$"
-                                                  line))]
-            (recur (rest remaining)
-                   in-resources?
-                   current-resource
-                   (conj facts {:kind :cloudformation-resource-type
-                                :label resource-type
-                                :source-line (inc idx)
-                                :relation :defines})
-                   refs))
+                   (and in-resources?
+                        (re-matches #"^\s{2}([A-Za-z0-9]+):\s*$" line))
+                   (let [resource (second (re-matches #"^\s{2}([A-Za-z0-9]+):\s*$"
+                                                      line))]
+                     (recur (rest remaining)
+                            true
+                            resource
+                            (conj facts {:kind :cloudformation-resource
+                                         :label resource
+                                         :source-line (inc idx)
+                                         :relation :defines})
+                            refs))
 
-          (and current-resource
-               (re-matches #"^\s+DependsOn:\s*([A-Za-z0-9]+)\s*$" line))
-          (let [target (second (re-matches #"^\s+DependsOn:\s*([A-Za-z0-9]+)\s*$"
-                                           line))]
-            (recur (rest remaining)
-                   in-resources?
-                   current-resource
-                   facts
-                   (conj refs {:source-kind :cloudformation-resource
-                               :source-label current-resource
-                               :target-kind :cloudformation-resource
-                               :target-label target
-                               :source-line (inc idx)})))
+                   (and current-resource
+                        (re-matches #"^\s+Type:\s*([A-Za-z0-9:_.-]+)\s*$" line))
+                   (let [resource-type (second
+                                        (re-matches #"^\s+Type:\s*([A-Za-z0-9:_.-]+)\s*$"
+                                                    line))]
+                     (recur (rest remaining)
+                            in-resources?
+                            current-resource
+                            (conj facts {:kind :cloudformation-resource-type
+                                         :label resource-type
+                                         :source-line (inc idx)
+                                         :relation :defines})
+                            refs))
 
-          :else
-          (recur (rest remaining) in-resources? current-resource facts refs))
-        {:facts facts
-         :refs refs}))))
+                   (and current-resource
+                        (re-matches #"^\s+DependsOn:\s*([A-Za-z0-9]+)\s*$" line))
+                   (let [target (second (re-matches #"^\s+DependsOn:\s*([A-Za-z0-9]+)\s*$"
+                                                    line))]
+                     (recur (rest remaining)
+                            in-resources?
+                            current-resource
+                            facts
+                            (conj refs {:source-kind :cloudformation-resource
+                                        :source-label current-resource
+                                        :target-kind :cloudformation-resource
+                                        :target-label target
+                                        :source-line (inc idx)})))
+
+                   :else
+                   (recur (rest remaining) in-resources? current-resource facts refs))
+                 {:facts facts
+                  :refs refs}))
+        resources (ops-yaml-section-blocks content "Resources")
+        parameters (ops-yaml-section-blocks content "Parameters")
+        conditions (ops-yaml-section-blocks content "Conditions")
+        outputs (ops-yaml-section-blocks content "Outputs")
+        resource-labels (set (map :label resources))
+        parameter-labels (set (map :label parameters))
+        condition-labels (set (map :label conditions))
+        target-kind (fn [target]
+                      (cond
+                        (contains? resource-labels target) :cloudformation-resource
+                        (contains? parameter-labels target) :cloudformation-parameter
+                        (contains? condition-labels target) :cloudformation-condition
+                        :else nil))
+        block-ref-facts (fn [source-kind {:keys [label lines]}]
+                          (->> (ops-reference-targets lines)
+                               (keep (fn [{:keys [target source-line]}]
+                                       (when-let [target-kind (target-kind target)]
+                                         {:source-kind source-kind
+                                          :source-label label
+                                          :target-kind target-kind
+                                          :target-label target
+                                          :source-line source-line})))))
+        condition-ref (fn [{:keys [label] :as block}]
+                        (when-let [{:keys [value source-line]} (ops-block-value block "Condition")]
+                          (when (contains? condition-labels value)
+                            {:source-kind :cloudformation-resource
+                             :source-label label
+                             :target-kind :cloudformation-condition
+                             :target-label value
+                             :source-line source-line})))
+        extra-facts (concat
+                     (ops-section-name-facts content "Parameters"
+                                             :cloudformation-parameter)
+                     (ops-section-name-facts content "Mappings"
+                                             :cloudformation-mapping)
+                     (ops-section-name-facts content "Conditions"
+                                             :cloudformation-condition)
+                     (ops-section-name-facts content "Outputs"
+                                             :cloudformation-output))
+        extra-refs (concat
+                    (mapcat #(block-ref-facts :cloudformation-resource %) resources)
+                    (keep condition-ref resources)
+                    (mapcat #(block-ref-facts :cloudformation-condition %) conditions)
+                    (mapcat #(block-ref-facts :cloudformation-output %) outputs))]
+    {:facts (vec (distinct (concat (:facts base) extra-facts)))
+     :refs (vec (distinct (concat (:refs base) extra-refs)))}))
 
 (defn- cloudformation-json-facts
   [content]
   (if-let [m (read-json-map content)]
-    (let [resources (:Resources m)]
+    (let [resources (:Resources m)
+          parameters (:Parameters m)
+          mappings (:Mappings m)
+          conditions (:Conditions m)
+          outputs (:Outputs m)
+          section-facts (fn [section kind]
+                          (when (map? section)
+                            (map (fn [[k _]]
+                                   {:kind kind
+                                    :label (json-key-label k)
+                                    :source-line 1
+                                    :relation :defines})
+                                 section)))
+          resource-labels (set (map json-key-label (keys (or resources {}))))
+          parameter-labels (set (map json-key-label (keys (or parameters {}))))
+          condition-labels (set (map json-key-label (keys (or conditions {}))))
+          target-kind (fn [target]
+                        (cond
+                          (contains? resource-labels target) :cloudformation-resource
+                          (contains? parameter-labels target) :cloudformation-parameter
+                          (contains? condition-labels target) :cloudformation-condition
+                          :else nil))
+          reference-facts (fn [source-kind source-label value]
+                            (->> (json-intrinsic-reference-targets value)
+                                 (keep (fn [target]
+                                         (when-let [target-kind (target-kind target)]
+                                           {:source-kind source-kind
+                                            :source-label source-label
+                                            :target-kind target-kind
+                                            :target-label target
+                                            :source-line 1})))))]
       (if-not (map? resources)
-        {:facts [] :refs []}
+        {:facts (vec
+                 (distinct
+                  (concat
+                   (section-facts parameters :cloudformation-parameter)
+                   (section-facts mappings :cloudformation-mapping)
+                   (section-facts conditions :cloudformation-condition)
+                   (section-facts outputs :cloudformation-output))))
+         :refs []}
         (let [facts (->> resources
                          (mapcat (fn [[resource spec]]
                                    (let [resource-name (json-key-label resource)
@@ -9904,23 +10025,44 @@
                                           :relation :defines}])))))
                          distinct
                          vec)
-              refs (->> resources
-                        (mapcat (fn [[resource spec]]
-                                  (let [depends (:DependsOn spec)
-                                        targets (cond
-                                                  (string? depends) [depends]
-                                                  (vector? depends) (filter string? depends)
-                                                  :else [])]
-                                    (map (fn [target]
-                                           {:source-kind :cloudformation-resource
-                                            :source-label (json-key-label resource)
-                                            :target-kind :cloudformation-resource
-                                            :target-label target
-                                            :source-line 1})
-                                         targets))))
-                        distinct
-                        vec)]
-          {:facts facts :refs refs})))
+              depends-refs (->> resources
+                                (mapcat (fn [[resource spec]]
+                                          (let [depends (:DependsOn spec)
+                                                targets (cond
+                                                          (string? depends) [depends]
+                                                          (vector? depends) (filter string? depends)
+                                                          :else [])]
+                                            (map (fn [target]
+                                                   {:source-kind :cloudformation-resource
+                                                    :source-label (json-key-label resource)
+                                                    :target-kind :cloudformation-resource
+                                                    :target-label target
+                                                    :source-line 1})
+                                                 targets)))))
+              intrinsic-refs (concat
+                              (mapcat (fn [[resource spec]]
+                                        (reference-facts :cloudformation-resource
+                                                         (json-key-label resource)
+                                                         spec))
+                                      resources)
+                              (mapcat (fn [[condition spec]]
+                                        (reference-facts :cloudformation-condition
+                                                         (json-key-label condition)
+                                                         spec))
+                                      conditions)
+                              (mapcat (fn [[output spec]]
+                                        (reference-facts :cloudformation-output
+                                                         (json-key-label output)
+                                                         spec))
+                                      outputs))]
+          {:facts (vec
+                   (distinct
+                    (concat facts
+                            (section-facts parameters :cloudformation-parameter)
+                            (section-facts mappings :cloudformation-mapping)
+                            (section-facts conditions :cloudformation-condition)
+                            (section-facts outputs :cloudformation-output))))
+           :refs (vec (distinct (concat depends-refs intrinsic-refs)))})))
     (cloudformation-yaml-facts content)))
 
 (defn- cloudformation-facts
@@ -10172,24 +10314,91 @@
        :refs []})
     {:facts [] :refs []}))
 
-(defn- pulumi-facts
+(defn- pulumi-stack-name
+  [path]
+  (let [filename (str/lower-case (.getName (java.io.File. (str path))))]
+    (some-> (re-matches #"pulumi\.([a-z0-9_.-]+)\.ya?ml" filename)
+            second)))
+
+(defn- pulumi-config-entries
   [content]
-  (->> (concat
-        (when-let [name (yaml-top-level-value content "name")]
-          [{:kind :pulumi-project
-            :label name
-            :source-line 1
-            :relation :defines}])
-        (when-let [runtime (yaml-top-level-value content "runtime")]
-          [{:kind :pulumi-runtime
-            :label runtime
-            :source-line 1
-            :relation :defines}])
-        (->> (config-assignment-facts content)
-             (filter #(str/starts-with? (:label %) "config:"))
-             (map #(assoc % :kind :ops-config-setting))))
-       distinct
-       vec))
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         in-config? false
+         config-indent nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (ops-yaml-key-line idx line)]
+        (cond
+          (and entry (= "config" (:key entry)))
+          (recur (rest remaining) true (:indent entry) out)
+
+          (and in-config?
+               entry
+               (<= (:indent entry) config-indent)
+               (not= "config" (:key entry)))
+          (recur (rest remaining) false nil out)
+
+          (and in-config?
+               (> (count (take-while #(= \space %) line)) config-indent)
+               (re-matches #"^\s*([A-Za-z0-9_.:-]+):\s*(.+?)\s*$" line))
+          (let [[_ key value] (re-matches #"^\s*([A-Za-z0-9_.:-]+):\s*(.+?)\s*$"
+                                          line)
+                value (ops-strip-scalar value)]
+            (recur (rest remaining)
+                   true
+                   config-indent
+                   (conj out {:key key
+                              :value value
+                              :secure? (or (str/includes? value "secure:")
+                                           (str/includes? value "{secure"))
+                              :source-line (inc idx)})))
+
+          :else
+          (recur (rest remaining) in-config? config-indent out)))
+      out)))
+
+(defn- pulumi-facts
+  [{:keys [path content]}]
+  (let [stack-name (pulumi-stack-name path)]
+    (->> (concat
+          (when stack-name
+            [{:kind :pulumi-stack
+              :label stack-name
+              :source-line 1
+              :relation :defines}])
+          (when-let [name (yaml-top-level-value content "name")]
+            [{:kind :pulumi-project
+              :label name
+              :source-line 1
+              :relation :defines}])
+          (when-let [runtime (yaml-top-level-value content "runtime")]
+            [{:kind :pulumi-runtime
+              :label runtime
+              :source-line 1
+              :relation :defines}])
+          (when-let [secrets-provider (yaml-top-level-value content "secretsprovider")]
+            [{:kind :pulumi-secrets-provider
+              :label secrets-provider
+              :source-line 1
+              :relation :uses}])
+          (mapcat (fn [{:keys [key value secure? source-line]}]
+                    (concat
+                     [{:kind :pulumi-config-key
+                       :label key
+                       :source-line source-line
+                       :relation :defines}]
+                     (if secure?
+                       [{:kind :pulumi-secret-config
+                         :label key
+                         :source-line source-line
+                         :relation :defines}]
+                       [{:kind :pulumi-config-value
+                         :label (str key "=" value)
+                         :source-line source-line
+                         :relation :defines}])))
+                  (pulumi-config-entries content)))
+         distinct
+         vec)))
 
 (defn- ansible-facts
   [content]
@@ -10302,7 +10511,7 @@
     :sam (sam-facts content)
     :cdk (cdk-facts content)
     :cloudformation (cloudformation-facts content)
-    :pulumi {:facts (pulumi-facts content) :refs []}
+    :pulumi {:facts (pulumi-facts file) :refs []}
     :ansible {:facts (ansible-facts content) :refs []}
     :nginx {:facts (nginx-facts content) :refs []}
     :systemd {:facts (systemd-facts path content) :refs []}
