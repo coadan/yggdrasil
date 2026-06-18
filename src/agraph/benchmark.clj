@@ -2851,6 +2851,10 @@
          [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
          [:max-empty-result-runs :maxEmptyResultRuns]
          [:max-unverified-score-runs :maxUnverifiedScoreRuns]
+         [:max-missed-runs :maxMissedRuns]
+         [:max-ranked-outside-top-5-runs :maxRankedOutsideTop5Runs]
+         [:max-ranked-outside-top-10-runs :maxRankedOutsideTop10Runs]
+         [:max-ranked-outside-top-20-runs :maxRankedOutsideTop20Runs]
          [:max-active-stage-ms :maxActiveStageMs]]))
 
 (defn- metric-failure
@@ -3016,6 +3020,44 @@
                                     :unverifiedScoreCaseIds])
                  :message "Some agent score artifacts are legacy or do not match the current suite case fingerprint."})]))))
 
+(defn- localization-diagnostic-failures
+  [check]
+  (->> [[:maxMissedRuns
+         :missedRuns
+         :missedCaseIds
+         "missedRuns"
+         "Some runs missed at least one scoreable localization file."]
+        [:maxRankedOutsideTop5Runs
+         :rankedOutsideTop5Runs
+         :rankedOutsideTop5CaseIds
+         "rankedOutsideTop5Runs"
+         "Some runs found scoreable localization files only outside the top 5."]
+        [:maxRankedOutsideTop10Runs
+         :rankedOutsideTop10Runs
+         :rankedOutsideTop10CaseIds
+         "rankedOutsideTop10Runs"
+         "Some runs found scoreable localization files only outside the top 10."]
+        [:maxRankedOutsideTop20Runs
+         :rankedOutsideTop20Runs
+         :rankedOutsideTop20CaseIds
+         "rankedOutsideTop20Runs"
+         "Some runs found scoreable localization files only outside the top 20."]]
+       (keep (fn [[threshold-key actual-key case-ids-key metric message]]
+               (when-some [expected (get-in check [:thresholds threshold-key])]
+                 (let [actual (double (get-in check
+                                              [:report
+                                               :localizationDiagnostics
+                                               actual-key]
+                                              0))]
+                   (when (> actual expected)
+                     (merge (metric-failure metric "<=" expected actual)
+                            {:case-ids (get-in check
+                                               [:report
+                                                :localizationDiagnostics
+                                                case-ids-key])
+                             :message message}))))))
+       vec))
+
 (def ^:private case-diagnostic-score-keys
   [:fileRecallAt5
    :fileRecallAt10
@@ -3103,6 +3145,7 @@
                    (case-threshold-failures check-base)
                    (empty-result-failures check-base)
                    (unverified-score-failures check-base)
+                   (localization-diagnostic-failures check-base)
                    (active-stage-failures check-base)))]
     (assoc check-base
            :status (if (seq failures) "failed" "passed")

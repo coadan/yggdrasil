@@ -396,6 +396,14 @@
                                    :emptyResultCaseIds ["case-1"]}
                 :artifactDiagnostics {:unverifiedScoreRuns 1
                                       :unverifiedScoreCaseIds ["case-1"]}
+                :localizationDiagnostics {:missedRuns 1
+                                          :missedCaseIds ["case-1"]
+                                          :rankedOutsideTop5Runs 1
+                                          :rankedOutsideTop5CaseIds ["case-1"]
+                                          :rankedOutsideTop10Runs 1
+                                          :rankedOutsideTop10CaseIds ["case-1"]
+                                          :rankedOutsideTop20Runs 1
+                                          :rankedOutsideTop20CaseIds ["case-1"]}
                 :caseProgress [{:case-id "case-2"
                                 :repo-id "repo"
                                 :status "running"
@@ -423,9 +431,23 @@
                  :max-unsupported-ground-truth-files 0
                  :max-empty-result-runs 0
                  :max-unverified-score-runs 0
+                 :max-missed-runs 0
+                 :max-ranked-outside-top-5-runs 0
+                 :max-ranked-outside-top-10-runs 0
+                 :max-ranked-outside-top-20-runs 0
                  :max-active-stage-ms 1000})
         passed (benchmark/check-agent-report
-                (assoc report :completed 2 :missing [])
+                (assoc report
+                       :completed 2
+                       :missing []
+                       :localizationDiagnostics {:missedRuns 1
+                                                 :missedCaseIds ["case-1"]
+                                                 :rankedOutsideTop5Runs 1
+                                                 :rankedOutsideTop5CaseIds ["case-1"]
+                                                 :rankedOutsideTop10Runs 1
+                                                 :rankedOutsideTop10CaseIds ["case-1"]
+                                                 :rankedOutsideTop20Runs 1
+                                                 :rankedOutsideTop20CaseIds ["case-1"]})
                 {:allow-missing? true
                  :min-cases 2
                  :min-runs 1
@@ -439,6 +461,10 @@
                  :max-unsupported-ground-truth-files 1
                  :max-empty-result-runs 1
                  :max-unverified-score-runs 1
+                 :max-missed-runs 1
+                 :max-ranked-outside-top-5-runs 1
+                 :max-ranked-outside-top-10-runs 1
+                 :max-ranked-outside-top-20-runs 1
                  :max-active-stage-ms 1500})]
     (is (= benchmark/agent-check-schema (:schema failed)))
     (is (= "failed" (:status failed)))
@@ -455,6 +481,10 @@
              "unsupportedGroundTruthFiles"
              "emptyResultRuns"
              "unverifiedScoreRuns"
+             "missedRuns"
+             "rankedOutsideTop5Runs"
+             "rankedOutsideTop10Runs"
+             "rankedOutsideTop20Runs"
              "activeStageElapsedMs"}
            (set (map :metric (:failures failed)))))
     (is (= {:case-id "case-1"
@@ -496,6 +526,10 @@
             :maxUnsupportedGroundTruthFiles 0.0
             :maxEmptyResultRuns 0.0
             :maxUnverifiedScoreRuns 0.0
+            :maxMissedRuns 0.0
+            :maxRankedOutsideTop5Runs 0.0
+            :maxRankedOutsideTop10Runs 0.0
+            :maxRankedOutsideTop20Runs 0.0
             :maxActiveStageMs 1000.0}
            (:thresholds failed)))
     (is (= "passed" (:status passed)))

@@ -433,6 +433,10 @@
                                  "--max-case-noise-at-20" "0.75"
                                  "--max-input-hinted-cases" "0"
                                  "--max-unsupported-ground-truth-files" "0"
+                                 "--max-missed-runs" "0"
+                                 "--max-ranked-outside-top-5-runs" "0"
+                                 "--max-ranked-outside-top-10-runs" "0"
+                                 "--max-ranked-outside-top-20-runs" "0"
                                  "--max-active-stage-ms" "120000"
                                  "--allow-missing"
                                  "--allow-duplicate-runs"
@@ -458,6 +462,10 @@
                   :max-case-noise-at-20 0.75
                   :max-input-hinted-cases 0.0
                   :max-unsupported-ground-truth-files 0.0
+                  :max-missed-runs 0.0
+                  :max-ranked-outside-top-5-runs 0.0
+                  :max-ranked-outside-top-10-runs 0.0
+                  :max-ranked-outside-top-20-runs 0.0
                   :max-active-stage-ms 120000
                   :allow-missing? true
                   :allow-duplicate-runs? true}]]
