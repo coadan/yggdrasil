@@ -626,6 +626,12 @@
                          :meanReciprocalRankFile 0.5
                          :noiseRatioAt20 0.75
                          :unsupportedGroundTruthFiles 1}
+                :parserWorkers [{:mode "all"
+                                 :source "option"
+                                 :runs 1}
+                                {:mode "unknown"
+                                 :source "missing"
+                                 :runs 1}]
                 :inputHints {:inputHintedCases 1}
                 :agentDiagnostics {:emptyResultRuns 1
                                    :emptyResultCaseIds ["case-1"]}
@@ -652,6 +658,8 @@
                                 :activeStage "context-packet"
                                 :activeElapsedMs 1500}]
                 :results [{:case-id "case-1"
+                           :parserWorker {:mode "all"
+                                          :source "option"}
                            :agent {:agentId "codex"
                                    :mode "agraph"}
                            :graphExpectations {:status "failed"
@@ -681,11 +689,16 @@
                  :max-ranked-outside-top-5-runs 0
                  :max-ranked-outside-top-10-runs 0
                  :max-ranked-outside-top-20-runs 0
-                 :max-active-stage-ms 1000})
+                 :max-active-stage-ms 1000
+                 :max-parser-worker-profiles 1
+                 :require-parser-worker "all"})
         passed (benchmark/check-agent-report
                 (assoc report
                        :completed 2
                        :missing []
+                       :parserWorkers [{:mode "all"
+                                        :source "option"
+                                        :runs 1}]
                        :localizationDiagnostics {:missedRuns 1
                                                  :missedCaseIds ["case-1"]
                                                  :rankedOutsideTop5Runs 1
@@ -712,7 +725,9 @@
                  :max-ranked-outside-top-5-runs 1
                  :max-ranked-outside-top-10-runs 1
                  :max-ranked-outside-top-20-runs 1
-                 :max-active-stage-ms 1500})]
+                 :max-active-stage-ms 1500
+                 :max-parser-worker-profiles 1
+                 :require-parser-worker "all"})]
     (is (= benchmark/agent-check-schema (:schema failed)))
     (is (= "failed" (:status failed)))
     (is (= #{"completed"
@@ -734,6 +749,8 @@
              "rankedOutsideTop5Runs"
              "rankedOutsideTop10Runs"
              "rankedOutsideTop20Runs"
+             "parserWorkerProfiles"
+             "parserWorker"
              "activeStageElapsedMs"}
            (set (map :metric (:failures failed)))))
     (is (= {:case-id "case-1"
@@ -750,6 +767,9 @@
              "case.noiseRatioAt20"
              "case.graphExpectations"}
            (set (map :metric (get-in failed [:caseDiagnostics 0 :failures])))))
+    (is (= {:mode "all"
+            :source "option"}
+           (get-in failed [:caseDiagnostics 0 :parserWorker])))
     (is (= {:fileRecallAt5 0.5
             :fileRecallAt10 0.75
             :fileRecallAt20 1.0
@@ -781,7 +801,9 @@
             :maxRankedOutsideTop5Runs 0.0
             :maxRankedOutsideTop10Runs 0.0
             :maxRankedOutsideTop20Runs 0.0
-            :maxActiveStageMs 1000.0}
+            :maxActiveStageMs 1000.0
+            :maxParserWorkerProfiles 1.0
+            :requiredParserWorker "all"}
            (:thresholds failed)))
     (is (= "passed" (:status passed)))
     (is (empty? (:failures passed)))

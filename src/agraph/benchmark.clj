@@ -3850,32 +3850,36 @@
 
 (defn- agent-check-thresholds
   [opts]
-  (into {:requireComplete (not (:allow-missing? opts))
-         :allowDuplicateRuns (boolean (:allow-duplicate-runs? opts))}
-        (keep (fn [[opt-key artifact-key]]
-                (threshold opts opt-key artifact-key)))
-        [[:min-cases :minCases]
-         [:min-runs :minRuns]
-         [:min-file-recall-at-5 :minFileRecallAt5]
-         [:min-file-recall-at-10 :minFileRecallAt10]
-         [:min-file-recall-at-20 :minFileRecallAt20]
-         [:min-mrr :minMeanReciprocalRankFile]
-         [:max-noise-at-20 :maxNoiseRatioAt20]
-         [:min-case-file-recall-at-5 :minCaseFileRecallAt5]
-         [:min-case-file-recall-at-10 :minCaseFileRecallAt10]
-         [:min-case-file-recall-at-20 :minCaseFileRecallAt20]
-         [:min-case-mrr :minCaseMeanReciprocalRankFile]
-         [:max-case-noise-at-20 :maxCaseNoiseRatioAt20]
-         [:max-input-hinted-cases :maxInputHintedCases]
-         [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
-         [:max-empty-result-runs :maxEmptyResultRuns]
-         [:max-unverified-score-runs :maxUnverifiedScoreRuns]
-         [:max-graph-expectation-failures :maxGraphExpectationFailures]
-         [:max-missed-runs :maxMissedRuns]
-         [:max-ranked-outside-top-5-runs :maxRankedOutsideTop5Runs]
-         [:max-ranked-outside-top-10-runs :maxRankedOutsideTop10Runs]
-         [:max-ranked-outside-top-20-runs :maxRankedOutsideTop20Runs]
-         [:max-active-stage-ms :maxActiveStageMs]]))
+  (cond-> (into {:requireComplete (not (:allow-missing? opts))
+                 :allowDuplicateRuns (boolean (:allow-duplicate-runs? opts))}
+                (keep (fn [[opt-key artifact-key]]
+                        (threshold opts opt-key artifact-key)))
+                [[:min-cases :minCases]
+                 [:min-runs :minRuns]
+                 [:min-file-recall-at-5 :minFileRecallAt5]
+                 [:min-file-recall-at-10 :minFileRecallAt10]
+                 [:min-file-recall-at-20 :minFileRecallAt20]
+                 [:min-mrr :minMeanReciprocalRankFile]
+                 [:max-noise-at-20 :maxNoiseRatioAt20]
+                 [:min-case-file-recall-at-5 :minCaseFileRecallAt5]
+                 [:min-case-file-recall-at-10 :minCaseFileRecallAt10]
+                 [:min-case-file-recall-at-20 :minCaseFileRecallAt20]
+                 [:min-case-mrr :minCaseMeanReciprocalRankFile]
+                 [:max-case-noise-at-20 :maxCaseNoiseRatioAt20]
+                 [:max-input-hinted-cases :maxInputHintedCases]
+                 [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
+                 [:max-empty-result-runs :maxEmptyResultRuns]
+                 [:max-unverified-score-runs :maxUnverifiedScoreRuns]
+                 [:max-graph-expectation-failures :maxGraphExpectationFailures]
+                 [:max-missed-runs :maxMissedRuns]
+                 [:max-ranked-outside-top-5-runs :maxRankedOutsideTop5Runs]
+                 [:max-ranked-outside-top-10-runs :maxRankedOutsideTop10Runs]
+                 [:max-ranked-outside-top-20-runs :maxRankedOutsideTop20Runs]
+                 [:max-active-stage-ms :maxActiveStageMs]
+                 [:max-parser-worker-profiles :maxParserWorkerProfiles]])
+    (extract/normalize-parser-worker-mode (:require-parser-worker opts))
+    (assoc :requiredParserWorker
+           (extract/normalize-parser-worker-mode (:require-parser-worker opts)))))
 
 (defn- metric-failure
   [metric operator expected actual]
@@ -4104,6 +4108,41 @@
                         :message "Graph/evidence/chunk benchmark expectations failed for this run."}))
               failed-results))))))
 
+(defn- parser-worker-profile-failures
+  [check]
+  (let [profiles (vec (get-in check [:report :parserWorkers]))
+        failures (cond-> []
+                   (when-some [expected (get-in check
+                                                [:thresholds
+                                                 :maxParserWorkerProfiles])]
+                     (> (count profiles) expected))
+                   (conj (merge (metric-failure "parserWorkerProfiles"
+                                                "<="
+                                                (get-in check
+                                                        [:thresholds
+                                                         :maxParserWorkerProfiles])
+                                                (count profiles))
+                                {:profiles profiles
+                                 :message "Agent report contains more parser-worker profiles than allowed."}))
+
+                   (when-let [expected (get-in check
+                                               [:thresholds
+                                                :requiredParserWorker])]
+                     (seq (remove #(= expected (:mode %)) profiles)))
+                   (conj (merge (metric-failure "parserWorker"
+                                                "="
+                                                (get-in check
+                                                        [:thresholds
+                                                         :requiredParserWorker])
+                                                (->> profiles
+                                                     (map :mode)
+                                                     distinct
+                                                     sort
+                                                     vec))
+                                {:profiles profiles
+                                 :message "Agent report contains parser-worker modes that do not match the required mode."})))]
+    failures))
+
 (def ^:private case-diagnostic-score-keys
   [:fileRecallAt5
    :fileRecallAt10
@@ -4128,6 +4167,7 @@
     {:case-id (:case-id result)
      :agentId (get-in result [:agent :agentId])
      :mode (get-in result [:agent :mode])
+     :parserWorker (:parserWorker result)
      :agentResultPath (:agentResultPath result)
      :status (if (seq result-failures) "failed" "passed")
      :scores (select-keys (:scores result) case-diagnostic-score-keys)
@@ -4192,6 +4232,7 @@
                    (empty-result-failures check-base)
                    (unverified-score-failures check-base)
                    (graph-expectation-failures check-base)
+                   (parser-worker-profile-failures check-base)
                    (localization-diagnostic-failures check-base)
                    (active-stage-failures check-base)))]
     (assoc check-base

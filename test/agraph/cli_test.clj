@@ -72,6 +72,7 @@
     (is (str/includes? usage "bench agent-check"))
     (is (str/includes? usage "bench agent-compare"))
     (is (str/includes? usage "--cases ID,ID"))
+    (is (str/includes? usage "--require-parser-worker none|java|dotnet|all"))
     (is (not (str/includes? usage "overlay")))))
 
 (deftest benchmark-summary-prints-agent-baseline-scores
@@ -485,6 +486,8 @@
                                  "--max-ranked-outside-top-10-runs" "0"
                                  "--max-ranked-outside-top-20-runs" "0"
                                  "--max-active-stage-ms" "120000"
+                                 "--max-parser-worker-profiles" "1"
+                                 "--require-parser-worker" "all"
                                  "--allow-missing"
                                  "--allow-duplicate-runs"
                                  "--json"]))
@@ -515,6 +518,8 @@
                   :max-ranked-outside-top-10-runs 0.0
                   :max-ranked-outside-top-20-runs 0.0
                   :max-active-stage-ms 120000
+                  :max-parser-worker-profiles 1
+                  :require-parser-worker "all"
                   :allow-missing? true
                   :allow-duplicate-runs? true}]]
                @calls))))))
