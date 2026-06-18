@@ -2,6 +2,8 @@ openapi: 3.1.0
 info:
   title: Panels API
   version: 1.0.0
+servers:
+  - url: https://api.example.test
 paths:
   /panels:
     get:
@@ -9,11 +11,24 @@ paths:
       responses:
         "200":
           description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Panel"
     post:
       operationId: createPanel
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PanelCreate"
       responses:
         "201":
           description: created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Panel"
   /panels/{id}:
     get:
       operationId: getPanel
@@ -24,5 +39,8 @@ components:
   schemas:
     Panel:
       type: object
+      properties:
+        parent:
+          $ref: "#/components/schemas/Panel"
     PanelCreate:
       type: object

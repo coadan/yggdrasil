@@ -20,7 +20,11 @@
 
 (declare extract-format-facts
          read-json-map
-         strip-yaml-scalar)
+         strip-yaml-scalar
+         yaml-key-line
+         leading-spaces
+         json-ref-tail
+         json-ref-values)
 
 (def extractor-contract-version
   "agraph.extract/v2")
@@ -7752,9 +7756,7 @@
   [run-id file]
   (extract-config-facts run-id file :db-config :db-config-file))
 
-(declare leading-spaces
-         yaml-key-line
-         yaml-scalar-list-values
+(declare yaml-scalar-list-values
          yaml-top-section-blocks)
 
 (def dbt-path-sections
@@ -11111,6 +11113,128 @@
 (def openapi-methods
   #{"get" "put" "post" "delete" "options" "head" "patch" "trace"})
 
+(defn- openapi-operation-label
+  [{:keys [path method operation-id]}]
+  (str (str/upper-case method)
+       " "
+       path
+       (when operation-id
+         (str " " operation-id))))
+
+(defn- openapi-ref-schema-name
+  [ref]
+  (json-ref-tail "#/components/schemas/" ref))
+
+(defn- openapi-yaml-ref-values
+  [lines]
+  (->> lines
+       (keep (fn [[idx line]]
+               (when-let [[_ ref] (re-matches #"^\s*\$ref:\s*['\"]?([^'\"]+)['\"]?\s*$"
+                                              line)]
+                 {:ref ref
+                  :source-line (inc idx)})))
+       vec))
+
+(defn- openapi-yaml-server-facts
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         in-servers? false
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (yaml-key-line idx line)]
+        (cond
+          (and entry (zero? (:indent entry)) (= "servers" (:key entry)))
+          (recur (rest remaining) true out)
+
+          (and in-servers? entry (zero? (:indent entry)))
+          (recur (rest remaining) false out)
+
+          in-servers?
+          (if-let [[_ url] (re-matches #"^\s*-\s*url:\s*(.+?)\s*$" line)]
+            (recur (rest remaining)
+                   true
+                   (conj out {:url (strip-yaml-scalar url)
+                              :source-line (inc idx)}))
+            (recur (rest remaining) true out))
+
+          :else
+          (recur (rest remaining) in-servers? out)))
+      (vec (distinct out)))))
+
+(defn- openapi-yaml-operation-blocks
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         current-path nil
+         current nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (cond
+        (re-matches #"^\s{2}(/[^\s:]+):\s*$" line)
+        (let [[_ path] (re-matches #"^\s{2}(/[^\s:]+):\s*$" line)]
+          (recur (rest remaining) path nil (cond-> out current (conj current))))
+
+        (re-matches #"^\s{4}([a-z]+):\s*$" line)
+        (let [[_ method] (re-matches #"^\s{4}([a-z]+):\s*$" line)]
+          (if (and current-path (contains? openapi-methods method))
+            (recur (rest remaining)
+                   current-path
+                   {:path current-path
+                    :method method
+                    :source-line (inc idx)
+                    :lines [[idx line]]}
+                   (cond-> out current (conj current)))
+            (recur (rest remaining) current-path current out)))
+
+        (and current
+             (not (str/blank? line))
+             (zero? (leading-spaces line)))
+        (recur (rest remaining) nil nil (conj out current))
+
+        current
+        (recur (rest remaining)
+               current-path
+               (update current :lines conj [idx line])
+               out)
+
+        :else
+        (recur (rest remaining) current-path current out))
+      (cond-> out current (conj current)))))
+
+(defn- openapi-yaml-schema-blocks
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         in-schemas? false
+         current nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (cond
+        (re-matches #"^\s{2}schemas:\s*$" line)
+        (recur (rest remaining) true nil out)
+
+        (and in-schemas?
+             (re-matches #"^\s{2}[A-Za-z0-9_.-]+:\s*$" line))
+        (recur (rest remaining) false nil (cond-> out current (conj current)))
+
+        (and in-schemas?
+             (re-matches #"^\s{4}([A-Za-z0-9_.-]+):\s*$" line))
+        (let [[_ name] (re-matches #"^\s{4}([A-Za-z0-9_.-]+):\s*$" line)]
+          (recur (rest remaining)
+                 true
+                 {:name name
+                  :source-line (inc idx)
+                  :lines [[idx line]]}
+                 (cond-> out current (conj current))))
+
+        current
+        (recur (rest remaining)
+               in-schemas?
+               (update current :lines conj [idx line])
+               out)
+
+        :else
+        (recur (rest remaining) in-schemas? current out))
+      (cond-> out current (conj current)))))
+
 (defn- openapi-json-spec
   [content]
   (try
@@ -11122,58 +11246,61 @@
 (defn- openapi-yaml-lines
   [lines]
   (when (some #(re-matches #"^\s*(openapi|swagger):\s*.+$" %) lines)
-    {:paths (->> lines
-                 (map-indexed vector)
-                 (keep (fn [[idx line]]
-                         (when-let [[_ path] (re-matches #"^\s{2}(/[^\s:]+):\s*$"
-                                                         line)]
-                           {:path path
-                            :source-line (inc idx)})))
-                 vec)
-     :operations (->> lines
-                      (map-indexed vector)
-                      (reduce (fn [{:keys [current-path] :as state} [idx line]]
-                                (if-let [[_ path] (re-matches #"^\s{2}(/[^\s:]+):\s*$" line)]
-                                  (assoc state :current-path path)
-                                  (if-let [[_ method] (re-matches #"^\s{4}([a-z]+):\s*$" line)]
-                                    (if (and current-path (contains? openapi-methods method))
-                                      (update state :operations conj
-                                              {:path current-path
-                                               :method method
-                                               :source-line (inc idx)})
-                                      state)
-                                    state)))
-                              {:current-path nil
-                               :operations []})
-                      :operations)
-     :schemas (->> lines
+    (let [operation-blocks (openapi-yaml-operation-blocks lines)
+          schema-blocks (openapi-yaml-schema-blocks lines)]
+      {:servers (openapi-yaml-server-facts lines)
+       :paths (->> lines
                    (map-indexed vector)
-                   (reduce (fn [{:keys [in-schemas?] :as state} [idx line]]
-                             (cond
-                               (re-matches #"^\s{2}schemas:\s*$" line)
-                               (assoc state :in-schemas? true)
-
-                               (and in-schemas?
-                                    (re-matches #"^\s{2}[A-Za-z0-9_.-]+:\s*$" line))
-                               (assoc state :in-schemas? false)
-
-                               :else
-                               (if-let [[_ name] (and in-schemas?
-                                                      (re-matches
-                                                       #"^\s{4}([A-Za-z0-9_.-]+):\s*$"
-                                                       line))]
-                                 (update state :schemas conj
-                                         {:name name
-                                          :source-line (inc idx)})
-                                 state)))
-                           {:in-schemas? false
-                            :schemas []})
-                   :schemas)}))
+                   (keep (fn [[idx line]]
+                           (when-let [[_ path] (re-matches #"^\s{2}(/[^\s:]+):\s*$"
+                                                           line)]
+                             {:path path
+                              :source-line (inc idx)})))
+                   vec)
+       :operations (->> operation-blocks
+                        (mapv (fn [{:keys [lines] :as operation}]
+                                (assoc operation
+                                       :operation-id
+                                       (some (fn [[_ line]]
+                                               (some-> (re-matches #"^\s{6}operationId:\s*(.+?)\s*$" line)
+                                                       second
+                                                       strip-yaml-scalar))
+                                             lines)))))
+       :schemas (mapv #(select-keys % [:name :source-line]) schema-blocks)
+       :operation-refs (->> operation-blocks
+                            (mapcat (fn [operation]
+                                      (map (fn [ref]
+                                             (assoc ref
+                                                    :source-kind :api-operation
+                                                    :source-label (openapi-operation-label
+                                                                   (assoc operation
+                                                                          :operation-id
+                                                                          (some (fn [[_ line]]
+                                                                                  (some-> (re-matches #"^\s{6}operationId:\s*(.+?)\s*$" line)
+                                                                                          second
+                                                                                          strip-yaml-scalar))
+                                                                                (:lines operation))))))
+                                           (openapi-yaml-ref-values (:lines operation)))))
+                            vec)
+       :schema-refs (->> schema-blocks
+                         (mapcat (fn [{:keys [name lines]}]
+                                   (map (fn [ref]
+                                          (assoc ref
+                                                 :source-kind :api-schema
+                                                 :source-label name))
+                                        (openapi-yaml-ref-values lines))))
+                         vec)})))
 
 (defn- openapi-json-facts
   [spec]
   (when spec
-    {:paths (mapv (fn [path]
+    {:servers (->> (:servers spec)
+                   (keep (fn [server]
+                           (when-let [url (:url server)]
+                             {:url url
+                              :source-line 1})))
+                   vec)
+     :paths (mapv (fn [path]
                     {:path (name path)
                      :source-line 1})
                   (keys (:paths spec)))
@@ -11186,12 +11313,38 @@
                                             {:path (name path)
                                              :method (name method)
                                              :operation-id (:operationId operation)
-                                             :source-line 1})))))
+                                             :source-line 1
+                                             :refs (json-ref-values operation)})))))
                       vec)
      :schemas (mapv (fn [schema]
                       {:name (name schema)
                        :source-line 1})
-                    (keys (get-in spec [:components :schemas])))}))
+                    (keys (get-in spec [:components :schemas])))
+     :operation-refs (->> (:paths spec)
+                          (mapcat (fn [[path methods]]
+                                    (->> methods
+                                         (filter (fn [[method _]]
+                                                   (contains? openapi-methods (name method))))
+                                         (mapcat (fn [[method operation]]
+                                                   (map (fn [ref]
+                                                          {:ref ref
+                                                           :source-line 1
+                                                           :source-kind :api-operation
+                                                           :source-label (openapi-operation-label
+                                                                          {:path (name path)
+                                                                           :method (name method)
+                                                                           :operation-id (:operationId operation)})})
+                                                        (json-ref-values operation)))))))
+                          vec)
+     :schema-refs (->> (get-in spec [:components :schemas])
+                       (mapcat (fn [[schema schema-value]]
+                                 (map (fn [ref]
+                                        {:ref ref
+                                         :source-line 1
+                                         :source-kind :api-schema
+                                         :source-label (name schema)})
+                                      (json-ref-values schema-value))))
+                       vec)}))
 
 (defn- openapi-facts
   [content]
@@ -11210,6 +11363,10 @@
   [run-id {:keys [id-scope file-id path content] :as file}]
   (let [facts (openapi-facts content)
         spec-node (generic-node run-id id-scope file-id path :api-spec path 1)
+        server-nodes (mapv (fn [{:keys [url source-line]}]
+                             (generic-node run-id id-scope file-id (:path file)
+                                           :api-server url source-line))
+                           (:servers facts))
         path-nodes (mapv (fn [{:keys [path source-line]}]
                            (generic-node run-id id-scope file-id (:path file)
                                          :api-path path source-line))
@@ -11217,11 +11374,10 @@
         operation-nodes (mapv (fn [{:keys [path method operation-id source-line]}]
                                 (generic-node run-id id-scope file-id (:path file)
                                               :api-operation
-                                              (str (str/upper-case method)
-                                                   " "
-                                                   path
-                                                   (when operation-id
-                                                     (str " " operation-id)))
+                                              (openapi-operation-label
+                                               {:path path
+                                                :method method
+                                                :operation-id operation-id})
                                               source-line))
                               (:operations facts))
         schema-nodes (mapv (fn [{:keys [name source-line]}]
@@ -11235,6 +11391,13 @@
                                     :extracted
                                     (:source-line %))
                          path-nodes)
+        server-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id spec-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           server-nodes)
         path-id-by-label (into {} (map (juxt :label :xt/id)) path-nodes)
         operation-edges (mapv (fn [{:keys [path method operation-id source-line]}]
                                 (edge-row run-id
@@ -11243,11 +11406,10 @@
                                           (get path-id-by-label path)
                                           (node-id id-scope
                                                    :api-operation
-                                                   (str (str/upper-case method)
-                                                        " "
-                                                        path
-                                                        (when operation-id
-                                                          (str " " operation-id))))
+                                                   (openapi-operation-label
+                                                    {:path path
+                                                     :method method
+                                                     :operation-id operation-id}))
                                           :defines
                                           :extracted
                                           source-line))
@@ -11259,6 +11421,21 @@
                                       :extracted
                                       (:source-line %))
                            schema-nodes)
+        schema-id-by-label (into {} (map (juxt :label :xt/id)) schema-nodes)
+        ref-edges (->> (concat (:operation-refs facts) (:schema-refs facts))
+                       (keep (fn [{:keys [source-kind source-label ref source-line]}]
+                               (when-let [schema-name (openapi-ref-schema-name ref)]
+                                 (when-let [target-id (get schema-id-by-label schema-name)]
+                                   (edge-row run-id
+                                             file-id
+                                             path
+                                             (node-id id-scope source-kind source-label)
+                                             target-id
+                                             :references
+                                             :extracted
+                                             source-line)))))
+                       distinct
+                       vec)
         chunk-result (extract-text-source run-id file :openapi-file)
         diagnostics (mapv #(diagnostic-row run-id
                                            file-id
@@ -11267,8 +11444,8 @@
                                            (:line %)
                                            (:message %))
                           (:diagnostics facts))]
-    {:nodes (vec (concat [spec-node] path-nodes operation-nodes schema-nodes))
-     :edges (vec (concat path-edges operation-edges schema-edges))
+    {:nodes (vec (concat [spec-node] server-nodes path-nodes operation-nodes schema-nodes))
+     :edges (vec (concat server-edges path-edges operation-edges schema-edges ref-edges))
      :chunks (:chunks chunk-result)
      :diagnostics diagnostics}))
 
