@@ -177,6 +177,7 @@
                  filename) :db-config
       (contains? #{"dbt_project.yml" "dbt_project.yaml"} filename) :dbt
       (or (= "nginx.conf" filename)
+          (contains? #{"serverless.yml" "serverless.yaml" "cdk.json"} filename)
           (re-matches #"pulumi(?:\.[a-z0-9_.-]+)?\.ya?ml" filename)) :ops-config
       (contains? #{".graphqlrc" ".graphqlrc.json" ".graphqlrc.yaml" ".graphqlrc.yml"
                    "graphql.config.json" "graphql.config.yaml" "graphql.config.yml"
@@ -381,6 +382,8 @@
     (let [content (text-file-prefix file)]
       (cond
         (or (str/includes? content "AWSTemplateFormatVersion")
+            (str/includes? content "AWS::Serverless")
+            (re-find #"(?m)^Transform:\s*['\"]?AWS::Serverless" content)
             (and (re-find #"(?m)^Resources:\s*$" content)
                  (str/includes? content "AWS::"))
             (and (str/includes? content "\"Resources\"")

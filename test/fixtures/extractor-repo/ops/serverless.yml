@@ -1,0 +1,22 @@
+service: panels-api
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: prod
+functions:
+  listPanels:
+    handler: src/handlers/list.main
+    role: PanelLambdaRole
+    events:
+      - httpApi:
+          path: /panels
+          method: get
+resources:
+  Resources:
+    PanelLambdaRole:
+      Type: AWS::IAM::Role
+    PanelTable:
+      Type: AWS::DynamoDB::Table
+  Outputs:
+    PanelTableName:
+      Value: !Ref PanelTable

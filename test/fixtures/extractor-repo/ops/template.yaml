@@ -1,0 +1,19 @@
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  PanelFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.handler
+      Runtime: python3.12
+      Role: !GetAtt PanelFunctionRole.Arn
+      Events:
+        PanelApi:
+          Type: Api
+          Properties:
+            Path: /panels
+            Method: get
+  PanelFunctionRole:
+    Type: AWS::IAM::Role
+Outputs:
+  PanelFunctionArn:
+    Value: !GetAtt PanelFunction.Arn

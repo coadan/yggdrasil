@@ -9652,10 +9652,166 @@
                         :governance-config-file
                         (governance-facts file)))
 
+(defn- ops-strip-scalar
+  [value]
+  (-> (str value)
+      (str/replace #"^\s*['\"]|['\"]\s*$" "")
+      str/trim))
+
+(defn- ops-yaml-key-line
+  [idx line]
+  (when-let [[_ indent key value]
+             (re-matches #"^(\s*)(?:-\s*)?([A-Za-z0-9_.-]+):(?:\s*(.*))?$"
+                         line)]
+    {:indent (count indent)
+     :key key
+     :value (str/trim (or value ""))
+     :source-line (inc idx)}))
+
+(defn- ops-yaml-section-blocks
+  [content section-name]
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         in-section? false
+         section-indent nil
+         current nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (ops-yaml-key-line idx line)]
+        (cond
+          (and entry (= section-name (:key entry)))
+          (recur (rest remaining) true (:indent entry) nil out)
+
+          (and in-section?
+               entry
+               (<= (:indent entry) section-indent)
+               (not= section-name (:key entry)))
+          (recur (rest remaining) false nil nil (cond-> out current (conj current)))
+
+          (and in-section?
+               entry
+               (= (:indent entry) (+ section-indent 2)))
+          (recur (rest remaining)
+                 true
+                 section-indent
+                 {:label (:key entry)
+                  :source-line (:source-line entry)
+                  :lines [[idx line]]}
+                 (cond-> out current (conj current)))
+
+          (and in-section? current)
+          (recur (rest remaining)
+                 true
+                 section-indent
+                 (update current :lines conj [idx line])
+                 out)
+
+          :else
+          (recur (rest remaining) in-section? section-indent current out)))
+      (cond-> out current (conj current)))))
+
+(defn- ops-yaml-section-settings
+  [content section-name]
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         in-section? false
+         section-indent nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (ops-yaml-key-line idx line)]
+        (cond
+          (and entry (= section-name (:key entry)))
+          (recur (rest remaining) true (:indent entry) out)
+
+          (and in-section?
+               entry
+               (<= (:indent entry) section-indent)
+               (not= section-name (:key entry)))
+          (recur (rest remaining) false nil out)
+
+          (and in-section?
+               entry
+               (> (:indent entry) section-indent)
+               (seq (:value entry)))
+          (recur (rest remaining)
+                 true
+                 section-indent
+                 (conj out {:key (:key entry)
+                            :value (ops-strip-scalar (:value entry))
+                            :source-line (:source-line entry)}))
+
+          :else
+          (recur (rest remaining) in-section? section-indent out)))
+      out)))
+
+(defn- ops-block-value
+  [block key-name]
+  (->> (:lines block)
+       (keep (fn [[idx line]]
+               (when-let [{:keys [key value source-line]} (ops-yaml-key-line idx line)]
+                 (when (and (= key-name key) (seq value))
+                   {:value (ops-strip-scalar value)
+                    :source-line source-line}))))
+       first))
+
+(defn- ops-reference-targets
+  [lines]
+  (->> lines
+       (mapcat (fn [[idx line]]
+                 (let [source-line (inc idx)]
+                   (concat
+                    (map (fn [[_ target]]
+                           {:target target :source-line source-line})
+                         (re-seq #"Ref:\s*([A-Za-z0-9]+)" line))
+                    (map (fn [[_ target]]
+                           {:target target :source-line source-line})
+                         (re-seq #"!Ref\s+([A-Za-z0-9]+)" line))
+                    (map (fn [[_ target]]
+                           {:target target :source-line source-line})
+                         (re-seq #"Fn::GetAtt:\s*\[\s*([A-Za-z0-9]+)\s*," line))
+                    (map (fn [[_ target]]
+                           {:target target :source-line source-line})
+                         (re-seq #"!GetAtt\s+([A-Za-z0-9]+)\." line))))))
+       distinct
+       vec))
+
+(defn- ops-block-section-entry-labels
+  [block section-name]
+  (loop [remaining (:lines block)
+         in-section? false
+         section-indent nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (ops-yaml-key-line idx line)]
+        (cond
+          (and entry (= section-name (:key entry)))
+          (recur (rest remaining) true (:indent entry) out)
+
+          (and in-section?
+               entry
+               (<= (:indent entry) section-indent)
+               (not= section-name (:key entry)))
+          out
+
+          (and in-section?
+               entry
+               (= (:indent entry) (+ section-indent 2)))
+          (recur (rest remaining)
+                 true
+                 section-indent
+                 (conj out {:label (:key entry)
+                            :source-line (:source-line entry)}))
+
+          :else
+          (recur (rest remaining) in-section? section-indent out)))
+      out)))
+
 (defn- ops-config-format
   [{:keys [path content ext]}]
   (let [filename (str/lower-case (.getName (java.io.File. (str path))))]
     (cond
+      (contains? #{"serverless.yml" "serverless.yaml"} filename) :serverless
+      (= "cdk.json" filename) :cdk
+      (or (str/includes? content "AWS::Serverless")
+          (re-find #"(?m)^Transform:\s*['\"]?AWS::Serverless" content)) :sam
       (or (str/includes? content "AWSTemplateFormatVersion")
           (and (re-find #"(?m)^Resources:\s*$" content)
                (str/includes? content "AWS::"))
@@ -9772,6 +9928,249 @@
   (if (read-json-map content)
     (cloudformation-json-facts content)
     (cloudformation-yaml-facts content)))
+
+(defn- serverless-function-facts
+  [function-block]
+  (let [{:keys [label source-line lines]} function-block
+        handler (ops-block-value function-block "handler")
+        role (ops-block-value function-block "role")
+        event-kinds (->> lines
+                         (keep (fn [[idx line]]
+                                 (when-let [[_ event-kind]
+                                            (re-matches #"^\s*-\s*([A-Za-z0-9_.-]+):.*$"
+                                                        line)]
+                                   {:kind :serverless-event
+                                    :label (str label ":" event-kind)
+                                    :source-line (inc idx)
+                                    :relation :defines}))))
+        route-fact (fn [[idx line]]
+                     (let [source-line (inc idx)]
+                       (or
+                        (when-let [[_ route]
+                                   (re-matches #"^\s*path:\s*(.+?)\s*$" line)]
+                          {:kind :serverless-event-route
+                           :label (str label ":" (ops-strip-scalar route))
+                           :source-line source-line
+                           :relation :defines})
+                        (when-let [[_ method]
+                                   (re-matches #"^\s*method:\s*(.+?)\s*$" line)]
+                          {:kind :serverless-event-method
+                           :label (str label ":" (str/upper-case
+                                                  (ops-strip-scalar method)))
+                           :source-line source-line
+                           :relation :defines}))))
+        route-facts (keep route-fact lines)]
+    (concat
+     [{:kind :serverless-function
+       :label label
+       :source-line source-line
+       :relation :defines}]
+     (when handler
+       [{:kind :serverless-handler
+         :label (:value handler)
+         :source-line (:source-line handler)
+         :relation :defines}])
+     (when role
+       [{:kind :serverless-role
+         :label (:value role)
+         :source-line (:source-line role)
+         :relation :references}])
+     event-kinds
+     route-facts)))
+
+(defn- serverless-resource-facts
+  [resource-blocks]
+  (->> resource-blocks
+       (mapcat (fn [{:keys [label source-line] :as block}]
+                 (concat
+                  [{:kind :serverless-resource
+                    :label label
+                    :source-line source-line
+                    :relation :defines}]
+                  (when-let [resource-type (ops-block-value block "Type")]
+                    [{:kind :serverless-resource-type
+                      :label (:value resource-type)
+                      :source-line (:source-line resource-type)
+                      :relation :defines}]))))
+       distinct
+       vec))
+
+(defn- serverless-facts
+  [content]
+  (let [provider-settings (ops-yaml-section-settings content "provider")
+        provider-facts (->> provider-settings
+                            (keep (fn [{:keys [key value source-line]}]
+                                    (case key
+                                      "name" {:kind :serverless-provider
+                                              :label value
+                                              :source-line source-line
+                                              :relation :uses}
+                                      "runtime" {:kind :serverless-runtime
+                                                 :label value
+                                                 :source-line source-line
+                                                 :relation :defines}
+                                      "stage" {:kind :serverless-stage
+                                               :label value
+                                               :source-line source-line
+                                               :relation :defines}
+                                      nil))))
+        functions (ops-yaml-section-blocks content "functions")
+        resources (ops-yaml-section-blocks content "Resources")
+        outputs (ops-yaml-section-blocks content "Outputs")
+        resource-labels (set (map :label resources))
+        output-facts (mapv (fn [{:keys [label source-line]}]
+                             {:kind :serverless-output
+                              :label label
+                              :source-line source-line
+                              :relation :defines})
+                           outputs)
+        function-role-ref (fn [{:keys [label] :as block}]
+                            (when-let [role (ops-block-value block "role")]
+                              (when (contains? resource-labels (:value role))
+                                {:source-kind :serverless-function
+                                 :source-label label
+                                 :target-kind :serverless-resource
+                                 :target-label (:value role)
+                                 :source-line (:source-line role)})))
+        output-ref-facts (fn [{:keys [label lines]}]
+                           (->> (ops-reference-targets lines)
+                                (keep (fn [{:keys [target source-line]}]
+                                        (when (contains? resource-labels target)
+                                          {:source-kind :serverless-output
+                                           :source-label label
+                                           :target-kind :serverless-resource
+                                           :target-label target
+                                           :source-line source-line})))))
+        function-role-refs (keep function-role-ref functions)
+        output-refs (mapcat output-ref-facts outputs)
+        service-facts (when-let [service (yaml-top-level-value content "service")]
+                        [{:kind :serverless-service
+                          :label service
+                          :source-line 1
+                          :relation :defines}])]
+    {:facts (vec (distinct
+                  (concat service-facts
+                          provider-facts
+                          (mapcat serverless-function-facts functions)
+                          (serverless-resource-facts resources)
+                          output-facts)))
+     :refs (vec (distinct (concat function-role-refs output-refs)))}))
+
+(defn- sam-resource-facts
+  [resource-blocks]
+  (->> resource-blocks
+       (mapcat (fn [{:keys [label source-line] :as block}]
+                 (let [resource-type (ops-block-value block "Type")
+                       sam-function? (= "AWS::Serverless::Function" (:value resource-type))
+                       handler (ops-block-value block "Handler")
+                       runtime (ops-block-value block "Runtime")
+                       role (ops-block-value block "Role")
+                       events (ops-block-section-entry-labels block "Events")]
+                   (concat
+                    [{:kind :sam-resource
+                      :label label
+                      :source-line source-line
+                      :relation :defines}]
+                    (when resource-type
+                      [{:kind :sam-resource-type
+                        :label (:value resource-type)
+                        :source-line (:source-line resource-type)
+                        :relation :defines}])
+                    (when sam-function?
+                      [{:kind :sam-function
+                        :label label
+                        :source-line source-line
+                        :relation :defines}])
+                    (when (and sam-function? handler)
+                      [{:kind :sam-handler
+                        :label (:value handler)
+                        :source-line (:source-line handler)
+                        :relation :defines}])
+                    (when (and sam-function? runtime)
+                      [{:kind :sam-runtime
+                        :label (:value runtime)
+                        :source-line (:source-line runtime)
+                        :relation :defines}])
+                    (when (and sam-function? role)
+                      [{:kind :sam-role
+                        :label (:value role)
+                        :source-line (:source-line role)
+                        :relation :references}])
+                    (map (fn [{:keys [label source-line]}]
+                           {:kind :sam-event
+                            :label label
+                            :source-line source-line
+                            :relation :defines})
+                         events)))))
+       distinct
+       vec))
+
+(defn- sam-facts
+  [content]
+  (let [resources (ops-yaml-section-blocks content "Resources")
+        outputs (ops-yaml-section-blocks content "Outputs")
+        resource-labels (set (map :label resources))
+        output-facts (mapv (fn [{:keys [label source-line]}]
+                             {:kind :sam-output
+                              :label label
+                              :source-line source-line
+                              :relation :defines})
+                           outputs)
+        block-ref-facts (fn [source-kind {:keys [label lines]}]
+                          (->> (ops-reference-targets lines)
+                               (keep (fn [{:keys [target source-line]}]
+                                       (when (contains? resource-labels target)
+                                         {:source-kind source-kind
+                                          :source-label label
+                                          :target-kind :sam-resource
+                                          :target-label target
+                                          :source-line source-line})))))
+        resource-refs (mapcat #(block-ref-facts :sam-resource %) resources)
+        output-refs (mapcat #(block-ref-facts :sam-output %) outputs)]
+    {:facts (vec (distinct (concat (sam-resource-facts resources)
+                                   output-facts)))
+     :refs (vec (distinct (concat resource-refs output-refs)))}))
+
+(defn- cdk-facts
+  [content]
+  (if-let [m (read-json-map content)]
+    (let [app (:app m)
+          context (:context m)
+          watch (:watch m)
+          watch-values (fn [key kind]
+                         (->> (get watch key)
+                              (filter string?)
+                              (map (fn [value]
+                                     {:kind kind
+                                      :label value
+                                      :source-line 1
+                                      :relation :defines}))))]
+      {:facts (vec
+               (distinct
+                (concat
+                 (when (string? app)
+                   [{:kind :cdk-app
+                     :label app
+                     :source-line 1
+                     :relation :defines}])
+                 (when (map? context)
+                   (mapcat (fn [[k v]]
+                             (let [label (json-key-label k)]
+                               (concat
+                                [{:kind :cdk-context-key
+                                  :label label
+                                  :source-line 1
+                                  :relation :defines}]
+                                (when (or (string? v) (number? v) (boolean? v))
+                                  [{:kind :cdk-context-setting
+                                    :label (str label "=" v)
+                                    :source-line 1
+                                    :relation :defines}]))))
+                           context))
+                 (watch-values :include :cdk-watch-include)
+                 (watch-values :exclude :cdk-watch-exclude))))
+       :refs []})
+    {:facts [] :refs []}))
 
 (defn- pulumi-facts
   [content]
@@ -9899,6 +10298,9 @@
 (defn- ops-config-facts
   [{:keys [path content] :as file}]
   (case (ops-config-format file)
+    :serverless (serverless-facts content)
+    :sam (sam-facts content)
+    :cdk (cdk-facts content)
     :cloudformation (cloudformation-facts content)
     :pulumi {:facts (pulumi-facts content) :refs []}
     :ansible {:facts (ansible-facts content) :refs []}

@@ -74,6 +74,12 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/ops/Pulumi.yaml")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/ops/serverless.yml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/ops/template.yaml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/ops/cdk.json")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/ops/playbook.yaml")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/ops/nginx.conf")
@@ -2426,6 +2432,18 @@
                        "run/test"
                        (fs/file-record "test/fixtures/extractor-repo"
                                        "test/fixtures/extractor-repo/ops/Pulumi.yaml"))
+        serverless-result (extract/extract-file
+                           "run/test"
+                           (fs/file-record "test/fixtures/extractor-repo"
+                                           "test/fixtures/extractor-repo/ops/serverless.yml"))
+        sam-result (extract/extract-file
+                    "run/test"
+                    (fs/file-record "test/fixtures/extractor-repo"
+                                    "test/fixtures/extractor-repo/ops/template.yaml"))
+        cdk-result (extract/extract-file
+                    "run/test"
+                    (fs/file-record "test/fixtures/extractor-repo"
+                                    "test/fixtures/extractor-repo/ops/cdk.json"))
         ansible-result (extract/extract-file
                         "run/test"
                         (fs/file-record "test/fixtures/extractor-repo"
@@ -2446,6 +2464,12 @@
     (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                               "test/fixtures/extractor-repo/ops/Pulumi.yaml"))))
     (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                              "test/fixtures/extractor-repo/ops/serverless.yml"))))
+    (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                              "test/fixtures/extractor-repo/ops/template.yaml"))))
+    (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                              "test/fixtures/extractor-repo/ops/cdk.json"))))
+    (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                               "test/fixtures/extractor-repo/ops/playbook.yaml"))))
     (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                               "test/fixtures/extractor-repo/ops/nginx.conf"))))
@@ -2462,6 +2486,40 @@
     (is (contains? (labels pulumi-result) "nodejs"))
     (is (= 1 (:pulumi-project (kinds pulumi-result))))
     (is (= 1 (:pulumi-runtime (kinds pulumi-result))))
+    (is (contains? (labels serverless-result) "panels-api"))
+    (is (contains? (labels serverless-result) "listPanels"))
+    (is (contains? (labels serverless-result) "src/handlers/list.main"))
+    (is (contains? (labels serverless-result) "listPanels:httpApi"))
+    (is (contains? (labels serverless-result) "listPanels:/panels"))
+    (is (contains? (labels serverless-result) "listPanels:GET"))
+    (is (contains? (labels serverless-result) "PanelLambdaRole"))
+    (is (contains? (labels serverless-result) "PanelTableName"))
+    (is (= 1 (:serverless-service (kinds serverless-result))))
+    (is (= 1 (:serverless-function (kinds serverless-result))))
+    (is (= 1 (:serverless-provider (kinds serverless-result))))
+    (is (= 2 (:serverless-resource (kinds serverless-result))))
+    (is (= 1 (:serverless-output (kinds serverless-result))))
+    (is (= 3 (get (relations serverless-result) :references 0)))
+    (is (contains? (labels sam-result) "PanelFunction"))
+    (is (contains? (labels sam-result) "PanelFunctionRole"))
+    (is (contains? (labels sam-result) "app.handler"))
+    (is (contains? (labels sam-result) "python3.12"))
+    (is (contains? (labels sam-result) "PanelApi"))
+    (is (contains? (labels sam-result) "PanelFunctionArn"))
+    (is (= 1 (:sam-function (kinds sam-result))))
+    (is (= 2 (:sam-resource (kinds sam-result))))
+    (is (= 1 (:sam-event (kinds sam-result))))
+    (is (= 1 (:sam-output (kinds sam-result))))
+    (is (= 3 (get (relations sam-result) :references 0)))
+    (is (contains? (labels cdk-result) "npx ts-node --prefer-ts-exts bin/panels.ts"))
+    (is (contains? (labels cdk-result) "@aws-cdk/core:newStyleStackSynthesis"))
+    (is (contains? (labels cdk-result) "panels:stage=dev"))
+    (is (contains? (labels cdk-result) "lib/**/*.ts"))
+    (is (= 1 (:cdk-app (kinds cdk-result))))
+    (is (= 2 (:cdk-context-key (kinds cdk-result))))
+    (is (= 2 (:cdk-context-setting (kinds cdk-result))))
+    (is (= 1 (:cdk-watch-include (kinds cdk-result))))
+    (is (= 1 (:cdk-watch-exclude (kinds cdk-result))))
     (is (contains? (labels ansible-result) "hosts=web"))
     (is (contains? (labels ansible-result) "Install nginx"))
     (is (contains? (labels ansible-result) "ansible.builtin.package"))
@@ -2482,6 +2540,9 @@
     (is (= 1 (:systemd-command (kinds systemd-result))))
     (is (= 2 (:systemd-target (kinds systemd-result))))
     (is (= [:ops-config-file] (mapv :kind (:chunks cloudformation-result))))
+    (is (= [:ops-config-file] (mapv :kind (:chunks serverless-result))))
+    (is (= [:ops-config-file] (mapv :kind (:chunks sam-result))))
+    (is (= [:ops-config-file] (mapv :kind (:chunks cdk-result))))
     (is (= [:ops-config-file] (mapv :kind (:chunks systemd-result))))))
 
 (deftest extracts-test-and-tool-config-facts
