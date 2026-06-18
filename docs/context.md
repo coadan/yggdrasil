@@ -19,6 +19,14 @@ The packet schema is `agraph.context/v1`:
   "edges": [],
   "activity": [],
   "docs": [],
+  "sourceCoverage": {
+    "schema": "agraph.source-coverage.context/v1",
+    "basis": "indexed-graph",
+    "totals": {"indexedFiles": 40, "diagnostics": 0, "fileKinds": 3},
+    "topFileKinds": [],
+    "extractors": [],
+    "diagnostics": {"byStage": [], "byExtractor": []}
+  },
   "answerability": {
     "status": "limited",
     "available": ["source-graph", "docs"],
@@ -38,6 +46,8 @@ The packet schema is `agraph.context/v1`:
 `budget.estimated` is a cheap JSON-size token estimate. If snippets do not fit,
 AGraph keeps the source reference and marks `snippetOmitted`; if even that does
 not fit, the doc is omitted and a warning is added.
+`sourceCoverage` is trimmed before warnings and drilldowns when the packet is
+too small.
 
 ## Answerability
 
@@ -74,6 +84,15 @@ activity, or ask the user for another source of truth.
 
 Plain `agraph ask` prints a concise answerability warning only when no query
 results are found. Use `agraph ask --json` for the full structured packet.
+
+## Source Coverage
+
+Context packets include `sourceCoverage`, a compact summary of the indexed graph
+basis for the selected project/repo/read context. It reports indexed file counts,
+top source kinds, extractor versions, and active diagnostics grouped by stage and
+extractor. It does not scan the filesystem for unsupported files; use
+`agraph sync coverage <project.edn> --json` when an agent needs skipped or
+unsupported source candidates.
 
 ## Doc Attachments
 
