@@ -422,6 +422,58 @@
          (map #(attachment->doc chunks snippet-chars %))
          vec)))
 
+(defn- attachment-docs-for-targets
+  [overlay targets]
+  (let [system-label-by-id (into {}
+                                 (keep (fn [{:keys [id label]}]
+                                         (when (and id label)
+                                           [id label])))
+                                 (:systems overlay))]
+    (->> (:docs overlay)
+         (filter (fn [{:keys [target]}]
+                   (or (contains? targets target)
+                       (contains? targets (get system-label-by-id target)))))
+         (filter #(not= "rejected" (s (:status %))))
+         vec)))
+
+(defn- result-chunk-ids
+  [results]
+  (->> results
+       (filter #(= :chunk (:target-kind %)))
+       (keep :target-id)
+       distinct
+       vec))
+
+(defn- result-paths
+  [results]
+  (->> results
+       (keep :path)
+       (remove #(str/blank? (str %)))
+       distinct
+       vec))
+
+(defn- attachment-paths
+  [attachments]
+  (->> attachments
+       (keep (comp :path :source))
+       (remove #(str/blank? (str %)))
+       distinct
+       vec))
+
+(defn- context-chunks
+  [xtdb results attachments opts]
+  (let [scope (select-keys opts [:project-id :repo-id :read-context])
+        by-id (query/chunks-by-ids xtdb (result-chunk-ids results) scope)
+        paths (distinct (concat (result-paths results)
+                                (attachment-paths attachments)))
+        by-path (query/chunks-by-paths xtdb paths scope)]
+    (->> (concat by-id by-path)
+         (reduce (fn [by-id chunk]
+                   (assoc by-id (:xt/id chunk) chunk))
+                 {})
+         vals
+         vec)))
+
 (defn- graph-summary
   [graph-data]
   {:basis (:basis graph-data)
@@ -757,12 +809,16 @@
                                         :map-path map-path
                                         :map-overlay map-overlay
                                         :read-context read-context})
-        chunks (vec (query/all-chunks xtdb {:project-id project-id
-                                            :repo-id repo-id
-                                            :read-context read-context}))
         entities (select-entities query-tokens results graph-data entity-limit)
         edges (select-edges query-tokens entities graph-data edge-limit)
         targets (selected-targets entities edges)
+        attachments (attachment-docs-for-targets overlay targets)
+        chunks (context-chunks xtdb
+                               results
+                               attachments
+                               {:project-id project-id
+                                :repo-id repo-id
+                                :read-context read-context})
         activity (activity/select-activity xtdb
                                            query-text
                                            {:project-id project-id
@@ -785,6 +841,14 @@
                   diversify-docs
                   (take doc-limit)
                   vec)
+        search-context (-> (select-keys search-report
+                                        [:schema
+                                         :query-run-id
+                                         :retriever-requested
+                                         :retriever-effective
+                                         :instrumentation])
+                           (update :instrumentation assoc
+                                   :context-chunks (count chunks)))
         answerability (answerability xtdb
                                      overlay
                                      {:project-id project-id
@@ -808,12 +872,7 @@
                              warnings
                              drilldowns
                              answerability
-                             (select-keys search-report
-                                          [:schema
-                                           :query-run-id
-                                           :retriever-requested
-                                           :retriever-effective
-                                           :instrumentation])
+                             search-context
                              (candidate-files results))
                 docs
                 budget)))

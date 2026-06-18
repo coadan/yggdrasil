@@ -652,6 +652,8 @@
                       :score 0.1}]]
         (with-redefs [query/semantic-query (fn [& _] results)
                       query/all-chunks (fn [& _] [precise noisy])
+                      query/chunks-by-ids (fn [& _] [precise noisy])
+                      query/chunks-by-paths (fn [& _] [precise noisy])
                       query/all-nodes (fn [& _] [])
                       query/all-edges (fn [& _] [])
                       query/all-search-docs (fn [& _] results)
@@ -735,6 +737,8 @@
                       :score 0.7}]]
         (with-redefs [query/semantic-query (fn [& _] results)
                       query/all-chunks (fn [& _] [test-a test-b var-a])
+                      query/chunks-by-ids (fn [& _] [test-a test-b var-a])
+                      query/chunks-by-paths (fn [& _] [test-a test-b var-a])
                       query/all-nodes (fn [& _] [])
                       query/all-edges (fn [& _] [])
                       query/all-search-docs (fn [& _] results)

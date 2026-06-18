@@ -69,6 +69,24 @@
   ([xtdb opts]
    (filter-scope (store/all-rows xtdb (:chunks store/tables) (read-context opts)) opts)))
 
+(defn chunks-by-ids
+  "Return chunk rows for concrete chunk ids within the requested scope."
+  [xtdb ids opts]
+  (let [ctx (read-context opts)]
+    (->> ids
+         distinct
+         (keep #(store/row-by-id xtdb (:chunks store/tables) % ctx))
+         (#(filter-scope % opts)))))
+
+(defn chunks-by-paths
+  "Return chunk rows for concrete file paths within the requested scope."
+  [xtdb paths opts]
+  (let [ctx (read-context opts)]
+    (->> paths
+         distinct
+         (mapcat #(store/rows-by-field xtdb (:chunks store/tables) :path % ctx))
+         (#(filter-scope % opts)))))
+
 (defn all-diagnostics
   ([xtdb] (all-diagnostics xtdb {}))
   ([xtdb opts]

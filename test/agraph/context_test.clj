@@ -71,7 +71,10 @@
                                       :nodes []
                                       :edges []
                                       :clusters []})
-                query/all-chunks (fn [& _] [])
+                query/all-chunks (fn [& _]
+                                   (throw (ex-info "unexpected broad chunk scan" {})))
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
                 activity/select-activity (fn [& _] [])
                 context/answerability (fn [& _] {:status :ready})]
     (let [packet (context/context-packet :xtdb
@@ -81,6 +84,7 @@
       (is (= "query:test" (get-in packet [:search :query-run-id])))
       (is (= :lexical (get-in packet [:search :retriever-effective])))
       (is (= 1 (get-in packet [:search :instrumentation :search-docs])))
+      (is (= 0 (get-in packet [:search :instrumentation :context-chunks])))
       (is (= [{:path "src/auth.clj"
                :rank 1
                :score 1.2
