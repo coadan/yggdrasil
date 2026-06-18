@@ -1,0 +1,26 @@
+{
+  "folders": [
+    {
+      "path": "."
+    },
+    {
+      "path": "frontend",
+      "name": "frontend"
+    }
+  ],
+  "settings": {
+    "files.eol": "\n"
+  },
+  "extensions": {
+    "recommendations": [
+      "esbenp.prettier-vscode"
+    ]
+  },
+  "tasks": [
+    {
+      "label": "workspace-build",
+      "type": "shell",
+      "command": "bb test"
+    }
+  ]
+}

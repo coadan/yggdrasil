@@ -164,6 +164,16 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/tooling/pytest.ini")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.editorconfig")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.vscode/settings.json")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.vscode/tasks.json")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/.vscode/extensions.json")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/panels.code-workspace")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/.github/dependabot.yml")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/.storybook/main.ts")
@@ -2940,10 +2950,6 @@
                          "run/test"
                          (fs/file-record "test/fixtures/extractor-repo"
                                          "test/fixtures/extractor-repo/tooling/renovate.json"))
-        editorconfig-result (extract/extract-file
-                             "run/test"
-                             (fs/file-record "test/fixtures/extractor-repo"
-                                             "test/fixtures/extractor-repo/.editorconfig"))
         labels (fn [result] (set (map :label (:nodes result))))
         relations (fn [result] (frequencies (map :relation (:edges result))))]
     (is (= :test-config (:kind (fs/file-record "test/fixtures/extractor-repo"
@@ -2987,7 +2993,6 @@
     (is (contains? (labels renovate-result) "ui"))
     (is (contains? (labels renovate-result) "ui:^@vitejs/"))
     (is (contains? (labels renovate-result) "npm"))
-    (is (contains? (labels editorconfig-result) "indent_style=space"))
     (is (pos? (get (relations jest-result) :defines 0)))
     (is (pos? (get (relations playwright-result) :references 0)))
     (is (pos? (get (relations dependabot-result) :updates 0)))
@@ -2996,6 +3001,78 @@
     (is (= [:test-config-file] (mapv :kind (:chunks pytest-result))))
     (is (= [:tool-config-file] (mapv :kind (:chunks tsconfig-result))))
     (is (= [:tool-config-file] (mapv :kind (:chunks prettier-result))))))
+
+(deftest extracts-editor-dev-environment-facts
+  (let [editorconfig-result (extract/extract-file
+                             "run/test"
+                             (fs/file-record "test/fixtures/extractor-repo"
+                                             "test/fixtures/extractor-repo/.editorconfig"))
+        settings-result (extract/extract-file
+                         "run/test"
+                         (fs/file-record "test/fixtures/extractor-repo"
+                                         "test/fixtures/extractor-repo/.vscode/settings.json"))
+        extensions-result (extract/extract-file
+                           "run/test"
+                           (fs/file-record "test/fixtures/extractor-repo"
+                                           "test/fixtures/extractor-repo/.vscode/extensions.json"))
+        tasks-result (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      "test/fixtures/extractor-repo/.vscode/tasks.json"))
+        workspace-result (extract/extract-file
+                          "run/test"
+                          (fs/file-record "test/fixtures/extractor-repo"
+                                          "test/fixtures/extractor-repo/panels.code-workspace"))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        relations (fn [result] (frequencies (map :relation (:edges result))))]
+    (is (= :editor-config (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                                 "test/fixtures/extractor-repo/.editorconfig"))))
+    (is (= :editor-config (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                                 "test/fixtures/extractor-repo/.vscode/settings.json"))))
+    (is (= :editor-config (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                                 "test/fixtures/extractor-repo/.vscode/tasks.json"))))
+    (is (= :editor-config (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                                 "test/fixtures/extractor-repo/.vscode/extensions.json"))))
+    (is (= :editor-config (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                                 "test/fixtures/extractor-repo/panels.code-workspace"))))
+    (is (contains? (labels editorconfig-result) "root=true"))
+    (is (contains? (labels editorconfig-result) "*"))
+    (is (contains? (labels editorconfig-result) "*:indent_style=space"))
+    (is (contains? (labels settings-result) "editor.formatOnSave=true"))
+    (is (contains? (labels settings-result) "files.trimTrailingWhitespace=true"))
+    (is (contains? (labels settings-result) "java.configuration.updateBuildConfiguration=interactive"))
+    (is (contains? (labels extensions-result) "ms-vscode.cpptools"))
+    (is (contains? (labels extensions-result) "redhat.java"))
+    (is (contains? (labels extensions-result) "example.legacy-extension"))
+    (is (contains? (labels tasks-result) "lint"))
+    (is (contains? (labels tasks-result) "test"))
+    (is (contains? (labels tasks-result) "lint:bb lint"))
+    (is (contains? (labels tasks-result) "test:bb test"))
+    (is (contains? (labels tasks-result) "lint:shell"))
+    (is (contains? (labels tasks-result) "lint:$eslint-stylish"))
+    (is (contains? (labels workspace-result) "."))
+    (is (contains? (labels workspace-result) "frontend"))
+    (is (contains? (labels workspace-result) "files.eol=\n"))
+    (is (contains? (labels workspace-result) "esbenp.prettier-vscode"))
+    (is (contains? (labels workspace-result) "workspace-build"))
+    (is (= 1 (:editor-profile (kinds editorconfig-result))))
+    (is (= 3 (:editor-setting (kinds settings-result))))
+    (is (= 2 (:editor-extension (kinds extensions-result))))
+    (is (= 1 (:editor-extension-block (kinds extensions-result))))
+    (is (= 2 (:editor-task (kinds tasks-result))))
+    (is (= 2 (:editor-task-command (kinds tasks-result))))
+    (is (= 2 (:editor-task-type (kinds tasks-result))))
+    (is (= 1 (:editor-problem-matcher (kinds tasks-result))))
+    (is (= 2 (:workspace-folder (kinds workspace-result))))
+    (is (pos? (get (relations settings-result) :defines 0)))
+    (is (pos? (get (relations extensions-result) :references 0)))
+    (is (= 1 (get (relations tasks-result) :depends-on 0)))
+    (is (= [:editor-config-file] (mapv :kind (:chunks settings-result))))
+    (is (= [:editor-config-file :editor-task :editor-task]
+           (mapv :kind (:chunks tasks-result))))
+    (is (= [:editor-config-file :editor-task]
+           (mapv :kind (:chunks workspace-result))))))
 
 (deftest extracts-compose-helm-and-yaml-infra-facts
   (let [compose-result (extract/extract-file

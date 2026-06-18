@@ -13,7 +13,7 @@
   750)
 
 (def watchable-hidden-dirs
-  #{".buildkite" ".circleci" ".devcontainer" ".github" ".storybook" ".vitepress"})
+  #{".buildkite" ".circleci" ".devcontainer" ".github" ".storybook" ".vitepress" ".vscode"})
 
 (defn watchable-path?
   "Return true when a repo-relative path should trigger AGraph sync."
@@ -40,6 +40,7 @@
                                    (re-matches #"^(?:.*/)?\.buildkite/pipeline\.ya?ml$" path-lower)
                                    (re-matches #"^(?:.*/)?\.drone\.ya?ml$" path-lower)
                                    (re-matches #"^(?:.*/)?\.woodpecker\.ya?ml$" path-lower)
+                                   (re-matches #"^(?:.*/)?\.vscode/(?:settings|tasks|extensions)\.json$" path-lower)
                                    (re-matches #"^\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower)
                                    (re-matches #"^(?:.*/)?\.vitepress/config\.(?:js|mjs|mts|ts)$" path-lower)
                                    (re-matches #"^(?:.*/)?\.vitepress/config/index\.(?:js|mjs|mts|ts)$" path-lower))

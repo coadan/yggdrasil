@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "ms-vscode.cpptools",
+    "redhat.java"
+  ],
+  "unwantedRecommendations": [
+    "example.legacy-extension"
+  ]
+}

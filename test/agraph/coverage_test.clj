@@ -168,6 +168,10 @@
     (spit-file! root "docs/components.mdx" "import { Button } from '../src/ui/Button';\n\n# Components\n\nSee [panels](./panels.md).\n")
     (spit-file! root "tooling/renovate.json" "{\"extends\":[\"config:recommended\"]}\n")
     (spit-file! root ".editorconfig" "root = true\nindent_style = space\n")
+    (spit-file! root ".vscode/settings.json" "{\"editor.formatOnSave\":true,\"files.trimTrailingWhitespace\":true}\n")
+    (spit-file! root ".vscode/tasks.json" "{\"version\":\"2.0.0\",\"tasks\":[{\"label\":\"lint\",\"type\":\"shell\",\"command\":\"bb lint\"}]}\n")
+    (spit-file! root ".vscode/extensions.json" "{\"recommendations\":[\"redhat.java\"]}\n")
+    (spit-file! root "panels.code-workspace" "{\"folders\":[{\"path\":\".\"}],\"settings\":{\"files.eol\":\"\\n\"}}\n")
     (spit-file! root "infra/docker-compose.yml" "services:\n  web:\n    image: ghcr.io/acme/web:latest\n    build: ./web\n    ports:\n      - \"8080:8080\"\n    environment:\n      PANEL_ENV: dev\n")
     (spit-file! root "runtime/Dockerfile" "FROM alpine:3.20 AS runtime\nCMD [\"demo\"]\n")
     (spit-file! root "runtime/Containerfile" "FROM busybox:1.36\nENTRYPOINT [\"demo\"]\n")
@@ -213,8 +217,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 182
-              :supported 181
+      (is (= {:files 186
+              :supported 185
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -246,7 +250,8 @@
       (is (= 2 (:count (row-by :kind "odin" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "zig" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "test-config" (:files-by-kind report)))))
-      (is (= 10 (:count (row-by :kind "tool-config" (:files-by-kind report)))))
+      (is (= 9 (:count (row-by :kind "tool-config" (:files-by-kind report)))))
+      (is (= 5 (:count (row-by :kind "editor-config" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "storybook" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "docker" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "procfile" (:files-by-kind report)))))
@@ -364,7 +369,11 @@
                 (:extractors report)))
       (is (some #(and (= "tool-config" (:kind %))
                       (= "tool-config/v1" (:extractor-version %))
-                      (= 10 (:files %)))
+                      (= 9 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "editor-config" (:kind %))
+                      (= "editor-config/v1" (:extractor-version %))
+                      (= 5 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "storybook" (:kind %))
                       (= "storybook/v1" (:extractor-version %))

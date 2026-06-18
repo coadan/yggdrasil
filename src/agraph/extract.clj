@@ -69,6 +69,7 @@
    :tool-version-config "tool-version-config/v1"
    :storybook "storybook/v1"
    :docs-config "docs-config/v1"
+   :editor-config "editor-config/v1"
    :governance "governance/v1"
    :sbom "sbom/v1"
    :db-config "db-config/v2"
@@ -9538,6 +9539,295 @@
                         [])]
     (vec (concat (config-facts file) special-facts))))
 
+(defn- editor-json-scalar?
+  [value]
+  (or (string? value)
+      (number? value)
+      (boolean? value)))
+
+(defn- editor-json-setting-facts
+  [m]
+  (->> m
+       (keep (fn [[k v]]
+               (when (editor-json-scalar? v)
+                 {:kind :editor-setting
+                  :label (str (name k) "=" (json-label v))
+                  :source-line 1
+                  :relation :defines})))
+       vec))
+
+(defn- editor-array-values
+  [value]
+  (cond
+    (vector? value) value
+    (string? value) [value]
+    :else []))
+
+(defn- editor-extension-facts
+  [extensions]
+  (let [extensions (if (map? extensions) extensions {})]
+    (vec (concat
+          (map (fn [extension]
+                 {:kind :editor-extension
+                  :label (json-label extension)
+                  :source-line 1
+                  :relation :references})
+               (editor-array-values (:recommendations extensions)))
+          (map (fn [extension]
+                 {:kind :editor-extension-block
+                  :label (json-label extension)
+                  :source-line 1
+                  :relation :references})
+               (editor-array-values (:unwantedRecommendations extensions)))))))
+
+(defn- editor-task-label
+  [idx task]
+  (let [label (:label task)]
+    (if (and (string? label) (seq label))
+      label
+      (str "task-" (inc idx)))))
+
+(defn- editor-task-command
+  [task]
+  (let [command (:command task)]
+    (when (editor-json-scalar? command)
+      (json-label command))))
+
+(defn- editor-task-dependencies
+  [task]
+  (editor-array-values (:dependsOn task)))
+
+(defn- editor-problem-matchers
+  [task]
+  (editor-array-values (:problemMatcher task)))
+
+(defn- editor-task-facts
+  [tasks]
+  (->> tasks
+       (keep-indexed
+        (fn [idx task]
+          (when (map? task)
+            (let [label (editor-task-label idx task)
+                  command (editor-task-command task)
+                  type (:type task)]
+              (concat
+               [{:kind :editor-task
+                 :label label
+                 :source-line 1
+                 :relation :defines}]
+               (when command
+                 [{:kind :editor-task-command
+                   :label (str label ":" command)
+                   :source-line 1
+                   :relation :defines}])
+               (when (editor-json-scalar? type)
+                 [{:kind :editor-task-type
+                   :label (str label ":" (json-label type))
+                   :source-line 1
+                   :relation :defines}])
+               (map (fn [matcher]
+                      {:kind :editor-problem-matcher
+                       :label (str label ":" (json-label matcher))
+                       :source-line 1
+                       :relation :references})
+                    (editor-problem-matchers task))
+               (map (fn [dependency]
+                      {:kind :editor-task
+                       :label (json-label dependency)
+                       :source-line 1
+                       :relation :references})
+                    (editor-task-dependencies task)))))))
+       (mapcat identity)
+       distinct
+       vec))
+
+(defn- editorconfig-facts
+  [content]
+  (let [lines (vec (str/split-lines content))]
+    (loop [remaining (map-indexed vector lines)
+           section nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [trimmed (str/trim line)
+              source-line (inc idx)]
+          (cond
+            (or (str/blank? trimmed)
+                (str/starts-with? trimmed "#")
+                (str/starts-with? trimmed ";"))
+            (recur (rest remaining) section out)
+
+            (re-matches #"^\[.+\]$" trimmed)
+            (let [section* (subs trimmed 1 (dec (count trimmed)))]
+              (recur (rest remaining)
+                     section*
+                     (conj out {:kind :editor-profile
+                                :label section*
+                                :source-line source-line
+                                :relation :defines})))
+
+            :else
+            (if-let [[_ key value] (re-matches #"^\s*([^:=]+?)\s*[=:]\s*(.*?)\s*$" line)]
+              (let [key (str/trim key)
+                    value (str/trim value)]
+                (recur (rest remaining)
+                       section
+                       (conj out {:kind :editor-setting
+                                  :label (if (seq section)
+                                           (str section ":" key "=" value)
+                                           (str key "=" value))
+                                  :source-line source-line
+                                  :relation :defines})))
+              (recur (rest remaining) section out))))
+        (vec (distinct out))))))
+
+(defn- vscode-settings-facts
+  [content]
+  (if-let [settings (read-json-map content)]
+    (editor-json-setting-facts settings)
+    []))
+
+(defn- vscode-extensions-facts
+  [content]
+  (if-let [extensions (read-json-map content)]
+    (editor-extension-facts extensions)
+    []))
+
+(defn- vscode-tasks
+  [content]
+  (let [parsed (read-json-map content)]
+    (if (vector? (:tasks parsed)) (:tasks parsed) [])))
+
+(defn- vscode-tasks-facts
+  [content]
+  (editor-task-facts (vscode-tasks content)))
+
+(defn- workspace-facts
+  [content]
+  (if-let [workspace (read-json-map content)]
+    (vec (concat
+          (map (fn [folder]
+                 {:kind :workspace-folder
+                  :label (json-label (or (:name folder) (:path folder)))
+                  :source-line 1
+                  :relation :references})
+               (filter #(or (:name %) (:path %))
+                       (filter map? (editor-array-values (:folders workspace)))))
+          (when (map? (:settings workspace))
+            (editor-json-setting-facts (:settings workspace)))
+          (when (map? (:extensions workspace))
+            (editor-extension-facts (:extensions workspace)))
+          (when (vector? (:tasks workspace))
+            (editor-task-facts (:tasks workspace)))))
+    []))
+
+(defn- editor-config-facts
+  [{:keys [path content]}]
+  (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")
+        filename (manifest-name path)]
+    (cond
+      (= ".editorconfig" filename) (editorconfig-facts content)
+      (re-find #"(^|/)\.vscode/settings\.json$" path-lower) (vscode-settings-facts content)
+      (re-find #"(^|/)\.vscode/extensions\.json$" path-lower) (vscode-extensions-facts content)
+      (re-find #"(^|/)\.vscode/tasks\.json$" path-lower) (vscode-tasks-facts content)
+      (str/ends-with? filename ".code-workspace") (workspace-facts content)
+      :else [])))
+
+(defn- editor-task-chunks
+  [run-id {:keys [id-scope file-id path content]}]
+  (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")
+        filename (manifest-name path)
+        parsed (when (or (re-find #"(^|/)\.vscode/tasks\.json$" path-lower)
+                         (str/ends-with? filename ".code-workspace"))
+                 (read-json-map content))
+        tasks (cond
+                (re-find #"(^|/)\.vscode/tasks\.json$" path-lower)
+                (if (vector? (:tasks parsed)) (:tasks parsed) [])
+
+                (str/ends-with? filename ".code-workspace")
+                (if (vector? (:tasks parsed)) (:tasks parsed) [])
+
+                :else [])]
+    (->> tasks
+         (keep-indexed
+          (fn [idx task]
+            (when (map? task)
+              (let [label (editor-task-label idx task)
+                    text (or (editor-task-command task)
+                             (json/write-json-str task))]
+                {:xt/id (chunk-id id-scope path label 1)
+                 :file-id file-id
+                 :path path
+                 :kind :editor-task
+                 :label label
+                 :text text
+                 :tokens (text/tokenize (str label "\n" text))
+                 :source-line 1
+                 :content-sha (hash/sha256-hex text)
+                 :active? true
+                 :run-id run-id}))))
+         vec)))
+
+(defn- editor-task-dependency-edges
+  [run-id {:keys [id-scope file-id path content]}]
+  (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")
+        filename (manifest-name path)
+        parsed (when (or (re-find #"(^|/)\.vscode/tasks\.json$" path-lower)
+                         (str/ends-with? filename ".code-workspace"))
+                 (read-json-map content))
+        tasks (cond
+                (re-find #"(^|/)\.vscode/tasks\.json$" path-lower)
+                (if (vector? (:tasks parsed)) (:tasks parsed) [])
+
+                (str/ends-with? filename ".code-workspace")
+                (if (vector? (:tasks parsed)) (:tasks parsed) [])
+
+                :else [])]
+    (->> tasks
+         (map-indexed vector)
+         (mapcat
+          (fn [[idx task]]
+            (when (map? task)
+              (let [task-label (editor-task-label idx task)]
+                (map (fn [dependency]
+                       (edge-row run-id
+                                 file-id
+                                 path
+                                 (node-id id-scope :editor-task task-label)
+                                 (node-id id-scope :editor-task (json-label dependency))
+                                 :depends-on
+                                 :extracted
+                                 1))
+                     (editor-task-dependencies task))))))
+         (remove nil?)
+         distinct
+         vec)))
+
+(defn extract-editor-config
+  "Extract deterministic editor and local development environment facts."
+  [run-id {:keys [id-scope file-id path] :as file}]
+  (let [root-node (generic-node run-id id-scope file-id path :editor-config-file path 1)
+        facts (editor-config-facts file)
+        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
+                           (generic-node run-id id-scope file-id path kind label source-line))
+                         facts)
+        fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
+                           (edge-row run-id
+                                     file-id
+                                     path
+                                     (:xt/id root-node)
+                                     (node-id id-scope kind label)
+                                     (or relation :defines)
+                                     :extracted
+                                     source-line))
+                         facts)
+        chunk-result (extract-text-source run-id file :editor-config-file)]
+    {:nodes (vec (distinct (into [root-node] fact-nodes)))
+     :edges (vec (distinct (concat fact-edges
+                                   (editor-task-dependency-edges run-id file))))
+     :chunks (vec (distinct (concat (:chunks chunk-result)
+                                    (editor-task-chunks run-id file))))
+     :diagnostics []}))
+
 (defn extract-tool-config
   "Extract bounded lint/format/tool configuration facts."
   [run-id file]
@@ -17385,6 +17675,7 @@
      :db-config (extract-db-config run-id file)
      :codegen-config (extract-codegen-config run-id file)
      :test-config (extract-test-config run-id file)
+     :editor-config (extract-editor-config run-id file)
      :tool-config (extract-tool-config run-id file)
      :ops-config (extract-ops-config run-id file)
      :astro (extract-astro run-id file)

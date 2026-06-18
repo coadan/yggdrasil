@@ -8,7 +8,7 @@
 
 (def supported-extensions
   #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs"
-    ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
+    ".code-workspace" ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".lua"
@@ -184,6 +184,10 @@
       (contains? #{".tool-versions" ".node-version" ".python-version" ".ruby-version"
                    "mise.toml" ".mise.toml"}
                  filename) :tool-version-config
+      (or (= ".editorconfig" filename)
+          (str/ends-with? filename ".code-workspace")
+          (re-find #"(^|/)\.vscode/(?:settings|tasks|extensions)\.json$"
+                   path-lower)) :editor-config
       (contains? #{"drizzle.config.ts" "drizzle.config.js" "drizzle.config.mjs"
                    "drizzle.config.cjs" "drizzle.config.json"
                    "liquibase.properties" "flyway.conf"}
@@ -222,7 +226,7 @@
                    "commitlint.config.js" "commitlint.config.cjs" "commitlint.config.mjs" "commitlint.config.ts"
                    "lint-staged.config.js" "lint-staged.config.cjs" "lint-staged.config.mjs" "lint-staged.config.ts"
                    ".lintstagedrc" ".lintstagedrc.json" ".lintstagedrc.yaml" ".lintstagedrc.yml"
-                   ".editorconfig" "browserslist" ".browserslistrc"
+                   "browserslist" ".browserslistrc"
                    "renovate.json" ".renovaterc" ".renovaterc.json"
                    "biome.json" "pyrightconfig.json"}
                  filename) :tool-config
@@ -364,6 +368,7 @@
                  path-lower)
         (re-find #"(^|/)\.circleci/config\.ya?ml$" path-lower)
         (re-find #"(^|/)\.buildkite/pipeline\.ya?ml$" path-lower)
+        (re-find #"(^|/)\.vscode/(?:settings|tasks|extensions)\.json$" path-lower)
         (contains? supported-filenames filename))))
 
 (defn relative-path
@@ -581,6 +586,7 @@
         (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|ts)$" path-lower)
         (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|ts)$"
                  path-lower)
+        (re-find #"^\.vscode/(?:settings|tasks|extensions)\.json$" path-lower)
         (re-find #"^\.circleci/config\.ya?ml$" path-lower)
         (re-find #"^\.buildkite/pipeline\.ya?ml$" path-lower)
         (re-find #"(^|/)\.drone\.ya?ml$" path-lower)
