@@ -80,6 +80,9 @@
 (def default-local-vector-command
   "python3 scripts/local-vector-baseline.py")
 
+(def ^:private rank-score-token-cap
+  5)
+
 (def default-agent-run-timeout-ms
   600000)
 
@@ -1111,7 +1114,8 @@
                                                        0.0
                                                        (map :evidence-score ordered))
                              rank-score (+ max-evidence-score
-                                           (* 0.22 (count matched-tokens))
+                                           (* 0.22 (min rank-score-token-cap
+                                                        (count matched-tokens)))
                                            (* 0.08 support-count)
                                            (* 0.08 retrieved-source-count)
                                            (* 0.12 exact-path-source-count)
@@ -1164,6 +1168,24 @@
                             (assoc :rank (inc idx)))))
          vec)))
 
+(defn- path-source-kind
+  [path]
+  (some-> path fs/file-kind normalize-source-kind))
+
+(defn- coverage-source-kinds
+  [coverage]
+  (->> (or (:declaredSourceKinds coverage)
+           (:declared-source-kinds coverage)
+           (:sourceKinds coverage)
+           (:source-kinds coverage))
+       (keep normalize-source-kind)
+       set))
+
+(defn- keep-coverage-source-kind?
+  [source-kinds row]
+  (or (empty? source-kinds)
+      (contains? source-kinds (path-source-kind (:path row)))))
+
 (defn- context-symbols
   [packet]
   (->> (:docs packet)
@@ -1194,15 +1216,18 @@
   truth or fix artifacts."
   ([packet]
    (context-packet->agent-result packet {}))
-  ([packet {:keys [agent-id mode case-id root limit]}]
+  ([packet {:keys [agent-id mode case-id root limit coverage]}]
    (let [query-tokens (text/tokenize (:query packet))
+         source-kinds (coverage-source-kinds coverage)
          doc-rows (keep-indexed #(doc-prediction root query-tokens %1 %2) (:docs packet))
          entity-rows (keep-indexed #(entity-prediction root query-tokens %1 %2) (:entities packet))
          candidate-file-rows (keep-indexed #(candidate-file-prediction root query-tokens %1 %2)
                                            (:candidateFiles packet))
-         candidate-files (ranked-file-predictions (concat doc-rows
-                                                          entity-rows
-                                                          candidate-file-rows))
+         candidate-files (->> (concat doc-rows
+                                      entity-rows
+                                      candidate-file-rows)
+                              (filter #(keep-coverage-source-kind? source-kinds %))
+                              ranked-file-predictions)
          suspected-files (cond->> candidate-files
                            limit (take (long limit))
                            true vec)]
@@ -1214,7 +1239,8 @@
       :suspectedSymbols (context-symbols packet)
       :commands (:drilldowns packet)
       :selection {:candidateFiles (count candidate-files)
-                  :limit limit}
+                  :limit limit
+                  :coverageSourceKinds (vec (sort source-kinds))}
       :summary (str "Deterministic AGraph baseline ranked "
                     (count suspected-files)
                     " suspected files from "
@@ -1296,6 +1322,7 @@
                                :mode "agraph"
                                :case-id (:case-id prepared)
                                :root (:worktreeRoot prepared)
+                               :coverage (:coverage prepared)
                                :limit (agent-baseline-suspect-limit opts)})
                             (fn [result]
                               {:suspectedFiles (count (:suspectedFiles result))

@@ -647,7 +647,8 @@
            (:suspectedSymbols result)))
     (is (= ["agraph ask 'broken app' --project fixture"] (:commands result)))
     (is (= {:candidateFiles 2
-            :limit nil}
+            :limit nil
+            :coverageSourceKinds []}
            (:selection result)))
     (is (not (contains? result :groundTruth)))
     (is (not (contains? result :inputHints)))
@@ -672,9 +673,39 @@
                             "1 more matching row.")}]
              (:suspectedFiles limited)))
       (is (= {:candidateFiles 2
-              :limit 1}
+              :limit 1
+              :coverageSourceKinds []}
              (:selection limited)))
       (is (= 2 (count (:suspectedSymbols limited)))))))
+
+(deftest context-packet-agent-result-respects-declared-source-coverage
+  (let [root (temp-dir "agraph-bench-source-coverage")
+        _ (spit-file! root ".github/ISSUE_TEMPLATE/bug_report.md" "bug report\n")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        packet {:query "bug report app"
+                :docs [{:source {:path ".github/ISSUE_TEMPLATE/bug_report.md"
+                                 :heading "bug report"}
+                        :score 10.0
+                        :snippet "bug report app"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/app.clj"
+                                 :heading "app"}
+                        :score 1.0
+                        :snippet "app"
+                        :provenance "retrieved-doc"}]}
+        unfiltered (benchmark/context-packet->agent-result packet {:root root})
+        filtered (benchmark/context-packet->agent-result
+                  packet
+                  {:root root
+                   :coverage {:declaredSourceKinds ["code"]}})]
+    (is (= [".github/ISSUE_TEMPLATE/bug_report.md" "src/app.clj"]
+           (mapv :path (:suspectedFiles unfiltered))))
+    (is (= ["src/app.clj"]
+           (mapv :path (:suspectedFiles filtered))))
+    (is (= {:candidateFiles 1
+            :limit nil
+            :coverageSourceKinds ["code"]}
+           (:selection filtered)))))
 
 (deftest file-ranking-uses-mechanical-query-token-coverage
   (let [root (temp-dir "agraph-bench-token-coverage")
@@ -697,6 +728,30 @@
            (mapv :path files)))
     (is (= 3 (get-in files [0 :metrics :matchedTokenCount])))
     (is (= 1 (get-in files [1 :metrics :matchedTokenCount])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-caps-query-token-support
+  (let [root (temp-dir "agraph-bench-token-cap")
+        _ (spit-file! root "src/broad.clj" "(ns broad)\n")
+        _ (spit-file! root "src/strong.clj" "(ns strong)\n")
+        packet {:query "one two three four five six seven eight nine ten"
+                :docs [{:source {:path "src/broad.clj"
+                                 :heading "one two three four five six seven eight nine ten"}
+                        :score 1.0
+                        :snippet "one two three four five six seven eight nine ten"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/strong.clj"
+                                 :heading "one two three four five"}
+                        :score 1.8
+                        :snippet "one two three four five"
+                        :provenance "retrieved-doc"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/strong.clj" "src/broad.clj"]
+           (mapv :path files)))
+    (is (= 5 (get-in files [0 :metrics :matchedTokenCount])))
+    (is (= 10 (get-in files [1 :metrics :matchedTokenCount])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
