@@ -262,6 +262,16 @@
                    :noisy-external-api
                    :sparse-external-api}
                  (set (map :kind (get-in maintenance [:decision-summary :byKind])))))
+          (is (= #{:reject-external-api
+                   :none
+                   :set-edge-visibility}
+                 (set (map :action (get-in maintenance
+                                           [:decision-summary :byRecommendedAction])))))
+          (is (= (reduce + (map count (map :recommended-actions
+                                           (:decision-queue maintenance))))
+                 (reduce + (map :count (get-in maintenance
+                                               [:decision-summary
+                                                :byRecommendedAction])))))
           (is (= (select-keys (first (:decision-queue maintenance))
                               [:id :kind :severity :target :reason :scope :recommended-actions])
                  (get-in maintenance [:decision-summary :next])))

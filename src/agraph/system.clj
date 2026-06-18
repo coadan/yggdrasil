@@ -1179,6 +1179,18 @@
        (sort-by sort-key)
        vec))
 
+(defn- grouped-decision-action-counts
+  [decisions]
+  (->> decisions
+       (mapcat :recommended-actions)
+       frequencies
+       (map (fn [[action n]]
+              {:action action
+               :count n}))
+       (sort-by (fn [row]
+                  [(or (some-> (:action row) name) "")]))
+       vec))
+
 (defn- decision-preview
   [decision]
   (select-keys decision
@@ -1203,7 +1215,8 @@
                                             :kind
                                             (fn [row]
                                               [(or (some-> (:kind row) name)
-                                                   "")]))}
+                                                   "")]))
+           :byRecommendedAction (grouped-decision-action-counts decision-queue)}
     (seq decision-queue)
     (assoc :next (decision-preview (first decision-queue)))))
 

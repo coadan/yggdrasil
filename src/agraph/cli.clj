@@ -655,7 +655,12 @@
              (str/join ","
                        (clojure.core/map (fn [{:keys [kind count]}]
                                            (str (name kind) ":" count))
-                                         (:byKind decision-summary)))))
+                                         (:byKind decision-summary)))
+             "action"
+             (str/join ","
+                       (clojure.core/map (fn [{:keys [action count]}]
+                                           (str (name action) ":" count))
+                                         (:byRecommendedAction decision-summary)))))
   (when (seq (or (:high-degree-hubs graph-health) (:top-hubs scale)))
     (println)
     (println "## Top Hubs")

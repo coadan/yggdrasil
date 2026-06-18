@@ -137,8 +137,9 @@ to source import names.
 Agents should maintain the map while working. Start with
 `agraph sync check --json --map agraph.map.json` and address the ranked
 decision queue. The report includes a graph-basis hash, scale/noise ratios, top
-hubs, fold-in actions, and `decision-summary` counts by severity and kind so an
-agent can triage the queue before opening individual decision packets. A
+hubs, fold-in actions, and `decision-summary` counts by severity, kind, and
+recommended action so an agent can triage the queue before opening individual
+decision packets. A
 check/enqueue sync uses the graph-maintenance index profile by default, which
 updates files, graph rows, diagnostics, and bounded file facts without writing
 code/doc search chunks. Add `--query-index` when the same run should also

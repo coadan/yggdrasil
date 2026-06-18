@@ -109,10 +109,14 @@
                                    :byKind [{:kind :ambiguous-high-salience-edge
                                              :count 1}
                                             {:kind :unclustered-system
-                                             :count 1}]}
+                                             :count 1}]
+                                   :byRecommendedAction [{:action :accept-system
+                                                          :count 1}
+                                                         {:action :set-edge-visibility
+                                                          :count 2}]}
                 :decision-queue []}))]
     (is (str/includes? out "# Maintain"))
-    (is (str/includes? out "- decision-summary severity high:1,low:1 kind ambiguous-high-salience-edge:1,unclustered-system:1"))))
+    (is (str/includes? out "- decision-summary severity high:1,low:1 kind ambiguous-high-salience-edge:1,unclustered-system:1 action accept-system:1,set-edge-visibility:2"))))
 
 (deftest benchmark-summary-prints-parser-worker-profiles
   (let [out (with-out-str
