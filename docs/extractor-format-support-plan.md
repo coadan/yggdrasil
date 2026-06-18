@@ -29,6 +29,9 @@ classification in core extractors; store bounded facts and relationships first.
 - Objective-C and Objective-C++: `.m` and `.mm` source files. Extracts imports,
   forward class declarations, interfaces, implementations, protocols,
   categories, enum typedefs, methods, class methods, and source chunks.
+- OCaml: `.ml` and `.mli` source/interface files. Extracts `open`/`include`
+  imports, module aliases, module types, types, exceptions, classes, externals,
+  `let` functions, `val` declarations, and source chunks.
 
 ## Future Candidates
 

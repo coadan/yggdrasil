@@ -122,6 +122,10 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/src/julia/PanelService.jl")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/src/ocaml/panel_service.ml")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/src/ocaml/panel_service.mli")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/src/julia/Project.toml")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/src/perl/PanelService.pm")
@@ -1405,6 +1409,56 @@
            (->> (:chunks result)
                 (remove #(= :code-definition (:kind %)))
                 (mapv :kind))))))
+
+(deftest extracts-ocaml-modules-imports-and-definitions
+  (let [file (fs/file-record "test/fixtures/extractor-repo"
+                             "test/fixtures/extractor-repo/src/ocaml/panel_service.ml")
+        interface-file (fs/file-record "test/fixtures/extractor-repo"
+                                       "test/fixtures/extractor-repo/src/ocaml/panel_service.mli")
+        result (extract/extract-file "run/test" file)
+        interface-result (extract/extract-file "run/test" interface-file)
+        labels (set (map :label (:nodes result)))
+        interface-labels (set (map :label (:nodes interface-result)))
+        kinds-by-label (into {} (map (juxt :label :kind)) (:nodes result))
+        chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))
+        relations (frequencies (map :relation (:edges result)))
+        import-targets (set (map :target-id
+                                 (filter #(= :imports (:relation %))
+                                         (:edges result))))]
+    (is (= :ocaml (:kind file)))
+    (is (= :ocaml (:kind interface-file)))
+    (is (contains? labels "src.ocaml.panel_service"))
+    (is (= :module (kinds-by-label "src.ocaml.panel_service/Client")))
+    (is (= :module-type (kinds-by-label "src.ocaml.panel_service/STORE")))
+    (is (= :type (kinds-by-label "src.ocaml.panel_service/panel")))
+    (is (= :exception (kinds-by-label "src.ocaml.panel_service/Panel_not_found")))
+    (is (= :class (kinds-by-label "src.ocaml.panel_service/panel_cache")))
+    (is (= :external (kinds-by-label "src.ocaml.panel_service/hash_panel")))
+    (is (= :function (kinds-by-label "src.ocaml.panel_service/normalize_id")))
+    (is (= :function (kinds-by-label "src.ocaml.panel_service/load_panel")))
+    (is (= 3 (get relations :imports 0)))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "Core")))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "Panel_sig")))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "Panel_client")))
+    (is (= :code-definition
+           (get-in chunks-by-label ["src.ocaml.panel_service/load_panel" :kind])))
+    (is (= :function
+           (get-in chunks-by-label ["src.ocaml.panel_service/load_panel" :definition-kind])))
+    (is (= [:ocaml-file]
+           (->> (:chunks result)
+                (remove #(= :code-definition (:kind %)))
+                (mapv :kind))))
+    (is (contains? interface-labels "src.ocaml.panel_service/normalize_id"))
+    (is (contains? interface-labels "src.ocaml.panel_service/load_panel"))
+    (is (= :value
+           (some #(when (= "src.ocaml.panel_service/load_panel" (:label %))
+                    (:kind %))
+                 (:nodes interface-result))))
+    (is (empty? (:diagnostics result)))
+    (is (empty? (:diagnostics interface-result)))))
 
 (deftest extracts-perl-packages-imports-and-subroutines
   (let [file (fs/file-record "test/fixtures/extractor-repo"

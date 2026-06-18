@@ -138,6 +138,8 @@
     (spit-file! root "src/r/NAMESPACE" "import(dplyr)\n")
     (spit-file! root "src/julia/PanelService.jl" "module PanelService\nend\n")
     (spit-file! root "src/julia/Project.toml" "name = \"Panels\"\n[deps]\nDataFrames = \"uuid\"\n")
+    (spit-file! root "src/ocaml/panel_service.ml" "open Core\nlet load_panel id = id\n")
+    (spit-file! root "src/ocaml/panel_service.mli" "val load_panel : string -> string\n")
     (spit-file! root "src/perl/PanelService.pm" "package PanelService;\nsub load_panel {}\n")
     (spit-file! root "src/perl/cpanfile" "requires 'Mojolicious';\n")
     (spit-file! root "src/haskell/PanelService.hs" "module PanelService where\n")
@@ -198,8 +200,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 167
-              :supported 166
+      (is (= {:files 169
+              :supported 168
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -224,6 +226,7 @@
       (is (= 1 (:count (row-by :kind "lua" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "r" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "julia" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "ocaml" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "perl" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "haskell" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "odin" (:files-by-kind report)))))
@@ -317,6 +320,9 @@
                 (:extractors report)))
       (is (some #(and (= "julia" (:kind %))
                       (= "julia/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "ocaml" (:kind %))
+                      (= "ocaml/v1" (:extractor-version %)))
                 (:extractors report)))
       (is (some #(and (= "perl" (:kind %))
                       (= "perl/v1" (:extractor-version %)))

@@ -41,6 +41,7 @@
    :lua "lua/v1"
    :r "r/v1"
    :julia "julia/v1"
+   :ocaml "ocaml/v1"
    :perl "perl/v1"
    :haskell "haskell/v1"
    :odin "odin/v1"
@@ -1407,7 +1408,7 @@
   (-> path
       (str/replace #"\.d\.ts$" "")
       (str/replace #"\.rb\.template$" "")
-      (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|m|mm|mjs|cjs|jsx|js|odin|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
+      (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|m|ml|mli|mm|mjs|cjs|jsx|js|odin|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
       (str/replace #"/" ".")
       (str/replace #"-" "_")))
 
@@ -4526,6 +4527,157 @@
                                  file-id
                                  path
                                  :julia-file
+                                 module-name
+                                 content
+                                 jvm-family-file-chunk-lines)
+        definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
+                                  (source-definition-chunk
+                                   run-id
+                                   id-scope
+                                   file-id
+                                   path
+                                   (str module-name "/" name)
+                                   kind
+                                   source-line
+                                   text))
+                                def-forms)]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges))
+     :chunks (into [chunk] definition-chunks)
+     :diagnostics []}))
+
+(defn- ocaml-module-name
+  [path]
+  (source-module-name path))
+
+(defn- ocaml-import-targets
+  [idx line]
+  (->> (concat
+        (map second (re-seq #"^\s*(?:open|include)\s+([A-Z][A-Za-z0-9_.]*)\b.*" line))
+        (map second (re-seq #"^\s*module\s+[A-Z][A-Za-z0-9_']*\s*=\s*([A-Z][A-Za-z0-9_.]*)\b.*" line)))
+       (map (fn [target]
+              {:target target
+               :source-line (inc idx)}))
+       distinct))
+
+(defn- ocaml-public?
+  [name]
+  (not (str/starts-with? (str name) "_")))
+
+(defn- ocaml-definition-line
+  [idx line]
+  (or (when-let [[_ name]
+                 (re-matches #"^\s*module\s+type\s+([A-Z][A-Za-z0-9_']*)\b.*"
+                             line)]
+        {:kind :module-type
+         :name name
+         :public? true
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ name]
+                 (re-matches #"^\s*module\s+([A-Z][A-Za-z0-9_']*)\b.*"
+                             line)]
+        {:kind :module
+         :name name
+         :public? true
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ name]
+                 (re-matches #"^\s*type\s+(?:nonrec\s+)?(?:'?[A-Za-z_][A-Za-z0-9_']*\s+)?([a-z_][A-Za-z0-9_']*)\b.*"
+                             line)]
+        {:kind :type
+         :name name
+         :public? (ocaml-public? name)
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ name]
+                 (re-matches #"^\s*exception\s+([A-Z][A-Za-z0-9_']*)\b.*"
+                             line)]
+        {:kind :exception
+         :name name
+         :public? true
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ name]
+                 (re-matches #"^\s*class\s+(?:virtual\s+)?([a-z_][A-Za-z0-9_']*)\b.*"
+                             line)]
+        {:kind :class
+         :name name
+         :public? (ocaml-public? name)
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ name]
+                 (re-matches #"^\s*external\s+([a-z_][A-Za-z0-9_']*)\b.*"
+                             line)]
+        {:kind :external
+         :name name
+         :public? (ocaml-public? name)
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ name]
+                 (re-matches #"^\s*val\s+([a-z_][A-Za-z0-9_']*)\s*:.*"
+                             line)]
+        {:kind :value
+         :name name
+         :public? (ocaml-public? name)
+         :source-line (inc idx)
+         :text line})
+      (when-let [[_ name]
+                 (re-matches #"^\s*let\s+(?:rec\s+)?(?:@[A-Za-z0-9_.]+\s+)*([a-z_][A-Za-z0-9_']*)\b.*"
+                             line)]
+        {:kind :function
+         :name name
+         :public? (ocaml-public? name)
+         :source-line (inc idx)
+         :text line})))
+
+(defn extract-ocaml
+  "Extract bounded module, import, type, value, and function facts from OCaml source."
+  [run-id {:keys [id-scope file-id path content]}]
+  (let [module-name (ocaml-module-name path)
+        ns-node (namespace-node run-id id-scope file-id path module-name)
+        lines (vec (str/split-lines content))
+        def-forms (->> lines
+                       (map-indexed ocaml-definition-line)
+                       (keep identity)
+                       vec)
+        defs (mapv (fn [{:keys [kind name public? source-line]}]
+                     (let [label (str module-name "/" name)]
+                       {:xt/id (node-id id-scope :symbol label)
+                        :label label
+                        :kind kind
+                        :file-id file-id
+                        :path path
+                        :namespace module-name
+                        :name name
+                        :public? public?
+                        :source-line source-line
+                        :tokens (text/tokenize label)
+                        :active? true
+                        :run-id run-id}))
+                   def-forms)
+        define-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           defs)
+        import-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (node-id id-scope :namespace (:target %))
+                                      :imports
+                                      :extracted
+                                      (:source-line %))
+                           (->> lines
+                                (map-indexed ocaml-import-targets)
+                                (mapcat identity)
+                                distinct))
+        chunk (source-text-chunk run-id
+                                 id-scope
+                                 file-id
+                                 path
+                                 :ocaml-file
                                  module-name
                                  content
                                  jvm-family-file-chunk-lines)
@@ -11339,6 +11491,7 @@
      :lua (extract-lua run-id file)
      :r (extract-r run-id file)
      :julia (extract-julia run-id file)
+     :ocaml (extract-ocaml run-id file)
      :perl (extract-perl run-id file)
      :haskell (extract-haskell run-id file)
      :odin (extract-odin run-id file)
