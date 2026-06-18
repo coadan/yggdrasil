@@ -75,6 +75,21 @@
     (is (= 0.5 (:noiseRatioAt20 scores)))
     (is (= 0 (:unsupportedGroundTruthFiles scores)))))
 
+(deftest scores-agent-evidence-citation-rate
+  (let [result {:groundTruth {:changedFiles ["src/app.clj"]
+                              :unsupportedGroundTruthFiles []}
+                :agraph {:topFiles [{:path "src/app.clj"
+                                     :rank 1
+                                     :evidence ["rg broken"]}
+                                    {:path "src/other.clj"
+                                     :rank 2
+                                     :evidence []}
+                                    {:path "src/more.clj"
+                                     :rank 3}]}}
+        scores (benchmark/score-result result)]
+    (is (= 1.0 (:fileRecallAt5 scores)))
+    (is (= (/ 1.0 3.0) (:evidenceCitationRate scores)))))
+
 (deftest scores-only-base-visible-ground-truth-files
   (let [result {:groundTruth {:changedFiles [".chloggen/fix.yaml"
                                              "src/app.clj"
@@ -522,6 +537,10 @@
                        :found? true}
                       {:path "src/missing.clj"
                        :found? false}]
+              :uncitedRankedFiles [{:path "src/other.clj"
+                                    :rank 1}
+                                   {:path "src/app.clj"
+                                    :rank 7}]
               :contextRanks [{:path "src/app.clj"
                               :rank 7
                               :found? true}
@@ -647,6 +666,7 @@
                          :fileRecallAt20 1.0
                          :meanReciprocalRankFile 0.5
                          :noiseRatioAt20 0.75
+                         :evidenceCitationRate 0.25
                          :unsupportedGroundTruthFiles 1}
                 :parserWorkers [{:mode "all"
                                  :source "option"
@@ -691,7 +711,8 @@
                                     :fileRecallAt10 0.75
                                     :fileRecallAt20 1.0
                                     :meanReciprocalRankFile 0.5
-                                    :noiseRatioAt20 0.75}}]}
+                                    :noiseRatioAt20 0.75
+                                    :evidenceCitationRate 0.25}}]}
         failed (benchmark/check-agent-report
                 report
                 {:min-cases 3
@@ -699,8 +720,10 @@
                  :min-file-recall-at-10 0.9
                  :min-mrr 0.8
                  :max-noise-at-20 0.5
+                 :min-evidence-citation-rate 0.9
                  :min-case-file-recall-at-10 0.9
                  :min-case-mrr 0.8
+                 :min-case-evidence-citation-rate 0.9
                  :max-case-noise-at-20 0.5
                  :max-input-hinted-cases 0
                  :max-unsupported-ground-truth-files 0
@@ -735,8 +758,10 @@
                  :min-file-recall-at-10 0.75
                  :min-mrr 0.5
                  :max-noise-at-20 0.75
+                 :min-evidence-citation-rate 0.25
                  :min-case-file-recall-at-10 0.75
                  :min-case-mrr 0.5
+                 :min-case-evidence-citation-rate 0.25
                  :max-case-noise-at-20 0.75
                  :max-input-hinted-cases 1
                  :max-unsupported-ground-truth-files 1
@@ -758,8 +783,10 @@
              "fileRecallAt10"
              "meanReciprocalRankFile"
              "noiseRatioAt20"
+             "evidenceCitationRate"
              "case.fileRecallAt10"
              "case.meanReciprocalRankFile"
+             "case.evidenceCitationRate"
              "case.noiseRatioAt20"
              "inputHintedCases"
              "unsupportedGroundTruthFiles"
@@ -786,6 +813,7 @@
     (is (= "failed" (get-in failed [:caseDiagnostics 0 :status])))
     (is (= #{"case.fileRecallAt10"
              "case.meanReciprocalRankFile"
+             "case.evidenceCitationRate"
              "case.noiseRatioAt20"
              "case.graphExpectations"}
            (set (map :metric (get-in failed [:caseDiagnostics 0 :failures])))))
@@ -796,7 +824,8 @@
             :fileRecallAt10 0.75
             :fileRecallAt20 1.0
             :meanReciprocalRankFile 0.5
-            :noiseRatioAt20 0.75}
+            :noiseRatioAt20 0.75
+            :evidenceCitationRate 0.25}
            (get-in failed [:caseDiagnostics 0 :scores])))
     (is (= {:case-id "case-2"
             :status "missing"}
@@ -811,8 +840,10 @@
             :minFileRecallAt10 0.9
             :minMeanReciprocalRankFile 0.8
             :maxNoiseRatioAt20 0.5
+            :minEvidenceCitationRate 0.9
             :minCaseFileRecallAt10 0.9
             :minCaseMeanReciprocalRankFile 0.8
+            :minCaseEvidenceCitationRate 0.9
             :maxCaseNoiseRatioAt20 0.5
             :maxInputHintedCases 0.0
             :maxUnsupportedGroundTruthFiles 0.0
@@ -1490,6 +1521,8 @@
                        :rankScore 3.0
                        :matchedTokenCount 2
                        :definitionKinds ["function"]}
+             :evidence ["context-doc:src/app.clj lines 2-4 provenance=retrieved-doc"
+                        "context-doc:src/app.clj provenance=retrieved-doc"]
              :reason (str "AGraph context doc \"broken\" from src/app.clj lines 2-4 "
                           "with provenance retrieved-doc. Additional AGraph evidence: "
                           "1 more matching row.")}
@@ -1507,6 +1540,7 @@
                        :rankScore 0.8099999999999999
                        :matchedTokenCount 0
                        :definitionKinds []}
+             :evidence ["graph-entity:db path=src/db.clj"]
              :reason "AGraph graph entity \"db\" references src/db.clj."}]
            (:suspectedFiles result)))
     (is (= [{:name "broken"
@@ -1543,6 +1577,8 @@
                          :rankScore 3.0
                          :matchedTokenCount 2
                          :definitionKinds ["function"]}
+               :evidence ["context-doc:src/app.clj lines 2-4 provenance=retrieved-doc"
+                          "context-doc:src/app.clj provenance=retrieved-doc"]
                :reason (str "AGraph context doc \"broken\" from src/app.clj lines 2-4 "
                             "with provenance retrieved-doc. Additional AGraph evidence: "
                             "1 more matching row.")}]
@@ -2068,6 +2104,7 @@
                        :rankScore 2.92
                        :matchedTokenCount 2
                        :definitionKinds ["function"]}
+             :evidence ["context-doc:src/app.clj lines 2-4 provenance=retrieved-doc"]
              :reason "AGraph context doc \"app/broken\" from src/app.clj lines 2-4 with provenance retrieved-doc."}]
            (:topFiles hints)))
     (is (= [{:rank 1

@@ -101,8 +101,10 @@
     "--retrieval-limit"
     "--min-file-recall-at-5" "--min-file-recall-at-10"
     "--min-file-recall-at-20" "--min-mrr" "--max-noise-at-20"
+    "--min-evidence-citation-rate"
     "--min-case-file-recall-at-5" "--min-case-file-recall-at-10"
     "--min-case-file-recall-at-20" "--min-case-mrr"
+    "--min-case-evidence-citation-rate"
     "--max-case-noise-at-20"
     "--max-input-hinted-cases" "--max-unsupported-ground-truth-files"
     "--max-empty-result-runs" "--max-unverified-score-runs"
@@ -1835,6 +1837,11 @@
                                                             (parse-optional-double
                                                              args
                                                              "--max-noise-at-20"))
+    (parse-optional-double args "--min-evidence-citation-rate") (assoc
+                                                                 :min-evidence-citation-rate
+                                                                 (parse-optional-double
+                                                                  args
+                                                                  "--min-evidence-citation-rate"))
     (parse-optional-double args "--min-case-file-recall-at-5") (assoc
                                                                 :min-case-file-recall-at-5
                                                                 (parse-optional-double
@@ -1854,6 +1861,11 @@
                                                          (parse-optional-double
                                                           args
                                                           "--min-case-mrr"))
+    (parse-optional-double args "--min-case-evidence-citation-rate") (assoc
+                                                                      :min-case-evidence-citation-rate
+                                                                      (parse-optional-double
+                                                                       args
+                                                                       "--min-case-evidence-citation-rate"))
     (parse-optional-double args "--max-case-noise-at-20") (assoc
                                                            :max-case-noise-at-20
                                                            (parse-optional-double
@@ -2003,6 +2015,8 @@
                (format "%.2f" (double (get-in result [:scores :fileRecallAt10] 0.0))))
       (println "- mrr"
                (format "%.2f" (double (get-in result [:scores :meanReciprocalRankFile] 0.0))))
+      (println "- evidence-citation"
+               (format "%.2f" (double (get-in result [:scores :evidenceCitationRate] 0.0))))
       (print-parser-worker-summary (:parserWorkers result))
       (when-let [blocker (first (get-in result
                                         [:localizationDiagnostics
@@ -2062,6 +2076,10 @@
       (println "- mrr"
                (format "%.2f" (double (get-in result
                                               [:report :scores :meanReciprocalRankFile]
+                                              0.0))))
+      (println "- evidence-citation"
+               (format "%.2f" (double (get-in result
+                                              [:report :scores :evidenceCitationRate]
                                               0.0))))
       (print-parser-worker-summary (get-in result [:report :parserWorkers]))
       (println "- noise@20"
@@ -2260,7 +2278,7 @@
     "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--parser-worker none|java|dotnet|all] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--parser-worker none|java|dotnet|all] [--out DIR] [--json]"
     "  bench agent-report <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--allow-unverified-scores] [--out DIR] [--json]"
-    "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-unverified-score-runs N] [--max-graph-expectation-failures N] [--max-missed-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-active-stage-ms N] [--max-parser-worker-profiles N] [--require-parser-worker none|java|dotnet|all] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"
+    "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--min-evidence-citation-rate N] [--min-case-evidence-citation-rate N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-unverified-score-runs N] [--max-graph-expectation-failures N] [--max-missed-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-active-stage-ms N] [--max-parser-worker-profiles N] [--require-parser-worker none|java|dotnet|all] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"
     "  bench agent-compare <benchmark.edn> --baseline-report before.json --candidate-report after.json [--regression-tolerance N] [--out DIR] [--json]"
     "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
     ""

@@ -496,8 +496,10 @@
                                  "--min-file-recall-at-10" "1.0"
                                  "--min-mrr" "0.9"
                                  "--max-noise-at-20" "0.5"
+                                 "--min-evidence-citation-rate" "0.8"
                                  "--min-case-file-recall-at-10" "1.0"
                                  "--min-case-mrr" "0.9"
+                                 "--min-case-evidence-citation-rate" "0.7"
                                  "--max-case-noise-at-20" "0.75"
                                  "--max-input-hinted-cases" "0"
                                  "--max-unsupported-ground-truth-files" "0"
@@ -528,8 +530,10 @@
                   :min-file-recall-at-10 1.0
                   :min-mrr 0.9
                   :max-noise-at-20 0.5
+                  :min-evidence-citation-rate 0.8
                   :min-case-file-recall-at-10 1.0
                   :min-case-mrr 0.9
+                  :min-case-evidence-citation-rate 0.7
                   :max-case-noise-at-20 0.75
                   :max-input-hinted-cases 0.0
                   :max-unsupported-ground-truth-files 0.0

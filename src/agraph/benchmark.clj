@@ -1072,6 +1072,19 @@
          (double (count predicted)))
       0.0)))
 
+(defn- evidence-cited?
+  [row]
+  (->> (:evidence row)
+       (some #(not (blankish? %)))
+       boolean))
+
+(defn- evidence-citation-rate
+  [top-files]
+  (if (seq top-files)
+    (/ (double (count (filter evidence-cited? top-files)))
+       (double (count top-files)))
+    0.0))
+
 (defn score-result
   "Return mechanical localization scores for a benchmark result shape."
   [{:keys [groundTruth agraph]}]
@@ -1087,6 +1100,7 @@
      {:meanReciprocalRankFile (mean-reciprocal-rank-file scoreable-files
                                                          (:topFiles agraph))
       :noiseRatioAt20 (noise-ratio-at scoreable-files paths 20)
+      :evidenceCitationRate (evidence-citation-rate (:topFiles agraph))
       :changedFiles (count changed-files)
       :localizationFiles (count (or (:localizationFiles groundTruth)
                                     changed-files))
@@ -1775,6 +1789,11 @@
        :matched-compound-token-pairs (compact-compound-token-pair-matches
                                       query-tokens
                                       (evidence-text doc))
+       :evidence [(str "context-doc:"
+                       path
+                       (line-label source)
+                       " provenance="
+                       (or (:provenance doc) "unknown"))]
        :reason (str "AGraph context doc"
                     (when-let [heading (:heading source)]
                       (str " " (pr-str heading)))
@@ -1810,6 +1829,10 @@
                                       (str (:path entity)
                                            "\n"
                                            (:label entity)))
+       :evidence [(str "graph-entity:"
+                       (or (:label entity) path)
+                       " path="
+                       path)]
        :reason (str "AGraph graph entity "
                     (pr-str (:label entity))
                     " references "
@@ -1846,6 +1869,10 @@
                  :matched-tokens matched-tokens
                  :matched-token-pairs matched-token-pairs
                  :matched-compound-token-pairs matched-compound-token-pairs
+                 :evidence [(str "candidate-file:"
+                                 path
+                                 " rank="
+                                 (:rank candidate))]
                  :reason (str "AGraph retrieved candidate file "
                               path
                               " from result rank "
@@ -1874,6 +1901,11 @@
                              matched-compound-token-pairs (->> ordered
                                                                (mapcat :matched-compound-token-pairs)
                                                                set)
+                             evidence (->> ordered
+                                           (mapcat :evidence)
+                                           (remove blankish?)
+                                           distinct
+                                           vec)
                              doc-count (count (filter #(= :doc (:evidence-kind %))
                                                       ordered))
                              entity-count (count (filter #(= :entity (:evidence-kind %))
@@ -1951,6 +1983,7 @@
                                         :path path
                                         :confidence confidence
                                         :rank-score rank-score
+                                        :evidence evidence
                                         :metrics metrics)
                            (pos? extra-count)
                            (update :reason
@@ -2231,7 +2264,8 @@
                                       :fileRecallAt10
                                       :fileRecallAt20
                                       :meanReciprocalRankFile
-                                      :noiseRatioAt20])))
+                                      :noiseRatioAt20
+                                      :evidenceCitationRate])))
               baseline {:schema agent-baseline-schema
                         :suite-id (:suite-id prepared)
                         :case-id (:case-id prepared)
@@ -2376,7 +2410,8 @@
                                   :fileRecallAt10
                                   :fileRecallAt20
                                   :meanReciprocalRankFile
-                                  :noiseRatioAt20])))
+                                  :noiseRatioAt20
+                                  :evidenceCitationRate])))
           baseline {:schema agent-baseline-schema
                     :suite-id (:suite-id prepared)
                     :case-id (:case-id prepared)
@@ -3255,7 +3290,8 @@
                     :fileRecallAt10
                     :fileRecallAt20
                     :meanReciprocalRankFile
-                    :noiseRatioAt20]]
+                    :noiseRatioAt20
+                    :evidenceCitationRate]]
     (into {}
           (map (fn [k]
                  [k (average (keep #(get-in % [:scores k]) results))]))
@@ -3647,6 +3683,9 @@
         context-rank-by-path (into {} (map (juxt :path identity)) context-ranks)
         top-files (get-in result [:agent :topFiles])
         scoreable-file-set (set (scoreable-changed-files ground-truth))
+        uncited-ranked-files (->> top-files
+                                  (remove evidence-cited?)
+                                  (mapv #(select-keys % [:path :rank])))
         missed (->> ranks
                     (remove :found?)
                     (mapv #(select-keys % [:path])))
@@ -3684,6 +3723,7 @@
                     :coverageExcludedFiles (vec (:coverageExcludedFiles ground-truth))
                     :unsupportedGroundTruthFiles (vec (:unsupportedGroundTruthFiles ground-truth))
                     :ranks ranks
+                    :uncitedRankedFiles uncited-ranked-files
                     :missedFiles missed
                     :rankedOutsideTop5 (ranked-outside 5)
                     :rankedOutsideTop10 (ranked-outside 10)
@@ -3891,10 +3931,12 @@
                  [:min-file-recall-at-20 :minFileRecallAt20]
                  [:min-mrr :minMeanReciprocalRankFile]
                  [:max-noise-at-20 :maxNoiseRatioAt20]
+                 [:min-evidence-citation-rate :minEvidenceCitationRate]
                  [:min-case-file-recall-at-5 :minCaseFileRecallAt5]
                  [:min-case-file-recall-at-10 :minCaseFileRecallAt10]
                  [:min-case-file-recall-at-20 :minCaseFileRecallAt20]
                  [:min-case-mrr :minCaseMeanReciprocalRankFile]
+                 [:min-case-evidence-citation-rate :minCaseEvidenceCitationRate]
                  [:max-case-noise-at-20 :maxCaseNoiseRatioAt20]
                  [:max-input-hinted-cases :maxInputHintedCases]
                  [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
@@ -4019,7 +4061,10 @@
                 [:minCaseFileRecallAt20 :fileRecallAt20 "case.fileRecallAt20"]
                 [:minCaseMeanReciprocalRankFile
                  :meanReciprocalRankFile
-                 "case.meanReciprocalRankFile"]])
+                 "case.meanReciprocalRankFile"]
+                [:minCaseEvidenceCitationRate
+                 :evidenceCitationRate
+                 "case.evidenceCitationRate"]])
          (keep (fn [[threshold-key metric-key metric-label]]
                  (case-max-failure check result threshold-key metric-key metric-label))
                [[:maxCaseNoiseRatioAt20 :noiseRatioAt20 "case.noiseRatioAt20"]])))
@@ -4179,6 +4224,7 @@
    :fileRecallAt20
    :meanReciprocalRankFile
    :noiseRatioAt20
+   :evidenceCitationRate
    :changedFiles
    :scoreableChangedFiles
    :unsupportedGroundTruthFiles])
@@ -4245,7 +4291,10 @@
                           [:minFileRecallAt20 :fileRecallAt20 "fileRecallAt20"]
                           [:minMeanReciprocalRankFile
                            :meanReciprocalRankFile
-                           "meanReciprocalRankFile"]])
+                           "meanReciprocalRankFile"]
+                          [:minEvidenceCitationRate
+                           :evidenceCitationRate
+                           "evidenceCitationRate"]])
                    (keep (fn [[threshold-key metric-path metric-label]]
                            (max-failure check-base
                                         threshold-key
@@ -4292,7 +4341,10 @@
     :direction :higher}
    {:key :noiseRatioAt20
     :label "noiseRatioAt20"
-    :direction :lower}])
+    :direction :lower}
+   {:key :evidenceCitationRate
+    :label "evidenceCitationRate"
+    :direction :higher}])
 
 (defn- score-delta
   [baseline candidate {:keys [key label direction]} tolerance]
