@@ -1,5 +1,6 @@
 (ns agraph.benchmark-test
   (:require [agraph.benchmark :as benchmark]
+            [agraph.extract :as extract]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -1073,7 +1074,8 @@
                                         :body "The app returns the old value."}}]}))
         (let [suite (benchmark/read-suite suite-path)
               packet (first (:packets (benchmark/agent-packets! suite {:out out
-                                                                       :case-id "case-1"})))
+                                                                       :case-id "case-1"
+                                                                       :parser-worker "java"})))
               project-path (get-in packet [:artifacts :projectConfig])
               packet-path (get-in packet [:artifacts :packetPath])
               project-config (read-string (slurp project-path))
@@ -1083,10 +1085,14 @@
                  (get-in packet [:task :expectedResultSchema])))
           (is (not (contains? packet :groundTruth)))
           (is (not (contains? packet :inputHints)))
+          (is (= {:mode "java"
+                  :source "option"}
+                 (:parserWorker packet)))
           (is (= (:project-id packet) (:id project-config)))
           (is (= (:worktreeRoot packet) (get-in project-config [:repos 0 :root])))
           (is (str/includes? setup-command "cd "))
           (is (str/includes? setup-command "CLJ_CONFIG="))
+          (is (str/includes? setup-command "AGRAPH_PARSER_WORKER='java'"))
           (is (str/includes? setup-command ".cpcache"))
           (is (str/includes? setup-command "bb 'sync'"))
           (is (.isFile (io/file packet-path))))))))
@@ -1113,6 +1119,77 @@
          (#'benchmark/benchmark-index-options {:index-timeout-ms 1234})))
   (is (= {:index-profile :query}
          (#'benchmark/benchmark-index-options {:index-timeout-ms 0}))))
+
+(deftest benchmark-parser-worker-profile-is-explicit-and-bindable
+  (is (= {:mode "java"
+          :source "option"}
+         (#'benchmark/parser-worker-profile {:parser-worker "Java"})))
+  (extract/with-parser-worker-mode
+    "dotnet"
+    (is (= "java"
+           (#'benchmark/with-benchmark-parser-worker
+            {:parser-worker "java"}
+            #(extract/parser-worker-mode))))))
+
+(deftest skip-existing-agent-baselines-match-parser-worker-profile
+  (let [out (temp-dir "agraph-bench-parser-worker-skip")
+        suite {:id "suite"}
+        case {:id "case-1"
+              :repo-id "repo"
+              :base-sha "base"
+              :fix-sha "fix"
+              :issue {:title "broken app"
+                      :body "The app is broken."}}
+        java-opts {:out out
+                   :parser-worker "java"}
+        dotnet-opts {:out out
+                     :parser-worker "dotnet"}
+        result-path (#'benchmark/agent-baseline-result-path suite case java-opts)
+        score-path (#'benchmark/agent-score-path suite case java-opts result-path)
+        score {:case-id "case-1"
+               :caseFingerprint (#'benchmark/case-fingerprint suite case)
+               :agent {:agentId "agraph-baseline-lexical"
+                       :mode "agraph"}
+               :agentResultPath (.getCanonicalPath (io/file result-path))
+               :parserWorker {:mode "dotnet"
+                              :source "option"}
+               :scores {:fileRecallAt10 1.0}}]
+    (.mkdirs (.getParentFile score-path))
+    (spit score-path (json/write-json-str score))
+    (is (empty? (#'benchmark/current-agent-score-artifacts
+                 suite
+                 case
+                 java-opts
+                 {:agent-id "agraph-baseline-lexical"
+                  :mode "agraph"
+                  :result-path result-path})))
+    (is (= 1
+           (count (#'benchmark/current-agent-score-artifacts
+                   suite
+                   case
+                   dotnet-opts
+                   {:agent-id "agraph-baseline-lexical"
+                    :mode "agraph"
+                    :result-path result-path}))))))
+
+(deftest agent-run-env-carries-explicit-parser-worker-profile
+  (let [env (#'benchmark/agent-run-env
+             {:suite-id "suite"
+              :case-id "case-1"
+              :repo-id "repo"
+              :project-id "project"
+              :mode "agraph"
+              :worktreeRoot "/tmp/worktree"
+              :artifacts {:packetPath "/tmp/packet.json"
+                          :projectConfig "/tmp/project.edn"
+                          :xtdbPath "/tmp/xtdb"}}
+             "/tmp/result.json"
+             "/tmp/prompt.txt"
+             "/tmp/schema.json"
+             {:agent-id "agent"
+              :parser-worker "dotnet"})]
+    (is (= "dotnet" (get env "AGRAPH_BENCH_PARSER_WORKER")))
+    (is (= "dotnet" (get env "AGRAPH_PARSER_WORKER")))))
 
 (deftest runs-external-agent-command-and-scores-result
   (let [root (temp-dir "agraph-bench-agent-run-repo")

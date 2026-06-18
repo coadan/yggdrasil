@@ -188,9 +188,22 @@
             {}
             extraction-buckets)))
 
-(defn- parser-worker-mode
+(def ^:dynamic *parser-worker-mode*
+  nil)
+
+(defn normalize-parser-worker-mode
+  [mode]
+  (some-> mode str str/lower-case str/trim not-empty))
+
+(defn parser-worker-mode
   []
-  (some-> (System/getenv "AGRAPH_PARSER_WORKER") str/lower-case not-empty))
+  (or (normalize-parser-worker-mode *parser-worker-mode*)
+      (normalize-parser-worker-mode (System/getenv "AGRAPH_PARSER_WORKER"))))
+
+(defmacro with-parser-worker-mode
+  [mode & body]
+  `(binding [*parser-worker-mode* (normalize-parser-worker-mode ~mode)]
+     ~@body))
 
 (defn- parser-worker-fingerprint
   []

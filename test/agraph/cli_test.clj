@@ -248,6 +248,7 @@
                                 ["agent-packet" "benchmark.edn"
                                  "--case" "case-1"
                                  "--mode" "agraph"
+                                 "--parser-worker" "dotnet"
                                  "--enqueue"
                                  "--queue-dir" root
                                  "--json"]))
@@ -256,6 +257,7 @@
         (is (= {:case-id "case-1"
                 :out nil
                 :retriever nil
+                :parser-worker "dotnet"
                 :mode "agraph"
                 :result-path nil
                 :command nil}
@@ -294,6 +296,7 @@
                  {:case-id "case-1"
                   :out nil
                   :retriever nil
+                  :parser-worker nil
                   :mode nil
                   :result-path "agent-result.json"
                   :command nil}]]
@@ -324,6 +327,7 @@
                                  "--retrieval-limit" "80"
                                  "--vector-command" "fake-vector-worker"
                                  "--vector-model" "fake-vector-model"
+                                 "--parser-worker" "java"
                                  "--index-timeout-ms" "1234"
                                  "--skip-existing"
                                  "--json"]))
@@ -334,6 +338,7 @@
                  {:case-id "case-1"
                   :out nil
                   :retriever "lexical"
+                  :parser-worker "java"
                   :mode nil
                   :result-path nil
                   :command nil
@@ -382,6 +387,7 @@
                  {:case-id "case-1"
                   :out nil
                   :retriever nil
+                  :parser-worker nil
                   :mode "agraph"
                   :agent-id "codex"
                   :result-path nil
@@ -420,6 +426,7 @@
                   :case-ids ["case-1" "case-2"]
                   :out nil
                   :retriever nil
+                  :parser-worker nil
                   :mode "agraph"
                   :agent-id "codex"
                   :result-path nil
@@ -470,6 +477,7 @@
                  {:case-id "case-1"
                   :out nil
                   :retriever nil
+                  :parser-worker nil
                   :mode "agraph"
                   :agent-id "agraph-baseline-lexical"
                   :result-path nil
@@ -522,6 +530,7 @@
                  {:case-id nil
                   :out nil
                   :retriever nil
+                  :parser-worker nil
                   :mode nil
                   :result-path nil
                   :command nil
@@ -989,6 +998,7 @@
                  {:case-id "case-1"
                   :out ".dev/bench"
                   :retriever nil
+                  :parser-worker nil
                   :mode nil
                   :result-path nil
                   :command nil}]]

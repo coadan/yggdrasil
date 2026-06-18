@@ -1,6 +1,7 @@
 (ns agraph.benchmark
   "Issue replay benchmarks for AGraph retrieval quality."
   (:require [agraph.context :as context]
+            [agraph.extract :as extract]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
             [agraph.project :as project]
@@ -153,6 +154,26 @@
   [opts]
   (cond-> {:index-profile :query}
     (some? (index-timeout-ms opts)) (assoc :index-timeout-ms (index-timeout-ms opts))))
+
+(defn- parser-worker-option
+  [opts]
+  (extract/normalize-parser-worker-mode (:parser-worker opts)))
+
+(defn- parser-worker-profile
+  [opts]
+  (let [option-mode (parser-worker-option opts)
+        env-mode (extract/normalize-parser-worker-mode
+                  (System/getenv "AGRAPH_PARSER_WORKER"))]
+    {:mode (or option-mode env-mode "none")
+     :source (cond
+               option-mode "option"
+               env-mode "env"
+               :else "default")}))
+
+(defn- with-benchmark-parser-worker
+  [opts f]
+  (extract/with-parser-worker-mode (parser-worker-option opts)
+    (f)))
 
 (defn- blankish?
   [value]
@@ -1342,9 +1363,11 @@
                        :repos [repo]}]
     (store/with-node (xtdb-dir suite case opts)
       (fn [xtdb]
-        (let [index-summary (project/index-project! xtdb
-                                                    bench-project
-                                                    (benchmark-index-options opts))
+        (let [index-summary (with-benchmark-parser-worker
+                              opts
+                              #(project/index-project! xtdb
+                                                       bench-project
+                                                       (benchmark-index-options opts)))
               system-summary (project/infer-project! xtdb bench-project)
               graph-expectations (evaluate-graph-expectations xtdb prepared)
               ranked (run-query! xtdb prepared opts)
@@ -1364,6 +1387,7 @@
                :coverage (:coverage prepared)
                :groundTruth (:groundTruth prepared)
                :agraph {:retriever (name (keyword (or (:retriever opts) :lexical)))
+                        :parserWorker (parser-worker-profile opts)
                         :limit (long (or (:limit opts) default-limit))
                         :indexSummary index-summary
                         :systemSummary system-summary
@@ -1405,17 +1429,25 @@
   (fs/canonical-path (io/file (:worktreeRoot prepared) ".cpcache" "clj-config")))
 
 (defn- env-command
-  [xtdb-path clj-config-dir command & args]
-  (str "mkdir -p "
-       (shell-quote clj-config-dir)
-       " && cd "
-       (shell-quote (agraph-command-root))
-       " && CLJ_CONFIG="
-       (shell-quote clj-config-dir)
-       " AGRAPH_XTDB_PATH="
-       (shell-quote xtdb-path)
-       " "
-       (str/join " " (cons command (map shell-quote args)))))
+  [xtdb-path clj-config-dir & args]
+  (let [[extra-env args] (if (map? (first args))
+                           [(first args) (rest args)]
+                           [{} args])
+        [command & command-args] args
+        env-vars (merge {"CLJ_CONFIG" clj-config-dir
+                         "AGRAPH_XTDB_PATH" xtdb-path}
+                        extra-env)]
+    (str "mkdir -p "
+         (shell-quote clj-config-dir)
+         " && cd "
+         (shell-quote (agraph-command-root))
+         " && "
+         (str/join " "
+                   (map (fn [[k v]]
+                          (str k "=" (shell-quote v)))
+                        env-vars))
+         " "
+         (str/join " " (cons command (map shell-quote command-args))))))
 
 (defn- agent-mode
   [opts]
@@ -1435,7 +1467,12 @@
   [suite case opts {:keys [agent-id mode result-path]}]
   (let [dir (agent-score-dir suite case opts)
         expected-fingerprint (case-fingerprint suite case)
-        expected-result-path (some-> result-path fs/canonical-path)]
+        expected-result-path (some-> result-path fs/canonical-path)
+        expected-parser-worker-mode (:mode (parser-worker-profile opts))
+        parser-worker-match? (fn [score]
+                               (or (not= "agraph" mode)
+                                   (= expected-parser-worker-mode
+                                      (get-in score [:parserWorker :mode]))))]
     (if-not (.isDirectory dir)
       []
       (->> (file-seq dir)
@@ -1450,7 +1487,8 @@
                                 (= expected-fingerprint (:caseFingerprint score))
                                 (= agent-id (get-in score [:agent :agentId]))
                                 (= mode (get-in score [:agent :mode]))
-                                (= expected-result-path (:agentResultPath score)))
+                                (= expected-result-path (:agentResultPath score))
+                                (parser-worker-match? score))
                        (assoc score :agentScorePath (fs/canonical-path file))))))
            vec))))
 
@@ -1477,6 +1515,7 @@
    :agentId (get-in score [:agent :agentId])
    :mode (get-in score [:agent :mode])
    :retriever (name (keyword (or (:retriever opts) :lexical)))
+   :parserWorker (:parserWorker score)
    :suspectLimit (agent-baseline-suspect-limit opts)
    :status "skipped"
    :skipReason "current-score-artifact"
@@ -1515,9 +1554,16 @@
             :root (:worktreeRoot prepared)
             :role :application}]})
 
+(defn- parser-worker-command-env
+  [opts]
+  (if-let [mode (parser-worker-option opts)]
+    {"AGRAPH_PARSER_WORKER" mode}
+    {}))
+
 (defn- agent-command-hints
-  [prepared project-path xtdb-path mode]
-  (let [clj-config-dir (agent-clj-config-dir prepared)]
+  [prepared project-path xtdb-path mode opts]
+  (let [clj-config-dir (agent-clj-config-dir prepared)
+        parser-env (parser-worker-command-env opts)]
     (cond-> {:shell ["Inspect the checkout with ordinary local commands such as git, rg, find, sed, and tests."
                      "Do not read the fixing diff, PR, post-fix commits, or ground-truth artifacts."]}
       (= "agraph" mode)
@@ -1525,9 +1571,15 @@
              {:projectConfig project-path
               :xtdbPath xtdb-path
               :cljConfigDir clj-config-dir
-              :setupCommand (env-command xtdb-path clj-config-dir "bb" "sync" project-path)
+              :setupCommand (env-command xtdb-path
+                                         clj-config-dir
+                                         parser-env
+                                         "bb"
+                                         "sync"
+                                         project-path)
               :askCommand (env-command xtdb-path
                                        clj-config-dir
+                                       parser-env
                                        "bb"
                                        "ask"
                                        (get-in prepared [:input :queryText])
@@ -1536,6 +1588,7 @@
                                        "--json")
               :exploreCommand (env-command xtdb-path
                                            clj-config-dir
+                                           parser-env
                                            "bb"
                                            "explore"
                                            "create"
@@ -1580,6 +1633,7 @@
                 :repo-id (:repo-id prepared)
                 :project-id (:project-id prepared)
                 :mode mode
+                :parserWorker (parser-worker-profile opts)
                 :baseSha (:baseSha prepared)
                 :worktreeRoot (:worktreeRoot prepared)
                 :input (:input prepared)
@@ -1592,7 +1646,7 @@
                                "Do not inspect the fixing diff, PR body, post-fix commits, or ground-truth artifacts."]
                        :expectedResultSchema agent-result-schema
                        :resultContract (agent-result-contract)}
-                :tools (agent-command-hints prepared project-path xtdb-path mode)
+                :tools (agent-command-hints prepared project-path xtdb-path mode opts)
                 :artifacts artifacts
                 :fairness {:allowedInput ["issue title"
                                           "issue body"
@@ -2088,14 +2142,18 @@
        {:path (fs/canonical-path path)}))
     (store/with-node (xtdb-dir suite case opts)
       (fn [xtdb]
-        (let [index-summary (progress-stage!
+        (let [parser-worker (parser-worker-profile opts)
+              index-summary (progress-stage!
                              suite
                              case
                              opts
                              :index-project
-                             #(project/index-project! xtdb
-                                                      bench-project
-                                                      (benchmark-index-options opts))
+                             #(with-benchmark-parser-worker
+                                opts
+                                (fn []
+                                  (project/index-project! xtdb
+                                                          bench-project
+                                                          (benchmark-index-options opts))))
                              #(select-keys % [:files :repos :rows :extractors]))
               system-summary (progress-stage!
                               suite
@@ -2144,6 +2202,7 @@
                       #(cond-> (assoc (score-agent-result prepared agent-result)
                                       :agentResultPath (fs/canonical-path result-path)
                                       :contextPacketPath (fs/canonical-path context-path)
+                                      :parserWorker parser-worker
                                       :contextGroundTruthRanks (context-ground-truth-ranks
                                                                 prepared
                                                                 packet))
@@ -2166,6 +2225,7 @@
                         :mode "agraph"
                         :retriever (name (keyword (or (:retriever opts)
                                                       :lexical)))
+                        :parserWorker parser-worker
                         :suspectLimit (agent-baseline-suspect-limit opts)
                         :artifacts {:projectConfig project-path
                                     :agentResultPath (fs/canonical-path result-path)
@@ -2734,6 +2794,9 @@
            "AGRAPH_BENCH_PROJECT" (get-in packet [:artifacts :projectConfig])
            "AGRAPH_BENCH_XTDB_PATH" (get-in packet [:artifacts :xtdbPath])
            "AGRAPH_XTDB_PATH" (get-in packet [:artifacts :xtdbPath])}
+    (parser-worker-option opts)
+    (assoc "AGRAPH_BENCH_PARSER_WORKER" (parser-worker-option opts)
+           "AGRAPH_PARSER_WORKER" (parser-worker-option opts))
     (get-in packet [:artifacts :agraphContextPath])
     (assoc "AGRAPH_BENCH_AGRAPH_CONTEXT"
            (get-in packet [:artifacts :agraphContextPath]))
@@ -2747,9 +2810,11 @@
     (store/with-node (xtdb-dir suite case opts)
       (fn [xtdb]
         (let [bench-project (agent-project prepared)]
-          {:indexSummary (project/index-project! xtdb
-                                                 bench-project
-                                                 (benchmark-index-options opts))
+          {:indexSummary (with-benchmark-parser-worker
+                           opts
+                           #(project/index-project! xtdb
+                                                    bench-project
+                                                    (benchmark-index-options opts)))
            :systemSummary (project/infer-project! xtdb bench-project)
            :graphExpectations (evaluate-graph-expectations xtdb prepared)})))))
 
@@ -2799,7 +2864,8 @@
                        prepared
                        (get-in packet [:artifacts :agraphContextPath]))
         scored (cond-> (assoc (score-agent-result prepared agent-result)
-                              :agentResultPath (fs/canonical-path result-path))
+                              :agentResultPath (fs/canonical-path result-path)
+                              :parserWorker (parser-worker-profile opts))
                  context-ranks
                  (assoc :contextGroundTruthRanks context-ranks)
                  (:graphExpectations agraph-summary)
