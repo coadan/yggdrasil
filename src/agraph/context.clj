@@ -687,25 +687,66 @@
                                    "doc omitted to fit context budget"
                                    budget))))))
 
+(defn- compact-candidate-file
+  [candidate]
+  (select-keys candidate
+               [:path
+                :rank
+                :score
+                :targetKind
+                :label
+                :sourceLine
+                :resultKind
+                :scoreComponents]))
+
+(defn- fitting-candidate-prefix
+  [packet candidates budget]
+  (loop [lo 0
+         hi (count candidates)
+         best 0]
+    (if (> lo hi)
+      best
+      (let [mid (quot (+ lo hi) 2)
+            trimmed (assoc packet :candidateFiles (subvec candidates 0 mid))]
+        (if (<= (estimate-tokens trimmed) budget)
+          (recur (inc mid) hi mid)
+          (recur lo (dec mid) best))))))
+
+(defn- fit-candidate-files
+  [packet budget]
+  (let [candidates (vec (:candidateFiles packet))
+        total (count candidates)]
+    (cond
+      (or (zero? total)
+          (<= (estimate-tokens packet) budget))
+      packet
+
+      :else
+      (let [compact-candidates (mapv compact-candidate-file candidates)
+            keep-count (fitting-candidate-prefix packet compact-candidates budget)]
+        (if (pos? keep-count)
+          (-> packet
+              (assoc :candidateFiles (subvec compact-candidates 0 keep-count))
+              (add-warning-with-budget
+               (str "candidate files trimmed to "
+                    keep-count
+                    " of "
+                    total
+                    " to fit context budget")
+               budget))
+          (-> packet
+              (assoc :candidateFiles [])
+              (add-warning-with-budget
+               "candidate files omitted to fit context budget"
+               budget)))))))
+
 (defn- fit-budget
   [packet docs budget]
-  (let [packet (if (and (seq (:candidateFiles packet))
-                        (> (estimate-tokens packet) budget))
-                 (-> packet
-                     (assoc :candidateFiles [])
-                     (add-warning-with-budget
-                      "candidate files omitted to fit context budget"
-                      budget))
-                 packet)
+  (let [candidate-files (vec (:candidateFiles packet))
+        packet (assoc packet :candidateFiles [])
         packet (reduce #(add-doc-with-budget %1 %2 budget) packet docs)
-        packet (if (and (seq (:candidateFiles packet))
-                        (> (estimate-tokens packet) budget))
-                 (-> packet
-                     (assoc :candidateFiles [])
-                     (add-warning-with-budget
-                      "candidate files omitted to fit context budget"
-                      budget))
-                 packet)
+        packet (fit-candidate-files (assoc packet :candidateFiles candidate-files)
+                                    budget)
         truncated? (< (count (:docs packet)) (count docs))]
     (finalize-budget packet budget truncated?)))
 

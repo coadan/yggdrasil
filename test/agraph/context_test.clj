@@ -178,3 +178,91 @@
                :scoreComponents {:lexical 0.2
                                  :graph 0.6}}]
              (:candidateFiles packet))))))
+
+(deftest candidate-files-trim-to-fit-budget
+  (let [candidate-files (mapv (fn [idx]
+                                {:path (str "src/file_" idx ".clj")
+                                 :rank (inc idx)
+                                 :score 0.9
+                                 :target-kind :chunk
+                                 :label (apply str
+                                               "open page root "
+                                               (repeat 80 (str "token" idx " ")))
+                                 :reason (apply str
+                                                "verbose provenance "
+                                                (repeat 80 (str "reason" idx " ")))
+                                 :score-components {:lexical 0.9
+                                                    :graph 0.1}})
+                              (range 25))]
+    (with-redefs [query/search-report (fn [_ _ _]
+                                        {:schema query/search-report-schema
+                                         :query-run-id "query:test"
+                                         :instrumentation {:search-docs 25
+                                                           :returned-count 25}
+                                         :results candidate-files})
+                  graph/system-graph (fn [_ project-id _]
+                                       {:basis {:project-id project-id}
+                                        :nodes []
+                                        :edges []
+                                        :clusters []})
+                  query/all-chunks (fn [& _] [])
+                  query/chunks-by-ids (fn [& _] [])
+                  query/chunks-by-paths (fn [& _] [])
+                  activity/select-activity (fn [& _] [])
+                  context/answerability (fn [& _] {:status :ready})]
+      (let [packet (context/context-packet :xtdb
+                                           "open page root"
+                                           {:project-id "fixture"
+                                            :budget 1200
+                                            :retriever :lexical})
+            files (:candidateFiles packet)]
+        (is (seq files))
+        (is (< (count files) (count candidate-files)))
+        (is (= "src/file_0.clj" (:path (first files))))
+        (is (contains? (first files) :scoreComponents))
+        (is (not (contains? (first files) :reason)))
+        (is (some #(re-find #"candidate files trimmed" %)
+                  (:warnings packet)))
+        (is (<= (context/estimate-tokens packet) 1200))))))
+
+(deftest candidate-files-do-not-crowd-out-docs
+  (let [fit-budget @#'context/fit-budget
+        packet {:schema context/schema
+                :query "open page root"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 900}
+                :entities []
+                :edges []
+                :activity []
+                :warnings []
+                :drilldowns []
+                :candidateFiles (mapv (fn [idx]
+                                         {:path (str "src/candidate_" idx ".clj")
+                                          :rank (inc idx)
+                                          :score 0.9
+                                          :targetKind "chunk"
+                                          :label (apply str
+                                                        "open page root "
+                                                        (repeat 80 (str "token" idx " ")))
+                                          :reason (apply str
+                                                         "verbose provenance "
+                                                         (repeat 80 (str "reason" idx " ")))})
+                                       (range 25))
+                :docs []}
+        docs [{:target "chunk:doc"
+               :role "reference"
+               :status "candidate"
+               :source {:path "src/doc.clj"
+                        :heading "open-page"}
+               :score 1.0
+               :snippet "open page root create board append child"
+               :provenance "retrieved-doc"}]
+        fitted (fit-budget packet docs 900)]
+    (is (= ["src/doc.clj"]
+           (mapv #(get-in % [:source :path]) (:docs fitted))))
+    (is (seq (:candidateFiles fitted)))
+    (is (< (count (:candidateFiles fitted)) 25))
+    (is (<= (context/estimate-tokens fitted) 900))))
