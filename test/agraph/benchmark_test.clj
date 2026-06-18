@@ -931,6 +931,7 @@
                   :parserWorkers [{:mode "all"
                                    :source "option"
                                    :runs 2}]
+                  :agentDiagnostics {:warningRuns 0}
                   :scores {:fileRecallAt5 0.5
                            :fileRecallAt10 0.75
                            :fileRecallAt20 1.0
@@ -956,6 +957,7 @@
                    :parserWorkers [{:mode "all"
                                     :source "option"
                                     :runs 2}]
+                   :agentDiagnostics {:warningRuns 1}
                    :scores {:fileRecallAt5 0.5
                             :fileRecallAt10 0.7
                             :fileRecallAt20 1.0
@@ -976,6 +978,8 @@
         failed (benchmark/compare-agent-reports baseline candidate {})
         passed (benchmark/compare-agent-reports baseline
                                                 (assoc candidate
+                                                       :agentDiagnostics
+                                                       (:agentDiagnostics baseline)
                                                        :scores (assoc (:scores baseline)
                                                                       :meanReciprocalRankFile
                                                                       0.6)
@@ -1011,6 +1015,7 @@
     (is (= "failed" (:status failed)))
     (is (= #{"fileRecallAt10"
              "noiseRatioAt20"
+             "warningRuns"
              "case.fileRecallAt10"}
            (set (map :metric (:regressions failed)))))
     (is (= "regressed"

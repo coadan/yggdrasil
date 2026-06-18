@@ -412,7 +412,9 @@ given.
   in the base tree.
 - `agentDiagnostics.warningRuns`: scored agent artifacts that carried scorer or
   agent warnings. Gate this with `--max-warning-runs` when benchmark result
-  shape quality should be part of the ratchet.
+  shape quality should be part of the ratchet. `agent-compare` also treats
+  higher aggregate `warningRuns` as a lower-is-better regression when the report
+  case set and parser-worker profiles are comparable.
 
 Each result also records `groundTruthRanks.files`, which lists every scoreable
 localization file and the rank where AGraph found it, or `found? false` when it

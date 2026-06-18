@@ -4458,10 +4458,16 @@
     :label "evidenceCitationRate"
     :direction :higher}])
 
-(defn- score-delta
-  [baseline candidate {:keys [key label direction]} tolerance]
-  (let [before (double (get baseline key 0.0))
-        after (double (get candidate key 0.0))
+(def ^:private comparison-report-specs
+  [{:path [:agentDiagnostics :warningRuns]
+    :label "warningRuns"
+    :direction :lower}])
+
+(defn- comparison-delta
+  [baseline candidate {:keys [path key label direction]} tolerance]
+  (let [value-path (or path [key])
+        before (double (get-in baseline value-path 0.0))
+        after (double (get-in candidate value-path 0.0))
         delta (- after before)
         regression? (case direction
                       :higher (< delta (- tolerance))
@@ -4475,8 +4481,13 @@
 
 (defn- score-deltas
   [baseline candidate tolerance]
-  (mapv #(score-delta baseline candidate % tolerance)
+  (mapv #(comparison-delta baseline candidate % tolerance)
         comparison-score-specs))
+
+(defn- report-deltas
+  [baseline-report candidate-report tolerance]
+  (mapv #(comparison-delta baseline-report candidate-report % tolerance)
+        comparison-report-specs))
 
 (defn- report-result-by-case
   [report]
@@ -4585,9 +4596,13 @@
                                       baseline-by-case
                                       candidate-by-case)
         aggregate-comparable? (empty? aggregate-comparable-reasons)
-        raw-aggregate-deltas (score-deltas (:scores baseline-report)
-                                           (:scores candidate-report)
-                                           tolerance)
+        raw-aggregate-deltas (vec (concat
+                                   (score-deltas (:scores baseline-report)
+                                                 (:scores candidate-report)
+                                                 tolerance)
+                                   (report-deltas baseline-report
+                                                  candidate-report
+                                                  tolerance)))
         aggregate-deltas (if aggregate-comparable?
                            raw-aggregate-deltas
                            (mark-aggregate-deltas-not-comparable
@@ -4614,11 +4629,13 @@
                 :completed (:completed baseline-report)
                 :runs (:runs baseline-report)
                 :parserWorkers (report-parser-worker-profiles baseline-report)
+                :agentDiagnostics (:agentDiagnostics baseline-report)
                 :scores (:scores baseline-report)}
      :candidate {:cases (:cases candidate-report)
                  :completed (:completed candidate-report)
                  :runs (:runs candidate-report)
                  :parserWorkers (report-parser-worker-profiles candidate-report)
+                 :agentDiagnostics (:agentDiagnostics candidate-report)
                  :scores (:scores candidate-report)}
      :aggregateDeltas aggregate-deltas
      :caseDeltas cases
