@@ -10656,6 +10656,43 @@
         (recur (rest remaining) in-metadata?))
       nil)))
 
+(defn- yaml-doc-metadata-value
+  [doc key-name]
+  (loop [remaining doc
+         in-metadata? false]
+    (if-let [[idx line] (first remaining)]
+      (if-let [{:keys [indent key value source-line]} (yaml-key-line idx line)]
+        (cond
+          (and (= "metadata" key) (= 0 indent))
+          (recur (rest remaining) true)
+
+          (and in-metadata? (<= indent 0))
+          nil
+
+          (and in-metadata? (= key-name key) (seq value))
+          {:value (strip-yaml-scalar value)
+           :source-line source-line}
+
+          :else
+          (recur (rest remaining) in-metadata?))
+        (recur (rest remaining) in-metadata?))
+      nil)))
+
+(defn- k8s-image-facts
+  [doc resource-label]
+  (->> doc
+       (keep (fn [[idx line]]
+               (when-let [[_ image]
+                          (re-matches #"^\s*image:\s*['\"]?(.+?)['\"]?\s*$"
+                                      line)]
+                 {:kind :container-image
+                  :label (strip-yaml-scalar image)
+                  :source-line (inc idx)
+                  :relation :uses
+                  :resource-label resource-label})))
+       distinct
+       vec))
+
 (defn- k8s-resource-facts
   [content]
   (->> (yaml-documents content)
@@ -10665,14 +10702,27 @@
                 api-version (yaml-doc-value doc "apiVersion")
                 kind (yaml-doc-value doc "kind")
                 name (yaml-doc-metadata-name doc)
+                namespace (yaml-doc-metadata-value doc "namespace")
                 resource-label (when (and (:value kind) (:value name))
                                  (str (:value kind) "/" (:value name)))
                 base (when resource-label
-                       [{:kind :k8s-resource
-                         :label resource-label
-                         :source-line (or (:source-line kind) (:source-line name) 1)
-                         :resource-kind (:value kind)
-                         :resource-name (:value name)}])
+                       (concat
+                        [{:kind :k8s-resource
+                          :label resource-label
+                          :source-line (or (:source-line kind) (:source-line name) 1)
+                          :resource-kind (:value kind)
+                          :resource-name (:value name)}]
+                        (when (:value api-version)
+                          [{:kind :k8s-api-version
+                            :label (str resource-label ":" (:value api-version))
+                            :source-line (:source-line api-version)
+                            :relation :defines}])
+                        (when (:value namespace)
+                          [{:kind :k8s-namespace
+                            :label (str resource-label ":" (:value namespace))
+                            :source-line (:source-line namespace)
+                            :relation :defines}])
+                        (k8s-image-facts doc resource-label)))
                 crd (when (= "CustomResourceDefinition" (:value kind))
                       (concat
                        (when-let [[_ group] (re-find #"(?m)^\s*group:\s*(.+?)\s*$" doc-text)]
@@ -10768,13 +10818,13 @@
         resource-nodes (mapv (fn [{:keys [kind label source-line]}]
                                (generic-node run-id id-scope file-id path kind label source-line))
                              resource-facts)
-        resource-edges (mapv (fn [{:keys [kind label source-line]}]
+        resource-edges (mapv (fn [{:keys [kind label source-line relation]}]
                                (edge-row run-id
                                          file-id
                                          path
                                          (:xt/id yaml-node)
                                          (node-id id-scope kind label)
-                                         :defines
+                                         (or relation :defines)
                                          :extracted
                                          source-line))
                              resource-facts)
@@ -10799,10 +10849,38 @@
                               {:kind :helm-chart-version
                                :label version
                                :source-line 1
+                               :relation :defines})
+                            (when-let [app-version (yaml-top-level-value content "appVersion")]
+                              {:kind :helm-app-version
+                               :label app-version
+                               :source-line 1
                                :relation :defines})]
                            (remove nil?)))
+        dependency-facts (when (= "chart.yaml" filename)
+                           (->> (yaml-section-items content #{"dependencies"})
+                                (filter #(= "dependencies" (:section %)))
+                                (map (fn [{:keys [value source-line]}]
+                                       {:kind :helm-dependency
+                                        :label value
+                                        :source-line source-line
+                                        :relation :references}))
+                                distinct
+                                vec))
+        value-facts (when (str/starts-with? filename "values.")
+                      (->> (str/split-lines content)
+                           (map-indexed vector)
+                           (keep (fn [[idx line]]
+                                   (when-let [[_ key value]
+                                              (re-matches #"^\s*(repository|tag|pullPolicy|name):\s*(.+?)\s*$"
+                                                          line)]
+                                     {:kind :helm-value
+                                      :label (str key "=" (strip-yaml-scalar value))
+                                      :source-line (inc idx)
+                                      :relation :defines})))
+                           distinct
+                           vec))
         resource-facts (k8s-resource-facts content)
-        facts (vec (concat chart-facts resource-facts))
+        facts (vec (concat chart-facts dependency-facts value-facts resource-facts))
         fact-nodes (mapv (fn [{:keys [kind label source-line]}]
                            (generic-node run-id id-scope file-id path kind label source-line))
                          facts)

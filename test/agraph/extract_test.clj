@@ -2591,6 +2591,10 @@
                      "run/test"
                      (fs/file-record "test/fixtures/extractor-repo"
                                      "test/fixtures/extractor-repo/infra/chart/Chart.yaml"))
+        helm-values-result (extract/extract-file
+                            "run/test"
+                            (fs/file-record "test/fixtures/extractor-repo"
+                                            "test/fixtures/extractor-repo/infra/chart/values.yaml"))
         yaml-result (extract/extract-file
                      "run/test"
                      (fs/file-record "test/fixtures/extractor-repo"
@@ -2615,15 +2619,34 @@
     (is (= 3 (:uses (relations compose-result))))
     (is (contains? (labels helm-result) "panels"))
     (is (contains? (labels helm-result) "0.1.0"))
+    (is (contains? (labels helm-result) "1.2.3"))
+    (is (contains? (labels helm-result) "redis"))
     (is (= 1 (:helm-chart (kinds helm-result))))
     (is (= 1 (:helm-chart-version (kinds helm-result))))
-    (is (= 2 (:defines (relations helm-result))))
+    (is (= 1 (:helm-app-version (kinds helm-result))))
+    (is (= 1 (:helm-dependency (kinds helm-result))))
+    (is (= 3 (:defines (relations helm-result))))
+    (is (= 1 (:references (relations helm-result))))
+    (is (contains? (labels helm-values-result) "repository=ghcr.io/acme/panels-web"))
+    (is (contains? (labels helm-values-result) "tag=1.2.3"))
+    (is (contains? (labels helm-values-result) "pullPolicy=IfNotPresent"))
+    (is (= 3 (:helm-value (kinds helm-values-result))))
     (is (contains? (labels yaml-result) "Deployment/panels-web"))
     (is (contains? (labels yaml-result) "Service/panels-web"))
+    (is (contains? (labels yaml-result) "Deployment/panels-web:apps/v1"))
+    (is (contains? (labels yaml-result) "Service/panels-web:v1"))
+    (is (contains? (labels yaml-result) "Deployment/panels-web:panels"))
+    (is (contains? (labels yaml-result) "Service/panels-web:panels"))
+    (is (contains? (labels yaml-result) "ghcr.io/acme/panels-web:1.2.3"))
     (is (= 2 (:k8s-resource (kinds yaml-result))))
-    (is (= 2 (:defines (relations yaml-result))))
+    (is (= 2 (:k8s-api-version (kinds yaml-result))))
+    (is (= 2 (:k8s-namespace (kinds yaml-result))))
+    (is (= 1 (:container-image (kinds yaml-result))))
+    (is (= 6 (:defines (relations yaml-result))))
+    (is (= 1 (:uses (relations yaml-result))))
     (is (= [:compose-file] (mapv :kind (:chunks compose-result))))
     (is (= [:helm-file] (mapv :kind (:chunks helm-result))))
+    (is (= [:helm-file] (mapv :kind (:chunks helm-values-result))))
     (is (= [:yaml-file] (mapv :kind (:chunks yaml-result))))))
 
 (deftest extracts-cloud-iac-and-framework-route-facts
@@ -2664,6 +2687,8 @@
     (is (contains? (labels argocd) "https://kubernetes.default.svc"))
     (is (= 1 (:argocd-application (kinds argocd))))
     (is (contains? (labels helm-template) "Deployment/{{ include \"panels.fullname\" . }}"))
+    (is (contains? (labels helm-template) "Deployment/{{ include \"panels.fullname\" . }}:apps/v1"))
+    (is (contains? (labels helm-template) "{{ .Values.image.repository }}:{{ .Values.image.tag }}"))
     (is (contains? (labels symfony-routes) "/panels/{id}"))
     (is (contains? (labels symfony-routes) "App\\Controller\\PanelController::show"))
     (is (contains? (labels php-routes) "GET /panels"))
