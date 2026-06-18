@@ -417,6 +417,18 @@
 
         :else nil))))
 
+(defn- sphinx-content-kind
+  [path-kind file]
+  (when (and (= :python path-kind)
+             (= "conf.py" (str/lower-case (.getName (io/file file)))))
+    (let [content (text-file-prefix file)]
+      (when (and (re-find #"(?m)^\s*(?:project|extensions|html_theme|master_doc|root_doc)\s*="
+                          content)
+                 (or (str/includes? content "sphinx")
+                     (re-find #"(?m)^\s*extensions\s*=" content)
+                     (re-find #"(?m)^\s*html_theme\s*=" content)))
+        :docs-config))))
+
 (defn- dbt-content-kind
   [path-kind file]
   (when (contains? #{:yaml :config} path-kind)
@@ -451,6 +463,7 @@
   [file]
   (let [path-kind (file-kind file)]
     (or (dbt-content-kind path-kind file)
+        (sphinx-content-kind path-kind file)
         (helm-template-content-kind path-kind file)
         (ops-config-content-kind path-kind file)
         path-kind

@@ -174,6 +174,10 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/docs/.vitepress/config.ts")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/docs/sphinx/conf.py")
+               (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/docs/sphinx/index.rst")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/bobr/pages/index.astro")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/bobr/plugin/bobr-wordpress-connector.php")
@@ -534,6 +538,54 @@
     (is (= 1 (get relations :uses 0)))
     (is (= [:docs-config-file] (mapv :kind (:chunks result))))
     (is (empty? (:diagnostics result)))))
+
+(deftest extracts-sphinx-docs-config-and-toctree
+  (let [config-file (fs/file-record
+                     "test/fixtures/extractor-repo"
+                     "test/fixtures/extractor-repo/docs/sphinx/conf.py")
+        config-result (extract/extract-file "run/test" config-file)
+        rst-file (fs/file-record
+                  "test/fixtures/extractor-repo"
+                  "test/fixtures/extractor-repo/docs/sphinx/index.rst")
+        rst-result (extract/extract-file "run/test" rst-file)
+        config-labels (set (map :label (:nodes config-result)))
+        rst-labels (set (map :label (:nodes rst-result)))
+        config-kinds (frequencies (map :kind (:nodes config-result)))
+        rst-kinds (frequencies (map :kind (:nodes rst-result)))
+        config-relations (frequencies (map :relation (:edges config-result)))
+        rst-relations (frequencies (map :relation (:edges rst-result)))]
+    (is (= :docs-config (:kind config-file)))
+    (is (= :doc (:kind rst-file)))
+    (is (contains? config-labels "Panels Manual"))
+    (is (contains? config-labels "sphinx.ext.autodoc"))
+    (is (contains? config-labels "myst_parser"))
+    (is (contains? config-labels "furo"))
+    (is (contains? config-labels "index"))
+    (is (contains? config-labels "_templates"))
+    (is (contains? config-labels "_static"))
+    (is (= 1 (get config-kinds :docs-title 0)))
+    (is (= 2 (get config-kinds :docs-extension 0)))
+    (is (= 1 (get config-kinds :docs-theme 0)))
+    (is (= 1 (get config-kinds :docs-route 0)))
+    (is (= 2 (get config-kinds :docs-config-reference 0)))
+    (is (= 1 (get config-relations :defines 0)))
+    (is (= 3 (get config-relations :uses 0)))
+    (is (= 3 (get config-relations :references 0)))
+    (is (= [:docs-config-file] (mapv :kind (:chunks config-result))))
+    (is (contains? rst-labels "toctree@4"))
+    (is (contains? rst-labels ":maxdepth: 2"))
+    (is (contains? rst-labels ":caption: Contents"))
+    (is (contains? rst-labels "guide/intro"))
+    (is (contains? rst-labels "reference/api"))
+    (is (= 1 (get rst-kinds :docs-toctree 0)))
+    (is (= 2 (get rst-kinds :docs-toctree-option 0)))
+    (is (= 2 (get rst-kinds :docs-route 0)))
+    (is (= 1 (get rst-relations :defines 0)))
+    (is (= 2 (get rst-relations :uses 0)))
+    (is (= 2 (get rst-relations :references 0)))
+    (is (= [:markdown] (mapv :kind (:chunks rst-result))))
+    (is (empty? (:diagnostics config-result)))
+    (is (empty? (:diagnostics rst-result)))))
 
 (deftest extracts-rust-modules-definitions-uses-and-calls
   (let [file (fs/file-record "test/fixtures/sample-repo"

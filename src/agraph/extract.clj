@@ -659,10 +659,74 @@
        distinct
        vec))
 
+(defn- rst-toctree-facts
+  [lines]
+  (let [close-tree (fn [out current]
+                     (if current
+                       (let [source-line (:source-line current)
+                             entries (->> (:entries current)
+                                          distinct
+                                          (mapv (fn [entry]
+                                                  {:kind :docs-route
+                                                   :label entry
+                                                   :source-line source-line
+                                                   :relation :references})))
+                             options (->> (:options current)
+                                          distinct
+                                          (mapv (fn [option]
+                                                  {:kind :docs-toctree-option
+                                                   :label option
+                                                   :source-line source-line
+                                                   :relation :uses})))]
+                         (into out
+                               (concat [{:kind :docs-toctree
+                                         :label (str "toctree@" source-line)
+                                         :source-line source-line
+                                         :relation :defines}]
+                                       entries
+                                       options)))
+                       out))]
+    (loop [remaining (map-indexed vector lines)
+           current nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (cond
+          (re-matches #"^\s*\.\.\s+toctree::\s*$" line)
+          (recur (rest remaining)
+                 {:source-line (inc idx)
+                  :entries []
+                  :options []}
+                 (close-tree out current))
+
+          current
+          (let [trimmed (str/trim line)]
+            (cond
+              (str/blank? line)
+              (recur (rest remaining) current out)
+
+              (not (re-matches #"^\s+.+$" line))
+              (recur remaining nil (close-tree out current))
+
+              (str/starts-with? trimmed ":")
+              (recur (rest remaining)
+                     (update current :options conj trimmed)
+                     out)
+
+              :else
+              (recur (rest remaining)
+                     (update current :entries conj trimmed)
+                     out)))
+
+          :else
+          (recur (rest remaining) nil out))
+        (vec (distinct (close-tree out current)))))))
+
 (defn- doc-structure-facts
   [path lines]
   (vec (concat (markdown-heading-facts lines)
                (markdown-link-facts lines)
+               (when (= ".rst" (fs/extension path))
+                 (rst-toctree-facts lines))
                (when (= ".mdx" (fs/extension path))
                  (mdx-import-facts path lines)))))
 
@@ -9732,6 +9796,66 @@
             :relation :uses})
          (docs-config-property-values content "provider")))))
 
+(defn- python-config-property-values
+  [content property-name]
+  (->> (re-seq (re-pattern (str "(?m)^\\s*"
+                                (java.util.regex.Pattern/quote property-name)
+                                "\\s*=\\s*['\"]([^'\"]+)['\"]"))
+               content)
+       (map second)
+       (remove str/blank?)
+       distinct
+       vec))
+
+(defn- python-config-array-values
+  [content property-name]
+  (if-let [[_ body] (re-find (re-pattern (str "(?ms)^\\s*"
+                                              (java.util.regex.Pattern/quote property-name)
+                                              "\\s*=\\s*\\[(.*?)\\]"))
+                             content)]
+    (->> (storybook-quoted-values body)
+         (remove str/blank?)
+         distinct
+         vec)
+    []))
+
+(defn- sphinx-config-facts
+  [content]
+  (vec
+   (concat
+    (map (fn [value]
+           {:kind :docs-title
+            :label value
+            :source-line 1
+            :relation :defines})
+         (python-config-property-values content "project"))
+    (map (fn [value]
+           {:kind :docs-extension
+            :label value
+            :source-line 1
+            :relation :uses})
+         (python-config-array-values content "extensions"))
+    (map (fn [value]
+           {:kind :docs-theme
+            :label value
+            :source-line 1
+            :relation :uses})
+         (python-config-property-values content "html_theme"))
+    (map (fn [value]
+           {:kind :docs-route
+            :label value
+            :source-line 1
+            :relation :references})
+         (distinct (concat (python-config-property-values content "root_doc")
+                           (python-config-property-values content "master_doc"))))
+    (map (fn [value]
+           {:kind :docs-config-reference
+            :label value
+            :source-line 1
+            :relation :references})
+         (distinct (concat (python-config-array-values content "templates_path")
+                           (python-config-array-values content "html_static_path")))))))
+
 (defn- docs-sidebar-facts
   [content]
   (vec
@@ -9820,6 +9944,9 @@
   [{:keys [path content]}]
   (let [filename (manifest-name path)]
     (case filename
+      "conf.py"
+      (sphinx-config-facts content)
+
       ("config.js" "config.mjs" "config.mts" "config.ts"
                    "index.js" "index.mjs" "index.mts" "index.ts")
       (cond
