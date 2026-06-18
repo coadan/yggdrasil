@@ -1,0 +1,14 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: panel-pipeline
+spec:
+  tasks:
+    - name: extract
+      taskRef:
+        name: extract-task
+    - name: transform
+      runAfter:
+        - extract
+      taskRef:
+        name: transform-task

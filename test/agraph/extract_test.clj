@@ -3480,6 +3480,86 @@
     (is (some #(= :web-framework-file (:kind %)) (:chunks next-panel)))
     (is (some #(= :astro-file (:kind %)) (:chunks astro-panel)))))
 
+(deftest extracts-workflow-orchestration-facts
+  (let [result-for (fn [path]
+                     (extract/extract-file
+                      "run/test"
+                      (fs/file-record "test/fixtures/extractor-repo"
+                                      (str "test/fixtures/extractor-repo/" path))))
+        kind-for (fn [path]
+                   (:kind (fs/file-record "test/fixtures/extractor-repo"
+                                          (str "test/fixtures/extractor-repo/" path))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        kinds (fn [result] (frequencies (map :kind (:nodes result))))
+        relations (fn [result] (frequencies (map :relation (:edges result))))
+        edge-pairs (fn [result relation]
+                     (set (map (fn [{:keys [source-id target-id]}]
+                                 [source-id target-id])
+                               (filter #(= relation (:relation %))
+                                       (:edges result)))))
+        airflow (result-for "workflows/airflow/panel_dag.py")
+        dagster-source (result-for "workflows/dagster/assets.py")
+        dagster-config (result-for "workflows/dagster/dagster.yaml")
+        prefect-source (result-for "workflows/prefect/flows.py")
+        prefect-config (result-for "workflows/prefect/prefect.yaml")
+        temporal (result-for "workflows/temporal/workflow.ts")
+        argo (result-for "workflows/argo/workflow.yaml")
+        tekton (result-for "workflows/tekton/pipeline.yaml")]
+    (doseq [path ["workflows/airflow/panel_dag.py"
+                  "workflows/dagster/assets.py"
+                  "workflows/dagster/dagster.yaml"
+                  "workflows/prefect/flows.py"
+                  "workflows/prefect/prefect.yaml"
+                  "workflows/temporal/workflow.ts"
+                  "workflows/argo/workflow.yaml"
+                  "workflows/tekton/pipeline.yaml"]]
+      (is (= :workflow-orchestration (kind-for path))))
+    (is (contains? (labels airflow) "airflow"))
+    (is (contains? (labels airflow) "panel_refresh"))
+    (is (contains? (labels airflow) "extract"))
+    (is (contains? (labels airflow) "transform"))
+    (is (contains? (labels airflow) "schedule_interval:0 2 * * *"))
+    (is (contains? (edge-pairs airflow :precedes)
+                   ["node:workflow-task:extract"
+                    "node:workflow-task:transform"]))
+    (is (contains? (labels dagster-source) "dagster"))
+    (is (contains? (labels dagster-source) "panel_asset"))
+    (is (contains? (labels dagster-source) "load_panel"))
+    (is (contains? (labels dagster-source) "panel_job"))
+    (is (contains? (labels dagster-source) "panel_schedule"))
+    (is (contains? (labels dagster-config) "panels.assets"))
+    (is (contains? (labels prefect-source) "prefect"))
+    (is (contains? (labels prefect-source) "refresh_panels"))
+    (is (contains? (labels prefect-source) "extract"))
+    (is (contains? (labels prefect-config) "panels-prefect"))
+    (is (contains? (labels prefect-config) "refresh"))
+    (is (contains? (labels prefect-config) "refresh:flows.py:refresh_panels"))
+    (is (contains? (labels prefect-config) "refresh:0 3 * * *"))
+    (is (contains? (labels temporal) "temporal"))
+    (is (contains? (labels temporal) "@temporalio/workflow"))
+    (is (contains? (labels temporal) "panelWorkflow"))
+    (is (contains? (labels argo) "argo-workflows"))
+    (is (contains? (labels argo) "Workflow/panel-refresh"))
+    (is (contains? (labels argo) "alpine:3.20"))
+    (is (contains? (edge-pairs argo :requires)
+                   ["node:workflow-task:transform"
+                    "node:workflow-task:extract"]))
+    (is (contains? (labels tekton) "tekton"))
+    (is (contains? (labels tekton) "Pipeline/panel-pipeline"))
+    (is (contains? (labels tekton) "extract:extract-task"))
+    (is (contains? (labels tekton) "transform:transform-task"))
+    (is (contains? (edge-pairs tekton :requires)
+                   ["node:workflow-task:transform"
+                    "node:workflow-task:extract"]))
+    (is (= 2 (:workflow-task (kinds airflow))))
+    (is (= 1 (:workflow-asset (kinds dagster-source))))
+    (is (= 1 (:workflow-deployment (kinds prefect-config))))
+    (is (= 1 (:workflow-activity (kinds temporal))))
+    (is (pos? (get (relations airflow) :imports 0)))
+    (is (some #(= :python-file (:kind %)) (:chunks airflow)))
+    (is (some #(= :workflow-file (:kind %)) (:chunks airflow)))
+    (is (= [:workflow-file] (mapv :kind (:chunks argo))))))
+
 (deftest extracts-package-and-workspace-manifest-facts
   (let [package-result (extract/extract-file
                         "run/test"

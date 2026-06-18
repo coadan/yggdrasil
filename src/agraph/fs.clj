@@ -65,6 +65,7 @@
     "nuxt.config.js" "nuxt.config.cjs" "nuxt.config.mjs" "nuxt.config.ts"
     "astro.config.js" "astro.config.cjs" "astro.config.mjs" "astro.config.ts"
     "angular.json"
+    "dagster.yaml" "dagster.yml" "prefect.yaml" "prefect.yml"
     "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx"
     "content.config.js" "content.config.mjs" "content.config.ts"
     "docusaurus.config.js" "docusaurus.config.cjs" "docusaurus.config.mjs"
@@ -221,6 +222,8 @@
                    "astro.config.js" "astro.config.cjs" "astro.config.mjs" "astro.config.ts"
                    "angular.json"}
                  filename) :web-framework
+      (contains? #{"dagster.yaml" "dagster.yml" "prefect.yaml" "prefect.yml"}
+                 filename) :workflow-orchestration
       (contains? #{"dbt_project.yml" "dbt_project.yaml"} filename) :dbt
       (or (= "nginx.conf" filename)
           (contains? #{"serverless.yml" "serverless.yaml" "cdk.json"} filename)
@@ -524,6 +527,30 @@
 
         :else nil))))
 
+(defn- workflow-orchestration-content-kind
+  [path-kind file]
+  (let [content (text-file-prefix file)]
+    (cond
+      (and (contains? #{:yaml :config} path-kind)
+           (or (and (re-find #"(?m)^apiVersion:\s*['\"]?argoproj\.io/" content)
+                    (re-find #"(?m)^kind:\s*['\"]?(?:Workflow|CronWorkflow|WorkflowTemplate)['\"]?\s*$" content))
+               (and (re-find #"(?m)^apiVersion:\s*['\"]?tekton\.dev/" content)
+                    (re-find #"(?m)^kind:\s*['\"]?(?:Pipeline|Task|PipelineRun)['\"]?\s*$" content))))
+      :workflow-orchestration
+
+      (and (= :python path-kind)
+           (or (re-find #"(?m)^\s*(?:from|import)\s+airflow(?:[.\s]|$)" content)
+               (re-find #"(?m)^\s*(?:from|import)\s+dagster(?:[.\s]|$)" content)
+               (re-find #"(?m)^\s*(?:from|import)\s+prefect(?:[.\s]|$)" content)
+               (re-find #"(?m)^\s*(?:from|import)\s+temporalio(?:[.\s]|$)" content)))
+      :workflow-orchestration
+
+      (and (contains? #{:javascript :typescript} path-kind)
+           (re-find #"(?m)['\"]@temporalio/[^'\"]+['\"]" content))
+      :workflow-orchestration
+
+      :else nil)))
+
 (defn- sbom-content-kind
   [path-kind file]
   (when (= :config path-kind)
@@ -548,6 +575,7 @@
         (nextra-content-kind path-kind file)
         (when (web-framework-route-path? path-kind file)
           :web-framework)
+        (workflow-orchestration-content-kind path-kind file)
         (sphinx-content-kind path-kind file)
         (sbom-content-kind path-kind file)
         (helm-template-content-kind path-kind file)

@@ -1,0 +1,6 @@
+name: panels-prefect
+deployments:
+  refresh:
+    entrypoint: flows.py:refresh_panels
+    cron: "0 3 * * *"
+    work_pool: local

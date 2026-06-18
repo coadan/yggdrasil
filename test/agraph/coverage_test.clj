@@ -193,6 +193,14 @@
     (spit-file! root "web-frameworks/astro/src/pages/blog/[slug].astro" "---\n---\n<h1>Post</h1>\n")
     (spit-file! root "web-frameworks/angular/angular.json" "{\"projects\":{\"panels-web\":{\"root\":\"projects/panels-web\",\"architect\":{\"build\":{\"builder\":\"@angular-devkit/build-angular:browser\"}}}}}\n")
     (spit-file! root "web-frameworks/vite/vite.config.ts" "import react from '@vitejs/plugin-react';\nexport default { base: '/vite-panels', plugins: [react()] };\n")
+    (spit-file! root "workflows/airflow/panel_dag.py" "from airflow import DAG\nwith DAG(\"panel_refresh\", schedule_interval=\"0 2 * * *\") as dag:\n    extract >> transform\n")
+    (spit-file! root "workflows/dagster/assets.py" "from dagster import asset\n@asset\ndef panel_asset():\n    return []\n")
+    (spit-file! root "workflows/dagster/dagster.yaml" "module_name: panels.assets\n")
+    (spit-file! root "workflows/prefect/flows.py" "from prefect import flow\n@flow\ndef refresh_panels():\n    return None\n")
+    (spit-file! root "workflows/prefect/prefect.yaml" "name: panels-prefect\ndeployments:\n  refresh:\n    entrypoint: flows.py:refresh_panels\n")
+    (spit-file! root "workflows/temporal/workflow.ts" "import { proxyActivities } from '@temporalio/workflow';\nexport async function panelWorkflow() {}\n")
+    (spit-file! root "workflows/argo/workflow.yaml" "apiVersion: argoproj.io/v1alpha1\nkind: Workflow\nmetadata:\n  name: panel-refresh\n")
+    (spit-file! root "workflows/tekton/pipeline.yaml" "apiVersion: tekton.dev/v1\nkind: Pipeline\nmetadata:\n  name: panel-pipeline\n")
     (spit-file! root "infra/docker-compose.yml" "services:\n  web:\n    image: ghcr.io/acme/web:latest\n    build: ./web\n    ports:\n      - \"8080:8080\"\n    environment:\n      PANEL_ENV: dev\n")
     (spit-file! root "runtime/Dockerfile" "FROM alpine:3.20 AS runtime\nCMD [\"demo\"]\n")
     (spit-file! root "runtime/Containerfile" "FROM busybox:1.36\nENTRYPOINT [\"demo\"]\n")
@@ -238,8 +246,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 207
-              :supported 206
+      (is (= {:files 215
+              :supported 214
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -275,6 +283,7 @@
       (is (= 5 (:count (row-by :kind "editor-config" (:files-by-kind report)))))
       (is (= 7 (:count (row-by :kind "release-config" (:files-by-kind report)))))
       (is (= 15 (:count (row-by :kind "web-framework" (:files-by-kind report)))))
+      (is (= 8 (:count (row-by :kind "workflow-orchestration" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "storybook" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "docker" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "procfile" (:files-by-kind report)))))
@@ -405,6 +414,10 @@
       (is (some #(and (= "web-framework" (:kind %))
                       (= "web-framework/v1" (:extractor-version %))
                       (= 15 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "workflow-orchestration" (:kind %))
+                      (= "workflow-orchestration/v1" (:extractor-version %))
+                      (= 8 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "storybook" (:kind %))
                       (= "storybook/v1" (:extractor-version %))

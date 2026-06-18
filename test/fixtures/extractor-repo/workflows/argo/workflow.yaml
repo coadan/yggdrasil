@@ -1,0 +1,14 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  name: panel-refresh
+spec:
+  entrypoint: panel-refresh
+  templates:
+    - name: extract
+      container:
+        image: alpine:3.20
+    - name: transform
+      dependencies: [extract]
+      container:
+        image: alpine:3.20
