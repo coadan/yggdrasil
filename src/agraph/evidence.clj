@@ -70,9 +70,29 @@
     (pos? (reduce + (vals map-overlay))) (conj :map-overlay)
     (pos? files) vec))
 
+(defn- positive-count?
+  [value]
+  (pos? (long (or value 0))))
+
+(defn- package-next-commands
+  [project-id {:keys [packages package-evidence-gaps unresolved-imports package-conflicts]}]
+  (let [base (str "agraph packages --project " project-id)]
+    (cond-> []
+      (zero? (long (or packages 0)))
+      (conj (str base " --json"))
+
+      (positive-count? package-evidence-gaps)
+      (conj (str base " --without-import-evidence --json"))
+
+      (positive-count? package-conflicts)
+      (conj (str base " --with-conflicts --json"))
+
+      (positive-count? unresolved-imports)
+      (conj (str base " --json")))))
+
 (defn- next-commands
   [{:keys [project config-path map-path counts]}]
-  (let [{:keys [files search-docs system-nodes system-edges packages activity-items
+  (let [{:keys [files search-docs system-nodes system-edges activity-items
                 activity-events diagnostics]} counts
         project-id (:id project)]
     (->> (cond-> []
@@ -86,8 +106,8 @@
            (zero? (+ system-nodes system-edges))
            (conj (str "agraph view systems --project " project-id))
 
-           (zero? packages)
-           (conj (str "agraph packages --project " project-id " --json"))
+           true
+           (into (package-next-commands project-id counts))
 
            (zero? (+ activity-items activity-events))
            (conj (str "agraph sync activity " (or config-path "<project.edn>") " --json"))

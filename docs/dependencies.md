@@ -66,6 +66,11 @@ source-import-to-package evidence, and unresolved source imports into:
 Evidence gaps are not unused dependency findings. They are bounded facts for a
 human or agent to inspect.
 
+The project evidence surface (`agraph.evidence/v1` in reports and
+`sync inspect --json`) includes the same dependency counts and adds `next`
+commands for the package report variants when declared-package evidence gaps,
+version conflicts, or unresolved imports are present.
+
 Use `agraph view deps <package-label>` for a package evidence graph. For package
 nodes, `deps` includes the declaring manifests, resolved lockfile versions,
 lockfiles that resolved those versions, and source namespaces with import

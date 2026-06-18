@@ -55,4 +55,6 @@
               :version-conflicts 0
               :declared-without-import-evidence 1
               :unresolved-imports 0}
-             (get-in summary [:packages :counts]))))))
+             (get-in summary [:packages :counts])))
+      (is (some #{"agraph packages --project fixture --without-import-evidence --json"}
+                (:next summary))))))
