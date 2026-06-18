@@ -26,6 +26,9 @@
 (def ^:private allowed-ops
   (set allowed-actions))
 
+(def ^:private allowed-recommendations
+  #{"accept" "reject" "change" "investigate"})
+
 (defn prompt
   "Return OpenAI-compatible chat messages for one maintenance decision."
   [decision]
@@ -226,13 +229,18 @@
                          (not (bounded-confidence? (:confidence patch))))
                 {:path [:mapPatch idx :confidence]
                  :error "Confidence must be between 0 and 1."
-                 :value (:confidence patch)})]))))
+                 :value (:confidence patch)})
+              (when (and (not= "none" op)
+                         (not (present? (:reason patch))))
+                {:path [:mapPatch idx :reason]
+                 :error "Patch reason is required."})]))))
 
 (defn validate-result
   "Return validation errors for applying item result, or an empty vector."
   [item]
   (let [packet (payload item)
-        result (result item)]
+        result (result item)
+        recommendation (s (:recommendation result))]
     (vec
      (concat
       (remove nil?
@@ -252,6 +260,13 @@
                  {:path [:result :decisionId]
                   :error "Result decisionId does not match the packet."
                   :value (:decisionId result)})
+               (when-not (contains? allowed-recommendations recommendation)
+                 {:path [:result :recommendation]
+                  :error "Result recommendation is required and must be supported."
+                  :value recommendation})
+               (when-not (present? (:reason result))
+                 {:path [:result :reason]
+                  :error "Result reason is required."})
                (when (and (contains? result :confidence)
                           (not (bounded-confidence? (:confidence result))))
                  {:path [:result :confidence]

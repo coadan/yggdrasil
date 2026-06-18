@@ -1259,6 +1259,40 @@
       (is (= "external-api:api.fixture.test" (:target edge)))
       (is (= "references" (:relation edge))))))
 
+(deftest maintenance-decision-result-requires-supported-recommendation-and-reasons
+  (let [target-id "system:fixture:app:cmd-api"
+        packet (decision-classifier/decision-packet
+                {:id "maintenance-decision:test"
+                 :project-id "fixture"
+                 :target target-id
+                 :data {:system {:xt/id target-id
+                                 :label "cmd/api"}}})
+        invalid {:status :done
+                 :payload packet
+                 :result {:schema decision-classifier/schema
+                          :decisionId "maintenance-decision:test"
+                          :recommendation "maybe"
+                          :confidence 0.5
+                          :mapPatch [{:op "set-system-kind"
+                                      :target target-id
+                                      :value {:kind "application"}}]}}]
+    (is (= [{:path [:result :recommendation]
+             :error "Result recommendation is required and must be supported."
+             :value "maybe"}
+            {:path [:result :reason]
+             :error "Result reason is required."}
+            {:path [:mapPatch 0 :reason]
+             :error "Patch reason is required."}]
+           (decision-classifier/validate-result invalid)))
+    (is (empty? (decision-classifier/validate-result
+                 (assoc invalid
+                        :result {:schema decision-classifier/schema
+                                 :decisionId "maintenance-decision:test"
+                                 :recommendation "investigate"
+                                 :confidence 0.5
+                                 :reason "The packet does not contain enough bounded evidence."
+                                 :mapPatch []}))))))
+
 (deftest sync-work-show-returns-summary-with-full-item
   (let [root (temp-dir "agraph-cli-work-show")
         id (get-in (queue/enqueue! {:schema "custom.packet/v1"
