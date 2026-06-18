@@ -458,6 +458,44 @@
           :at (now-string)}
          extra))
 
+(def ^:private progress-error-data-keys
+  #{:phase
+    :project-id
+    :repo-id
+    :files-scanned
+    :files-changed
+    :files-skipped
+    :files-extracted
+    :files-indexed
+    :files-deleted
+    :path})
+
+(defn- progress-error-value
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (symbol? value) (str value)
+    (or (string? value)
+        (number? value)
+        (boolean? value)
+        (nil? value)) value
+    :else (str value)))
+
+(defn- progress-error-data
+  [throwable]
+  (not-empty
+   (into {}
+         (keep (fn [[k v]]
+                 (when (contains? progress-error-data-keys k)
+                   [k (progress-error-value v)])))
+         (ex-data throwable))))
+
+(defn- progress-error
+  [throwable]
+  (cond-> {:class (.getName (class throwable))
+           :message (ex-message throwable)}
+    (progress-error-data throwable) (assoc :data (progress-error-data throwable))))
+
 (defn- read-progress
   [path suite case]
   (if (.isFile (io/file path))
@@ -541,8 +579,7 @@
                                       stage
                                       :failed
                                       {:elapsedMs (elapsed-ms started-ns)
-                                       :error {:class (.getName (class t))
-                                               :message (ex-message t)}})))
+                                       :error (progress-error t)})))
            (throw t))
          (finally
            (remove-shutdown-hook! hook)))))))

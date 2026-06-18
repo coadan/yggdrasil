@@ -1013,6 +1013,41 @@
            (get-in last-event [:error :message])))
     (is (pos? (:elapsedMs last-event)))))
 
+(deftest progress-stage-records-bounded-ex-data
+  (let [out (temp-dir "agraph-bench-progress-ex-data")
+        progress-path (io/file out
+                               "fixture"
+                               "cases"
+                               "case-1"
+                               "progress.json")]
+    (is
+     (thrown-with-msg?
+      clojure.lang.ExceptionInfo
+      #"Index deadline exceeded"
+      ((var benchmark/progress-stage!)
+       {:id "fixture"}
+       {:id "case-1" :repo-id "repo"}
+       {:out out}
+       :index-project
+       (fn []
+         (throw (ex-info "Index deadline exceeded."
+                         {:phase :extract
+                          :project-id "project"
+                          :repo-id "repo"
+                          :files-changed 12
+                          :path "src/app.clj"
+                          :ignored-object (Object.)}))))))
+    (let [progress (json/read-json (slurp progress-path) :key-fn keyword)
+          failed (last (:events progress))]
+      (is (= "failed" (:status failed)))
+      (is (= "index-project" (:stage failed)))
+      (is (= {:phase "extract"
+              :project-id "project"
+              :repo-id "repo"
+              :files-changed 12
+              :path "src/app.clj"}
+             (get-in failed [:error :data]))))))
+
 (deftest writes-agent-packet-without-ground-truth
   (let [root (temp-dir "agraph-bench-agent-repo")
         out (temp-dir "agraph-bench-agent-out")
