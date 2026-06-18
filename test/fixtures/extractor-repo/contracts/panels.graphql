@@ -1,20 +1,27 @@
 schema {
   query: Query
   mutation: Mutation
+  subscription: Subscription
 }
 
 type Query {
   panel(id: ID!): Panel
+  panels(filter: PanelFilter): [Panel!]!
 }
 
 type Mutation {
   createPanel(input: PanelInput!): Panel
 }
 
+type Subscription {
+  panelChanged(id: ID!): Panel
+}
+
 type Panel implements Node {
   id: ID!
   title: String!
   owner: User
+  status: PanelStatus!
 }
 
 interface Node {
@@ -23,6 +30,16 @@ interface Node {
 
 input PanelInput {
   title: String!
+  ownerId: ID
+}
+
+input PanelFilter {
+  status: PanelStatus
+}
+
+enum PanelStatus {
+  DRAFT
+  PUBLISHED
 }
 
 fragment PanelSummary on Panel {

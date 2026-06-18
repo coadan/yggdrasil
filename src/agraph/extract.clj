@@ -90,8 +90,8 @@
    :asyncapi "asyncapi/v1"
    :json-schema "json-schema/v1"
    :avro "avro/v1"
-   :graphql "graphql/v1"
-   :protobuf "protobuf/v1"
+   :graphql "graphql/v2"
+   :protobuf "protobuf/v2"
    :gettext "gettext/v1"
    :html "html/v1"
    :svg "svg/v1"
@@ -14844,12 +14844,81 @@
        distinct
        vec))
 
+(def graphql-field-parent-kinds
+  #{:graphql-type :graphql-interface :graphql-input})
+
+(defn- graphql-field-facts
+  [definitions]
+  (->> definitions
+       (filter #(contains? graphql-field-parent-kinds (:kind %)))
+       (mapcat
+        (fn [{:keys [kind name lines]}]
+          (keep (fn [[idx line]]
+                  (when-let [[_ field-name]
+                             (re-matches
+                              #"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s*:\s*.+"
+                              line)]
+                    {:kind :graphql-field
+                     :label (str name "." field-name)
+                     :parent-kind kind
+                     :parent-label name
+                     :source-line (inc idx)
+                     :line line
+                     :references (graphql-reference-targets line)}))
+                lines)))
+       distinct
+       vec))
+
+(defn- graphql-enum-value-facts
+  [definitions]
+  (->> definitions
+       (filter #(= :graphql-enum (:kind %)))
+       (mapcat
+        (fn [{:keys [name lines]}]
+          (keep (fn [[idx line]]
+                  (let [trimmed (str/trim line)]
+                    (when (and (not (str/blank? trimmed))
+                               (not (str/starts-with? trimmed "#"))
+                               (not (str/includes? trimmed "{"))
+                               (not (str/includes? trimmed "}")))
+                      (when-let [[_ value-name]
+                                 (re-matches
+                                  #"^([A-Za-z_][A-Za-z0-9_]*)(?:\s+@.*)?$"
+                                  trimmed)]
+                        {:kind :graphql-enum-value
+                         :label (str name "." value-name)
+                         :parent-label name
+                         :source-line (inc idx)}))))
+                lines)))
+       distinct
+       vec))
+
+(defn- graphql-field-reference-edges
+  [run-id id-scope file-id path field-facts]
+  (->> field-facts
+       (mapcat
+        (fn [{:keys [label source-line references]}]
+          (map (fn [target]
+                 (edge-row run-id
+                           file-id
+                           path
+                           (node-id id-scope :graphql-field label)
+                           (node-id id-scope :graphql-reference target)
+                           :references
+                           :extracted
+                           source-line))
+               references)))
+       distinct
+       vec))
+
 (defn extract-graphql
   "Extract declared GraphQL schema and operation facts."
   [run-id {:keys [id-scope file-id path content] :as file}]
   (let [lines (vec (str/split-lines content))
         spec-node (generic-node run-id id-scope file-id path :graphql-file path 1)
         definitions (graphql-definition-spans lines)
+        field-facts (graphql-field-facts definitions)
+        enum-value-facts (graphql-enum-value-facts definitions)
         definition-nodes (mapv (fn [{:keys [kind name source-line]}]
                                  (generic-node run-id
                                                id-scope
@@ -14859,6 +14928,39 @@
                                                name
                                                source-line))
                                definitions)
+        field-nodes (mapv (fn [{:keys [label source-line]}]
+                            (generic-node run-id
+                                          id-scope
+                                          file-id
+                                          path
+                                          :graphql-field
+                                          label
+                                          source-line))
+                          field-facts)
+        enum-value-nodes (mapv (fn [{:keys [label source-line]}]
+                                 (generic-node run-id
+                                               id-scope
+                                               file-id
+                                               path
+                                               :graphql-enum-value
+                                               label
+                                               source-line))
+                               enum-value-facts)
+        reference-nodes (->> (concat (mapcat :references field-facts)
+                                     (mapcat (fn [{:keys [target lines]}]
+                                               (distinct
+                                                (concat (when target [target])
+                                                        (mapcat (comp graphql-reference-targets second)
+                                                                lines))))
+                                             definitions))
+                             distinct
+                             (mapv #(generic-node run-id
+                                                  id-scope
+                                                  file-id
+                                                  path
+                                                  :graphql-reference
+                                                  %
+                                                  1)))
         define-edges (mapv #(edge-row run-id file-id path
                                       (:xt/id spec-node)
                                       (:xt/id %)
@@ -14866,7 +14968,35 @@
                                       :extracted
                                       (:source-line %))
                            definition-nodes)
+        definition-id-by-label (into {} (map (juxt :label :xt/id)) definition-nodes)
+        field-define-edges (mapv (fn [{:keys [parent-label label source-line]}]
+                                   (edge-row run-id
+                                             file-id
+                                             path
+                                             (get definition-id-by-label parent-label)
+                                             (node-id id-scope :graphql-field label)
+                                             :defines
+                                             :extracted
+                                             source-line))
+                                 field-facts)
+        enum-value-define-edges (mapv (fn [{:keys [parent-label label source-line]}]
+                                        (edge-row run-id
+                                                  file-id
+                                                  path
+                                                  (get definition-id-by-label parent-label)
+                                                  (node-id id-scope
+                                                           :graphql-enum-value
+                                                           label)
+                                                  :defines
+                                                  :extracted
+                                                  source-line))
+                                      enum-value-facts)
         reference-edges (graphql-reference-edges run-id id-scope file-id path definitions)
+        field-reference-edges (graphql-field-reference-edges run-id
+                                                             id-scope
+                                                             file-id
+                                                             path
+                                                             field-facts)
         chunk-result (extract-text-source run-id file :graphql-file)
         definition-chunks (mapv (fn [{:keys [kind name source-line lines]}]
                                   (source-definition-chunk
@@ -14884,8 +15014,16 @@
                                                path
                                                content
                                                "GraphQL")]
-    {:nodes (into [spec-node] definition-nodes)
-     :edges (vec (concat define-edges reference-edges))
+    {:nodes (vec (concat [spec-node]
+                         definition-nodes
+                         field-nodes
+                         enum-value-nodes
+                         reference-nodes))
+     :edges (vec (concat define-edges
+                         field-define-edges
+                         enum-value-define-edges
+                         reference-edges
+                         field-reference-edges))
      :chunks (vec (concat (:chunks chunk-result) definition-chunks))
      :diagnostics diagnostics}))
 
@@ -14973,6 +15111,71 @@
   #{"bool" "bytes" "double" "fixed32" "fixed64" "float" "int32" "int64"
     "sfixed32" "sfixed64" "sint32" "sint64" "string" "uint32" "uint64"})
 
+(defn- protobuf-normalize-reference-target
+  [target]
+  (str/replace target #"^\." ""))
+
+(defn- protobuf-field-facts
+  [definitions]
+  (->> definitions
+       (filter #(= :protobuf-message (:kind %)))
+       (mapcat
+        (fn [{message-name :name lines :lines}]
+          (keep (fn [[idx line]]
+                  (or
+                   (when-let [[_ key-type value-type field-name]
+                              (re-matches
+                               #"^\s*map\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*,\s*(\.?[A-Za-z_][A-Za-z0-9_.]*)\s*>\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[0-9]+.*"
+                               line)]
+                     (let [references (->> [key-type value-type]
+                                           (remove #(contains?
+                                                     protobuf-scalar-types
+                                                     %))
+                                           (map protobuf-normalize-reference-target)
+                                           distinct
+                                           vec)]
+                       {:kind :protobuf-field
+                        :label (str message-name "." field-name)
+                        :parent-label message-name
+                        :field-type (str "map<" key-type "," value-type ">")
+                        :source-line (inc idx)
+                        :references references}))
+                   (when-let [[_ field-type field-name]
+                              (re-matches
+                               #"^\s*(?:(?:repeated|optional|required)\s+)?(\.?[A-Za-z_][A-Za-z0-9_.]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[0-9]+.*"
+                               line)]
+                     (let [target (protobuf-normalize-reference-target field-type)]
+                       {:kind :protobuf-field
+                        :label (str message-name "." field-name)
+                        :parent-label message-name
+                        :field-type field-type
+                        :source-line (inc idx)
+                        :references (if (contains? protobuf-scalar-types target)
+                                      []
+                                      [target])}))))
+                lines)))
+       distinct
+       vec))
+
+(defn- protobuf-enum-value-facts
+  [definitions]
+  (->> definitions
+       (filter #(= :protobuf-enum (:kind %)))
+       (mapcat
+        (fn [{enum-name :name lines :lines}]
+          (keep (fn [[idx line]]
+                  (when-let [[_ value-name]
+                             (re-matches
+                              #"^\s*([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+\s*;.*"
+                              line)]
+                    {:kind :protobuf-enum-value
+                     :label (str enum-name "." value-name)
+                     :parent-label enum-name
+                     :source-line (inc idx)}))
+                lines)))
+       distinct
+       vec))
+
 (defn- protobuf-field-reference-targets
   [definition]
   (->> (:lines definition)
@@ -14984,6 +15187,26 @@
                (re-seq #"^\s*(?:(repeated|optional|required)\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*[0-9]+"
                        line))))
        (remove #(contains? protobuf-scalar-types (:target %)))
+       distinct
+       vec))
+
+(defn- protobuf-field-reference-edges
+  [run-id id-scope file-id path package-name field-facts]
+  (->> field-facts
+       (mapcat
+        (fn [{:keys [label source-line references]}]
+          (map (fn [target]
+                 (edge-row run-id
+                           file-id
+                           path
+                           (node-id id-scope
+                                    :protobuf-field
+                                    (str package-name "/" label))
+                           (node-id id-scope :protobuf-reference target)
+                           :references
+                           :extracted
+                           source-line))
+               references)))
        distinct
        vec))
 
@@ -15042,6 +15265,8 @@
                   (filter #(= :protobuf-service (:kind %)))
                   (mapcat protobuf-rpcs)
                   vec)
+        field-facts (protobuf-field-facts definitions)
+        enum-value-facts (protobuf-enum-value-facts definitions)
         definition-nodes (mapv (fn [{:keys [kind name source-line]}]
                                  (generic-node run-id
                                                id-scope
@@ -15060,6 +15285,43 @@
                                         (str package-name "/" name)
                                         source-line))
                         rpcs)
+        field-nodes (mapv (fn [{:keys [label source-line]}]
+                            (generic-node run-id
+                                          id-scope
+                                          file-id
+                                          path
+                                          :protobuf-field
+                                          (str package-name "/" label)
+                                          source-line))
+                          field-facts)
+        enum-value-nodes (mapv (fn [{:keys [label source-line]}]
+                                 (generic-node run-id
+                                               id-scope
+                                               file-id
+                                               path
+                                               :protobuf-enum-value
+                                               (str package-name "/" label)
+                                               source-line))
+                               enum-value-facts)
+        reference-nodes (->> (concat (mapcat :references field-facts)
+                                     (mapcat (fn [{:keys [request response]}]
+                                               [request response])
+                                             rpcs)
+                                     (mapcat (fn [definition]
+                                               (map :target
+                                                    (protobuf-field-reference-targets
+                                                     definition)))
+                                             definitions))
+                             (remove str/blank?)
+                             (map protobuf-normalize-reference-target)
+                             distinct
+                             (mapv #(generic-node run-id
+                                                  id-scope
+                                                  file-id
+                                                  path
+                                                  :protobuf-reference
+                                                  %
+                                                  1)))
         define-edges (mapv #(edge-row run-id file-id path
                                       (:xt/id package-node)
                                       (:xt/id %)
@@ -15067,6 +15329,35 @@
                                       :extracted
                                       (:source-line %))
                            (concat definition-nodes rpc-nodes))
+        definition-id-by-label (into {} (map (juxt :label :xt/id)) definition-nodes)
+        field-define-edges (mapv (fn [{:keys [parent-label label source-line]}]
+                                   (edge-row run-id
+                                             file-id
+                                             path
+                                             (get definition-id-by-label
+                                                  (str package-name "/" parent-label))
+                                             (node-id id-scope
+                                                      :protobuf-field
+                                                      (str package-name "/" label))
+                                             :defines
+                                             :extracted
+                                             source-line))
+                                 field-facts)
+        enum-value-define-edges (mapv (fn [{:keys [parent-label label source-line]}]
+                                        (edge-row run-id
+                                                  file-id
+                                                  path
+                                                  (get definition-id-by-label
+                                                       (str package-name "/"
+                                                            parent-label))
+                                                  (node-id id-scope
+                                                           :protobuf-enum-value
+                                                           (str package-name "/"
+                                                                label))
+                                                  :defines
+                                                  :extracted
+                                                  source-line))
+                                      enum-value-facts)
         import-edges (mapv #(edge-row run-id file-id path
                                       (:xt/id package-node)
                                       (node-id id-scope :namespace (:target %))
@@ -15081,6 +15372,12 @@
                                                   package-name
                                                   definitions
                                                   rpcs)
+        field-reference-edges (protobuf-field-reference-edges run-id
+                                                              id-scope
+                                                              file-id
+                                                              path
+                                                              package-name
+                                                              field-facts)
         chunk-result (extract-text-source run-id file :protobuf-file)
         definition-chunks (mapv (fn [{:keys [kind name source-line lines]}]
                                   (source-definition-chunk
@@ -15098,8 +15395,18 @@
                                                path
                                                content
                                                "Protobuf")]
-    {:nodes (vec (concat [package-node] definition-nodes rpc-nodes))
-     :edges (vec (concat define-edges import-edges reference-edges))
+    {:nodes (vec (concat [package-node]
+                         definition-nodes
+                         rpc-nodes
+                         field-nodes
+                         enum-value-nodes
+                         reference-nodes))
+     :edges (vec (concat define-edges
+                         field-define-edges
+                         enum-value-define-edges
+                         import-edges
+                         reference-edges
+                         field-reference-edges))
      :chunks (vec (concat (:chunks chunk-result) definition-chunks))
      :diagnostics diagnostics}))
 

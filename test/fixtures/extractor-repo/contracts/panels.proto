@@ -8,6 +8,8 @@ message Panel {
   string id = 1;
   User owner = 2;
   google.protobuf.Timestamp created_at = 3;
+  PanelStatus status = 4;
+  repeated User reviewers = 5;
 }
 
 message User {
@@ -16,6 +18,12 @@ message User {
 
 message GetPanelRequest {
   string id = 1;
+}
+
+enum PanelStatus {
+  PANEL_STATUS_UNSPECIFIED = 0;
+  PANEL_STATUS_DRAFT = 1;
+  PANEL_STATUS_PUBLISHED = 2;
 }
 
 service PanelService {
