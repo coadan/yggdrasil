@@ -131,7 +131,9 @@ def node_end_byte(node: Any) -> int:
     return int(value() if callable(value) else value or 0)
 
 
-def node_text(content: str, node: Any) -> str:
+def node_text(content: bytes | str, node: Any) -> str:
+    if isinstance(content, bytes):
+        return content[node_start_byte(node) : node_end_byte(node)].decode("utf-8", errors="replace")
     return content[node_start_byte(node) : node_end_byte(node)]
 
 
@@ -297,7 +299,10 @@ def java_references(content: str, root: Any) -> list[dict[str, Any]]:
         kind = node_kind(node)
         if kind in JAVA_TYPE_NODE_KINDS:
             target = node_text(content, node)
-            key = (java_reference_source(content, node), target, node_line_range(node)["line"], kind)
+            source = java_reference_source(content, node)
+            if not source or target == source:
+                continue
+            key = (source, target, node_line_range(node)["line"], kind)
             if key not in seen:
                 seen.add(key)
                 references.append(
@@ -327,6 +332,7 @@ def parse_java(path: str, content: str) -> dict[str, Any]:
             ],
         }
 
+    content_bytes = content.encode("utf-8")
     tree = parser.parse(content)
     root = tree.root_node()
     diagnostics = []
@@ -338,11 +344,11 @@ def parse_java(path: str, content: str) -> dict[str, Any]:
                 "message": "tree-sitter reported parse errors",
             }
         )
-    package = java_package(content, root)
+    package = java_package(content_bytes, root)
     facts = {
-        "definitions": java_definitions(content, root),
-        "imports": java_imports(content, root),
-        "references": java_references(content, root),
+        "definitions": java_definitions(content_bytes, root),
+        "imports": java_imports(content_bytes, root),
+        "references": java_references(content_bytes, root),
         "diagnostics": diagnostics,
     }
     if package:
@@ -476,7 +482,10 @@ def dotnet_references(content: str, root: Any) -> list[dict[str, Any]]:
             target = node_text(content, node)
             if not target or target[0].islower():
                 continue
-            key = (dotnet_reference_source(content, node), target, node_line_range(node)["line"], kind)
+            source = dotnet_reference_source(content, node)
+            if not source or target == source:
+                continue
+            key = (source, target, node_line_range(node)["line"], kind)
             if key not in seen:
                 seen.add(key)
                 references.append(
@@ -506,6 +515,7 @@ def parse_dotnet(path: str, content: str) -> dict[str, Any]:
             ],
         }
 
+    content_bytes = content.encode("utf-8")
     tree = parser.parse(content)
     root = tree.root_node()
     diagnostics = []
@@ -517,11 +527,11 @@ def parse_dotnet(path: str, content: str) -> dict[str, Any]:
                 "message": "tree-sitter reported parse errors",
             }
         )
-    namespace = dotnet_namespace(content, root)
+    namespace = dotnet_namespace(content_bytes, root)
     facts = {
-        "definitions": dotnet_definitions(content, root),
-        "imports": dotnet_usings(content, root),
-        "references": dotnet_references(content, root),
+        "definitions": dotnet_definitions(content_bytes, root),
+        "imports": dotnet_usings(content_bytes, root),
+        "references": dotnet_references(content_bytes, root),
         "diagnostics": diagnostics,
     }
     if namespace:

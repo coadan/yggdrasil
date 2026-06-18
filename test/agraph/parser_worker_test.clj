@@ -201,6 +201,49 @@
         (is (contains? reference-targets "Result"))
         (is (contains? reference-targets "Input"))))))
 
+(deftest parser-worker-uses-byte-offsets-for-tree-sitter-text
+  (let [[java-response dotnet-response]
+        (worker! [{:id "java-unicode"
+                   :kind "java"
+                   :path "Unicode.java"
+                   :content (str "package demo;\n"
+                                 "// non-ascii prefix: æøå\n"
+                                 "class App { Result load(Input input) { return new Result(); } }\n"
+                                 "class Result {}\n"
+                                 "class Input {}\n")}
+                  {:id "dotnet-unicode"
+                   :kind "dotnet"
+                   :path "Unicode.cs"
+                   :content (str "namespace Demo;\n"
+                                 "// non-ascii prefix: æøå\n"
+                                 "public class App { public Result Load(Input input) => new Result(); }\n"
+                                 "public class Result {}\n"
+                                 "public class Input {}\n")}])
+        java-facts (:facts java-response)
+        dotnet-facts (:facts dotnet-response)
+        java-diagnostic (first (:diagnostics java-facts))
+        dotnet-diagnostic (first (:diagnostics dotnet-facts))]
+    (if java-diagnostic
+      (is (str/includes? (:message java-diagnostic) "java parser unavailable"))
+      (let [definitions (set (map (juxt :kind :name) (:definitions java-facts)))]
+        (is (= "demo" (:package java-facts)))
+        (is (contains? definitions ["class" "App"]))
+        (is (contains? definitions ["method" "App.load"]))
+        (is (contains? (set (map (juxt :source :target) (:references java-facts)))
+                       ["load" "Result"]))
+        (is (not (contains? (set (map (juxt :source :target) (:references java-facts)))
+                            ["App" "App"])))))
+    (if dotnet-diagnostic
+      (is (str/includes? (:message dotnet-diagnostic) "dotnet parser unavailable"))
+      (let [definitions (set (map (juxt :kind :name) (:definitions dotnet-facts)))]
+        (is (= "Demo" (:namespace dotnet-facts)))
+        (is (contains? definitions ["class" "App"]))
+        (is (contains? definitions ["method" "App.Load"]))
+        (is (contains? (set (map (juxt :source :target) (:references dotnet-facts)))
+                       ["Load" "Result"]))
+        (is (not (contains? (set (map (juxt :source :target) (:references dotnet-facts)))
+                            ["App" "App"])))))))
+
 (deftest parser-worker-reports-unsupported-kinds
   (let [[response] (worker! [{:id "ruby-1"
                               :kind "ruby"

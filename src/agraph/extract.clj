@@ -2244,6 +2244,17 @@
       (pos? line-count) (assoc :end-line (+ (or source-line 1) line-count -1))
       (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
 
+(defn- source-range-text
+  [content source-line end-line]
+  (let [lines (vec (str/split-lines (or content "")))
+        source-line (max 1 (long (or source-line 1)))
+        end-line (max source-line (long (or end-line source-line)))
+        start-idx (dec source-line)
+        end-idx (min (count lines) end-line)]
+    (if (< start-idx end-idx)
+      (str/join "\n" (subvec lines start-idx end-idx))
+      "")))
+
 (defn- curly-depth-delta
   [line]
   (- (count (re-seq #"\{" line))
@@ -2792,7 +2803,7 @@
                                  module-name
                                  content
                                  jvm-family-file-chunk-lines)
-        definition-chunks (mapv (fn [{:keys [kind name line]}]
+        definition-chunks (mapv (fn [{:keys [kind name line endLine]}]
                                   (source-definition-chunk
                                    run-id
                                    id-scope
@@ -2801,7 +2812,9 @@
                                    (str module-name "/" name)
                                    (java-worker-definition-kind kind)
                                    (or line 1)
-                                   ""))
+                                   (source-range-text content
+                                                      (or line 1)
+                                                      (or endLine line))))
                                 definitions)
         diagnostics (mapv #(diagnostic-row run-id
                                            file-id
@@ -3839,7 +3852,7 @@
                                  module-name
                                  content
                                  jvm-family-file-chunk-lines)
-        definition-chunks (mapv (fn [{:keys [kind name line]}]
+        definition-chunks (mapv (fn [{:keys [kind name line endLine]}]
                                   (source-definition-chunk
                                    run-id
                                    id-scope
@@ -3848,7 +3861,9 @@
                                    (str module-name "/" name)
                                    (dotnet-worker-definition-kind kind)
                                    (or line 1)
-                                   ""))
+                                   (source-range-text content
+                                                      (or line 1)
+                                                      (or endLine line))))
                                 definitions)
         diagnostics (mapv #(diagnostic-row run-id
                                            file-id

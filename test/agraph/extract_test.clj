@@ -1014,36 +1014,57 @@
                   {:file-id "file:Rich.java"
                    :path "src/Rich.java"
                    :kind :java
-                   :content "package demo;\n"
+                   :content (str "package demo;\n"
+                                 "import java.util.List;\n"
+                                 "public @interface Marker {}\n"
+                                 "public record Item(String id) {}\n"
+                                 "public interface Port { Result load(Input input); }\n"
+                                 "public class App {\n"
+                                 "  public App() {}\n"
+                                 "  public Result load(Input input) {\n"
+                                 "    return new Result();\n"
+                                 "  }\n"
+                                 "  public class Result {}\n"
+                                 "}\n"
+                                 "public class Input {}\n")
                    :parser-worker-facts
                    {:package "demo"
                     :definitions [{:kind "annotation"
                                    :name "Marker"
-                                   :line 3}
+                                   :line 3
+                                   :endLine 3}
                                   {:kind "record"
                                    :name "Item"
-                                   :line 4}
+                                   :line 4
+                                   :endLine 4}
                                   {:kind "interface"
                                    :name "Port"
-                                   :line 5}
+                                   :line 5
+                                   :endLine 5}
                                   {:kind "method"
                                    :name "Port.load"
-                                   :line 5}
+                                   :line 5
+                                   :endLine 5}
                                   {:kind "class"
                                    :name "App"
-                                   :line 6}
+                                   :line 6
+                                   :endLine 12}
                                   {:kind "constructor"
                                    :name "App.App"
-                                   :line 7}
+                                   :line 7
+                                   :endLine 7}
                                   {:kind "method"
                                    :name "App.load"
-                                   :line 8}
+                                   :line 8
+                                   :endLine 10}
                                   {:kind "class"
                                    :name "App.Result"
-                                   :line 9}
+                                   :line 11
+                                   :endLine 11}
                                   {:kind "class"
                                    :name "Input"
-                                   :line 11}]
+                                   :line 13
+                                   :endLine 13}]
                     :imports [{:target "java.util.List"
                                :line 2}]
                     :references [{:source "App.load"
@@ -1056,6 +1077,7 @@
                                   :line 8}]
                     :diagnostics []}}))
         kinds-by-label (into {} (map (juxt :label :kind)) (:nodes result))
+        chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))
         reference-targets (set (map :target-id
                                     (filter #(= :references (:relation %))
                                             (:edges result))))]
@@ -1072,6 +1094,9 @@
                    (extract/node-id :symbol "demo/Result")))
     (is (contains? reference-targets
                    (extract/node-id :symbol "demo/Input")))
+    (is (= 10 (get-in chunks-by-label ["demo/App.load" :end-line])))
+    (is (str/includes? (get-in chunks-by-label ["demo/App.load" :text])
+                       "return new Result"))
     (is (empty? (:diagnostics result)))))
 
 (deftest extracts-dotnet-namespaces-definitions-and-usings
@@ -1231,39 +1256,62 @@
                   {:file-id "file:Rich.cs"
                    :path "src/Rich.cs"
                    :kind :dotnet
-                   :content "namespace Demo;\n"
+                   :content (str "namespace Demo;\n"
+                                 "using System.Collections.Generic;\n"
+                                 "public delegate void Loaded(string id);\n"
+                                 "public interface IPort { Result Load(Input input); }\n"
+                                 "public record Item(string Id);\n"
+                                 "public class App : IPort {\n"
+                                 "  public App() {}\n"
+                                 "  public Result Load(Input input) {\n"
+                                 "    return new Result();\n"
+                                 "  }\n"
+                                 "  public string Name { get; init; }\n"
+                                 "  public class Result {}\n"
+                                 "}\n"
+                                 "public class Input {}\n")
                    :parser-worker-facts
                    {:namespace "Demo"
                     :definitions [{:kind "delegate"
                                    :name "Loaded"
-                                   :line 3}
+                                   :line 3
+                                   :endLine 3}
                                   {:kind "interface"
                                    :name "IPort"
-                                   :line 4}
+                                   :line 4
+                                   :endLine 4}
                                   {:kind "method"
                                    :name "IPort.Load"
-                                   :line 4}
+                                   :line 4
+                                   :endLine 4}
                                   {:kind "record"
                                    :name "Item"
-                                   :line 5}
+                                   :line 5
+                                   :endLine 5}
                                   {:kind "class"
                                    :name "App"
-                                   :line 6}
+                                   :line 6
+                                   :endLine 13}
                                   {:kind "constructor"
                                    :name "App.App"
-                                   :line 7}
+                                   :line 7
+                                   :endLine 7}
                                   {:kind "method"
                                    :name "App.Load"
-                                   :line 8}
+                                   :line 8
+                                   :endLine 10}
                                   {:kind "property"
                                    :name "App.Name"
-                                   :line 9}
+                                   :line 11
+                                   :endLine 11}
                                   {:kind "class"
                                    :name "App.Result"
-                                   :line 10}
+                                   :line 12
+                                   :endLine 12}
                                   {:kind "class"
                                    :name "Input"
-                                   :line 12}]
+                                   :line 14
+                                   :endLine 14}]
                     :imports [{:target "System.Collections.Generic"
                                :line 2}]
                     :references [{:source "App.Load"
@@ -1276,6 +1324,7 @@
                                   :line 8}]
                     :diagnostics []}}))
         kinds-by-label (into {} (map (juxt :label :kind)) (:nodes result))
+        chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))
         reference-targets (set (map :target-id
                                     (filter #(= :references (:relation %))
                                             (:edges result))))]
@@ -1293,6 +1342,9 @@
                    (extract/node-id :symbol "Demo/Result")))
     (is (contains? reference-targets
                    (extract/node-id :symbol "Demo/Input")))
+    (is (= 10 (get-in chunks-by-label ["Demo/App.Load" :end-line])))
+    (is (str/includes? (get-in chunks-by-label ["Demo/App.Load" :text])
+                       "return new Result"))
     (is (empty? (:diagnostics result)))))
 
 (deftest extracts-kotlin-packages-definitions-and-imports
