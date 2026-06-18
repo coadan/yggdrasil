@@ -685,8 +685,8 @@
                                          (.getPath repo)
                                          {:project-id "py-dep-test"
                                           :repo-id "app"})
-              deps (query/deps xtdb "src.app" {:project-id "py-dep-test"
-                                               :repo-id "app"})
+              deps (query/deps xtdb "app" {:project-id "py-dep-test"
+                                           :repo-id "app"})
               package-edges (filter #(= :imports-package (:relation %))
                                     (:outgoing deps))
               report (dependency/package-report xtdb
