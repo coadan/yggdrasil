@@ -71,7 +71,7 @@
   50)
 
 (def default-agent-baseline-budget
-  16000)
+  24000)
 
 (def default-agent-baseline-doc-limit
   20)
@@ -1678,7 +1678,9 @@
             score-components (or (:scoreComponents candidate)
                                  (:score-components candidate))
             graph-score (double (or (parse-double-safe (:graph score-components))
-                                    0.0))]
+                                    0.0))
+            graph-score-supported? (or (>= (count matched-tokens) 2)
+                                       (seq matched-token-pairs))]
         (cond-> {:path path
                  :source-rank (+ 500 (inc idx))
                  :confidence (bounded-confidence (:score candidate))
@@ -1696,7 +1698,7 @@
                               (:rank candidate)
                               ".")}
           (and (pos? graph-score)
-               (seq matched-tokens))
+               graph-score-supported?)
           (assoc :graph-neighbor-score graph-score))))))
 
 (defn- ranked-file-predictions

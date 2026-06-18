@@ -1062,7 +1062,10 @@
         defaults (#'benchmark/agent-baseline-context-options prepared {})
         override (#'benchmark/agent-baseline-context-options
                   prepared
-                  {:retrieval-limit 42})]
+                  {:budget 12000
+                   :retrieval-limit 42})]
+    (is (= 24000 (:budget defaults)))
+    (is (= 12000 (:budget override)))
     (is (= 300 (:retrieval-limit defaults)))
     (is (= 42 (:retrieval-limit override)))))
 
@@ -1518,6 +1521,32 @@
     (is (= 2 (get-in files [0 :metrics :matchedTokenCount])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-requires-lexical-support-for-graph-neighbor-boost
+  (let [root (temp-dir "agraph-bench-candidate-graph-support")
+        _ (spit-file! root "src/thin.clj" "(ns thin)\n")
+        _ (spit-file! root "src/supported.clj" "(ns supported)\n")
+        packet {:query "open page root"
+                :candidateFiles [{:path "src/thin.clj"
+                                  :rank 1
+                                  :score 0.7
+                                  :targetKind "node"
+                                  :label "open"
+                                  :scoreComponents {:lexical 0.2
+                                                    :graph 0.8}}
+                                 {:path "src/supported.clj"
+                                  :rank 2
+                                  :score 0.6
+                                  :targetKind "node"
+                                  :label "open page"
+                                  :scoreComponents {:lexical 0.3
+                                                    :graph 0.5}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/supported.clj" "src/thin.clj"]
+           (mapv :path files)))
+    (is (nil? (get-in files [1 :metrics :graphNeighborScore])))
+    (is (= 0.5 (get-in files [0 :metrics :graphNeighborScore])))))
 
 (deftest file-ranking-uses-ordered-query-token-pairs-in-candidate-labels
   (let [root (temp-dir "agraph-bench-candidate-token-pairs")

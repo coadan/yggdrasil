@@ -728,11 +728,13 @@
           (-> packet
               (assoc :candidateFiles (subvec compact-candidates 0 keep-count))
               (add-warning-with-budget
-               (str "candidate files trimmed to "
-                    keep-count
-                    " of "
-                    total
-                    " to fit context budget")
+               (if (< keep-count total)
+                 (str "candidate files trimmed to "
+                      keep-count
+                      " of "
+                      total
+                      " to fit context budget")
+                 "candidate file details compacted to fit context budget")
                budget))
           (-> packet
               (assoc :candidateFiles [])
