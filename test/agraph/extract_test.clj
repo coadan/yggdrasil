@@ -18,6 +18,8 @@
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/src/java/com/example/panels/PanelService.java")
                (fs/file-record "test/fixtures/extractor-repo"
+                               "test/fixtures/extractor-repo/src/groovy/PanelService.groovy")
+               (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/src/dotnet/PanelService.cs")
                (fs/file-record "test/fixtures/extractor-repo"
                                "test/fixtures/extractor-repo/src/dotnet/Panels.csproj")
@@ -566,6 +568,50 @@
     (is (not (contains? reference-targets
                         (extract/node-id :symbol "demo/BodyMention"))))
     (is (empty? (:diagnostics result)))))
+
+(deftest extracts-groovy-packages-definitions-and-imports
+  (let [file (fs/file-record "test/fixtures/extractor-repo"
+                             "test/fixtures/extractor-repo/src/groovy/PanelService.groovy")
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))
+        relations (frequencies (map :relation (:edges result)))
+        import-targets (set (map :target-id
+                                 (filter #(= :imports (:relation %))
+                                         (:edges result))))]
+    (is (= :groovy (:kind file)))
+    (is (contains? labels "com.example.panels"))
+    (is (contains? labels "com.example.panels/PanelService"))
+    (is (contains? labels "com.example.panels/PanelService.name"))
+    (is (contains? labels "com.example.panels/PanelService.loadPanel"))
+    (is (contains? labels "com.example.panels/Auditable"))
+    (is (contains? labels "com.example.panels/Auditable.audit"))
+    (is (contains? labels "com.example.panels/PanelStatus"))
+    (is (contains? labels "com.example.panels/PanelBinding"))
+    (is (= 2 (get relations :imports 0)))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "groovy.transform.CompileStatic")))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "com.example.panels.PanelStatus.READY")))
+    (is (= :code-definition
+           (get-in chunks-by-label ["com.example.panels/PanelService.loadPanel" :kind])))
+    (is (= :method
+           (get-in chunks-by-label ["com.example.panels/PanelService.loadPanel" :definition-kind])))
+    (is (= :property
+           (get-in chunks-by-label ["com.example.panels/PanelService.name" :definition-kind])))
+    (is (= [:groovy-file]
+           (->> (:chunks result)
+                (remove #(= :code-definition (:kind %)))
+                (mapv :kind))))
+    (is (empty? (:diagnostics result))))
+  (let [result (extract/extract-file "run/test"
+                                     {:file-id "file:Broken.groovy"
+                                      :path "Broken.groovy"
+                                      :kind :groovy
+                                      :content "package demo\nclass Broken {\n"})
+        diagnostic (first (:diagnostics result))]
+    (is (= :parse (:stage diagnostic)))
+    (is (str/includes? (:message diagnostic) "unbalanced curly braces"))))
 
 (deftest java-parser-worker-extractor-emits-canonical-rows-when-enabled
   (let [python-bin (or (not-empty (System/getenv "AGRAPH_PARSER_WORKER_PYTHON"))

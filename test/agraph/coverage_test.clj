@@ -120,6 +120,7 @@
     (spit-file! root "src/ruby/Rakefile" "task :build\n")
     (spit-file! root "src/ruby/Gemfile" "gem \"rails\"\n")
     (spit-file! root "src/ruby/panels.gemspec" "Gem::Specification.new { |spec| spec.name = \"panels\" }\n")
+    (spit-file! root "src/groovy/PanelService.groovy" "package demo\nclass PanelService {}\n")
     (spit-file! root "packaging/homebrew/Formula/demo.rb.template" "class Demo < Formula\nend\n")
     (spit-file! root "src/native/panel_service.cpp" "#include <vector>\nint build_panel() { return 1; }\n")
     (spit-file! root "src/native/panel_service.hpp" "class PanelService {};\n")
@@ -200,8 +201,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 169
-              :supported 168
+      (is (= {:files 170
+              :supported 169
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -213,6 +214,7 @@
       (is (= 2 (:count (row-by :kind "db-migration" (:files-by-kind report)))))
       (is (= 12 (:count (row-by :kind "dependency-lock" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "java" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "groovy" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "kotlin" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "swift" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "objective-c" (:files-by-kind report)))))
@@ -279,6 +281,9 @@
                 (:extractors report)))
       (is (some #(and (= "java" (:kind %))
                       (= "java/v2" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "groovy" (:kind %))
+                      (= "groovy/v1" (:extractor-version %)))
                 (:extractors report)))
       (is (some #(and (= "kotlin" (:kind %))
                       (= "kotlin/v1" (:extractor-version %)))

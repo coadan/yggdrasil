@@ -28,6 +28,7 @@
   {:code "clojure/v9"
    :go "go/v3"
    :java "java/v2"
+   :groovy "groovy/v1"
    :kotlin "kotlin/v1"
    :swift "swift/v1"
    :objective-c "objective-c/v1"
@@ -1408,7 +1409,7 @@
   (-> path
       (str/replace #"\.d\.ts$" "")
       (str/replace #"\.rb\.template$" "")
-      (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|m|ml|mli|mm|mjs|cjs|jsx|js|odin|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
+      (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|groovy|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|m|ml|mli|mm|mjs|cjs|jsx|js|odin|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
       (str/replace #"/" ".")
       (str/replace #"-" "_")))
 
@@ -2210,6 +2211,188 @@
                           (:diagnostics facts))]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges import-edges reference-edges))
+     :chunks (into [chunk] definition-chunks)
+     :diagnostics diagnostics}))
+
+(defn- groovy-module-name
+  [path content]
+  (or (some (fn [line]
+              (second (re-matches #"^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$"
+                                  line)))
+            (str/split-lines content))
+      (source-module-name path)))
+
+(defn- groovy-imports
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (when-let [[_ target]
+                          (re-matches #"^\s*import\s+(?:static\s+)?([A-Za-z_][A-Za-z0-9_.*]*)\s*$"
+                                      line)]
+                 {:target target
+                  :source-line (inc idx)})))
+       distinct
+       vec))
+
+(defn- groovy-type-line
+  [current-type idx line]
+  (when-let [[_ visibility kind name]
+             (re-matches
+              #"^\s*(?:(public|private|protected)\s+)?(?:(?:abstract|final|static)\s+)*(class|interface|enum|trait|@interface)\s+([A-Za-z_][A-Za-z0-9_]*)\b.*"
+              line)]
+    {:kind (case kind
+             "class" :class
+             "interface" :interface
+             "enum" :enum
+             "trait" :trait
+             "@interface" :annotation)
+     :name (if current-type
+             (str (:name current-type) "." name)
+             name)
+     :public? (not= "private" visibility)
+     :source-line (inc idx)}))
+
+(def ^:private groovy-method-exclusions
+  #{"catch" "for" "if" "return" "switch" "while"})
+
+(defn- groovy-member-line
+  [current-type idx line]
+  (or (when-let [[_ visibility name]
+                 (re-matches
+                  #"^\s*(?:(public|private|protected)\s+)?(?:(?:static|final|abstract|synchronized)\s+)*(?:def|[A-Za-z_][A-Za-z0-9_<>,?.\[\]]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:\{.*)?"
+                  line)]
+        (when-not (contains? groovy-method-exclusions name)
+          {:kind :method
+           :name (if current-type
+                   (str (:name current-type) "." name)
+                   name)
+           :public? (not= "private" visibility)
+           :source-line (inc idx)}))
+      (when-let [[_ visibility name]
+                 (re-matches
+                  #"^\s*(?:(public|private|protected)\s+)?(?:(?:static|final|volatile|transient)\s+)*(?:def|[A-Za-z_][A-Za-z0-9_<>,?.\[\]]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=.*)?"
+                  line)]
+        (when-not (contains? groovy-method-exclusions name)
+          {:kind :property
+           :name (if current-type
+                   (str (:name current-type) "." name)
+                   name)
+           :public? (not= "private" visibility)
+           :source-line (inc idx)}))))
+
+(defn- groovy-definition-forms
+  [content]
+  (let [lines (vec (str/split-lines content))
+        line-starts (line-start-offsets content)]
+    (loop [remaining (map-indexed vector lines)
+           depth 0
+           type-stack []
+           pending-type nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [type-stack (pop-closed-type-scopes type-stack depth)
+              current-type (last type-stack)
+              type-form (groovy-type-line current-type idx line)
+              member-form (when-not type-form
+                            (groovy-member-line current-type idx line))
+              forms (cond-> []
+                      type-form (conj type-form)
+                      member-form (conj member-form))
+              forms (mapv (fn [{:keys [source-line] :as form}]
+                            (let [start (+ (get line-starts idx 0)
+                                           (or (some->> [(:name form)]
+                                                        first
+                                                        (str/index-of line))
+                                               0))]
+                              (assoc form
+                                     :text (or (balanced-curly-block content start)
+                                               line)
+                                     :source-line source-line)))
+                          forms)
+              delta (curly-depth-delta line)
+              depth* (+ depth delta)
+              type-stack* (cond-> type-stack
+                            (and pending-type (pos? delta))
+                            (conj {:name (:name pending-type)
+                                   :end-depth depth*})
+
+                            (and type-form (pos? delta))
+                            (conj {:name (:name type-form)
+                                   :end-depth depth*}))
+              pending-type* (cond
+                              (and type-form (not (pos? delta))) type-form
+                              (and pending-type (pos? delta)) nil
+                              :else pending-type)]
+          (recur (rest remaining)
+                 depth*
+                 type-stack*
+                 pending-type*
+                 (into out forms)))
+        out))))
+
+(defn extract-groovy
+  "Extract bounded package, import, and declaration facts from Groovy source."
+  [run-id {:keys [id-scope file-id path content]}]
+  (let [module-name (groovy-module-name path content)
+        ns-node (namespace-node run-id id-scope file-id path module-name)
+        lines (vec (str/split-lines content))
+        def-forms (groovy-definition-forms content)
+        defs (mapv (fn [{:keys [kind name public? source-line]}]
+                     (let [label (str module-name "/" name)]
+                       {:xt/id (node-id id-scope :symbol label)
+                        :label label
+                        :kind kind
+                        :file-id file-id
+                        :path path
+                        :namespace module-name
+                        :name name
+                        :public? public?
+                        :source-line source-line
+                        :tokens (text/tokenize label)
+                        :active? true
+                        :run-id run-id}))
+                   def-forms)
+        define-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           defs)
+        import-edges (mapv #(edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (node-id id-scope :namespace (:target %))
+                                      :imports
+                                      :extracted
+                                      (:source-line %))
+                           (groovy-imports lines))
+        chunk (source-text-chunk run-id
+                                 id-scope
+                                 file-id
+                                 path
+                                 :groovy-file
+                                 module-name
+                                 content
+                                 jvm-family-file-chunk-lines)
+        definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
+                                  (source-definition-chunk
+                                   run-id
+                                   id-scope
+                                   file-id
+                                   path
+                                   (str module-name "/" name)
+                                   kind
+                                   source-line
+                                   text))
+                                def-forms)
+        diagnostics (curly-balance-diagnostics run-id
+                                               file-id
+                                               path
+                                               content
+                                               "Groovy")]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges))
      :chunks (into [chunk] definition-chunks)
      :diagnostics diagnostics}))
 
@@ -11476,6 +11659,7 @@
      :java (if (parser-worker-enabled? :java)
              (extract-java-worker run-id file)
              (extract-java run-id file))
+     :groovy (extract-groovy run-id file)
      :kotlin (extract-kotlin run-id file)
      :swift (extract-swift run-id file)
      :dotnet (if (parser-worker-enabled? :dotnet)

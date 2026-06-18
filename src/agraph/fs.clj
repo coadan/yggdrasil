@@ -9,7 +9,7 @@
 (def supported-extensions
   #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs"
     ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
-    ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".h" ".hcl" ".hs" ".ini"
+    ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".lua"
     ".kt" ".kts" ".m" ".md" ".mjs" ".ml" ".mli" ".mm" ".mo" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
@@ -236,6 +236,7 @@
         (".cs" ".fs" ".fsi" ".fsx" ".vb") :dotnet
         ".go" :go
         (".graphql" ".gql") :graphql
+        ".groovy" :groovy
         (".ico" ".jpeg" ".jpg" ".png" ".webp") :image-asset
         ".ipynb" :notebook
         ".java" :java

@@ -32,6 +32,9 @@ classification in core extractors; store bounded facts and relationships first.
 - OCaml: `.ml` and `.mli` source/interface files. Extracts `open`/`include`
   imports, module aliases, module types, types, exceptions, classes, externals,
   `let` functions, `val` declarations, and source chunks.
+- Groovy: `.groovy` source files. Extracts package declarations, imports,
+  classes, interfaces, enums, traits, annotations, methods, properties, source
+  chunks, and curly-brace diagnostics.
 
 ## Future Candidates
 
