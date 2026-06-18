@@ -13584,6 +13584,148 @@
           (recur (rest remaining) in-block? out)))
       (vec (distinct out)))))
 
+(defn- ci-gitlab-include-facts
+  [lines]
+  (let [include-keys #{"local" "file" "template" "project" "remote" "component"}]
+    (loop [remaining (map-indexed vector lines)
+           include-indent nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [entry (yaml-key-line idx line)
+              indent (leading-spaces line)
+              include-indent* (cond
+                                (and entry
+                                     (zero? (:indent entry))
+                                     (= "include" (:key entry))
+                                     (str/blank? (:value entry)))
+                                (:indent entry)
+
+                                (and include-indent
+                                     entry
+                                     (<= (:indent entry) include-indent))
+                                nil
+
+                                :else include-indent)
+              inline-values (when (and entry
+                                       (zero? (:indent entry))
+                                       (= "include" (:key entry))
+                                       (seq (:value entry)))
+                              (map (fn [value]
+                                     {:kind :ci-template
+                                      :label value
+                                      :source-line (:source-line entry)
+                                      :relation :uses})
+                                   (yaml-scalar-list-values (:value entry))))
+              list-value (when (and include-indent*
+                                    (> indent include-indent*))
+                           (when-let [[_ value]
+                                      (re-matches #"^\s*-\s+(.+?)\s*$" line)]
+                             (let [value (strip-yaml-scalar value)]
+                               (if-let [[_ key scalar]
+                                        (re-matches #"([A-Za-z0-9_.-]+):\s*(.+)"
+                                                    value)]
+                                 (when (contains? include-keys key)
+                                   {:kind :ci-template
+                                    :label (str key ":" (strip-yaml-scalar scalar))
+                                    :source-line (inc idx)
+                                    :relation :uses})
+                                 {:kind :ci-template
+                                  :label value
+                                  :source-line (inc idx)
+                                  :relation :uses}))))
+              child-value (when (and include-indent*
+                                     (> indent include-indent*)
+                                     entry
+                                     (contains? include-keys (:key entry))
+                                     (seq (:value entry)))
+                            {:kind :ci-template
+                             :label (str (:key entry) ":"
+                                         (strip-yaml-scalar (:value entry)))
+                             :source-line (:source-line entry)
+                             :relation :uses})]
+          (recur (rest remaining)
+                 include-indent*
+                 (cond-> out
+                   inline-values (into inline-values)
+                   list-value (conj list-value)
+                   child-value (conj child-value))))
+        (vec (distinct out))))))
+
+(defn- ci-circleci-orb-facts
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         orbs-indent nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (yaml-key-line idx line)
+            orbs-indent* (cond
+                           (and entry
+                                (zero? (:indent entry))
+                                (= "orbs" (:key entry))
+                                (str/blank? (:value entry)))
+                           (:indent entry)
+
+                           (and orbs-indent
+                                entry
+                                (<= (:indent entry) orbs-indent))
+                           nil
+
+                           :else orbs-indent)
+            fact (when (and orbs-indent*
+                            entry
+                            (> (:indent entry) orbs-indent*)
+                            (seq (:value entry)))
+                   {:kind :ci-template
+                    :label (strip-yaml-scalar (:value entry))
+                    :source-line (:source-line entry)
+                    :relation :uses})]
+        (recur (rest remaining)
+               orbs-indent*
+               (cond-> out fact (conj fact))))
+      (vec (distinct out)))))
+
+(defn- ci-azure-extends-template-facts
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         extends-indent nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (yaml-key-line idx line)
+            extends-indent* (cond
+                              (and entry
+                                   (zero? (:indent entry))
+                                   (= "extends" (:key entry))
+                                   (str/blank? (:value entry)))
+                              (:indent entry)
+
+                              (and extends-indent
+                                   entry
+                                   (<= (:indent entry) extends-indent))
+                              nil
+
+                              :else extends-indent)
+            fact (when (and extends-indent*
+                            entry
+                            (> (:indent entry) extends-indent*)
+                            (= "template" (:key entry))
+                            (seq (:value entry)))
+                   {:kind :ci-template
+                    :label (strip-yaml-scalar (:value entry))
+                    :source-line (:source-line entry)
+                    :relation :uses})]
+        (recur (rest remaining)
+               extends-indent*
+               (cond-> out fact (conj fact))))
+      (vec (distinct out)))))
+
+(defn- ci-template-facts
+  [config-kind lines]
+  (case config-kind
+    :gitlab (ci-gitlab-include-facts lines)
+    :circleci (ci-circleci-orb-facts lines)
+    :azure (ci-azure-extends-template-facts lines)
+    []))
+
 (defn- ci-azure-workflow-facts
   [lines]
   (->> ["trigger" "pr"]
@@ -13878,14 +14020,19 @@
         workflow-node (generic-node run-id id-scope file-id path :ci-workflow workflow-label 1)
         jobs (ci-job-blocks config-kind lines)
         workflow-facts (case config-kind
-                         :jenkins (ci-jenkins-workflow-facts lines)
+                         :jenkins (concat (ci-jenkins-workflow-facts lines)
+                                          (ci-template-facts config-kind lines))
                          :azure (concat (ci-workflow-facts lines)
-                                        (ci-azure-workflow-facts lines))
+                                        (ci-azure-workflow-facts lines)
+                                        (ci-template-facts config-kind lines))
                          :circleci (concat (ci-workflow-facts lines)
-                                           (ci-circleci-workflow-facts lines))
+                                           (ci-circleci-workflow-facts lines)
+                                           (ci-template-facts config-kind lines))
                          (:drone :woodpecker) (concat (ci-workflow-facts lines)
-                                                      (ci-event-trigger-facts lines))
-                         (ci-workflow-facts lines))
+                                                      (ci-event-trigger-facts lines)
+                                                      (ci-template-facts config-kind lines))
+                         (concat (ci-workflow-facts lines)
+                                 (ci-template-facts config-kind lines)))
         job-nodes (mapv (fn [{:keys [label source-line] :as job}]
                           (generic-node run-id
                                         id-scope

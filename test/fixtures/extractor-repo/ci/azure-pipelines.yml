@@ -1,3 +1,6 @@
+extends:
+  template: templates/base.yml
+
 trigger: [main]
 pr:
   - main
