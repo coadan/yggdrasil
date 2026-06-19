@@ -19,6 +19,9 @@
 (def ^:private evidence-type-limit
   5)
 
+(def ^:private registry-diagnostic-limit
+  10)
+
 (def ^:private scope-order
   {"source-structure" 0
    "dependencies" 1
@@ -492,6 +495,24 @@
       (seq evidence-types) (assoc :topEvidenceTypes evidence-types)
       (seq samples) (assoc :samples samples))))
 
+(defn- registry-diagnostic-row
+  [[[section evidence-type] rows]]
+  {:scope "unclassified-extractor"
+   :section section
+   :evidenceType evidence-type
+   :rows (count rows)
+   :samples (report-sample-rows rows)})
+
+(defn- registry-diagnostics
+  [audit-rows]
+  (->> audit-rows
+       (filter #(= "unclassified-extractor" (:scope %)))
+       (group-by (juxt :section :evidenceType))
+       (map registry-diagnostic-row)
+       (sort-by (juxt :section :evidenceType))
+       (take registry-diagnostic-limit)
+       vec))
+
 (defn- sync-subcommand
   [subcommand config-path & args]
   (str "agraph sync " subcommand " " (command/shell-token (or config-path "<project.edn>"))
@@ -566,6 +587,7 @@
                                [(get report-scope-order (:kind scope) 100)
                                 (:kind scope)]))
                     vec)
+        registry-diagnostics (registry-diagnostics audit-rows)
         action-context {:project-id (:id project)
                         :config-path config-path}
         next-actions (->> scopes
@@ -582,6 +604,9 @@
                         :skippedFiles (get-in coverage-report [:totals :skipped] 0)
                         :diagnostics (get-in coverage-report [:diagnostics :total] 0)}
              :scopes scopes}
+      (seq registry-diagnostics)
+      (assoc :registryDiagnostics registry-diagnostics)
+
       (seq next-actions) (assoc :nextActions next-actions))))
 
 (defn- read-context

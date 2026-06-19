@@ -272,6 +272,20 @@
     (is (= 1 (get-in scopes-by-kind ["unclassified-extractor" :supportedFiles])))
     (is (= 1 (get-in scopes-by-kind ["unclassified-extractor" :skippedFiles])))
     (is (= 1 (get-in scopes-by-kind ["unclassified-extractor" :diagnostics])))
+    (is (= [{:scope "unclassified-extractor"
+             :section "coverage"
+             :evidenceType "skipped:unsupported-extension"
+             :rows 1}
+            {:scope "unclassified-extractor"
+             :section "diagnostics"
+             :evidenceType "diagnostic:parse"
+             :rows 1}
+            {:scope "unclassified-extractor"
+             :section "files"
+             :evidenceType "panel"
+             :rows 1}]
+           (mapv #(select-keys % [:scope :section :evidenceType :rows])
+                 (:registryDiagnostics report))))
     (is (= #{"agraph packages --project fixture --json"
              "agraph sync coverage project.edn --json"}
            (set (map :command (:nextActions report)))))))

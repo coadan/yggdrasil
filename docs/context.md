@@ -203,6 +203,17 @@ first-pass triage. Full coverage reports include the same connectivity signal
 plus `nextActions` rows when skipped files, extractor diagnostics, or isolated
 indexed files need a follow-up coverage inspection.
 
+## Audit Scopes
+
+Audit-scope reports group indexed rows into mechanical evidence families such as
+source, docs, dependencies, runtime config, containers, infra, assets, and
+unknown text. They do not infer project meaning from path names or prose. When
+rows cannot be mapped to a known family, the report includes
+`unclassified-extractor` plus `registryDiagnostics`, grouped by source section
+and evidence type with bounded samples. Treat those diagnostics as reviewable
+extractor-family gaps: either add a bounded core family mapping or leave the
+rows explicitly unclassified.
+
 `candidateFiles` lists ranked file candidates from retrieval. Rows include
 `repo` when the indexed search result is repo-scoped, so agents can distinguish
 same-path files across multi-repo projects without relying on path text alone.
