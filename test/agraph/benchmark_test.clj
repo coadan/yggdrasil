@@ -752,6 +752,66 @@
               :excludedUnverifiedRuns 2}
              (:artifactPolicy report))))))
 
+(deftest reports-exclude-obsolete-agent-score-schema
+  (let [out (temp-dir "agraph-agent-report-obsolete-score-schema")
+        case {:id "case-1"
+              :repo-id "repo"
+              :base-sha "base"
+              :fix-sha "fix"
+              :issue {:title "broken app"}
+              :ground-truth {:changedFiles ["src/app.clj"]}}
+        suite {:id "suite"
+               :cases [case]}
+        fingerprint (#'benchmark/case-fingerprint suite case)]
+    (spit-json! out
+                "suite/cases/case-1/agent-scores/run-1.score.json"
+                {:schema "agraph.benchmark.agent-score/v1"
+                 :suite-id "suite"
+                 :case-id "case-1"
+                 :repo-id "repo"
+                 :caseFingerprint fingerprint
+                 :agent {:agentId "codex"
+                         :mode "agraph"
+                         :topFiles [{:path "src/app.clj"
+                                     :rank 1}]}
+                 :groundTruth {:changedFiles ["src/app.clj"]}
+                 :scores {:fileRecallAt5 1.0
+                          :fileRecallAt10 1.0
+                          :fileRecallAt20 1.0
+                          :meanReciprocalRankFile 1.0
+                          :noiseRatioAt20 0.0
+                          :changedFiles 1
+                          :scoreableChangedFiles 1}})
+    (let [report (benchmark/report-agent-suite suite {:out out})]
+      (is (= 0 (:runs report)))
+      (is (= ["case-1"] (:missing report)))
+      (is (= {:currentScoreRuns 0
+              :legacyScoreRuns 1
+              :legacyScoreCaseIds ["case-1"]
+              :staleScoreRuns 0
+              :staleScoreCaseIds []
+              :unverifiedScoreRuns 1
+              :unverifiedScoreCaseIds ["case-1"]}
+             (:artifactDiagnostics report)))
+      (is (= {:allowUnverifiedScores false
+              :matchedRuns 1
+              :includedRuns 0
+              :excludedRuns 1
+              :excludedCaseIds ["case-1"]
+              :excludedUnverifiedRuns 1}
+             (:artifactPolicy report))))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= 1 (:runs report)))
+      (is (= "legacy"
+             (get-in report [:results 0 :artifact :fingerprintStatus])))
+      (is (= "legacy"
+             (get-in report [:results 0 :artifact :scoreSchemaStatus])))
+      (is (= "agraph.benchmark.agent-score/v1"
+             (get-in report [:results 0 :artifact :scoreSchema])))
+      (is (= benchmark/agent-score-schema
+             (get-in report [:results 0 :artifact :expectedScoreSchema]))))))
+
 (deftest checks-agent-report-thresholds
   (let [report {:schema benchmark/agent-report-schema
                 :suite-id "suite"
@@ -1509,7 +1569,8 @@
                      :parser-worker "dotnet"}
         result-path (#'benchmark/agent-baseline-result-path suite case java-opts)
         score-path (#'benchmark/agent-score-path suite case java-opts result-path)
-        score {:case-id "case-1"
+        score {:schema benchmark/agent-score-schema
+               :case-id "case-1"
                :caseFingerprint (#'benchmark/case-fingerprint suite case)
                :agent {:agentId "agraph-baseline-lexical"
                        :mode "agraph"}

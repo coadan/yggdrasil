@@ -155,9 +155,9 @@ generated output root.
   a score. When AGraph-mode runs generated hint diagnostics, reports count
   those rows by kind so help-quality issues are visible in aggregate.
   Reports also include `artifactDiagnostics`, which classifies score artifacts
-  as current, legacy, or stale against the suite case fingerprint so old scores
-  cannot silently stand in for changed issue text, commits, coverage, or curated
-  ground truth.
+  as current, legacy, or stale against the current score schema and suite case
+  fingerprint so old scores cannot silently stand in for changed issue text,
+  commits, coverage, curated ground truth, or scorer semantics.
   Unverified score artifacts are excluded from aggregate report scores by
   default; use `--allow-unverified-scores` only for forensic inspection of older
   benchmark runs.

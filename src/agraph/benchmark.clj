@@ -36,7 +36,7 @@
   "agraph.benchmark.agent-result/v1")
 
 (def agent-score-schema
-  "agraph.benchmark.agent-score/v1")
+  "agraph.benchmark.agent-score/v2")
 
 (def agent-report-schema
   "agraph.benchmark.agent-report/v1")
@@ -1558,6 +1558,7 @@
                                  (catch Exception _
                                    nil))]
                      (when (and score
+                                (= agent-score-schema (:schema score))
                                 (= (:id case) (:case-id score))
                                 (= expected-fingerprint (:caseFingerprint score))
                                 (= agent-id (get-in score [:agent :agentId]))
@@ -3862,11 +3863,17 @@
   [expected-fingerprints result]
   (let [expected (get expected-fingerprints (:case-id result))
         actual (:caseFingerprint result)
+        actual-schema (:schema result)
+        schema-current? (= agent-score-schema actual-schema)
         status (cond
+                 (not schema-current?) "legacy"
                  (blankish? actual) "legacy"
                  (= actual expected) "current"
                  :else "stale")]
-    (cond-> {:fingerprintStatus status}
+    (cond-> {:fingerprintStatus status
+             :scoreSchemaStatus (if schema-current? "current" "legacy")
+             :expectedScoreSchema agent-score-schema}
+      actual-schema (assoc :scoreSchema actual-schema)
       actual (assoc :caseFingerprint actual)
       expected (assoc :expectedCaseFingerprint expected))))
 
