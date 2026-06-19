@@ -303,9 +303,9 @@
                       (update :sourceCoverage @#'context/compact-source-coverage))
         trimmed (trim packet (context/estimate-tokens compacted))]
     (is (contains? trimmed :sourceCoverage))
-    (is (not (contains? (:sourceCoverage trimmed) :extractorFingerprints)))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :topFileKinds]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :extractors]))))
+    (is (= 5 (count (get-in trimmed [:sourceCoverage :extractorFingerprints]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :diagnostics :byStage]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :diagnostics :byExtractor]))))
     (is (= 3 (count (get-in trimmed [:sourceCoverage :diagnostics :samples]))))))

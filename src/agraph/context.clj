@@ -681,6 +681,10 @@
       (seq (:extractors source-coverage))
       (assoc :extractors (vec (take 5 (:extractors source-coverage))))
 
+      (seq (:extractorFingerprints source-coverage))
+      (assoc :extractorFingerprints
+             (vec (take 5 (:extractorFingerprints source-coverage))))
+
       (seq (get-in source-coverage [:diagnostics :byStage]))
       (assoc-in [:diagnostics :byStage]
                 (vec (take 5 (get-in source-coverage [:diagnostics :byStage]))))
