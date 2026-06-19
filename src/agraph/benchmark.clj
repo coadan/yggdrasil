@@ -3226,6 +3226,29 @@
                       (str/join " and " (map :label ranked-rows))))))
        vec))
 
+(defn- duplicate-file-path-warnings
+  [field rows]
+  (when (= :suspectedFiles field)
+    (->> rows
+         (map-indexed
+          (fn [idx item]
+            (when (map? item)
+              (when-let [path (not-empty (str (:path item)))]
+                {:idx idx
+                 :path path
+                 :label (row-label idx item)}))))
+         (keep identity)
+         (group-by :path)
+         (keep (fn [[path path-rows]]
+                 (when (< 1 (count path-rows))
+                   (str "agent result "
+                        (name field)
+                        " path "
+                        path
+                        " is duplicated by "
+                        (str/join " and " (map :label path-rows))))))
+         vec)))
+
 (defn- rankable-row-shape-warnings
   [field rows required-fields]
   (vec
@@ -3247,7 +3270,8 @@
                                  (name %))))
                 (rankable-row-value-warnings field idx item))))))
          (mapcat identity))
-    (duplicate-rank-warnings field rows))))
+    (duplicate-rank-warnings field rows)
+    (duplicate-file-path-warnings field rows))))
 
 (defn- agent-result-shape-warnings
   [agent-result]

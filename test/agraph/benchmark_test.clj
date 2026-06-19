@@ -2642,6 +2642,49 @@
             "agent result suspectedSymbols rank 2 is duplicated by row 1 path src/app.clj and row 2 path src/db.clj"]
            (get-in scored [:agent :warnings])))))
 
+(deftest score-agent-result-warns-on-duplicate-file-paths
+  (let [root (temp-dir "agraph-bench-agent-score-duplicate-paths")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :caseId "case-1"
+                      :caseFingerprint "sha256:test-case"
+                      :agentId "codex"
+                      :mode "agraph"
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 2
+                                        :confidence 0.8
+                                        :reason "first"
+                                        :evidence ["manual"]}
+                                       {:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.7
+                                        :reason "second"
+                                        :evidence ["manual"]}]
+                      :suspectedSymbols []
+                      :commands []
+                      :warnings []
+                      :summary "Found candidates."}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (= ["agent result suspectedFiles path src/app.clj is duplicated by row 1 path src/app.clj and row 2 path src/app.clj"]
+           (get-in scored [:agent :warnings])))
+    (is (= [{:path "src/app.clj"
+             :rank 1
+             :confidence 0.7
+             :reason "second"
+             :evidence ["manual"]
+             :metrics nil}]
+           (get-in scored [:agent :topFiles])))))
+
 (deftest score-agent-result-warns-on-mismatched-agent-identity
   (let [root (temp-dir "agraph-bench-agent-score-identity")
         _ (spit-file! root "src/app.clj" "(ns app)\n")

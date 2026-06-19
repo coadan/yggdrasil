@@ -359,7 +359,8 @@ case fingerprint; use `--max-warning-runs 0` when stale or misrouted artifacts
 must fail the benchmark run.
 It also warns when ranked file or symbol rows contain non-positive ranks or
 confidence values outside the `0..1` range, or when ranks are duplicated within
-the same ranked section.
+the same ranked section. Repeated `suspectedFiles.path` rows are warned and the
+scorer keeps the best-ranked row for metrics.
 
 ## Fair Inputs
 
