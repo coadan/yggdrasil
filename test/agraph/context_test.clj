@@ -1019,6 +1019,11 @@
                :facts 1
                :topEvidenceTypes [{:kind "shares-config"
                                    :count 1}]}
+              {:kind "map-corrections"
+               :basis "selected-architecture-evidence"
+               :facts 1
+               :topEvidenceTypes [{:kind "map-reject"
+                                   :count 1}]}
               {:kind "dependencies"
                :basis "selected-architecture-evidence"
                :facts 2
@@ -1051,6 +1056,17 @@
                :section "boundaryEvidence"}]
              (mapv #(dissoc % :score)
                    (get-in packet [:auditScopes 0 :samples]))))
+      (is (= [{:id "map-reject:1"
+               :kind "map-reject"
+               :status "rejected"
+               :provenance "map-overlay"
+               :match {:repo "app"
+                       :kind "candidate-system"
+                       :path "src/worker"}
+               :reason "worker boundary was rejected"
+               :section "rejectedCorrections"}]
+             (mapv #(dissoc % :score)
+                   (get-in packet [:auditScopes 1 :samples]))))
       (is (= [{:kind "unresolved-import"
                :relation "unresolved-import"
                :path "src/worker/job.clj"
@@ -1068,7 +1084,7 @@
                :sourceLine 9
                :section "dependencyEvidence"}]
              (mapv #(dissoc % :score)
-                   (get-in packet [:auditScopes 1 :samples]))))
+                   (get-in packet [:auditScopes 2 :samples]))))
       (is (= [{:id "evidence:billing-env"
                :kind "env-var"
                :path "src/billing/api.clj"
@@ -1077,7 +1093,7 @@
                :fileKind "clojure"
                :section "runtimeEvidence"}]
              (mapv #(dissoc % :score)
-                   (get-in packet [:auditScopes 2 :samples]))))
+                   (get-in packet [:auditScopes 3 :samples]))))
       (is (> (get-in architecture [:runtimeEvidence 0 :score]) 2.0))
       (is (= [{:plane "dependencies"
                :status "missing"

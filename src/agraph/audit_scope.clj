@@ -24,13 +24,14 @@
 
 (def ^:private scope-order
   {"source-structure" 0
-   "dependencies" 1
-   "runtime-config" 2
-   "containers" 3
-   "infra" 4
-   "docs" 5
-   "assets" 6
-   "unknown-text" 7
+   "map-corrections" 1
+   "dependencies" 2
+   "runtime-config" 3
+   "containers" 4
+   "infra" 5
+   "docs" 6
+   "assets" 7
+   "unknown-text" 8
    "unclassified-extractor" 99})
 
 (def ^:private report-scope-order
@@ -248,6 +249,9 @@
                             :repo-id
                             :repo
                             :ext
+                            :status
+                            :provenance
+                            :match
                             :reason
                             :skipReason
                             :skip-reason
@@ -289,6 +293,16 @@
                  (normalize-key (:kind row))
                  (normalize-key (row-file-kind row))
                  "source-evidence")))
+
+(defn- map-correction-audit-rows
+  [section row]
+  (when (#{"map-edge" "map-reject"} (normalize-key (:kind row)))
+    [(audit-row "map-corrections"
+                section
+                row
+                (or (normalize-key (:relation row))
+                    (normalize-key (:kind row))
+                    "map-correction"))]))
 
 (defn- doc-audit-row
   [row]
@@ -332,9 +346,14 @@
   The grouping is based on extractor fact kinds, file kinds, and relation kinds
   only. It does not infer project meaning from paths, prose, hostnames, or
   directory vocabulary."
-  [{:keys [source-evidence boundary-evidence runtime-evidence dependency-evidence docs]}]
+  [{:keys [source-evidence boundary-evidence runtime-evidence dependency-evidence
+           docs rejected-corrections]}]
   (->> (concat (map #(source-audit-row "sourceEvidence" %) source-evidence)
                (map #(source-audit-row "boundaryEvidence" %) boundary-evidence)
+               (mapcat #(map-correction-audit-rows "boundaryEvidence" %)
+                       boundary-evidence)
+               (mapcat #(map-correction-audit-rows "rejectedCorrections" %)
+                       rejected-corrections)
                (mapcat runtime-audit-rows runtime-evidence)
                (mapcat dependency-audit-rows dependency-evidence)
                (map doc-audit-row docs))

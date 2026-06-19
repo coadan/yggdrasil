@@ -206,8 +206,11 @@ indexed files need a follow-up coverage inspection.
 ## Audit Scopes
 
 Audit-scope reports group indexed rows into mechanical evidence families such as
-source, docs, dependencies, runtime config, containers, infra, assets, and
-unknown text. They do not infer project meaning from path names or prose. When
+source, docs, dependencies, runtime config, containers, infra, assets,
+map corrections, and unknown text. They do not infer project meaning from path
+names or prose. `map-corrections` is backed by selected accepted map edges and
+selected rejected corrections from `agraph.map.json`, so agents can see prior
+review facts beside source/runtime/dependency evidence. When
 rows cannot be mapped to a known family, the report includes
 `unclassified-extractor` plus `registryDiagnostics`, grouped by source section
 and evidence type with bounded samples. Treat those diagnostics as reviewable

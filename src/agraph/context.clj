@@ -1338,6 +1338,7 @@
                       {:boundary-evidence (:boundaryEvidence architecture)
                        :runtime-evidence (:runtimeEvidence architecture)
                        :dependency-evidence (:dependencyEvidence architecture)
+                       :rejected-corrections (:rejectedCorrections architecture)
                        :docs (:docs architecture)})
         blast-radius (blast-radius entities edges)]
     (fit-budget (base-packet query-text
