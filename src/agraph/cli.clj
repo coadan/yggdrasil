@@ -3,6 +3,7 @@
   (:require [agraph.agent-install :as agent-install]
             [agraph.activity :as activity]
             [agraph.benchmark :as benchmark]
+            [agraph.command :as command]
             [agraph.context :as context]
             [agraph.coverage :as coverage]
             [agraph.cursor :as cursor]
@@ -1751,16 +1752,35 @@
        :init result
        :project (project/read-project (:config result))})))
 
-(defn- start-next-commands
+(defn- start-next-actions
   [project-id config-path map-path report-out]
-  (cond-> [(str "agraph ask \"where is this handled?\" --project " project-id " --json")
-           (str "agraph explore create \"runtime boundary\" --project " project-id)
-           (str "agraph view systems --project " project-id)
-           (str "agraph report " config-path
-                (when map-path (str " --map " map-path))
-                " --out " report-out)
-           "agraph install-agent --platform codex --project"]
+  (cond-> [{:kind :ask
+            :label "Ask a graph-grounded implementation question"
+            :command (str "agraph ask \"where is this handled?\" --project "
+                          (command/shell-token project-id)
+                          " --json")}
+           {:kind :explore
+            :label "Create a persistent exploration cursor"
+            :command (str "agraph explore create \"runtime boundary\" --project "
+                          (command/shell-token project-id))}
+           {:kind :systems
+            :label "Inspect system graph"
+            :command (str "agraph view systems --project "
+                          (command/shell-token project-id))}
+           {:kind :report
+            :label "Open or regenerate local report bundle"
+            :command (str "agraph report " (command/shell-token config-path)
+                          (when map-path
+                            (str " --map " (command/shell-token map-path)))
+                          " --out " (command/shell-token report-out))}
+           {:kind :install-agent
+            :label "Install project-local agent guidance"
+            :command "agraph install-agent --platform codex --project"}]
     true vec))
+
+(defn- start-next-commands
+  [actions]
+  (mapv :command actions))
 
 (defn- sum-repo-stats
   [sync-result]
@@ -1800,19 +1820,21 @@
 
 (defn- start-result
   [project start-info map-path report-out sync-result activity-result report-result]
-  (cond-> {:schema start-schema
-           :project-id (:id project)
-           :mode (:mode start-info)
-           :config (:config start-info)
-           :map map-path
-           :report (compact-report report-result)
-           :counts (compact-counts sync-result activity-result)
-           :evidence (:evidence report-result)
-           :next (start-next-commands (:id project)
-                                      (:config start-info)
-                                      map-path
-                                      report-out)}
-    (:init start-info) (assoc :initialized true)))
+  (let [actions (start-next-actions (:id project)
+                                    (:config start-info)
+                                    map-path
+                                    report-out)]
+    (cond-> {:schema start-schema
+             :project-id (:id project)
+             :mode (:mode start-info)
+             :config (:config start-info)
+             :map map-path
+             :report (compact-report report-result)
+             :counts (compact-counts sync-result activity-result)
+             :evidence (:evidence report-result)
+             :next (start-next-commands actions)
+             :nextActions actions}
+      (:init start-info) (assoc :initialized true))))
 
 (defn- start!
   [args]

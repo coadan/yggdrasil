@@ -885,6 +885,13 @@
         (is (graph-map/file-exists? map-path))
         (is (some #(str/includes? % "agraph ask")
                   (:next parsed)))
+        (is (some #(= {:kind "ask"
+                       :label "Ask a graph-grounded implementation question"
+                       :command "agraph ask \"where is this handled?\" --project fixture --json"}
+                      %)
+                  (:nextActions parsed)))
+        (is (= (set (:next parsed))
+               (set (map :command (:nextActions parsed)))))
         (is (= [[:index :xtdb "fixture" {:dry-run? false
                                          :index-profile :graph
                                          :map-overlay {:schema "agraph.map/v1"
@@ -953,6 +960,11 @@
         (is (not (contains? parsed :init)))
         (is (not (contains? parsed :initialized)))
         (is (not (contains? parsed :sync)))
+        (is (some #(= (str "agraph report " config-path
+                           " --map " map-path
+                           " --out " report-out)
+                      %)
+                  (:next parsed)))
         (is (= [[:index :xtdb "existing" {:dry-run? false
                                           :index-profile :graph
                                           :map-overlay {:schema "agraph.map/v1"
@@ -972,6 +984,19 @@
                                                                          :docs]))
                          call))
                      @calls)))))))
+
+(deftest start-next-actions-quote-shell-sensitive-values
+  (let [actions (#'cli/start-next-actions
+                 "fixture project"
+                 "Project Files/project.edn"
+                 "Maps/agraph map.json"
+                 "Report Output")
+        commands (set (map :command actions))]
+    (is (contains? commands
+                   "agraph ask \"where is this handled?\" --project 'fixture project' --json"))
+    (is (contains? commands
+                   "agraph report 'Project Files/project.edn' --map 'Maps/agraph map.json' --out 'Report Output'"))
+    (is (= commands (set (#'cli/start-next-commands actions))))))
 
 (deftest sync-runs-index-infer-and-optional-check
   (let [calls (atom [])]
