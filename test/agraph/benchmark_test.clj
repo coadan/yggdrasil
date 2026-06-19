@@ -102,6 +102,9 @@
   (let [suite (benchmark/read-suite "benchmarks/oss-architecture-synthetic.edn")
         cases (:cases suite)
         tags (set (mapcat :tags cases))
+        source-kinds (set (mapcat #(get-in % [:coverage :source-kinds]) cases))
+        evidence-kinds (set (mapcat #(map :kind (get-in % [:expectations :evidence])) cases))
+        node-kinds (set (mapcat #(map :kind (get-in % [:expectations :nodes])) cases))
         cases-by-id (into {} (map (juxt :id identity)) cases)]
     (is (= "oss-architecture-synthetic" (:id suite)))
     (is (<= 4 (count cases)))
@@ -115,6 +118,12 @@
                      (seq (get-in % [:expectations :edges])))
                 cases))
     (is (every? #(seq (:root %)) (:repos suite)))
+    (is (every? source-kinds
+                [:web-framework :manifest :env :sql :javascript :dotnet :compose]))
+    (is (every? evidence-kinds
+                [:env-var :container-image-consumer]))
+    (is (every? node-kinds
+                [:web-framework-route :web-framework-import :web-framework-plugin :external-package]))
     (is (every? #(contains? (set (keys cases-by-id)) %)
                 ["bootstrap-synthetic-docs-route-impact"
                  "bootstrap-synthetic-astro-plugin-config"
