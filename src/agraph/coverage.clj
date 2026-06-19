@@ -283,6 +283,16 @@
                      (:path file) (assoc :path (:path file))
                      (:kind file) (assoc :kind (display-value (:kind file))))))))))
 
+(defn- context-next-actions
+  [diagnostics]
+  (let [diagnostic-count (count diagnostics)]
+    (cond-> []
+      (pos? diagnostic-count)
+      (conj {:kind :coverage
+             :label "Inspect extractor diagnostics"
+             :count diagnostic-count
+             :command (coverage-command nil)}))))
+
 (defn context-summary
   "Return compact indexed source coverage for context packets.
 
@@ -291,21 +301,28 @@
   unsupported source candidates; use `project-coverage` for full repo coverage."
   [xtdb opts]
   (let [files (scoped-active-index-rows xtdb (:files store/tables) opts)
-        diagnostics (scoped-active-index-rows xtdb (:diagnostics store/tables) opts)]
-    {:schema context-schema
-     :basis "indexed-graph"
-     :totals {:indexedFiles (count files)
-              :diagnostics (count diagnostics)
-              :fileKinds (count (set (keep :kind files)))}
-     :topFileKinds (vec (take 8 (count-rows :kind :kind files)))
-     :extractors (vec (take 12 (context-extractor-rows files)))
-     :extractorFingerprints (vec (take 12 (context-extractor-fingerprint-rows
-                                           files)))
-     :diagnostics {:byStage (vec (take 8 (count-rows :stage :stage diagnostics)))
-                   :byExtractor (vec (take 8 (context-diagnostic-extractor-rows
-                                              files
-                                              diagnostics)))
-                   :samples (context-diagnostic-samples files diagnostics)}}))
+        diagnostics (scoped-active-index-rows xtdb (:diagnostics store/tables) opts)
+        summary {:schema context-schema
+                 :basis "indexed-graph"
+                 :totals {:indexedFiles (count files)
+                          :diagnostics (count diagnostics)
+                          :fileKinds (count (set (keep :kind files)))}
+                 :topFileKinds (vec (take 8 (count-rows :kind :kind files)))
+                 :extractors (vec (take 12 (context-extractor-rows files)))
+                 :extractorFingerprints (vec (take 12 (context-extractor-fingerprint-rows
+                                                       files)))
+                 :diagnostics {:byStage (vec (take 8 (count-rows :stage
+                                                                 :stage
+                                                                 diagnostics)))
+                               :byExtractor (vec (take 8
+                                                       (context-diagnostic-extractor-rows
+                                                        files
+                                                        diagnostics)))
+                               :samples (context-diagnostic-samples files
+                                                                    diagnostics)}}
+        actions (context-next-actions diagnostics)]
+    (cond-> summary
+      (seq actions) (assoc :nextActions actions))))
 
 (defn- indexed-extractor-fingerprint-summary
   [xtdb project-id]

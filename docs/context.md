@@ -179,8 +179,10 @@ and active diagnostics grouped by stage and extractor. Fingerprints are opaque
 mechanical audit ids for the extractor/indexing boundary used to create indexed
 file rows; they are not semantic classifications. It does not scan the
 filesystem for unsupported files; use `agraph sync coverage <project.edn> --json`
-when an agent needs skipped or unsupported source candidates. Project evidence
-and report packets include compact `skipped-by-extension` and
+when an agent needs skipped or unsupported source candidates. When active
+indexed diagnostics exist, `sourceCoverage.nextActions` points at the same
+coverage inspection command. Project evidence and report packets include compact
+`skipped-by-extension` and
 `skipped-by-reason` rows with bounded samples for first-pass triage. Full
 coverage reports include `nextActions` rows when skipped files or extractor
 diagnostics need a follow-up coverage inspection.

@@ -216,7 +216,12 @@
                :source-line 12
                :path "src/Service.java"
                :kind "java"}]
-             (get-in summary [:diagnostics :samples]))))))
+             (get-in summary [:diagnostics :samples])))
+      (is (= [{:kind :coverage
+               :label "Inspect extractor diagnostics"
+               :count 2
+               :command "agraph sync coverage <project.edn> --json"}]
+             (:nextActions summary))))))
 
 (deftest project-coverage-reports-indexed-extractor-fingerprints
   (let [root (temp-dir "agraph-coverage-fingerprints")]
