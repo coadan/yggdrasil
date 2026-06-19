@@ -54,6 +54,10 @@
           (is (= "agraph.test.result/v1" (:result-schema (first items))))
           (is (contains? (set (:tokens (first items)))
                          "agraph.test.result/v1"))
+          (is (= "agraph.test.result/v1"
+                 (:expectedResultSchema (first selected))))
+          (is (= "agraph.test.result/v1"
+                 (:resultSchema (first selected))))
           (is (= [(get-in enqueued [:item :id])]
                  (mapv :sourceId selected))))))))
 

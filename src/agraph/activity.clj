@@ -348,6 +348,7 @@
                             :sourceId (:source-id item)
                             :sourcePath (:source-path item)
                             :payloadSchema (:payload-schema item)
+                            :expectedResultSchema (:expected-result-schema item)
                             :resultSchema (:result-schema item)
                             :targetIds (:target-ids item)
                             :summary (:summary item)
