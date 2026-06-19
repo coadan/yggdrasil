@@ -443,6 +443,12 @@
       (seq (:extractor-fingerprints summary))
       (assoc :extractorFingerprints (vec (take 5 (:extractor-fingerprints summary))))
 
+      (seq (:skipped-by-extension summary))
+      (assoc :skippedByExtension (vec (take 5 (:skipped-by-extension summary))))
+
+      (seq (:skipped-by-reason summary))
+      (assoc :skippedByReason (vec (take 5 (:skipped-by-reason summary))))
+
       (seq (:diagnostics summary))
       (assoc :diagnostics (cond-> (select-keys (:diagnostics summary)
                                                [:total :by-stage :by-extractor])

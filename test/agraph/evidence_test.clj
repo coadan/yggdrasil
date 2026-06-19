@@ -118,6 +118,26 @@
     (is (= (vec (take 5 fingerprints))
            (:extractorFingerprints coverage)))))
 
+(deftest status-coverage-keeps-bounded-skipped-breakdowns
+  (let [by-extension (mapv (fn [idx]
+                             {:extension (str ".skip" idx)
+                              :count (inc idx)})
+                           (range 7))
+        by-reason (mapv (fn [idx]
+                          {:reason (str "reason-" idx)
+                           :count (inc idx)})
+                        (range 7))
+        coverage (evidence/status-coverage
+                  {:counts {:files 7
+                            :skipped-files 7
+                            :diagnostics 0}
+                   :skipped-by-extension by-extension
+                   :skipped-by-reason by-reason})]
+    (is (= (vec (take 5 by-extension))
+           (:skippedByExtension coverage)))
+    (is (= (vec (take 5 by-reason))
+           (:skippedByReason coverage)))))
+
 (deftest summarize-exposes-dependency-evidence-plane
   (with-redefs [coverage/project-coverage (fn [& _]
                                             {:totals {:skipped 2}

@@ -1010,6 +1010,10 @@
                                                                 :extractor-version "clojure/v1"
                                                                 :extractor-fingerprint "extractor:clj-a"
                                                                 :files 2}]
+                                      :skipped-by-extension [{:extension ".bin"
+                                                              :count 1}]
+                                      :skipped-by-reason [{:reason "binary"
+                                                           :count 1}]
                                       :nextActions [{:kind :ask
                                                      :command "agraph ask \"where is this handled?\" --project fixture --json"}]})]
     (let [response (mcp/handle-message
@@ -1044,7 +1048,11 @@
               :extractorFingerprints [{:kind "clojure"
                                        :extractor-version "clojure/v1"
                                        :extractor-fingerprint "extractor:clj-a"
-                                       :files 2}]}
+                                       :files 2}]
+              :skippedByExtension [{:extension ".bin"
+                                    :count 1}]
+              :skippedByReason [{:reason "binary"
+                                 :count 1}]}
              (:coverage packet)))
       (is (= {:status :current
               :basis "indexed-graph"
