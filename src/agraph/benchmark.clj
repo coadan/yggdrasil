@@ -4452,6 +4452,7 @@
                   :maxMissingPredictedFileRuns]
                  [:max-commandless-runs :maxCommandlessRuns]
                  [:max-warning-runs :maxWarningRuns]
+                 [:max-hint-diagnostic-runs :maxHintDiagnosticRuns]
                  [:max-identity-mismatch-runs :maxIdentityMismatchRuns]
                  [:max-unverified-score-runs :maxUnverifiedScoreRuns]
                  [:max-graph-expectation-failures :maxGraphExpectationFailures]
@@ -4633,6 +4634,24 @@
                                     :agentDiagnostics
                                     :warningCaseIds])
                  :message "Some agent score artifacts contain scorer or agent warnings."})]))))
+
+(defn- hint-diagnostic-run-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :maxHintDiagnosticRuns])]
+    (let [actual (double (get-in check
+                                 [:report :agentDiagnostics :hintDiagnosticRuns]
+                                 0))]
+      (when (> actual expected)
+        [(merge (metric-failure "hintDiagnosticRuns" "<=" expected actual)
+                {:case-ids (get-in check
+                                   [:report
+                                    :agentDiagnostics
+                                    :hintDiagnosticCaseIds])
+                 :hintDiagnosticsByKind (get-in check
+                                                [:report
+                                                 :agentDiagnostics
+                                                 :hintDiagnosticsByKind])
+                 :message "Some AGraph hint artifacts reported help-quality diagnostics."})]))))
 
 (defn- identity-mismatch-run-failures
   [check]
@@ -4958,6 +4977,7 @@
                    (missing-predicted-file-failures check-base)
                    (commandless-run-failures check-base)
                    (warning-run-failures check-base)
+                   (hint-diagnostic-run-failures check-base)
                    (identity-mismatch-run-failures check-base)
                    (unverified-score-failures check-base)
                    (graph-expectation-failures check-base)
@@ -5006,6 +5026,9 @@
     :direction :lower}
    {:path [:agentDiagnostics :commandlessRuns]
     :label "commandlessRuns"
+    :direction :lower}
+   {:path [:agentDiagnostics :hintDiagnosticRuns]
+    :label "hintDiagnosticRuns"
     :direction :lower}
    {:path [:agentDiagnostics :identityMismatchRuns]
     :label "identityMismatchRuns"

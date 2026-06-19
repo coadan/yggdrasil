@@ -181,7 +181,9 @@ generated output root.
   that do not exist in the base checkout, `--max-commandless-runs` to fail when
   agents do not cite commands,
   `--max-warning-runs` to fail when scorer or agent warnings are present beyond
-  the configured budget, `--max-identity-mismatch-runs` to fail when score
+  the configured budget, `--max-hint-diagnostic-runs` to fail when score
+  artifacts include AGraph hint diagnostics,
+  `--max-identity-mismatch-runs` to fail when score
   artifacts report a wrong schema, case id, or case fingerprint,
   `--max-unverified-score-runs` to fail when
   matching score artifacts are legacy or stale relative to the current suite file,
@@ -210,10 +212,10 @@ generated output root.
   prove it did not trade one benchmark case for another:
   `bb bench agent-compare benchmark.edn --baseline-report before/agent-report.json
   --candidate-report after/agent-report.json`. It also treats higher aggregate
-  warning runs, missing declared source-kind runs, coverage-excluded
-  ground-truth files, and unsupported ground-truth files as lower-is-better
-  regressions when the compared report case set and parser-worker profiles are
-  unchanged.
+  warning runs, hint diagnostic runs, missing declared source-kind runs,
+  coverage-excluded ground-truth files, and unsupported ground-truth files as
+  lower-is-better regressions when the compared report case set and
+  parser-worker profiles are unchanged.
 - `bench run <suite.edn>` creates a detached worktree at each base SHA, indexes
   it with the query profile, runs lexical retrieval over the issue text, and
   writes one scored result artifact per case.
@@ -473,9 +475,14 @@ given.
 - `agentDiagnostics.warningRuns`: scored agent artifacts that carried scorer or
   agent warnings. Gate this with `--max-warning-runs` when benchmark result
   shape quality should be part of the ratchet. `agent-compare` also treats
-  higher aggregate `warningRuns`, `commandlessRuns`, and
-  `missingPredictedFileRuns` as lower-is-better regressions when the report case
-  set and parser-worker profiles are comparable.
+  higher aggregate `warningRuns`, `commandlessRuns`,
+  `missingPredictedFileRuns`, and `hintDiagnosticRuns` as lower-is-better
+  regressions when the report case set and parser-worker profiles are
+  comparable.
+- `agentDiagnostics.hintDiagnosticRuns`: scored AGraph-mode artifacts whose
+  generated hint file reported help-quality diagnostics. Gate this with
+  `--max-hint-diagnostic-runs` when the hints should be free of coverage,
+  source-support, or zero-candidate warnings.
 - `agentDiagnostics.identityMismatchRuns`: scored agent artifacts whose schema,
   case id, or case fingerprint did not match the prepared case. These are also
   counted under `warningRuns`; gate them directly with

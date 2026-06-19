@@ -782,6 +782,12 @@
                                    :commandlessCaseIds ["case-1"]
                                    :warningRuns 1
                                    :warningCaseIds ["case-1"]
+                                   :hintDiagnosticRuns 1
+                                   :hintDiagnosticCaseIds ["case-1"]
+                                   :hintDiagnosticsByKind [{:kind "coverage-filtered-candidate-files"
+                                                            :runs 1
+                                                            :cases 1
+                                                            :caseIds ["case-1"]}]
                                    :identityMismatchRuns 1
                                    :identityMismatchCaseIds ["case-1"]
                                    :identityMismatches 2}
@@ -863,6 +869,7 @@
                  :max-missing-predicted-file-runs 0
                  :max-commandless-runs 0
                  :max-warning-runs 0
+                 :max-hint-diagnostic-runs 0
                  :max-identity-mismatch-runs 0
                  :max-unverified-score-runs 0
                  :max-graph-expectation-failures 0
@@ -912,6 +919,7 @@
                  :max-missing-predicted-file-runs 1
                  :max-commandless-runs 1
                  :max-warning-runs 1
+                 :max-hint-diagnostic-runs 1
                  :max-identity-mismatch-runs 1
                  :max-unverified-score-runs 1
                  :max-graph-expectation-failures 1
@@ -944,6 +952,7 @@
              "missingPredictedFileRuns"
              "commandlessRuns"
              "warningRuns"
+             "hintDiagnosticRuns"
              "identityMismatchRuns"
              "unverifiedScoreRuns"
              "graphExpectationFailures"
@@ -978,6 +987,7 @@
                    "case.noiseRatioAt20"
                    "case.graphExpectations"
                    "missingPredictedFileRuns"
+                   "hintDiagnosticRuns"
                    "missedButPresentInContextRuns"
                    "missedAndAbsentFromContextRuns"]))
       (is (not (contains? case-1-failures "activeStageElapsedMs"))))
@@ -1038,6 +1048,7 @@
             :maxMissingPredictedFileRuns 0.0
             :maxCommandlessRuns 0.0
             :maxWarningRuns 0.0
+            :maxHintDiagnosticRuns 0.0
             :maxIdentityMismatchRuns 0.0
             :maxUnverifiedScoreRuns 0.0
             :maxGraphExpectationFailures 0.0
@@ -1114,6 +1125,7 @@
                                    :runs 2}]
                   :agentDiagnostics {:warningRuns 0
                                      :missingPredictedFileRuns 0
+                                     :hintDiagnosticRuns 0
                                      :identityMismatchRuns 0}
                   :coverageDiagnostics {:missingDeclaredSourceKindRuns 0
                                         :coverageExcludedGroundTruthFiles 0
@@ -1145,6 +1157,7 @@
                                     :runs 2}]
                    :agentDiagnostics {:warningRuns 1
                                       :missingPredictedFileRuns 1
+                                      :hintDiagnosticRuns 1
                                       :identityMismatchRuns 1}
                    :coverageDiagnostics {:missingDeclaredSourceKindRuns 1
                                          :coverageExcludedGroundTruthFiles 1
@@ -1210,6 +1223,7 @@
              "noiseRatioAt20"
              "warningRuns"
              "missingPredictedFileRuns"
+             "hintDiagnosticRuns"
              "identityMismatchRuns"
              "missingDeclaredSourceKindRuns"
              "coverageExcludedGroundTruthFiles"
