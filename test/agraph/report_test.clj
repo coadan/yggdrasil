@@ -53,6 +53,10 @@
                              :expected-manifest-fingerprint "sha256:manifest"
                              :extractor-plugins 1
                              :report-plugins 1
+                             :diagnostics [{:code :unbenchmarked
+                                            :severity :warning
+                                            :applies-to [:claims :core-promotion]
+                                            :message "datastar-hiccup is unbenchmarked"}]
                              :warnings ["datastar-hiccup is unbenchmarked"]}]}
                  :detail :primary
                  :generated-at-ms 1
@@ -145,6 +149,10 @@
              :expected-manifest-fingerprint "sha256:manifest"
              :extractor-plugins 1
              :report-plugins 1
+             :diagnostics [{:code :unbenchmarked
+                            :severity :warning
+                            :applies-to [:claims :core-promotion]
+                            :message "datastar-hiccup is unbenchmarked"}]
              :warnings ["datastar-hiccup is unbenchmarked"]
              :source {:type :git
                       :url "https://example.test/datastar.git"

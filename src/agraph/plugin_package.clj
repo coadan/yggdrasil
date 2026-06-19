@@ -523,6 +523,7 @@
                                  (core-promotion-artifacts package :tests))}
    :extractor-plugins (count (:resolved-extractor-plugins package))
    :report-plugins (count (:resolved-report-plugins package))
+   :diagnostics (package-diagnostics package)
    :warnings (:warnings package)})
 
 (defn read-installed-packages
