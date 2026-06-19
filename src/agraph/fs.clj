@@ -513,9 +513,9 @@
   (let [path-lower (str/replace (str/lower-case (str file)) "\\" "/")]
     (boolean
      (or (and (contains? #{:javascript :typescript} path-kind)
-              (or (re-find #"(^|/)app/(?:.+/)?(?:page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs)$"
+              (or (re-find #"(^|/)app/(?:.+/)?(?:page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$"
                            path-lower)
-                  (re-find #"(^|/)pages/(?:.+\.)?(?:js|jsx|ts|tsx|mjs|cjs)$"
+                  (re-find #"(^|/)pages/(?:.+\.)?(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$"
                            path-lower)))
          (and (= :svelte path-kind)
               (re-find #"(^|/)src/routes/(?:.+/)?\+(?:page|layout|server)\.svelte$"

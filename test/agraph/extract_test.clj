@@ -3532,6 +3532,24 @@
     (is (some #(= :web-framework-file (:kind %)) (:chunks next-panel)))
     (is (some #(= :astro-file (:kind %)) (:chunks astro-panel)))))
 
+(deftest extracts-typescript-commonjs-web-route-facts
+  (let [root (doto (java.io.File/createTempFile "agraph-route" "")
+               (.delete)
+               (.mkdirs)
+               (.deleteOnExit))
+        source (io/file root "app/panels/[id]/route.cts")
+        _ (.mkdirs (.getParentFile source))
+        _ (spit source "import { loadPanel } from '../../data';\nexport const GET = loadPanel;\n")
+        file (fs/file-record (.getPath root) (.getPath source))
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))]
+    (is (= :web-framework (:kind file)))
+    (is (contains? labels "/panels/{id}"))
+    (is (contains? labels "/panels/{id}:route"))
+    (is (contains? labels "app.data"))
+    (is (some #(= :typescript-file (:kind %)) (:chunks result)))
+    (is (empty? (:diagnostics result)))))
+
 (deftest extracts-workflow-orchestration-facts
   (let [result-for (fn [path]
                      (extract/extract-file

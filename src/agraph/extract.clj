@@ -10728,7 +10728,7 @@
 
 (defn- strip-route-extension
   [value]
-  (str/replace value #"\.(?:js|jsx|ts|tsx|mjs|cjs|svelte|vue|astro)$" ""))
+  (str/replace value #"\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts|svelte|vue|astro)$" ""))
 
 (defn- route-segment-label
   [segment]
@@ -10758,11 +10758,11 @@
   [path]
   (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")]
     (cond
-      (re-find #"(?:^|/)app/(?:.+/)?(?:page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs)$"
+      (re-find #"(?:^|/)app/(?:.+/)?(?:page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$"
                path-lower)
-      (let [[_ route-part file-role] (re-find #"(?:^|/)app/(.*)/(page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs)$"
+      (let [[_ route-part file-role] (re-find #"(?:^|/)app/(.*)/(page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$"
                                               path-lower)
-            [_ file-role-root] (re-find #"(?:^|/)app/(page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs)$"
+            [_ file-role-root] (re-find #"(?:^|/)app/(page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$"
                                         path-lower)
             file-role (or file-role file-role-root)
             route-part (or route-part "")
@@ -10771,8 +10771,8 @@
          :route (route-path-from-segments segments)
          :role file-role})
 
-      (re-find #"(?:^|/)pages/.+\.(?:js|jsx|ts|tsx|mjs|cjs)$" path-lower)
-      (let [[_ route-part] (re-find #"(?:^|/)pages/(.+)\.(?:js|jsx|ts|tsx|mjs|cjs)$"
+      (re-find #"(?:^|/)pages/.+\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$" path-lower)
+      (let [[_ route-part] (re-find #"(?:^|/)pages/(.+)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$"
                                     path-lower)]
         {:framework "next"
          :route (route-path-from-segments (str/split (strip-route-extension route-part) #"/"))
