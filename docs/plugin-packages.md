@@ -73,6 +73,7 @@ bb plugin new .dev/agraph/plugins/datastar-hiccup --id datastar-hiccup
 bb plugin validate .dev/agraph/plugins/datastar-hiccup
 bb plugin diagnose .dev/agraph/plugins/datastar-hiccup
 bb plugin core-check .dev/agraph/plugins/datastar-hiccup
+bb plugin input extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
 bb plugin dry-run extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
 bb plugin dry-run report .dev/agraph/plugins/datastar-hiccup --json
 bb plugin registry validate .dev/agraph/plugins/registry.edn
@@ -135,6 +136,13 @@ package is base-scoped, FOSS/non-commercial, benchmarked with existing benchmark
 artifacts, and declares package-local fixtures and tests. Passing this command
 does not merge the plugin into core; it only proves the package has the minimum
 review evidence for a project-agnostic core contribution.
+
+`plugin input extractor` builds the exact `agraph.extractor-plugin.input/v1`
+packet that selected package extractors would receive for one file without
+executing plugin code. JSON output includes package caveats, selected/skipped
+plugins, core extraction counts, and one input packet per applicable selected
+extractor. Use this before writing or debugging an agent-authored extractor so
+the plugin can target the real contract instead of guessing what AGraph sends.
 
 `plugin dry-run extractor` runs the package extractor against one file without
 writing graph state. It uses core extraction first, applies the selected plugin

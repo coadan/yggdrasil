@@ -331,6 +331,14 @@
    :file (select-plugin-file file)
    :core (select-keys core-extraction [:nodes :edges :chunks :diagnostics])})
 
+(defn build-plugin-input
+  "Build the JSON-compatible input packet sent to one extractor plugin.
+
+  This is useful for dry-run tooling and agent authoring flows that need the
+  contract without executing the plugin command."
+  [ctx plugin]
+  (plugin-input ctx plugin))
+
 (defn- parse-output
   [out]
   (json/read-json out :key-fn keyword))

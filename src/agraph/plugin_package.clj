@@ -36,6 +36,9 @@
 (def dry-run-schema
   "agraph.plugin.dry-run/v1")
 
+(def input-sample-schema
+  "agraph.plugin.input-sample/v1")
+
 (def diagnose-schema
   "agraph.plugin.diagnose/v1")
 
@@ -1283,6 +1286,21 @@
                       :kind kind}}
     (present? plugin-id) (assoc-in [:evidence :plugin-id] plugin-id)))
 
+(defn- no-applicable-extractor-plugins-diagnostic
+  [package file plugins plugin-id]
+  (cond-> {:code :no-extractor-plugins-applicable
+           :severity :error
+           :applies-to [:local-use]
+           :message (str (:id package)
+                         " has no selected extractor plugin applicable to "
+                         (:path file)
+                         ".")
+           :evidence {:package-id (:id package)
+                      :kind :extractor
+                      :file (select-keys file [:path :kind :plugin-scanned? :plugin-ids])
+                      :selected-plugin-ids (mapv :id plugins)}}
+    (present? plugin-id) (assoc-in [:evidence :plugin-id] plugin-id)))
+
 (defn- package-error-extractor-dry-run
   [package root-path file diagnostics]
   (let [rows (assoc (empty-extraction) :diagnostics diagnostics)]
@@ -1311,6 +1329,19 @@
    :diagnostics diagnostics
    :outputs []})
 
+(defn- package-error-extractor-input-sample
+  [package root-path file diagnostics]
+  {:schema input-sample-schema
+   :kind :extractor
+   :status :failed
+   :package (package-summary package)
+   :plugins []
+   :file {:path (str file)
+          :root root-path}
+   :core-counts {}
+   :diagnostics diagnostics
+   :inputs []})
+
 (defn- dry-run-plugin-summary
   [plugin]
   (select-keys plugin
@@ -1324,6 +1355,61 @@
                 :package-source
                 :package-claim-authority
                 :package-manifest-fingerprint]))
+
+(defn sample-extractor-inputs
+  "Build extractor plugin input packets for one package/file without executing plugin commands."
+  [package-dir root file {:keys [plugin-id]}]
+  (let [package (read-local-package package-dir)
+        root-path (fs/canonical-path root)
+        package-errors (local-use-error-diagnostics package)]
+    (cond
+      (seq package-errors)
+      (package-error-extractor-input-sample package root-path file package-errors)
+
+      :else
+      (let [available-plugins (extractor-plugins package)
+            plugins (select-plugin-configs :extractor available-plugins plugin-id)
+            selection (plugin-selection-summary :extractor
+                                                plugin-id
+                                                available-plugins
+                                                plugins)
+            file-record (file-record-for-dry-run root-path file plugins)
+            run-id "run:plugin-input-sample"
+            extract-file (requiring-resolve 'agraph.extract/extract-file)
+            core (extract-file run-id file-record)
+            applicable (extractor-plugin/applicable-plugins plugins file-record)
+            diagnostics (cond
+                          (empty? plugins)
+                          [(no-selected-plugins-diagnostic :extractor
+                                                           package
+                                                           plugin-id)]
+
+                          (empty? applicable)
+                          [(no-applicable-extractor-plugins-diagnostic package
+                                                                       file-record
+                                                                       plugins
+                                                                       plugin-id)]
+
+                          :else
+                          [])
+            ctx {:run-id run-id
+                 :project-id "plugin-input-sample"
+                 :repo-id "repo"
+                 :root-path root-path
+                 :file file-record
+                 :core-extraction core}
+            inputs (mapv #(extractor-plugin/build-plugin-input ctx %)
+                         applicable)]
+        {:schema input-sample-schema
+         :kind :extractor
+         :status (if (seq diagnostics) :failed :passed)
+         :package (package-summary package)
+         :plugins (mapv dry-run-plugin-summary applicable)
+         :selection selection
+         :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
+         :core-counts (counts core)
+         :diagnostics diagnostics
+         :inputs inputs}))))
 
 (defn dry-run-extractor
   "Run package extractor plugins against one file without writing graph state."

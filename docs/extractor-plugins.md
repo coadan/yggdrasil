@@ -39,6 +39,10 @@ Commands run from the indexed repo root. AGraph sends one JSON request on stdin
 and expects one JSON result on stdout. Commands are executed as argv vectors,
 not through shell interpolation.
 
+Use `bb plugin input extractor <package-dir> <repo-root> <file> --json` to
+inspect the exact input packet AGraph will send for one selected package
+extractor without executing the plugin command.
+
 For git-shared packages, install a package with `bb plugin install` and let
 `project.edn` reference its pinned local manifest. See
 [plugin-packages.md](plugin-packages.md).

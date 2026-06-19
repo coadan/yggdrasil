@@ -266,6 +266,11 @@
                    (.getPath repo-root)
                    "src/page.clj"
                    {})
+          input-sample (plugin-package/sample-extractor-inputs
+                        (.getPath package-dir)
+                        (.getPath repo-root)
+                        "src/page.clj"
+                        {})
           report-dry-run (plugin-package/dry-run-report
                           (.getPath package-dir)
                           {})
@@ -368,6 +373,33 @@
                 (get-in dry-run [:rows :file-facts])))
       (is (some #(= claim-authority (:plugin-package-claim-authority %))
                 (get-in dry-run [:rows :file-facts])))
+      (is (= plugin-package/input-sample-schema (:schema input-sample)))
+      (is (= :passed (:status input-sample)))
+      (is (= "src/page.clj" (get-in input-sample [:file :path])))
+      (is (= {:kind :extractor
+              :available ["demo-plugin-extractor"]
+              :selected ["demo-plugin-extractor"]
+              :skipped []
+              :counts {:available 1
+                       :selected 1
+                       :skipped 0}}
+             (:selection input-sample)))
+      (is (= 1 (count (:inputs input-sample))))
+      (is (= "agraph.extractor-plugin.input/v1"
+             (get-in input-sample [:inputs 0 :schema])))
+      (is (= "demo-plugin-extractor"
+             (get-in input-sample [:inputs 0 :plugin :id])))
+      (is (= "demo-plugin"
+             (get-in input-sample [:inputs 0 :plugin :packageId])))
+      (is (= manifest-fingerprint
+             (get-in input-sample [:inputs 0 :plugin :packageManifestFingerprint])))
+      (is (= claim-authority
+             (get-in input-sample [:inputs 0 :plugin :packageClaimAuthority])))
+      (is (= "src/page.clj"
+             (get-in input-sample [:inputs 0 :file :path])))
+      (is (contains? (get-in input-sample [:inputs 0 :core]) :nodes))
+      (is (= (get-in dry-run [:core-counts :nodes])
+             (get-in input-sample [:core-counts :nodes])))
       (is (= plugin-package/dry-run-schema (:schema report-dry-run)))
       (is (= :report (:kind report-dry-run)))
       (is (= :passed (:status report-dry-run)))
