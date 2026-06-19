@@ -27,16 +27,32 @@
 (def plugin-package-fixture
   {:id "datastar-hiccup"
    :version "0.1.0"
+   :path ".dev/agraph/plugins/cache/datastar"
+   :source {:type :git
+            :url "https://example.test/datastar.git"
+            :ref "v0.1.0"
+            :rev "abc123"
+            :subdir "packages/datastar"
+            :extra "drop"}
    :visibility :public
    :scope {:kind :base}
    :benchmark-status :unbenchmarked
    :benchmark-cases {:artifacts 1
                      :case-ids ["datastar-hiccup-architecture"]}
    :claim-authority {:status :non-authoritative}
+   :manifest-fingerprint "sha256:manifest"
+   :expected-package-id "datastar-hiccup"
+   :expected-manifest-fingerprint "sha256:manifest"
    :diagnostic-counts {:total 1
                        :errors 0
                        :warnings 1}
    :warnings ["datastar-hiccup is unbenchmarked"]})
+
+(def compact-plugin-package-fixture
+  (update plugin-package-fixture
+          :source
+          select-keys
+          [:type :url :rev :ref :subdir :path]))
 
 (deftest inferred-docs-include-source-chunk-for-retrieved-node-result
   (let [inferred-docs @#'context/inferred-docs
@@ -806,7 +822,7 @@
                        :unbenchmarked 1
                        :benchmarked 0
                        :nonAuthoritative 1}
-              :packages [plugin-package-fixture]}
+              :packages [compact-plugin-package-fixture]}
              (:pluginPackages packet)))
       (is (not (contains? packet :auditScopes)))
       (is (= [{:path "src/auth.clj"

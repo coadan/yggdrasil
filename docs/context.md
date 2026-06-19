@@ -110,8 +110,9 @@ Both surfaces use `dependencies` for the evidence plane backed by package
 declarations, lockfile versions, and mechanically resolved package-import edges.
 When plugin packages are installed, context packets also include
 `pluginPackages`: compact package caveats with benchmark status, claim authority,
-warning counts, and package ids. Treat unbenchmarked or non-authoritative plugin
-output as review evidence, not as benchmark-backed architecture understanding.
+warning counts, package ids, source pins, and manifest fingerprints. Treat
+unbenchmarked or non-authoritative plugin output as review evidence, not as
+benchmark-backed architecture understanding.
 
 - `status`: `ready`, `limited`, or `empty`
 - `available`: populated evidence planes, such as `source-graph`,

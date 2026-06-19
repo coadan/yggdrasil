@@ -24,6 +24,13 @@
 (def plugin-package-fixture
   {:id "datastar-hiccup"
    :version "0.1.0"
+   :path ".dev/agraph/plugins/cache/datastar"
+   :source {:type :git
+            :url "https://example.test/datastar.git"
+            :ref "v0.1.0"
+            :rev "abc123"
+            :subdir "packages/datastar"
+            :extra "drop"}
    :visibility :public
    :scope {:kind :base}
    :benchmark-status :unbenchmarked
@@ -35,10 +42,19 @@
                      :review-required? false
                      :blockers [{:code :unbenchmarked
                                  :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
+   :manifest-fingerprint "sha256:manifest"
+   :expected-package-id "datastar-hiccup"
+   :expected-manifest-fingerprint "sha256:manifest"
    :diagnostic-counts {:total 1
                        :errors 0
                        :warnings 1}
    :warnings ["datastar-hiccup is unbenchmarked"]})
+
+(def compact-plugin-package-fixture
+  (update plugin-package-fixture
+          :source
+          select-keys
+          [:type :url :rev :ref :subdir :path]))
 
 (def project-with-plugin-package
   (assoc project-fixture :plugin-packages [plugin-package-fixture]))
@@ -916,7 +932,7 @@
                        :unbenchmarked 1
                        :benchmarked 0
                        :nonAuthoritative 1}
-              :packages [plugin-package-fixture]}
+              :packages [compact-plugin-package-fixture]}
              (:pluginPackages packet)))
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
@@ -1009,7 +1025,7 @@
                        :unbenchmarked 1
                        :benchmarked 0
                        :nonAuthoritative 1}
-              :packages [plugin-package-fixture]}
+              :packages [compact-plugin-package-fixture]}
              (:pluginPackages packet)))
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))

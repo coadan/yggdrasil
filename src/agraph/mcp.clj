@@ -1050,17 +1050,26 @@
                              :limit (or (:limit args) graph/default-node-limit)
                              :map-overlay (map-overlay ctx args)})))))
 
+(defn- plugin-package-source
+  [source]
+  (select-keys source [:type :url :rev :ref :subdir :path]))
+
 (defn- compact-plugin-package
   [package]
-  (select-keys package [:id
-                        :version
-                        :visibility
-                        :scope
-                        :benchmark-status
-                        :benchmark-cases
-                        :claim-authority
-                        :diagnostic-counts
-                        :warnings]))
+  (cond-> (select-keys package [:id
+                                :version
+                                :path
+                                :visibility
+                                :scope
+                                :benchmark-status
+                                :benchmark-cases
+                                :claim-authority
+                                :manifest-fingerprint
+                                :expected-package-id
+                                :expected-manifest-fingerprint
+                                :diagnostic-counts
+                                :warnings])
+    (:source package) (assoc :source (plugin-package-source (:source package)))))
 
 (defn- plugin-package-caveats
   [project]
