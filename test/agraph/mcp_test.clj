@@ -954,6 +954,10 @@
                                                :diagnostics 0}
                                       :top-file-kinds [{:kind "clojure"
                                                         :count 2}]
+                                      :extractor-fingerprints [{:kind "clojure"
+                                                                :extractor-version "clojure/v1"
+                                                                :extractor-fingerprint "extractor:clj-a"
+                                                                :files 2}]
                                       :nextActions [{:kind :ask
                                                      :command "agraph ask \"where is this handled?\" --project fixture --json"}]})]
     (let [response (mcp/handle-message
@@ -977,7 +981,11 @@
                        :skippedFiles 0
                        :diagnostics 0}
               :topFileKinds [{:kind "clojure"
-                              :count 2}]}
+                              :count 2}]
+              :extractorFingerprints [{:kind "clojure"
+                                       :extractor-version "clojure/v1"
+                                       :extractor-fingerprint "extractor:clj-a"
+                                       :files 2}]}
              (:coverage packet)))
       (is (= {:status :current
               :basis "indexed-graph"
