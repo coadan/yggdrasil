@@ -4,7 +4,11 @@ import { emptyGraph, emptyReport, fixtureGraph, fixtureReport, sourceDocsSystemR
 import { ReportPage } from "./ReportPage";
 
 vi.mock("../graph/GraphPanel", () => ({
-  GraphPanel: () => <div data-testid="graph-panel" />,
+  GraphPanel: ({ graph }: { graph: { title?: string; nodes: unknown[]; edges: unknown[] } }) => (
+    <div data-testid="graph-panel">
+      {graph.title || "Graph"}: {graph.nodes.length}/{graph.edges.length}
+    </div>
+  ),
 }));
 
 describe("ReportPage", () => {
@@ -28,6 +32,13 @@ describe("ReportPage", () => {
 
     expect(screen.getByText("External API Review")).toBeInTheDocument();
     expect(screen.getByText("checkout")).toBeInTheDocument();
+    expect(screen.getByText("Focused Graph Slices")).toBeInTheDocument();
+    expect(screen.getByText("System Neighborhood")).toBeInTheDocument();
+    expect(screen.getByText("Package Evidence")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Package Evidence/ }));
+
+    expect(screen.getByTestId("graph-panel")).toHaveTextContent("Package Evidence");
 
     fireEvent.click(screen.getByRole("button", { name: "Maintenance" }));
 

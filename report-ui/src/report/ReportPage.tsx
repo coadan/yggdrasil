@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { AGraphGraph, AGraphReport, CountRow } from "../data/types";
 import { edgeRelationRows, fileKindRows, nodeKindRows, numericCount } from "../data/reportAdapter";
 import { GraphPanel } from "../graph/GraphPanel";
@@ -10,6 +10,7 @@ import {
   PluginPanelList,
   pluginPanels
 } from "./ReportPluginPanels";
+import { graphSlices, type GraphSlice } from "./graphSlices";
 import { reviewQueueRows, type ReviewQueueRow } from "./reviewQueue";
 
 type ReportTab = "dashboard" | "ask" | "systems" | "dependencies" | "evidence" | "maintenance" | "plugins";
@@ -649,10 +650,28 @@ function AtlasTab({ report, graph, onOpenTab }: { report: AGraphReport; graph: A
 
 function SystemsTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph }) {
   const maintenance = asRecord(report.maintenance);
+  const slices = useMemo(() => graphSlices(graph), [graph]);
+  const [selectedSliceId, setSelectedSliceId] = useState<string>(() => slices[0]?.id || "full");
+  const selectedSlice = slices.find((slice) => slice.id === selectedSliceId) || null;
+  const activeGraph = selectedSlice?.graph || graph;
+
+  useEffect(() => {
+    if (selectedSliceId !== "full" && !slices.some((slice) => slice.id === selectedSliceId)) {
+      setSelectedSliceId(slices[0]?.id || "full");
+    }
+  }, [selectedSliceId, slices]);
+
   return (
     <div className="report-grid">
+      <FocusedGraphSlices
+        graph={graph}
+        selectedSlice={selectedSlice}
+        slices={slices}
+        selectedSliceId={selectedSliceId}
+        onSelect={setSelectedSliceId}
+      />
       <div className="span-2">
-        <GraphPanel graph={graph} />
+        <GraphPanel graph={activeGraph} />
       </div>
       <ExternalApiReview report={report} />
       <DataTable
@@ -677,6 +696,56 @@ function SystemsTab({ report, graph }: { report: AGraphReport; graph: AGraphGrap
       />
       <PluginPanelList report={report} slot="systems" />
     </div>
+  );
+}
+
+function FocusedGraphSlices({
+  graph,
+  selectedSlice,
+  slices,
+  selectedSliceId,
+  onSelect
+}: {
+  graph: AGraphGraph;
+  selectedSlice: GraphSlice | null;
+  slices: GraphSlice[];
+  selectedSliceId: string;
+  onSelect: (id: string) => void;
+}) {
+  const activeDescription =
+    selectedSlice?.description || `${graph.nodes.length} node(s) and ${graph.edges.length} edge(s) in the full graph.`;
+
+  return (
+    <section className="panel span-2 focused-slices">
+      <div className="panel-header">
+        <div>
+          <h2>Focused Graph Slices</h2>
+          <p className="muted">{activeDescription}</p>
+        </div>
+      </div>
+      <div className="slice-buttons" aria-label="Focused graph slices">
+        {slices.map((slice) => (
+          <button
+            key={slice.id}
+            type="button"
+            aria-pressed={selectedSliceId === slice.id}
+            onClick={() => onSelect(slice.id)}
+          >
+            <strong>{slice.label}</strong>
+            <span>
+              {slice.graph.nodes.length} nodes / {slice.graph.edges.length} edges
+            </span>
+          </button>
+        ))}
+        <button type="button" aria-pressed={selectedSliceId === "full"} onClick={() => onSelect("full")}>
+          <strong>Full Graph</strong>
+          <span>
+            {graph.nodes.length} nodes / {graph.edges.length} edges
+          </span>
+        </button>
+      </div>
+      {slices.length === 0 ? <p className="muted">No focused slices can be derived from this graph.</p> : null}
+    </section>
   );
 }
 

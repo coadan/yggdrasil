@@ -407,6 +407,48 @@ td.numeric-cell {
   position: relative;
 }
 
+.focused-slices {
+  display: grid;
+  gap: 12px;
+}
+
+.slice-buttons {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.slice-buttons button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #334155;
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+  text-align: left;
+}
+
+.slice-buttons button[aria-pressed="true"] {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.slice-buttons strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.slice-buttons span {
+  color: inherit;
+  font-size: 12px;
+  opacity: 0.78;
+}
+
 .graph-workspace {
   display: grid;
   gap: 16px;
