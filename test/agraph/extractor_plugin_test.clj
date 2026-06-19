@@ -246,3 +246,51 @@
                             :url "https://example.test/datastar.git"
                             :rev "abc123"}}
            (:plugin input)))))
+
+(deftest extractor-plugin-output-carries-installed-package-source
+  (let [source {:type :git
+                :url "https://example.test/datastar.git"
+                :rev "abc123"}
+        spoofed-source {:type :git
+                        :url "https://example.test/spoofed.git"
+                        :rev "bad"}
+        plugin (extractor-plugin/normalize-plugin
+                (merge (plugin-config)
+                       {:authority :git-plugin
+                        :package-id "datastar-hiccup"
+                        :package-version "0.1.0"
+                        :package-rev "abc123"
+                        :package-manifest-fingerprint "sha256:manifest"
+                        :package-source source}))
+        normalized (#'extractor-plugin/normalize-plugin-result
+                    "run:1"
+                    {:file-id "file:1"
+                     :path "src/app.clj"
+                     :kind :code}
+                    plugin
+                    {:schema extractor-plugin/result-schema
+                     :nodes [{:kind "hypermedia-request"
+                              :label "save profile"
+                              :packageSource spoofed-source}]
+                     :edges [{:sourceId "node:a"
+                              :targetId "node:b"
+                              :relation "targets"}]
+                     :fileFacts [{:kind "route"
+                                  :label "POST /profile"
+                                  :normalizedValue "/profile"}]
+                     :chunks [{:kind "hypermedia-summary"
+                               :label "save profile"
+                               :text "Saves profile state."}]
+                     :diagnostics [{:message "review generated route"}]})
+        rows (concat (:nodes normalized)
+                     (:edges normalized)
+                     (:file-facts normalized)
+                     (:chunks normalized)
+                     (:diagnostics normalized))]
+    (is (seq rows))
+    (is (every? #(= source (:plugin-package-source %)) rows))
+    (is (every? #(= "datastar-hiccup" (:plugin-package-id %)) rows))
+    (is (every? #(= "sha256:manifest"
+                    (:plugin-package-manifest-fingerprint %))
+                rows))
+    (is (not-any? #(= spoofed-source (:plugin-package-source %)) rows))))

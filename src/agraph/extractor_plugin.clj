@@ -57,6 +57,7 @@
    :benchmarkStatus :benchmark-status
    :packageClaimAuthority :plugin-package-claim-authority
    :packageManifestFingerprint :plugin-package-manifest-fingerprint
+   :packageSource :plugin-package-source
    :replacementId :replacement-id})
 
 (defn- present?
@@ -265,6 +266,7 @@
    :plugin-package-rev (:package-rev plugin)
    :plugin-package-manifest-fingerprint (:package-manifest-fingerprint plugin)
    :plugin-package-claim-authority (:package-claim-authority plugin)
+   :plugin-package-source (:package-source plugin)
    :benchmark-status (:benchmark-status plugin)})
 
 (defn- process-result!
@@ -387,6 +389,7 @@
    :plugin-package-rev (:package-rev plugin)
    :plugin-package-manifest-fingerprint (:package-manifest-fingerprint plugin)
    :plugin-package-claim-authority (:package-claim-authority plugin)
+   :plugin-package-source (:package-source plugin)
    :benchmark-status (:benchmark-status plugin)})
 
 (defn- base-row

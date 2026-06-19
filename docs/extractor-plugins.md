@@ -188,6 +188,7 @@ Every plugin row is annotated with:
 - `:plugin-authority`
 - `:plugin-package-id`, `:plugin-package-version`, `:plugin-package-rev`, and
   `:plugin-package-manifest-fingerprint` for packaged plugins
+- `:plugin-package-source` for packaged plugins
 - `:benchmark-status`
 
 AGraph stamps these provenance fields after parsing plugin output. Plugin
