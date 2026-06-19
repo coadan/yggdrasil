@@ -74,6 +74,8 @@
     (is (str/includes? usage "plugin list <project.edn>"))
     (is (str/includes? usage "plugin remove <project.edn> <package-id>"))
     (is (str/includes? usage "plugin registry validate <registry.edn>"))
+    (is (str/includes? usage "install --platform codex --project"))
+    (is (str/includes? usage "uninstall --platform codex --project"))
     (is (str/includes? usage "install-agent --platform codex --project"))
     (is (str/includes? usage "mcp [--root DIR]"))
     (is (str/includes? usage "watch <project.edn>"))
@@ -519,6 +521,16 @@
              :hooks? true}]
            (:platforms parsed)))))
 
+(deftest install-list-shows-supported-platforms
+  (let [out (with-out-str
+              (cli/dispatch "install" ["list"]))
+        parsed (read-json-output out)]
+    (is (= agent-install/schema (:schema parsed)))
+    (is (= [{:id "codex"
+             :scopes ["project"]
+             :hooks? true}]
+           (:platforms parsed)))))
+
 (deftest install-agent-command-writes-codex-project-guidance
   (let [root (temp-dir "agraph-agent-install-cli")
         old-dir (System/getProperty "user.dir")]
@@ -532,6 +544,40 @@
         (is (= "install" (:action parsed)))
         (is (= (.getPath agents) (:instructions parsed)))
         (is (str/includes? (slurp agents) "AGraph Agent Workflow")))
+      (finally
+        (System/setProperty "user.dir" old-dir)))))
+
+(deftest install-command-writes-codex-project-guidance
+  (let [root (temp-dir "agraph-install-cli")
+        old-dir (System/getProperty "user.dir")]
+    (try
+      (System/setProperty "user.dir" root)
+      (let [out (with-out-str
+                  (cli/dispatch "install" ["--platform" "codex" "--project"]))
+            parsed (read-json-output out)
+            agents (io/file root "AGENTS.md")]
+        (is (= agent-install/schema (:schema parsed)))
+        (is (= "install" (:action parsed)))
+        (is (= (.getPath agents) (:instructions parsed)))
+        (is (str/includes? (slurp agents) "AGraph Agent Workflow")))
+      (finally
+        (System/setProperty "user.dir" old-dir)))))
+
+(deftest uninstall-command-removes-codex-project-guidance
+  (let [root (temp-dir "agraph-uninstall-cli")
+        old-dir (System/getProperty "user.dir")]
+    (try
+      (System/setProperty "user.dir" root)
+      (agent-install/install! "codex" {:root root
+                                       :project? true})
+      (let [out (with-out-str
+                  (cli/dispatch "uninstall" ["--platform" "codex" "--project"]))
+            parsed (read-json-output out)
+            agents (io/file root "AGENTS.md")]
+        (is (= agent-install/schema (:schema parsed)))
+        (is (= "uninstall" (:action parsed)))
+        (is (= true (get-in parsed [:removed :instructions])))
+        (is (not (.exists agents))))
       (finally
         (System/setProperty "user.dir" old-dir)))))
 
@@ -1291,6 +1337,8 @@
                    "agraph ask \"where is this handled?\" --project 'fixture project' --json"))
     (is (contains? commands
                    "agraph report 'Project Files/project.edn' --map 'Maps/agraph map.json' --out 'Report Output'"))
+    (is (contains? commands
+                   "agraph install --platform codex --project"))
     (is (= commands (set (#'cli/start-next-commands actions))))))
 
 (deftest sync-runs-index-infer-and-optional-check
