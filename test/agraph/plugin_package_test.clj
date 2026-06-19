@@ -223,6 +223,66 @@
         (is (= (get-in updated [:entry :manifest-fingerprint])
                (:manifest-fingerprint entry)))))))
 
+(deftest failed-plugin-update-keeps-installed-entry-pinned
+  (let [workspace (temp-dir "agraph-plugin-update-failure")
+        app-root (io/file workspace "app")
+        package-root (init-git-package! (.getPath (io/file workspace "plugin-package")))
+        branch (git! package-root "rev-parse" "--abbrev-ref" "HEAD")
+        project-edn (io/file workspace "project.edn")
+        cache-root (io/file workspace ".dev/agraph/plugins/cache")]
+    (.mkdirs app-root)
+    (spit project-edn
+          (pr-str {:id "plugin-update-failure-fixture"
+                   :repos [{:id "app"
+                            :root (.getPath app-root)}]}))
+    (let [installed (plugin-package/install!
+                     (.getPath project-edn)
+                     package-root
+                     {:ref branch
+                      :cache-root (.getPath cache-root)})
+          previous-entry (:entry installed)]
+      (write-file! package-root
+                   plugin-package/manifest-filename
+                   (pr-str
+                    {:schema plugin-package/manifest-schema
+                     :id "sample-plugin-pack"
+                     :name "Sample Plugin Pack"
+                     :version "0.2.0"
+                     :license {:spdx "MIT"}
+                     :distribution {:visibility :public
+                                    :commercial? false}
+                     :benchmark {:status :unbenchmarked}
+                     :extractor-plugins
+                     [{:id "duplicate-extractor"
+                       :command ["python3" "extract.py"]
+                       :applies-to {:file-kinds [:code]}}
+                      {:id "duplicate-extractor"
+                       :command ["python3" "extract.py"]
+                       :applies-to {:file-kinds [:code]}}]}))
+      (git! package-root "add" ".")
+      (git! package-root
+            "-c"
+            "user.name=AGraph Test"
+            "-c"
+            "user.email=agraph-test@example.test"
+            "commit"
+            "--quiet"
+            "-m"
+            "invalid plugin package")
+      (try
+        (plugin-package/update!
+         (.getPath project-edn)
+         "sample-plugin-pack"
+         {:cache-root (.getPath cache-root)})
+        (is false "Expected update! to reject invalid refreshed package.")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= "Plugin package local-use validation failed."
+                 (ex-message e)))
+          (is (= [:duplicate-extractor-plugin-id]
+                 (mapv :code (:diagnostics (ex-data e)))))))
+      (let [data (edn/read-string (slurp project-edn))]
+        (is (= [previous-entry] (:plugin-packages data)))))))
+
 (deftest removes-installed-plugin-package-entry
   (let [workspace (temp-dir "agraph-plugin-remove")
         project-edn (io/file workspace "project.edn")]
