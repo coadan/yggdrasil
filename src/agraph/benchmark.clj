@@ -4785,29 +4785,48 @@
 
 (defn- completeness-failures
   [report]
-  (vec
-   (concat
-    (keep (fn [[threshold-key report-key metric-label]]
-            (min-count-failure report threshold-key report-key metric-label))
-          [[:minCases :cases "cases"]
-           [:minRuns :runs "runs"]])
-    (cond-> []
-      (and (nil? (get-in report [:thresholds :minRuns]))
-           (zero? (long (get-in report [:report :runs] 0))))
-      (conj {:metric "runs"
-             :operator ">"
-             :expected 0
-             :actual 0
-             :message "No agent score artifacts matched the selected suite, case, and mode."})
+  (let [artifact-policy (get-in report [:report :artifactPolicy])
+        zero-run-failure (cond-> {:metric "runs"
+                                  :operator ">"
+                                  :expected 0
+                                  :actual 0}
+                           (pos? (long (:excludedUnverifiedRuns
+                                        artifact-policy
+                                        0)))
+                           (merge
+                            {:matchedRuns (:matchedRuns artifact-policy)
+                             :excludedRuns (:excludedRuns artifact-policy)
+                             :excludedUnverifiedRuns (:excludedUnverifiedRuns
+                                                      artifact-policy)
+                             :excludedCaseIds (:excludedCaseIds
+                                               artifact-policy)
+                             :message "No current agent score artifacts matched the selected suite, case, and mode. Matching artifacts were excluded because their score schema, agent result schema, or case fingerprint is stale; regenerate the benchmark scores or pass --allow-unverified-scores for exploratory reporting."})
 
-      (and (get-in report [:thresholds :requireComplete])
-           (seq (get-in report [:report :missing])))
-      (conj {:metric "completed"
-             :operator "="
-             :expected (get-in report [:report :cases])
-             :actual (get-in report [:report :completed])
-             :missing (get-in report [:report :missing])
-             :message "Some selected cases do not have matching agent score artifacts."})))))
+                           (not (pos? (long (:excludedUnverifiedRuns
+                                             artifact-policy
+                                             0))))
+                           (assoc
+                            :message
+                            "No agent score artifacts matched the selected suite, case, and mode."))]
+    (vec
+     (concat
+      (keep (fn [[threshold-key report-key metric-label]]
+              (min-count-failure report threshold-key report-key metric-label))
+            [[:minCases :cases "cases"]
+             [:minRuns :runs "runs"]])
+      (cond-> []
+        (and (nil? (get-in report [:thresholds :minRuns]))
+             (zero? (long (get-in report [:report :runs] 0))))
+        (conj zero-run-failure)
+
+        (and (get-in report [:thresholds :requireComplete])
+             (seq (get-in report [:report :missing])))
+        (conj {:metric "completed"
+               :operator "="
+               :expected (get-in report [:report :cases])
+               :actual (get-in report [:report :completed])
+               :missing (get-in report [:report :missing])
+               :message "Some selected cases do not have matching agent score artifacts."}))))))
 
 (defn- run-identity
   [result]

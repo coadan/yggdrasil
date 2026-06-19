@@ -776,7 +776,18 @@
               :excludedRuns 2
               :excludedCaseIds ["case-1"]
               :excludedUnverifiedRuns 2}
-             (:artifactPolicy report))))))
+             (:artifactPolicy report)))
+      (is (= [{:metric "runs"
+               :operator ">"
+               :expected 0
+               :actual 0
+               :matchedRuns 2
+               :excludedRuns 2
+               :excludedUnverifiedRuns 2
+               :excludedCaseIds ["case-1"]
+               :message "No current agent score artifacts matched the selected suite, case, and mode. Matching artifacts were excluded because their score schema, agent result schema, or case fingerprint is stale; regenerate the benchmark scores or pass --allow-unverified-scores for exploratory reporting."}]
+             (:failures
+              (benchmark/check-agent-report report {:allow-missing? true})))))))
 
 (deftest reports-exclude-obsolete-agent-score-schema
   (let [out (temp-dir "agraph-agent-report-obsolete-score-schema")
