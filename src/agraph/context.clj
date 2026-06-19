@@ -1141,32 +1141,57 @@
 
 (defn- inspect-action
   [target label reason]
-  {:kind :inspect
-   :label label
-   :target target
-   :mcpTool "agraph_node"
-   :mcpArgs {:target target}
-   :reason reason})
+  (when-let [target (some-> target s str/trim not-empty)]
+    {:kind :inspect
+     :label label
+     :target target
+     :mcpTool "agraph_node"
+     :mcpArgs {:target target}
+     :reason reason}))
+
+(defn- dependency-inspect-action
+  [evidence]
+  (let [target (or (:target evidence)
+                   (:source evidence)
+                   (:id evidence))]
+    (inspect-action target
+                    (compact "Inspect dependency"
+                             (:relation evidence)
+                             "target"
+                             target)
+                    "Open dependency endpoint with incident graph evidence")))
+
+(defn- architecture-doc-inspect-action
+  [doc]
+  (let [target (or (get-in doc [:source :path])
+                   (:target doc))]
+    (inspect-action target
+                    (compact "Inspect architecture doc" target)
+                    "Open accepted architecture doc source and attached map evidence")))
 
 (defn- architecture-inspect-actions
-  [accepted-systems candidate-systems runtime-evidence]
+  [accepted-systems candidate-systems runtime-evidence dependency-evidence docs]
   (vec
    (concat
-    (map (fn [system]
-           (inspect-action (:id system)
-                           (inspect-action-label "Inspect accepted system" system)
-                           "Open accepted map system with graph neighbors and attached evidence"))
-         (take 2 accepted-systems))
-    (map (fn [system]
-           (inspect-action (:id system)
-                           (inspect-action-label "Inspect candidate system" system)
-                           "Open candidate system with mechanical graph neighbors"))
-         (take 2 candidate-systems))
-    (map (fn [evidence]
-           (inspect-action (:id evidence)
-                           (inspect-action-label "Inspect evidence" evidence)
-                           "Open exact evidence row and source window"))
-         (take 2 runtime-evidence)))))
+    (keep (fn [system]
+            (inspect-action (:id system)
+                            (inspect-action-label "Inspect accepted system" system)
+                            "Open accepted map system with graph neighbors and attached evidence"))
+          (take 2 accepted-systems))
+    (keep (fn [system]
+            (inspect-action (:id system)
+                            (inspect-action-label "Inspect candidate system" system)
+                            "Open candidate system with mechanical graph neighbors"))
+          (take 2 candidate-systems))
+    (keep (fn [evidence]
+            (inspect-action (:id evidence)
+                            (inspect-action-label "Inspect evidence" evidence)
+                            "Open exact evidence row and source window"))
+          (take 2 runtime-evidence))
+    (keep dependency-inspect-action
+          (take 2 dependency-evidence))
+    (keep architecture-doc-inspect-action
+          (take 2 docs)))))
 
 (defn- architecture-section
   [{:keys [overlay entities results edges runtime-evidence docs activity answerability]}]
@@ -1185,17 +1210,20 @@
                                         selected-ids
                                         (map graph-edge-evidence-row
                                              (filter dependency-evidence? edges)))))
+        architecture-docs (mapv architecture-doc-row
+                                (take 8 (filter accepted-architecture-doc? docs)))
         inspect-actions (architecture-inspect-actions accepted-systems
                                                       candidate-systems
-                                                      runtime-evidence)
+                                                      runtime-evidence
+                                                      dependency-evidence
+                                                      architecture-docs)
         section {:basis "mechanical-plus-map"
                  :acceptedSystems accepted-systems
                  :candidateSystems candidate-systems
                  :boundaryEvidence boundary-evidence
                  :runtimeEvidence runtime-evidence
                  :dependencyEvidence dependency-evidence
-                 :docs (mapv architecture-doc-row
-                             (take 8 (filter accepted-architecture-doc? docs)))
+                 :docs architecture-docs
                  :openDecisions (mapv open-decision-row
                                       (take 6 (filter open-decision? activity)))
                  :validationGaps (vec (take 12 (validation-gaps answerability)))

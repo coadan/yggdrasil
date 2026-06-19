@@ -616,6 +616,18 @@
              :mcpTool "agraph_node"
              :mcpArgs {:target "evidence:database-url"}
              :reason "Open exact evidence row and source window"}
+            {:kind :inspect
+             :label "Inspect dependency imports-package target system:candidate"
+             :target "system:candidate"
+             :mcpTool "agraph_node"
+             :mcpArgs {:target "system:candidate"}
+             :reason "Open dependency endpoint with incident graph evidence"}
+            {:kind :inspect
+             :label "Inspect architecture doc docs/billing.md"
+             :target "docs/billing.md"
+             :mcpTool "agraph_node"
+             :mcpArgs {:target "docs/billing.md"}
+             :reason "Open accepted architecture doc source and attached map evidence"}
             {:kind :dependencies
              :command "agraph packages --json"}]
            (:nextActions section)))))
