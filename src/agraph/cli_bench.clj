@@ -1,8 +1,25 @@
 (ns agraph.cli-bench
   (:require [agraph.benchmark :as benchmark]
-            [agraph.cli-options :refer [json-output? option-value parse-case-ids parse-limit parse-optional-double parse-optional-long positional-args]]
+            [agraph.cli-options :refer [json-output? option-value option-values parse-case-ids parse-limit parse-optional-double parse-optional-long positional-args]]
             [agraph.queue :as queue]
             [clojure.string :as str]))
+
+(defn- parse-improvement-target-kind-limit
+  [value]
+  (let [[kind limit extra] (str/split value #"=")]
+    (when (or (str/blank? kind)
+              (str/blank? limit)
+              extra)
+      (throw (ex-info "Expected --max-improvement-target-kind-runs as kind=N."
+                      {:value value})))
+    [kind (Double/parseDouble limit)]))
+
+(defn- improvement-target-kind-limits
+  [args]
+  (not-empty
+   (into (sorted-map)
+         (map parse-improvement-target-kind-limit)
+         (option-values args "--max-improvement-target-kind-runs"))))
 
 (defn- bench-opts
   [args]
@@ -199,6 +216,14 @@
                                                                      (parse-optional-double
                                                                       args
                                                                       "--max-ranked-outside-top-20-runs"))
+    (parse-optional-double args "--max-improvement-target-runs") (assoc
+                                                                  :max-improvement-target-runs
+                                                                  (parse-optional-double
+                                                                   args
+                                                                   "--max-improvement-target-runs"))
+    (improvement-target-kind-limits args) (assoc
+                                           :max-improvement-target-kind-runs
+                                           (improvement-target-kind-limits args))
     (parse-optional-long args "--max-active-stage-ms") (assoc :max-active-stage-ms
                                                               (parse-optional-long
                                                                args

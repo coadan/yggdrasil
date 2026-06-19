@@ -2,6 +2,7 @@
   (:require [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
             [agraph.benchmark-report :as benchmark-report]
+            [agraph.benchmark-targets :as benchmark-targets]
             [agraph.extract :as extract]))
 
 (def agent-check-schema
@@ -55,11 +56,17 @@
                  [:max-ranked-outside-top-5-runs :maxRankedOutsideTop5Runs]
                  [:max-ranked-outside-top-10-runs :maxRankedOutsideTop10Runs]
                  [:max-ranked-outside-top-20-runs :maxRankedOutsideTop20Runs]
+                 [:max-improvement-target-runs :maxImprovementTargetRuns]
                  [:max-active-stage-ms :maxActiveStageMs]
                  [:max-parser-worker-profiles :maxParserWorkerProfiles]
                  [:min-measured-problem-classes :minMeasuredProblemClasses]
                  [:min-measured-architecture-classes
                   :minMeasuredArchitectureClasses]])
+    (seq (:max-improvement-target-kind-runs opts))
+    (assoc :maxImprovementTargetKindRuns
+           (into (sorted-map)
+                 (:max-improvement-target-kind-runs opts)))
+
     (extract/normalize-parser-worker-mode (:require-parser-worker opts))
     (assoc :requiredParserWorker
            (extract/normalize-parser-worker-mode (:require-parser-worker opts)))))
@@ -426,6 +433,50 @@
                                                       :coverageDiagnostics
                                                       :missingDeclaredSourceKinds])
                  :message "Some runs declared source kinds that had no scoreable coverage."})]))))
+(defn- improvement-target-case-ids
+  [targets]
+  (->> targets
+       (mapcat :caseIds)
+       distinct
+       sort
+       vec))
+(defn- improvement-target-failures
+  [check]
+  (let [summary (get-in check [:report :improvementSummary])
+        runs (benchmark-targets/target-runs (:report check))
+        runs-by-kind (benchmark-targets/target-runs-by-kind (:report check))
+        aggregate-failure (when-some [expected (get-in check
+                                                       [:thresholds
+                                                        :maxImprovementTargetRuns])]
+                            (let [actual (double runs)]
+                              (when (> actual expected)
+                                (merge (metric-failure "improvementTargetRuns"
+                                                       "<="
+                                                       expected
+                                                       actual)
+                                       {:case-ids (improvement-target-case-ids
+                                                   summary)
+                                        :improvementTargets summary
+                                        :message "Agent report contains more remediation target runs than allowed."}))))
+        kind-failures (keep
+                       (fn [[kind expected]]
+                         (let [actual (double (get runs-by-kind kind 0))
+                               targets (filterv #(= kind (:kind %)) summary)]
+                           (when (> actual expected)
+                             (merge (metric-failure
+                                     (str "improvementTargetRuns." kind)
+                                     "<="
+                                     expected
+                                     actual)
+                                    {:case-ids (improvement-target-case-ids
+                                                targets)
+                                     :improvementTargets targets
+                                     :message "Agent report contains more remediation target runs for this kind than allowed."}))))
+                       (get-in check
+                               [:thresholds :maxImprovementTargetKindRuns]))]
+    (vec (cond-> kind-failures
+           aggregate-failure
+           (conj aggregate-failure)))))
 (defn- graph-expectation-failures
   [check]
   (when-some [expected (get-in check [:thresholds :maxGraphExpectationFailures])]
@@ -631,6 +682,7 @@
                    (unverified-score-failures check-base)
                    (graph-expectation-failures check-base)
                    (coverage-diagnostic-failures check-base)
+                   (improvement-target-failures check-base)
                    (problem-class-claim-failures check-base)
                    (parser-worker-profile-failures check-base)
                    (localization-diagnostic-failures check-base)

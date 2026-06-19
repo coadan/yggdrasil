@@ -15,6 +15,14 @@
     (when-not (neg? idx)
       (nth args (inc idx)))))
 
+(defn option-values
+  [args flag]
+  (->> (partition 2 1 args)
+       (keep (fn [[arg value]]
+               (when (= flag arg)
+                 value)))
+       vec))
+
 (defn parse-case-ids
   [args]
   (some->> (option-value args "--cases")
@@ -87,6 +95,8 @@
     "--max-ranked-outside-top-5-runs"
     "--max-ranked-outside-top-10-runs"
     "--max-ranked-outside-top-20-runs"
+    "--max-improvement-target-runs"
+    "--max-improvement-target-kind-runs"
     "--max-active-stage-ms" "--max-parser-worker-profiles"
     "--min-measured-problem-classes" "--min-measured-architecture-classes"
     "--require-parser-worker" "--regression-tolerance" "--skip-existing"})

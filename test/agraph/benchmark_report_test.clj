@@ -1067,6 +1067,10 @@
                                                                     :runs 1
                                                                     :cases 1
                                                                     :caseIds ["case-1"]}]}
+                :improvementSummary [{:kind "source-skipped-files"
+                                      :area "source-coverage-quality"
+                                      :runs 1
+                                      :caseIds ["case-1"]}]
                 :graphExpectationDiagnostics {:configuredRuns 1
                                               :passedRuns 0
                                               :passedCaseIds []
@@ -1161,6 +1165,8 @@
                  :max-ranked-outside-top-5-runs 0
                  :max-ranked-outside-top-10-runs 0
                  :max-ranked-outside-top-20-runs 0
+                 :max-improvement-target-runs 0
+                 :max-improvement-target-kind-runs {"source-skipped-files" 0}
                  :max-active-stage-ms 1000
                  :max-parser-worker-profiles 1
                  :min-measured-problem-classes 1
@@ -1268,6 +1274,8 @@
              "rankedOutsideTop5Runs"
              "rankedOutsideTop10Runs"
              "rankedOutsideTop20Runs"
+             "improvementTargetRuns"
+             "improvementTargetRuns.source-skipped-files"
              "parserWorkerProfiles"
              "parserWorker"
              "activeStageElapsedMs"
@@ -1297,7 +1305,9 @@
                    "hintDiagnosticRuns"
                    "contextRankMissingRuns"
                    "missedButPresentInContextRuns"
-                   "missedAndAbsentFromContextRuns"]))
+                   "missedAndAbsentFromContextRuns"
+                   "improvementTargetRuns"
+                   "improvementTargetRuns.source-skipped-files"]))
       (is (not (contains? case-1-failures "activeStageElapsedMs"))))
     (is (= {:mode "all"
             :source "option"}
@@ -1371,6 +1381,8 @@
             :maxRankedOutsideTop5Runs 0.0
             :maxRankedOutsideTop10Runs 0.0
             :maxRankedOutsideTop20Runs 0.0
+            :maxImprovementTargetRuns 0.0
+            :maxImprovementTargetKindRuns {"source-skipped-files" 0}
             :maxActiveStageMs 1000.0
             :maxParserWorkerProfiles 1.0
             :minMeasuredProblemClasses 1.0

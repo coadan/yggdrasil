@@ -1448,6 +1448,9 @@
                                  "--max-ranked-outside-top-5-runs" "0"
                                  "--max-ranked-outside-top-10-runs" "0"
                                  "--max-ranked-outside-top-20-runs" "0"
+                                 "--max-improvement-target-runs" "0"
+                                 "--max-improvement-target-kind-runs" "source-skipped-files=0"
+                                 "--max-improvement-target-kind-runs" "hint-diagnostics=1"
                                  "--max-active-stage-ms" "120000"
                                  "--max-parser-worker-profiles" "1"
                                  "--min-measured-problem-classes" "1"
@@ -1494,6 +1497,9 @@
                   :max-ranked-outside-top-5-runs 0.0
                   :max-ranked-outside-top-10-runs 0.0
                   :max-ranked-outside-top-20-runs 0.0
+                  :max-improvement-target-runs 0.0
+                  :max-improvement-target-kind-runs {"hint-diagnostics" 1.0
+                                                     "source-skipped-files" 0.0}
                   :max-active-stage-ms 120000
                   :max-parser-worker-profiles 1
                   :min-measured-problem-classes 1
@@ -1540,7 +1546,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
 
