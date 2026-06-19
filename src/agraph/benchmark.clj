@@ -15,6 +15,7 @@
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.set :as set]
+            [agraph.benchmark-io :as benchmark-io]
             [clojure.string :as str])
   (:import [java.time Duration Instant]
            [java.util.concurrent TimeUnit]))
@@ -383,32 +384,6 @@
   [suite case opts result-file]
   (benchmark-paths/agent-score-path suite case opts result-file))
 
-(defn- ensure-parent!
-  [file]
-  (.mkdirs (.getParentFile (io/file file))))
-
-(defn- write-json-file!
-  [path value]
-  (ensure-parent! path)
-  (spit (io/file path) (json/write-json-str value {:indent-str "  "}))
-  path)
-
-(defn- write-text-file!
-  [path value]
-  (ensure-parent! path)
-  (spit (io/file path) (str value))
-  path)
-
-(defn- write-edn-file!
-  [path value]
-  (ensure-parent! path)
-  (spit (io/file path) (str (pr-str value) "\n"))
-  path)
-
-(defn- read-json-file
-  [path]
-  (json/read-json (slurp (io/file path)) :key-fn keyword))
-
 (defn- now-string
   []
   (str (java.time.Instant/now)))
@@ -477,7 +452,7 @@
 (defn- read-progress
   [path suite case]
   (if (.isFile (io/file path))
-    (read-json-file path)
+    (benchmark-io/read-json-file path)
     {:schema "agraph.benchmark.case-progress/v1"
      :suite-id (:id suite)
      :case-id (:id case)
@@ -487,7 +462,7 @@
   [suite case opts event]
   (let [path (benchmark-paths/progress-path suite case opts)
         progress (read-progress path suite case)]
-    (write-json-file! path
+    (benchmark-io/write-json-file! path
                       (-> progress
                           (assoc :updatedAt (now-string))
                           (update :events (fnil conj []) event)))
@@ -883,7 +858,7 @@
      case
      opts
      :write-prepared-case
-     #(write-json-file! (benchmark-paths/prepared-path suite case opts) prepared)
+     #(benchmark-io/write-json-file! (benchmark-paths/prepared-path suite case opts) prepared)
      (fn [path]
        {:path (fs/canonical-path path)}))
     prepared))
@@ -1386,7 +1361,7 @@
                               (get-in result-base [:agraph :topFiles]))})
               result (assoc result-without-scores
                             :scores (score-result result-without-scores))]
-          (write-json-file! (benchmark-paths/result-path suite case opts) result)
+          (benchmark-io/write-json-file! (benchmark-paths/result-path suite case opts) result)
           result)))))
 
 (defn run-suite!
@@ -1460,7 +1435,7 @@
            (filter score-json-file?)
            (keep (fn [file]
                    (let [score (try
-                                 (read-json-file file)
+                                 (benchmark-io/read-json-file file)
                                  (catch Exception _
                                    nil))]
                      (when (and score
@@ -1651,8 +1626,8 @@
                                             "post-fix issue comments"
                                             "post-fix commits"
                                             "ground-truth benchmark artifacts"]}}]
-    (write-edn-file! project-path project-config)
-    (write-json-file! packet-path packet)
+    (benchmark-io/write-edn-file! project-path project-config)
+    (benchmark-io/write-json-file! packet-path packet)
     packet))
 
 (defn agent-packet!
@@ -2368,7 +2343,7 @@
   [prepared path]
   (when (and (not (blankish? path))
              (.isFile (io/file path)))
-    (context-ground-truth-ranks prepared (read-json-file path))))
+    (context-ground-truth-ranks prepared (benchmark-io/read-json-file path))))
 
 (defn- agent-baseline-context-options
   [prepared opts]
@@ -2399,7 +2374,7 @@
      case
      opts
      :write-agent-project
-     #(write-edn-file! project-path bench-project)
+     #(benchmark-io/write-edn-file! project-path bench-project)
      (fn [path]
        {:path (fs/canonical-path path)}))
     (store/with-node (benchmark-paths/xtdb-dir suite case opts)
@@ -2506,9 +2481,9 @@
            opts
            :write-agent-artifacts
            (fn []
-             (write-json-file! context-path packet)
-             (write-json-file! result-path agent-result)
-             (write-json-file! score-path scored)
+             (benchmark-io/write-json-file! context-path packet)
+             (benchmark-io/write-json-file! result-path agent-result)
+             (benchmark-io/write-json-file! score-path scored)
              {:contextPath context-path
               :agentResultPath result-path
               :agentScorePath score-path})
@@ -2599,7 +2574,7 @@
      case
      opts
      :write-local-vector-request
-     #(write-json-file! request-path request)
+     #(benchmark-io/write-json-file! request-path request)
      (fn [path]
        {:path (fs/canonical-path path)}))
     (let [process (progress-stage!
@@ -2615,7 +2590,7 @@
                         opts
                         :local-vector-result
                         #(normalize-local-vector-result
-                          (read-json-file result-path)
+                          (benchmark-io/read-json-file result-path)
                           prepared
                           agent-id)
                         (fn [result]
@@ -2661,8 +2636,8 @@
        opts
        :write-agent-artifacts
        (fn []
-         (write-json-file! result-path agent-result)
-         (write-json-file! score-path scored)
+         (benchmark-io/write-json-file! result-path agent-result)
+         (benchmark-io/write-json-file! score-path scored)
          {:agentResultPath result-path
           :agentScorePath score-path})
        (fn [paths]
@@ -2900,8 +2875,8 @@
   [suite case opts process-result]
   (let [stdout-path (benchmark-paths/agent-run-log-path suite case opts "stdout")
         stderr-path (benchmark-paths/agent-run-log-path suite case opts "stderr")]
-    (write-text-file! stdout-path (:stdout process-result))
-    (write-text-file! stderr-path (:stderr process-result))
+    (benchmark-io/write-text-file! stdout-path (:stdout process-result))
+    (benchmark-io/write-text-file! stderr-path (:stderr process-result))
     {:stdoutPath (fs/canonical-path stdout-path)
      :stderrPath (fs/canonical-path stderr-path)}))
 
@@ -3044,7 +3019,7 @@
 (defn- write-agent-output-schema!
   [suite case opts]
   (let [schema-path (benchmark-paths/agent-run-output-schema-path suite case opts)]
-    (write-json-file! schema-path (agent-result-json-schema))
+    (benchmark-io/write-json-file! schema-path (agent-result-json-schema))
     (fs/canonical-path schema-path)))
 
 (defn- agent-prompt-profile-lines
@@ -3145,7 +3120,7 @@
 (defn- write-agent-run-prompt!
   [suite case packet result-path output-schema-path opts]
   (let [prompt-path (benchmark-paths/agent-run-prompt-path suite case opts)]
-    (write-text-file! prompt-path
+    (benchmark-io/write-text-file! prompt-path
                       (agent-run-prompt packet
                                         result-path
                                         output-schema-path
@@ -3200,7 +3175,7 @@
 
     :else
     (try
-      {:agent-result (normalize-agent-run-result prepared (read-json-file result-path) opts)
+      {:agent-result (normalize-agent-run-result prepared (benchmark-io/read-json-file result-path) opts)
        :artifact-ok? true}
       (catch Exception e
         {:agent-result (failure-agent-result
@@ -3259,8 +3234,8 @@
                                                 prepared
                                                 opts))
                 hints (context-packet->agent-hints prepared packet opts)]
-            (write-json-file! context-path packet)
-            (write-json-file! hints-path hints)
+            (benchmark-io/write-json-file! context-path packet)
+            (benchmark-io/write-json-file! hints-path hints)
             {:summary summary
              :artifacts {:context-path (fs/canonical-path context-path)
                          :hints-path (fs/canonical-path hints-path)}}))))))
@@ -3269,7 +3244,7 @@
   [hints-path]
   (when (and (not (blankish? hints-path))
              (.isFile (io/file hints-path)))
-    (let [hints (read-json-file hints-path)]
+    (let [hints (benchmark-io/read-json-file hints-path)]
       (not-empty (vec (:diagnostics hints))))))
 
 (defn agent-run!
@@ -3302,7 +3277,7 @@
                                              opts)
         command (agent-run-command opts)
         timeout-ms (agent-run-timeout-ms opts)
-        _ (ensure-parent! result-path)
+        _ (benchmark-io/ensure-parent! result-path)
         process-result (run-process! command
                                      (:worktreeRoot prepared)
                                      (agent-run-env packet
@@ -3314,7 +3289,7 @@
         logs (write-agent-run-logs! suite case opts process-result)
         read-result (read-agent-run-result prepared result-path opts process-result)
         agent-result (:agent-result read-result)
-        _ (write-json-file! result-path agent-result)
+        _ (benchmark-io/write-json-file! result-path agent-result)
         context-ranks (context-ground-truth-ranks-from-path
                        prepared
                        (get-in packet [:artifacts :agraphContextPath]))
@@ -3361,8 +3336,8 @@
              :graphExpectations (:graphExpectations agraph-summary)
              :scores (:scores scored)
              :warnings (get-in scored [:agent :warnings])}]
-    (write-json-file! score-path scored)
-    (write-json-file! run-path run)
+    (benchmark-io/write-json-file! score-path scored)
+    (benchmark-io/write-json-file! run-path run)
     run))
 
 (defn agent-runs!
@@ -3803,13 +3778,13 @@
                         (throw (ex-info "Missing agent result path."
                                         {:case-id (:id case)})))
         prepared (prepare-case! suite case opts)
-        agent-result (read-json-file result-file)
+        agent-result (benchmark-io/read-json-file result-file)
         scored (assoc (score-agent-result prepared agent-result)
                       :parserWorker (agent-score-parser-worker-profile
                                      opts
                                      agent-result)
                       :agentResultPath (fs/canonical-path result-file))]
-    (write-json-file! (benchmark-paths/agent-score-path suite case opts result-file) scored)
+    (benchmark-io/write-json-file! (benchmark-paths/agent-score-path suite case opts result-file) scored)
     scored))
 
 (defn- json-file?
@@ -3834,7 +3809,7 @@
                                    (= expected-parser-worker-mode
                                       (get-in score [:parserWorker :mode]))))]
     (->> (agent-score-files suite case opts)
-         (map read-json-file)
+         (map benchmark-io/read-json-file)
          (filter #(or (blankish? (:mode opts))
                       (= (:mode opts) (get-in % [:agent :mode]))))
          (filter #(or (blankish? (:agent-id opts))
@@ -3846,7 +3821,7 @@
   [suite case opts]
   (let [path (benchmark-paths/progress-path suite case opts)]
     (when (.isFile (io/file path))
-      (let [progress (read-json-file path)
+      (let [progress (benchmark-io/read-json-file path)
             events (vec (:events progress))
             completed (filter #(= "completed" (:status %)) events)
             failed (filter #(= "failed" (:status %)) events)
@@ -3932,7 +3907,7 @@
 (defn case-result
   "Read one case result when it exists."
   [suite case opts]
-  (some-> (case-result-file suite case opts) read-json-file))
+  (some-> (case-result-file suite case opts) benchmark-io/read-json-file))
 
 (defn show-case
   "Return one case result, or its prepared artifact when no result exists."
@@ -3942,7 +3917,7 @@
         prepared (benchmark-paths/prepared-path suite case opts)]
     (or result
         (when (.isFile prepared)
-          (read-json-file prepared))
+          (benchmark-io/read-json-file prepared))
         (throw (ex-info "Benchmark case has not been prepared or run."
                         {:suite-id (:id suite)
                          :case-id case-id})))))
@@ -4993,7 +4968,7 @@
                                     results)}
         report (assoc report-base
                       :claimReadiness (report-claim-readiness report-base))]
-    (write-json-file! (benchmark-paths/agent-report-path suite opts) report)
+    (benchmark-io/write-json-file! (benchmark-paths/agent-report-path suite opts) report)
     report))
 
 (defn- threshold
@@ -5661,7 +5636,7 @@
   "Aggregate existing agent score artifacts and check them against thresholds."
   [suite opts]
   (let [check (check-agent-report (report-agent-suite suite opts) opts)]
-    (write-json-file! (benchmark-paths/agent-check-path suite opts) check)
+    (benchmark-io/write-json-file! (benchmark-paths/agent-check-path suite opts) check)
     check))
 
 (def ^:private comparison-score-specs
@@ -5923,10 +5898,10 @@
         candidate-path (or (:candidate-report opts)
                            (throw (ex-info "Missing --candidate-report."
                                            {:usage "bench agent-compare <benchmark.edn> --baseline-report before.json --candidate-report after.json"})))
-        comparison (compare-agent-reports (read-json-file baseline-path)
-                                          (read-json-file candidate-path)
+        comparison (compare-agent-reports (benchmark-io/read-json-file baseline-path)
+                                          (benchmark-io/read-json-file candidate-path)
                                           opts)]
-    (write-json-file! (benchmark-paths/agent-compare-path suite opts) comparison)
+    (benchmark-io/write-json-file! (benchmark-paths/agent-compare-path suite opts) comparison)
     comparison))
 
 (defn report-suite
@@ -5949,5 +5924,5 @@
                                                 :fixSha
                                                 :scores])
                                results)}]
-    (write-json-file! (benchmark-paths/report-path suite opts) report)
+    (benchmark-io/write-json-file! (benchmark-paths/report-path suite opts) report)
     report))
