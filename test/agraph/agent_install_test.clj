@@ -21,6 +21,7 @@
         content (slurp (io/file root "AGENTS.md"))]
     (is (= agent-install/schema (:schema result)))
     (is (str/includes? content "`evidence.families`"))
+    (is (str/includes? content "extractor fingerprint groups"))
     (is (str/includes? content "`answerability.planes`"))
     (is (str/includes? content "`architecture.summary` first"))
     (is (str/includes? content "bounded next-action samples"))
