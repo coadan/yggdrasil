@@ -332,6 +332,36 @@
       (is (= [:no-report-plugins-selected]
              (mapv :code (:diagnostics report-result)))))))
 
+(deftest validate-rejects-unsupported-package-benchmark-status
+  (let [workspace (temp-dir "agraph-plugin-benchmark-status")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "bad-benchmark-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :private
+                                  :commercial? false}
+                   :scope {:kind :project-local
+                           :reason "Status validation fixture."}
+                   :benchmark {:status :claimed}
+                   :extractor-plugins
+                   [{:id "bad-benchmark-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (let [validation (plugin-package/validate-local (.getPath package-dir))]
+      (is (= :failed (:status validation)))
+      (is (= ["Unknown plugin package benchmark status."] (:errors validation)))
+      (is (= {:benchmark-status :claimed
+              :supported [:benchmarked :unbenchmarked]}
+             (:data validation))))))
+
 (deftest diagnose-blocks-invalid-public-package-policy
   (let [workspace (temp-dir "agraph-plugin-diagnose")
         package-dir (io/file workspace "plugin")]

@@ -59,6 +59,9 @@
 (def ^:private scope-kinds
   #{:project-local :base})
 
+(def ^:private benchmark-statuses
+  #{:unbenchmarked :benchmarked})
+
 (defn- now-ms
   []
   (System/currentTimeMillis))
@@ -233,8 +236,13 @@
 
 (defn- benchmark-status
   [manifest]
-  (keyword (or (get-in manifest [:benchmark :status])
-               :unbenchmarked)))
+  (let [status (keyword (or (get-in manifest [:benchmark :status])
+                            :unbenchmarked))]
+    (when-not (contains? benchmark-statuses status)
+      (throw (ex-info "Unknown plugin package benchmark status."
+                      {:benchmark-status status
+                       :supported (sort benchmark-statuses)})))
+    status))
 
 (defn- benchmark-artifacts
   [package]

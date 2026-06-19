@@ -257,9 +257,10 @@ fixtures, dry-runs, and benchmark artifacts.
 
 ## Benchmark Evidence
 
-Use `:benchmark {:status :unbenchmarked}` while a package is experimental. Plugin
-output remains auditable and useful, but claims about agent effectiveness or
-architecture-understanding improvement must stay scoped.
+Supported package benchmark statuses are `:unbenchmarked` and `:benchmarked`.
+Use `:benchmark {:status :unbenchmarked}` while a package is experimental.
+Plugin output remains auditable and useful, but claims about agent effectiveness
+or architecture-understanding improvement must stay scoped.
 
 Use `:benchmark {:status :benchmarked}` only when the package includes
 package-local benchmark artifacts:
