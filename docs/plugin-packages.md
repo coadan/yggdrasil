@@ -39,12 +39,17 @@ Install writes a `:plugin-packages` entry to `project.edn`:
             :subdir "packages/datastar-hiccup"}
    :path "/abs/project/.dev/agraph/plugins/cache/.../packages/datastar-hiccup"
    :manifest "agraph.plugin.edn"
+   :manifest-fingerprint "sha256:..."
    :installed-at-ms 1790000000000}]}
 ```
 
 `bb sync` and `bb report` do not fetch network updates. They read the installed
 local package path. Updating a git plugin is explicit: rerun `bb plugin install
 ... --force` with the intended ref.
+
+AGraph recomputes the manifest fingerprint when a package is read. If the
+installed package path no longer matches the fingerprint recorded in
+`project.edn`, package diagnostics report the mismatch.
 
 ## Authoring Loop
 
@@ -131,7 +136,7 @@ in [extractor-plugins.md](extractor-plugins.md) and
 [report-plugins.md](report-plugins.md). They carry:
 
 - `:authority :git-plugin`
-- package id, version, source, and pinned git revision
+- package id, version, source, pinned git revision, and manifest fingerprint
 - `:benchmark-status`, defaulting to `:unbenchmarked`
 - plugin provenance on emitted rows or report panels
 

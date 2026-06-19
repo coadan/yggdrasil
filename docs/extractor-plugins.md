@@ -173,7 +173,13 @@ Every plugin row is annotated with:
 - `:plugin-version`
 - `:plugin-fingerprint`
 - `:plugin-authority`
+- `:plugin-package-id`, `:plugin-package-version`, `:plugin-package-rev`, and
+  `:plugin-package-manifest-fingerprint` for packaged plugins
 - `:benchmark-status`
+
+AGraph stamps these provenance fields after parsing plugin output. Plugin
+commands cannot make their own rows authoritative by spoofing file, run, or
+plugin provenance fields.
 
 Plugin failures become `:extractor-plugin` diagnostics. A failed plugin does not
 crash sync.

@@ -55,6 +55,7 @@
    :pluginVersion :plugin-version
    :pluginFingerprint :plugin-fingerprint
    :benchmarkStatus :benchmark-status
+   :packageManifestFingerprint :plugin-package-manifest-fingerprint
    :replacementId :replacement-id})
 
 (defn- present?
@@ -157,6 +158,7 @@
                :package-id (some-> (:package-id plugin) str)
                :package-version (some-> (:package-version plugin) str)
                :package-rev (some-> (:package-rev plugin) str)
+               :package-manifest-fingerprint (some-> (:package-manifest-fingerprint plugin) str)
                :package-source (:package-source plugin)
                :fingerprint-seed (:fingerprint plugin)}
         scan (assoc :scan scan)))))
@@ -185,6 +187,7 @@
                          (:package-id plugin)
                          (:package-version plugin)
                          (:package-rev plugin)
+                         (:package-manifest-fingerprint plugin)
                          (:package-source plugin)
                          (:fingerprint-seed plugin)])))
 
@@ -258,6 +261,7 @@
    :plugin-package-id (:package-id plugin)
    :plugin-package-version (:package-version plugin)
    :plugin-package-rev (:package-rev plugin)
+   :plugin-package-manifest-fingerprint (:package-manifest-fingerprint plugin)
    :benchmark-status (:benchmark-status plugin)})
 
 (defn- process-result!
@@ -363,6 +367,10 @@
    :plugin-version (:version plugin)
    :plugin-fingerprint (plugin-fingerprint plugin)
    :plugin-authority (:authority plugin)
+   :plugin-package-id (:package-id plugin)
+   :plugin-package-version (:package-version plugin)
+   :plugin-package-rev (:package-rev plugin)
+   :plugin-package-manifest-fingerprint (:package-manifest-fingerprint plugin)
    :benchmark-status (:benchmark-status plugin)})
 
 (defn- base-row
@@ -371,8 +379,8 @@
           :path (:path file)
           :active? true
           :run-id run-id}
-         (provenance plugin)
-         row))
+         row
+         (provenance plugin)))
 
 (defn- normalize-node
   [run-id file plugin row]

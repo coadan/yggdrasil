@@ -64,6 +64,7 @@
      :package-id (some-> (:package-id plugin) str)
      :package-version (some-> (:package-version plugin) str)
      :package-rev (some-> (:package-rev plugin) str)
+     :package-manifest-fingerprint (some-> (:package-manifest-fingerprint plugin) str)
      :package-source (:package-source plugin)
      :benchmark-status (some-> (:benchmark-status plugin) keyword)
      :fingerprint-seed (:fingerprint plugin)}))
@@ -87,7 +88,9 @@
                          (:package-id plugin)
                          (:package-version plugin)
                          (:package-rev plugin)
+                         (:package-manifest-fingerprint plugin)
                          (:package-source plugin)
+                         (:benchmark-status plugin)
                          (:fingerprint-seed plugin)])))
 
 (def core-plugin
@@ -106,6 +109,8 @@
     (:package-id plugin) (assoc :packageId (:package-id plugin))
     (:package-version plugin) (assoc :packageVersion (:package-version plugin))
     (:package-rev plugin) (assoc :packageRev (:package-rev plugin))
+    (:package-manifest-fingerprint plugin)
+    (assoc :packageManifestFingerprint (:package-manifest-fingerprint plugin))
     (:benchmark-status plugin) (assoc :benchmarkStatus (name (:benchmark-status plugin)))))
 
 (defn- canonical-key

@@ -81,6 +81,10 @@
   [path]
   (edn/read-string (slurp (io/file path))))
 
+(defn- manifest-fingerprint
+  [path]
+  (str "sha256:" (hash/sha256-bytes-hex (Files/readAllBytes (.toPath (io/file path))))))
+
 (defn- write-edn-file!
   [path data]
   (with-open [writer (io/writer path)]
@@ -286,9 +290,19 @@
        artifacts)))))
 
 (defn- package-diagnostics
-  [{:keys [id visibility license benchmark-status] :as package}]
+  [{:keys [id visibility license benchmark-status manifest-fingerprint expected-manifest-fingerprint]
+    :as package}]
   (vec
    (concat
+    (when (and (present? expected-manifest-fingerprint)
+               (not= expected-manifest-fingerprint manifest-fingerprint))
+      [{:code :manifest-fingerprint-mismatch
+        :severity :error
+        :applies-to [:local-use :public-sharing :claims :core-promotion]
+        :message (str id " manifest fingerprint does not match the installed project entry.")
+        :evidence {:expected expected-manifest-fingerprint
+                   :actual manifest-fingerprint
+                   :manifest (:manifest package)}}])
     (scope-diagnostics package)
     (when (= :public visibility)
       (concat
@@ -327,6 +341,7 @@
    :package-id (:id package)
    :package-version (:version package)
    :package-rev (get-in entry [:source :rev])
+   :package-manifest-fingerprint (:manifest-fingerprint package)
    :package-source (:source entry)})
 
 (defn- normalize-plugin-configs
@@ -344,6 +359,7 @@
   (let [package-path (resolve-path project-base (:path entry))
         manifest-path (io/file package-path (or (:manifest entry) manifest-filename))
         manifest (read-edn-file manifest-path)
+        fingerprint (manifest-fingerprint manifest-path)
         package-id (some-> (:id manifest) str)]
     (when-not (present? package-id)
       (throw (ex-info "Plugin package manifest is missing :id."
@@ -360,6 +376,8 @@
                            :version (str (or (:version manifest) "dev"))
                            :path package-path
                            :manifest (.getPath manifest-path)
+                           :manifest-fingerprint fingerprint
+                           :expected-manifest-fingerprint (:manifest-fingerprint entry)
                            :source (:source entry)
                            :visibility (normalize-visibility manifest)
                            :license license
@@ -382,6 +400,8 @@
    :version (:version package)
    :source (:source package)
    :path (:path package)
+   :manifest-fingerprint (:manifest-fingerprint package)
+   :expected-manifest-fingerprint (:expected-manifest-fingerprint package)
    :visibility (:visibility package)
    :license (:license package)
    :scope (:scope package)
@@ -406,7 +426,7 @@
      :packages (mapv package-summary (read-installed-packages config-path))}))
 
 (defn- installed-entry
-  [{:keys [id source rev ref subdir package-path]}]
+  [{:keys [id source rev ref subdir package-path manifest-fingerprint]}]
   (cond-> {:id id
            :source (source-map {:source source
                                 :ref ref
@@ -414,6 +434,7 @@
                                 :subdir subdir})
            :path package-path
            :manifest manifest-filename
+           :manifest-fingerprint manifest-fingerprint
            :installed-at-ms (now-ms)}
     (present? ref) (assoc :ref ref)))
 
@@ -445,13 +466,16 @@
         _ (when-not (.exists manifest-path)
             (throw (ex-info "Plugin package manifest not found."
                             {:path (.getPath manifest-path)})))
+        manifest (read-edn-file manifest-path)
+        fingerprint (manifest-fingerprint manifest-path)
         data (read-edn-file config-path)
-        entry (installed-entry {:id (str (:id (read-edn-file manifest-path)))
+        entry (installed-entry {:id (str (:id manifest))
                                 :source source
                                 :rev rev
                                 :ref ref
                                 :subdir subdir
-                                :package-path package-path})
+                                :package-path package-path
+                                :manifest-fingerprint fingerprint})
         updated (update data
                         :plugin-packages
                         #(upsert-package-entry (vec %) entry (boolean force?)))]
@@ -975,7 +999,11 @@
      :kind :extractor
      :status (if (seq (:diagnostics enhanced)) :warning :passed)
      :package (select-keys package [:id :version :path :warnings])
-     :plugins (mapv #(select-keys % [:id :version :authority :benchmark-status])
+     :plugins (mapv #(select-keys % [:id
+                                     :version
+                                     :authority
+                                     :benchmark-status
+                                     :package-manifest-fingerprint])
                     plugins)
      :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
      :core-counts (counts core)
@@ -1024,7 +1052,11 @@
         outputs (mapv (fn [plugin]
                         (let [output (report-plugin/run-plugin ctx plugin)]
                           {:plugin (select-keys plugin
-                                                [:id :version :authority :benchmark-status])
+                                                [:id
+                                                 :version
+                                                 :authority
+                                                 :benchmark-status
+                                                 :package-manifest-fingerprint])
                            :counts (report-output-counts output)
                            :output output}))
                       plugins)

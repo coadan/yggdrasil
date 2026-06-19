@@ -90,6 +90,7 @@
                           {:cache-root (.getPath cache-root)})
           data (edn/read-string (slurp project-edn))
           entry (first (:plugin-packages data))
+          manifest-fingerprint (:manifest-fingerprint entry)
           listed (plugin-package/list-installed (.getPath project-edn))
           loaded (project/read-project (.getPath project-edn))
           extractor (first (:extractor-plugins loaded))
@@ -100,7 +101,12 @@
       (is (= :git (get-in entry [:source :type])))
       (is (= package-root (get-in entry [:source :url])))
       (is (not (str/blank? (get-in entry [:source :rev]))))
+      (is (str/starts-with? manifest-fingerprint "sha256:"))
       (is (= "sample-plugin-pack" (get-in listed [:packages 0 :id])))
+      (is (= manifest-fingerprint (get-in install-result [:package :manifest-fingerprint])))
+      (is (= manifest-fingerprint (get-in listed [:packages 0 :manifest-fingerprint])))
+      (is (= manifest-fingerprint
+             (get-in listed [:packages 0 :expected-manifest-fingerprint])))
       (is (= 1 (get-in listed [:packages 0 :extractor-plugins])))
       (is (= 1 (get-in listed [:packages 0 :report-plugins])))
       (is (some #(str/includes? % "unbenchmarked")
@@ -110,11 +116,20 @@
       (is (= :unbenchmarked (:benchmark-status extractor)))
       (is (= "sample-plugin-pack" (:package-id extractor)))
       (is (= (get-in entry [:source :rev]) (:package-rev extractor)))
+      (is (= manifest-fingerprint (:package-manifest-fingerprint extractor)))
       (is (= (:path entry) (:cwd extractor)))
       (is (= "sample-report" (:id report)))
       (is (= :git-plugin (:authority report)))
       (is (= "sample-plugin-pack" (:package-id report)))
-      (is (= (:path entry) (:cwd report))))))
+      (is (= manifest-fingerprint (:package-manifest-fingerprint report)))
+      (is (= (:path entry) (:cwd report)))
+      (spit project-edn
+            (pr-str (assoc data
+                           :plugin-packages
+                           [(assoc entry :manifest-fingerprint "sha256:stale")])))
+      (is (some #(str/includes? % "manifest fingerprint")
+                (get-in (plugin-package/list-installed (.getPath project-edn))
+                        [:packages 0 :warnings]))))))
 
 (deftest scaffolds-valid-package-and-dry-runs-extractor
   (let [workspace (temp-dir "agraph-plugin-authoring")
@@ -134,7 +149,8 @@
                    {})
           report-dry-run (plugin-package/dry-run-report
                           (.getPath package-dir)
-                          {})]
+                          {})
+          manifest-fingerprint (get-in validation [:package :manifest-fingerprint])]
       (is (= plugin-package/new-schema (:schema created)))
       (is (= "demo-plugin" (:package-id created)))
       (is (= true (:extractor? created)))
@@ -143,6 +159,7 @@
       (is (.exists (io/file package-dir "extract.py")))
       (is (.exists (io/file package-dir "report.py")))
       (is (= plugin-package/validate-schema (:schema validation)))
+      (is (str/starts-with? manifest-fingerprint "sha256:"))
       (is (= :warning (:status validation)))
       (is (= 1 (count (:extractor-plugins validation))))
       (is (= 1 (count (:report-plugins validation))))
@@ -161,15 +178,24 @@
       (is (pos? (get-in dry-run [:enhanced-counts :chunks])))
       (is (some #(= "demo-plugin-extractor" (:plugin-id %))
                 (get-in dry-run [:rows :file-facts])))
+      (is (= manifest-fingerprint
+             (get-in dry-run [:plugins 0 :package-manifest-fingerprint])))
+      (is (some #(= manifest-fingerprint (:plugin-package-manifest-fingerprint %))
+                (get-in dry-run [:rows :file-facts])))
       (is (= plugin-package/dry-run-schema (:schema report-dry-run)))
       (is (= :report (:kind report-dry-run)))
       (is (= :passed (:status report-dry-run)))
       (is (= 1 (get-in report-dry-run [:counts :panels])))
       (is (= "demo-plugin-report" (get-in report-dry-run [:plugins 0 :id])))
       (is (= :unbenchmarked (get-in report-dry-run [:plugins 0 :benchmark-status])))
+      (is (= manifest-fingerprint
+             (get-in report-dry-run [:plugins 0 :package-manifest-fingerprint])))
       (is (= "unbenchmarked"
              (get-in report-dry-run
-                     [:outputs 0 :output :panels 0 :plugin :benchmarkStatus]))))))
+                     [:outputs 0 :output :panels 0 :plugin :benchmarkStatus])))
+      (is (= manifest-fingerprint
+             (get-in report-dry-run
+                     [:outputs 0 :output :panels 0 :plugin :packageManifestFingerprint]))))))
 
 (deftest diagnose-blocks-invalid-public-package-policy
   (let [workspace (temp-dir "agraph-plugin-diagnose")

@@ -94,6 +94,11 @@ AGraph normalizes plugin results before they reach the UI. `panels`,
 rows are converted into plugin diagnostics while valid sibling rows are still
 kept in the bundle.
 
+Every normalized panel, diagnostic, and artifact includes a plugin summary. For
+packaged plugins that summary carries package id, version, pinned revision, and
+manifest fingerprint along with benchmark status, so report output remains tied
+to the installed package contract.
+
 ## Minimal Graph Crawl Plugin
 
 This plugin reads the graph export from stdin and emits one panel:
