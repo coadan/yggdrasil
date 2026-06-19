@@ -34,7 +34,7 @@ class Form:
 
 def form_name(line: str) -> tuple[str, str] | None:
     match = re.match(
-        r"^\((defn-?|defmacro|defmulti|defmethod|defonce|def)\s+"
+        r"^\((defn-?|defmacro|defmulti|defmethod|defonce|deftest|def)\s+"
         r"(?:\^:[A-Za-z0-9_.!?/*+<>=-]+\s+)*"
         r"([A-Za-z0-9_.!?/*+<>=-]+)",
         line,
