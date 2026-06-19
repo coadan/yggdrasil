@@ -187,6 +187,10 @@ Public registry indexes are EDN files that combine two roles:
 - `:source`, `:ref`, and `:subdir` describe how another project installs the
   package from git.
 
+Registry entries must include both `:path` and `:source` to pass validation.
+`:ref` and `:subdir` are optional, but recommended for reproducible installs
+when the package does not live at the repository root.
+
 ```clojure
 {:schema "agraph.plugin.registry/v1"
  :id "official"
@@ -205,12 +209,12 @@ bb plugin registry validate registry.edn --json
 
 Validation reads each local package manifest and runs `plugin diagnose`; it does
 not fetch git sources. A registry entry passes when the package is ready or
-caution for public sharing. Project-local, commercial, non-FOSS, invalid, or
-missing packages fail the registry check. Unbenchmarked base packages may be
-listed as experimental, but public claims and core promotion remain blocked
-until benchmark artifacts exist. JSON validation output includes install
-metadata when `:source` is present, including a copyable `bb plugin install`
-command.
+caution for public sharing and declares a git `:source`. Project-local,
+commercial, non-FOSS, invalid, missing, or non-installable packages fail the
+registry check. Unbenchmarked base packages may be listed as experimental, but
+public claims and core promotion remain blocked until benchmark artifacts exist.
+JSON validation output includes install metadata when `:source` is present,
+including a copyable `bb plugin install` command.
 
 ## Scope
 

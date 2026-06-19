@@ -1007,6 +1007,9 @@
         public-status (get-in diagnosis [:readiness :public-sharing :status])]
     (vec
      (concat
+      (when-not (present? (:source entry))
+        [{:code :registry-source-missing
+          :message "Registry entry is missing :source for git installation."}])
       (when (and declared-id package-id (not= declared-id package-id))
         [{:code :registry-id-mismatch
           :message "Registry entry id does not match package manifest id."

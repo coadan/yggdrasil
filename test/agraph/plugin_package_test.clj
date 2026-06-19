@@ -435,7 +435,8 @@
   (let [workspace (temp-dir "agraph-plugin-registry")
         registry-path (io/file workspace "registry.edn")
         base-dir (io/file workspace "base")
-        local-dir (io/file workspace "local")]
+        local-dir (io/file workspace "local")
+        missing-source-dir (io/file workspace "missing-source")]
     (.mkdirs base-dir)
     (.mkdirs local-dir)
     (write-file! (.getPath base-dir)
@@ -460,6 +461,9 @@
     (write-file! (.getPath local-dir)
                  "extract.py"
                  "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (write-file! (.getPath missing-source-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
     (write-file! (.getPath local-dir)
                  plugin-package/manifest-filename
                  (pr-str
@@ -476,6 +480,22 @@
                    [{:id "local-extractor"
                      :command ["python3" "extract.py"]
                      :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath missing-source-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "missing-source-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Reusable fixture."}
+                   :benchmark {:status :unbenchmarked}
+                   :extractor-plugins
+                   [{:id "missing-source-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
     (spit registry-path
           (pr-str {:schema plugin-package/registry-schema
                    :id "official"
@@ -485,14 +505,16 @@
                                :ref "v0.1.0"
                                :subdir "packages/base-plugin"}
                               {:id "local-plugin"
-                               :path "local"}]}))
+                               :path "local"}
+                              {:id "missing-source-plugin"
+                               :path "missing-source"}]}))
     (let [result (plugin-package/validate-registry (.getPath registry-path))
           by-id (into {} (map (juxt :id identity) (:packages result)))]
       (is (= plugin-package/registry-validate-schema (:schema result)))
       (is (= :failed (:status result)))
-      (is (= {:packages 2
+      (is (= {:packages 3
               :passed 1
-              :failed 1}
+              :failed 2}
              (:counts result)))
       (is (= :passed (get-in by-id ["base-plugin" :status])))
       (is (= {:type :git
@@ -506,5 +528,8 @@
       (is (= "bb plugin install '<project.edn>' https://github.com/org/agraph-plugins.git --ref v0.1.0 --subdir packages/base-plugin"
              (get-in by-id ["base-plugin" :install :command])))
       (is (= :failed (get-in by-id ["local-plugin" :status])))
-      (is (= [:public-sharing-not-ready]
-             (mapv :code (get-in by-id ["local-plugin" :errors])))))))
+      (is (= [:registry-source-missing :public-sharing-not-ready]
+             (mapv :code (get-in by-id ["local-plugin" :errors]))))
+      (is (= :failed (get-in by-id ["missing-source-plugin" :status])))
+      (is (= [:registry-source-missing]
+             (mapv :code (get-in by-id ["missing-source-plugin" :errors])))))))
