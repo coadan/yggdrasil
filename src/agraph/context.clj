@@ -1165,9 +1165,15 @@
     [:dependencies "Inspect package graph facts"] 30
     50))
 
+(defn- status-mcp
+  [map-path]
+  (cond-> {:mcpTool "agraph_status"}
+    map-path (assoc :mcpArgs {:mapPath map-path})))
+
 (defn- next-actions
-  ([counts retrieval project-id] (next-actions counts retrieval project-id nil))
-  ([counts retrieval project-id freshness]
+  ([counts retrieval project-id] (next-actions counts retrieval project-id nil nil))
+  ([counts retrieval project-id freshness] (next-actions counts retrieval project-id freshness nil))
+  ([counts retrieval project-id freshness map-path]
    (->> (cond-> (freshness-actions freshness)
           (zero? (:files counts 0))
           (conj {:kind :source-files
@@ -1181,16 +1187,18 @@
                  :command (sync-command "--check")})
 
           (pos? (:diagnostics counts))
-          (conj {:kind :coverage
-                 :label "Inspect extractor diagnostics"
-                 :count (:diagnostics counts)
-                 :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")})
+          (conj (merge {:kind :coverage
+                        :label "Inspect extractor diagnostics"
+                        :count (:diagnostics counts)
+                        :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")}
+                       (status-mcp map-path)))
 
           (pos? (:skipped-files counts 0))
-          (conj {:kind :coverage
-                 :label "Inspect skipped source candidates"
-                 :count (:skipped-files counts 0)
-                 :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")})
+          (conj (merge {:kind :coverage
+                        :label "Inspect skipped source candidates"
+                        :count (:skipped-files counts 0)
+                        :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")}
+                       (status-mcp map-path)))
 
           (zero? (:search-docs counts))
           (conj {:kind :docs
@@ -1297,7 +1305,7 @@
                                  :unsupported unsupported-planes
                                  :counts counts})
         freshness (:freshness opts)
-        actions (next-actions counts retrieval (:project-id opts) freshness)]
+        actions (next-actions counts retrieval (:project-id opts) freshness (:map-path opts))]
     {:status (answerability-status missing weak retrieval match-counts freshness)
      :available available
      :missing missing

@@ -193,7 +193,8 @@
     (is (some #(= {:kind :coverage
                    :label "Inspect skipped source candidates"
                    :count 3
-                   :command "agraph sync coverage <project.edn> --json"}
+                   :command "agraph sync coverage <project.edn> --json"
+                   :mcpTool "agraph_status"}
                   %)
               actions))))
 
@@ -371,9 +372,47 @@
     (is (some #(= {:kind :coverage
                    :label "Inspect extractor diagnostics"
                    :count 3
-                   :command "agraph sync coverage <project.edn> --json"}
+                   :command "agraph sync coverage <project.edn> --json"
+                   :mcpTool "agraph_status"}
                   %)
               actions))))
+
+(deftest answerability-coverage-actions-include-status-mcp-when-map-path-is-known
+  (let [actions (#'context/next-actions
+                 {:files 1
+                  :nodes 1
+                  :edges 1
+                  :search-docs 1
+                  :external-packages 1
+                  :package-import-edges 1
+                  :unresolved-imports 0
+                  :package-evidence-gaps 0
+                  :package-conflicts 0
+                  :system-nodes 1
+                  :system-edges 1
+                  :activity-items 1
+                  :activity-events 1
+                  :diagnostics 2
+                  :skipped-files 3}
+                 {:requested :lexical
+                  :effective :lexical
+                  :fallback? false}
+                 "fixture"
+                 nil
+                 "agraph.map.json")]
+    (is (= [{:kind :coverage
+             :label "Inspect extractor diagnostics"
+             :count 2
+             :command "agraph sync coverage <project.edn> --json"
+             :mcpTool "agraph_status"
+             :mcpArgs {:mapPath "agraph.map.json"}}
+            {:kind :coverage
+             :label "Inspect skipped source candidates"
+             :count 3
+             :command "agraph sync coverage <project.edn> --json"
+             :mcpTool "agraph_status"
+             :mcpArgs {:mapPath "agraph.map.json"}}]
+           (filterv #(= :coverage (:kind %)) actions)))))
 
 (deftest answerability-surfaces-stale-freshness
   (let [retrieval {:requested :lexical
@@ -491,7 +530,8 @@
       (is (some #(= {:kind :coverage
                      :label "Inspect skipped source candidates"
                      :count 3
-                     :command "agraph sync coverage <project.edn> --json"}
+                     :command "agraph sync coverage <project.edn> --json"
+                     :mcpTool "agraph_status"}
                     %)
                 (:nextActions answerability))))))
 
