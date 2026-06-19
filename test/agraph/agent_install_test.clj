@@ -25,7 +25,9 @@
     (is (str/includes? content "agraph audit-scope <project.edn> --map agraph.map.json --json"))
     (is (str/includes? content "Use it for architecture-class work"))
     (is (str/includes? content "If `status` or `answerability` is `limited`, `empty`, `stale`, or `unsynced`"))
-    (is (str/includes? content "`nextActions` before concluding evidence does not exist"))))
+    (is (str/includes? content "`nextActions` before concluding evidence does not exist"))
+    (is (str/includes? content "`agraphCommandCount` as observed tool usage"))
+    (is (str/includes? content "search/read/shell command reductions are the lower-is-better"))))
 
 (deftest codex-broad-search-hook-prefers-status-and-explore
   (let [root (temp-dir "agraph-agent-hook")
