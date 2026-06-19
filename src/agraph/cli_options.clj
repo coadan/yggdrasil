@@ -81,6 +81,7 @@
     "--max-unverified-score-runs"
     "--max-graph-expectation-failures" "--max-missing-declared-source-kind-runs"
     "--max-missed-runs"
+    "--max-context-rank-missing-runs"
     "--max-missed-but-present-in-context-runs"
     "--max-missed-and-absent-from-context-runs"
     "--max-ranked-outside-top-5-runs"

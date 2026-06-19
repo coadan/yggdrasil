@@ -112,6 +112,7 @@
     (is (str/includes? usage "--max-missing-predicted-file-runs N"))
     (is (str/includes? usage "--max-warning-runs N"))
     (is (str/includes? usage "--max-identity-mismatch-runs N"))
+    (is (str/includes? usage "--max-context-rank-missing-runs N"))
     (is (str/includes? usage "--max-missed-but-present-in-context-runs N"))
     (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|all"))
@@ -1441,6 +1442,7 @@
                                  "--max-identity-mismatch-runs" "0"
                                  "--max-missing-declared-source-kind-runs" "0"
                                  "--max-missed-runs" "0"
+                                 "--max-context-rank-missing-runs" "0"
                                  "--max-missed-but-present-in-context-runs" "0"
                                  "--max-missed-and-absent-from-context-runs" "0"
                                  "--max-ranked-outside-top-5-runs" "0"
@@ -1486,6 +1488,7 @@
                   :max-identity-mismatch-runs 0.0
                   :max-missing-declared-source-kind-runs 0.0
                   :max-missed-runs 0.0
+                  :max-context-rank-missing-runs 0.0
                   :max-missed-but-present-in-context-runs 0.0
                   :max-missed-and-absent-from-context-runs 0.0
                   :max-ranked-outside-top-5-runs 0.0
@@ -1537,7 +1540,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
 

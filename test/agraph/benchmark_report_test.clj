@@ -1050,6 +1050,8 @@
                                               :notRunCaseIds []}
                 :localizationDiagnostics {:missedRuns 1
                                           :missedCaseIds ["case-1"]
+                                          :contextRankMissingRuns 1
+                                          :contextRankMissingCaseIds ["case-1"]
                                           :missedButPresentInContextRuns 1
                                           :missedButPresentInContextCaseIds ["case-1"]
                                           :missedAndAbsentFromContextRuns 1
@@ -1127,6 +1129,7 @@
                  :max-graph-expectation-failures 0
                  :max-missing-declared-source-kind-runs 0
                  :max-missed-runs 0
+                 :max-context-rank-missing-runs 0
                  :max-missed-but-present-in-context-runs 0
                  :max-missed-and-absent-from-context-runs 0
                  :max-ranked-outside-top-5-runs 0
@@ -1146,6 +1149,8 @@
                                         :runs 1}]
                        :localizationDiagnostics {:missedRuns 1
                                                  :missedCaseIds ["case-1"]
+                                                 :contextRankMissingRuns 0
+                                                 :contextRankMissingCaseIds []
                                                  :missedButPresentInContextRuns 1
                                                  :missedButPresentInContextCaseIds ["case-1"]
                                                  :missedAndAbsentFromContextRuns 0
@@ -1192,6 +1197,7 @@
                  :max-graph-expectation-failures 1
                  :max-missing-declared-source-kind-runs 1
                  :max-missed-runs 1
+                 :max-context-rank-missing-runs 0
                  :max-missed-but-present-in-context-runs 1
                  :max-missed-and-absent-from-context-runs 0
                  :max-ranked-outside-top-5-runs 1
@@ -1230,6 +1236,7 @@
              "missingDeclaredSourceKindRuns"
              "case.graphExpectations"
              "missedRuns"
+             "contextRankMissingRuns"
              "missedButPresentInContextRuns"
              "missedAndAbsentFromContextRuns"
              "rankedOutsideTop5Runs"
@@ -1262,6 +1269,7 @@
                    "case.graphExpectations"
                    "missingPredictedFileRuns"
                    "hintDiagnosticRuns"
+                   "contextRankMissingRuns"
                    "missedButPresentInContextRuns"
                    "missedAndAbsentFromContextRuns"]))
       (is (not (contains? case-1-failures "activeStageElapsedMs"))))
@@ -1331,6 +1339,7 @@
             :maxGraphExpectationFailures 0.0
             :maxMissingDeclaredSourceKindRuns 0.0
             :maxMissedRuns 0.0
+            :maxContextRankMissingRuns 0.0
             :maxMissedButPresentInContextRuns 0.0
             :maxMissedAndAbsentFromContextRuns 0.0
             :maxRankedOutsideTop5Runs 0.0

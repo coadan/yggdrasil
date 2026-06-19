@@ -309,6 +309,7 @@ generated output root.
   do not match the indexed facts,
   `--max-missing-declared-source-kind-runs` to fail when selected cases declare
   source kinds that produce no scoreable coverage, `--max-missed-runs`,
+  `--max-context-rank-missing-runs`,
   `--max-missed-but-present-in-context-runs`, and
   `--max-missed-and-absent-from-context-runs` to separate agent selection misses
   from AGraph retrieval or extraction misses, plus
@@ -707,6 +708,10 @@ given.
   case id, or case fingerprint did not match the prepared case. These are also
   counted under `warningRuns`; gate them directly with
   `--max-identity-mismatch-runs`.
+- `localizationDiagnostics.contextRankMissingRuns`: AGraph-mode score artifacts
+  that do not include context ground-truth ranks. Gate this with
+  `--max-context-rank-missing-runs` when reports must prove whether missed files
+  were absent from AGraph context or merely ignored by the agent.
 - `localizationDiagnostics.missedButPresentInContextRuns`: missed scoreable files
   that were present in the AGraph context packet. Gate with
   `--max-missed-but-present-in-context-runs` when prompt or agent selection

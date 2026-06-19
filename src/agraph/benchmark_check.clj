@@ -47,6 +47,7 @@
                  [:max-graph-expectation-failures :maxGraphExpectationFailures]
                  [:max-missing-declared-source-kind-runs :maxMissingDeclaredSourceKindRuns]
                  [:max-missed-runs :maxMissedRuns]
+                 [:max-context-rank-missing-runs :maxContextRankMissingRuns]
                  [:max-missed-but-present-in-context-runs
                   :maxMissedButPresentInContextRuns]
                  [:max-missed-and-absent-from-context-runs
@@ -346,6 +347,11 @@
          :missedCaseIds
          "missedRuns"
          "Some runs missed at least one scoreable localization file."]
+        [:maxContextRankMissingRuns
+         :contextRankMissingRuns
+         :contextRankMissingCaseIds
+         "contextRankMissingRuns"
+         "Some AGraph-mode score artifacts did not include context ground-truth ranks."]
         [:maxMissedButPresentInContextRuns
          :missedButPresentInContextRuns
          :missedButPresentInContextCaseIds

@@ -169,6 +169,11 @@
                                                       (parse-optional-double
                                                        args
                                                        "--max-missed-runs"))
+    (parse-optional-double args "--max-context-rank-missing-runs") (assoc
+                                                                    :max-context-rank-missing-runs
+                                                                    (parse-optional-double
+                                                                     args
+                                                                     "--max-context-rank-missing-runs"))
     (parse-optional-double args "--max-missed-but-present-in-context-runs") (assoc
                                                                              :max-missed-but-present-in-context-runs
                                                                              (parse-optional-double
