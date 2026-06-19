@@ -19,6 +19,7 @@
           :tags [:synthetic
                  :problem-architecture
                  :architecture-cross-system-impact
+                 :audit-scope-docs
                  :web-framework
                  :astro]
           :base-sha "320f7139052be98339726cac20895f50172000f9"
@@ -48,6 +49,7 @@
           :tags [:synthetic
                  :problem-architecture
                  :architecture-dependency-flow
+                 :audit-scope-runtime-config
                  :web-framework-config
                  :astro]
           :base-sha "c82919e8970c7ebebb87ded191b815c76737cd04"
@@ -74,6 +76,7 @@
           :tags [:synthetic
                  :problem-architecture
                  :architecture-data-ownership
+                 :audit-scope-runtime-config
                  :runtime-config
                  :database]
           :base-sha "948b5feb51b9605babc6820475b5ccff44f29552"
@@ -97,6 +100,7 @@
           :tags [:synthetic
                  :problem-architecture
                  :architecture-runtime-boundary
+                 :audit-scope-runtime-config
                  :runtime-config
                  :javascript]
           :base-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
@@ -117,6 +121,8 @@
           :tags [:synthetic
                  :problem-architecture
                  :architecture-dependency-flow
+                 :audit-scope-containers
+                 :audit-scope-runtime-config
                  :runtime-config
                  :database
                  :dotnet
