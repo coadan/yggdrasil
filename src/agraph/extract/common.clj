@@ -117,6 +117,10 @@
     (string? value) value
     :else (str value)))
 
+(defn manifest-name
+  [path]
+  (str/lower-case (last (str/split path #"/"))))
+
 (defn leading-spaces
   [line]
   (count (take-while #(= \space %) line)))
@@ -126,6 +130,15 @@
   (-> (str value)
       (str/replace #"^\s*['\"]|['\"]\s*$" "")
       str/trim))
+
+(defn yaml-key-line
+  [idx line]
+  (when-let [[_ indent key value]
+             (re-matches #"^(\s*)(?:-\s*)?([A-Za-z0-9_.-]+):(?:\s*(.*))?$" line)]
+    {:indent (count indent)
+     :key key
+     :value (str/trim (or value ""))
+     :source-line (inc idx)}))
 
 (defn yaml-scalar-list-values
   [value]
@@ -200,6 +213,47 @@
           :else
           (recur (rest remaining) section out))
         out))))
+
+(defn yaml-top-section-blocks
+  [lines section-name]
+  (loop [remaining (map-indexed vector lines)
+         in-section? false
+         section-indent nil
+         current nil
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [entry (yaml-key-line idx line)]
+        (cond
+          (and entry (= section-name (:key entry)))
+          (recur (rest remaining) true (:indent entry) nil out)
+
+          (and in-section?
+               entry
+               (<= (:indent entry) section-indent)
+               (not= section-name (:key entry)))
+          (recur (rest remaining) false nil nil (cond-> out current (conj current)))
+
+          (and in-section?
+               entry
+               (= (:indent entry) (+ section-indent 2)))
+          (recur (rest remaining)
+                 true
+                 section-indent
+                 {:label (:key entry)
+                  :source-line (:source-line entry)
+                  :lines [[idx line]]}
+                 (cond-> out current (conj current)))
+
+          (and in-section? current)
+          (recur (rest remaining)
+                 true
+                 section-indent
+                 (update current :lines conj [idx line])
+                 out)
+
+          :else
+          (recur (rest remaining) in-section? section-indent current out)))
+      (cond-> out current (conj current)))))
 
 (defn bounded-lines
   [text line-limit]
