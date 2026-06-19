@@ -128,6 +128,10 @@ when an agent needs skipped or unsupported source candidates. Project evidence
 and report packets include compact `skipped-by-extension` and
 `skipped-by-reason` rows with bounded samples for first-pass triage.
 
+`candidateFiles` lists ranked file candidates from retrieval. Rows include
+`repo` when the indexed search result is repo-scoped, so agents can distinguish
+same-path files across multi-repo projects without relying on path text alone.
+
 ## Doc Attachments
 
 Docs are indexed as Markdown heading chunks with source lines, end lines,

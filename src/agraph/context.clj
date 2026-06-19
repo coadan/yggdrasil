@@ -589,6 +589,8 @@
                                            (double (or %2 0.0)))
                                      (or a {})
                                      (or b {})))
+        candidate-key (fn [row]
+                        [(:repo row) (:path row)])
         merge-row (fn [existing row]
                     (let [earlier (if (< (:rank row) (:rank existing))
                                     row
@@ -610,6 +612,8 @@
                        :score (double (or (:score result) 0.0))
                        :targetKind (some-> (:target-kind result) name)
                        :label (:label result)}
+                (:repo-id result) (assoc :repo (:repo-id result))
+                (:repo result) (assoc :repo (:repo result))
                 (:source-line result) (assoc :sourceLine (:source-line result))
                 (:result-kind result) (assoc :resultKind (name (:result-kind result)))
                 (:reason result) (assoc :reason (:reason result))
@@ -617,12 +621,12 @@
                                                   (:score-components result))))))
          (keep identity)
          (reduce (fn [best row]
-                   (update best (:path row) #(if %
-                                               (merge-row % row)
-                                               row)))
+                   (update best (candidate-key row) #(if %
+                                                       (merge-row % row)
+                                                       row)))
                  {})
          vals
-         (sort-by (juxt :rank :path))
+         (sort-by (juxt :rank :repo :path))
          vec)))
 
 (defn- base-packet
@@ -764,6 +768,7 @@
   [candidate]
   (select-keys candidate
                [:path
+                :repo
                 :rank
                 :score
                 :targetKind

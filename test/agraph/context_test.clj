@@ -572,9 +572,63 @@
                                  :graph 0.6}}]
              (:candidateFiles packet))))))
 
+(deftest candidate-files-are-scoped-by-repo-and-path
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :instrumentation {:search-docs 3
+                                                         :returned-count 3}
+                                       :results [{:repo-id "api"
+                                                  :path "src/app.clj"
+                                                  :score 0.8
+                                                  :target-kind :node
+                                                  :target-id "node:api.app"
+                                                  :label "api.app"}
+                                                 {:repo-id "worker"
+                                                  :path "src/app.clj"
+                                                  :score 0.7
+                                                  :target-kind :node
+                                                  :target-id "node:worker.app"
+                                                  :label "worker.app"}
+                                                 {:repo-id "api"
+                                                  :path "src/app.clj"
+                                                  :score 0.4
+                                                  :target-kind :chunk
+                                                  :target-id "chunk:api.app"
+                                                  :label "api.app/start"}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                activity/select-activity (fn [& _] [])
+                context/answerability (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "app"
+                                         {:project-id "fixture"
+                                          :retriever :lexical})]
+      (is (= [{:path "src/app.clj"
+               :rank 1
+               :score 0.8
+               :targetKind "node"
+               :label "api.app"
+               :repo "api"}
+              {:path "src/app.clj"
+               :rank 2
+               :score 0.7
+               :targetKind "node"
+               :label "worker.app"
+               :repo "worker"}]
+             (:candidateFiles packet))))))
+
 (deftest candidate-files-trim-to-fit-budget
   (let [candidate-files (mapv (fn [idx]
                                 {:path (str "src/file_" idx ".clj")
+                                 :repo-id "app"
                                  :rank (inc idx)
                                  :score 0.9
                                  :target-kind :chunk
@@ -613,6 +667,7 @@
         (is (seq files))
         (is (< (count files) (count candidate-files)))
         (is (= "src/file_0.clj" (:path (first files))))
+        (is (= "app" (:repo (first files))))
         (is (contains? (first files) :scoreComponents))
         (is (not (contains? (first files) :reason)))
         (is (some #(re-find #"candidate files trimmed" %)
