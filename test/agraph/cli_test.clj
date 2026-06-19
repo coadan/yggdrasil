@@ -292,6 +292,7 @@
       (is (str/includes? first-content "agraph sync work show <work-id>"))
       (is (str/includes? first-content "agraph sync work heartbeat <work-id> --agent codex --lease-minutes 30"))
       (is (str/includes? first-content "agraph-mcp --config project.edn --map agraph.map.json"))
+      (is (str/includes? first-content "`agraph_explore`"))
       (is (str/includes? first-content "`agraph_explore_search`"))
       (is (str/includes? first-content "`agraph_status`"))
       (is (str/includes? first-content "`agraph_sync_inspect`"))
@@ -300,6 +301,7 @@
       (is (str/includes? first-content "`agraph_work_show`"))
       (is (str/includes? first-content "`agraph_work_release`"))
       (is (str/includes? first-content "`agraph_work_reject`"))
+      (is (str/includes? first-content "Use `agraph_explore` as the primary one-shot orientation packet"))
       (is (str/includes? first-content "Use queued review packets"))
       (is (str/includes? first-content "Do not infer architecture from names")))))
 

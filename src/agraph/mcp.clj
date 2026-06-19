@@ -50,7 +50,19 @@
    :required required})
 
 (def tool-definitions
-  [{:name "agraph_ask"
+  [{:name "agraph_explore"
+    :description "Return the primary one-shot AGraph orientation packet for an agent question."
+    :inputSchema (json-schema
+                  {:query {:type "string"}
+                   :projectId {:type "string"}
+                   :configPath {:type "string"}
+                   :mapPath {:type "string"}
+                   :retriever {:type "string"
+                               :enum ["lexical" "auto" "hybrid" "semantic"]}
+                   :budget {:type "integer"
+                            :minimum 1000}}
+                  ["query"])}
+   {:name "agraph_ask"
     :description "Return an AGraph context packet for one graph-grounded question."
     :inputSchema (json-schema
                   {:query {:type "string"}
@@ -271,9 +283,9 @@
                        :field "result.schema"})))
     result))
 
-(defn- ask
+(defn- context-query-packet
   [ctx args]
-  (let [query (require-string! args :query "agraph_ask requires query.")
+  (let [query (require-string! args :query "AGraph context query requires query.")
         project (read-project! ctx args)]
     (with-xtdb
       ctx
@@ -284,6 +296,10 @@
                                  :retriever (keyword (or (:retriever args) "lexical"))
                                  :map-overlay (map-overlay ctx args)
                                  :budget (or (:budget args) context/default-budget)})))))
+
+(defn- ask
+  [ctx args]
+  (context-query-packet ctx args))
 
 (defn- explore-create
   [ctx args]
@@ -462,6 +478,7 @@
   "Call one MCP tool and return its raw AGraph value."
   [ctx name args]
   (case name
+    "agraph_explore" (context-query-packet ctx args)
     "agraph_ask" (ask ctx args)
     "agraph_explore_create" (explore-create ctx args)
     "agraph_explore_open" (explore-open ctx args)

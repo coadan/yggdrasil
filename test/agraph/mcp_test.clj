@@ -52,7 +52,8 @@
     (is (= {:name "agraph-mcp"
             :version "0.1.0"}
            (get-in init [:result :serverInfo])))
-    (is (= ["agraph_ask"
+    (is (= ["agraph_explore"
+            "agraph_ask"
             "agraph_explore_create"
             "agraph_explore_open"
             "agraph_explore_expand"
@@ -76,6 +77,7 @@
   (let [listed (mcp/handle-message (mcp/server-context [])
                                    (request 1 "tools/list" {}))
         schemas (into {} (map (juxt :name :inputSchema)) (get-in listed [:result :tools]))]
+    (is (= ["query"] (get-in schemas ["agraph_explore" :required])))
     (is (= ["query"] (get-in schemas ["agraph_ask" :required])))
     (is (= ["cursorId" "target"]
            (get-in schemas ["agraph_explore_open" :required])))
@@ -123,6 +125,36 @@
       (is (= context/schema
              (:schema (json/read-json (get-in response [:result :content 0 :text])
                                       :key-fn keyword)))))))
+
+(deftest explore-tool-returns-primary-context-packet
+  (with-redefs [project/read-project (constantly project-fixture)
+                store/with-node (fn [_ f] (f :xtdb))
+                context/context-packet (fn [xtdb query-text opts]
+                                         {:schema context/schema
+                                          :xtdb xtdb
+                                          :query query-text
+                                          :project-id (:project-id opts)
+                                          :retriever (name (:retriever opts))
+                                          :candidateFiles [{:repo "app"
+                                                            :path "src/app.clj"}]
+                                          :answerability {:status :usable}
+                                          :drilldowns ["agraph query \"where auth\" --project fixture"]})]
+    (let [response (mcp/handle-message
+                    (mcp/server-context ["--config" "project.edn"])
+                    (tool-call 8
+                               "agraph_explore"
+                               {:query "where auth"
+                                :retriever "lexical"}))
+          packet (get-in response [:result :structuredContent])]
+      (is (= context/schema (:schema packet)))
+      (is (= "fixture" (:project-id packet)))
+      (is (= "where auth" (:query packet)))
+      (is (= [{:repo "app"
+               :path "src/app.clj"}]
+             (:candidateFiles packet)))
+      (is (= {:status :usable} (:answerability packet)))
+      (is (= ["agraph query \"where auth\" --project fixture"]
+             (:drilldowns packet))))))
 
 (deftest view-systems-tool-returns-canonical-graph
   (with-redefs [project/read-project (constantly project-fixture)
