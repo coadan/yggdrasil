@@ -350,6 +350,8 @@
             :superseded-by "node:plugin"
             :superseded-reason "Plugin emitted a more specific hypermedia fact."
             :superseded-by-plugin-id "panel-plugin"
+            :superseded-by-plugin-fingerprint
+            (extractor-plugin/plugin-fingerprint plugin)
             :superseded-by-plugin-package-id "datastar-hiccup"
             :superseded-by-plugin-package-rev "abc123"
             :superseded-by-plugin-package-manifest-fingerprint "sha256:manifest"
@@ -361,8 +363,71 @@
                          :superseded-by
                          :superseded-reason
                          :superseded-by-plugin-id
+                         :superseded-by-plugin-fingerprint
                          :superseded-by-plugin-package-id
                          :superseded-by-plugin-package-rev
                          :superseded-by-plugin-package-manifest-fingerprint
                          :superseded-by-plugin-claim-authority
+                         :superseded-by-plugin-benchmark-status])))))
+
+(deftest extractor-plugin-hide-overlays-keep-core-rows-auditable
+  (let [plugin (extractor-plugin/normalize-plugin
+                (merge (plugin-config)
+                       {:authority :git-plugin
+                        :package-id "datastar-hiccup"
+                        :package-version "0.1.0"
+                        :package-rev "abc123"
+                        :package-manifest-fingerprint "sha256:manifest"
+                        :package-source {:type :git
+                                         :url "https://example.test/datastar.git"
+                                         :rev "abc123"}}))
+        file {:file-id "file:1"
+              :path "src/app.clj"
+              :kind :code}
+        core-fact {:xt/id "fact:core-route"
+                   :file-id "file:1"
+                   :path "src/app.clj"
+                   :kind :route
+                   :label "POST /profile"
+                   :source-line 12
+                   :active? true
+                   :run-id "run:1"}
+        plugin-extraction (#'extractor-plugin/normalize-plugin-result
+                           "run:1"
+                           file
+                           plugin
+                           {:schema extractor-plugin/result-schema
+                            :overlays [{:op "hides"
+                                        :targetId "fact:core-route"
+                                        :reason "Plugin found this core fact to be duplicate framework noise."}]})
+        merged (extractor-plugin/merge-extractions
+                {:nodes []
+                 :edges []
+                 :chunks []
+                 :file-facts [core-fact]
+                 :diagnostics []}
+                [plugin-extraction])
+        fact (first (:file-facts merged))]
+    (is (= "fact:core-route" (:xt/id fact)))
+    (is (= {:superseded? true
+            :superseded-op :hides
+            :superseded-by nil
+            :superseded-reason "Plugin found this core fact to be duplicate framework noise."
+            :superseded-by-plugin-id "panel-plugin"
+            :superseded-by-plugin-fingerprint
+            (extractor-plugin/plugin-fingerprint plugin)
+            :superseded-by-plugin-package-id "datastar-hiccup"
+            :superseded-by-plugin-package-rev "abc123"
+            :superseded-by-plugin-package-manifest-fingerprint "sha256:manifest"
+            :superseded-by-plugin-benchmark-status :unbenchmarked}
+           (select-keys fact
+                        [:superseded?
+                         :superseded-op
+                         :superseded-by
+                         :superseded-reason
+                         :superseded-by-plugin-id
+                         :superseded-by-plugin-fingerprint
+                         :superseded-by-plugin-package-id
+                         :superseded-by-plugin-package-rev
+                         :superseded-by-plugin-package-manifest-fingerprint
                          :superseded-by-plugin-benchmark-status])))))

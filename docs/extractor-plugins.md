@@ -84,7 +84,9 @@ Plugins can also emit `overlays` to mark existing rows as superseded or hidden
 without deleting raw evidence. This is the preferred path when a plugin has a
 more specific fact but the weaker core row should remain auditable. AGraph
 annotates the target row with the replacement id, reason, plugin id, package
-pin, benchmark status, and claim authority.
+pin, plugin fingerprint, benchmark status, and claim authority. Hidden rows are
+still persisted as raw evidence; consumers can choose to ignore rows marked with
+`:superseded? true` when they need a plugin-enhanced view.
 
 ## Search Opt-In
 
@@ -219,7 +221,10 @@ plugin provenance fields.
 Overlay operations currently supported by the authoring contract are
 `:supersedes`, `:hides`, `:refines`, and `:links`. `:supersedes` and `:hides`
 annotate the target row with `:superseded? true` while preserving the target row
-for audit. `:refines` and `:links` are reserved decision evidence for now; use
+for audit. The annotation includes the overlay operation, optional replacement
+id, reason, plugin id, plugin fingerprint, package pin, benchmark status, and
+package claim authority when available. `:refines` and `:links` are reserved
+decision evidence for now; use
 ordinary rows and edges when the plugin needs durable graph facts.
 
 Plugin failures become `:extractor-plugin` diagnostics. A failed plugin does not
