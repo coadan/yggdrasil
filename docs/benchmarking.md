@@ -19,6 +19,67 @@ Tracked starter suites:
   shell-only versus AGraph agent-efficiency runs. Generated lane outputs should
   still live under `.dev/agraph/`.
 
+## Headline Suite
+
+Use the tracked headline suite to compare shell-only and AGraph-assisted agents
+on architecture-oriented tasks. Until dedicated `bench headline` wrappers exist,
+run it through the existing agent commands.
+
+Deterministic AGraph baseline:
+
+```sh
+bb bench agent-baseline benchmarks/headline.edn \
+  --out .dev/agraph/headline-bench/agraph-baseline
+
+bb bench agent-report benchmarks/headline.edn \
+  --mode agraph \
+  --agent agraph-baseline-lexical \
+  --out .dev/agraph/headline-bench/agraph-baseline
+```
+
+External agent lanes:
+
+```sh
+bb bench agent-run benchmarks/headline.edn \
+  --mode shell-only \
+  --agent codex \
+  --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' \
+  --prompt-profile fast \
+  --out .dev/agraph/headline-bench/shell-only
+
+bb bench agent-run benchmarks/headline.edn \
+  --mode agraph \
+  --agent codex \
+  --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' \
+  --prompt-profile fast \
+  --out .dev/agraph/headline-bench/agraph
+```
+
+Generate lane reports and compare them:
+
+```sh
+bb bench agent-report benchmarks/headline.edn \
+  --mode shell-only \
+  --agent codex \
+  --out .dev/agraph/headline-bench/shell-only
+
+bb bench agent-report benchmarks/headline.edn \
+  --mode agraph \
+  --agent codex \
+  --out .dev/agraph/headline-bench/agraph
+
+bb efficiency \
+  .dev/agraph/headline-bench/shell-only/agent-report.json \
+  .dev/agraph/headline-bench/agraph/agent-report.json \
+  --out .dev/agraph/headline-bench/summary.json
+```
+
+Read `Problem-class signals`, `Architecture-class signals`, and
+`Claim readiness` together. A headline result is useful only when the compared
+lanes share completed cases, architecture-class tags are measured, evidence
+quality is available, and the report remains claim-ready. Treat generated files
+under `.dev/agraph/headline-bench/` as disposable artifacts.
+
 ## Workflow
 
 Create a benchmark suite EDN file:
