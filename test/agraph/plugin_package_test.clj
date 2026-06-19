@@ -228,8 +228,11 @@
     (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
       (is (= :failed (:status diagnosis)))
       (is (= :blocked (get-in diagnosis [:readiness :public-sharing :status])))
-      (is (= :review-required (get-in diagnosis [:readiness :core-promotion :status])))
-      (is (= #{:public-license-missing :public-commercial}
+      (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= #{:public-license-missing
+               :public-commercial
+               :core-fixtures-missing
+               :core-tests-missing}
              (set (map :code (:diagnostics diagnosis))))))))
 
 (deftest diagnose-requires-benchmark-artifacts-for-claims-and-core-promotion
@@ -292,11 +295,61 @@
                  "extract.py"
                  "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
     (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+      (is (= :warning (:status diagnosis)))
+      (is (= :ready (get-in diagnosis [:readiness :claims :status])))
+      (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= #{:core-fixtures-missing :core-tests-missing}
+             (set (map :code (:diagnostics diagnosis)))))
+      (is (= ["benchmarks/report.json"]
+             (mapv :path (get-in diagnosis [:package :benchmark-artifacts])))))))
+
+(deftest diagnose-requires-core-promotion-fixtures-and-tests
+  (let [workspace (temp-dir "agraph-plugin-core-ready")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 "benchmarks/report.json"
+                 "{\"schema\":\"agraph.benchmark.agent-report/v1\",\"suite-id\":\"plugin\"}\n")
+    (write-file! (.getPath package-dir)
+                 "fixtures/sample.clj"
+                 "(ns sample)\n")
+    (write-file! (.getPath package-dir)
+                 "test/sample_test.clj"
+                 "(ns sample-test)\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "core-ready-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Benchmark evidence test fixture."}
+                   :benchmark {:status :benchmarked
+                               :artifacts [{:path "benchmarks/report.json"
+                                            :kind :agent-report
+                                            :case-id "plugin-case"}]}
+                   :core-promotion {:fixtures [{:path "fixtures/sample.clj"
+                                                :kind :fixture}]
+                                    :tests [{:path "test/sample_test.clj"
+                                             :kind :test}]}
+                   :extractor-plugins
+                   [{:id "core-ready-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
       (is (= :passed (:status diagnosis)))
       (is (= :ready (get-in diagnosis [:readiness :claims :status])))
       (is (= :review-required (get-in diagnosis [:readiness :core-promotion :status])))
-      (is (= ["benchmarks/report.json"]
-             (mapv :path (get-in diagnosis [:package :benchmark-artifacts])))))))
+      (is (= ["fixtures/sample.clj"]
+             (mapv :path (get-in diagnosis [:package :core-promotion :fixtures]))))
+      (is (= ["test/sample_test.clj"]
+             (mapv :path (get-in diagnosis [:package :core-promotion :tests])))))))
 
 (deftest diagnose-keeps-project-local-plugins-external
   (let [workspace (temp-dir "agraph-plugin-project-local")

@@ -238,6 +238,24 @@ package marked `:benchmarked` without artifacts is blocked for public claims and
 core promotion. Diagnosis does not decide whether the benchmark proves enough
 material improvement; it only verifies that reviewable evidence exists.
 
+## Core-Promotion Evidence
+
+Core promotion has a stricter bar than public sharing or public claims. A
+benchmarked base package can support public claims while still being blocked for
+core-promotion review until it declares package-local fixtures and tests:
+
+```clojure
+:core-promotion
+{:fixtures [{:path "fixtures/datastar_hiccup.clj"
+             :kind :fixture}]
+ :tests [{:path "test/datastar_hiccup_test.clj"
+          :kind :test}]}
+```
+
+`bb plugin diagnose <dir>` checks that these paths exist. Missing fixtures or
+tests are warnings for ordinary package use, but they block the core-promotion
+readiness lane.
+
 ## Core Promotion
 
 A package can become part of core only through a normal contribution:

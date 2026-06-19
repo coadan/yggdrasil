@@ -289,6 +289,80 @@
              [])))
        artifacts)))))
 
+(def ^:private core-promotion-evidence-kinds
+  {:fixtures {:missing-code :core-fixtures-missing
+              :path-missing-code :core-fixture-path-missing
+              :not-found-code :core-fixture-not-found
+              :missing-message " declares no core-promotion fixture artifacts."}
+   :tests {:missing-code :core-tests-missing
+           :path-missing-code :core-test-path-missing
+           :not-found-code :core-test-not-found
+           :missing-message " declares no core-promotion test artifacts."}})
+
+(defn- core-promotion-artifacts
+  [package k]
+  (let [artifacts (get-in package [:core-promotion k])]
+    (cond
+      (nil? artifacts) []
+      (sequential? artifacts) (vec artifacts)
+      :else [artifacts])))
+
+(defn- core-promotion-artifact-summary
+  [package evidence-kind artifact]
+  (let [path (artifact-path artifact)]
+    (cond-> {:path path
+             :evidence-kind evidence-kind}
+      (map? artifact) (merge (select-keys artifact [:kind :description :case-id]))
+      (present? path) (assoc :resolved-path (resolve-path (:path package) path)))))
+
+(defn- core-promotion-artifact-diagnostics
+  [{:keys [id benchmark-status] :as package}]
+  (if (and (base-scope? package)
+           (= :benchmarked benchmark-status)
+           (seq (benchmark-artifacts package)))
+    (vec
+     (mapcat
+      (fn [[evidence-kind {:keys [missing-code path-missing-code not-found-code
+                                  missing-message]}]]
+        (let [artifacts (core-promotion-artifacts package evidence-kind)]
+          (if (empty? artifacts)
+            [{:code missing-code
+              :severity :warning
+              :applies-to [:core-promotion]
+              :message (str id missing-message)
+              :evidence {:core-promotion (:core-promotion package)
+                         :evidence-kind evidence-kind}}]
+            (mapcat
+             (fn [artifact]
+               (let [{:keys [path resolved-path] :as summary}
+                     (core-promotion-artifact-summary package evidence-kind artifact)]
+                 (cond
+                   (not (present? path))
+                   [{:code path-missing-code
+                     :severity :warning
+                     :applies-to [:core-promotion]
+                     :message (str id " declares a core-promotion "
+                                   (name evidence-kind)
+                                   " artifact without :path.")
+                     :evidence {:artifact artifact
+                                :evidence-kind evidence-kind}}]
+
+                   (not (.isFile (io/file resolved-path)))
+                   [{:code not-found-code
+                     :severity :warning
+                     :applies-to [:core-promotion]
+                     :message (str id " core-promotion "
+                                   (name evidence-kind)
+                                   " artifact does not exist: "
+                                   path)
+                     :evidence summary}]
+
+                   :else
+                   [])))
+             artifacts))))
+      core-promotion-evidence-kinds))
+    []))
+
 (defn- package-diagnostics
   [{:keys [id visibility license benchmark-status manifest-fingerprint expected-manifest-fingerprint]
     :as package}]
@@ -326,7 +400,8 @@
         :applies-to [:claims :core-promotion]
         :message (str id " is unbenchmarked; keep claims scoped until benchmarks show material improvement.")
         :evidence {:benchmark-status benchmark-status}}])
-    (benchmark-artifact-diagnostics package))))
+    (benchmark-artifact-diagnostics package)
+    (core-promotion-artifact-diagnostics package))))
 
 (defn- package-warnings
   [package]
@@ -385,6 +460,7 @@
                            :distribution (:distribution manifest)
                            :benchmark (:benchmark manifest)
                            :benchmark-status (benchmark-status manifest)
+                           :core-promotion (:core-promotion manifest)
                            :extractor-plugins (vec (:extractor-plugins manifest))
                            :report-plugins (vec (:report-plugins manifest))}
                     (:description manifest) (assoc :description (str (:description manifest))))]
@@ -408,6 +484,14 @@
    :benchmark-status (:benchmark-status package)
    :benchmark-artifacts (mapv #(artifact-summary package %)
                               (benchmark-artifacts package))
+   :core-promotion {:fixtures (mapv #(core-promotion-artifact-summary package
+                                                                      :fixtures
+                                                                      %)
+                                    (core-promotion-artifacts package :fixtures))
+                    :tests (mapv #(core-promotion-artifact-summary package
+                                                                   :tests
+                                                                   %)
+                                 (core-promotion-artifacts package :tests))}
    :extractor-plugins (count (:resolved-extractor-plugins package))
    :report-plugins (count (:resolved-report-plugins package))
    :warnings (:warnings package)})
@@ -697,6 +781,14 @@
         benchmark-evidence-errors (filter #(and (= :error (:severity %))
                                                 (some #{:claims} (:applies-to %)))
                                           diagnostics)
+        core-promotion-evidence-codes (set (mapcat (fn [[_ codes]]
+                                                     [(:missing-code codes)
+                                                      (:path-missing-code codes)
+                                                      (:not-found-code codes)])
+                                                   core-promotion-evidence-kinds))
+        core-promotion-evidence-errors (filter #(contains? core-promotion-evidence-codes
+                                                           (:code %))
+                                               diagnostics)
         unbenchmarked? (= :unbenchmarked (:benchmark-status package))]
     {:local-use
      (if validation-failed?
@@ -802,6 +894,11 @@
        (lane :blocked
              "Core promotion requires existing benchmark artifacts, not benchmark status alone."
              ["Add package-local benchmark report artifacts or keep the plugin external."])
+
+       (seq core-promotion-evidence-errors)
+       (lane :blocked
+             "Core promotion requires declared fixture and test artifacts."
+             ["Add package-local fixture and test artifact paths under :core-promotion before requesting core review."])
 
        :else
        (lane :review-required
