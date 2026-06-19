@@ -55,6 +55,7 @@
    :pluginVersion :plugin-version
    :pluginFingerprint :plugin-fingerprint
    :benchmarkStatus :benchmark-status
+   :packageClaimAuthority :plugin-package-claim-authority
    :packageManifestFingerprint :plugin-package-manifest-fingerprint
    :replacementId :replacement-id})
 
@@ -159,6 +160,7 @@
                :package-version (some-> (:package-version plugin) str)
                :package-rev (some-> (:package-rev plugin) str)
                :package-manifest-fingerprint (some-> (:package-manifest-fingerprint plugin) str)
+               :package-claim-authority (:package-claim-authority plugin)
                :package-source (:package-source plugin)
                :fingerprint-seed (:fingerprint plugin)}
         scan (assoc :scan scan)))))
@@ -262,6 +264,7 @@
    :plugin-package-version (:package-version plugin)
    :plugin-package-rev (:package-rev plugin)
    :plugin-package-manifest-fingerprint (:package-manifest-fingerprint plugin)
+   :plugin-package-claim-authority (:package-claim-authority plugin)
    :benchmark-status (:benchmark-status plugin)})
 
 (defn- process-result!
@@ -311,6 +314,8 @@
     (:package-rev plugin) (assoc :packageRev (:package-rev plugin))
     (:package-manifest-fingerprint plugin)
     (assoc :packageManifestFingerprint (:package-manifest-fingerprint plugin))
+    (:package-claim-authority plugin)
+    (assoc :packageClaimAuthority (:package-claim-authority plugin))
     (:package-source plugin) (assoc :packageSource (:package-source plugin))))
 
 (defn- plugin-input
@@ -381,6 +386,7 @@
    :plugin-package-version (:package-version plugin)
    :plugin-package-rev (:package-rev plugin)
    :plugin-package-manifest-fingerprint (:package-manifest-fingerprint plugin)
+   :plugin-package-claim-authority (:package-claim-authority plugin)
    :benchmark-status (:benchmark-status plugin)})
 
 (defn- base-row

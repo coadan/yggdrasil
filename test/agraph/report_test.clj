@@ -44,6 +44,11 @@
                              :license {:spdx "MIT"}
                              :scope {:kind :base}
                              :benchmark-status :unbenchmarked
+                             :claim-authority {:status :non-authoritative
+                                               :public-claims? false
+                                               :review-required? false
+                                               :blockers [{:code :unbenchmarked
+                                                           :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
                              :manifest-fingerprint "sha256:manifest"
                              :expected-manifest-fingerprint "sha256:manifest"
                              :extractor-plugins 1
@@ -131,6 +136,11 @@
              :license {:spdx "MIT"}
              :scope {:kind :base}
              :benchmark-status :unbenchmarked
+             :claim-authority {:status :non-authoritative
+                               :public-claims? false
+                               :review-required? false
+                               :blockers [{:code :unbenchmarked
+                                           :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
              :manifest-fingerprint "sha256:manifest"
              :expected-manifest-fingerprint "sha256:manifest"
              :extractor-plugins 1

@@ -410,6 +410,30 @@
   [package]
   (mapv :message (package-diagnostics package)))
 
+(defn- claim-authority
+  [{:keys [benchmark-status scope] :as package}]
+  (let [scope-kind (:kind scope)
+        benchmark-evidence-blockers (->> (benchmark-artifact-diagnostics package)
+                                         (filter #(= :error (:severity %)))
+                                         (mapv #(select-keys % [:code :message])))
+        blockers (cond-> []
+                   (= :project-local scope-kind)
+                   (conj {:code :project-local
+                          :message "Project-local package output stays external and cannot support public claims."})
+
+                   (= :unbenchmarked benchmark-status)
+                   (conj {:code :unbenchmarked
+                          :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."})
+
+                   (seq benchmark-evidence-blockers)
+                   (into benchmark-evidence-blockers))]
+    {:status (if (seq blockers)
+               :non-authoritative
+               :benchmark-backed)
+     :public-claims? (empty? blockers)
+     :review-required? (empty? blockers)
+     :blockers blockers}))
+
 (defn- plugin-defaults
   [package entry]
   {:version (:version package)
@@ -420,6 +444,7 @@
    :package-version (:version package)
    :package-rev (get-in entry [:source :rev])
    :package-manifest-fingerprint (:manifest-fingerprint package)
+   :package-claim-authority (claim-authority package)
    :package-source (:source entry)})
 
 (defn- normalize-plugin-configs
@@ -485,6 +510,7 @@
    :license (:license package)
    :scope (:scope package)
    :benchmark-status (:benchmark-status package)
+   :claim-authority (claim-authority package)
    :benchmark-artifacts (mapv #(artifact-summary package %)
                               (benchmark-artifacts package))
    :core-promotion {:fixtures (mapv #(core-promotion-artifact-summary package
@@ -1180,6 +1206,7 @@
                                      :version
                                      :authority
                                      :benchmark-status
+                                     :package-claim-authority
                                      :package-manifest-fingerprint])
                     plugins)
      :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
@@ -1233,6 +1260,7 @@
                                                  :version
                                                  :authority
                                                  :benchmark-status
+                                                 :package-claim-authority
                                                  :package-manifest-fingerprint])
                            :counts (report-output-counts output)
                            :output output}))

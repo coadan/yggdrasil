@@ -89,15 +89,15 @@ normalizers used by project loading. It reports package caveats such as
 Diagnosis is manifest- and config-based. It does not judge architecture quality
 or project-specific usefulness. It surfaces the caveats that should travel with
 plugin output: scope, public/FOSS/non-commercial policy, benchmark status,
-validation errors, and promotion blockers.
+claim authority, validation errors, and promotion blockers.
 
 `plugin dry-run extractor` runs the package extractor against one file without
 writing graph state. It uses core extraction first, applies the selected plugin
 or all extractor plugins in the package, and returns normalized rows,
 diagnostics, before/after counts, and the full package summary with benchmark,
-scope, fingerprint, core-promotion evidence, and warning caveats. This is the
-fastest feedback loop for agents building project-local architecture
-understanding.
+scope, claim authority, fingerprint, core-promotion evidence, and warning
+caveats. This is the fastest feedback loop for agents building project-local
+architecture understanding.
 
 `plugin dry-run report` runs the package report plugin against a synthetic report
 context without generating a full report. It returns panels, artifacts,
@@ -147,6 +147,8 @@ in [extractor-plugins.md](extractor-plugins.md) and
 - `:authority :git-plugin`
 - package id, version, source, pinned git revision, and manifest fingerprint
 - `:benchmark-status`, defaulting to `:unbenchmarked`
+- `:claim-authority`, where unbenchmarked or project-local packages are
+  explicitly `:non-authoritative`
 - plugin provenance on emitted rows or report panels
 
 Project-local `:extractor-plugins` and `:report-plugins` still work. They are
@@ -154,9 +156,9 @@ loaded after packaged plugins, so local config can intentionally override or
 augment a package during development.
 
 Generated reports include a `plugin-packages` section in `report.json`. It keeps
-package counts, benchmark status, warnings, source pins, manifest fingerprints,
-and `agraph plugin diagnose ... --json` commands with the report artifact, even
-when no report plugin renders those caveats.
+package counts, benchmark status, claim authority, warnings, source pins,
+manifest fingerprints, and `agraph plugin diagnose ... --json` commands with the
+report artifact, even when no report plugin renders those caveats.
 
 ## Ecosystem Policy
 

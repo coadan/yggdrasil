@@ -65,6 +65,7 @@
      :package-version (some-> (:package-version plugin) str)
      :package-rev (some-> (:package-rev plugin) str)
      :package-manifest-fingerprint (some-> (:package-manifest-fingerprint plugin) str)
+     :package-claim-authority (:package-claim-authority plugin)
      :package-source (:package-source plugin)
      :benchmark-status (some-> (:benchmark-status plugin) keyword)
      :fingerprint-seed (:fingerprint plugin)}))
@@ -90,6 +91,7 @@
                          (:package-rev plugin)
                          (:package-manifest-fingerprint plugin)
                          (:package-source plugin)
+                         (:package-claim-authority plugin)
                          (:benchmark-status plugin)
                          (:fingerprint-seed plugin)])))
 
@@ -111,6 +113,8 @@
     (:package-rev plugin) (assoc :packageRev (:package-rev plugin))
     (:package-manifest-fingerprint plugin)
     (assoc :packageManifestFingerprint (:package-manifest-fingerprint plugin))
+    (:package-claim-authority plugin)
+    (assoc :packageClaimAuthority (:package-claim-authority plugin))
     (:benchmark-status plugin) (assoc :benchmarkStatus (name (:benchmark-status plugin)))))
 
 (defn- canonical-key

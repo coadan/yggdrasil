@@ -183,6 +183,13 @@
           report-dry-run (plugin-package/dry-run-report
                           (.getPath package-dir)
                           {})
+          claim-authority {:status :non-authoritative
+                           :public-claims? false
+                           :review-required? false
+                           :blockers [{:code :project-local
+                                       :message "Project-local package output stays external and cannot support public claims."}
+                                      {:code :unbenchmarked
+                                       :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
           manifest-fingerprint (get-in validation [:package :manifest-fingerprint])]
       (is (= plugin-package/new-schema (:schema created)))
       (is (= "demo-plugin" (:package-id created)))
@@ -218,6 +225,7 @@
       (is (= plugin-package/dry-run-schema (:schema dry-run)))
       (is (= :passed (:status dry-run)))
       (is (= :unbenchmarked (get-in dry-run [:package :benchmark-status])))
+      (is (= claim-authority (get-in dry-run [:package :claim-authority])))
       (is (= :project-local (get-in dry-run [:package :scope :kind])))
       (is (= manifest-fingerprint (get-in dry-run [:package :manifest-fingerprint])))
       (is (some #(str/includes? % "unbenchmarked")
@@ -229,12 +237,17 @@
                 (get-in dry-run [:rows :file-facts])))
       (is (= manifest-fingerprint
              (get-in dry-run [:plugins 0 :package-manifest-fingerprint])))
+      (is (= claim-authority
+             (get-in dry-run [:plugins 0 :package-claim-authority])))
       (is (some #(= manifest-fingerprint (:plugin-package-manifest-fingerprint %))
+                (get-in dry-run [:rows :file-facts])))
+      (is (some #(= claim-authority (:plugin-package-claim-authority %))
                 (get-in dry-run [:rows :file-facts])))
       (is (= plugin-package/dry-run-schema (:schema report-dry-run)))
       (is (= :report (:kind report-dry-run)))
       (is (= :passed (:status report-dry-run)))
       (is (= :unbenchmarked (get-in report-dry-run [:package :benchmark-status])))
+      (is (= claim-authority (get-in report-dry-run [:package :claim-authority])))
       (is (= :project-local (get-in report-dry-run [:package :scope :kind])))
       (is (= manifest-fingerprint
              (get-in report-dry-run [:package :manifest-fingerprint])))
@@ -243,6 +256,8 @@
       (is (= 1 (get-in report-dry-run [:counts :panels])))
       (is (= "demo-plugin-report" (get-in report-dry-run [:plugins 0 :id])))
       (is (= :unbenchmarked (get-in report-dry-run [:plugins 0 :benchmark-status])))
+      (is (= claim-authority
+             (get-in report-dry-run [:plugins 0 :package-claim-authority])))
       (is (= manifest-fingerprint
              (get-in report-dry-run [:plugins 0 :package-manifest-fingerprint])))
       (is (= "unbenchmarked"
@@ -250,7 +265,10 @@
                      [:outputs 0 :output :panels 0 :plugin :benchmarkStatus])))
       (is (= manifest-fingerprint
              (get-in report-dry-run
-                     [:outputs 0 :output :panels 0 :plugin :packageManifestFingerprint]))))))
+                     [:outputs 0 :output :panels 0 :plugin :packageManifestFingerprint])))
+      (is (= claim-authority
+             (get-in report-dry-run
+                     [:outputs 0 :output :panels 0 :plugin :packageClaimAuthority]))))))
 
 (deftest diagnose-blocks-invalid-public-package-policy
   (let [workspace (temp-dir "agraph-plugin-diagnose")
@@ -317,6 +335,11 @@
       (is (= :failed (:status diagnosis)))
       (is (= :blocked (get-in diagnosis [:readiness :claims :status])))
       (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= :non-authoritative
+             (get-in diagnosis [:package :claim-authority :status])))
+      (is (= [:benchmark-artifacts-missing]
+             (mapv :code
+                   (get-in diagnosis [:package :claim-authority :blockers]))))
       (is (= [:benchmark-artifacts-missing]
              (mapv :code (:diagnostics diagnosis)))))))
 

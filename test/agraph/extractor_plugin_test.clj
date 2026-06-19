@@ -207,6 +207,11 @@
                         :package-version "0.1.0"
                         :package-rev "abc123"
                         :package-manifest-fingerprint "sha256:manifest"
+                        :package-claim-authority {:status :non-authoritative
+                                                  :public-claims? false
+                                                  :review-required? false
+                                                  :blockers [{:code :unbenchmarked
+                                                              :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
                         :package-source {:type :git
                                          :url "https://example.test/datastar.git"
                                          :rev "abc123"}}))
@@ -232,6 +237,11 @@
             :packageVersion "0.1.0"
             :packageRev "abc123"
             :packageManifestFingerprint "sha256:manifest"
+            :packageClaimAuthority {:status :non-authoritative
+                                    :public-claims? false
+                                    :review-required? false
+                                    :blockers [{:code :unbenchmarked
+                                                :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
             :packageSource {:type :git
                             :url "https://example.test/datastar.git"
                             :rev "abc123"}}
