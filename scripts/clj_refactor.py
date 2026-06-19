@@ -265,6 +265,7 @@ def cmd_batch(args: argparse.Namespace) -> None:
         paths = [str(source.relative_to(repo)), batch["target"]]
         for extra in batch.get("stage", []):
             paths.append(extra)
+        run_command(["git", "restore", "--staged", ":/"], cwd=repo)
         run_command(["git", "add", *paths], cwd=repo)
         run_command(["git", "commit", "-m", batch["commit"]], cwd=repo)
 

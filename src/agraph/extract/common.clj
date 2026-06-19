@@ -123,6 +123,34 @@
     (catch Exception _
       nil)))
 
+(def json-ref-key
+  (keyword "$ref"))
+
+(def json-id-key
+  (keyword "$id"))
+
+(def json-defs-key
+  (keyword "$defs"))
+
+(defn json-ref-values
+  [value]
+  (cond
+    (map? value)
+    (let [self-ref (get value json-ref-key)]
+      (cond-> (mapcat json-ref-values (vals value))
+        (string? self-ref) (conj self-ref)))
+
+    (vector? value)
+    (mapcat json-ref-values value)
+
+    :else
+    []))
+
+(defn json-ref-tail
+  [prefix ref]
+  (when (and (string? ref) (str/starts-with? ref prefix))
+    (subs ref (count prefix))))
+
 (defn json-key-label
   [k]
   (cond
