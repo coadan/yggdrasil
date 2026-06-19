@@ -441,6 +441,11 @@
                      :dependency-scope :import-names :namespace :name :public?
                      :source-line :run-id]))
 
+(defn- compact-system-row
+  [system]
+  (select-keys system [:id :label :kind :status :includes :aliases :tags
+                       :lifecycle :clusterHint :reason]))
+
 (defn- node-ref
   [node]
   (when node
@@ -465,7 +470,7 @@
   [target-kind match row]
   (cond-> {:targetKind target-kind
            :match match
-           :id (:xt/id row)
+           :id (or (:xt/id row) (:id row))
            :repo (:repo-id row)}
     (:label row) (assoc :label (:label row))
     (:kind row) (assoc :kind (:kind row))
@@ -503,6 +508,21 @@
                 :match match
                 :row node}))))
 
+(defn- exact-system-matches
+  [target overlay]
+  (->> (:systems overlay)
+       (remove #(= "rejected" (str (:status %))))
+       (keep (fn [system]
+               (cond
+                 (= target (str (:id system))) [:id system]
+                 (= target (str (:label system))) [:label system]
+                 :else nil)))
+       (distinct-by (comp :id second))
+       (mapv (fn [[match system]]
+               {:target-kind :system
+                :match match
+                :row system}))))
+
 (defn- scoped-files
   [xtdb project-id]
   (->> (store/all-rows xtdb (:files store/tables))
@@ -511,11 +531,12 @@
        vec))
 
 (defn- inspect-matches
-  [target files nodes]
+  [target files nodes overlay]
   (->> (concat (exact-file-matches target files)
+               (exact-system-matches target overlay)
                (exact-node-matches target nodes))
        (sort-by (fn [{:keys [target-kind match row]}]
-                  [(case target-kind :file 0 :node 1 2)
+                  [(case target-kind :file 0 :system 1 :node 2 3)
                    (case match :id 0 :repo-path 1 :path 2 :label 3 4)
                    (:repo-id row)
                    (:path row)
@@ -618,6 +639,7 @@
     (set (remove nil?
                  [target
                   (:xt/id row)
+                  (:id row)
                   (:label row)
                   (:namespace row)
                   (:name row)
@@ -673,7 +695,7 @@
               edges (->> (query/all-edges xtdb {:project-id project-id})
                          (filter active-row?)
                          vec)
-              matches (inspect-matches target files nodes)]
+              matches (inspect-matches target files nodes overlay)]
           (cond
             (empty? matches)
             {:schema node-inspect-schema
@@ -710,6 +732,7 @@
                        :match (target-choice target-kind match row)
                        :relationships (incident-graph selected nodes edges limit)}
                 (= :file target-kind) (assoc :file (compact-file-row row))
+                (= :system target-kind) (assoc :system (compact-system-row row))
                 (= :node target-kind) (assoc :node (compact-node-row row))
                 file (assoc :sourceLocation (compact-file-row file))
                 (= :file target-kind) (assoc :source

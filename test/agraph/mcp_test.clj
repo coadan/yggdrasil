@@ -317,6 +317,103 @@
         (is (= :ambiguous (:status packet)))
         (is (= ["node:one" "node:two"] (mapv :id (:choices packet))))))))
 
+(deftest node-tool-inspects-exact-map-system-target
+  (let [root (temp-dir "agraph-mcp-map-system")
+        map-path (str root "/agraph.map.json")
+        overlay {:schema "agraph.map/v1"
+                 :project "fixture"
+                 :systems [{:id "system:billing"
+                            :label "Billing"
+                            :kind "domain"
+                            :status "accepted"
+                            :includes [{:repo "app"
+                                        :path "src/billing"}]
+                            :reason "accepted in review"}]
+                 :reject []
+                 :edges [{:id "map-edge:billing-db"
+                          :source "system:billing"
+                          :target "system:database"
+                          :relation "uses"
+                          :status "accepted"
+                          :reason "reviewed"}]
+                 :docs [{:target "system:billing"
+                         :role "reference"
+                         :source {:repo "app"
+                                  :path "docs/billing.md"}
+                         :status "accepted"}]
+                 :packageImports []
+                 :updated-at-ms 1}]
+    (spit map-path (json/write-json-str overlay))
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  store/all-rows (fn [_ _] [])
+                  query/all-nodes (fn [_ _] [])
+                  query/all-edges (fn [_ _] [])]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 15
+                                 "agraph_node"
+                                 {:target "Billing"
+                                  :mapPath map-path}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= "agraph.node.inspect/v1" (:schema packet)))
+        (is (= :found (:status packet)))
+        (is (= :system (get-in packet [:match :targetKind])))
+        (is (= "system:billing" (get-in packet [:system :id])))
+        (is (= [{:id "system:billing"
+                 :label "Billing"
+                 :kind "domain"
+                 :status "accepted"
+                 :includes [{:repo "app"
+                             :path "src/billing"}]
+                 :reason "accepted in review"}]
+               (get-in packet [:map :systems])))
+        (is (= ["docs/billing.md"]
+               (mapv #(get-in % [:source :path])
+                     (get-in packet [:map :docs]))))
+        (is (= ["map-edge:billing-db"]
+               (mapv :id (get-in packet [:map :edges]))))))))
+
+(deftest node-tool-returns-choices-for-system-and-node-label-collision
+  (let [root (temp-dir "agraph-mcp-map-ambiguous")
+        map-path (str root "/agraph.map.json")
+        overlay {:schema "agraph.map/v1"
+                 :project "fixture"
+                 :systems [{:id "system:handler"
+                            :label "Handler"
+                            :kind "service"
+                            :status "accepted"}]
+                 :reject []
+                 :edges []
+                 :docs []
+                 :packageImports []
+                 :updated-at-ms 1}
+        nodes [{:xt/id "node:handler"
+                :project-id "fixture"
+                :repo-id "app"
+                :label "Handler"
+                :kind :symbol
+                :file-id "file:handler"
+                :path "src/handler.clj"
+                :active? true
+                :run-id "run"}]]
+    (spit map-path (json/write-json-str overlay))
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  store/all-rows (fn [_ _] [])
+                  query/all-nodes (fn [_ _] nodes)
+                  query/all-edges (fn [_ _] [])]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 16
+                                 "agraph_node"
+                                 {:target "Handler"
+                                  :mapPath map-path}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= :ambiguous (:status packet)))
+        (is (= [:system :node] (mapv :targetKind (:choices packet))))
+        (is (= ["system:handler" "node:handler"] (mapv :id (:choices packet))))))))
+
 (deftest systems-tool-returns-canonical-graph
   (with-redefs [project/read-project (constantly project-fixture)
                 store/with-node (fn [_ f] (f :xtdb))
