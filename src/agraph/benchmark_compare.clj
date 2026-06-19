@@ -1,7 +1,8 @@
 (ns agraph.benchmark-compare
   (:require [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
-            [agraph.benchmark-report :as benchmark-report]))
+            [agraph.benchmark-report :as benchmark-report]
+            [agraph.benchmark-targets :as benchmark-targets]))
 
 (def agent-compare-schema
   "agraph.benchmark.agent-compare/v1")
@@ -77,18 +78,6 @@
    {:path [:comparison :improvementTargetRuns]
     :label "improvementTargetRuns"
     :direction :lower}])
-(defn- improvement-target-runs
-  [report]
-  (reduce + 0 (map #(long (or (:runs %) 0))
-                   (:improvementSummary report))))
-(defn- improvement-target-runs-by-kind
-  [report]
-  (->> (:improvementSummary report)
-       (reduce (fn [runs-by-kind {:keys [kind runs]}]
-                 (if-let [kind (some-> kind str not-empty)]
-                   (update runs-by-kind kind (fnil + 0) (long (or runs 0)))
-                   runs-by-kind))
-               (sorted-map))))
 (defn- improvement-target-specs
   [baseline-report candidate-report]
   (->> (concat (keys (get-in baseline-report
@@ -104,8 +93,8 @@
 (defn- comparison-report
   [report]
   (assoc report
-         :comparison {:improvementTargetRuns (improvement-target-runs report)
-                      :improvementTargetRunsByKind (improvement-target-runs-by-kind
+         :comparison {:improvementTargetRuns (benchmark-targets/target-runs report)
+                      :improvementTargetRunsByKind (benchmark-targets/target-runs-by-kind
                                                     report)}))
 (defn- comparison-delta
   [baseline candidate {:keys [path key label direction]} tolerance]
@@ -275,8 +264,8 @@
                 :agentDiagnostics (:agentDiagnostics baseline-report)
                 :coverageDiagnostics (:coverageDiagnostics baseline-report)
                 :improvementSummary (:improvementSummary baseline-report)
-                :improvementTargetRuns (improvement-target-runs baseline-report)
-                :improvementTargetRunsByKind (improvement-target-runs-by-kind
+                :improvementTargetRuns (benchmark-targets/target-runs baseline-report)
+                :improvementTargetRunsByKind (benchmark-targets/target-runs-by-kind
                                               baseline-report)
                 :scores (:scores baseline-report)}
      :candidate {:cases (:cases candidate-report)
@@ -286,8 +275,8 @@
                  :agentDiagnostics (:agentDiagnostics candidate-report)
                  :coverageDiagnostics (:coverageDiagnostics candidate-report)
                  :improvementSummary (:improvementSummary candidate-report)
-                 :improvementTargetRuns (improvement-target-runs candidate-report)
-                 :improvementTargetRunsByKind (improvement-target-runs-by-kind
+                 :improvementTargetRuns (benchmark-targets/target-runs candidate-report)
+                 :improvementTargetRunsByKind (benchmark-targets/target-runs-by-kind
                                                candidate-report)
                  :scores (:scores candidate-report)}
      :aggregateDeltas aggregate-deltas

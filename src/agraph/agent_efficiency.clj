@@ -1,6 +1,7 @@
 (ns agraph.agent-efficiency
   "Compare shell-only and AGraph-assisted agent benchmark reports."
   (:require [agraph.benchmark-classes :as benchmark-classes]
+            [agraph.benchmark-targets :as benchmark-targets]
             [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -241,24 +242,12 @@
     (if (number? value)
       (double value)
       default)))
-(defn- improvement-target-runs
-  [report]
-  (reduce + 0 (map #(long (or (:runs %) 0))
-                   (:improvementSummary report))))
-(defn- improvement-target-runs-by-kind
-  [report]
-  (->> (:improvementSummary report)
-       (reduce (fn [runs-by-kind {:keys [kind runs]}]
-                 (if-let [kind (some-> kind str not-empty)]
-                   (update runs-by-kind kind (fnil + 0) (long (or runs 0)))
-                   runs-by-kind))
-               (sorted-map))))
 (defn- efficiency-report
   [report]
   (assoc report :efficiency {:improvementTargetRuns
-                             (improvement-target-runs report)
+                             (benchmark-targets/target-runs report)
                              :improvementTargetRunsByKind
-                             (improvement-target-runs-by-kind report)}))
+                             (benchmark-targets/target-runs-by-kind report)}))
 
 (defn- improvement-target-metric-specs
   [shell-report agraph-report]
@@ -374,8 +363,8 @@
    :localizationDiagnostics (:localizationDiagnostics report)
    :agentDiagnostics (:agentDiagnostics report)
    :improvementSummary (:improvementSummary report)
-   :improvementTargetRuns (improvement-target-runs report)
-   :improvementTargetRunsByKind (improvement-target-runs-by-kind report)
+   :improvementTargetRuns (benchmark-targets/target-runs report)
+   :improvementTargetRunsByKind (benchmark-targets/target-runs-by-kind report)
    :tags (:tags report)
    :claimReadiness (:claimReadiness report)
    :timings (:timings report)})
