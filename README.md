@@ -34,7 +34,8 @@ agraph start . --project my-project
 `start` is the shortest local setup path: it writes or reuses `project.edn`,
 creates `agraph.map.json`, runs `sync --check`, imports local queue activity,
 and writes an `agraph-out/` report bundle. Its JSON output is a compact summary;
-open `agraph-out/index.html` for the unified report and graph viewer, or run the
+check `readiness.status` for the ask/explore setup state. Open
+`agraph-out/index.html` for the unified report and graph viewer, or run the
 lower-level commands for full graph details.
 
 For separate steps:

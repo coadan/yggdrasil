@@ -2144,6 +2144,46 @@
   {:out (:out report-result)
    :files (:files report-result)})
 
+(defn- completed-status?
+  [value]
+  (contains? #{:completed "completed"} value))
+
+(defn- action-by-kind
+  [actions kind]
+  (some #(when (= kind (:kind %)) %) actions))
+
+(defn- start-readiness
+  [sync-result report-result actions]
+  (let [sync-completed? (completed-status? (get-in sync-result [:index-summary :status]))
+        systems-completed? (completed-status? (get-in sync-result [:system-summary :status]))
+        report-written? (boolean (:out report-result))
+        evidence-available? (boolean (seq (get-in report-result [:evidence :available])))
+        ask-action (action-by-kind actions :ask)
+        explore-action (action-by-kind actions :explore)
+        agent-action (action-by-kind actions :agent-install)
+        ready? (and sync-completed?
+                    systems-completed?
+                    report-written?
+                    ask-action
+                    explore-action)]
+    {:status (if ready? :ready :limited)
+     :basis :start-run
+     :summary (if ready?
+                "Ready for ask/explore with the graph produced by this start run."
+                "Start produced a partial setup; inspect checks and nextActions before using ask/explore.")
+     :readyFor (cond-> []
+                 ask-action (conj :ask)
+                 explore-action (conj :explore)
+                 systems-completed? (conj :systems)
+                 report-written? (conj :report))
+     :checks {:graph-sync sync-completed?
+              :system-inference systems-completed?
+              :report-written report-written?
+              :evidence-summary evidence-available?}
+     :agentGuidance {:status :available
+                     :installed false
+                     :command (:command agent-action)}}))
+
 (defn- start-result
   [project start-info map-path report-out sync-result activity-result report-result]
   (let [actions (start-next-actions (:id project)
@@ -2158,6 +2198,7 @@
              :report (compact-report report-result)
              :counts (compact-counts sync-result activity-result)
              :evidence (:evidence report-result)
+             :readiness (start-readiness sync-result report-result actions)
              :next (start-next-commands actions)
              :nextActions actions}
       (:init start-info) (assoc :initialized true))))

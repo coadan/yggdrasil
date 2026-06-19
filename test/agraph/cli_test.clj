@@ -1292,6 +1292,18 @@
         (is (= report-out (get-in parsed [:report :out])))
         (is (= "agraph.evidence/v2" (get-in parsed [:evidence :schema])))
         (is (= ["source-graph"] (get-in parsed [:evidence :available])))
+        (is (= {:status "ready"
+                :basis "start-run"
+                :summary "Ready for ask/explore with the graph produced by this start run."
+                :readyFor ["ask" "explore" "systems" "report"]
+                :checks {:graph-sync true
+                         :system-inference true
+                         :report-written true
+                         :evidence-summary true}
+                :agentGuidance {:status "available"
+                                :installed false
+                                :command "agraph agent install --platform codex --project"}}
+               (:readiness parsed)))
         (is (= {:scanned 0
                 :indexed 0
                 :skipped 0
