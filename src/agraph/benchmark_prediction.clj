@@ -203,6 +203,15 @@
        path
        " rank="
        (:rank candidate)
+       (let [source-line (or (:sourceLine candidate)
+                             (:source-line candidate))
+             end-line (or (:endLine candidate)
+                          (:end-line candidate))]
+         (when source-line
+           (str " lines "
+                source-line
+                (when end-line
+                  (str "-" end-line)))))
        (when-let [target-kind (some-> (:targetKind candidate) name)]
          (str " targetKind=" target-kind))
        (when-let [label (not-empty (str (:label candidate)))]

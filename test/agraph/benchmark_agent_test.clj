@@ -893,6 +893,23 @@
     (is (= 2 (get-in files [0 :metrics :candidateFileCount])))
     (is (= 3 (get-in files [0 :metrics :matchedTokenCount])))
     (is (= 1 (get-in files [0 :metrics :matchedTokenPairCount])))))
+
+(deftest candidate-file-evidence-preserves-line-ranges
+  (let [root (temp-dir "agraph-bench-candidate-file-lines")
+        _ (spit-file! root "src/adjacent.clj" "(ns adjacent)\n(defn open-root [] nil)\n")
+        packet {:query "open root"
+                :candidateFiles [{:path "src/adjacent.clj"
+                                  :rank 3
+                                  :score 0.7
+                                  :targetKind "chunk"
+                                  :label "open root"
+                                  :sourceLine 2
+                                  :endLine 4}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["candidate-file:src/adjacent.clj rank=3 lines 2-4 targetKind=chunk label=\"open root\" score=0.7"]
+           (get-in files [0 :evidence])))))
+
 (deftest file-ranking-caps-repeated-file-support-bonus
   (let [root (temp-dir "agraph-bench-repeated-file-support")
         _ (spit-file! root "src/early.tf" "resource \"demo\" \"early\" {}\n")
