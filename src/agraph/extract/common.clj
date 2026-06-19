@@ -168,6 +168,31 @@
      :chunks (:chunks chunk-result)
      :diagnostics []}))
 
+(defn balanced-form
+  [content start]
+  (let [length (count content)]
+    (loop [idx start
+           depth 0
+           in-string? false
+           escaped? false]
+      (when (< idx length)
+        (let [ch (.charAt content idx)
+              escaped-next? (and in-string? (not escaped?) (= \\ ch))
+              in-string-next? (if (or escaped? escaped-next?)
+                                in-string?
+                                (if (= \" ch) (not in-string?) in-string?))
+              depth-next (cond
+                           in-string-next? depth
+                           (= \( ch) (inc depth)
+                           (= \) ch) (dec depth)
+                           :else depth)]
+          (if (and (not in-string-next?) (zero? depth-next) (pos? depth))
+            (subs content start (inc idx))
+            (recur (inc idx)
+                   depth-next
+                   in-string-next?
+                   escaped-next?)))))))
+
 (defn read-json-map
   [content]
   (try
