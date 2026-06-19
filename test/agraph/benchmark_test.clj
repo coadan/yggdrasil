@@ -1392,7 +1392,12 @@
                   :agentDiagnostics {:warningRuns 0
                                      :missingPredictedFileRuns 0
                                      :hintDiagnosticRuns 0
-                                     :identityMismatchRuns 0}
+                                     :identityMismatchRuns 0
+                                     :commandTelemetry {:commandCount 8
+                                                        :agraphCommandCount 2
+                                                        :searchCommandCount 4
+                                                        :fileReadCommandCount 2
+                                                        :shellCommandCount 2}}
                   :artifactDiagnostics {:unverifiedScoreRuns 0
                                         :obsoleteScoreSchemaRuns 0
                                         :obsoleteAgentResultSchemaRuns 0
@@ -1428,7 +1433,12 @@
                    :agentDiagnostics {:warningRuns 1
                                       :missingPredictedFileRuns 1
                                       :hintDiagnosticRuns 1
-                                      :identityMismatchRuns 1}
+                                      :identityMismatchRuns 1
+                                      :commandTelemetry {:commandCount 11
+                                                         :agraphCommandCount 2
+                                                         :searchCommandCount 5
+                                                         :fileReadCommandCount 3
+                                                         :shellCommandCount 3}}
                    :artifactDiagnostics {:unverifiedScoreRuns 2
                                          :obsoleteScoreSchemaRuns 1
                                          :obsoleteAgentResultSchemaRuns 1
@@ -1499,6 +1509,9 @@
              "noiseRatioAt20"
              "warningRuns"
              "missingPredictedFileRuns"
+             "searchCommandCount"
+             "fileReadCommandCount"
+             "shellCommandCount"
              "hintDiagnosticRuns"
              "identityMismatchRuns"
              "unverifiedScoreRuns"

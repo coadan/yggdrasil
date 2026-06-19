@@ -558,7 +558,10 @@ given.
   Search counts cover command forms such as `rg`, `grep`, `git grep`, `fd`,
   and `find`; file-read counts cover common local read commands such as `cat`,
   `sed`, `head`, `tail`, `nl`, `awk`, and pagers. These are mechanical cited
-  command counts, not provider-side tool logs.
+  command counts, not provider-side tool logs. `agent-compare` treats increases
+  in search, file-read, and generic shell command counts as lower-is-better
+  regressions when reports are comparable; AGraph command counts are reported
+  for interpretation but are not a regression gate.
 - `agentDiagnostics.missingPredictedFileRuns`: scored agent artifacts whose
   ranked result included repo-relative paths that do not exist in the base
   checkout. Gate this with `--max-missing-predicted-file-runs` to catch
@@ -567,9 +570,9 @@ given.
   agent warnings. Gate this with `--max-warning-runs` when benchmark result
   shape quality should be part of the ratchet. `agent-compare` also treats
   higher aggregate `warningRuns`, `commandlessRuns`,
-  `missingPredictedFileRuns`, and `hintDiagnosticRuns` as lower-is-better
-  regressions when the report case set and parser-worker profiles are
-  comparable.
+  `missingPredictedFileRuns`, command telemetry regressions, and
+  `hintDiagnosticRuns` as lower-is-better regressions when the report case set
+  and parser-worker profiles are comparable.
 - `agentDiagnostics.hintDiagnosticRuns`: scored AGraph-mode artifacts whose
   generated hint file reported help-quality diagnostics. Gate this with
   `--max-hint-diagnostic-runs` when the hints should be free of coverage,
