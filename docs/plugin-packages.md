@@ -75,8 +75,8 @@ normalizers used by project loading. It reports package caveats such as
 
 Diagnosis is manifest- and config-based. It does not judge architecture quality
 or project-specific usefulness. It surfaces the caveats that should travel with
-plugin output: public/FOSS/non-commercial policy, benchmark status, validation
-errors, and promotion blockers.
+plugin output: scope, public/FOSS/non-commercial policy, benchmark status,
+validation errors, and promotion blockers.
 
 `plugin dry-run extractor` runs the package extractor against one file without
 writing graph state. It uses core extraction first, applies the selected plugin
@@ -96,6 +96,8 @@ Each package directory contains `agraph.plugin.edn`:
  :license {:spdx "MIT"}
  :distribution {:visibility :public
                 :commercial? false}
+ :scope {:kind :base
+         :reason "Reusable Datastar/Hiccup extraction across projects."}
  :benchmark {:status :unbenchmarked}
  :extractor-plugins
  [{:id "datastar-hiccup-extractor"
@@ -136,18 +138,42 @@ Private/local packages are project dependencies. AGraph does not block them
 based on license metadata.
 
 Public AGraph/Yggdrasil plugin packages should be FOSS and non-commercial. The
-official registry should not list commercial plugins. Public packages should
-declare license metadata and should not claim agent or architecture-understanding
-improvements without benchmark artifacts.
+official registry should not list commercial plugins or project-local plugins.
+Public packages should declare license metadata and `:scope {:kind :base}` and
+should not claim agent or architecture-understanding improvements without
+benchmark artifacts.
 
 Package install surfaces warnings instead of blocking local use when:
 
 - a public package does not declare a known FOSS license;
 - a public package is marked commercial or monetized;
+- a package is declared `:project-local`;
 - a package is unbenchmarked.
 
 `bb plugin diagnose <dir>` treats public license/commercial policy violations as
 public-sharing blockers while still keeping private local experiments possible.
+
+## Scope
+
+Every package has a declared scope:
+
+- `:project-local`: an experiment or team-local package that may depend on one
+  repository's conventions. This is the scaffold default.
+- `:base`: a reusable package intended to work as ecosystem or core-ready
+  support for a file family, framework, report slot, or extractor gap.
+
+Scope is self-declared metadata. AGraph does not infer project specificity from
+path names, repository names, host names, prose, or substring lists. Diagnosis
+uses the declared scope to keep project-local packages external:
+
+```clojure
+:scope {:kind :project-local
+        :reason "Depends on this repository's Hiccup component conventions."}
+```
+
+Only `:base` packages can become ready for public sharing, public claims, or
+core-promotion review. Changing scope is an author/reviewer decision backed by
+fixtures, dry-runs, and benchmark artifacts.
 
 ## Benchmark Evidence
 
@@ -176,6 +202,7 @@ material improvement; it only verifies that reviewable evidence exists.
 A package can become part of core only through a normal contribution:
 
 - The behavior is project-agnostic and suitable as base extractor/report support.
+- The package declares `:scope {:kind :base}`.
 - It does not depend on project names, host names, path semantics, prose, or
   substring heuristics.
 - It includes fixtures and tests.
@@ -183,4 +210,4 @@ A package can become part of core only through a normal contribution:
   relevant problem class.
 
 Until then, keep the idea as a package with explicit plugin provenance and
-`:benchmark-status :unbenchmarked`.
+`:scope {:kind :project-local}` or `:benchmark-status :unbenchmarked`.

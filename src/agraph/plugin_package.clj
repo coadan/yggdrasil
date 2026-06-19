@@ -1,7 +1,6 @@
 (ns agraph.plugin-package
   "Git-shareable plugin packages for extractor and report plugins."
-  (:require [agraph.extract :as extract]
-            [agraph.extractor-plugin :as extractor-plugin]
+  (:require [agraph.extractor-plugin :as extractor-plugin]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
             [agraph.report-plugin :as report-plugin]
@@ -47,6 +46,9 @@
     "ISC"
     "MPL-2.0"
     "EPL-2.0"})
+
+(def ^:private scope-kinds
+  #{:project-local :base})
 
 (defn- now-ms
   []
@@ -181,6 +183,41 @@
   (or (true? (get-in manifest [:distribution :commercial?]))
       (true? (get-in manifest [:distribution :monetized?]))))
 
+(defn- normalize-scope
+  [scope]
+  (let [scope (cond
+                (map? scope) scope
+                (present? scope) {:kind scope}
+                :else {})]
+    (cond-> (assoc scope :kind (keyword (or (:kind scope) :project-local)))
+      (:reason scope) (update :reason str))))
+
+(defn- base-scope?
+  [package]
+  (= :base (get-in package [:scope :kind])))
+
+(defn- scope-diagnostics
+  [{:keys [id scope]}]
+  (let [kind (:kind scope)]
+    (cond
+      (not (contains? scope-kinds kind))
+      [{:code :scope-kind-unsupported
+        :severity :error
+        :applies-to [:public-sharing :claims :core-promotion]
+        :message (str id " declares unsupported plugin scope: " (name kind))
+        :evidence {:scope scope
+                   :supported (sort scope-kinds)}}]
+
+      (= :project-local kind)
+      [{:code :project-local-scope
+        :severity :warning
+        :applies-to [:public-sharing :claims :core-promotion]
+        :message (str id " is declared project-local; keep it external and do not promote it to core.")
+        :evidence {:scope scope}}]
+
+      :else
+      [])))
+
 (defn- benchmark-status
   [manifest]
   (keyword (or (get-in manifest [:benchmark :status])
@@ -246,6 +283,7 @@
   [{:keys [id visibility license benchmark-status] :as package}]
   (vec
    (concat
+    (scope-diagnostics package)
     (when (= :public visibility)
       (concat
        (when-not (foss-license? license)
@@ -319,6 +357,7 @@
                            :source (:source entry)
                            :visibility (normalize-visibility manifest)
                            :license license
+                           :scope (normalize-scope (:scope manifest))
                            :distribution (:distribution manifest)
                            :benchmark (:benchmark manifest)
                            :benchmark-status (benchmark-status manifest)
@@ -339,6 +378,7 @@
    :path (:path package)
    :visibility (:visibility package)
    :license (:license package)
+   :scope (:scope package)
    :benchmark-status (:benchmark-status package)
    :benchmark-artifacts (mapv #(artifact-summary package %)
                               (benchmark-artifacts package))
@@ -503,6 +543,8 @@
            :license {:spdx "MIT"}
            :distribution {:visibility :private
                           :commercial? false}
+           :scope {:kind :project-local
+                   :reason "Scaffolded packages start project-local until reviewed for base reuse."}
            :benchmark {:status :unbenchmarked}}
     extractor?
     (assoc :extractor-plugins
@@ -620,6 +662,7 @@
         public-policy-errors (filter #(and (= :error (:severity %))
                                            (some #{:public-sharing} (:applies-to %)))
                                      diagnostics)
+        unsupported-scope? (some #(= :scope-kind-unsupported (:code %)) diagnostics)
         benchmark-evidence-errors (filter #(and (= :error (:severity %))
                                                 (some #{:claims} (:applies-to %)))
                                           diagnostics)
@@ -644,6 +687,16 @@
        (lane :private
              "Package is not declared public."
              ["Keep it private for local experiments, or declare public distribution metadata before publishing."])
+
+       unsupported-scope?
+       (lane :blocked
+             "Package declares an unsupported scope."
+             ["Set scope kind to :project-local or :base."])
+
+       (not (base-scope? package))
+       (lane :blocked
+             "Public plugin packages must declare base-ready scope."
+             ["Keep project-local plugins private, or review and declare :scope {:kind :base} before public sharing."])
 
        (seq public-policy-errors)
        (lane :blocked
@@ -672,6 +725,16 @@
              "Public improvement claims require benchmark evidence."
              ["Run replayable benchmarks and add benchmark artifacts to the package manifest."])
 
+       unsupported-scope?
+       (lane :blocked
+             "Package declares an unsupported scope."
+             ["Set scope kind to :project-local or :base."])
+
+       (not (base-scope? package))
+       (lane :blocked
+             "Public improvement claims require base-ready scope."
+             ["Keep project-local results private, or review and declare :scope {:kind :base}."])
+
        (seq benchmark-evidence-errors)
        (lane :blocked
              "Benchmark status is declared, but benchmark artifacts are missing or invalid."
@@ -693,6 +756,16 @@
        (lane :blocked
              "Core promotion requires benchmark evidence."
              ["Add fixtures, tests, benchmark cases, and reports showing material improvement."])
+
+       unsupported-scope?
+       (lane :blocked
+             "Package declares an unsupported scope."
+             ["Set scope kind to :base before core-promotion review."])
+
+       (not (base-scope? package))
+       (lane :blocked
+             "Project-local plugins must stay external."
+             ["Keep this package external, or review and declare :scope {:kind :base} before core-promotion review."])
 
        (seq benchmark-evidence-errors)
        (lane :blocked
@@ -776,7 +849,8 @@
         root-path (fs/canonical-path root)
         file-record (file-record-for-dry-run root-path file plugins)
         run-id "run:plugin-dry-run"
-        core (extract/extract-file run-id file-record)
+        extract-file (requiring-resolve 'agraph.extract/extract-file)
+        core (extract-file run-id file-record)
         enhanced (extractor-plugin/enhance-extraction
                   {:plugins plugins
                    :run-id run-id

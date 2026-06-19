@@ -149,7 +149,8 @@
       (is (= :ready (get-in diagnosis [:readiness :local-use :status])))
       (is (= :private (get-in diagnosis [:readiness :public-sharing :status])))
       (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
-      (is (= [:unbenchmarked] (mapv :code (:diagnostics diagnosis))))
+      (is (= #{:project-local-scope :unbenchmarked}
+             (set (map :code (:diagnostics diagnosis)))))
       (is (= plugin-package/dry-run-schema (:schema dry-run)))
       (is (= :passed (:status dry-run)))
       (is (= "src/page.clj" (get-in dry-run [:file :path])))
@@ -174,6 +175,8 @@
                    :license {:spdx "Proprietary"}
                    :distribution {:visibility :public
                                   :commercial? true}
+                   :scope {:kind :base
+                           :reason "Policy test fixture."}
                    :benchmark {:status :benchmarked
                                :artifacts [{:path "benchmarks/report.json"
                                             :kind :agent-report}]}
@@ -204,6 +207,8 @@
                    :license {:spdx "MIT"}
                    :distribution {:visibility :public
                                   :commercial? false}
+                   :scope {:kind :base
+                           :reason "Benchmark evidence test fixture."}
                    :benchmark {:status :benchmarked}
                    :extractor-plugins
                    [{:id "claimed-extractor"
@@ -235,6 +240,8 @@
                    :license {:spdx "MIT"}
                    :distribution {:visibility :public
                                   :commercial? false}
+                   :scope {:kind :base
+                           :reason "Benchmark evidence test fixture."}
                    :benchmark {:status :benchmarked
                                :artifacts [{:path "benchmarks/report.json"
                                             :kind :agent-report
@@ -252,3 +259,39 @@
       (is (= :review-required (get-in diagnosis [:readiness :core-promotion :status])))
       (is (= ["benchmarks/report.json"]
              (mapv :path (get-in diagnosis [:package :benchmark-artifacts])))))))
+
+(deftest diagnose-keeps-project-local-plugins-external
+  (let [workspace (temp-dir "agraph-plugin-project-local")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 "benchmarks/report.json"
+                 "{\"schema\":\"agraph.benchmark.agent-report/v1\",\"suite-id\":\"plugin\"}\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "local-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :project-local
+                           :reason "Depends on one repository's conventions."}
+                   :benchmark {:status :benchmarked
+                               :artifacts [{:path "benchmarks/report.json"
+                                            :kind :agent-report}]}
+                   :extractor-plugins
+                   [{:id "local-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+      (is (= :warning (:status diagnosis)))
+      (is (= :blocked (get-in diagnosis [:readiness :public-sharing :status])))
+      (is (= :blocked (get-in diagnosis [:readiness :claims :status])))
+      (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= [:project-local-scope]
+             (mapv :code (:diagnostics diagnosis)))))))
