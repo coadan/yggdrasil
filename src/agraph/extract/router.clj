@@ -37,6 +37,7 @@
             [agraph.extract.source-misc :as extract.source-misc]
             [agraph.extract.source-native :as extract.source-native]
             [agraph.extract.source-python :as extract.source-python]
+            [agraph.extract.source-scala :as extract.source-scala]
             [agraph.extract.starlark :as extract.starlark]
             [agraph.extract.task-config :as extract.task-config]
             [agraph.extract.terraform :as extract.terraform]
@@ -76,7 +77,7 @@
      :cpp (extract.source-native/extract-cpp run-id file)
      :objective-c (extract.source-native/extract-objective-c run-id file)
      :dart (extract.source-dart/extract-dart run-id file)
-     :scala (extract.source-misc/extract-scala run-id file)
+     :scala (extract.source-scala/extract-scala run-id file)
      :elixir (extract.source-misc/extract-elixir run-id file)
      :erlang (extract.source-misc/extract-erlang run-id file)
      :lua (extract.source-misc/extract-lua run-id file)
