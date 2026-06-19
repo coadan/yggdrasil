@@ -912,6 +912,9 @@
                        {:id "arch-deps"
                         :tags [:problem-architecture
                                :architecture-dependency-flow]}
+                       {:id "audit-docs"
+                        :tags [:problem-architecture
+                               :audit-scope-docs]}
                        {:id "localization"
                         :tags [:problem-localization]}]}
         write-score! (fn [case-id tags recall]
@@ -951,6 +954,9 @@
     (write-score! "arch-deps"
                   ["problem-architecture" "architecture-dependency-flow"]
                   0.5)
+    (write-score! "audit-docs"
+                  ["problem-architecture" "audit-scope-docs"]
+                  0.75)
     (write-score! "localization"
                   ["problem-localization"]
                   0.25)
@@ -960,8 +966,8 @@
           architecture-classes (get-in report [:problemClasses :architectureClasses])]
       (is (= 2 (get-in report [:problemClasses :minimumCasesForClassClaim])))
       (is (= [{:key "problem-architecture"
-               :cases 2
-               :runs 2
+               :cases 3
+               :runs 3
                :claimStatus "measured"
                :minimumCases 2}
               {:key "problem-localization"
@@ -983,6 +989,11 @@
                :claimStatus "insufficient-cases"
                :minimumCases 2}
               {:key "architecture-runtime-boundary"
+               :cases 1
+               :runs 1
+               :claimStatus "insufficient-cases"
+               :minimumCases 2}
+              {:key "audit-scope-docs"
                :cases 1
                :runs 1
                :claimStatus "insufficient-cases"
@@ -1014,8 +1025,14 @@
                                :architecture-dependency-flow]}
                        {:id "arch-deps-2"
                         :tags [:problem-architecture
-                               :architecture-dependency-flow]}]}
-        write-score! (fn [case-id recall]
+                               :architecture-dependency-flow]}
+                       {:id "audit-docs-1"
+                        :tags [:problem-architecture
+                               :audit-scope-docs]}
+                       {:id "audit-docs-2"
+                        :tags [:problem-architecture
+                               :audit-scope-docs]}]}
+        write-score! (fn [case-id tags recall]
                        (spit-json!
                         out
                         (str "suite/cases/" case-id "/agent-scores/run.score.json")
@@ -1023,8 +1040,7 @@
                          :suite-id "suite"
                          :case-id case-id
                          :repo-id "repo"
-                         :tags ["problem-architecture"
-                                "architecture-dependency-flow"]
+                         :tags tags
                          :agent {:agentId "codex"
                                  :mode "agraph"
                                  :topFiles [{:path (str case-id ".clj")
@@ -1047,8 +1063,18 @@
                                   :changedFiles 1
                                   :scoreableChangedFiles 1
                                   :unsupportedGroundTruthFiles 0}}))]
-    (write-score! "arch-deps-1" 1.0)
-    (write-score! "arch-deps-2" 0.75)
+    (write-score! "arch-deps-1"
+                  ["problem-architecture" "architecture-dependency-flow"]
+                  1.0)
+    (write-score! "arch-deps-2"
+                  ["problem-architecture" "architecture-dependency-flow"]
+                  0.75)
+    (write-score! "audit-docs-1"
+                  ["problem-architecture" "audit-scope-docs"]
+                  1.0)
+    (write-score! "audit-docs-2"
+                  ["problem-architecture" "audit-scope-docs"]
+                  0.75)
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :allow-unverified-scores? true})]
       (is (= "supported" (get-in report [:claimReadiness :status])))
@@ -1057,7 +1083,7 @@
                      [:claimReadiness :broadArchitectureClaimSupported])))
       (is (= ["problem-architecture"]
              (get-in report [:claimReadiness :measuredProblemClassTags])))
-      (is (= ["architecture-dependency-flow"]
+      (is (= ["architecture-dependency-flow" "audit-scope-docs"]
              (get-in report [:claimReadiness :measuredArchitectureClassTags])))
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))

@@ -4622,9 +4622,19 @@
   [tag]
   (str/starts-with? tag "problem-"))
 
+(def ^:private architecture-class-tags
+  #{"architecture-boundary"
+    "architecture-runtime-boundary"
+    "architecture-dependency-flow"
+    "architecture-data-ownership"
+    "architecture-cross-system-impact"
+    "audit-scope-runtime-config"
+    "audit-scope-containers"
+    "audit-scope-docs"})
+
 (defn- architecture-class-tag?
   [tag]
-  (str/starts-with? tag "architecture-"))
+  (contains? architecture-class-tags tag))
 
 (defn- add-problem-class-claim-status
   [row]
