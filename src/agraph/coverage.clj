@@ -11,6 +11,8 @@
 (def context-schema
   "agraph.source-coverage.context/v1")
 
+(def ^:private grouped-sample-limit 5)
+
 (defn- display-value
   [value]
   (cond
@@ -68,18 +70,48 @@
        (take 20)
        (mapv #(select-keys % [:path :ext :skip-reason]))))
 
+(defn- skipped-row-sample
+  [repo-id row]
+  (cond-> (select-keys row [:path :ext :skip-reason])
+    (seq (str repo-id)) (assoc :repo-id repo-id)))
+
+(defn- samples-for
+  [rows]
+  (->> rows
+       (sort-by :path)
+       (take grouped-sample-limit)
+       vec))
+
+(defn- count-rows-with-samples
+  [label-key value-fn sample-fn rows]
+  (->> rows
+       (group-by value-fn)
+       (map (fn [[value value-rows]]
+              {label-key (display-value value)
+               :count (count value-rows)
+               :samples (samples-for (map sample-fn value-rows))}))
+       (sort-by (fn [row]
+                  [(- (long (:count row)))
+                   (get row label-key)]))
+       vec))
+
 (defn- repo-coverage
   [{:keys [id root role]}]
   (let [{:keys [files]} (fs/scan-file-coverage root)
-        files (vec files)]
+        files (vec files)
+        skipped (vec (skipped-files files))
+        sample-fn #(skipped-row-sample id %)]
     {:repo-id id
      :role role
      :root root
      :totals (totals files)
      :files-by-kind (count-rows :kind :kind (supported-files files))
      :files-by-extension (count-rows :ext :ext files)
-     :skipped-by-extension (count-rows :ext :ext (skipped-files files))
-     :skipped-by-reason (count-rows :reason :skip-reason (skipped-files files))
+     :skipped-by-extension (count-rows-with-samples :ext :ext sample-fn skipped)
+     :skipped-by-reason (count-rows-with-samples :reason
+                                                 :skip-reason
+                                                 sample-fn
+                                                 skipped)
      :extractors (extractor-rows files)
      :skipped-samples (skipped-samples files)}))
 
@@ -93,6 +125,20 @@
        (map (fn [[value n]]
               {label-key value
                :count n}))
+       (sort-by (fn [row]
+                  [(- (long (:count row)))
+                   (get row label-key)]))
+       vec))
+
+(defn- merge-counts-with-samples
+  [repos k label-key]
+  (->> repos
+       (mapcat k)
+       (group-by #(get % label-key))
+       (map (fn [[value rows]]
+              {label-key value
+               :count (reduce + (map :count rows))
+               :samples (samples-for (mapcat :samples rows))}))
        (sort-by (fn [row]
                   [(- (long (:count row)))
                    (get row label-key)]))
@@ -321,8 +367,12 @@
       :totals (project-totals repos)
       :files-by-kind (merge-counts repos :files-by-kind :kind)
       :files-by-extension (merge-counts repos :files-by-extension :ext)
-      :skipped-by-extension (merge-counts repos :skipped-by-extension :ext)
-      :skipped-by-reason (merge-counts repos :skipped-by-reason :reason)
+      :skipped-by-extension (merge-counts-with-samples repos
+                                                       :skipped-by-extension
+                                                       :ext)
+      :skipped-by-reason (merge-counts-with-samples repos
+                                                    :skipped-by-reason
+                                                    :reason)
       :extractors (merge-extractors repos)
       :extractor-fingerprints (indexed-extractor-fingerprint-summary xtdb id)
       :diagnostics (diagnostics-summary xtdb id)

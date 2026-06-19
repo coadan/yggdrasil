@@ -398,7 +398,17 @@
     (println)
     (println title)
     (doseq [row rows]
-      (println "-" (get row label-key) (:count row)))))
+      (let [samples (->> (:samples row)
+                         (take 3)
+                         (map (fn [{:keys [repo-id path]}]
+                                (if repo-id
+                                  (str repo-id ":" path)
+                                  path)))
+                         (remove str/blank?))]
+        (if (seq samples)
+          (println "-" (get row label-key) (:count row)
+                   "samples" (str/join "," samples))
+          (println "-" (get row label-key) (:count row)))))))
 
 (defn- print-source-coverage
   [{:keys [project-id totals files-by-kind skipped-by-extension skipped-by-reason

@@ -22,6 +22,52 @@
   [k value rows]
   (some #(when (= value (get % k)) %) rows))
 
+(deftest project-coverage-adds-bounded-skipped-bucket-samples
+  (let [root-a (temp-dir "agraph-coverage-skipped-a")
+        root-b (temp-dir "agraph-coverage-skipped-b")]
+    (doseq [idx (range 1 7)]
+      (spit-file! root-a (str "assets/a" idx ".wasm") "wasm\n"))
+    (spit-file! root-b "assets/b1.wasm" "wasm\n")
+    (spit-file! root-b "src/app.clj" "(ns app)\n")
+    (let [report (coverage/project-coverage
+                  {:id "fixture"
+                   :repos [{:id "repo-a"
+                            :root root-a
+                            :role :application}
+                           {:id "repo-b"
+                            :root root-b
+                            :role :application}]})
+          wasm-row (row-by :ext ".wasm" (:skipped-by-extension report))
+          reason-row (row-by :reason
+                             "unsupported-extension"
+                             (:skipped-by-reason report))]
+      (is (= 7 (:count wasm-row)))
+      (is (= 5 (count (:samples wasm-row))))
+      (is (= [{:path "assets/a1.wasm"
+               :ext ".wasm"
+               :skip-reason :unsupported-extension
+               :repo-id "repo-a"}
+              {:path "assets/a2.wasm"
+               :ext ".wasm"
+               :skip-reason :unsupported-extension
+               :repo-id "repo-a"}
+              {:path "assets/a3.wasm"
+               :ext ".wasm"
+               :skip-reason :unsupported-extension
+               :repo-id "repo-a"}
+              {:path "assets/a4.wasm"
+               :ext ".wasm"
+               :skip-reason :unsupported-extension
+               :repo-id "repo-a"}
+              {:path "assets/a5.wasm"
+               :ext ".wasm"
+               :skip-reason :unsupported-extension
+               :repo-id "repo-a"}]
+             (:samples wasm-row)))
+      (is (= 7 (:count reason-row)))
+      (is (= (take 3 (:samples wasm-row))
+             (take 3 (:samples reason-row)))))))
+
 (deftest context-summary-groups-indexed-files-and-diagnostics
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table

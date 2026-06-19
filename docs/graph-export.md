@@ -169,5 +169,9 @@ project-specific semantics enter the graph.
   `coverage.extractor-fingerprints` rows so agents can audit source-kind
   coverage, extractor versions, and persisted extractor/indexer basis ids
   without opening the full coverage artifact.
+- `agraph sync coverage <project.edn> --json` includes bounded `samples` on
+  `skipped-by-extension` and `skipped-by-reason` rows. Use those concrete paths
+  to decide whether a missing file kind needs extractor support, suite scope
+  adjustment, or should remain unsupported.
 - `agraph.graph/v1` consumers should ignore or migrate to the v2 metadata and
   basis fields.

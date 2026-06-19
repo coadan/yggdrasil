@@ -1108,15 +1108,31 @@
                                              :totals {:files 2
                                                       :supported 1
                                                       :skipped 1}
+                                             :files-by-kind []
+                                             :skipped-by-extension [{:ext ".wasm"
+                                                                     :count 1
+                                                                     :samples [{:repo-id "app"
+                                                                                :path "web/widget.wasm"}]}]
+                                             :skipped-by-reason [{:reason "unsupported-extension"
+                                                                  :count 1
+                                                                  :samples [{:repo-id "app"
+                                                                             :path "web/widget.wasm"}]}]
+                                             :extractors []
                                              :diagnostics {:total 0}
                                              :repos []})]
     (let [out (with-out-str
                 (cli/dispatch "sync" ["coverage" "project.edn" "--json"]))
+          plain-out (with-out-str
+                      (cli/dispatch "sync" ["coverage" "project.edn"]))
           parsed (read-json-output out)]
       (is (= coverage/schema (:schema parsed)))
       (is (= "fixture" (:project-id parsed)))
       (is (= {:files 2 :supported 1 :skipped 1}
-             (:totals parsed))))))
+             (:totals parsed)))
+      (is (str/includes? plain-out
+                         "- .wasm 1 samples app:web/widget.wasm"))
+      (is (str/includes? plain-out
+                         "- unsupported-extension 1 samples app:web/widget.wasm")))))
 
 (deftest sync-inspect-json-includes-evidence-surface
   (with-redefs [project/read-project (constantly project-fixture)
