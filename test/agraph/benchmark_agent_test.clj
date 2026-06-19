@@ -698,6 +698,16 @@
                                                        :connectedFiles 0
                                                        :crossFileConnectedFiles 0
                                                        :isolatedFiles 2}}
+                :auditScopes [{:kind "unclassified-extractor"
+                               :basis "indexed-graph"
+                               :supportedFiles 1
+                               :skippedFiles 1
+                               :facts 2
+                               :diagnostics 1
+                               :topEvidenceTypes [{:kind "panel"
+                                                   :count 1}]
+                               :samples [{:path "flows/home.panel"
+                                          :section "files"}]}]
                 :docs [{:source {:path ".github/ISSUE_TEMPLATE/bug_report.md"
                                  :heading "bug report"}
                         :score 10.0
@@ -739,8 +749,27 @@
              :message "Indexed source coverage contains files without active graph edges; inspect sourceCoverage.indexedConnectivity."
              :isolatedFiles 2
              :connectedFiles 0
-             :crossFileConnectedFiles 0}]
+             :crossFileConnectedFiles 0}
+            {:kind "audit-scope-trust-boundary"
+             :severity "warning"
+             :message "Audit scope contains skipped files, extractor diagnostics, or unclassified extractor rows."
+             :scope "unclassified-extractor"
+             :supportedFiles 1
+             :skippedFiles 1
+             :diagnostics 1
+             :facts 2}]
            (:diagnostics hints)))
+    (is (= [{:kind "unclassified-extractor"
+             :basis "indexed-graph"
+             :supportedFiles 1
+             :skippedFiles 1
+             :facts 2
+             :diagnostics 1
+             :topEvidenceTypes [{:kind "panel"
+                                 :count 1}]
+             :samples [{:path "flows/home.panel"
+                        :section "files"}]}]
+           (:auditScopes hints)))
     (is (not (contains? hints :groundTruth)))
     (is (not (contains? hints :inputHints)))))
 (deftest context-packet-agent-result-uses-scanned-kind-for-extensionless-files

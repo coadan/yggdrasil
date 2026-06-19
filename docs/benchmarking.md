@@ -222,7 +222,10 @@ generated output root.
   saw. When those counters point at help-quality problems, hints include
   `diagnostics` rows for zero candidate files, coverage-filtered candidate
   files, missing declared source kinds, and indexed source extraction
-  diagnostics. Hints and deterministic AGraph baseline results flatten context
+  diagnostics. Audit-scope counters with skipped files, extractor diagnostics,
+  or unclassified extractor rows also produce hint diagnostics so benchmark
+  reports can distinguish audit-scope family gaps from ranking misses. Hints
+  and deterministic AGraph baseline results flatten context
   drilldowns, legacy `answerability.next`, structured packet `nextActions`, and
   `architecture.validationGaps.nextActions` into `commands` so agents see
   bounded follow-up checks without inspecting nested context JSON.

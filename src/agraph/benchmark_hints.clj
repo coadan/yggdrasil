@@ -60,9 +60,40 @@
 (defn- hint-audit-scope
   [scope]
   (-> scope
-      (select-keys [:kind :basis :facts :files :topEvidenceTypes :samples])
+      (select-keys [:kind
+                    :basis
+                    :facts
+                    :files
+                    :supportedFiles
+                    :skippedFiles
+                    :diagnostics
+                    :overlayCount
+                    :topEvidenceTypes
+                    :samples])
       (update :topEvidenceTypes #(takev 5 %))
       (update :samples #(takev 3 %))))
+(defn- audit-scope-issue?
+  [scope]
+  (or (= "unclassified-extractor" (:kind scope))
+      (pos? (long (or (:skippedFiles scope) 0)))
+      (pos? (long (or (:diagnostics scope) 0)))))
+(defn- audit-scope-diagnostic
+  [scope]
+  {:kind "audit-scope-trust-boundary"
+   :severity (if (= "unclassified-extractor" (:kind scope))
+               "warning"
+               "info")
+   :message "Audit scope contains skipped files, extractor diagnostics, or unclassified extractor rows."
+   :scope (:kind scope)
+   :supportedFiles (long (or (:supportedFiles scope) 0))
+   :skippedFiles (long (or (:skippedFiles scope) 0))
+   :diagnostics (long (or (:diagnostics scope) 0))
+   :facts (long (or (:facts scope) 0))})
+(defn- audit-scope-diagnostics
+  [packet]
+  (->> (:auditScopes packet)
+       (filter audit-scope-issue?)
+       (mapv audit-scope-diagnostic)))
 (defn- hint-commands
   [packet]
   (benchmark-prediction/packet-commands packet))
@@ -81,7 +112,8 @@
                                                      :diagnostics])
                                      0))
         connectivity (get-in packet [:sourceCoverage :indexedConnectivity])
-        isolated-files (long (or (:isolatedFiles connectivity) 0))]
+        isolated-files (long (or (:isolatedFiles connectivity) 0))
+        audit-diagnostics (audit-scope-diagnostics packet)]
     (cond-> []
       (zero? raw-candidates)
       (conj {:kind "zero-candidate-files"
@@ -116,7 +148,10 @@
              :isolatedFiles isolated-files
              :connectedFiles (long (or (:connectedFiles connectivity) 0))
              :crossFileConnectedFiles (long (or (:crossFileConnectedFiles connectivity)
-                                                0))}))))
+                                                0))})
+
+      (seq audit-diagnostics)
+      (into audit-diagnostics))))
 (defn context-packet->agent-hints
   "Return a compact agent-facing summary of one AGraph context packet.
 
