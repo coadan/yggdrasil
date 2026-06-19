@@ -98,6 +98,34 @@
                                    :repo-id "missing"}]}]}
                (ex-data e)))))))
 
+(deftest architecture-starter-suite-covers-required-problem-classes
+  (let [suite (benchmark/read-suite "benchmarks/oss-architecture-synthetic.edn")
+        cases (:cases suite)
+        tags (set (mapcat :tags cases))
+        cases-by-id (into {} (map (juxt :id identity)) cases)]
+    (is (= "oss-architecture-synthetic" (:id suite)))
+    (is (<= 4 (count cases)))
+    (is (every? #(contains? (set (:tags %)) "synthetic") cases))
+    (is (every? #(contains? (set (:tags %)) "problem-architecture") cases))
+    (is (every? #(seq (get-in % [:coverage :source-kinds])) cases))
+    (is (every? #(seq (get-in % [:ground-truth :localization-files])) cases))
+    (is (every? #(or (seq (get-in % [:expectations :evidence]))
+                     (seq (get-in % [:expectations :nodes]))
+                     (seq (get-in % [:expectations :chunks]))
+                     (seq (get-in % [:expectations :edges])))
+                cases))
+    (is (every? #(seq (:root %)) (:repos suite)))
+    (is (every? #(contains? (set (keys cases-by-id)) %)
+                ["bootstrap-synthetic-docs-route-impact"
+                 "bootstrap-synthetic-astro-plugin-config"
+                 "supabase-postgres-synthetic-trigger-ownership-flow"
+                 "axios-synthetic-native-proxy-boundary"]))
+    (is (every? tags
+                ["architecture-cross-system-impact"
+                 "architecture-dependency-flow"
+                 "architecture-data-ownership"
+                 "architecture-runtime-boundary"]))))
+
 (deftest scores-file-localization
   (let [result {:groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]
                               :unsupportedGroundTruthFiles []}
