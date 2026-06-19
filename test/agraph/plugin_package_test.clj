@@ -1540,6 +1540,130 @@
               :registry-trust-review-missing]
              errors)))))
 
+(deftest registry-install-installs-passed-entry-through-pinned-git-source
+  (let [workspace (temp-dir "agraph-plugin-registry-install")
+        registry-path (io/file workspace "registry.edn")
+        package-dir (io/file workspace "package")
+        calls (atom [])]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "base-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Reusable fixture."}
+                   :benchmark {:status :unbenchmarked}
+                   :extractor-plugins
+                   [{:id "base-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (spit registry-path
+          (pr-str {:schema plugin-package/registry-schema
+                   :id "official"
+                   :name "Official"
+                   :packages [{:id "base-plugin"
+                               :kinds [:extractor]
+                               :maintainers [{:name "Maintainer"}]
+                               :support {:status :experimental}
+                               :trust {:code-reviewed? false}
+                               :path "package"
+                               :source "https://github.com/org/agraph-plugins.git"
+                               :ref "v0.1.0"
+                               :subdir "packages/base-plugin"}]}))
+    (with-redefs [plugin-package/install!
+                  (fn [config-path source opts]
+                    (swap! calls conj [config-path source opts])
+                    {:schema plugin-package/install-schema
+                     :project-id "fixture"
+                     :package {:id "base-plugin"
+                               :version "0.1.0"}
+                     :entry {:source {:type :git
+                                      :url source
+                                      :ref (:ref opts)
+                                      :rev "abc123"
+                                      :subdir (:subdir opts)}}})]
+      (let [result (plugin-package/registry-install!
+                    (.getPath registry-path)
+                    "project.edn"
+                    "base-plugin"
+                    {:cache-root ".cache/plugins"
+                     :force? true})]
+        (is (= plugin-package/registry-install-schema (:schema result)))
+        (is (= "base-plugin" (:package-id result)))
+        (is (= {:id "official"
+                :name "Official"}
+               (:registry result)))
+        (is (= :passed (get-in result [:registry-package :status])))
+        (is (= {:type :git
+                :url "https://github.com/org/agraph-plugins.git"
+                :ref "v0.1.0"
+                :subdir "packages/base-plugin"}
+               (get-in result [:registry-package :install :source])))
+        (is (= [["project.edn"
+                 "https://github.com/org/agraph-plugins.git"
+                 {:ref "v0.1.0"
+                  :subdir "packages/base-plugin"
+                  :cache-root ".cache/plugins"
+                  :force? true}]]
+               @calls))))))
+
+(deftest registry-install-rejects-failed-registry-entry
+  (let [workspace (temp-dir "agraph-plugin-registry-install-failed")
+        registry-path (io/file workspace "registry.edn")
+        package-dir (io/file workspace "package")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "local-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :project-local
+                           :reason "One project only."}
+                   :benchmark {:status :unbenchmarked}
+                   :extractor-plugins
+                   [{:id "local-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (spit registry-path
+          (pr-str {:schema plugin-package/registry-schema
+                   :id "official"
+                   :packages [{:id "local-plugin"
+                               :kinds [:extractor]
+                               :maintainers [{:name "Maintainer"}]
+                               :support {:status :experimental}
+                               :trust {:code-reviewed? false}
+                               :path "package"
+                               :source "https://github.com/org/agraph-plugins.git"
+                               :ref "v0.1.0"}]}))
+    (try
+      (plugin-package/registry-install!
+       (.getPath registry-path)
+       "project.edn"
+       "local-plugin"
+       {})
+      (is false "Expected registry-install! to reject failed registry entry.")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= "Plugin registry package is not installable."
+               (ex-message e)))
+        (is (= "local-plugin" (:package-id (ex-data e))))
+        (is (= [:public-sharing-not-ready]
+               (mapv :code (:errors (ex-data e)))))))))
+
 (deftest registry-validation-rejects-duplicate-package-ids
   (let [workspace (temp-dir "agraph-plugin-registry-duplicate-id")
         registry-path (io/file workspace "registry.edn")

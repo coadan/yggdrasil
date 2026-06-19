@@ -81,6 +81,7 @@ bb plugin gap report .dev/agraph/plugins/datastar-hiccup --json
 bb plugin dry-run extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
 bb plugin dry-run report .dev/agraph/plugins/datastar-hiccup --json
 bb plugin registry validate .dev/agraph/plugins/registry.edn
+bb plugin registry install .dev/agraph/plugins/registry.edn project.edn datastar-hiccup
 ```
 
 `plugin new` writes `agraph.plugin.edn`, Python extractor/report examples, a
@@ -320,6 +321,7 @@ Run:
 
 ```sh
 bb plugin registry validate registry.edn --json
+bb plugin registry install registry.edn project.edn datastar-hiccup --cache-dir .dev/agraph/plugins/cache
 ```
 
 Validation reads each local package manifest and runs `plugin diagnose`; it does
@@ -344,6 +346,13 @@ Text output prints public registry metadata, package readiness metadata, the
 install command, and claim authority under each installable registry package.
 Plain registry validation prints start/complete progress lines to stderr; use
 `--json` or `--no-progress` for quiet automation.
+
+`plugin registry install` installs one passed registry entry by package id. It
+validates the registry entry first, rejects entries that failed public-sharing
+checks, then delegates to the same pinned git install path as `plugin install`.
+The registry entry must declare `:source` and `:ref`; unbenchmarked base
+packages can still install, but their output remains non-authoritative until
+benchmark artifacts exist.
 
 ### Registry Workflow
 

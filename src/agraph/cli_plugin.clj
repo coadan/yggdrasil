@@ -396,6 +396,19 @@
     (print-plugin-claim-authority " " (get-in diagnosis [:package :claim-authority]))
     (doseq [{:keys [code message]} errors]
       (println "  error" (name code) "-" message))))
+
+(defn- print-plugin-registry-install
+  [{:keys [registry-path package-id registry-package install]}]
+  (println "# Plugin Registry Install")
+  (println "- registry" registry-path)
+  (println "- package" package-id)
+  (when-let [entry (:registry-entry registry-package)]
+    (print-plugin-registry-entry "-" entry))
+  (print-plugin-registry-package-summary "-" (:package-summary registry-package))
+  (when-let [command (get-in registry-package [:install :command])]
+    (println "- registry-command" command))
+  (print-plugin-install install))
+
 (defn- plugin-new!
   [args]
   (let [dir (first (positional-args args))]
@@ -632,30 +645,55 @@
         (print-plugin-remove result)))))
 (defn- plugin-registry!
   [args]
-  (let [[action registry-path] (positional-args args)]
-    (when-not (= "validate" action)
+  (let [[action registry-path config-path package-id] (positional-args args)]
+    (when-not (#{"validate" "install"} action)
       (throw (ex-info "Unknown plugin registry command."
                       {:command action
-                       :supported ["validate"]
+                       :supported ["validate" "install"]
                        :usage (usage)})))
     (when-not registry-path
       (throw (ex-info "Missing plugin registry path."
                       {:usage (usage)})))
-    (let [progress (plugin-progress-fn args)
-          _ (plugin-progress! progress "- registry validate start" registry-path)
-          result (plugin-package/validate-registry registry-path)]
-      (plugin-progress! progress
-                        "- registry validate complete"
-                        (str "status=" (name (:status result)))
-                        (str "packages=" (get-in result [:counts :packages] 0))
-                        (str "failed=" (get-in result [:counts :failed] 0)))
-      (if (json-output? args)
-        (print-json result)
-        (print-plugin-registry-validation result))
-      (when (= :failed (:status result))
-        (throw (ex-info "Plugin registry validation failed."
-                        {:errors (:errors result)
-                         :packages (:packages result)}))))))
+    (case action
+      "validate"
+      (let [progress (plugin-progress-fn args)
+            _ (plugin-progress! progress "- registry validate start" registry-path)
+            result (plugin-package/validate-registry registry-path)]
+        (plugin-progress! progress
+                          "- registry validate complete"
+                          (str "status=" (name (:status result)))
+                          (str "packages=" (get-in result [:counts :packages] 0))
+                          (str "failed=" (get-in result [:counts :failed] 0)))
+        (if (json-output? args)
+          (print-json result)
+          (print-plugin-registry-validation result))
+        (when (= :failed (:status result))
+          (throw (ex-info "Plugin registry validation failed."
+                          {:errors (:errors result)
+                           :packages (:packages result)}))))
+
+      "install"
+      (do
+        (when-not (and config-path package-id)
+          (throw (ex-info "Missing plugin registry install project config path or package id."
+                          {:usage (usage)})))
+        (let [progress (plugin-progress-fn args)
+              _ (plugin-progress! progress "- registry install start" package-id)
+              result (plugin-package/registry-install!
+                      registry-path
+                      config-path
+                      package-id
+                      {:cache-root (option-value args "--cache-dir")
+                       :force? (boolean (some #{"--force"} args))})]
+          (plugin-progress! progress
+                            "- registry install complete"
+                            (str "package=" package-id)
+                            (when-let [rev (get-in result
+                                                   [:install :entry :source :rev])]
+                              (str "rev=" rev)))
+          (if (json-output? args)
+            (print-json result)
+            (print-plugin-registry-install result)))))))
 (defn plugin!
   [args {:keys [usage print-json]}]
   (binding [*usage* usage

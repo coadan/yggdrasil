@@ -57,6 +57,9 @@
 (def registry-validate-schema
   "agraph.plugin.registry.validate/v1")
 
+(def registry-install-schema
+  "agraph.plugin.registry.install/v1")
+
 (def manifest-filename
   "agraph.plugin.edn")
 
@@ -1407,6 +1410,54 @@
                  :message (or (ex-message e) (str e))
                  :data (ex-data e)}]
        :packages []})))
+
+(defn- registry-package-by-id
+  [registry-validation package-id]
+  (let [package-id (str package-id)]
+    (or (some #(when (= package-id (str (:id %))) %)
+              (:packages registry-validation))
+        (throw (ex-info "Plugin registry package not found."
+                        {:package-id package-id
+                         :available (mapv :id (:packages registry-validation))})))))
+
+(defn registry-install!
+  "Install one package from a validated registry entry by package id.
+
+  The registry entry must pass public-sharing validation and declare a pinned
+  git source. Installation delegates to `install!`, so project config receives
+  the same pinned package entry as a direct git install."
+  [registry-path config-path package-id {:keys [cache-root force?] :as opts}]
+  (let [validation (validate-registry registry-path)
+        registry-package (registry-package-by-id validation package-id)
+        install-source (get-in registry-package [:install :source])
+        source-url (:url install-source)]
+    (when-not (= :passed (:status registry-package))
+      (throw (ex-info "Plugin registry package is not installable."
+                      {:package-id (str package-id)
+                       :status (:status registry-package)
+                       :errors (:errors registry-package)})))
+    (when-not (present? source-url)
+      (throw (ex-info "Plugin registry package is missing install source."
+                      {:package-id (str package-id)
+                       :install (:install registry-package)})))
+    (let [install-result (install! config-path
+                                   source-url
+                                   {:ref (:ref install-source)
+                                    :subdir (:subdir install-source)
+                                    :cache-root cache-root
+                                    :force? (boolean force?)})]
+      {:schema registry-install-schema
+       :registry (select-keys (:registry validation) [:id :name :description])
+       :registry-path (fs/canonical-path registry-path)
+       :package-id (str package-id)
+       :registry-package (select-keys registry-package
+                                      [:id
+                                       :status
+                                       :registry-entry
+                                       :package-summary
+                                       :install])
+       :install install-result
+       :opts (select-keys opts [:cache-root :force?])})))
 
 (defn- extractor-plugins
   [package]

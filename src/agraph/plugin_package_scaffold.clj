@@ -135,6 +135,9 @@
        "bb plugin dry-run report . --json\n"
        "bb plugin install /path/to/project.edn . --force\n"
        "bb plugin registry validate registry.example.edn --json\n"
+       "bb plugin registry install registry.example.edn /path/to/project.edn "
+       package-id
+       " --json\n"
        "```\n\n"
        "Unsupported file families:\n\n"
        "- edit `:extractor-plugins[0] :applies-to :file-kinds` to name the "

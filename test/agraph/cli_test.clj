@@ -231,6 +231,72 @@
                   :cache-root ".cache/plugins"}]]
                @calls))))))
 
+(deftest plugin-registry-install-dispatches-to-registry-installer
+  (let [calls (atom [])]
+    (with-redefs [plugin-package/registry-install!
+                  (fn [registry-path config-path package-id opts]
+                    (swap! calls conj [registry-path config-path package-id opts])
+                    {:schema plugin-package/registry-install-schema
+                     :registry {:id "official"}
+                     :registry-path registry-path
+                     :package-id package-id
+                     :registry-package {:id package-id
+                                        :status :passed
+                                        :registry-entry
+                                        {:kinds [:extractor]
+                                         :maintainers [{:name "Maintainer"}]
+                                         :support {:status :experimental}
+                                         :trust {:code-reviewed? false}}
+                                        :package-summary
+                                        {:id package-id
+                                         :version "0.1.0"
+                                         :visibility :public
+                                         :license {:spdx "MIT"}
+                                         :scope {:kind :base}
+                                         :benchmark-status :unbenchmarked}
+                                        :install
+                                        {:command "bb plugin install '<project.edn>' https://github.com/org/plugins.git --ref v0.1.0"}}
+                     :install {:schema plugin-package/install-schema
+                               :project-id "fixture"
+                               :package {:id package-id
+                                         :version "0.1.0"
+                                         :extractor-plugins 1
+                                         :report-plugins 0
+                                         :benchmark-status :unbenchmarked
+                                         :manifest-fingerprint "sha256:abc123"
+                                         :warnings []}
+                               :entry {:manifest "agraph.plugin.edn"
+                                       :manifest-fingerprint "sha256:abc123"
+                                       :path "/tmp/pkg"
+                                       :source {:rev "abc123"}}
+                               :force? (:force? opts)}})]
+      (let [err (java.io.StringWriter.)
+            out (binding [*err* err]
+                  (with-out-str
+                    (cli/dispatch "plugin"
+                                  ["registry"
+                                   "install"
+                                   "registry.edn"
+                                   "project.edn"
+                                   "pkg"
+                                   "--cache-dir"
+                                   ".cache/plugins"
+                                   "--force"])))]
+        (is (str/includes? out "# Plugin Registry Install"))
+        (is (str/includes? out "- registry registry.edn"))
+        (is (str/includes? out "- package pkg"))
+        (is (str/includes? out "registry-command bb plugin install"))
+        (is (str/includes? out "# Plugin Installed"))
+        (is (str/includes? (str err) "# Plugin Progress"))
+        (is (str/includes? (str err) "- registry install start pkg"))
+        (is (str/includes? (str err) "- registry install complete package=pkg rev=abc123"))
+        (is (= [["registry.edn"
+                 "project.edn"
+                 "pkg"
+                 {:cache-root ".cache/plugins"
+                  :force? true}]]
+               @calls))))))
+
 (deftest plugin-core-check-dispatches-to-package-gate
   (let [calls (atom [])
         claim-authority {:status :benchmark-backed
@@ -1546,7 +1612,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
 

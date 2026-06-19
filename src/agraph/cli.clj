@@ -610,6 +610,7 @@
     "  plugin list <project.edn> [--json]"
     "  plugin remove <project.edn> <package-id> [--json]"
     "  plugin registry validate <registry.edn> [--json] [--no-progress]"
+    "  plugin registry install <registry.edn> <project.edn> <package-id> [--cache-dir DIR] [--force] [--json] [--no-progress]"
     ""
     "Agent integration:"
     "  agent install --platform codex --project [--hooks] [--print-config]"
