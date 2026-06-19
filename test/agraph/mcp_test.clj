@@ -6,6 +6,7 @@
             [agraph.graph :as graph]
             [agraph.mcp :as mcp]
             [agraph.project :as project]
+            [agraph.query :as query]
             [agraph.queue :as queue]
             [agraph.xtdb :as store]
             [charred.api :as json]
@@ -53,6 +54,7 @@
             :version "0.1.0"}
            (get-in init [:result :serverInfo])))
     (is (= ["agraph_explore"
+            "agraph_node"
             "agraph_view_systems"
             "agraph_status"]
            tool-names))))
@@ -62,6 +64,7 @@
                                    (request 1 "tools/list" {}))
         tool-names (mapv :name (get-in listed [:result :tools]))]
     (is (= ["agraph_explore"
+            "agraph_node"
             "agraph_ask"
             "agraph_explore_create"
             "agraph_explore_open"
@@ -87,6 +90,7 @@
                                    (request 1 "tools/list" {}))
         tool-names (mapv :name (get-in listed [:result :tools]))]
     (is (= ["agraph_explore"
+            "agraph_node"
             "agraph_view_systems"
             "agraph_sync_inspect"
             "agraph_status"
@@ -99,6 +103,7 @@
                                    (request 1 "tools/list" {}))
         schemas (into {} (map (juxt :name :inputSchema)) (get-in listed [:result :tools]))]
     (is (= ["query"] (get-in schemas ["agraph_explore" :required])))
+    (is (= ["target"] (get-in schemas ["agraph_node" :required])))
     (is (= ["query"] (get-in schemas ["agraph_ask" :required])))
     (is (= ["cursorId" "target"]
            (get-in schemas ["agraph_explore_open" :required])))
@@ -194,6 +199,117 @@
              (:freshness packet)))
       (is (= ["agraph query \"where auth\" --project fixture"]
              (:drilldowns packet))))))
+
+(deftest node-tool-inspects-exact-file-target
+  (let [root (temp-dir "agraph-mcp-node")
+        source-file (java.io.File. root "src/app.clj")
+        file-row {:xt/id "file:fixture:app:src/app.clj"
+                  :project-id "fixture"
+                  :repo-id "app"
+                  :repo-root root
+                  :path "src/app.clj"
+                  :ext "clj"
+                  :kind :code
+                  :content-sha "sha"
+                  :mtime-ms 1
+                  :size-bytes 24
+                  :active? true
+                  :run-id "run"}
+        node-row {:xt/id "node:app:main"
+                  :project-id "fixture"
+                  :repo-id "app"
+                  :label "app/main"
+                  :kind :namespace
+                  :file-id (:xt/id file-row)
+                  :path "src/app.clj"
+                  :source-line 1
+                  :active? true
+                  :run-id "run"}
+        edge-row {:xt/id "edge:main:dep"
+                  :project-id "fixture"
+                  :repo-id "app"
+                  :source-id (:xt/id node-row)
+                  :target-id "node:app:dep"
+                  :relation :requires
+                  :confidence :high
+                  :file-id (:xt/id file-row)
+                  :path "src/app.clj"
+                  :source-line 2
+                  :active? true
+                  :run-id "run"}]
+    (.mkdirs (.getParentFile source-file))
+    (spit source-file "(ns app)\n(defn main [])\n")
+    (with-redefs [project/read-project (constantly (assoc-in project-fixture
+                                                             [:repos 0 :root]
+                                                             root))
+                  store/with-node (fn [_ f] (f :xtdb))
+                  store/all-rows (fn [_ table]
+                                   (if (= table (:files store/tables))
+                                     [file-row]
+                                     []))
+                  query/all-nodes (fn [_ opts]
+                                    (is (= "fixture" (:project-id opts)))
+                                    [node-row {:xt/id "node:app:dep"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :label "app/dep"
+                                               :kind :namespace
+                                               :file-id (:xt/id file-row)
+                                               :path "src/app.clj"
+                                               :source-line 2
+                                               :active? true
+                                               :run-id "run"}])
+                  query/all-edges (fn [_ opts]
+                                    (is (= "fixture" (:project-id opts)))
+                                    [edge-row])]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 13
+                                 "agraph_node"
+                                 {:target "app:src/app.clj"
+                                  :sourceLines 1}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= "agraph.node.inspect/v1" (:schema packet)))
+        (is (= :found (:status packet)))
+        (is (= :file (get-in packet [:match :targetKind])))
+        (is (= "src/app.clj" (get-in packet [:file :path])))
+        (is (= [{:line 1
+                 :text "(ns app)"}]
+               (get-in packet [:source :lines])))
+        (is (= true (get-in packet [:source :truncated])))
+        (is (= ["edge:main:dep"]
+               (mapv :xt/id (get-in packet [:relationships :edges]))))))))
+
+(deftest node-tool-returns-choices-for-ambiguous-exact-label
+  (let [nodes [{:xt/id "node:one"
+                :project-id "fixture"
+                :repo-id "app"
+                :label "Handler"
+                :kind :symbol
+                :file-id "file:one"
+                :path "src/one.clj"
+                :active? true
+                :run-id "run"}
+               {:xt/id "node:two"
+                :project-id "fixture"
+                :repo-id "app"
+                :label "Handler"
+                :kind :symbol
+                :file-id "file:two"
+                :path "src/two.clj"
+                :active? true
+                :run-id "run"}]]
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  store/all-rows (fn [_ _] [])
+                  query/all-nodes (fn [_ _] nodes)
+                  query/all-edges (fn [_ _] [])]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 14 "agraph_node" {:target "Handler"}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= :ambiguous (:status packet)))
+        (is (= ["node:one" "node:two"] (mapv :id (:choices packet))))))))
 
 (deftest view-systems-tool-returns-canonical-graph
   (with-redefs [project/read-project (constantly project-fixture)

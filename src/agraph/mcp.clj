@@ -7,6 +7,7 @@
             [agraph.graph :as graph]
             [agraph.map :as graph-map]
             [agraph.project :as project]
+            [agraph.query :as query]
             [agraph.queue :as queue]
             [agraph.xtdb :as store]
             [charred.api :as json]
@@ -82,6 +83,19 @@
                    :budget {:type "integer"
                             :minimum 1000}}
                   ["query"])}
+   {:name "agraph_node"
+    :groups #{:default}
+    :description "Inspect one exact graph node or source file target with mechanical neighbors and source context."
+    :inputSchema (json-schema
+                  {:target {:type "string"}
+                   :projectId {:type "string"}
+                   :configPath {:type "string"}
+                   :mapPath {:type "string"}
+                   :limit {:type "integer"
+                           :minimum 1}
+                   :sourceLines {:type "integer"
+                                 :minimum 1}}
+                  ["target"])}
    {:name "agraph_ask"
     :groups #{:ask}
     :description "Return an AGraph context packet for one graph-grounded question."
@@ -376,6 +390,324 @@
                                                 :map-path (or (:mapPath args)
                                                               (:map-path ctx))})))))))
 
+(def node-inspect-schema
+  "agraph.node.inspect/v1")
+
+(def default-node-inspect-limit
+  40)
+
+(def default-node-source-lines
+  160)
+
+(def max-node-source-bytes
+  (* 256 1024))
+
+(defn- active-row?
+  [row]
+  (not= false (:active? row)))
+
+(defn- distinct-by
+  [f coll]
+  (loop [remaining (seq coll)
+         seen #{}
+         out []]
+    (if-let [item (first remaining)]
+      (let [k (f item)]
+        (if (contains? seen k)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen k) (conj out item))))
+      out)))
+
+(defn- compact-file-row
+  [file]
+  (select-keys file [:xt/id :project-id :repo-id :repo-root :repo-role :path :ext
+                     :kind :content-sha :extractor-fingerprint :mtime-ms
+                     :size-bytes :run-id]))
+
+(defn- compact-node-row
+  [node]
+  (select-keys node [:xt/id :project-id :repo-id :label :kind :file-id :path
+                     :ecosystem :package-name :version-range :resolved-version
+                     :dependency-scope :import-names :namespace :name :public?
+                     :source-line :run-id]))
+
+(defn- node-ref
+  [node]
+  (when node
+    (select-keys node [:xt/id :repo-id :label :kind :path :source-line])))
+
+(defn- edge-ref
+  [nodes-by-id edge]
+  (cond-> (select-keys edge [:xt/id :project-id :repo-id :relation :confidence
+                             :file-id :path :source-line :import-name
+                             :resolution-source :run-id])
+    (:source-id edge) (assoc :source (or (node-ref (get nodes-by-id (:source-id edge)))
+                                         {:xt/id (:source-id edge)}))
+    (:target-id edge) (assoc :target (or (node-ref (get nodes-by-id (:target-id edge)))
+                                         {:xt/id (:target-id edge)}))))
+
+(defn- repo-path
+  [row]
+  (when (and (:repo-id row) (:path row))
+    (str (:repo-id row) ":" (:path row))))
+
+(defn- target-choice
+  [target-kind match row]
+  (cond-> {:targetKind target-kind
+           :match match
+           :id (:xt/id row)
+           :repo (:repo-id row)}
+    (:label row) (assoc :label (:label row))
+    (:kind row) (assoc :kind (:kind row))
+    (:path row) (assoc :path (:path row))
+    (:source-line row) (assoc :sourceLine (:source-line row))))
+
+(defn- exact-file-matches
+  [target files]
+  (->> files
+       (keep (fn [file]
+               (cond
+                 (= target (:xt/id file)) [:id file]
+                 (= target (:path file)) [:path file]
+                 (= target (repo-path file)) [:repo-path file]
+                 :else nil)))
+       (distinct-by (comp :xt/id second))
+       (mapv (fn [[match file]]
+               {:target-kind :file
+                :match match
+                :row file}))))
+
+(defn- exact-node-matches
+  [target nodes]
+  (->> nodes
+       (keep (fn [node]
+               (cond
+                 (= target (:xt/id node)) [:id node]
+                 (= target (:label node)) [:label node]
+                 (= target (:namespace node)) [:namespace node]
+                 (= target (:name node)) [:name node]
+                 :else nil)))
+       (distinct-by (comp :xt/id second))
+       (mapv (fn [[match node]]
+               {:target-kind :node
+                :match match
+                :row node}))))
+
+(defn- scoped-files
+  [xtdb project-id]
+  (->> (store/all-rows xtdb (:files store/tables))
+       (filter active-row?)
+       (filter #(or (nil? project-id) (= project-id (:project-id %))))
+       vec))
+
+(defn- inspect-matches
+  [target files nodes]
+  (->> (concat (exact-file-matches target files)
+               (exact-node-matches target nodes))
+       (sort-by (fn [{:keys [target-kind match row]}]
+                  [(case target-kind :file 0 :node 1 2)
+                   (case match :id 0 :repo-path 1 :path 2 :label 3 4)
+                   (:repo-id row)
+                   (:path row)
+                   (:label row)
+                   (:xt/id row)]))
+       vec))
+
+(defn- repo-roots
+  [project]
+  (into {} (map (juxt :id :root)) (:repos project)))
+
+(defn- file-absolute-path
+  [project file]
+  (when-let [root (or (:repo-root file)
+                      (get (repo-roots project) (:repo-id file)))]
+    (.getPath (io/file root (:path file)))))
+
+(defn- line-numbered-source
+  [project file source-lines]
+  (if-let [path (file-absolute-path project file)]
+    (let [source-file (io/file path)]
+      (cond
+        (not (.isFile source-file))
+        {:status :unavailable
+         :reason "file-not-found"
+         :path path}
+
+        (> (.length source-file) max-node-source-bytes)
+        {:status :unavailable
+         :reason "file-too-large"
+         :path path
+         :sizeBytes (.length source-file)
+         :maxBytes max-node-source-bytes}
+
+        :else
+        (let [lines (str/split-lines (slurp source-file))
+              selected (take source-lines lines)]
+          {:status :available
+           :path path
+           :truncated (> (count lines) source-lines)
+           :lines (mapv (fn [line text]
+                          {:line line
+                           :text text})
+                        (range 1 (inc (count selected)))
+                        selected)})))
+    {:status :unavailable
+     :reason "repo-root-missing"}))
+
+(defn- file-for-node
+  [files node]
+  (or (some #(when (= (:file-id node) (:xt/id %)) %) files)
+      (some #(when (and (= (:repo-id node) (:repo-id %))
+                        (= (:path node) (:path %)))
+               %)
+            files)))
+
+(defn- incident-graph
+  [match nodes edges limit]
+  (let [nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
+        file-id (case (:target-kind match)
+                  :file (get-in match [:row :xt/id])
+                  :node (get-in match [:row :file-id])
+                  nil)
+        focus-node-ids (case (:target-kind match)
+                         :node #{(get-in match [:row :xt/id])}
+                         :file (->> nodes
+                                    (filter #(= file-id (:file-id %)))
+                                    (map :xt/id)
+                                    set)
+                         #{})
+        incident? (fn [edge]
+                    (or (= file-id (:file-id edge))
+                        (contains? focus-node-ids (:source-id edge))
+                        (contains? focus-node-ids (:target-id edge))))
+        selected-edges (->> edges
+                            (filter active-row?)
+                            (filter incident?)
+                            (sort-by (juxt :repo-id :path :source-line :relation
+                                           :source-id :target-id))
+                            (take limit)
+                            vec)
+        related-node-ids (set (concat focus-node-ids
+                                      (mapcat (juxt :source-id :target-id)
+                                              selected-edges)))]
+    {:nodes (->> related-node-ids
+                 (keep nodes-by-id)
+                 (sort-by (juxt :repo-id :path :source-line :label :xt/id))
+                 (take limit)
+                 (mapv compact-node-row))
+     :edges (mapv #(edge-ref nodes-by-id %) selected-edges)}))
+
+(defn- include-matches-file?
+  [file include]
+  (and (= (some-> (:repo include) str) (some-> (:repo-id file) str))
+       (= (some-> (:path include) str) (some-> (:path file) str))))
+
+(defn- target-values
+  [target match]
+  (let [row (:row match)]
+    (set (remove nil?
+                 [target
+                  (:xt/id row)
+                  (:label row)
+                  (:namespace row)
+                  (:name row)
+                  (repo-path row)]))))
+
+(defn- map-attachments
+  [overlay target match]
+  (let [values (target-values target match)
+        row (:row match)
+        file? (= :file (:target-kind match))
+        system-match? (fn [system]
+                        (or (contains? values (str (:id system)))
+                            (contains? values (str (:label system)))
+                            (and file?
+                                 (some #(include-matches-file? row %)
+                                       (:includes system)))))
+        doc-match? (fn [doc]
+                     (or (contains? values (str (:target doc)))
+                         (and file?
+                              (= (:path row)
+                                 (some-> doc :source :path str)))))
+        edge-match? (fn [edge]
+                      (or (contains? values (str (:source edge)))
+                          (contains? values (str (:target edge)))))]
+    (when overlay
+      {:systems (->> (:systems overlay)
+                     (filter system-match?)
+                     (mapv #(select-keys % [:id :label :kind :status :includes
+                                            :reason :tags])))
+       :docs (->> (:docs overlay)
+                  (filter doc-match?)
+                  (mapv #(select-keys % [:target :role :source :status :reason])))
+       :edges (->> (:edges overlay)
+                   (filter edge-match?)
+                   (mapv #(select-keys % [:id :source :target :relation :status
+                                          :reason :evidence])))})))
+
+(defn- node-inspect
+  [ctx args]
+  (let [target (require-string! args :target "agraph_node requires target.")
+        project (read-project! ctx args)
+        project-id (project-id project args)
+        overlay (map-overlay ctx args)
+        limit (long (or (:limit args) default-node-inspect-limit))
+        source-lines (long (or (:sourceLines args) default-node-source-lines))]
+    (with-xtdb
+      ctx
+      (fn [xtdb]
+        (let [files (scoped-files xtdb project-id)
+              nodes (->> (query/all-nodes xtdb {:project-id project-id})
+                         (filter active-row?)
+                         vec)
+              edges (->> (query/all-edges xtdb {:project-id project-id})
+                         (filter active-row?)
+                         vec)
+              matches (inspect-matches target files nodes)]
+          (cond
+            (empty? matches)
+            {:schema node-inspect-schema
+             :target target
+             :project {:id project-id}
+             :status :not-found
+             :choices []
+             :nextActions [{:kind :explore
+                            :label "Search for a graph context packet"
+                            :mcpTool "agraph_explore"
+                            :mcpArgs {:query target
+                                      :projectId project-id}}]}
+
+            (> (count matches) 1)
+            {:schema node-inspect-schema
+             :target target
+             :project {:id project-id}
+             :status :ambiguous
+             :choices (mapv #(target-choice (:target-kind %)
+                                            (:match %)
+                                            (:row %))
+                            (take limit matches))}
+
+            :else
+            (let [{:keys [target-kind match row] :as selected} (first matches)
+                  file (case target-kind
+                         :file row
+                         :node (file-for-node files row)
+                         nil)]
+              (cond-> {:schema node-inspect-schema
+                       :target target
+                       :project {:id project-id}
+                       :status :found
+                       :match (target-choice target-kind match row)
+                       :relationships (incident-graph selected nodes edges limit)}
+                (= :file target-kind) (assoc :file (compact-file-row row))
+                (= :node target-kind) (assoc :node (compact-node-row row))
+                file (assoc :sourceLocation (compact-file-row file))
+                (= :file target-kind) (assoc :source
+                                             (line-numbered-source project
+                                                                   row
+                                                                   source-lines))
+                overlay (assoc :map (map-attachments overlay target selected))))))))))
+
 (defn- explore-create
   [ctx args]
   (let [project (read-project! ctx args)]
@@ -554,6 +886,7 @@
   [ctx name args]
   (case name
     "agraph_explore" (explore ctx args)
+    "agraph_node" (node-inspect ctx args)
     "agraph_ask" (ask ctx args)
     "agraph_explore_create" (explore-create ctx args)
     "agraph_explore_open" (explore-open ctx args)
