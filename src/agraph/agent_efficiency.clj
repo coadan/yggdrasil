@@ -127,6 +127,12 @@
        (remove #(= :timing (:category %)))
        vec))
 
+(def ^:private category-order
+  (->> metric-specs
+       (map (comp name :category))
+       distinct
+       vec))
+
 (def ^:private architecture-class-tags
   #{"problem-architecture"
     "architecture-boundary"
@@ -387,6 +393,20 @@
                  (empty? architecture-tags)
                  (conj "No shared architecture-class tags; do not use this report to claim representative architecture-task gains."))}))
 
+(defn- category-summaries
+  [deltas comparable min-shared-cases]
+  (let [by-category (group-by :category deltas)]
+    (->> category-order
+         (keep (fn [category]
+                 (when-let [category-deltas (seq (get by-category category))]
+                   {:category category
+                    :metrics (mapv :metric category-deltas)
+                    :summary (aggregate-summary
+                              category-deltas
+                              comparable
+                              {:min-shared-cases min-shared-cases})})))
+         vec)))
+
 (defn- case-deltas
   [shell-report agraph-report]
   (let [shell-by-case (result-by-case shell-report)
@@ -425,6 +445,7 @@
       :shellOnly (report-summary shell-report)
       :agraph (report-summary agraph-report)
       :deltas deltas
+      :byCategory (category-summaries deltas comparable min-shared-cases)
       :byTag by-tag
       :problemClassCoverage (problem-class-coverage by-tag)
       :caseDeltas (case-deltas shell-report agraph-report)})))
@@ -502,6 +523,10 @@
                         (get-in comparison [:summary :unavailableMetrics])))
           (println (str "Shared tag groups: "
                         (get-in comparison [:byTag :comparability :sharedTags])))
+          (when-let [categories (seq (:byCategory comparison))]
+            (println "Category signals:")
+            (doseq [{:keys [category summary]} categories]
+              (println (str "- " category ": " (:signal summary)))))
           (when-let [warnings (seq (get-in comparison
                                            [:problemClassCoverage :warnings]))]
             (println "Problem-class coverage warnings:")

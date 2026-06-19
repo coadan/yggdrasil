@@ -127,7 +127,8 @@
 
 (deftest compares-shell-only-and-agraph-agent-reports
   (let [comparison (agent-efficiency/compare-reports shell-report agraph-report)
-        deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
+        deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))
+        categories-by-key (into {} (map (juxt :category identity)) (:byCategory comparison))]
     (is (= "agraph.agent-efficiency/v1" (:schema comparison)))
     (is (= "agraph-improved" (:status comparison)))
     (is (= {:signal "agraph-improved"
@@ -167,6 +168,22 @@
             :result "improved"}
            (select-keys (:searchCommandCount deltas-by-key)
                         [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:signal "agraph-improved"
+            :minSharedCases 2
+            :availableMetrics 4
+            :improvedMetrics 4
+            :regressedMetrics 0
+            :unchangedMetrics 0
+            :unavailableMetrics 0}
+           (get-in categories-by-key ["command-telemetry" :summary])))
+    (is (= {:signal "agraph-improved"
+            :minSharedCases 2
+            :availableMetrics 3
+            :improvedMetrics 2
+            :regressedMetrics 0
+            :unchangedMetrics 1
+            :unavailableMetrics 0}
+           (get-in categories-by-key ["timing" :summary])))
     (is (= ["case-1" "case-2"]
            (mapv :caseId (:caseDeltas comparison))))
     (is (= {"shell-only" 2}
@@ -416,5 +433,7 @@
         out (with-out-str
               (agent-efficiency/-main shell-path agraph-path))]
     (is (.contains out "Problem-class coverage warnings:"))
+    (is (.contains out "Category signals:"))
+    (is (.contains out "- command-telemetry: agraph-improved"))
     (is (.contains out "No shared problem-class tags"))
     (is (.contains out "No shared architecture-class tags"))))
