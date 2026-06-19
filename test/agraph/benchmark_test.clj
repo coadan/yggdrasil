@@ -1,6 +1,8 @@
 (ns agraph.benchmark-test
   (:require [agraph.benchmark :as benchmark]
+            [agraph.context :as context]
             [agraph.extract :as extract]
+            [agraph.project :as project]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -1686,6 +1688,73 @@
               :parser-worker "dotnet"})]
     (is (= "dotnet" (get env "AGRAPH_BENCH_PARSER_WORKER")))
     (is (= "dotnet" (get env "AGRAPH_PARSER_WORKER")))))
+
+(deftest agraph-agent-run-builds-context-artifacts-after-indexing
+  (let [out (temp-dir "agraph-bench-agent-run-context-order")
+        worktree (temp-dir "agraph-bench-agent-run-context-worktree")
+        suite {:id "suite"}
+        case {:id "case-1"}
+        prepared {:case-id "case-1"
+                  :project-id "project"
+                  :repo-id "repo"
+                  :worktreeRoot worktree
+                  :input {:queryText "broken app"}
+                  :coverage {:declaredSourceKinds []}}
+        opts {:out out
+              :agent-id "agent"
+              :mode "agraph"}]
+    (with-redefs [store/with-node (fn [_ f]
+                                    (f {:indexed? (atom false)}))
+                  project/index-project! (fn [xtdb _project _opts]
+                                           (reset! (:indexed? xtdb) true)
+                                           {:status "completed"})
+                  project/infer-project! (fn [_xtdb _project]
+                                           {:status "completed"})
+                  context/context-packet (fn [xtdb query-text _opts]
+                                           (if @(:indexed? xtdb)
+                                             {:schema "agraph.context/v1"
+                                              :query query-text
+                                              :docs []
+                                              :entities []
+                                              :edges []
+                                              :warnings []
+                                              :search {:instrumentation {:search-docs 1}}
+                                              :candidateFiles [{:path "src/app.clj"
+                                                                :rank 1
+                                                                :score 1.0
+                                                                :targetKind "chunk"
+                                                                :label "app/broken"}]}
+                                             {:schema "agraph.context/v1"
+                                              :query query-text
+                                              :docs []
+                                              :entities []
+                                              :edges []
+                                              :warnings []
+                                              :search {:instrumentation {:search-docs 0}}
+                                              :candidateFiles []}))
+                  benchmark/context-packet->agent-hints (fn [_prepared packet _opts]
+                                                          {:schema benchmark/agent-hints-schema
+                                                           :selection {:candidateFiles (count (:candidateFiles packet))}
+                                                           :topFiles (:candidateFiles packet)})]
+      (let [result (#'benchmark/prepare-agent-graph-and-artifacts! suite
+                                                                   case
+                                                                   prepared
+                                                                   opts)
+            context-json (json/read-json
+                          (slurp (get-in result [:artifacts :context-path]))
+                          :key-fn keyword)
+            hints-json (json/read-json
+                        (slurp (get-in result [:artifacts :hints-path]))
+                        :key-fn keyword)]
+        (is (= {:status "completed"} (get-in result [:summary :indexSummary])))
+        (is (= 1 (get-in context-json [:search :instrumentation :search-docs])))
+        (is (= [{:path "src/app.clj"
+                 :rank 1
+                 :score 1.0
+                 :targetKind "chunk"
+                 :label "app/broken"}]
+               (:candidateFiles context-json)))
+        (is (= 1 (get-in hints-json [:selection :candidateFiles])))))))
 
 (deftest runs-external-agent-command-and-scores-result
   (let [root (temp-dir "agraph-bench-agent-run-repo")

@@ -2717,24 +2717,6 @@
       (seq diagnostics)
       (assoc :diagnostics diagnostics))))
 
-(defn- write-agent-agraph-artifacts!
-  [suite case prepared opts]
-  (when (= "agraph" (agent-mode opts))
-    (let [context-path (agent-run-context-path suite case opts)
-          hints-path (agent-run-hints-path suite case opts)]
-      (store/with-node (xtdb-dir suite case opts)
-        (fn [xtdb]
-          (let [packet (context/context-packet xtdb
-                                               (get-in prepared [:input :queryText])
-                                               (agent-baseline-context-options
-                                                prepared
-                                                opts))
-                hints (context-packet->agent-hints prepared packet opts)]
-            (write-json-file! context-path packet)
-            (write-json-file! hints-path hints)
-            {:context-path (fs/canonical-path context-path)
-             :hints-path (fs/canonical-path hints-path)}))))))
-
 (defn- agent-run-command
   [opts]
   (or (some-> (:command opts) not-empty)
@@ -3121,19 +3103,33 @@
     (assoc "AGRAPH_BENCH_AGRAPH_HINTS"
            (get-in packet [:artifacts :agraphHintsPath]))))
 
-(defn- prepare-agent-graph!
+(defn- prepare-agent-graph-and-artifacts!
   [suite case prepared opts]
   (when (= "agraph" (agent-mode opts))
-    (store/with-node (xtdb-dir suite case opts)
-      (fn [xtdb]
-        (let [bench-project (agent-project prepared)]
-          {:indexSummary (with-benchmark-parser-worker
-                           opts
-                           #(project/index-project! xtdb
-                                                    bench-project
-                                                    (benchmark-index-options opts)))
-           :systemSummary (project/infer-project! xtdb bench-project)
-           :graphExpectations (evaluate-graph-expectations xtdb prepared)})))))
+    (let [context-path (agent-run-context-path suite case opts)
+          hints-path (agent-run-hints-path suite case opts)]
+      (store/with-node (xtdb-dir suite case opts)
+        (fn [xtdb]
+          (let [bench-project (agent-project prepared)
+                summary {:indexSummary (with-benchmark-parser-worker
+                                         opts
+                                         #(project/index-project! xtdb
+                                                                  bench-project
+                                                                  (benchmark-index-options opts)))
+                         :systemSummary (project/infer-project! xtdb bench-project)
+                         :graphExpectations (evaluate-graph-expectations xtdb
+                                                                         prepared)}
+                packet (context/context-packet xtdb
+                                               (get-in prepared [:input :queryText])
+                                               (agent-baseline-context-options
+                                                prepared
+                                                opts))
+                hints (context-packet->agent-hints prepared packet opts)]
+            (write-json-file! context-path packet)
+            (write-json-file! hints-path hints)
+            {:summary summary
+             :artifacts {:context-path (fs/canonical-path context-path)
+                         :hints-path (fs/canonical-path hints-path)}}))))))
 
 (defn- read-agent-hints-diagnostics
   [hints-path]
@@ -3147,8 +3143,9 @@
   [suite case opts]
   (ensure-agent-run-id! opts)
   (let [prepared (prepare-case! suite case opts)
-        agraph-summary (prepare-agent-graph! suite case prepared opts)
-        agraph-artifacts (write-agent-agraph-artifacts! suite case prepared opts)
+        agraph-prep (prepare-agent-graph-and-artifacts! suite case prepared opts)
+        agraph-summary (:summary agraph-prep)
+        agraph-artifacts (:artifacts agraph-prep)
         packet (agent-packet-from-prepared! suite
                                             case
                                             prepared
