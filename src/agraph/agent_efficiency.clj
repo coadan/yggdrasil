@@ -427,6 +427,78 @@
                               {:min-shared-cases min-shared-cases})})))
          vec)))
 
+(defn- category-summary
+  [by-category category]
+  (some-> (first (filter #(= category (:category %)) by-category))
+          :summary))
+
+(defn- category-has-metrics?
+  [by-category category]
+  (pos? (long (or (:availableMetrics (category-summary by-category category))
+                  0))))
+
+(defn- claim-readiness
+  [summary comparable by-category problem-coverage]
+  (let [same-suite? (true? (:sameSuite comparable))
+        same-cases? (true? (:sameCases comparable))
+        enough-cases? (<= (long (:minSharedCases summary))
+                          (long (:sharedCases comparable)))
+        improved-without-regressions? (and (= "agraph-improved"
+                                              (:signal summary))
+                                           (zero? (:regressedMetrics summary)))
+        problem-classes? (true? (:hasProblemClasses problem-coverage))
+        architecture-classes? (true? (:hasArchitectureClasses problem-coverage))
+        evidence-metrics? (category-has-metrics? by-category "evidence")
+        command-telemetry? (category-has-metrics? by-category
+                                                  "command-telemetry")
+        token-cost-metrics? (category-has-metrics? by-category "token-cost")
+        requirements {:sameSuite same-suite?
+                      :sameCases same-cases?
+                      :enoughSharedCases enough-cases?
+                      :agraphImprovedWithoutRegressions
+                      improved-without-regressions?
+                      :problemClassCoverage problem-classes?
+                      :architectureClassCoverage architecture-classes?
+                      :evidenceMetrics evidence-metrics?
+                      :commandTelemetry command-telemetry?}
+        supported? (every? true? (vals requirements))]
+    {:status (if supported? "supported" "not-supported")
+     :broadEfficiencyClaimSupported supported?
+     :sharedCases (long (:sharedCases comparable))
+     :minSharedCases (long (:minSharedCases summary))
+     :requirements requirements
+     :optionalTelemetry {:tokenCostMetrics token-cost-metrics?}
+     :warnings (cond-> []
+                 (not same-suite?)
+                 (conj "Reports use different suite ids; rerun both lanes on the same suite before claiming efficiency.")
+
+                 (not same-cases?)
+                 (conj "Reports do not contain the same completed case ids; compare matched lanes before claiming efficiency.")
+
+                 (not enough-cases?)
+                 (conj (str "Only " (:sharedCases comparable)
+                            " shared completed case(s); require at least "
+                            (:minSharedCases summary)
+                            " before claiming efficiency."))
+
+                 (not improved-without-regressions?)
+                 (conj "Aggregate metrics do not show an unregressed AGraph improvement; report class-level tradeoffs instead of a broad win.")
+
+                 (not evidence-metrics?)
+                 (conj "Evidence citation metrics are unavailable; answer quality and citation quality are unproven.")
+
+                 (not command-telemetry?)
+                 (conj "Command telemetry is unavailable; CLI search/read-loop savings are unproven.")
+
+                 (not problem-classes?)
+                 (into (:warnings problem-coverage))
+
+                 (and problem-classes? (not architecture-classes?))
+                 (into (:warnings problem-coverage)))
+     :notes (cond-> []
+              (not token-cost-metrics?)
+              (conj "Token/cost telemetry is unavailable; token and cost deltas are not part of this claim."))}))
+
 (defn- case-deltas
   [shell-report agraph-report]
   (let [shell-by-case (result-by-case shell-report)
@@ -455,7 +527,9 @@
          summary (aggregate-summary deltas
                                     comparable
                                     {:min-shared-cases min-shared-cases})
-         by-tag (by-tag-comparison shell-report agraph-report)]
+         by-category (category-summaries deltas comparable min-shared-cases)
+         by-tag (by-tag-comparison shell-report agraph-report)
+         problem-coverage (problem-class-coverage by-tag)]
      {:schema schema
       :status (:signal summary)
       :suiteId (or (:suite-id agraph-report)
@@ -465,9 +539,13 @@
       :shellOnly (report-summary shell-report)
       :agraph (report-summary agraph-report)
       :deltas deltas
-      :byCategory (category-summaries deltas comparable min-shared-cases)
+      :byCategory by-category
       :byTag by-tag
-      :problemClassCoverage (problem-class-coverage by-tag)
+      :problemClassCoverage problem-coverage
+      :claimReadiness (claim-readiness summary
+                                       comparable
+                                       by-category
+                                       problem-coverage)
       :caseDeltas (case-deltas shell-report agraph-report)})))
 
 (defn compare-report-files!
@@ -547,10 +625,16 @@
             (println "Category signals:")
             (doseq [{:keys [category summary]} categories]
               (println (str "- " category ": " (:signal summary)))))
+          (println (str "Claim readiness: "
+                        (get-in comparison [:claimReadiness :status])))
           (when-let [warnings (seq (get-in comparison
-                                           [:problemClassCoverage :warnings]))]
-            (println "Problem-class coverage warnings:")
+                                           [:claimReadiness :warnings]))]
+            (println "Claim readiness warnings:")
             (doseq [warning warnings]
               (println (str "- " warning))))
+          (when-let [notes (seq (get-in comparison [:claimReadiness :notes]))]
+            (println "Claim readiness notes:")
+            (doseq [note notes]
+              (println (str "- " note))))
           (when-let [out (option-value args "--out")]
             (println (str "Wrote " out))))))))

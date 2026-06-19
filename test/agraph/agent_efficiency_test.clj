@@ -192,6 +192,23 @@
             :unchangedMetrics 0
             :unavailableMetrics 4}
            (get-in categories-by-key ["token-cost" :summary])))
+    (is (= {:status "not-supported"
+            :broadEfficiencyClaimSupported false
+            :sharedCases 2
+            :minSharedCases 2
+            :requirements {:sameSuite true
+                           :sameCases true
+                           :enoughSharedCases true
+                           :agraphImprovedWithoutRegressions true
+                           :problemClassCoverage false
+                           :architectureClassCoverage false
+                           :evidenceMetrics true
+                           :commandTelemetry true}
+            :optionalTelemetry {:tokenCostMetrics false}
+            :warnings ["No shared problem-class tags; do not use this report for broad efficiency claims."
+                       "No shared architecture-class tags; do not use this report to claim representative architecture-task gains."]
+            :notes ["Token/cost telemetry is unavailable; token and cost deltas are not part of this claim."]}
+           (:claimReadiness comparison)))
     (is (= ["case-1" "case-2"]
            (mapv :caseId (:caseDeltas comparison))))
     (is (= {"shell-only" 2}
@@ -324,7 +341,23 @@
             :hasArchitectureClasses true
             :broadEfficiencyClaimSupported true
             :warnings []}
-           (:problemClassCoverage comparison)))))
+           (:problemClassCoverage comparison)))
+    (is (= {:status "supported"
+            :broadEfficiencyClaimSupported true
+            :sharedCases 2
+            :minSharedCases 2
+            :requirements {:sameSuite true
+                           :sameCases true
+                           :enoughSharedCases true
+                           :agraphImprovedWithoutRegressions true
+                           :problemClassCoverage true
+                           :architectureClassCoverage true
+                           :evidenceMetrics true
+                           :commandTelemetry true}
+            :optionalTelemetry {:tokenCostMetrics false}
+            :warnings []
+            :notes ["Token/cost telemetry is unavailable; token and cost deltas are not part of this claim."]}
+           (:claimReadiness comparison)))))
 
 (deftest ignores-small-report-timing-jitter
   (let [shell (report {:mode "shell-only"
@@ -404,7 +437,13 @@
         comparison (agent-efficiency/compare-reports shell agraph)]
     (is (= "insufficient-cases" (:status comparison)))
     (is (= 1 (get-in comparison [:comparability :sharedCases])))
-    (is (= 2 (get-in comparison [:summary :minSharedCases])))))
+    (is (= 2 (get-in comparison [:summary :minSharedCases])))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :broadEfficiencyClaimSupported])))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :requirements :enoughSharedCases])))))
 
 (deftest reports-missing-metrics-as-unavailable
   (let [shell (update shell-report :scores dissoc :evidenceCitationRate)
@@ -479,8 +518,10 @@
         agraph-path (spit-json! root "agraph/agent-report.json" agraph-report)
         out (with-out-str
               (agent-efficiency/-main shell-path agraph-path))]
-    (is (.contains out "Problem-class coverage warnings:"))
     (is (.contains out "Category signals:"))
     (is (.contains out "- command-telemetry: agraph-improved"))
+    (is (.contains out "Claim readiness: not-supported"))
+    (is (.contains out "Claim readiness warnings:"))
     (is (.contains out "No shared problem-class tags"))
-    (is (.contains out "No shared architecture-class tags"))))
+    (is (.contains out "No shared architecture-class tags"))
+    (is (.contains out "Claim readiness notes:"))))
