@@ -78,6 +78,12 @@
 (def ^:private benchmark-statuses
   #{:unbenchmarked :benchmarked})
 
+(def ^:private registry-kinds
+  #{:extractor :report})
+
+(def ^:private registry-support-statuses
+  #{:experimental :maintained :deprecated})
+
 (defn- now-ms
   []
   (System/currentTimeMillis))
@@ -1077,6 +1083,56 @@
       (#{:ready :caution} public-status) :passed
       :else :failed)))
 
+(defn- registry-entry-kind-errors
+  [entry]
+  (let [kinds (mapv keyword (:kinds entry))
+        unknown (remove registry-kinds kinds)]
+    (cond
+      (not (sequential? (:kinds entry)))
+      [{:code :registry-kinds-missing
+        :message "Registry entry must declare :kinds vector."
+        :supported (sort registry-kinds)}]
+
+      (empty? kinds)
+      [{:code :registry-kinds-missing
+        :message "Registry entry must declare at least one plugin kind."
+        :supported (sort registry-kinds)}]
+
+      (seq unknown)
+      [{:code :registry-kinds-unsupported
+        :message "Registry entry declares unsupported plugin kinds."
+        :kinds (vec unknown)
+        :supported (sort registry-kinds)}])))
+
+(defn- registry-entry-metadata-errors
+  [entry]
+  (vec
+   (concat
+    (registry-entry-kind-errors entry)
+    (when-not (and (sequential? (:maintainers entry))
+                   (seq (:maintainers entry)))
+      [{:code :registry-maintainers-missing
+        :message "Registry entry must declare at least one maintainer."}])
+    (let [support-status (some-> (get-in entry [:support :status]) keyword)]
+      (cond
+        (nil? support-status)
+        [{:code :registry-support-status-missing
+          :message "Registry entry must declare :support :status."
+          :supported (sort registry-support-statuses)}]
+
+        (not (contains? registry-support-statuses support-status))
+        [{:code :registry-support-status-unsupported
+          :message "Registry entry declares unsupported support status."
+          :support-status support-status
+          :supported (sort registry-support-statuses)}]))
+    (when-not (contains? (:trust entry) :code-reviewed?)
+      [{:code :registry-trust-review-missing
+        :message "Registry entry must declare :trust :code-reviewed? as true or false."}])
+    (when (and (contains? (:trust entry) :code-reviewed?)
+               (not (contains? #{true false} (get-in entry [:trust :code-reviewed?]))))
+      [{:code :registry-trust-review-invalid
+        :message "Registry entry :trust :code-reviewed? must be boolean."}]))))
+
 (defn- registry-entry-errors
   [entry diagnosis]
   (let [declared-id (some-> (:id entry) str)
@@ -1084,6 +1140,7 @@
         public-status (get-in diagnosis [:readiness :public-sharing :status])]
     (vec
      (concat
+      (registry-entry-metadata-errors entry)
       (when-not (present? (:source entry))
         [{:code :registry-source-missing
           :message "Registry entry is missing :source for git installation."}])

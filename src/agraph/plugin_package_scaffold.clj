@@ -157,6 +157,10 @@
        "{:schema " (pr-str registry-schema) "\n"
        " :id \"local-plugin-registry\"\n"
        " :packages [{:id " (pr-str package-id) "\n"
+       "             :kinds [:extractor :report]\n"
+       "             :maintainers [{:name \"TODO\"}]\n"
+       "             :support {:status :experimental}\n"
+       "             :trust {:code-reviewed? false}\n"
        "             :path \".\"\n"
        "             :source \"https://github.com/ORG/" package-id ".git\"\n"
        "             :ref \"v0.1.0\"}]}\n"))

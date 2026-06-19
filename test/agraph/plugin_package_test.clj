@@ -326,6 +326,10 @@
       (is (= {:schema plugin-package/registry-schema
               :id "local-plugin-registry"
               :packages [{:id "demo-plugin"
+                          :kinds [:extractor :report]
+                          :maintainers [{:name "TODO"}]
+                          :support {:status :experimental}
+                          :trust {:code-reviewed? false}
                           :path "."
                           :source "https://github.com/ORG/demo-plugin.git"
                           :ref "v0.1.0"}]}
@@ -1167,15 +1171,31 @@
           (pr-str {:schema plugin-package/registry-schema
                    :id "official"
                    :packages [{:id "base-plugin"
+                               :kinds [:extractor]
+                               :maintainers [{:name "Maintainer"}]
+                               :support {:status :experimental}
+                               :trust {:code-reviewed? false}
                                :path "base"
                                :source "https://github.com/org/agraph-plugins.git"
                                :ref "v0.1.0"
                                :subdir "packages/base-plugin"}
                               {:id "local-plugin"
+                               :kinds [:extractor]
+                               :maintainers [{:name "Maintainer"}]
+                               :support {:status :experimental}
+                               :trust {:code-reviewed? false}
                                :path "local"}
                               {:id "missing-source-plugin"
+                               :kinds [:extractor]
+                               :maintainers [{:name "Maintainer"}]
+                               :support {:status :experimental}
+                               :trust {:code-reviewed? false}
                                :path "missing-source"}
                               {:id "floating-ref-plugin"
+                               :kinds [:extractor]
+                               :maintainers [{:name "Maintainer"}]
+                               :support {:status :experimental}
+                               :trust {:code-reviewed? false}
                                :path "floating-ref"
                                :source "https://github.com/org/agraph-plugins.git"
                                :subdir "packages/floating-ref"}]}))
@@ -1214,8 +1234,8 @@
       (is (= [:registry-ref-missing]
              (mapv :code (get-in by-id ["floating-ref-plugin" :errors])))))))
 
-(deftest registry-validation-rejects-duplicate-package-ids
-  (let [workspace (temp-dir "agraph-plugin-registry-duplicate-id")
+(deftest registry-validation-requires-public-entry-metadata
+  (let [workspace (temp-dir "agraph-plugin-registry-metadata")
         registry-path (io/file workspace "registry.edn")
         package-dir (io/file workspace "package")]
     (.mkdirs package-dir)
@@ -1244,9 +1264,62 @@
                    :packages [{:id "base-plugin"
                                :path "package"
                                :source "https://github.com/org/agraph-plugins.git"
+                               :ref "v0.1.0"}]}))
+    (let [result (plugin-package/validate-registry (.getPath registry-path))
+          errors (mapv :code (get-in result [:packages 0 :errors]))]
+      (is (= :failed (:status result)))
+      (is (= {:registry-kinds-missing 1
+              :registry-maintainers-missing 1
+              :registry-support-status-missing 1
+              :registry-trust-review-missing 1}
+             (:error-counts result)))
+      (is (= [:registry-kinds-missing
+              :registry-maintainers-missing
+              :registry-support-status-missing
+              :registry-trust-review-missing]
+             errors)))))
+
+(deftest registry-validation-rejects-duplicate-package-ids
+  (let [workspace (temp-dir "agraph-plugin-registry-duplicate-id")
+        registry-path (io/file workspace "registry.edn")
+        package-dir (io/file workspace "package")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "base-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Reusable fixture."}
+                   :benchmark {:status :unbenchmarked}
+                   :extractor-plugins
+                   [{:id "base-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (spit registry-path
+          (pr-str {:schema plugin-package/registry-schema
+                   :id "official"
+                   :packages [{:id "base-plugin"
+                               :kinds [:extractor]
+                               :maintainers [{:name "Maintainer"}]
+                               :support {:status :experimental}
+                               :trust {:code-reviewed? false}
+                               :path "package"
+                               :source "https://github.com/org/agraph-plugins.git"
                                :ref "v0.1.0"
                                :subdir "packages/base-plugin"}
                               {:id "base-plugin"
+                               :kinds [:extractor]
+                               :maintainers [{:name "Maintainer"}]
+                               :support {:status :experimental}
+                               :trust {:code-reviewed? false}
                                :path "package"
                                :source "https://github.com/org/agraph-plugins.git"
                                :ref "v0.1.0"

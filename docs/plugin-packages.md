@@ -278,14 +278,29 @@ Public registry indexes are EDN files that combine two roles:
 - `:source`, `:ref`, and `:subdir` describe how another project installs the
   package from git.
 
-Registry entries must use unique package ids and include `:path`, `:source`, and
-`:ref` to pass validation. `:subdir` is optional, but recommended when the
-package does not live at the repository root.
+Registry entries must use unique package ids and include:
+
+- `:path` for offline validation;
+- `:source` and pinned `:ref` for reproducible git installation;
+- `:kinds`, containing `:extractor`, `:report`, or both;
+- `:maintainers`, with at least one maintainer entry;
+- `:support {:status ...}`, one of `:experimental`, `:maintained`, or
+  `:deprecated`;
+- `:trust {:code-reviewed? true|false}` so consumers can see whether registry
+  reviewers have inspected the package code.
+
+`:subdir` is optional, but recommended when the package does not live at the
+repository root.
 
 ```clojure
 {:schema "agraph.plugin.registry/v1"
  :id "official"
  :packages [{:id "datastar-hiccup"
+             :kinds [:extractor]
+             :maintainers [{:name "Example Maintainer"
+                            :url "https://github.com/example"}]
+             :support {:status :experimental}
+             :trust {:code-reviewed? false}
              :path "packages/datastar-hiccup"
              :source "https://github.com/org/agraph-plugins.git"
              :ref "v0.1.0"
@@ -300,9 +315,10 @@ bb plugin registry validate registry.edn --json
 
 Validation reads each local package manifest and runs `plugin diagnose`; it does
 not fetch git sources. A registry entry passes when the package is ready or
-caution for public sharing, declares a git `:source` and pinned `:ref`, and has a
-package id that is unique within the registry. Project-local, commercial,
-non-FOSS, invalid, missing, non-installable, duplicate-id, or floating-ref
+caution for public sharing, declares the required registry metadata, declares a
+git `:source` and pinned `:ref`, and has a package id that is unique within the
+registry. Project-local, commercial, non-FOSS, invalid, missing,
+non-installable, duplicate-id, missing registry metadata, or floating-ref
 packages fail the registry check. Unbenchmarked base packages may be listed as
 experimental, but public claims and core promotion remain blocked until
 benchmark artifacts exist.
@@ -326,8 +342,8 @@ For package authors:
    vocabulary, path semantics, hosts, prose, or substring rules.
 5. Add benchmark artifacts before changing `:benchmark :status` to
    `:benchmarked` or making public improvement claims.
-6. Publish a git ref and add a registry entry with `:source`, pinned `:ref`, and
-   optional `:subdir`.
+6. Publish a git ref and add a registry entry with maintainer, support, trust,
+   kind, `:source`, pinned `:ref`, and optional `:subdir`.
 7. Run `bb plugin registry validate registry.edn --json` before sharing the
    registry.
 
@@ -336,6 +352,8 @@ For registry reviewers:
 - Reject project-local packages from the public registry.
 - Reject commercial or non-FOSS public packages.
 - Reject floating refs; registry installs must be reproducible.
+- Reject entries without maintainers, support status, plugin kinds, or trust
+  review metadata.
 - Treat `:unbenchmarked` base packages as experimental and
   non-authoritative, even when the registry entry passes sharing checks.
 - Require benchmark artifacts before accepting public claims or core-promotion
