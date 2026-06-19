@@ -140,6 +140,9 @@
                       (get-in graph-panel [:data :metrics]))]
     (is (= report-plugin/bundle-schema (:schema bundle)))
     (is (some #(= report-plugin/core-plugin-id (get-in % [:plugin :id])) panels))
+    (is (some #(and (= report-plugin/core-plugin-id (get-in % [:plugin :id]))
+                    (= :core (:provenance %)))
+              panels))
     (is (= "graph-crawl-plugin" (get-in graph-panel [:plugin :id])))
     (is (= 2 (get metrics "Overview Nodes")))
     (is (= 1 (get metrics "Overview Edges")))
@@ -196,12 +199,22 @@
                     {:schema report-plugin/result-schema
                      :panels [{:id "packaged-panel"
                                :label "Packaged Panel"
-                               :mdx "## Packaged"}]
-                     :diagnostics [{:message "review this panel"}]
-                     :artifacts [{:path "artifacts/report.json"}]})
+                               :mdx "## Packaged"
+                               :pluginId "spoofed-panel-plugin"
+                               :provenance "spoofed"
+                               :benchmarkStatus "benchmarked"}]
+                     :diagnostics [{:message "review this panel"
+                                    :pluginId "spoofed-diagnostic-plugin"
+                                    :provenance "spoofed"}]
+                     :artifacts [{:path "artifacts/report.json"
+                                  :plugin-id "spoofed-artifact-plugin"
+                                  :provenance "spoofed"}]})
         panel-plugin (get-in normalized [:panels 0 :plugin])
         diagnostic-plugin (get-in normalized [:diagnostics 0 :plugin])
-        artifact-plugin (get-in normalized [:artifacts 0 :plugin])]
+        artifact-plugin (get-in normalized [:artifacts 0 :plugin])
+        rows [(get-in normalized [:panels 0])
+              (get-in normalized [:diagnostics 0])
+              (get-in normalized [:artifacts 0])]]
     (doseq [summary [panel-plugin diagnostic-plugin artifact-plugin]]
       (is (= "report-pack" (:packageId summary)))
       (is (= "0.1.0" (:packageVersion summary)))
@@ -209,4 +222,18 @@
       (is (= "sha256:manifest" (:packageManifestFingerprint summary)))
       (is (= source (:packageSource summary)))
       (is (= claim-authority (:packageClaimAuthority summary)))
-      (is (= "unbenchmarked" (:benchmarkStatus summary))))))
+      (is (= "unbenchmarked" (:benchmarkStatus summary))))
+    (doseq [row rows]
+      (is (= :plugin (:provenance row)))
+      (is (= "graph-crawl-plugin" (:plugin-id row)))
+      (is (= "0.1.0" (:plugin-version row)))
+      (is (= (report-plugin/plugin-fingerprint plugin)
+             (:plugin-fingerprint row)))
+      (is (= :project-plugin (:plugin-authority row)))
+      (is (= "report-pack" (:plugin-package-id row)))
+      (is (= "0.1.0" (:plugin-package-version row)))
+      (is (= "abc123" (:plugin-package-rev row)))
+      (is (= "sha256:manifest" (:plugin-package-manifest-fingerprint row)))
+      (is (= source (:plugin-package-source row)))
+      (is (= claim-authority (:plugin-package-claim-authority row)))
+      (is (= :unbenchmarked (:benchmark-status row))))))

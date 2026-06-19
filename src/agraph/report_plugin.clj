@@ -129,6 +129,23 @@
     (assoc :packageClaimAuthority (:package-claim-authority plugin))
     (:benchmark-status plugin) (assoc :benchmarkStatus (name (:benchmark-status plugin)))))
 
+(defn- provenance
+  [plugin]
+  (cond-> {:provenance (if (= :core (:authority plugin)) :core :plugin)
+           :plugin-id (:id plugin)
+           :plugin-version (:version plugin)
+           :plugin-fingerprint (plugin-fingerprint plugin)
+           :plugin-authority (:authority plugin)}
+    (:package-id plugin) (assoc :plugin-package-id (:package-id plugin))
+    (:package-version plugin) (assoc :plugin-package-version (:package-version plugin))
+    (:package-rev plugin) (assoc :plugin-package-rev (:package-rev plugin))
+    (:package-manifest-fingerprint plugin)
+    (assoc :plugin-package-manifest-fingerprint (:package-manifest-fingerprint plugin))
+    (:package-claim-authority plugin)
+    (assoc :plugin-package-claim-authority (:package-claim-authority plugin))
+    (:package-source plugin) (assoc :plugin-package-source (:package-source plugin))
+    (:benchmark-status plugin) (assoc :benchmark-status (:benchmark-status plugin))))
+
 (defn- canonical-key
   [aliases k]
   (get aliases k k))
@@ -162,31 +179,34 @@
                     (str (:id plugin) "-panel-" idx)))
         label (str (or (:label panel) id))
         slot (safe-slot (:slot panel))]
-    (cond-> {:id id
-             :label label
-             :slot slot
-             :order (numeric-order (:order panel) (+ 100 idx))
-             :mdx (str (or (:mdx panel) ""))
-             :data (or (:data panel) {})
-             :plugin (plugin-summary plugin)}
+    (cond-> (merge {:id id
+                    :label label
+                    :slot slot
+                    :order (numeric-order (:order panel) (+ 100 idx))
+                    :mdx (str (or (:mdx panel) ""))
+                    :data (or (:data panel) {})
+                    :plugin (plugin-summary plugin)}
+                   (provenance plugin))
       (:component panel) (assoc :component (str (:component panel)))
       (:description panel) (assoc :description (str (:description panel))))))
 
 (defn- diagnostic
   [plugin stage message]
-  {:plugin (plugin-summary plugin)
-   :stage (if (keyword? stage) (name stage) (str stage))
-   :message (str message)})
+  (merge {:plugin (plugin-summary plugin)
+          :stage (if (keyword? stage) (name stage) (str stage))
+          :message (str message)}
+         (provenance plugin)))
 
 (defn- normalize-diagnostic
   [plugin diagnostic]
   (let [diagnostic (if (map? diagnostic)
                      (canonical-map diagnostic-key-aliases diagnostic)
                      {:message diagnostic})]
-    (merge {:plugin (plugin-summary plugin)
+    (merge (select-keys diagnostic [:path :details])
+           {:plugin (plugin-summary plugin)
             :stage (str (or (:stage diagnostic) "plugin"))
             :message (str (or (:message diagnostic) "Report plugin diagnostic."))}
-           (select-keys diagnostic [:path :details]))))
+           (provenance plugin))))
 
 (defn- sequence-field
   [plugin field value]
@@ -216,7 +236,9 @@
 (defn- normalize-artifact-row
   [plugin idx artifact]
   (if (map? artifact)
-    {:artifact (assoc artifact :plugin (plugin-summary plugin))}
+    {:artifact (merge artifact
+                      {:plugin (plugin-summary plugin)}
+                      (provenance plugin))}
     {:diagnostic (diagnostic plugin
                              :invalid-artifact
                              (str "expected artifact at index " idx " to be an object"))}))

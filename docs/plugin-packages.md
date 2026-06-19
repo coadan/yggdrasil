@@ -189,7 +189,10 @@ report generation. This keeps report plugin authoring in the same scaffold /
 validate / diagnose / dry-run loop as extractors. Report dry-runs also fail with
 a structured diagnostic when no report plugin is selected, and failed report
 dry-runs also fail the CLI command. Report dry-runs include the same
-`selection` shape as extractor dry-runs.
+`selection` shape as extractor dry-runs. AGraph stamps report panels,
+diagnostics, and artifacts with plugin id, fingerprint, package pin, claim
+authority, and benchmark status after parsing plugin output, so package
+provenance cannot be spoofed by plugin JSON.
 
 ## Manifest
 

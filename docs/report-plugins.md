@@ -121,6 +121,22 @@ packaged plugins that summary carries package id, version, package source,
 pinned revision, manifest fingerprint, claim authority, and benchmark status, so
 report output remains tied to the installed package contract.
 
+AGraph also stamps row-level provenance after parsing plugin output:
+
+- `:provenance`
+- `:plugin-id`, `:plugin-version`, `:plugin-fingerprint`, and
+  `:plugin-authority`
+- `:plugin-package-id`, `:plugin-package-version`, `:plugin-package-rev`, and
+  `:plugin-package-manifest-fingerprint` for packaged plugins
+- `:plugin-package-source` and `:plugin-package-claim-authority` for packaged
+  plugins
+- `:benchmark-status`
+
+Plugin-provided values for these audit fields are ignored. The normalized
+bundle uses the configured plugin and package metadata, which keeps report
+panels, diagnostics, and artifacts auditable even when a plugin is experimental
+or unbenchmarked.
+
 ## Minimal Graph Crawl Plugin
 
 This plugin reads the graph export from stdin and emits one panel:
