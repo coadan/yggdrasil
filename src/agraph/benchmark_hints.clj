@@ -43,9 +43,12 @@
                       :rejectedCorrections
                       :boundaryEvidence
                       :runtimeEvidence
+                      :deployEvidence
                       :dependencyEvidence
                       :docs
+                      :openDecisions
                       :evidenceFamilies
+                      :summary
                       :validationGaps
                       :warnings
                       :nextActions])
@@ -54,8 +57,10 @@
         (update :rejectedCorrections #(takev 5 %))
         (update :boundaryEvidence #(takev 5 %))
         (update :runtimeEvidence #(takev 5 %))
+        (update :deployEvidence #(takev 5 %))
         (update :dependencyEvidence #(takev 5 %))
         (update :docs #(takev 5 %))
+        (update :openDecisions #(takev 3 %))
         (update :evidenceFamilies #(takev 8 %))
         (update :validationGaps #(takev 6 %))
         (update :warnings #(takev 3 %))

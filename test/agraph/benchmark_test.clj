@@ -603,12 +603,27 @@
                                                   :fileKind "env"
                                                   :label "DATABASE_URL"
                                                   :score 1.2}]
+                               :deployEvidence [{:id "evidence:deploy-image"
+                                                 :path "compose.yml"
+                                                 :kind "container-image-consumer"
+                                                 :fileKind "compose"
+                                                 :label "app image"}]
+                               :openDecisions [{:id "activity:review"
+                                                :kind "maintenance-decision"
+                                                :status "ready"
+                                                :sourceId "work:review"
+                                                :summary "review boundary"}]
                                :evidenceFamilies [{:family "source-structure"
                                                    :status "available"
                                                    :rowCount 2}
                                                   {:family "runtime-config"
                                                    :status "available"
                                                    :rowCount 1}]
+                               :summary {:counts {:acceptedSystems 1
+                                                  :candidateSystems 0
+                                                  :deployEvidence 1
+                                                  :openDecisions 1}
+                                         :nextActionKinds {:inspect 1}}
                                :validationGaps [{:plane "dependencies"
                                                  :status "missing"
                                                  :nextActions [{:kind :dependencies
@@ -744,14 +759,29 @@
                                :fileKind "env"
                                :label "DATABASE_URL"
                                :score 1.2}]
+            :deployEvidence [{:id "evidence:deploy-image"
+                              :path "compose.yml"
+                              :kind "container-image-consumer"
+                              :fileKind "compose"
+                              :label "app image"}]
             :dependencyEvidence []
             :docs []
+            :openDecisions [{:id "activity:review"
+                             :kind "maintenance-decision"
+                             :status "ready"
+                             :sourceId "work:review"
+                             :summary "review boundary"}]
             :evidenceFamilies [{:family "source-structure"
                                 :status "available"
                                 :rowCount 2}
                                {:family "runtime-config"
                                 :status "available"
                                 :rowCount 1}]
+            :summary {:counts {:acceptedSystems 1
+                               :candidateSystems 0
+                               :deployEvidence 1
+                               :openDecisions 1}
+                      :nextActionKinds {:inspect 1}}
             :validationGaps [{:plane "dependencies"
                               :status "missing"
                               :nextActions [{:kind :dependencies
