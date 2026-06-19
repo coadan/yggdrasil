@@ -103,13 +103,16 @@ or all extractor plugins in the package, and returns normalized rows,
 diagnostics, before/after counts, and the full package summary with benchmark,
 scope, claim authority, fingerprint, core-promotion evidence, and warning
 caveats. This is the fastest feedback loop for agents building project-local
-architecture understanding.
+architecture understanding. If the package has no extractor plugin for the
+selected lane, the dry-run fails with a structured diagnostic instead of passing
+without testing any plugin.
 
 `plugin dry-run report` runs the package report plugin against a synthetic report
 context without generating a full report. It returns panels, artifacts,
 diagnostics, per-plugin counts, and the same package caveats. This keeps report
 plugin authoring in the same scaffold / validate / diagnose / dry-run loop as
-extractors.
+extractors. Report dry-runs also fail with a structured diagnostic when no
+report plugin is selected.
 
 ## Manifest
 

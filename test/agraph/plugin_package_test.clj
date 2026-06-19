@@ -294,6 +294,43 @@
              (get-in report-dry-run
                      [:outputs 0 :output :panels 0 :plugin :packageClaimAuthority]))))))
 
+(deftest dry-run-fails-when-package-has-no-plugin-for-selected-lane
+  (let [workspace (temp-dir "agraph-plugin-empty-lane")
+        report-only-dir (io/file workspace "plugins" "report-only")
+        extractor-only-dir (io/file workspace "plugins" "extractor-only")
+        repo-root (io/file workspace "repo")
+        src (io/file repo-root "src")]
+    (.mkdirs src)
+    (spit (io/file src "page.clj") "(ns page)\n(defn render [] :ok)\n")
+    (plugin-package/new! (.getPath report-only-dir)
+                         {:id "report-only"
+                          :report? true})
+    (plugin-package/new! (.getPath extractor-only-dir)
+                         {:id "extractor-only"
+                          :extractor? true})
+    (let [extractor-result (plugin-package/dry-run-extractor
+                            (.getPath report-only-dir)
+                            (.getPath repo-root)
+                            "src/page.clj"
+                            {})
+          report-result (plugin-package/dry-run-report
+                         (.getPath extractor-only-dir)
+                         {})]
+      (is (= :failed (:status extractor-result)))
+      (is (= [] (:plugins extractor-result)))
+      (is (= [:no-extractor-plugins-selected]
+             (mapv :code (:diagnostics extractor-result))))
+      (is (= [:no-extractor-plugins-selected]
+             (mapv :code (get-in extractor-result [:rows :diagnostics]))))
+      (is (= :failed (:status report-result)))
+      (is (= [] (:plugins report-result)))
+      (is (= {:panels 0
+              :diagnostics 1
+              :artifacts 0}
+             (:counts report-result)))
+      (is (= [:no-report-plugins-selected]
+             (mapv :code (:diagnostics report-result)))))))
+
 (deftest diagnose-blocks-invalid-public-package-policy
   (let [workspace (temp-dir "agraph-plugin-diagnose")
         package-dir (io/file workspace "plugin")]

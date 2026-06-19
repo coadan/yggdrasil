@@ -1230,40 +1230,73 @@
         (map (fn [k] [k (count (get extraction k))]))
         [:nodes :edges :chunks :file-facts :diagnostics]))
 
+(defn- empty-extraction
+  []
+  {:nodes []
+   :edges []
+   :chunks []
+   :file-facts []
+   :diagnostics []})
+
+(defn- no-selected-plugins-diagnostic
+  [kind package plugin-id]
+  (cond-> {:code (keyword (str "no-" (name kind) "-plugins-selected"))
+           :severity :error
+           :applies-to [:local-use]
+           :message (str (:id package) " has no " (name kind)
+                         " plugins selected for this dry-run.")
+           :evidence {:package-id (:id package)
+                      :kind kind}}
+    (present? plugin-id) (assoc-in [:evidence :plugin-id] plugin-id)))
+
 (defn dry-run-extractor
   "Run package extractor plugins against one file without writing graph state."
-  [package-dir root file {:keys [plugin-id]}]
+  [package-dir root file {:keys [plugin-id] :as opts}]
   (let [package (read-local-package package-dir)
         plugins (selected-extractor-plugins package plugin-id)
         root-path (fs/canonical-path root)
         file-record (file-record-for-dry-run root-path file plugins)
         run-id "run:plugin-dry-run"
-        extract-file (requiring-resolve 'agraph.extract/extract-file)
-        core (extract-file run-id file-record)
-        enhanced (extractor-plugin/enhance-extraction
-                  {:plugins plugins
-                   :run-id run-id
-                   :project-id "plugin-dry-run"
-                   :repo-id "repo"
-                   :root-path root-path
-                   :file file-record}
-                  core)]
-    {:schema dry-run-schema
-     :kind :extractor
-     :status (if (seq (:diagnostics enhanced)) :warning :passed)
-     :package (package-summary package)
-     :plugins (mapv #(select-keys % [:id
-                                     :version
-                                     :authority
-                                     :benchmark-status
-                                     :package-claim-authority
-                                     :package-manifest-fingerprint])
-                    plugins)
-     :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
-     :core-counts (counts core)
-     :enhanced-counts (counts enhanced)
-     :diagnostics (:diagnostics enhanced)
-     :rows enhanced}))
+        plugin-summaries (mapv #(select-keys % [:id
+                                                :version
+                                                :authority
+                                                :benchmark-status
+                                                :package-claim-authority
+                                                :package-manifest-fingerprint])
+                               plugins)]
+    (if (empty? plugins)
+      (let [rows (empty-extraction)
+            diagnostics [(no-selected-plugins-diagnostic :extractor package (:plugin-id opts))]]
+        {:schema dry-run-schema
+         :kind :extractor
+         :status :failed
+         :package (package-summary package)
+         :plugins plugin-summaries
+         :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
+         :core-counts (counts rows)
+         :enhanced-counts (counts rows)
+         :diagnostics diagnostics
+         :rows (assoc rows :diagnostics diagnostics)})
+      (let [extract-file (requiring-resolve 'agraph.extract/extract-file)
+            core (extract-file run-id file-record)
+            enhanced (extractor-plugin/enhance-extraction
+                      {:plugins plugins
+                       :run-id run-id
+                       :project-id "plugin-dry-run"
+                       :repo-id "repo"
+                       :root-path root-path
+                       :file file-record}
+                      core)]
+        {:schema dry-run-schema
+         :kind :extractor
+         :status (if (seq (:diagnostics enhanced)) :warning :passed)
+         :package (package-summary package)
+         :plugins plugin-summaries
+         :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
+         :core-counts (counts core)
+         :enhanced-counts (counts enhanced)
+         :diagnostics (:diagnostics enhanced)
+         :rows enhanced}))))
 
 (defn- report-dry-run-context
   [package-dir]
@@ -1299,32 +1332,46 @@
 
 (defn dry-run-report
   "Run package report plugins against a synthetic report context."
-  [package-dir {:keys [plugin-id]}]
+  [package-dir {:keys [plugin-id] :as opts}]
   (let [package (read-local-package package-dir)
         plugins (selected-report-plugins package plugin-id)
-        ctx (report-dry-run-context package-dir)
-        outputs (mapv (fn [plugin]
-                        (let [output (report-plugin/run-plugin ctx plugin)]
-                          {:plugin (select-keys plugin
-                                                [:id
-                                                 :version
-                                                 :authority
-                                                 :benchmark-status
-                                                 :package-claim-authority
-                                                 :package-manifest-fingerprint])
-                           :counts (report-output-counts output)
-                           :output output}))
-                      plugins)
-        diagnostics (->> outputs
-                         (mapcat (comp :diagnostics :output))
-                         vec)]
-    {:schema dry-run-schema
-     :kind :report
-     :status (if (seq diagnostics) :warning :passed)
-     :package (package-summary package)
-     :plugins (mapv :plugin outputs)
-     :counts {:panels (reduce + (map #(count (get-in % [:output :panels] [])) outputs))
-              :diagnostics (count diagnostics)
-              :artifacts (reduce + (map #(count (get-in % [:output :artifacts] [])) outputs))}
-     :diagnostics diagnostics
-     :outputs outputs}))
+        plugin-summary (fn [plugin]
+                         (select-keys plugin
+                                      [:id
+                                       :version
+                                       :authority
+                                       :benchmark-status
+                                       :package-claim-authority
+                                       :package-manifest-fingerprint]))]
+    (if (empty? plugins)
+      (let [diagnostics [(no-selected-plugins-diagnostic :report package (:plugin-id opts))]]
+        {:schema dry-run-schema
+         :kind :report
+         :status :failed
+         :package (package-summary package)
+         :plugins []
+         :counts {:panels 0
+                  :diagnostics (count diagnostics)
+                  :artifacts 0}
+         :diagnostics diagnostics
+         :outputs []})
+      (let [ctx (report-dry-run-context package-dir)
+            outputs (mapv (fn [plugin]
+                            (let [output (report-plugin/run-plugin ctx plugin)]
+                              {:plugin (plugin-summary plugin)
+                               :counts (report-output-counts output)
+                               :output output}))
+                          plugins)
+            diagnostics (->> outputs
+                             (mapcat (comp :diagnostics :output))
+                             vec)]
+        {:schema dry-run-schema
+         :kind :report
+         :status (if (seq diagnostics) :warning :passed)
+         :package (package-summary package)
+         :plugins (mapv :plugin outputs)
+         :counts {:panels (reduce + (map #(count (get-in % [:output :panels] [])) outputs))
+                  :diagnostics (count diagnostics)
+                  :artifacts (reduce + (map #(count (get-in % [:output :artifacts] [])) outputs))}
+         :diagnostics diagnostics
+         :outputs outputs}))))
