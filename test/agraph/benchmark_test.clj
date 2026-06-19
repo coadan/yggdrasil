@@ -1972,7 +1972,11 @@
     (is (str/includes? prompt "AGraph context JSON: /tmp/context.json"))
     (is (str/includes? prompt "`topFiles`, `architecture`, and `auditScopes`"))
     (is (str/includes? prompt
-                       "`answerability`, `sourceCoverage`, and `diagnostics`"))))
+                       "`answerability`, `sourceCoverage`, and `diagnostics`"))
+    (is (str/includes? prompt
+                       "`commands` as bounded follow-up checks"))
+    (is (str/includes? prompt
+                       "`architecture.validationGaps.nextActions`"))))
 
 (deftest agraph-agent-run-builds-context-artifacts-after-indexing
   (let [out (temp-dir "agraph-bench-agent-run-context-order")

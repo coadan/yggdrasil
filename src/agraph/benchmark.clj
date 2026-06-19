@@ -3258,9 +3258,11 @@
               "hints, prefer `topFiles`, `architecture`, and `auditScopes` "
               "before broad shell search; treat `answerability`, "
               "`sourceCoverage`, and `diagnostics` as trust boundaries. Use "
-              "live ask/explore commands only if the context artifact is "
-              "missing or insufficient; run setup only if graph commands "
-              "report missing data.")
+              "`commands` as bounded follow-up checks, especially commands "
+              "copied from `architecture.validationGaps.nextActions` when a "
+              "plane is missing or weak. Use live ask/explore commands only if "
+              "the context artifact is missing or insufficient; run setup only "
+              "if graph commands report missing data.")
          "AGraph is not part of this run. Use ordinary local shell inspection only.")
        ""
        "## Run Metadata"
