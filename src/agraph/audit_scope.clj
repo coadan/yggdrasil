@@ -13,13 +13,14 @@
   5)
 
 (def ^:private scope-order
-  {"dependencies" 0
-   "runtime-config" 1
-   "containers" 2
-   "infra" 3
-   "docs" 4
-   "assets" 5
-   "unknown-text" 6})
+  {"source-structure" 0
+   "dependencies" 1
+   "runtime-config" 2
+   "containers" 3
+   "infra" 4
+   "docs" 5
+   "assets" 6
+   "unknown-text" 7})
 
 (def ^:private dependency-relations
   {"imports-package" #{"dependencies"}
@@ -135,6 +136,16 @@
     (mapv #(audit-row % "dependencyEvidence" row (or relation "dependency-edge"))
           scopes)))
 
+(defn- source-audit-row
+  [section row]
+  (audit-row "source-structure"
+             section
+             row
+             (or (normalize-key (:relation row))
+                 (normalize-key (:kind row))
+                 (normalize-key (row-file-kind row))
+                 "source-evidence")))
+
 (defn- doc-audit-row
   [row]
   (audit-row "docs" "docs" row (or (normalize-key (:role row))
@@ -177,8 +188,10 @@
   The grouping is based on extractor fact kinds, file kinds, and relation kinds
   only. It does not infer project meaning from paths, prose, hostnames, or
   directory vocabulary."
-  [{:keys [runtime-evidence dependency-evidence docs]}]
-  (->> (concat (mapcat runtime-audit-rows runtime-evidence)
+  [{:keys [source-evidence boundary-evidence runtime-evidence dependency-evidence docs]}]
+  (->> (concat (map #(source-audit-row "sourceEvidence" %) source-evidence)
+               (map #(source-audit-row "boundaryEvidence" %) boundary-evidence)
+               (mapcat runtime-audit-rows runtime-evidence)
                (mapcat dependency-audit-rows dependency-evidence)
                (map doc-audit-row docs))
        (group-by :scope)

@@ -4,7 +4,21 @@
 
 (deftest selected-summaries-group-mechanical-architecture-evidence
   (let [summaries (audit-scope/selected-summaries
-                   {:runtime-evidence [{:id "evidence:env"
+                   {:source-evidence [{:id "chunk:billing-service"
+                                       :kind "code-definition"
+                                       :fileKind "clojure"
+                                       :path "src/billing/service.clj"
+                                       :sourceLine 12}
+                                      {:id "chunk:billing-api"
+                                       :kind "code-definition"
+                                       :fileKind "clojure"
+                                       :path "src/billing/api.clj"
+                                       :sourceLine 4}]
+                    :boundary-evidence [{:id "edge:billing-worker"
+                                         :source "system:billing"
+                                         :target "system:worker"
+                                         :relation "shares-config"}]
+                    :runtime-evidence [{:id "evidence:env"
                                         :kind "env-var"
                                         :fileKind "env"
                                         :path "config/runtime.env"
@@ -27,9 +41,34 @@
                             :role "overview"
                             :status "accepted"
                             :source {:path "docs/billing.md"}}]})]
-    (is (= ["dependencies" "runtime-config" "containers" "docs"]
+    (is (= ["source-structure" "dependencies" "runtime-config" "containers" "docs"]
            (mapv :kind summaries)))
-    (is (= [{:kind "dependencies"
+    (is (= [{:kind "source-structure"
+             :basis "selected-architecture-evidence"
+             :facts 3
+             :files 2
+             :topEvidenceTypes [{:kind "code-definition"
+                                 :count 2}
+                                {:kind "shares-config"
+                                 :count 1}]
+             :samples [{:id "chunk:billing-service"
+                        :kind "code-definition"
+                        :path "src/billing/service.clj"
+                        :sourceLine 12
+                        :fileKind "clojure"
+                        :section "sourceEvidence"}
+                       {:id "chunk:billing-api"
+                        :kind "code-definition"
+                        :path "src/billing/api.clj"
+                        :sourceLine 4
+                        :fileKind "clojure"
+                        :section "sourceEvidence"}
+                       {:id "edge:billing-worker"
+                        :relation "shares-config"
+                        :target "system:worker"
+                        :source "system:billing"
+                        :section "boundaryEvidence"}]}
+            {:kind "dependencies"
              :basis "selected-architecture-evidence"
              :facts 1
              :topEvidenceTypes [{:kind "imports-package"
