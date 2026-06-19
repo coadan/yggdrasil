@@ -716,6 +716,12 @@
   [args]
   (vec (take-while #(not (str/starts-with? % "--")) args)))
 
+(defn- category-line
+  [{:keys [category summary]}]
+  (str "- " category ": " (:signal summary)
+       (when-let [observed (:observedMetrics summary)]
+         (str " (observed metrics: " observed ")"))))
+
 (defn- usage
   []
   (str "Usage: bb efficiency <shell-agent-report.json> <agraph-agent-report.json>"
@@ -754,8 +760,8 @@
                         (get-in comparison [:byTag :comparability :sharedTags])))
           (when-let [categories (seq (:byCategory comparison))]
             (println "Category signals:")
-            (doseq [{:keys [category summary]} categories]
-              (println (str "- " category ": " (:signal summary)))))
+            (doseq [category categories]
+              (println (category-line category))))
           (println (str "Claim readiness: "
                         (get-in comparison [:claimReadiness :status])))
           (when-let [warnings (seq (get-in comparison
