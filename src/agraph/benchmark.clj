@@ -2828,6 +2828,43 @@
   (select-keys (assoc entity :rank (inc idx))
                [:rank :id :repo :path :label :kind :score :why :metrics :pathPrefix]))
 
+(defn- takev
+  [n coll]
+  (vec (take n coll)))
+
+(defn- hint-architecture
+  [architecture]
+  (when architecture
+    (-> architecture
+        (select-keys [:basis
+                      :acceptedSystems
+                      :candidateSystems
+                      :boundaryEvidence
+                      :runtimeEvidence
+                      :dependencyEvidence
+                      :docs
+                      :evidenceFamilies
+                      :validationGaps
+                      :warnings
+                      :nextActions])
+        (update :acceptedSystems #(takev 5 %))
+        (update :candidateSystems #(takev 5 %))
+        (update :boundaryEvidence #(takev 5 %))
+        (update :runtimeEvidence #(takev 5 %))
+        (update :dependencyEvidence #(takev 5 %))
+        (update :docs #(takev 5 %))
+        (update :evidenceFamilies #(takev 8 %))
+        (update :validationGaps #(takev 6 %))
+        (update :warnings #(takev 3 %))
+        (update :nextActions #(takev 4 %)))))
+
+(defn- hint-audit-scope
+  [scope]
+  (-> scope
+      (select-keys [:kind :basis :facts :files :topEvidenceTypes :samples])
+      (update :topEvidenceTypes #(takev 5 %))
+      (update :samples #(takev 3 %))))
+
 (defn- hint-commands
   [packet]
   (->> (concat (:drilldowns packet)
@@ -2909,6 +2946,10 @@
              :answerability (:answerability packet)
              :sourceCoverage (:sourceCoverage packet)
              :warnings (:warnings packet)}
+      (:architecture packet)
+      (assoc :architecture (hint-architecture (:architecture packet)))
+      (seq (:auditScopes packet))
+      (assoc :auditScopes (mapv hint-audit-scope (take 6 (:auditScopes packet))))
       (seq diagnostics)
       (assoc :diagnostics diagnostics))))
 

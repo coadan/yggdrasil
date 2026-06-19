@@ -3016,7 +3016,49 @@
                             :repo "repo"
                             :score 0.7
                             :why "retrieval and graph match"
-                            :metrics {:file-count 2}}]}
+                            :metrics {:file-count 2}}]
+                :architecture {:basis "mechanical-plus-map"
+                               :acceptedSystems [{:id "system:repo:path/src"
+                                                  :label "src"
+                                                  :status "accepted"}]
+                               :boundaryEvidence [{:id "edge:src-db"
+                                                   :source "system:repo:path/src"
+                                                   :target "system:repo:path/db"
+                                                   :relation "uses"}]
+                               :runtimeEvidence [{:id "evidence:database-url"
+                                                  :path "config/runtime.env"
+                                                  :kind "env-var"
+                                                  :fileKind "env"
+                                                  :label "DATABASE_URL"
+                                                  :score 1.2}]
+                               :evidenceFamilies [{:family "source-structure"
+                                                   :status "available"
+                                                   :rowCount 2}
+                                                  {:family "runtime-config"
+                                                   :status "available"
+                                                   :rowCount 1}]
+                               :validationGaps [{:plane "dependencies"
+                                                 :status "missing"}]
+                               :nextActions [{:kind :inspect
+                                              :target "system:repo:path/src"}]}
+                :auditScopes [{:kind "source-structure"
+                               :basis "selected-architecture-evidence"
+                               :facts 1
+                               :topEvidenceTypes [{:kind "uses"
+                                                   :count 1}]
+                               :samples [{:id "edge:src-db"
+                                          :relation "uses"
+                                          :section "boundaryEvidence"}]}
+                              {:kind "runtime-config"
+                               :basis "selected-architecture-evidence"
+                               :facts 1
+                               :files 1
+                               :topEvidenceTypes [{:kind "env-var"
+                                                   :count 1}]
+                               :samples [{:id "evidence:database-url"
+                                          :path "config/runtime.env"
+                                          :kind "env-var"
+                                          :section "runtimeEvidence"}]}]}
         hints (benchmark/context-packet->agent-hints prepared packet {:limit 1})]
     (is (= benchmark/agent-hints-schema (:schema hints)))
     (is (= "case-1" (:case-id hints)))
@@ -3096,6 +3138,54 @@
             :diagnostics 0
             :fileKinds 1}
            (get-in hints [:sourceCoverage :totals])))
+    (is (= {:basis "mechanical-plus-map"
+            :acceptedSystems [{:id "system:repo:path/src"
+                               :label "src"
+                               :status "accepted"}]
+            :candidateSystems []
+            :boundaryEvidence [{:id "edge:src-db"
+                                :source "system:repo:path/src"
+                                :target "system:repo:path/db"
+                                :relation "uses"}]
+            :runtimeEvidence [{:id "evidence:database-url"
+                               :path "config/runtime.env"
+                               :kind "env-var"
+                               :fileKind "env"
+                               :label "DATABASE_URL"
+                               :score 1.2}]
+            :dependencyEvidence []
+            :docs []
+            :evidenceFamilies [{:family "source-structure"
+                                :status "available"
+                                :rowCount 2}
+                               {:family "runtime-config"
+                                :status "available"
+                                :rowCount 1}]
+            :validationGaps [{:plane "dependencies"
+                              :status "missing"}]
+            :warnings []
+            :nextActions [{:kind :inspect
+                           :target "system:repo:path/src"}]}
+           (:architecture hints)))
+    (is (= [{:kind "source-structure"
+             :basis "selected-architecture-evidence"
+             :facts 1
+             :topEvidenceTypes [{:kind "uses"
+                                 :count 1}]
+             :samples [{:id "edge:src-db"
+                        :relation "uses"
+                        :section "boundaryEvidence"}]}
+            {:kind "runtime-config"
+             :basis "selected-architecture-evidence"
+             :facts 1
+             :files 1
+             :topEvidenceTypes [{:kind "env-var"
+                                 :count 1}]
+             :samples [{:id "evidence:database-url"
+                        :path "config/runtime.env"
+                        :kind "env-var"
+                        :section "runtimeEvidence"}]}]
+           (:auditScopes hints)))
     (is (not (contains? hints :groundTruth)))
     (is (not (contains? hints :inputHints)))))
 
