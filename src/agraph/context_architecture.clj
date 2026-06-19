@@ -556,6 +556,9 @@
                      :targetIds
                      :summary
                      :score
+                     :createdAtMs
+                     :resultSchemaStatus
+                     :events
                      :updatedAtMs]))
 (defn- open-decision?
   [item]

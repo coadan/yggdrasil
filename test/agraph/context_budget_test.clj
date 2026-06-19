@@ -405,8 +405,18 @@
                               :status "ready"
                               :source "queue"
                               :sourceId "work:billing"
+                              :expectedResultSchema "agraph.work.result/v1"
+                              :resultSchema "agraph.work.result/v0"
+                              :resultSchemaStatus "mismatch"
                               :summary "review billing boundary"
-                              :score 1.0}
+                              :score 1.0
+                              :createdAtMs 10
+                              :updatedAtMs 20
+                              :events [{:event-kind :claim
+                                        :status "claimed"
+                                        :agent-id "codex"
+                                        :summary "claimed for review"
+                                        :at-ms 15}]}
                              {:id "activity:done"
                               :kind "maintenance-decision"
                               :status "completed"
@@ -512,8 +522,18 @@
              :status "ready"
              :source "queue"
              :sourceId "work:billing"
+             :expectedResultSchema "agraph.work.result/v1"
+             :resultSchema "agraph.work.result/v0"
+             :resultSchemaStatus "mismatch"
              :summary "review billing boundary"
-             :score 1.0}]
+             :score 1.0
+             :createdAtMs 10
+             :events [{:event-kind :claim
+                       :status "claimed"
+                       :agent-id "codex"
+                       :summary "claimed for review"
+                       :at-ms 15}]
+             :updatedAtMs 20}]
            (:openDecisions section)))
     (is (= {:counts {:acceptedSystems 1
                      :candidateSystems 1
@@ -563,7 +583,8 @@
                                  :target "evidence:database-url"
                                  :mcpTool "agraph_node"
                                  :mcpArgs {:target "evidence:database-url"}}]
-            :nextActionKinds {:inspect 6}}
+            :nextActionKinds {:inspect 5
+                              :work-review 1}}
            (:summary section)))
     (is (= [{:family "source-structure"
              :status "available"
@@ -650,12 +671,13 @@
              :mcpTool "agraph_node"
              :mcpArgs {:target "system:candidate"}
              :reason "Open dependency endpoint with incident graph evidence"}
-            {:kind :inspect
-             :label "Inspect architecture doc docs/billing.md"
-             :target "docs/billing.md"
-             :mcpTool "agraph_node"
-             :mcpArgs {:target "docs/billing.md"}
-             :reason "Open accepted architecture doc source and attached map evidence"}]
+            {:kind :work-review
+             :label "Inspect open decision work:billing"
+             :target "work:billing"
+             :command "agraph sync work show work:billing"
+             :mcpTool "agraph_work_show"
+             :mcpArgs {:workId "work:billing"}
+             :reason "Open queued review packet before accepting or rejecting architecture evidence"}]
            (:nextActions section)))))
 (deftest architecture-section-selects-accepted-systems-by-map-include-path
   (let [section (#'context/architecture-section
