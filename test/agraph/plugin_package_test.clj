@@ -429,7 +429,7 @@
       (is (= (:inputs input-sample) (:inputs gap-packet)))
       (is (= "agraph.extractor-plugin.result/v1"
              (get-in gap-packet [:output-contract :schema])))
-      (is (= [:nodes :edges :fileFacts :chunks :diagnostics]
+      (is (= [:nodes :edges :fileFacts :chunks :diagnostics :overlays]
              (mapv :name (get-in gap-packet [:output-contract :buckets]))))
       (is (some #(= :dry-run (:id %))
                 (get-in gap-packet [:proof :local-checks])))

@@ -1614,11 +1614,14 @@
              {:name :chunks
               :purpose "Bounded text summaries for query when the plugin opts into search."}
              {:name :diagnostics
-              :purpose "Structured warnings or extraction failures."}]
+              :purpose "Structured warnings or extraction failures."}
+             {:name :overlays
+              :purpose "Auditable plugin decisions that supersede or hide weaker core/plugin rows without deleting raw evidence."}]
    :overlay-kinds [:supersedes :refines :hides :links]
    :row-requirements ["Emit source path and source line when available."
                       "Prefer stable ids only when the plugin can make them deterministic."
                       "Keep facts concrete; do not emit accepted architecture meaning directly."
+                      "Use overlays to mark weaker rows as superseded or hidden instead of deleting evidence."
                       "Use diagnostics for uncertainty instead of silent absence."]
    :non-goals ["No ownership, system-boundary, or runtime-criticality claims without map/metadata acceptance."
                "No project-specific logic belongs in AGraph core without benchmarks and review."]})

@@ -294,3 +294,75 @@
                     (:plugin-package-manifest-fingerprint %))
                 rows))
     (is (not-any? #(= spoofed-source (:plugin-package-source %)) rows))))
+
+(deftest extractor-plugin-overlays-mark-core-rows-with-plugin-provenance
+  (let [source {:type :git
+                :url "https://example.test/datastar.git"
+                :rev "abc123"}
+        claim-authority {:status :non-authoritative
+                         :public-claims? false
+                         :review-required? false
+                         :blockers [{:code :unbenchmarked
+                                     :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
+        plugin (extractor-plugin/normalize-plugin
+                (merge (plugin-config)
+                       {:authority :git-plugin
+                        :package-id "datastar-hiccup"
+                        :package-version "0.1.0"
+                        :package-rev "abc123"
+                        :package-manifest-fingerprint "sha256:manifest"
+                        :package-claim-authority claim-authority
+                        :package-source source}))
+        file {:file-id "file:1"
+              :path "src/app.clj"
+              :kind :code}
+        core-node {:xt/id "node:core"
+                   :file-id "file:1"
+                   :path "src/app.clj"
+                   :kind :function
+                   :label "render"
+                   :active? true
+                   :run-id "run:1"}
+        plugin-extraction (#'extractor-plugin/normalize-plugin-result
+                           "run:1"
+                           file
+                           plugin
+                           {:schema extractor-plugin/result-schema
+                            :nodes [{:xt/id "node:plugin"
+                                     :kind "hypermedia-request"
+                                     :label "render/save"
+                                     :sourceLine 3}]
+                            :overlays [{:op "supersedes"
+                                        :targetId "node:core"
+                                        :replacementId "node:plugin"
+                                        :reason "Plugin emitted a more specific hypermedia fact."}]})
+        merged (extractor-plugin/merge-extractions
+                {:nodes [core-node]
+                 :edges []
+                 :chunks []
+                 :file-facts []
+                 :diagnostics []}
+                [plugin-extraction])
+        by-id (into {} (map (juxt :xt/id identity) (:nodes merged)))]
+    (is (= #{"node:core" "node:plugin"} (set (keys by-id))))
+    (is (= {:superseded? true
+            :superseded-op :supersedes
+            :superseded-by "node:plugin"
+            :superseded-reason "Plugin emitted a more specific hypermedia fact."
+            :superseded-by-plugin-id "panel-plugin"
+            :superseded-by-plugin-package-id "datastar-hiccup"
+            :superseded-by-plugin-package-rev "abc123"
+            :superseded-by-plugin-package-manifest-fingerprint "sha256:manifest"
+            :superseded-by-plugin-claim-authority claim-authority
+            :superseded-by-plugin-benchmark-status :unbenchmarked}
+           (select-keys (get by-id "node:core")
+                        [:superseded?
+                         :superseded-op
+                         :superseded-by
+                         :superseded-reason
+                         :superseded-by-plugin-id
+                         :superseded-by-plugin-package-id
+                         :superseded-by-plugin-package-rev
+                         :superseded-by-plugin-package-manifest-fingerprint
+                         :superseded-by-plugin-claim-authority
+                         :superseded-by-plugin-benchmark-status])))))

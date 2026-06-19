@@ -153,11 +153,11 @@ instead of guessing what AGraph sends.
 
 `plugin gap extractor` and `plugin gap report` build agent-facing authoring
 packets for one package. Extractor gap packets include selected input packets,
-core extraction counts, package caveats, supported output buckets, row
-requirements, local proof commands, public-claim requirements, and
-core-promotion requirements. Report gap packets include selected report input
-packets, package caveats, panel/diagnostic/artifact output buckets, known slots,
-local proof commands, public-claim requirements, and core-promotion
+core extraction counts, package caveats, supported output buckets including
+`overlays`, row requirements, local proof commands, public-claim requirements,
+and core-promotion requirements. Report gap packets include selected report
+input packets, package caveats, panel/diagnostic/artifact output buckets, known
+slots, local proof commands, public-claim requirements, and core-promotion
 requirements. These packets are mechanical and do not infer architecture meaning
 from names, paths, prose, or project vocabulary.
 

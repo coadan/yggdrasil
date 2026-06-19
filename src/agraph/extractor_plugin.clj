@@ -474,6 +474,15 @@
       (not (:xt/id row)) (assoc :xt/id (generated-id "diagnostic" plugin file row))
       (not (:stage row)) (assoc :stage :extractor-plugin))))
 
+(defn- normalize-overlay
+  [run-id file plugin row]
+  (base-row run-id
+            file
+            plugin
+            (-> row
+                canonical-row
+                (keyword-values [:op :kind]))))
+
 (defn- validate-bucket
   [schema rows message]
   (mapv #(schema/assert! schema % message) rows))
@@ -497,7 +506,7 @@
      :diagnostics (validate-bucket schema/diagnostic-row
                                    diagnostics
                                    "Invalid extractor plugin diagnostic row.")
-     :overlays (mapv canonical-row (:overlays result))}))
+     :overlays (mapv #(normalize-overlay run-id file plugin %) (:overlays result))}))
 
 (defn- run-plugin
   [ctx plugin]
@@ -577,8 +586,19 @@
   (if-let [overlay (get overlays (:xt/id row))]
     (assoc row
            :superseded? true
+           :superseded-op (overlay-op overlay)
            :superseded-by (:replacement-id overlay)
-           :superseded-reason (:reason overlay))
+           :superseded-reason (:reason overlay)
+           :superseded-by-plugin-id (:plugin-id overlay)
+           :superseded-by-plugin-fingerprint (:plugin-fingerprint overlay)
+           :superseded-by-plugin-package-id (:plugin-package-id overlay)
+           :superseded-by-plugin-package-rev (:plugin-package-rev overlay)
+           :superseded-by-plugin-package-manifest-fingerprint
+           (:plugin-package-manifest-fingerprint overlay)
+           :superseded-by-plugin-claim-authority
+           (:plugin-package-claim-authority overlay)
+           :superseded-by-plugin-benchmark-status
+           (:benchmark-status overlay))
     row))
 
 (defn merge-extractions

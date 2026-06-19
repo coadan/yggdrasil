@@ -80,6 +80,12 @@ The plugin receives the file record and the core rows for that file. It can add
 rows, emit edges that core would not know about, or emit a row with the same
 `:xt/id` to replace a weaker core row in the persisted extraction.
 
+Plugins can also emit `overlays` to mark existing rows as superseded or hidden
+without deleting raw evidence. This is the preferred path when a plugin has a
+more specific fact but the weaker core row should remain auditable. AGraph
+annotates the target row with the replacement id, reason, plugin id, package
+pin, benchmark status, and claim authority.
+
 ## Search Opt-In
 
 Graph-profile sync suppresses ordinary chunks and search docs so architecture
@@ -178,6 +184,14 @@ Output schema: `agraph.extractor-plugin.result/v1`
       "sourceLine": 42
     }
   ],
+  "overlays": [
+    {
+      "op": "supersedes",
+      "targetId": "node:core-route",
+      "replacementId": "node:plugin-route",
+      "reason": "Plugin emitted a framework-specific route fact."
+    }
+  ],
   "diagnostics": []
 }
 ```
@@ -201,6 +215,12 @@ Every plugin row is annotated with:
 AGraph stamps these provenance fields after parsing plugin output. Plugin
 commands cannot make their own rows authoritative by spoofing file, run, or
 plugin provenance fields.
+
+Overlay operations currently supported by the authoring contract are
+`:supersedes`, `:hides`, `:refines`, and `:links`. `:supersedes` and `:hides`
+annotate the target row with `:superseded? true` while preserving the target row
+for audit. `:refines` and `:links` are reserved decision evidence for now; use
+ordinary rows and edges when the plugin needs durable graph facts.
 
 Plugin failures become `:extractor-plugin` diagnostics. A failed plugin does not
 crash sync.
