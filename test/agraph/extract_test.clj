@@ -363,6 +363,25 @@
       (is (= canonical-buckets (set (keys result))))
       (is (every? vector? (vals result))))))
 
+(deftest extracts-template-text-files-as-searchable-chunks
+  (let [file {:file-id "file:template"
+              :id-scope "fixture"
+              :path "templates/service.go.tmpl"
+              :kind :text
+              :content "package {{ .Package }}\nfunc main() {}\n"}
+        result (extract/extract-file "run/test" file)]
+    (is (= [] (:nodes result)))
+    (is (= [] (:edges result)))
+    (is (= [] (:diagnostics result)))
+    (is (= [{:path "templates/service.go.tmpl"
+             :kind :text-file
+             :file-kind :text
+             :label "templates/service.go.tmpl"
+             :source-line 1}]
+           (mapv #(select-keys % [:path :kind :file-kind :label :source-line])
+                 (:chunks result))))
+    (is (str/includes? (-> result :chunks first :text) "{{ .Package }}"))))
+
 (deftest extracts-clojure-namespace-definitions-and-requires
   (let [file (fs/file-record "test/fixtures/sample-repo"
                              "test/fixtures/sample-repo/src/sample/core.clj")

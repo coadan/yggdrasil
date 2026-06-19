@@ -326,6 +326,14 @@
     (spit-file! root "infra/support.env.example" "SUPPORT_URL=https://example.com\n")
     (spit-file! root "public/index.html" "<!doctype html><main id=\"app\"></main>\n")
     (spit-file! root "plugin/readme.txt" "Demo plugin\n")
+    (spit-file! root "templates/page.njk" "<main>{{ title }}</main>\n")
+    (spit-file! root "templates/email.mustache" "Hello {{name}}\n")
+    (spit-file! root "templates/service.go.tmpl" "package {{ .Package }}\n")
+    (spit-file! root "backend/email/en.subj" "Panel invite\n")
+    (spit-file! root "snapshots/panel.snap" "exports[`panel`] = `<main />`\n")
+    (spit-file! root "patches/runtime.patch" "diff --git a/app b/app\n")
+    (spit-file! root "server/postgresql.conf" "shared_buffers = 128MB\n")
+    (spit-file! root "server/build.properties" "version=1.0.0\n")
     (spit-file! root "README.md" "# Demo\n")
     (spit-file! root "LICENSE" "MIT\n")
     (spit-file! root "resources/vendor/cytoscape.LICENSE" "Vendor license\n")
@@ -477,8 +485,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 241
-              :supported 240
+      (is (= {:files 249
+              :supported 248
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -549,8 +557,8 @@
       (is (= 1 (:count (row-by :kind "font-asset" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "html" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "shell" (:files-by-kind report)))))
-      (is (= 2 (:count (row-by :kind "text" (:files-by-kind report)))))
-      (is (= 2 (:count (row-by :kind "config" (:files-by-kind report)))))
+      (is (= 8 (:count (row-by :kind "text" (:files-by-kind report)))))
+      (is (= 4 (:count (row-by :kind "config" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "env" (:files-by-kind report)))))
       (is (= 35 (:count (row-by :kind "manifest" (:files-by-kind report)))))
       (is (= 6 (:count (row-by :kind "governance" (:files-by-kind report)))))
@@ -792,7 +800,8 @@
                       (= "html/v1" (:extractor-version %)))
                 (:extractors report)))
       (is (some #(and (= "text" (:kind %))
-                      (= "text/v1" (:extractor-version %)))
+                      (= "text/v1" (:extractor-version %))
+                      (= 8 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "env" (:kind %))
                       (= "env/v2" (:extractor-version %)))

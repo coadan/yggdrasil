@@ -8,15 +8,15 @@
 
 (def supported-extensions
   #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs" ".cts"
-    ".code-workspace" ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
+    ".code-workspace" ".conf" ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
     ".dvc"
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".lua"
     ".kt" ".kts" ".m" ".md" ".mdx" ".mjs" ".ml" ".mli" ".mm" ".mo" ".mts" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
-    ".neon" ".nix" ".odin" ".out" ".prisma" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
-    ".service" ".sln" ".socket" ".sql" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".ttf"
-    ".license" ".template" ".toml" ".ts" ".tsx" ".txt" ".vb" ".vbproj" ".vue" ".xcconfig"
+    ".mustache" ".neon" ".nix" ".njk" ".odin" ".out" ".patch" ".prisma" ".properties" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
+    ".service" ".sln" ".snap" ".socket" ".sql" ".subj" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".tmpl" ".ttf"
+    ".license" ".template" ".toml" ".ts" ".tsx" ".txt" ".types" ".vb" ".vbproj" ".vue" ".xcconfig"
     ".webp" ".woff" ".woff2" ".yaml" ".yml" ".zig" ".xml"})
 
 (def binary-file-kinds
@@ -406,6 +406,8 @@
         ".edn" :edn
         ".toml" :config
         ".nix" :config
+        ".conf" :config
+        ".properties" :config
         ".xcconfig" :apple-config
         (".cabal" ".csproj" ".entitlements" ".fsproj" ".gemspec" ".pbxproj" ".plist" ".props" ".sln" ".targets" ".vbproj") :manifest
         (".yaml" ".yml") :yaml
@@ -416,7 +418,7 @@
         ".license" :doc
         ".template" :text
         (".adoc" ".asciidoc" ".md" ".mdx" ".rst") :doc
-        (".out" ".txt") :text
+        (".mustache" ".njk" ".out" ".patch" ".snap" ".subj" ".tmpl" ".txt" ".types") :text
         ".vue" :vue
         nil))))
 

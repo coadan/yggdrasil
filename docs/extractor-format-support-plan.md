@@ -35,6 +35,11 @@ classification in core extractors; store bounded facts and relationships first.
 - Groovy: `.groovy` source files. Extracts package declarations, imports,
   classes, interfaces, enums, traits, annotations, methods, properties, source
   chunks, and curly-brace diagnostics.
+- Plain text templates/config: `.tmpl`, `.njk`, `.mustache`, `.subj`, `.snap`,
+  `.patch`, `.types`, generic `.conf`, and generic `.properties` files are
+  indexed through existing bounded text/config extractors so agent context can
+  include concrete template and runtime configuration artifacts without adding
+  project-specific semantics.
 
 ## Future Candidates
 
