@@ -255,7 +255,8 @@
       (is (some #(= {:kind :coverage
                      :label "Inspect skipped source candidates"
                      :count 2
-                     :command "agraph sync coverage <project.edn> --json"}
+                     :command "agraph sync coverage <project.edn> --json"
+                     :pluginGapCommand "bb plugin gap extractor <package-dir> <repo-root> <file> --json"}
                     %)
                 (:nextActions summary)))
       (is (some #(= {:kind :audit-scope

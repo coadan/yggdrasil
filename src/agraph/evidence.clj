@@ -255,6 +255,18 @@
          (str " --map " (command/shell-token map-path)))
        " --json"))
 
+(defn- extractor-plugin-gap-command
+  []
+  "bb plugin gap extractor <package-dir> <repo-root> <file> --json")
+
+(defn- skipped-source-action
+  [skipped-files config-path]
+  {:kind :coverage
+   :label "Inspect skipped source candidates"
+   :count skipped-files
+   :command (sync-subcommand "coverage" config-path "--json")
+   :pluginGapCommand (extractor-plugin-gap-command)})
+
 (defn- package-next-actions
   [project-id {:keys [packages package-evidence-gaps unresolved-imports package-conflicts]}
    {:keys [config-path map-path]}]
@@ -365,10 +377,7 @@
                           {:mcpArgs {:configPath config-path}})))
 
            (pos? skipped-files)
-           (conj {:kind :coverage
-                  :label "Inspect skipped source candidates"
-                  :count skipped-files
-                  :command (sync-subcommand "coverage" config-path "--json")})
+           (conj (skipped-source-action skipped-files config-path))
 
            (pos? diagnostics)
            (conj {:kind :coverage
