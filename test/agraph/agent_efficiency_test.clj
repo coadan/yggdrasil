@@ -120,7 +120,8 @@
     (is (= {:signal "agraph-improved"
             :improvedMetrics 16
             :regressedMetrics 0
-            :unchangedMetrics 1}
+            :unchangedMetrics 1
+            :unavailableMetrics 0}
            (:summary comparison)))
     (is (= {:sameSuite true
             :sameCases true
@@ -249,6 +250,32 @@
            (get-in comparison [:comparability :shellOnlyCaseIds])))
     (is (= ["Reports do not contain the same completed case ids."]
            (get-in comparison [:comparability :warnings])))))
+
+(deftest reports-missing-metrics-as-unavailable
+  (let [shell (update shell-report :scores dissoc :evidenceCitationRate)
+        agraph (update agraph-report :timings dissoc :elapsedMs)
+        comparison (agent-efficiency/compare-reports shell agraph)
+        deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
+    (is (= {:signal "agraph-improved"
+            :improvedMetrics 14
+            :regressedMetrics 0
+            :unchangedMetrics 1
+            :unavailableMetrics 2}
+           (:summary comparison)))
+    (is (= {:shellOnly nil
+            :agraph 0.5
+            :available false
+            :result "unavailable"}
+           (select-keys (:evidenceCitationRate deltas-by-key)
+                        [:shellOnly :agraph :available :result])))
+    (is (= {:shellOnly 1000.0
+            :agraph nil
+            :available false
+            :result "unavailable"}
+           (select-keys (:elapsedMs deltas-by-key)
+                        [:shellOnly :agraph :available :result])))
+    (is (not (contains? (:elapsedMs deltas-by-key) :delta)))
+    (is (not (contains? (:evidenceCitationRate deltas-by-key) :effect)))))
 
 (deftest writes-comparison-from-agent-report-files
   (let [root (temp-dir "agraph-agent-efficiency")

@@ -116,12 +116,11 @@
     (spit file (str (json/write-json-str value {:indent-str "  "}) "\n"))
     (.getPath file)))
 
-(defn- numeric-value
+(defn- metric-value
   [m path]
   (let [value (get-in m path)]
-    (if (number? value)
-      (double value)
-      0.0)))
+    (when (number? value)
+      (double value))))
 
 (defn- result-label
   [effect]
@@ -138,24 +137,36 @@
 
 (defn- metric-delta
   [shell-report agraph-report {:keys [category direction key label path tolerance]}]
-  (let [shell-value (numeric-value shell-report path)
-        agraph-value (numeric-value agraph-report path)
-        delta (- agraph-value shell-value)
-        effect (case direction
-                 :higher delta
-                 :lower (- delta))
-        effective (effective-effect effect tolerance)]
-    (cond-> {:key key
-             :metric label
-             :category (name category)
-             :direction (name direction)
-             :shellOnly shell-value
-             :agraph agraph-value
-             :delta delta
-             :effect effective
-             :result (result-label effective)}
-      tolerance (assoc :rawEffect effect
-                       :tolerance tolerance))))
+  (let [shell-value (metric-value shell-report path)
+        agraph-value (metric-value agraph-report path)
+        available? (and (some? shell-value)
+                        (some? agraph-value))]
+    (if-not available?
+      {:key key
+       :metric label
+       :category (name category)
+       :direction (name direction)
+       :shellOnly shell-value
+       :agraph agraph-value
+       :available false
+       :result "unavailable"}
+      (let [delta (- agraph-value shell-value)
+            effect (case direction
+                     :higher delta
+                     :lower (- delta))
+            effective (effective-effect effect tolerance)]
+        (cond-> {:key key
+                 :metric label
+                 :category (name category)
+                 :direction (name direction)
+                 :shellOnly shell-value
+                 :agraph agraph-value
+                 :available true
+                 :delta delta
+                 :effect effective
+                 :result (result-label effective)}
+          tolerance (assoc :rawEffect effect
+                           :tolerance tolerance))))))
 
 (defn- result-by-case
   [report]
@@ -246,6 +257,7 @@
   (let [improved (count-results deltas "improved")
         regressed (count-results deltas "regressed")
         unchanged (count-results deltas "unchanged")
+        unavailable (count-results deltas "unavailable")
         signal (cond
                  (zero? (:sharedCases comparable)) "not-comparable"
                  (and (pos? improved) (zero? regressed)) "agraph-improved"
@@ -255,7 +267,8 @@
     {:signal signal
      :improvedMetrics improved
      :regressedMetrics regressed
-     :unchangedMetrics unchanged}))
+     :unchangedMetrics unchanged
+     :unavailableMetrics unavailable}))
 
 (defn- tag-comparability
   [shell-report agraph-report]
@@ -389,7 +402,9 @@
                         ", regressed metrics: "
                         (get-in comparison [:summary :regressedMetrics])
                         ", unchanged metrics: "
-                        (get-in comparison [:summary :unchangedMetrics])))
+                        (get-in comparison [:summary :unchangedMetrics])
+                        ", unavailable metrics: "
+                        (get-in comparison [:summary :unavailableMetrics])))
           (println (str "Shared tag groups: "
                         (get-in comparison [:byTag :comparability :sharedTags])))
           (when-let [out (option-value args "--out")]
