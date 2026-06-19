@@ -665,6 +665,25 @@
             :shellCommandCount 1
             :commandless false}
            (:commandTelemetry diagnostic)))))
+
+(deftest agent-output-diagnostic-counts-compound-command-segments
+  (let [diagnostic (#'benchmark/agent-output-diagnostic
+                    {:agent {:commands ["cat src/app.clj | rg broken"
+                                        "sed -n '1,20p' src/app.clj; npm test"]
+                             :topFiles [{:path "src/app.clj"}]}})]
+    (is (= {:commandCount 2
+            :agraphCommandCount 0
+            :searchCommandCount 1
+            :fileReadCommandCount 1
+            :shellCommandCount 0
+            :commandless false
+            :segmentCount 4
+            :agraphSegmentCount 0
+            :searchSegmentCount 1
+            :fileReadSegmentCount 2
+            :shellSegmentCount 1}
+           (:commandTelemetry diagnostic)))))
+
 (deftest reports-problem-class-summaries
   (let [out (temp-dir "agraph-agent-report-problem-classes")
         suite {:id "suite"
