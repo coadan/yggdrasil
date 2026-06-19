@@ -2745,6 +2745,21 @@
     (doseq [{:keys [stage message path]} diagnostics]
       (println "-" (str stage) path "-" message))))
 
+(defn- print-plugin-registry-validation
+  [{:keys [status path counts errors packages]}]
+  (println "# Plugin Registry Validation")
+  (println "- status" (name status))
+  (println "- path" path)
+  (println "- packages" (:packages counts))
+  (println "- passed" (:passed counts))
+  (println "- failed" (:failed counts))
+  (doseq [{:keys [code message]} errors]
+    (println "- error" (name code) "-" message))
+  (doseq [{:keys [id status errors]} packages]
+    (println "-" id (name status))
+    (doseq [{:keys [code message]} errors]
+      (println "  error" (name code) "-" message))))
+
 (defn- plugin-new!
   [args]
   (let [dir (first (positional-args args))]
@@ -2843,6 +2858,26 @@
         (print-json result)
         (print-plugin-list result)))))
 
+(defn- plugin-registry!
+  [args]
+  (let [[action registry-path] (positional-args args)]
+    (when-not (= "validate" action)
+      (throw (ex-info "Unknown plugin registry command."
+                      {:command action
+                       :supported ["validate"]
+                       :usage (usage)})))
+    (when-not registry-path
+      (throw (ex-info "Missing plugin registry path."
+                      {:usage (usage)})))
+    (let [result (plugin-package/validate-registry registry-path)]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-registry-validation result))
+      (when (= :failed (:status result))
+        (throw (ex-info "Plugin registry validation failed."
+                        {:errors (:errors result)
+                         :packages (:packages result)}))))))
+
 (defn- plugin!
   [args]
   (let [action (first args)
@@ -2865,6 +2900,9 @@
 
       "list"
       (plugin-list! action-args)
+
+      "registry"
+      (plugin-registry! action-args)
 
       (throw (ex-info "Unknown plugin command."
                       {:command action
@@ -2933,6 +2971,7 @@
     "  plugin dry-run report <dir> [--plugin ID] [--json]"
     "  plugin install <project.edn> <git-url-or-path> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--force] [--json]"
     "  plugin list <project.edn> [--json]"
+    "  plugin registry validate <registry.edn> [--json]"
     ""
     "Agent integration:"
     "  watch <project.edn> [--map agraph.map.json] [--query-index] [--debounce-ms N]"

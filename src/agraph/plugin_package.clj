@@ -32,6 +32,12 @@
 (def diagnose-schema
   "agraph.plugin.diagnose/v1")
 
+(def registry-schema
+  "agraph.plugin.registry/v1")
+
+(def registry-validate-schema
+  "agraph.plugin.registry.validate/v1")
+
 (def manifest-filename
   "agraph.plugin.edn")
 
@@ -802,6 +808,98 @@
          :validation validation
          :diagnostics diagnostics
          :readiness (readiness package validation diagnostics)}))))
+
+(defn- registry-entry-path
+  [registry-path entry]
+  (when-let [path (:path entry)]
+    (resolve-path (config-dir registry-path) path)))
+
+(defn- registry-entry-status
+  [diagnosis]
+  (let [public-status (get-in diagnosis [:readiness :public-sharing :status])]
+    (cond
+      (= :failed (:status diagnosis)) :failed
+      (#{:ready :caution} public-status) :passed
+      :else :failed)))
+
+(defn- registry-entry-errors
+  [entry diagnosis]
+  (let [declared-id (some-> (:id entry) str)
+        package-id (some-> (get-in diagnosis [:package :id]) str)
+        public-status (get-in diagnosis [:readiness :public-sharing :status])]
+    (vec
+     (concat
+      (when (and declared-id package-id (not= declared-id package-id))
+        [{:code :registry-id-mismatch
+          :message "Registry entry id does not match package manifest id."
+          :entry-id declared-id
+          :package-id package-id}])
+      (when-not (#{:ready :caution} public-status)
+        [{:code :public-sharing-not-ready
+          :message "Registry packages must be ready or caution for public sharing."
+          :public-sharing-status public-status}])))))
+
+(defn- validate-registry-entry
+  [registry-path entry]
+  (if-let [package-path (registry-entry-path registry-path entry)]
+    (let [diagnosis (diagnose-local package-path)
+          errors (registry-entry-errors entry diagnosis)
+          status (if (and (= :passed (registry-entry-status diagnosis))
+                          (empty? errors))
+                   :passed
+                   :failed)]
+      {:id (or (some-> (:id entry) str)
+               (get-in diagnosis [:package :id]))
+       :path package-path
+       :status status
+       :errors errors
+       :diagnosis diagnosis})
+    {:id (some-> (:id entry) str)
+     :status :failed
+     :errors [{:code :registry-path-missing
+               :message "Registry entry is missing :path for offline validation."}]
+     :entry entry}))
+
+(defn validate-registry
+  "Validate a local public plugin registry index."
+  [registry-path]
+  (try
+    (let [registry (read-edn-file registry-path)
+          entries (vec (:packages registry))
+          schema-errors (cond-> []
+                          (not= registry-schema (:schema registry))
+                          (conj {:code :registry-schema
+                                 :message "Unknown plugin registry schema."
+                                 :expected registry-schema
+                                 :actual (:schema registry)})
+
+                          (not (sequential? (:packages registry)))
+                          (conj {:code :registry-packages
+                                 :message "Registry must contain :packages vector."}))
+          results (if (seq schema-errors)
+                    []
+                    (mapv #(validate-registry-entry registry-path %) entries))
+          failed (count (filter #(= :failed (:status %)) results))]
+      {:schema registry-validate-schema
+       :registry (select-keys registry [:schema :id :name :description])
+       :path (fs/canonical-path registry-path)
+       :status (if (or (seq schema-errors) (pos? failed)) :failed :passed)
+       :counts {:packages (count entries)
+                :passed (count (filter #(= :passed (:status %)) results))
+                :failed failed}
+       :errors schema-errors
+       :packages results})
+    (catch Exception e
+      {:schema registry-validate-schema
+       :path (fs/canonical-path registry-path)
+       :status :failed
+       :counts {:packages 0
+                :passed 0
+                :failed 0}
+       :errors [{:code :registry-read
+                 :message (or (ex-message e) (str e))
+                 :data (ex-data e)}]
+       :packages []})))
 
 (defn- selected-extractor-plugins
   [package plugin-id]

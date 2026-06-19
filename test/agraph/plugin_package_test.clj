@@ -307,3 +307,68 @@
       (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
       (is (= [:project-local-scope]
              (mapv :code (:diagnostics diagnosis)))))))
+
+(deftest registry-validation-enforces-public-sharing-readiness
+  (let [workspace (temp-dir "agraph-plugin-registry")
+        registry-path (io/file workspace "registry.edn")
+        base-dir (io/file workspace "base")
+        local-dir (io/file workspace "local")]
+    (.mkdirs base-dir)
+    (.mkdirs local-dir)
+    (write-file! (.getPath base-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (write-file! (.getPath base-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "base-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Reusable fixture."}
+                   :benchmark {:status :unbenchmarked}
+                   :extractor-plugins
+                   [{:id "base-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath local-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (write-file! (.getPath local-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "local-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :project-local
+                           :reason "One project only."}
+                   :benchmark {:status :unbenchmarked}
+                   :extractor-plugins
+                   [{:id "local-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (spit registry-path
+          (pr-str {:schema plugin-package/registry-schema
+                   :id "official"
+                   :packages [{:id "base-plugin"
+                               :path "base"}
+                              {:id "local-plugin"
+                               :path "local"}]}))
+    (let [result (plugin-package/validate-registry (.getPath registry-path))
+          by-id (into {} (map (juxt :id identity) (:packages result)))]
+      (is (= plugin-package/registry-validate-schema (:schema result)))
+      (is (= :failed (:status result)))
+      (is (= {:packages 2
+              :passed 1
+              :failed 1}
+             (:counts result)))
+      (is (= :passed (get-in by-id ["base-plugin" :status])))
+      (is (= :failed (get-in by-id ["local-plugin" :status])))
+      (is (= [:public-sharing-not-ready]
+             (mapv :code (get-in by-id ["local-plugin" :errors])))))))

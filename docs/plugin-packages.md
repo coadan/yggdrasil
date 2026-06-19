@@ -56,6 +56,7 @@ bb plugin validate .dev/agraph/plugins/datastar-hiccup
 bb plugin diagnose .dev/agraph/plugins/datastar-hiccup
 bb plugin dry-run extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
 bb plugin dry-run report .dev/agraph/plugins/datastar-hiccup --json
+bb plugin registry validate .dev/agraph/plugins/registry.edn
 ```
 
 `plugin new` writes `agraph.plugin.edn`, Python extractor/report examples,
@@ -158,6 +159,30 @@ Package install surfaces warnings instead of blocking local use when:
 
 `bb plugin diagnose <dir>` treats public license/commercial policy violations as
 public-sharing blockers while still keeping private local experiments possible.
+
+## Registry Validation
+
+Public registry indexes are EDN files that point at local package directories for
+offline validation:
+
+```clojure
+{:schema "agraph.plugin.registry/v1"
+ :id "official"
+ :packages [{:id "datastar-hiccup"
+             :path "packages/datastar-hiccup"}]}
+```
+
+Run:
+
+```sh
+bb plugin registry validate registry.edn --json
+```
+
+Validation reads each package manifest and runs `plugin diagnose`. A registry
+entry passes when the package is ready or caution for public sharing. Project-
+local, commercial, non-FOSS, invalid, or missing packages fail the registry
+check. Unbenchmarked base packages may be listed as experimental, but public
+claims and core promotion remain blocked until benchmark artifacts exist.
 
 ## Scope
 

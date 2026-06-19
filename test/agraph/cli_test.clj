@@ -72,6 +72,7 @@
     (is (str/includes? usage "plugin dry-run report <dir>"))
     (is (str/includes? usage "plugin install <project.edn>"))
     (is (str/includes? usage "plugin list <project.edn>"))
+    (is (str/includes? usage "plugin registry validate <registry.edn>"))
     (is (str/includes? usage "install-agent --platform codex --project"))
     (is (str/includes? usage "mcp [--root DIR]"))
     (is (str/includes? usage "watch <project.edn>"))
@@ -196,7 +197,19 @@
                                                    :counts {:panels 1
                                                             :diagnostics 0
                                                             :artifacts 0}
-                                                   :diagnostics []})]
+                                                   :diagnostics []})
+                  plugin-package/validate-registry (fn [path]
+                                                     (swap! calls conj [:registry path])
+                                                     {:schema plugin-package/registry-validate-schema
+                                                      :status :passed
+                                                      :path path
+                                                      :counts {:packages 1
+                                                               :passed 1
+                                                               :failed 0}
+                                                      :errors []
+                                                      :packages [{:id "demo"
+                                                                  :status :passed
+                                                                  :errors []}]})]
       (with-out-str
         (cli/dispatch "plugin" ["new" ".dev/plugins/demo" "--id" "demo" "--force"]))
       (with-out-str
@@ -219,6 +232,11 @@
                        ".dev/plugins/demo"
                        "--plugin"
                        "demo-report"]))
+      (with-out-str
+        (cli/dispatch "plugin"
+                      ["registry"
+                       "validate"
+                       ".dev/plugins/registry.edn"]))
       (is (= [[:new ".dev/plugins/demo" {:id "demo"
                                          :extractor? false
                                          :report? false
@@ -226,7 +244,8 @@
               [:validate ".dev/plugins/demo"]
               [:diagnose ".dev/plugins/demo"]
               [:dry-run ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]
-              [:dry-run-report ".dev/plugins/demo" {:plugin-id "demo-report"}]]
+              [:dry-run-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
+              [:registry ".dev/plugins/registry.edn"]]
              @calls)))))
 
 (deftest benchmark-summary-prints-agent-baseline-scores
