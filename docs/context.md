@@ -352,8 +352,11 @@ include `actions` rows with executable commands for inspecting payloads,
 claiming, extending leases, completing, releasing, rejecting, or applying work
 results. When a packet declares `expectedResultSchema`, summaries expose it as
 `expected-result-schema` so agents know which result JSON shape to produce before
-loading the full payload. Agents should use those commands instead of
-reconstructing queue paths or item ids from payloads.
+loading the full payload. Completed item summaries also expose the artifact's
+actual `result-schema` when the result includes a `schema`, so agents can compare
+the requested and returned contracts before importing activity or applying work.
+Agents should use those commands instead of reconstructing queue paths or item
+ids from payloads.
 
 ```sh
 agraph sync check project.edn --map agraph.map.json --enqueue
