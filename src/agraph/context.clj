@@ -11,6 +11,7 @@
             [agraph.text :as text]
             [agraph.xtdb :as store]
             [charred.api :as json]
+            [clojure.set :as set]
             [clojure.string :as str]))
 
 (def schema
@@ -390,6 +391,13 @@
   (set (concat (map :id entities)
                (map :label entities)
                (map :id edges))))
+
+(defn- system-targets
+  [systems]
+  (->> systems
+       (mapcat (juxt :id :label))
+       (remove nil?)
+       set))
 
 (defn- doc-priority
   [doc]
@@ -1335,8 +1343,10 @@
                        (:warnings answerability)))))
 
 (defn- architecture-section
-  [{:keys [overlay entities results edges runtime-evidence docs activity answerability freshness]}]
-  (let [accepted-systems (selected-accepted-systems overlay entities results)
+  [{:keys [overlay entities results edges runtime-evidence docs activity answerability freshness
+           accepted-systems]}]
+  (let [accepted-systems (or accepted-systems
+                             (selected-accepted-systems overlay entities results))
         candidate-systems (selected-candidate-systems accepted-systems entities)
         selected-ids (set (concat (map :id entities)
                                   (map :id accepted-systems)))
@@ -2283,7 +2293,9 @@
                                         :read-context read-context})
         entities (select-entities query-tokens results graph-data entity-limit)
         edges (select-edges query-tokens entities graph-data edge-limit)
-        targets (selected-targets entities edges)
+        accepted-systems (selected-accepted-systems overlay entities results)
+        targets (set/union (selected-targets entities edges)
+                           (system-targets accepted-systems))
         attachments (attachment-docs-for-targets overlay targets)
         chunks (context-chunks xtdb
                                results
@@ -2300,9 +2312,8 @@
                                                    {:project-id project-id
                                                     :repo-id repo-id
                                                     :read-context read-context})
-        accepted-systems-for-runtime (selected-accepted-systems overlay entities results)
         selected-system-ids (concat (map :id entities)
-                                    (map :id accepted-systems-for-runtime))
+                                    (map :id accepted-systems))
         runtime-evidence (select-system-evidence query-tokens
                                                  selected-system-ids
                                                  results
@@ -2349,6 +2360,7 @@
                                             :entities entities
                                             :results results
                                             :edges edges
+                                            :accepted-systems accepted-systems
                                             :runtime-evidence runtime-evidence
                                             :docs docs
                                             :activity activity

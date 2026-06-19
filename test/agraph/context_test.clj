@@ -1730,7 +1730,18 @@
                                       :edges []
                                       :clusters []})
                 query/chunks-by-ids (fn [& _] [])
-                query/chunks-by-paths (fn [& _] [])
+                query/chunks-by-paths (fn [_ paths _]
+                                        (is (some #{"docs/billing.md"} paths))
+                                        [{:xt/id "chunk:billing-doc"
+                                          :repo-id "app"
+                                          :path "docs/billing.md"
+                                          :kind :markdown
+                                          :label "Billing contract"
+                                          :heading-path ["Billing contract"]
+                                          :text "Billing contract terms."
+                                          :source-line 1
+                                          :end-line 2
+                                          :content-sha "doc-sha"}])
                 query/all-system-evidence (fn [& _]
                                             [{:xt/id "evidence:billing-port"
                                               :system-id "system:billing"
@@ -1754,7 +1765,10 @@
                                               :source-line 4
                                               :confidence 0.8
                                               :active? true}])
-                activity/select-activity (fn [& _] [])
+                activity/select-activity (fn [_ _ opts]
+                                           (is (contains? (:target-ids opts)
+                                                          "system:billing"))
+                                           [])
                 context/answerability (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
     (let [packet (context/context-packet
@@ -1771,12 +1785,20 @@
                                             :label "Other"
                                             :repo "app"
                                             :includes [{:repo "app"
-                                                        :path "src/other"}]}]}})]
+                                                        :path "src/other"}]}]
+                                 :docs [{:target "system:billing"
+                                         :role "contract"
+                                         :status "accepted"
+                                         :source {:repo "app"
+                                                  :path "docs/billing.md"}}]}})]
       (is (= ["system:billing"]
              (mapv :id (get-in packet [:architecture :acceptedSystems]))))
+      (is (= ["docs/billing.md"]
+             (mapv #(get-in % [:source :path])
+                   (get-in packet [:architecture :docs]))))
       (is (= ["evidence:billing-port"]
              (mapv :id (get-in packet [:architecture :runtimeEvidence]))))
-      (is (= ["system:billing" "evidence:billing-port"]
+      (is (= ["system:billing" "evidence:billing-port" "docs/billing.md"]
              (mapv :target (get-in packet [:architecture :nextActions]))))
       (is (= ["src/billing/api.clj"]
              (mapv :path (:candidateFiles packet)))))))

@@ -213,6 +213,8 @@ runtime/config rows, dependency rows, docs, and open decisions remain concrete
 evidence rows, not inferred project meaning.
 Runtime/config rows may be selected by exact result path, query-token match, or
 existing `system-id` membership in a selected graph or accepted map system.
+Accepted map docs and work/activity lookups follow accepted systems selected
+directly or through included file paths.
 
 `architecture.evidenceFamilies` is a compact readiness summary for the selected
 work area. Rows use fixed evidence-family names such as `source-structure`,
