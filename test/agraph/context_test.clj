@@ -482,8 +482,17 @@
                           :nextActions 4}
                  :evidenceFamilyStatuses {"available" 4
                                           "missing" 2}
+                 :evidenceFamilyStatusByFamily {"dependency-flow" "missing"
+                                                "docs-contracts" "available"
+                                                "maintenance" "missing"
+                                                "map-corrections" "available"
+                                                "runtime-config" "available"
+                                                "source-structure" "available"}
                  :validationGapStatuses {"missing" 2
                                          "weak" 1}
+                 :validationGapStatusByPlane {"dependencies" "missing"
+                                              "docs" "weak"
+                                              "system-evidence" "missing"}
                  :nextActionKinds {:inspect 3
                                    :dependencies 1}}
         architecture {:basis "mechanical-plus-map"
@@ -749,9 +758,19 @@
                      :warnings 1
                      :nextActions 6}
             :evidenceFamilyStatuses {"available" 7}
+            :evidenceFamilyStatusByFamily {"dependency-flow" "available"
+                                           "deploy-topology" "available"
+                                           "docs-contracts" "available"
+                                           "maintenance" "available"
+                                           "map-corrections" "available"
+                                           "runtime-config" "available"
+                                           "source-structure" "available"}
             :validationGapStatuses {"missing" 1
                                     "unsupported" 1
                                     "weak" 1}
+            :validationGapStatusByPlane {"dependencies" "missing"
+                                         "docs" "weak"
+                                         "remote-work" "unsupported"}
             :nextActionKinds {:inspect 6}}
            (:summary section)))
     (is (= [{:family "source-structure"

@@ -1376,6 +1376,15 @@
        frequencies
        (into (sorted-map))))
 
+(defn- status-by-key
+  [rows key]
+  (->> rows
+       (keep (fn [row]
+               (when-let [k (some-> (get row key) display-name not-empty)]
+                 (when-let [status (some-> (:status row) display-name not-empty)]
+                   [k status]))))
+       (into (sorted-map))))
+
 (defn- architecture-summary
   [section]
   {:counts {:acceptedSystems (count (:acceptedSystems section))
@@ -1390,7 +1399,11 @@
             :warnings (count (:warnings section))
             :nextActions (count (:nextActions section))}
    :evidenceFamilyStatuses (status-counts (:evidenceFamilies section))
+   :evidenceFamilyStatusByFamily (status-by-key (:evidenceFamilies section)
+                                                :family)
    :validationGapStatuses (status-counts (:validationGaps section))
+   :validationGapStatusByPlane (status-by-key (:validationGaps section)
+                                              :plane)
    :nextActionKinds (kind-counts (:nextActions section))})
 
 (defn- freshness-next-actions
