@@ -441,6 +441,45 @@
      :notRunRuns (count (get by-status "not-run"))
      :notRunCaseIds (case-ids "not-run")}))
 
+(defn- expected-evidence-count
+  [result]
+  (count (get-in result [:expectations :evidence])))
+
+(defn- expected-evidence-citation-metric?
+  [result]
+  (number? (get-in result [:scores :expectedEvidenceCitationRate])))
+
+(defn- aggregate-expectation-diagnostics
+  [results]
+  (let [expected-evidence-results (filter #(pos? (expected-evidence-count %))
+                                          results)
+        metric-results (filter expected-evidence-citation-metric?
+                               expected-evidence-results)
+        missing-metric-results (remove expected-evidence-citation-metric?
+                                       expected-evidence-results)]
+    {:runs (count results)
+     :expectedEvidenceRuns (count expected-evidence-results)
+     :expectedEvidenceCaseIds (->> expected-evidence-results
+                                   (map :case-id)
+                                   distinct
+                                   sort
+                                   vec)
+     :expectedEvidenceTargets (reduce + 0
+                                      (map expected-evidence-count
+                                           expected-evidence-results))
+     :expectedEvidenceCitationMetricRuns (count metric-results)
+     :expectedEvidenceCitationMetricCaseIds (->> metric-results
+                                                 (map :case-id)
+                                                 distinct
+                                                 sort
+                                                 vec)
+     :missingExpectedEvidenceCitationMetricRuns (count missing-metric-results)
+     :missingExpectedEvidenceCitationMetricCaseIds (->> missing-metric-results
+                                                        (map :case-id)
+                                                        distinct
+                                                        sort
+                                                        vec)}))
+
 (declare aggregate-localization-diagnostics
          aggregate-coverage-diagnostics
          report-improvement-summary)
@@ -455,6 +494,8 @@
                          :scores (aggregate-agent-scores rows)
                          :inputHints (input-hint-summary rows)
                          :agentDiagnostics (aggregate-agent-diagnostics rows)
+                         :expectationDiagnostics (aggregate-expectation-diagnostics
+                                                  rows)
                          :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
                          :localizationDiagnostics (aggregate-localization-diagnostics rows)
                          :coverageDiagnostics (aggregate-coverage-diagnostics rows)
@@ -486,6 +527,8 @@
                          :scores (aggregate-agent-scores rows)
                          :inputHints (input-hint-summary rows)
                          :agentDiagnostics (aggregate-agent-diagnostics rows)
+                         :expectationDiagnostics (aggregate-expectation-diagnostics
+                                                  rows)
                          :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
                          :localizationDiagnostics (aggregate-localization-diagnostics rows)
                          :coverageDiagnostics (aggregate-coverage-diagnostics rows)
@@ -543,6 +586,21 @@
                                (number? (get-in report
                                                 [:scores
                                                  :pathEvidenceCitationRate])))
+        expected-evidence-metrics? (and has-runs?
+                                        (pos?
+                                         (long
+                                          (get-in
+                                           report
+                                           [:expectationDiagnostics
+                                            :expectedEvidenceCitationMetricRuns]
+                                           0)))
+                                        (zero?
+                                         (long
+                                          (get-in
+                                           report
+                                           [:expectationDiagnostics
+                                            :missingExpectedEvidenceCitationMetricRuns]
+                                           0))))
         command-telemetry? (and has-runs?
                                 (map? (get-in report
                                               [:agentDiagnostics
@@ -553,6 +611,7 @@
                       :measuredArchitectureClasses (boolean
                                                     (seq measured-architecture-tags))
                       :evidenceCitationMetrics evidence-metrics?
+                      :expectedEvidenceCitationMetrics expected-evidence-metrics?
                       :commandTelemetry command-telemetry?}
         supported? (every? true? (vals requirements))]
     {:status (if supported? "supported" "not-supported")
@@ -576,6 +635,9 @@
                  (not evidence-metrics?)
                  (conj "Evidence citation metrics are unavailable; citation quality is unproven.")
 
+                 (not expected-evidence-metrics?)
+                 (conj "Expected-evidence citation metrics are unavailable or incomplete; non-code help quality is unproven.")
+
                  (not command-telemetry?)
                  (conj "Command telemetry is unavailable; shell/search/read-loop costs are unproven."))}))
 (defn- improvement-row
@@ -597,6 +659,7 @@
 (defn- report-improvement-summary
   [report]
   (let [agent-diagnostics (:agentDiagnostics report)
+        expectation-diagnostics (:expectationDiagnostics report)
         localization (:localizationDiagnostics report)
         coverage (:coverageDiagnostics report)
         graph-expectations (:graphExpectationDiagnostics report)
@@ -631,6 +694,14 @@
               :runs (:pathUncitedRuns localization)
               :case-ids (:pathUncitedCaseIds localization)
               :message "Ranked files lacked path-level evidence citations."})
+            (improvement-row
+             {:kind "expected-evidence-citation-metric-gaps"
+              :area "benchmark-hygiene"
+              :runs (:missingExpectedEvidenceCitationMetricRuns
+                     expectation-diagnostics)
+              :case-ids (:missingExpectedEvidenceCitationMetricCaseIds
+                         expectation-diagnostics)
+              :message "Benchmark cases declared expected evidence without scored expected-evidence citation metrics."})
             (improvement-row
              {:kind "missing-declared-source-kinds"
               :area "coverage-declarations"
@@ -702,6 +773,8 @@
                                :scores (aggregate-agent-scores rows)
                                :inputHints (input-hint-summary rows)
                                :agentDiagnostics (aggregate-agent-diagnostics rows)
+                               :expectationDiagnostics (aggregate-expectation-diagnostics
+                                                        rows)
                                :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
                                                              rows)
                                :localizationDiagnostics (aggregate-localization-diagnostics rows)
@@ -1058,6 +1131,8 @@
                      :parserWorkers (aggregate-parser-worker-profiles results)
                      :inputHints (input-hint-summary results)
                      :agentDiagnostics (aggregate-agent-diagnostics results)
+                     :expectationDiagnostics (aggregate-expectation-diagnostics
+                                              results)
                      :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
                                                    results)
                      :localizationDiagnostics (aggregate-localization-diagnostics results)

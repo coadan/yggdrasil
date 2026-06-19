@@ -103,6 +103,9 @@
                           :fileRecallAt20 1.0
                           :meanReciprocalRankFile 1.0
                           :noiseRatioAt20 0.5
+                          :expectedEvidenceCitationRate 0.0
+                          :expectedEvidenceCitations 0
+                          :expectedEvidenceCitationTargets 1
                           :changedFiles 3
                           :scoreableChangedFiles 2
                           :unsupportedGroundTruthFiles 1}})
@@ -221,6 +224,15 @@
                                        :caseIds ["case-1"]}]
               :warnings 1}
              (:agentDiagnostics report)))
+      (is (= {:runs 2
+              :expectedEvidenceRuns 1
+              :expectedEvidenceCaseIds ["case-1"]
+              :expectedEvidenceTargets 1
+              :expectedEvidenceCitationMetricRuns 1
+              :expectedEvidenceCitationMetricCaseIds ["case-1"]
+              :missingExpectedEvidenceCitationMetricRuns 0
+              :missingExpectedEvidenceCitationMetricCaseIds []}
+             (:expectationDiagnostics report)))
       (is (= ["missed-files-present-in-context"
               "ranked-outside-top5"
               "path-citation-gaps"
@@ -472,6 +484,15 @@
               :inputHintedCaseIds ["case-1"]}
              (get-in (first (:byMode report)) [:inputHints])))
       (is (= {:runs 1
+              :expectedEvidenceRuns 1
+              :expectedEvidenceCaseIds ["case-1"]
+              :expectedEvidenceTargets 1
+              :expectedEvidenceCitationMetricRuns 1
+              :expectedEvidenceCitationMetricCaseIds ["case-1"]
+              :missingExpectedEvidenceCitationMetricRuns 0
+              :missingExpectedEvidenceCitationMetricCaseIds []}
+             (get-in (first (:byMode report)) [:expectationDiagnostics])))
+      (is (= {:runs 1
               :missingDeclaredSourceKindRuns 1
               :missingDeclaredSourceKindCaseIds ["case-1"]
               :missingDeclaredSourceKinds [{:kind "python"
@@ -607,6 +628,8 @@
                          :case-id case-id
                          :repo-id "repo"
                          :tags tags
+                         :expectations {:evidence [{:kind "architecture-reference"
+                                                    :path (str case-id ".clj")}]}
                          :agent {:agentId "codex"
                                  :mode "agraph"
                                  :topFiles [{:path (str case-id ".clj")
@@ -626,6 +649,9 @@
                                   :noiseRatioAt20 (- 1.0 recall)
                                   :evidenceCitationRate 1.0
                                   :pathEvidenceCitationRate 1.0
+                                  :expectedEvidenceCitationRate 1.0
+                                  :expectedEvidenceCitations 1
+                                  :expectedEvidenceCitationTargets 1
                                   :changedFiles 1
                                   :scoreableChangedFiles 1
                                   :unsupportedGroundTruthFiles 0}}))]
@@ -694,6 +720,7 @@
                              :measuredProblemClasses true
                              :measuredArchitectureClasses false
                              :evidenceCitationMetrics true
+                             :expectedEvidenceCitationMetrics true
                              :commandTelemetry true}
               :warnings ["No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent."]}
              (:claimReadiness report))))))
@@ -721,6 +748,8 @@
                          :case-id case-id
                          :repo-id "repo"
                          :tags tags
+                         :expectations {:evidence [{:kind "architecture-reference"
+                                                    :path (str case-id ".clj")}]}
                          :agent {:agentId "codex"
                                  :mode "agraph"
                                  :topFiles [{:path (str case-id ".clj")
@@ -740,6 +769,9 @@
                                   :noiseRatioAt20 (- 1.0 recall)
                                   :evidenceCitationRate 1.0
                                   :pathEvidenceCitationRate 1.0
+                                  :expectedEvidenceCitationRate 1.0
+                                  :expectedEvidenceCitations 1
+                                  :expectedEvidenceCitationTargets 1
                                   :changedFiles 1
                                   :scoreableChangedFiles 1
                                   :unsupportedGroundTruthFiles 0}}))]
@@ -767,6 +799,84 @@
              (get-in report [:claimReadiness :measuredArchitectureClassTags])))
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))
+(deftest agent-report-claim-readiness-requires-scored-expected-evidence
+  (let [out (temp-dir "agraph-agent-report-expected-evidence-readiness")
+        suite {:id "suite"
+               :cases [{:id "arch-deps-1"
+                        :tags [:problem-architecture
+                               :architecture-dependency-flow]}
+                       {:id "arch-deps-2"
+                        :tags [:problem-architecture
+                               :architecture-dependency-flow]}
+                       {:id "audit-docs-1"
+                        :tags [:problem-architecture
+                               :audit-scope-docs]}
+                       {:id "audit-docs-2"
+                        :tags [:problem-architecture
+                               :audit-scope-docs]}]}
+        write-score! (fn [case-id tags]
+                       (spit-json!
+                        out
+                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
+                        {:schema benchmark/agent-score-schema
+                         :suite-id "suite"
+                         :case-id case-id
+                         :repo-id "repo"
+                         :tags tags
+                         :expectations {:evidence [{:kind "architecture-reference"
+                                                    :path (str case-id ".clj")}]}
+                         :agent {:agentId "codex"
+                                 :mode "agraph"
+                                 :topFiles [{:path (str case-id ".clj")
+                                             :rank 1
+                                             :evidence ["architecture-evidence"]}]
+                                 :commands ["bb ask architecture --project fixture"]}
+                         :groundTruth {:changedFiles [(str case-id ".clj")]
+                                       :scoreableFiles [(str case-id ".clj")]
+                                       :unsupportedGroundTruthFiles []}
+                         :groundTruthRanks {:files [{:path (str case-id ".clj")
+                                                     :rank 1
+                                                     :found? true}]}
+                         :scores {:fileRecallAt5 1.0
+                                  :fileRecallAt10 1.0
+                                  :fileRecallAt20 1.0
+                                  :meanReciprocalRankFile 1.0
+                                  :noiseRatioAt20 0.0
+                                  :evidenceCitationRate 1.0
+                                  :pathEvidenceCitationRate 1.0
+                                  :changedFiles 1
+                                  :scoreableChangedFiles 1
+                                  :unsupportedGroundTruthFiles 0}}))]
+    (write-score! "arch-deps-1"
+                  ["problem-architecture" "architecture-dependency-flow"])
+    (write-score! "arch-deps-2"
+                  ["problem-architecture" "architecture-dependency-flow"])
+    (write-score! "audit-docs-1"
+                  ["problem-architecture" "audit-scope-docs"])
+    (write-score! "audit-docs-2"
+                  ["problem-architecture" "audit-scope-docs"])
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= "not-supported" (get-in report [:claimReadiness :status])))
+      (is (= false
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :expectedEvidenceCitationMetrics])))
+      (is (= ["Expected-evidence citation metrics are unavailable or incomplete; non-code help quality is unproven."]
+             (get-in report [:claimReadiness :warnings])))
+      (is (= {:kind "expected-evidence-citation-metric-gaps"
+              :area "benchmark-hygiene"
+              :runs 4
+              :caseIds ["arch-deps-1"
+                        "arch-deps-2"
+                        "audit-docs-1"
+                        "audit-docs-2"]
+              :message "Benchmark cases declared expected evidence without scored expected-evidence citation metrics."}
+             (->> (:improvementSummary report)
+                  (filter #(= "expected-evidence-citation-metric-gaps"
+                              (:kind %)))
+                  first))))))
 (deftest reports-exclude-obsolete-agent-score-schema
   (let [out (temp-dir "agraph-agent-report-obsolete-score-schema")
         case {:id "case-1"
