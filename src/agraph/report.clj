@@ -1,6 +1,7 @@
 (ns agraph.report
   "Human-readable local report bundles for AGraph projects."
-  (:require [agraph.context :as context]
+  (:require [agraph.command :as command]
+            [agraph.context :as context]
             [agraph.coverage :as coverage]
             [agraph.dependency :as dependency]
             [agraph.evidence :as evidence]
@@ -266,21 +267,21 @@
 
 (defn- package-command
   [project & args]
-  (str "agraph packages --project " (:id project)
+  (str "agraph packages --project " (command/shell-token (:id project))
        (when (seq args)
-         (str " " (str/join " " args)))))
+         (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- sync-command
   [project & args]
-  (str "agraph sync " (or (:path project) "<project.edn>")
+  (str "agraph sync " (command/shell-token (or (:path project) "<project.edn>"))
        (when (seq args)
-         (str " " (str/join " " args)))))
+         (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- sync-subcommand
   [project subcommand & args]
-  (str "agraph sync " subcommand " " (or (:path project) "<project.edn>")
+  (str "agraph sync " subcommand " " (command/shell-token (or (:path project) "<project.edn>"))
        (when (seq args)
-         (str " " (str/join " " args)))))
+         (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- atlas-next-actions
   [project package-report maintenance coverage]
@@ -311,7 +312,8 @@
       (conj {:kind :maintenance
              :label "Process maintenance work queue"
              :count (reduce + (vals maintenance-queue))
-             :command (str "agraph sync work list --project " (:id project))})
+             :command (str "agraph sync work list --project "
+                           (command/shell-token (:id project)))})
 
       (pos? (long diagnostics))
       (conj {:kind :coverage
@@ -365,13 +367,13 @@
   [project-id map-path maintenance]
   (let [queue (queue-summary maintenance)
         pull (fn [kind]
-               (str "agraph sync work pull --project " project-id
-                    " --kind " kind
+               (str "agraph sync work pull --project " (command/shell-token project-id)
+                    " --kind " (command/shell-token kind)
                     " --agent <agent-id>"))]
     (cond-> []
       (some pos? (vals queue))
-      (conj (str "agraph sync work list --project " project-id)
-            (str "agraph sync work pull --project " project-id
+      (conj (str "agraph sync work list --project " (command/shell-token project-id))
+            (str "agraph sync work pull --project " (command/shell-token project-id)
                  " --agent <agent-id>"))
 
       (pos? (long (:decisions queue 0)))
@@ -386,7 +388,7 @@
       (some pos? (vals queue))
       (conj "agraph sync work complete <work-id> --result result.json"
             (str "agraph sync work apply <work-id> --map "
-                 (or map-path "agraph.map.json"))))))
+                 (command/shell-token (or map-path "agraph.map.json")))))))
 
 (defn- suggested-commands
   [project map-path maintenance]
@@ -394,14 +396,16 @@
         config-path (or (:path project) "<project.edn>")]
     (vec
      (concat
-      [(str "agraph sync " config-path " --check"
-            (when map-path (str " --map " map-path)))
-       (str "agraph ask \"where is this handled?\" --project " project-id " --json")
-       (str "agraph view systems --project " project-id
-            (when map-path (str " --map " map-path)))
-       (str "agraph packages --project " project-id " --json")
-       (str "agraph report " config-path
-            (when map-path (str " --map " map-path))
+      [(str "agraph sync " (command/shell-token config-path) " --check"
+            (when map-path (str " --map " (command/shell-token map-path))))
+       (str "agraph ask \"where is this handled?\" --project "
+            (command/shell-token project-id)
+            " --json")
+       (str "agraph view systems --project " (command/shell-token project-id)
+            (when map-path (str " --map " (command/shell-token map-path))))
+       (str "agraph packages --project " (command/shell-token project-id) " --json")
+       (str "agraph report " (command/shell-token config-path)
+            (when map-path (str " --map " (command/shell-token map-path)))
             " --out " default-output-dir)]
       (maintenance-work-commands project-id map-path maintenance)))))
 

@@ -188,6 +188,31 @@
     (is (not (some #{"Run agraph sync <project.edn> --check"} no-files)))
     (is (some #{"Run agraph sync <project.edn> --check"} no-graph))))
 
+(deftest answerability-next-actions-quote-shell-sensitive-project-id
+  (let [retrieval {:requested :lexical
+                   :effective :lexical
+                   :fallback? false}
+        actions (#'context/next-actions
+                 {:files 1
+                  :nodes 1
+                  :edges 0
+                  :search-docs 1
+                  :external-packages 0
+                  :package-import-edges 0
+                  :unresolved-imports 1
+                  :package-evidence-gaps 0
+                  :package-conflicts 0
+                  :system-nodes 1
+                  :system-edges 0
+                  :activity-items 1
+                  :activity-events 0
+                  :diagnostics 0}
+                 retrieval
+                 "fixture project")]
+    (is (some #(= "agraph packages --project 'fixture project' --json"
+                  (:command %))
+              actions))))
+
 (deftest compact-answerability-keeps-bounded-actionable-detail
   (let [compact (#'context/compact-answerability
                  {:status :limited

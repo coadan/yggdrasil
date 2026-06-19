@@ -1,6 +1,7 @@
 (ns agraph.context
   "Token-bounded, graph-grounded context packets for agents."
   (:require [agraph.activity :as activity]
+            [agraph.command :as command]
             [agraph.coverage :as coverage]
             [agraph.dependency :as dependency]
             [agraph.graph :as graph]
@@ -1060,15 +1061,15 @@
 
 (defn- package-command
   [project-id & args]
-  (str "agraph packages --project " (or project-id "<project-id>")
+  (str "agraph packages --project " (command/shell-token (or project-id "<project-id>"))
        (when (seq args)
-         (str " " (str/join " " args)))))
+         (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- sync-command
   [& args]
   (str "agraph sync <project.edn>"
        (when (seq args)
-         (str " " (str/join " " args)))))
+         (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- next-actions
   [counts retrieval project-id]
@@ -1129,12 +1130,12 @@
          (zero? (+ (:activity-items counts) (:activity-events counts)))
          (conj {:kind :activity
                 :label "Import local activity and work rows"
-                :command "agraph sync activity <project.edn>"})
+                :command (command/command "agraph" "sync" "activity" "<project.edn>")})
 
          (pos? (:diagnostics counts))
          (conj {:kind :coverage
                 :label "Inspect extractor diagnostics"
-                :command "agraph sync coverage <project.edn> --json"}))
+                :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")}))
        (distinct-by :command)
        (take 5)
        vec))

@@ -134,6 +134,35 @@
              :command "agraph sync work list --project fixture"}]
            (get-in packet [:atlas :next-actions])))))
 
+(deftest report-data-quotes-shell-sensitive-action-commands
+  (let [packet (report/report-data
+                {:project {:id "fixture project"
+                           :path "Project Files/project.edn"
+                           :repos []}
+                 :map-path "Maps/agraph map.json"
+                 :detail :primary
+                 :generated-at-ms 1
+                 :graph-data {:nodes [] :edges []}
+                 :systems-data {:nodes [] :edges []}
+                 :coverage {:diagnostics {:total 1}}
+                 :maintenance {:decision-queue [{:id "maintenance-decision:1"}]}
+                 :context-example {}
+                 :evidence {}
+                 :package-report {:counts {:unresolved-imports 1}}
+                 :artifacts {}})
+        commands (set (:commands packet))
+        atlas-commands (set (map :command (get-in packet [:atlas :next-actions])))]
+    (is (contains? commands
+                   "agraph sync 'Project Files/project.edn' --check --map 'Maps/agraph map.json'"))
+    (is (contains? commands
+                   "agraph packages --project 'fixture project' --json"))
+    (is (contains? commands
+                   "agraph sync work apply <work-id> --map 'Maps/agraph map.json'"))
+    (is (contains? atlas-commands
+                   "agraph packages --project 'fixture project' --json"))
+    (is (contains? atlas-commands
+                   "agraph sync coverage 'Project Files/project.edn' --json"))))
+
 (deftest writes-report-bundle-from-project-fixture
   (let [xtdb-path (temp-dir "agraph-report-xtdb")
         out-dir (io/file (temp-dir "agraph-report-out") "bundle")
