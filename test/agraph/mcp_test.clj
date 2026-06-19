@@ -265,6 +265,7 @@
                                                :source-line 2
                                                :active? true
                                                :run-id "run"}])
+                  query/all-system-evidence (fn [_ _] [])
                   query/all-edges (fn [_ opts]
                                     (is (= "fixture" (:project-id opts)))
                                     [edge-row])]
@@ -309,6 +310,7 @@
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
                   query/all-nodes (fn [_ _] nodes)
+                  query/all-system-evidence (fn [_ _] [])
                   query/all-edges (fn [_ _] [])]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"])
@@ -348,6 +350,7 @@
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
                   query/all-nodes (fn [_ _] [])
+                  query/all-system-evidence (fn [_ _] [])
                   query/all-edges (fn [_ _] [])]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"])
@@ -402,6 +405,7 @@
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
                   query/all-nodes (fn [_ _] nodes)
+                  query/all-system-evidence (fn [_ _] [])
                   query/all-edges (fn [_ _] [])]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"])
@@ -455,6 +459,7 @@
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
                   query/all-nodes (fn [_ _] [package-row source-row])
+                  query/all-system-evidence (fn [_ _] [])
                   query/all-edges (fn [_ _] [edge-row])]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"])
@@ -496,6 +501,7 @@
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
                   query/all-nodes (fn [_ _] nodes)
+                  query/all-system-evidence (fn [_ _] [])
                   query/all-edges (fn [_ _] [])]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"])
@@ -507,6 +513,69 @@
         (is (= [:package :package] (mapv :targetKind (:choices packet))))
         (is (= ["node:pkg:npm:router" "node:pkg:pypi:router"]
                (mapv :id (:choices packet))))))))
+
+(deftest node-tool-inspects-exact-evidence-target
+  (let [file-row {:xt/id "file:fixture:app:src/runtime.edn"
+                  :project-id "fixture"
+                  :repo-id "app"
+                  :repo-root "/tmp/app"
+                  :path "src/runtime.edn"
+                  :ext "edn"
+                  :kind :config
+                  :content-sha "sha"
+                  :mtime-ms 1
+                  :size-bytes 42
+                  :active? true
+                  :run-id "run"}
+        evidence-row {:xt/id "evidence:runtime-url"
+                      :project-id "fixture"
+                      :repo-id "app"
+                      :system-id "system:runtime"
+                      :file-id (:xt/id file-row)
+                      :path "src/runtime.edn"
+                      :file-kind :config
+                      :kind :url
+                      :label "https://api.example.test"
+                      :normalized-value "https://api.example.test"
+                      :source-line 4
+                      :confidence 0.9
+                      :active? true
+                      :run-id "run"}
+        edge-row {:xt/id "edge:runtime:source"
+                  :project-id "fixture"
+                  :repo-id "app"
+                  :source-id "node:runtime"
+                  :target-id "node:config"
+                  :relation :configures
+                  :confidence :high
+                  :file-id (:xt/id file-row)
+                  :path "src/runtime.edn"
+                  :source-line 4
+                  :active? true
+                  :run-id "run"}]
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  store/all-rows (fn [_ table]
+                                   (if (= table (:files store/tables))
+                                     [file-row]
+                                     []))
+                  query/all-nodes (fn [_ _] [])
+                  query/all-system-evidence (fn [_ _] [evidence-row])
+                  query/all-edges (fn [_ _] [edge-row])]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 19
+                                 "agraph_node"
+                                 {:target "evidence:runtime-url"}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= :found (:status packet)))
+        (is (= :evidence (get-in packet [:match :targetKind])))
+        (is (= "system:runtime" (get-in packet [:match :systemId])))
+        (is (= "https://api.example.test"
+               (get-in packet [:evidence :normalized-value])))
+        (is (= "src/runtime.edn" (get-in packet [:sourceLocation :path])))
+        (is (= ["edge:runtime:source"]
+               (mapv :xt/id (get-in packet [:relationships :edges]))))))))
 
 (deftest systems-tool-returns-canonical-graph
   (with-redefs [project/read-project (constantly project-fixture)

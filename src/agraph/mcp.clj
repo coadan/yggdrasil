@@ -447,6 +447,12 @@
                      :ecosystem :package-name :version-range :resolved-version
                      :dependency-scope :import-names :source-line :run-id]))
 
+(defn- compact-evidence-row
+  [evidence]
+  (select-keys evidence [:xt/id :project-id :repo-id :system-id :file-id :path
+                         :file-kind :kind :url-context :auth-context :label
+                         :normalized-value :source-line :confidence :run-id]))
+
 (defn- compact-system-row
   [system]
   (select-keys system [:id :label :kind :status :includes :aliases :tags
@@ -483,6 +489,7 @@
     (:path row) (assoc :path (:path row))
     (:ecosystem row) (assoc :ecosystem (:ecosystem row))
     (:package-name row) (assoc :packageName (:package-name row))
+    (:system-id row) (assoc :systemId (:system-id row))
     (:source-line row) (assoc :sourceLine (:source-line row))))
 
 (defn- package-node?
@@ -566,6 +573,18 @@
                 :match match
                 :row system}))))
 
+(defn- exact-evidence-matches
+  [target evidence]
+  (->> evidence
+       (keep (fn [row]
+               (when (= target (:xt/id row))
+                 [:id row])))
+       (distinct-by (comp :xt/id second))
+       (mapv (fn [[match row]]
+               {:target-kind :evidence
+                :match match
+                :row row}))))
+
 (defn- scoped-files
   [xtdb project-id]
   (->> (store/all-rows xtdb (:files store/tables))
@@ -574,13 +593,14 @@
        vec))
 
 (defn- inspect-matches
-  [target files nodes overlay]
+  [target files nodes evidence overlay]
   (->> (concat (exact-file-matches target files)
+               (exact-evidence-matches target evidence)
                (exact-system-matches target overlay)
                (exact-package-matches target nodes)
                (exact-node-matches target nodes))
        (sort-by (fn [{:keys [target-kind match row]}]
-                  [(case target-kind :file 0 :system 1 :package 2 :node 3 4)
+                  [(case target-kind :file 0 :evidence 1 :system 2 :package 3 :node 4 5)
                    (case match
                      :id 0
                      :repo-path 1
@@ -644,11 +664,20 @@
                %)
             files)))
 
+(defn- file-for-evidence
+  [files evidence]
+  (or (some #(when (= (:file-id evidence) (:xt/id %)) %) files)
+      (some #(when (and (= (:repo-id evidence) (:repo-id %))
+                        (= (:path evidence) (:path %)))
+               %)
+            files)))
+
 (defn- incident-graph
   [match nodes edges limit]
   (let [nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
         file-id (case (:target-kind match)
                   :file (get-in match [:row :xt/id])
+                  :evidence (get-in match [:row :file-id])
                   :package (get-in match [:row :file-id])
                   :node (get-in match [:row :file-id])
                   nil)
@@ -694,6 +723,7 @@
                   (:xt/id row)
                   (:id row)
                   (:label row)
+                  (:system-id row)
                   (:namespace row)
                   (:name row)
                   (repo-path row)]))))
@@ -745,10 +775,13 @@
               nodes (->> (query/all-nodes xtdb {:project-id project-id})
                          (filter active-row?)
                          vec)
+              evidence (->> (query/all-system-evidence xtdb {:project-id project-id})
+                            (filter active-row?)
+                            vec)
               edges (->> (query/all-edges xtdb {:project-id project-id})
                          (filter active-row?)
                          vec)
-              matches (inspect-matches target files nodes overlay)]
+              matches (inspect-matches target files nodes evidence overlay)]
           (cond
             (empty? matches)
             {:schema node-inspect-schema
@@ -776,6 +809,7 @@
             (let [{:keys [target-kind match row] :as selected} (first matches)
                   file (case target-kind
                          :file row
+                         :evidence (file-for-evidence files row)
                          :package (file-for-node files row)
                          :node (file-for-node files row)
                          nil)]
@@ -786,6 +820,7 @@
                        :match (target-choice target-kind match row)
                        :relationships (incident-graph selected nodes edges limit)}
                 (= :file target-kind) (assoc :file (compact-file-row row))
+                (= :evidence target-kind) (assoc :evidence (compact-evidence-row row))
                 (= :system target-kind) (assoc :system (compact-system-row row))
                 (= :package target-kind) (assoc :package (compact-package-row row))
                 (= :node target-kind) (assoc :node (compact-node-row row))
