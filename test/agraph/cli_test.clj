@@ -249,6 +249,7 @@
                                                       :packages [{:id "demo"
                                                                   :status :passed
                                                                   :install {:command "bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"}
+                                                                  :diagnosis {:package {:claim-authority claim-authority}}
                                                                   :errors []}]})]
       (with-out-str
         (cli/dispatch "plugin" ["new" ".dev/plugins/demo" "--id" "demo" "--force"]))
@@ -296,7 +297,9 @@
                                           "validate"
                                           ".dev/plugins/registry.edn"]))]
         (is (str/includes? registry-out
-                           "install bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0")))
+                           "install bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"))
+        (is (str/includes? registry-out
+                           "claim-blockers project-local,unbenchmarked")))
       (is (= [[:new ".dev/plugins/demo" {:id "demo"
                                          :extractor? false
                                          :report? false

@@ -2868,10 +2868,11 @@
   (println "- failed" (:failed counts))
   (doseq [{:keys [code message]} errors]
     (println "- error" (name code) "-" message))
-  (doseq [{:keys [id status errors install]} packages]
+  (doseq [{:keys [id status errors install diagnosis]} packages]
     (println "-" id (name status))
     (when-let [command (:command install)]
       (println "  install" command))
+    (print-plugin-claim-authority " " (get-in diagnosis [:package :claim-authority]))
     (doseq [{:keys [code message]} errors]
       (println "  error" (name code) "-" message))))
 
