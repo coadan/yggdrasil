@@ -823,6 +823,8 @@
     (is (= agraph-path (get-in written [:inputs :agraphReport])))
     (is (.contains markdown "# AGraph Agent Efficiency"))
     (is (.contains markdown "- Status: agraph-improved"))
+    (is (.contains markdown "## Category Signals"))
+    (is (.contains markdown "- command-telemetry: agraph-improved"))
     (is (.contains markdown "- Claim readiness: not-supported"))))
 
 (deftest plain-output-shows-category-and-class-signals

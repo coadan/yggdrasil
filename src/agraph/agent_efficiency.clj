@@ -785,6 +785,7 @@
   (let [class-summary (get-in comparison [:classSignals :summary])
         warnings (get-in comparison [:claimReadiness :warnings])
         notes (get-in comparison [:claimReadiness :notes])
+        categories (:byCategory comparison)
         problem-groups (class-tag-groups comparison
                                          benchmark-classes/problem-class-tag?)
         architecture-groups (class-tag-groups
@@ -820,6 +821,9 @@
                       (:measuredArchitectureClasses class-summary)
                       "/"
                       (:architectureClasses class-summary))])
+              (when (seq categories)
+                (concat ["" "## Category Signals" ""]
+                        (map category-line categories)))
               (when (seq problem-groups)
                 (concat ["" "## Problem-Class Signals" ""]
                         (map tag-group-line problem-groups)))
