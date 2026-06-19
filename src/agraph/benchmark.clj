@@ -2865,10 +2865,31 @@
       (update :topEvidenceTypes #(takev 5 %))
       (update :samples #(takev 3 %))))
 
+(defn- next-action-commands
+  [actions]
+  (keep (fn [action]
+          (let [command (:command action)]
+            (when-not (blankish? command)
+              command)))
+        actions))
+
+(defn- packet-next-action-commands
+  [packet]
+  (let [architecture (:architecture packet)]
+    (->> (concat (:nextActions packet)
+                 (get-in packet [:answerability :nextActions])
+                 (get-in packet [:freshness :nextActions])
+                 (get-in packet [:sourceCoverage :nextActions])
+                 (get-in packet [:evidence :nextActions])
+                 (:nextActions architecture)
+                 (mapcat :nextActions (:validationGaps architecture)))
+         next-action-commands)))
+
 (defn- hint-commands
   [packet]
   (->> (concat (:drilldowns packet)
-               (get-in packet [:answerability :next]))
+               (get-in packet [:answerability :next])
+               (packet-next-action-commands packet))
        (remove blankish?)
        distinct
        vec))

@@ -3148,7 +3148,9 @@
                 :drilldowns ["agraph ask 'broken app' --project project"]
                 :warnings []
                 :answerability {:status :ok
-                                :next ["Run agraph packages --project project --json"]}
+                                :next ["Run agraph packages --project project --json"]
+                                :nextActions [{:kind :dependencies
+                                               :command "agraph packages --project project --json"}]}
                 :sourceCoverage {:schema "agraph.source-coverage.context/v1"
                                  :basis "indexed-graph"
                                  :totals {:indexedFiles 2
@@ -3204,9 +3206,16 @@
                                                    :status "available"
                                                    :rowCount 1}]
                                :validationGaps [{:plane "dependencies"
-                                                 :status "missing"}]
+                                                 :status "missing"
+                                                 :nextActions [{:kind :dependencies
+                                                                :label "Inspect package graph facts"
+                                                                :command "agraph packages --project project --json"}
+                                                               {:kind :dependency-review
+                                                                :label "Queue unresolved import review"
+                                                                :command "agraph sync project.edn --check --enqueue"}]}]
                                :nextActions [{:kind :inspect
-                                              :target "system:repo:path/src"}]}
+                                              :target "system:repo:path/src"
+                                              :command "agraph sync explain system:repo:path/src --map agraph.map.json"}]}
                 :auditScopes [{:kind "source-structure"
                                :basis "selected-architecture-evidence"
                                :facts 1
@@ -3292,7 +3301,10 @@
              :metrics {:file-count 2}}]
            (:candidateSystems hints)))
     (is (= ["agraph ask 'broken app' --project project"
-            "Run agraph packages --project project --json"]
+            "Run agraph packages --project project --json"
+            "agraph packages --project project --json"
+            "agraph sync explain system:repo:path/src --map agraph.map.json"
+            "agraph sync project.edn --check --enqueue"]
            (:commands hints)))
     (is (= {:rawCandidateFiles 1
             :candidateFiles 1
@@ -3328,10 +3340,17 @@
                                 :status "available"
                                 :rowCount 1}]
             :validationGaps [{:plane "dependencies"
-                              :status "missing"}]
+                              :status "missing"
+                              :nextActions [{:kind :dependencies
+                                             :label "Inspect package graph facts"
+                                             :command "agraph packages --project project --json"}
+                                            {:kind :dependency-review
+                                             :label "Queue unresolved import review"
+                                             :command "agraph sync project.edn --check --enqueue"}]}]
             :warnings []
             :nextActions [{:kind :inspect
-                           :target "system:repo:path/src"}]}
+                           :target "system:repo:path/src"
+                           :command "agraph sync explain system:repo:path/src --map agraph.map.json"}]}
            (:architecture hints)))
     (is (= [{:kind "source-structure"
              :basis "selected-architecture-evidence"
