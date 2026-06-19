@@ -128,6 +128,12 @@
                   {:configPath {:type "string"}
                    :mapPath {:type "string"}}
                   [])}
+   {:name "agraph_status"
+    :description "Return the agent-facing project status, evidence surface, and next actions without syncing."
+    :inputSchema (json-schema
+                  {:configPath {:type "string"}
+                   :mapPath {:type "string"}}
+                  [])}
    {:name "agraph_sync_check"
     :description "Return the read-only maintenance check report for a project."
     :inputSchema (json-schema
@@ -464,6 +470,7 @@
     "agraph_explore_search" (explore-search ctx args)
     "agraph_view_systems" (view-systems ctx args)
     "agraph_sync_inspect" (sync-inspect ctx args)
+    "agraph_status" (sync-inspect ctx args)
     "agraph_sync_check" (sync-check ctx args)
     "agraph_sync_activity" (sync-activity ctx args)
     "agraph_work_list" (work-list ctx args)

@@ -60,6 +60,7 @@
             "agraph_explore_search"
             "agraph_view_systems"
             "agraph_sync_inspect"
+            "agraph_status"
             "agraph_sync_check"
             "agraph_sync_activity"
             "agraph_work_list"
@@ -83,6 +84,8 @@
     (is (= ["cursorId" "query"]
            (get-in schemas ["agraph_explore_search" :required])))
     (is (contains? (set (keys (get-in schemas ["agraph_sync_inspect" :properties])))
+                   :mapPath))
+    (is (contains? (set (keys (get-in schemas ["agraph_status" :properties])))
                    :mapPath))
     (is (contains? (set (keys (get-in schemas ["agraph_sync_activity" :properties])))
                    :queueDir))
@@ -227,6 +230,32 @@
                :count 1
                :command "agraph sync activity project.edn --json"}]
              (get-in packet [:evidence :nextActions]))))))
+
+(deftest status-tool-returns-project-evidence-surface
+  (with-redefs [project/read-project (constantly project-fixture)
+                store/with-node (fn [_ f] (f :xtdb))
+                evidence/summarize (fn [xtdb project opts]
+                                     {:schema evidence/schema
+                                      :xtdb xtdb
+                                      :project-id (:id project)
+                                      :config-path (:config-path opts)
+                                      :map-path (:map-path opts)
+                                      :available [:source-graph]
+                                      :counts {:files 2
+                                               :nodes 3
+                                               :edges 4}
+                                      :nextActions []})]
+    (let [response (mcp/handle-message
+                    (mcp/server-context ["--config" "project.edn"])
+                    (tool-call 12
+                               "agraph_status"
+                               {:mapPath "agraph.map.json"}))
+          packet (get-in response [:result :structuredContent])]
+      (is (= "agraph.project.inspect/v1" (:schema packet)))
+      (is (= "fixture" (get-in packet [:project :id])))
+      (is (= evidence/schema (get-in packet [:evidence :schema])))
+      (is (= "project.edn" (get-in packet [:evidence :config-path])))
+      (is (= "agraph.map.json" (get-in packet [:evidence :map-path]))))))
 
 (deftest missing-project-returns-structured-error
   (let [response (mcp/handle-message

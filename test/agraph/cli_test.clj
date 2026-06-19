@@ -292,6 +292,7 @@
       (is (str/includes? first-content "agraph sync work heartbeat <work-id> --agent codex --lease-minutes 30"))
       (is (str/includes? first-content "agraph-mcp --config project.edn --map agraph.map.json"))
       (is (str/includes? first-content "`agraph_explore_search`"))
+      (is (str/includes? first-content "`agraph_status`"))
       (is (str/includes? first-content "`agraph_sync_inspect`"))
       (is (str/includes? first-content "`agraph_sync_activity`"))
       (is (str/includes? first-content "`agraph_work_list`"))
