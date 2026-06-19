@@ -21,6 +21,8 @@ describe("ReportPage", () => {
     expect(screen.getByText("Operator Review Queue")).toBeInTheDocument();
     expect(screen.getByText("Refresh indexed graph basis")).toBeInTheDocument();
     expect(screen.getByText("packages.unresolved-imports")).toBeInTheDocument();
+    expect(screen.getAllByText("Evidence Rows").length).toBeGreaterThan(0);
+    expect(screen.getByText("src/app/core.clj")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Plugins" }));
 

@@ -277,6 +277,24 @@ h3 {
   margin: 0 0 8px;
 }
 
+.review-evidence {
+  margin: 10px 0;
+}
+
+.review-evidence table {
+  margin-top: 6px;
+}
+
+.review-evidence th {
+  font-size: 10px;
+}
+
+.review-evidence td {
+  font-size: 12px;
+  max-width: 280px;
+  overflow-wrap: anywhere;
+}
+
 .review-row button {
   background: #0f172a;
   border: 1px solid #0f172a;

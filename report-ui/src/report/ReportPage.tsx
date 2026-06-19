@@ -172,6 +172,48 @@ function CommandList({ commands }: { commands: string[] }) {
   );
 }
 
+function reviewEvidenceColumns(rows: Array<Record<string, unknown>>): TableColumn[] {
+  const keys = new Set<string>();
+  for (const row of rows.slice(0, 4)) {
+    Object.keys(row).forEach((key) => keys.add(key));
+  }
+  return Array.from(keys)
+    .slice(0, 6)
+    .map((key) => ({ key, label: key }));
+}
+
+function ReviewEvidenceTable({ rows }: { rows: Array<Record<string, unknown>> }) {
+  if (rows.length === 0) return null;
+  const columns = reviewEvidenceColumns(rows);
+  if (columns.length === 0) return null;
+
+  return (
+    <div className="review-evidence">
+      <p className="eyebrow">Evidence Rows</p>
+      <table>
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.key}>{column.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={String(row.id || row.reviewId || row.review_id || row.path || index)}>
+              {columns.map((column) => (
+                <td key={column.key} className={numericCell(row[column.key])}>
+                  {displayValue(row[column.key])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ReviewQueue({
   rows,
   onOpenTab,
@@ -207,6 +249,7 @@ function ReviewQueue({
                 </div>
                 <h3>{row.label}</h3>
                 <p>{row.evidence}</p>
+                <ReviewEvidenceTable rows={row.evidenceRows || []} />
                 {row.command ? <code>{row.command}</code> : null}
               </div>
               <button type="button" onClick={() => onOpenTab(row.targetTab)}>

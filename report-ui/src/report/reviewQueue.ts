@@ -7,6 +7,7 @@ export type ReviewQueueRow = {
   priority: number;
   severity: "high" | "medium" | "low";
   evidence: string;
+  evidenceRows?: Array<Record<string, unknown>>;
   source: string;
   command?: string;
   targetTab: "ask" | "systems" | "dependencies" | "evidence" | "maintenance" | "plugins";
@@ -53,6 +54,23 @@ function externalApiReview(report: AGraphReport): Record<string, unknown> {
   return asRecord(maintenance.externalApiReview || maintenance["external-api-review"] || maintenance.external_api_review);
 }
 
+function firstRows(rows: Array<Record<string, unknown>>, limit = 5): Array<Record<string, unknown>> {
+  return rows.slice(0, limit);
+}
+
+function freshnessEvidenceRows(freshness: Record<string, unknown>): Array<Record<string, unknown>> {
+  return asRows(freshness.repos).map((repo) => {
+    const counts = asRecord(repo.counts);
+    return {
+      repo: repo["repo-id"] || repo.repoId || repo.id,
+      status: repo.status,
+      changed: countValue(counts, "changed"),
+      missing: countValue(counts, "missing"),
+      unindexed: countValue(counts, "unindexed")
+    };
+  });
+}
+
 function freshnessRow(report: AGraphReport): ReviewQueueRow | null {
   const freshness = asRecord(report.evidence.freshness);
   if (freshness.status !== "stale") return null;
@@ -69,6 +87,7 @@ function freshnessRow(report: AGraphReport): ReviewQueueRow | null {
     priority: 100 + total,
     severity: total > 0 ? "high" : "medium",
     evidence: `${total} file freshness issue(s): ${countValue(counts, "changed")} changed, ${countValue(counts, "missing")} missing, ${countValue(counts, "unindexed")} unindexed.`,
+    evidenceRows: firstRows(freshnessEvidenceRows(freshness)),
     source: "evidence.freshness",
     command: firstCommand(report, [/sync .*--check/, /sync/]),
     targetTab: "evidence"
@@ -85,7 +104,8 @@ function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
   const withoutEvidence = countValue(counts, "declared-without-import-evidence");
 
   if (unresolved > 0) {
-    const sample = packageRows(report, "unresolved-imports")[0];
+    const evidenceRows = packageRows(report, "unresolved-imports");
+    const sample = evidenceRows[0];
     rows.push({
       id: "dependencies:unresolved-imports",
       area: "Dependencies",
@@ -93,6 +113,7 @@ function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
       priority: 90 + unresolved,
       severity: "high",
       evidence: `${unresolved} unresolved import(s). ${sample ? `Sample: ${displayValue(sample.import || sample.path || sample.id)}.` : ""}`,
+      evidenceRows: firstRows(evidenceRows),
       source: "packages.unresolved-imports",
       command,
       targetTab: "dependencies"
@@ -100,7 +121,8 @@ function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
   }
 
   if (conflicts > 0) {
-    const sample = packageRows(report, "version-conflicts")[0];
+    const evidenceRows = packageRows(report, "version-conflicts");
+    const sample = evidenceRows[0];
     rows.push({
       id: "dependencies:version-conflicts",
       area: "Dependencies",
@@ -108,6 +130,7 @@ function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
       priority: 80 + conflicts,
       severity: "high",
       evidence: `${conflicts} package conflict(s). ${sample ? `Sample: ${displayValue(sample.label || sample["package-name"] || sample.id)}.` : ""}`,
+      evidenceRows: firstRows(evidenceRows),
       source: "packages.version-conflicts",
       command,
       targetTab: "dependencies"
@@ -115,6 +138,7 @@ function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
   }
 
   if (withoutEvidence > 0) {
+    const evidenceRows = packageRows(report, "declared-without-import-evidence");
     rows.push({
       id: "dependencies:without-import-evidence",
       area: "Dependencies",
@@ -122,6 +146,7 @@ function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
       priority: 60 + withoutEvidence,
       severity: "medium",
       evidence: `${withoutEvidence} declared package(s) have no importing source evidence in the report.`,
+      evidenceRows: firstRows(evidenceRows),
       source: "packages.declared-without-import-evidence",
       command,
       targetTab: "dependencies"
@@ -151,6 +176,7 @@ function maintenanceReviewRows(report: AGraphReport): ReviewQueueRow[] {
         priority: 70 - groupIndex + rows.length,
         severity: group.severity,
         evidence: `${rows.length} review row(s). ${displayValue(first.question || first.reason || first.target || first.artifact)}`,
+        evidenceRows: firstRows(rows),
         source: `maintenance.${group.key}`,
         command,
         targetTab: "maintenance" as const
@@ -176,6 +202,7 @@ function externalRows(report: AGraphReport): ReviewQueueRow[] {
       priority: 75 + fanoutCount,
       severity: fanoutCount > 5 ? "high" : "medium",
       evidence: `${fanoutCount || fanouts.length} source fanout(s). ${first ? `Largest visible sample: ${displayValue(peer.label || peer.id || peer["xt/id"] || first.id)}.` : ""}`,
+      evidenceRows: firstRows(fanouts),
       source: "maintenance.external-api-review",
       command: firstCommand(report, [/ignore external-api/, /audit-scope/, /ask/]),
       targetTab: "systems"
@@ -198,6 +225,7 @@ function diagnosticRows(report: AGraphReport): ReviewQueueRow[] {
       priority: 50 + diagnosticCount,
       severity: "medium",
       evidence: `${diagnosticCount} extractor diagnostic(s) are summarized in coverage.`,
+      evidenceRows: firstRows(asRows(diagnostics["by-stage"] || diagnostics.byStage)),
       source: "coverage.diagnostics",
       targetTab: "evidence"
     });
@@ -211,6 +239,7 @@ function diagnosticRows(report: AGraphReport): ReviewQueueRow[] {
       priority: 45 + pluginDiagnostics.length,
       severity: "low",
       evidence: `${pluginDiagnostics.length} plugin diagnostic(s).`,
+      evidenceRows: firstRows(pluginDiagnostics),
       source: "plugins.diagnostics",
       targetTab: "plugins"
     });
