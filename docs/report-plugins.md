@@ -29,6 +29,9 @@ contract and are included in the same `report.plugins` registry.
 Use `bb plugin input report <package-dir> --json` to inspect the exact input
 packet AGraph will send to one selected package report plugin without executing
 the plugin command.
+Use `bb plugin gap report <package-dir> --json` when an agent needs the full
+authoring packet: report input sample, output contract, proof commands,
+benchmark caveats, and core-promotion requirements.
 
 Report plugins can also be distributed as git-shared plugin packages alongside
 extractor plugins. See [plugin-packages.md](plugin-packages.md) for manifest,

@@ -282,6 +282,9 @@
           report-input-sample (plugin-package/sample-report-inputs
                                (.getPath package-dir)
                                {})
+          report-gap-packet (plugin-package/report-gap-packet
+                             (.getPath package-dir)
+                             {})
           report-context (#'plugin-package/report-dry-run-context
                           (.getPath package-dir)
                           (plugin-package/read-local-package (.getPath package-dir)))
@@ -314,6 +317,8 @@
                          "bb plugin input report . --json"))
       (is (str/includes? (slurp (io/file package-dir "README.md"))
                          "bb plugin gap extractor . /path/to/repo src/example.clj --json"))
+      (is (str/includes? (slurp (io/file package-dir "README.md"))
+                         "bb plugin gap report . --json"))
       (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
                          ":benchmark"))
       (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
@@ -505,6 +510,30 @@
       (is (= "demo-plugin"
              (get-in report-input-sample
                      [:inputs 0 :pluginPackages :packages 0 :id])))
+      (is (= plugin-package/report-gap-schema (:schema report-gap-packet)))
+      (is (= :report (:kind report-gap-packet)))
+      (is (= :passed (:status report-gap-packet)))
+      (is (= (:selection report-input-sample) (:selection report-gap-packet)))
+      (is (= (get-in report-input-sample [:inputs 0 :schema])
+             (get-in report-gap-packet [:inputs 0 :schema])))
+      (is (= (get-in report-input-sample [:inputs 0 :plugin])
+             (get-in report-gap-packet [:inputs 0 :plugin])))
+      (is (= (get-in report-input-sample [:inputs 0 :pluginPackages])
+             (get-in report-gap-packet [:inputs 0 :pluginPackages])))
+      (is (= "agraph.report-plugin.result/v1"
+             (get-in report-gap-packet [:output-contract :schema])))
+      (is (= [:panels :diagnostics :artifacts]
+             (mapv :name (get-in report-gap-packet [:output-contract :buckets]))))
+      (is (= ["atlas" "systems" "dependencies" "evidence" "maintenance" "plugins"]
+             (get-in report-gap-packet [:output-contract :known-slots])))
+      (is (some #(= :dry-run (:id %))
+                (get-in report-gap-packet [:proof :local-checks])))
+      (is (some #(str/includes? % "benchmark")
+                (get-in report-gap-packet [:proof :public-claim-requirements])))
+      (is (some #(str/includes? % "project-specific")
+                (get-in report-gap-packet [:proof :core-promotion-requirements])))
+      (is (= :unbenchmarked (get-in report-gap-packet [:caveats :benchmark-status])))
+      (is (= claim-authority (get-in report-gap-packet [:caveats :claim-authority])))
       (is (= 1 (get-in report-context [:report :plugin-packages :counts :packages])))
       (is (= 1 (get-in report-context [:report :plugin-packages :counts :unbenchmarked])))
       (is (= "demo-plugin"

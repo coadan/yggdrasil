@@ -76,6 +76,7 @@
     (is (str/includes? usage "plugin input extractor <dir>"))
     (is (str/includes? usage "plugin input report <dir>"))
     (is (str/includes? usage "plugin gap extractor <dir>"))
+    (is (str/includes? usage "plugin gap report <dir>"))
     (is (str/includes? usage "plugin install <project.edn>"))
     (is (str/includes? usage "plugin update <project.edn> <package-id>"))
     (is (str/includes? usage "plugin list <project.edn>"))
@@ -437,6 +438,38 @@
                                              :command "bb plugin validate .dev/plugins/demo"}
                                             {:id :dry-run
                                              :command "bb plugin dry-run extractor .dev/plugins/demo . src/page.clj --plugin demo-extractor --json"}]}})
+                  plugin-package/report-gap-packet
+                  (fn [dir opts]
+                    (swap! calls conj [:gap-report dir opts])
+                    {:schema plugin-package/report-gap-schema
+                     :kind :report
+                     :status :passed
+                     :package {:id "demo"
+                               :version "0.1.0"
+                               :benchmark-status :unbenchmarked
+                               :claim-authority claim-authority
+                               :scope {:kind :project-local}}
+                     :plugins [{:id "demo-report"}]
+                     :selection {:kind :report
+                                 :requested-plugin-id "demo-report"
+                                 :available ["demo-report" "other-report"]
+                                 :selected ["demo-report"]
+                                 :skipped ["other-report"]
+                                 :counts {:available 2
+                                          :selected 1
+                                          :skipped 1}}
+                     :counts {:inputs 1}
+                     :diagnostics []
+                     :inputs [{:schema "agraph.report-plugin.input/v1"
+                               :plugin {:id "demo-report"}}]
+                     :output-contract {:schema "agraph.report-plugin.result/v1"
+                                       :buckets [{:name :panels}
+                                                 {:name :diagnostics}
+                                                 {:name :artifacts}]}
+                     :proof {:local-checks [{:id :validate
+                                             :command "bb plugin validate .dev/plugins/demo"}
+                                            {:id :dry-run
+                                             :command "bb plugin dry-run report .dev/plugins/demo --plugin demo-report --json"}]}})
                   plugin-package/remove! (fn [config-path package-id]
                                            (swap! calls conj [:remove config-path package-id])
                                            {:schema plugin-package/remove-schema
@@ -523,7 +556,14 @@
                                               "report"
                                               ".dev/plugins/demo"
                                               "--plugin"
-                                              "demo-report"]))]
+                                              "demo-report"]))
+            report-gap-out (with-out-str
+                             (cli/dispatch "plugin"
+                                           ["gap"
+                                            "report"
+                                            ".dev/plugins/demo"
+                                            "--plugin"
+                                            "demo-report"]))]
         (is (str/includes? validate-out "claim-authority status=non-authoritative public-claims=false"))
         (is (str/includes? diagnose-out "claim-blockers project-local,unbenchmarked"))
         (is (str/includes? extractor-out "benchmark=unbenchmarked"))
@@ -556,7 +596,11 @@
         (is (str/includes? report-input-out "- inputs 1"))
         (is (str/includes?
              report-input-out
-             "- selection available=demo-report,other-report selected=demo-report skipped=other-report")))
+             "- selection available=demo-report,other-report selected=demo-report skipped=other-report"))
+        (is (str/includes? report-gap-out "# Plugin Report Gap"))
+        (is (str/includes? report-gap-out "- output-schema agraph.report-plugin.result/v1"))
+        (is (str/includes? report-gap-out "- output-buckets panels,diagnostics,artifacts"))
+        (is (str/includes? report-gap-out "- dry-run bb plugin dry-run report")))
       (let [remove-out (with-out-str
                          (cli/dispatch "plugin"
                                        ["remove"
@@ -593,6 +637,7 @@
               [:gap ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]
               [:dry-run-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
               [:input-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
+              [:gap-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
               [:remove "project.edn" "demo"]
               [:registry ".dev/plugins/registry.edn"]]
              @calls)))))
@@ -1430,7 +1475,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
 

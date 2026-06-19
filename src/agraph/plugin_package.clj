@@ -42,6 +42,9 @@
 (def extractor-gap-schema
   "agraph.plugin.extractor-gap/v1")
 
+(def report-gap-schema
+  "agraph.plugin.report-gap/v1")
+
 (def diagnose-schema
   "agraph.plugin.diagnose/v1")
 
@@ -1470,6 +1473,12 @@
   (when (present? plugin-id)
     (str " --plugin " (gap-shell-token plugin-id))))
 
+(defn- public-claim-requirements
+  []
+  ["Keep output non-authoritative until benchmark artifacts exist."
+   "Benchmark claims against replayable architecture-understanding cases."
+   "Compare shell-only, core AGraph, and plugin-enhanced AGraph when claiming agent improvement."])
+
 (defn- extractor-gap-proof
   [package-dir root file plugin-id]
   {:local-checks [{:id :validate
@@ -1494,11 +1503,32 @@
                                  (gap-shell-token file)
                                  (plugin-option plugin-id)
                                  " --json")}]
-   :public-claim-requirements ["Keep output non-authoritative until benchmark artifacts exist."
-                               "Benchmark claims against replayable architecture-understanding cases."
-                               "Compare shell-only, core AGraph, and plugin-enhanced AGraph when claiming agent improvement."]
+   :public-claim-requirements (public-claim-requirements)
    :core-promotion-requirements ["Remove project-specific helper names, path semantics, host names, and product vocabulary."
                                  "Add project-agnostic fixtures and extractor tests."
+                                 "Add benchmark artifacts showing material improvement."
+                                 "Pass `bb plugin core-check <dir>` before proposing core promotion."]})
+
+(defn- report-gap-proof
+  [package-dir plugin-id]
+  {:local-checks [{:id :validate
+                   :command (str "bb plugin validate " (gap-shell-token package-dir))}
+                  {:id :diagnose
+                   :command (str "bb plugin diagnose " (gap-shell-token package-dir))}
+                  {:id :input
+                   :command (str "bb plugin input report "
+                                 (gap-shell-token package-dir)
+                                 (plugin-option plugin-id)
+                                 " --json")}
+                  {:id :dry-run
+                   :command (str "bb plugin dry-run report "
+                                 (gap-shell-token package-dir)
+                                 (plugin-option plugin-id)
+                                 " --json")}]
+   :public-claim-requirements (public-claim-requirements)
+   :core-promotion-requirements ["Remove project-specific dashboards, product vocabulary, local quality gates, and team-specific policy."
+                                 "Keep report panels useful across projects or documented ecosystem scopes."
+                                 "Add package-local report fixtures and tests."
                                  "Add benchmark artifacts showing material improvement."
                                  "Pass `bb plugin core-check <dir>` before proposing core promotion."]})
 
@@ -1523,6 +1553,24 @@
    :non-goals ["No ownership, system-boundary, or runtime-criticality claims without map/metadata acceptance."
                "No project-specific logic belongs in AGraph core without benchmarks and review."]})
 
+(defn- report-output-contract
+  []
+  {:schema report-plugin/result-schema
+   :buckets [{:name :panels
+              :purpose "Dashboard panels rendered from already-derived report and graph data."}
+             {:name :diagnostics
+              :purpose "Structured warnings or report plugin failures."}
+             {:name :artifacts
+              :purpose "Optional report artifacts linked from plugin output."}]
+   :known-slots ["atlas" "systems" "dependencies" "evidence" "maintenance" "plugins"]
+   :panel-requirements ["Emit stable panel ids, labels, slots, order, MDX, and bounded data."
+                        "Use supported MDX components only; browser JavaScript is not executed."
+                        "Present already-derived evidence; do not mutate source graph facts."
+                        "Surface uncertainty as diagnostics instead of hiding it."]
+   :non-goals ["No source graph writes during report generation."
+               "No accepted architecture meaning without map/metadata acceptance."
+               "No project-specific report logic belongs in core without benchmarks and review."]})
+
 (defn extractor-gap-packet
   "Build an agent-facing extractor authoring packet for one package/file.
 
@@ -1543,6 +1591,28 @@
      :inputs (:inputs input-sample)
      :output-contract (extractor-output-contract)
      :proof (extractor-gap-proof package-dir root file plugin-id)
+     :caveats {:benchmark-status (get-in input-sample [:package :benchmark-status])
+               :claim-authority (get-in input-sample [:package :claim-authority])
+               :scope (get-in input-sample [:package :scope])}}))
+
+(defn report-gap-packet
+  "Build an agent-facing report plugin authoring packet for one package.
+
+  The packet includes selected report plugin inputs, output contract, and proof
+  commands. It does not inspect rendered output or infer project semantics."
+  [package-dir {:keys [plugin-id] :as opts}]
+  (let [input-sample (sample-report-inputs package-dir opts)]
+    {:schema report-gap-schema
+     :kind :report
+     :status (:status input-sample)
+     :package (:package input-sample)
+     :plugins (:plugins input-sample)
+     :selection (:selection input-sample)
+     :counts (:counts input-sample)
+     :diagnostics (:diagnostics input-sample)
+     :inputs (:inputs input-sample)
+     :output-contract (report-output-contract)
+     :proof (report-gap-proof package-dir plugin-id)
      :caveats {:benchmark-status (get-in input-sample [:package :benchmark-status])
                :claim-authority (get-in input-sample [:package :claim-authority])
                :scope (get-in input-sample [:package :scope])}}))

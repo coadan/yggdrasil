@@ -253,11 +253,12 @@
            selection
            file
            core-counts
+           counts
            diagnostics
            inputs
            output-contract
            proof]}]
-  (println "# Plugin Extractor Gap")
+  (println (str "# Plugin " (str/capitalize (name (or kind :extractor))) " Gap"))
   (println "- status" (name status))
   (println "- kind" (name (or kind :extractor)))
   (println "- package"
@@ -278,6 +279,8 @@
   (print-plugin-selection selection)
   (when core-counts
     (println "- core" core-counts))
+  (when counts
+    (println "- output" counts))
   (println "- inputs" (count inputs))
   (println "- output-schema" (:schema output-contract))
   (println "- output-buckets" (id-list (map (comp name :name)
@@ -445,22 +448,25 @@
 (defn- plugin-gap!
   [args]
   (let [[kind package-dir root file] (positional-args args)]
-    (when-not (= "extractor" kind)
+    (when-not (#{"extractor" "report"} kind)
       (throw (ex-info "Unsupported plugin gap kind."
                       {:kind kind
-                       :supported ["extractor"]
+                       :supported ["extractor" "report"]
                        :usage (usage)})))
     (when-not package-dir
       (throw (ex-info "Missing plugin gap package directory."
                       {:usage (usage)})))
-    (when-not (and root file)
+    (when (and (= "extractor" kind)
+               (not (and root file)))
       (throw (ex-info "Missing plugin gap repo root or file."
                       {:usage (usage)})))
-    (let [result (plugin-package/extractor-gap-packet
-                  package-dir
-                  root
-                  file
-                  {:plugin-id (option-value args "--plugin")})]
+    (let [opts {:plugin-id (option-value args "--plugin")}
+          result (case kind
+                   "extractor"
+                   (plugin-package/extractor-gap-packet package-dir root file opts)
+
+                   "report"
+                   (plugin-package/report-gap-packet package-dir opts))]
       (if (json-output? args)
         (print-json result)
         (print-plugin-gap result))
