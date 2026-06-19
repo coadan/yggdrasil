@@ -207,6 +207,14 @@
             :agraphOnlyTagKeys []
             :warnings []}
            (get-in comparison [:byTag :comparability])))
+    (is (= {:sharedTagKeys ["problem-cross-file" "problem-localization"]
+            :problemClassTags ["problem-cross-file" "problem-localization"]
+            :architectureClassTags []
+            :hasProblemClasses true
+            :hasArchitectureClasses false
+            :broadEfficiencyClaimSupported false
+            :warnings ["No shared architecture-class tags; do not use this report to claim representative architecture-task gains."]}
+           (:problemClassCoverage comparison)))
     (is (= "agraph-improved"
            (get-in groups-by-tag ["problem-localization" :summary :signal])))
     (is (= "mixed"
@@ -220,6 +228,39 @@
                 (filter #(= :fileRecallAt10 (:key %)))
                 first
                 (#(select-keys % [:shellOnly :agraph :delta :effect :result])))))))
+
+(deftest problem-class-coverage-recognizes-architecture-classes
+  (let [shell (assoc shell-report
+                     :byTag [(tag-row "problem-architecture"
+                                      {:cases 1
+                                       :runs 1
+                                       :recall10 0.5
+                                       :noise 0.5})
+                             (tag-row "architecture-dependency-flow"
+                                      {:cases 1
+                                       :runs 1
+                                       :recall10 0.5
+                                       :noise 0.5})])
+        agraph (assoc agraph-report
+                      :byTag [(tag-row "problem-architecture"
+                                       {:cases 1
+                                        :runs 1
+                                        :recall10 1.0
+                                        :noise 0.25})
+                              (tag-row "architecture-dependency-flow"
+                                       {:cases 1
+                                        :runs 1
+                                        :recall10 1.0
+                                        :noise 0.25})])
+        comparison (agent-efficiency/compare-reports shell agraph)]
+    (is (= {:sharedTagKeys ["architecture-dependency-flow" "problem-architecture"]
+            :problemClassTags ["problem-architecture"]
+            :architectureClassTags ["architecture-dependency-flow" "problem-architecture"]
+            :hasProblemClasses true
+            :hasArchitectureClasses true
+            :broadEfficiencyClaimSupported true
+            :warnings []}
+           (:problemClassCoverage comparison)))))
 
 (deftest ignores-small-report-timing-jitter
   (let [shell (report {:mode "shell-only"
@@ -367,3 +408,13 @@
     (is (= "agraph-improved" (:status written)))
     (is (= shell-path (get-in written [:inputs :shellReport])))
     (is (= agraph-path (get-in written [:inputs :agraphReport])))))
+
+(deftest plain-output-warns-when-problem-class-coverage-is-missing
+  (let [root (temp-dir "agraph-agent-efficiency-plain")
+        shell-path (spit-json! root "shell/agent-report.json" shell-report)
+        agraph-path (spit-json! root "agraph/agent-report.json" agraph-report)
+        out (with-out-str
+              (agent-efficiency/-main shell-path agraph-path))]
+    (is (.contains out "Problem-class coverage warnings:"))
+    (is (.contains out "No shared problem-class tags"))
+    (is (.contains out "No shared architecture-class tags"))))

@@ -127,6 +127,25 @@
        (remove #(= :timing (:category %)))
        vec))
 
+(def ^:private architecture-class-tags
+  #{"problem-architecture"
+    "architecture-boundary"
+    "architecture-runtime-boundary"
+    "architecture-dependency-flow"
+    "architecture-data-ownership"
+    "architecture-cross-system-impact"
+    "audit-scope-runtime-config"
+    "audit-scope-containers"
+    "audit-scope-docs"})
+
+(defn- problem-class-tag?
+  [tag]
+  (str/starts-with? tag "problem-"))
+
+(defn- architecture-class-tag?
+  [tag]
+  (contains? architecture-class-tags tag))
+
 (defn- read-json-file
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
@@ -349,6 +368,25 @@
   {:comparability (tag-comparability shell-report agraph-report)
    :groups (tag-deltas shell-report agraph-report)})
 
+(defn- problem-class-coverage
+  [by-tag]
+  (let [shared-tags (get-in by-tag [:comparability :sharedTagKeys])
+        problem-tags (filterv problem-class-tag? shared-tags)
+        architecture-tags (filterv architecture-class-tag? shared-tags)]
+    {:sharedTagKeys (vec shared-tags)
+     :problemClassTags problem-tags
+     :architectureClassTags architecture-tags
+     :hasProblemClasses (boolean (seq problem-tags))
+     :hasArchitectureClasses (boolean (seq architecture-tags))
+     :broadEfficiencyClaimSupported (boolean (and (seq problem-tags)
+                                                  (seq architecture-tags)))
+     :warnings (cond-> []
+                 (empty? problem-tags)
+                 (conj "No shared problem-class tags; do not use this report for broad efficiency claims.")
+
+                 (empty? architecture-tags)
+                 (conj "No shared architecture-class tags; do not use this report to claim representative architecture-task gains."))}))
+
 (defn- case-deltas
   [shell-report agraph-report]
   (let [shell-by-case (result-by-case shell-report)
@@ -376,7 +414,8 @@
          min-shared-cases (long (or min-shared-cases default-min-shared-cases))
          summary (aggregate-summary deltas
                                     comparable
-                                    {:min-shared-cases min-shared-cases})]
+                                    {:min-shared-cases min-shared-cases})
+         by-tag (by-tag-comparison shell-report agraph-report)]
      {:schema schema
       :status (:signal summary)
       :suiteId (or (:suite-id agraph-report)
@@ -386,7 +425,8 @@
       :shellOnly (report-summary shell-report)
       :agraph (report-summary agraph-report)
       :deltas deltas
-      :byTag (by-tag-comparison shell-report agraph-report)
+      :byTag by-tag
+      :problemClassCoverage (problem-class-coverage by-tag)
       :caseDeltas (case-deltas shell-report agraph-report)})))
 
 (defn compare-report-files!
@@ -462,5 +502,10 @@
                         (get-in comparison [:summary :unavailableMetrics])))
           (println (str "Shared tag groups: "
                         (get-in comparison [:byTag :comparability :sharedTags])))
+          (when-let [warnings (seq (get-in comparison
+                                           [:problemClassCoverage :warnings]))]
+            (println "Problem-class coverage warnings:")
+            (doseq [warning warnings]
+              (println (str "- " warning))))
           (when-let [out (option-value args "--out")]
             (println (str "Wrote " out))))))))
