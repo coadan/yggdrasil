@@ -313,7 +313,7 @@ describe("ReportPage", () => {
   });
 
   it("answers report-local questions from loaded artifacts", () => {
-    render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
+    render(<ReportPage report={fixtureReport} graph={inventoryGraph} />);
 
     const askTab = screen.getAllByRole("button", { name: "Ask" }).find((button) => button.closest("nav"));
     expect(askTab).toBeTruthy();
@@ -322,6 +322,13 @@ describe("ReportPage", () => {
     expect(screen.getByText("Ask this report")).toBeInTheDocument();
     expect(screen.getByText("Report-local Ask")).toBeInTheDocument();
     expect(screen.getByText("Maintenance work")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "What is this project made of?" }));
+
+    expect(screen.getByText("Project inventory")).toBeInTheDocument();
+    expect(screen.getByText("Auth surfaces")).toBeInTheDocument();
+    expect(screen.getByText("Inventory Evidence Rows")).toBeInTheDocument();
+    expect(screen.getByText("generated/graphql-client.ts")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "What dependency issues exist?" }));
 
@@ -352,7 +359,7 @@ describe("ReportPage", () => {
 
     expect(screen.getByText("Scoped To")).toBeInTheDocument();
     expect(screen.getByText("Evidence Freshness")).toBeInTheDocument();
-    expect(screen.getByText("evidence.freshness")).toBeInTheDocument();
+    expect(screen.getAllByText("evidence.freshness").length).toBeGreaterThan(0);
     expect(screen.getByText("What should I do about evidence freshness?")).toBeInTheDocument();
   });
 

@@ -949,6 +949,98 @@ function overviewAnswer(report: AGraphReport, graph: AGraphGraph): AskAnswer {
   };
 }
 
+function evidenceKindCount(report: AGraphReport, names: string[]): number {
+  const wanted = new Set(names);
+  const kinds = asRecord(report.evidence.kinds);
+  let total = 0;
+  for (const value of Object.values(kinds)) {
+    const directRows = asRows(value);
+    const rows =
+      directRows.length > 0
+        ? directRows
+        : Object.values(asRecord(value)).flatMap((nested) => asRows(nested));
+    for (const row of rows) {
+      const kind = displayValue(row.kind || row.value || row.relation);
+      if (wanted.has(kind)) total += countValue(row, "count");
+    }
+  }
+  return total;
+}
+
+function graphNodeCount(graph: AGraphGraph, kinds: string[], tags: string[] = []): number {
+  const wantedKinds = new Set(kinds);
+  const wantedTags = new Set(tags);
+  return graph.nodes.filter((node) => {
+    if (node.kind && wantedKinds.has(node.kind)) return true;
+    return Array.isArray(node.tags) && node.tags.some((tag) => wantedTags.has(tag));
+  }).length;
+}
+
+function inventoryRelatedRows(report: AGraphReport, graph: AGraphGraph): Array<Record<string, unknown>> {
+  const inventoryKinds = new Set([
+    "route",
+    "url",
+    "external-api",
+    "config",
+    "deployment",
+    "secret",
+    "service-account",
+    "auth",
+    "auth-reference",
+    "generated-artifact",
+    "manifest"
+  ]);
+  const graphRows = graph.nodes
+    .filter((node) => {
+      if (node.kind && inventoryKinds.has(node.kind)) return true;
+      return Array.isArray(node.tags) && (node.tags.includes("config") || node.tags.includes("auth"));
+    })
+    .slice(0, 12)
+    .map((node) => ({
+      category: "graph-node",
+      label: node.label || node.id,
+      kind: node.kind,
+      path: node.path,
+      source: "systems.json"
+    }));
+  return [...graphRows, ...freshnessSampleRows(report).slice(0, 8)];
+}
+
+function inventoryAnswer(report: AGraphReport, graph: AGraphGraph): AskAnswer {
+  const packages = asRecord(report.packages);
+  const packageCounts = asRecord(packages.counts);
+  const freshness = asRecord(report.evidence.freshness);
+  const freshnessCounts = asRecord(freshness.counts);
+  const routes = graphNodeCount(graph, ["route"]) + evidenceKindCount(report, ["route"]);
+  const urls = graphNodeCount(graph, ["url", "external-api"]) + evidenceKindCount(report, ["url"]);
+  const auth = graphNodeCount(graph, ["auth", "auth-reference", "service-account"], ["auth"]) + evidenceKindCount(report, ["auth-reference"]);
+  const configs = graphNodeCount(graph, ["config", "deployment", "secret"], ["config"]) + evidenceKindCount(report, ["env-var"]);
+  const generated = graphNodeCount(graph, ["generated-artifact"]) + evidenceKindCount(report, ["generated-artifact"]);
+  const manifests = graphNodeCount(graph, ["manifest"]) + evidenceKindCount(report, ["manifest"]);
+  const freshnessGaps =
+    countValue(freshnessCounts, "changed") + countValue(freshnessCounts, "missing") + countValue(freshnessCounts, "unindexed");
+
+  return {
+    title: "Project inventory",
+    summary: [
+      `${report.project.name || report.project.id} contains ${report.repos.length} repo(s), ${numericCount(report, "files")} indexed file(s), ${graph.nodes.length} graph node(s), and ${graph.edges.length} graph edge(s) in the loaded artifacts.`,
+      `The report includes ${countValue(packageCounts, "packages")} package(s), ${manifests} manifest evidence row(s), ${routes} route row(s), ${urls} URL/external row(s), ${configs} config row(s), ${auth} auth row(s), and ${generated} generated artifact row(s).`,
+      `Freshness state has ${freshnessGaps} gap(s): ${countValue(freshnessCounts, "changed")} changed, ${countValue(freshnessCounts, "missing")} missing, and ${countValue(freshnessCounts, "unindexed")} unindexed.`
+    ],
+    evidence: [
+      { source: "evidence.counts", finding: "Indexed files", count: numericCount(report, "files") },
+      { source: "systems.json", finding: "Graph nodes", count: graph.nodes.length },
+      { source: "packages.counts", finding: "Packages", count: countValue(packageCounts, "packages") },
+      { source: "evidence.kinds", finding: "Routes", count: routes },
+      { source: "evidence.kinds", finding: "URLs", count: urls },
+      { source: "evidence.kinds", finding: "Auth surfaces", count: auth },
+      { source: "evidence.freshness", finding: "Freshness gaps", count: freshnessGaps }
+    ],
+    related: inventoryRelatedRows(report, graph),
+    relatedTitle: "Inventory Evidence Rows"
+  };
+}
+
 function dependencyAnswer(report: AGraphReport): AskAnswer {
   const packages = asRecord(report.packages);
   const counts = asRecord(packages.counts);
@@ -1072,6 +1164,9 @@ function coverageAnswer(report: AGraphReport): AskAnswer {
 
 function answerReportQuestion(report: AGraphReport, graph: AGraphGraph, question: string): AskAnswer {
   const normalized = question.trim().toLowerCase();
+  if (/\b(made of|inventory|contain|contains|routes?|auth|config|generated|manifest|freshness|stale|missing)\b/.test(normalized)) {
+    return inventoryAnswer(report, graph);
+  }
   if (/\b(depend\w*|package|import|version|conflict|npm|cargo|go|maven)\b/.test(normalized)) {
     return dependencyAnswer(report);
   }
@@ -2137,6 +2232,7 @@ function PluginsTab({
 function AskTab({ report, graph, scope }: { report: AGraphReport; graph: AGraphGraph; scope: AskScope | null }) {
   const defaultQuestion = "What should I review next?";
   const quickPrompts = [
+    "What is this project made of?",
     defaultQuestion,
     "What dependency issues exist?",
     "Which systems touch external APIs?",
@@ -2234,6 +2330,7 @@ function AskTab({ report, graph, scope }: { report: AGraphReport; graph: AGraphG
         title={answer.relatedTitle}
         rows={answer.related}
         columns={[
+          { key: "category", label: "Category" },
           { key: "label", label: "Label" },
           { key: "system", label: "System" },
           { key: "kind", label: "Kind" },
@@ -2243,7 +2340,9 @@ function AskTab({ report, graph, scope }: { report: AGraphReport; graph: AGraphG
           { key: "count", label: "Count" },
           { key: "target-count", label: "Targets" },
           { key: "externalApis", label: "External APIs" },
-          { key: "reason", label: "Reason" }
+          { key: "reason", label: "Reason" },
+          { key: "source", label: "Source" },
+          { key: "status", label: "Status" }
         ]}
         empty="No related rows for this answer."
       />
