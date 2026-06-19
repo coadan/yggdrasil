@@ -300,6 +300,19 @@
                 :plugin-scanned?
                 :plugin-ids]))
 
+(defn- plugin-input-summary
+  [plugin]
+  (cond-> {:id (:id plugin)
+           :version (:version plugin)
+           :authority (:authority plugin)
+           :benchmarkStatus (name (:benchmark-status plugin))}
+    (:package-id plugin) (assoc :packageId (:package-id plugin))
+    (:package-version plugin) (assoc :packageVersion (:package-version plugin))
+    (:package-rev plugin) (assoc :packageRev (:package-rev plugin))
+    (:package-manifest-fingerprint plugin)
+    (assoc :packageManifestFingerprint (:package-manifest-fingerprint plugin))
+    (:package-source plugin) (assoc :packageSource (:package-source plugin))))
+
 (defn- plugin-input
   [{:keys [run-id project-id repo-id root-path file core-extraction]} plugin]
   {:schema input-schema
@@ -307,10 +320,7 @@
    :repo {:id repo-id
           :root root-path}
    :run {:id run-id}
-   :plugin {:id (:id plugin)
-            :version (:version plugin)
-            :authority (:authority plugin)
-            :benchmarkStatus (name (:benchmark-status plugin))}
+   :plugin (plugin-input-summary plugin)
    :file (select-plugin-file file)
    :core (select-keys core-extraction [:nodes :edges :chunks :diagnostics])})
 

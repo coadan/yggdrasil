@@ -103,7 +103,16 @@ Input schema: `agraph.extractor-plugin.input/v1`
     "id": "datastar-hiccup",
     "version": "0.1.0",
     "authority": "project-plugin",
-    "benchmarkStatus": "unbenchmarked"
+    "benchmarkStatus": "unbenchmarked",
+    "packageId": "datastar-hiccup",
+    "packageVersion": "0.1.0",
+    "packageRev": "abc123",
+    "packageManifestFingerprint": "sha256:...",
+    "packageSource": {
+      "type": "git",
+      "url": "https://github.com/org/agraph-datastar.git",
+      "rev": "abc123"
+    }
   },
   "file": {
     "file-id": "file:sample:app:src/page.clj",
@@ -119,6 +128,10 @@ Input schema: `agraph.extractor-plugin.input/v1`
   }
 }
 ```
+
+`packageId`, `packageVersion`, `packageRev`, `packageManifestFingerprint`, and
+`packageSource` are present for git-shared package plugins. Project-local plugin
+configs omit them.
 
 ## Output Contract
 

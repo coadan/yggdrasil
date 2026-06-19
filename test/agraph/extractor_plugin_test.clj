@@ -197,3 +197,42 @@
       (is (= :unbenchmarked (:benchmark-status plugin)))
       (is (= {} (:search plugin)))
       (is (seq (extractor-plugin/scan-specs [plugin]))))))
+
+(deftest extractor-plugin-input-includes-package-provenance
+  (let [plugin (extractor-plugin/normalize-plugin
+                (merge (plugin-config)
+                       {:authority :git-plugin
+                        :benchmark-status :unbenchmarked
+                        :package-id "datastar-hiccup"
+                        :package-version "0.1.0"
+                        :package-rev "abc123"
+                        :package-manifest-fingerprint "sha256:manifest"
+                        :package-source {:type :git
+                                         :url "https://example.test/datastar.git"
+                                         :rev "abc123"}}))
+        input (#'extractor-plugin/plugin-input
+               {:run-id "run:1"
+                :project-id "plugin-input-project"
+                :repo-id "app"
+                :root-path "/repo"
+                :file {:file-id "file:1"
+                       :path "src/app.clj"
+                       :kind :code
+                       :content "(ns app)"}
+                :core-extraction {:nodes []
+                                  :edges []
+                                  :chunks []
+                                  :diagnostics []}}
+               plugin)]
+    (is (= {:id "panel-plugin"
+            :version "0.1.0"
+            :authority :git-plugin
+            :benchmarkStatus "unbenchmarked"
+            :packageId "datastar-hiccup"
+            :packageVersion "0.1.0"
+            :packageRev "abc123"
+            :packageManifestFingerprint "sha256:manifest"
+            :packageSource {:type :git
+                            :url "https://example.test/datastar.git"
+                            :rev "abc123"}}
+           (:plugin input)))))
