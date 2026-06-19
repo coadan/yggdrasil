@@ -4,8 +4,10 @@
             [agraph.command :as command]
             [agraph.coverage :as coverage]
             [agraph.dependency :as dependency]
+            [agraph.fs :as fs]
             [agraph.query :as query]
             [agraph.xtdb :as store]
+            [clojure.set :as set]
             [clojure.string :as str]))
 
 (def schema
@@ -153,18 +155,31 @@
              :count unresolved-imports
              :command (str check-command " --enqueue")}))))
 
+(defn- refresh-command
+  [config-path map-path]
+  (str (sync-command config-path "--check")
+       (when map-path
+         (str " --map " (command/shell-token map-path)))))
+
 (defn- next-actions
-  [{:keys [project config-path map-path counts]}]
+  [{:keys [project config-path map-path counts freshness]}]
   (let [{:keys [files search-docs system-nodes system-edges activity-items
                 activity-events result-schema-mismatch-events diagnostics]} counts
-        project-id (:id project)]
+        project-id (:id project)
+        stale-count (+ (get-in freshness [:counts :changed] 0)
+                       (get-in freshness [:counts :missing] 0)
+                       (get-in freshness [:counts :unindexed] 0))]
     (->> (cond-> []
            (zero? files)
            (conj {:kind :source-files
                   :label "Index and validate project source files"
-                  :command (str (sync-command config-path "--check")
-                                (when map-path
-                                  (str " --map " (command/shell-token map-path))))})
+                  :command (refresh-command config-path map-path)})
+
+           (contains? #{:stale :unsynced} (:status freshness))
+           (conj {:kind :freshness
+                  :label "Refresh indexed graph basis"
+                  :count stale-count
+                  :command (refresh-command config-path map-path)})
 
            (zero? search-docs)
            (conj {:kind :docs
@@ -216,6 +231,94 @@
   [actions]
   (mapv :command actions))
 
+(def freshness-sample-limit
+  8)
+
+(defn- path-sample
+  [repo-id path]
+  {:repo-id repo-id
+   :path path})
+
+(defn- current-files
+  [{:keys [id root]}]
+  (try
+    {:repo-id id
+     :root root
+     :files (fs/scan-files root)}
+    (catch Exception e
+      {:repo-id id
+       :root root
+       :error {:class (.getName (class e))
+               :message (ex-message e)}})))
+
+(defn- repo-freshness
+  [indexed-files {:keys [id root] :as repo}]
+  (let [scan (current-files repo)
+        indexed (filter #(= id (:repo-id %)) indexed-files)
+        indexed-by-path (into {} (map (juxt :path identity)) indexed)
+        current-by-path (into {} (map (juxt :path identity)) (:files scan))
+        indexed-paths (set (keys indexed-by-path))
+        current-paths (set (keys current-by-path))
+        missing (sort (remove current-paths indexed-paths))
+        unindexed (sort (remove indexed-paths current-paths))
+        changed (->> (set/intersection indexed-paths current-paths)
+                     (filter (fn [path]
+                               (not= (:content-sha (get indexed-by-path path))
+                                     (:content-sha (get current-by-path path)))))
+                     sort
+                     vec)
+        status (cond
+                 (:error scan) :unknown
+                 (and (zero? (count indexed))
+                      (zero? (count (:files scan)))) :empty
+                 (zero? (count indexed)) :unsynced
+                 (seq (concat missing unindexed changed)) :stale
+                 :else :current)]
+    (cond-> {:repo-id id
+             :root root
+             :status status
+             :counts {:indexed (count indexed)
+                      :current (count (:files scan))
+                      :changed (count changed)
+                      :missing (count missing)
+                      :unindexed (count unindexed)}}
+      (:error scan) (assoc :error (:error scan))
+      (seq changed) (assoc-in [:samples :changed]
+                              (mapv #(path-sample id %) (take freshness-sample-limit changed)))
+      (seq missing) (assoc-in [:samples :missing]
+                              (mapv #(path-sample id %) (take freshness-sample-limit missing)))
+      (seq unindexed) (assoc-in [:samples :unindexed]
+                                (mapv #(path-sample id %) (take freshness-sample-limit unindexed))))))
+
+(defn- freshness-status
+  [repo-statuses]
+  (cond
+    (some #(= :unknown (:status %)) repo-statuses) :unknown
+    (some #(= :stale (:status %)) repo-statuses) :stale
+    (some #(= :unsynced (:status %)) repo-statuses) :unsynced
+    (every? #(= :empty (:status %)) repo-statuses) :empty
+    :else :current))
+
+(defn- add-counts
+  [a b]
+  (merge-with + a b))
+
+(defn- freshness-summary
+  [indexed-files project repo-id]
+  (let [repos (cond->> (:repos project)
+                repo-id (filter #(= repo-id (:id %))))
+        repo-statuses (mapv #(repo-freshness indexed-files %) repos)
+        counts (reduce add-counts
+                       {:indexed 0
+                        :current 0
+                        :changed 0
+                        :missing 0
+                        :unindexed 0}
+                       (map :counts repo-statuses))]
+    {:status (freshness-status repo-statuses)
+     :counts counts
+     :repos repo-statuses}))
+
 (defn summarize
   "Return a project-level mechanical evidence summary.
 
@@ -248,6 +351,7 @@
         result-schema-mismatch-events (filter #(= :result-schema-mismatch
                                                   (:event-kind %))
                                               activity-events)
+        freshness (freshness-summary files project repo-id)
         counts {:files (count files)
                 :nodes (count nodes)
                 :edges (count edges)
@@ -274,10 +378,12 @@
         actions (next-actions {:project project
                                :config-path config-path
                                :map-path map-path
-                               :counts counts})]
+                               :counts counts
+                               :freshness freshness})]
     {:schema schema
      :project-id (:id project)
      :repo-id repo-id
+     :freshness freshness
      :available (available counts)
      :counts counts
      :top-file-kinds (vec (take 12 (:files-by-kind coverage-report)))

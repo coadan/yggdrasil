@@ -214,7 +214,8 @@ use-case-specific meaning belong in human or LLM-backed corrections where the
 project state space is too large for fixed rules.
 
 Agent usage should follow progressive disclosure. A fresh agent should start
-with `agraph status`, `agraph sync check`, and a compact system view, then
+with `agraph status` to check graph-basis freshness and evidence planes,
+`agraph sync check`, and a compact system view, then
 drill into `agraph ask`, `agraph explore`, graph slices, and evidence only for
 the subsystem or task it is actively working on.
 Avoid dumping the full graph unless the task explicitly needs broad inventory.

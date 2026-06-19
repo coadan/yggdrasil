@@ -3,6 +3,7 @@
             [agraph.coverage :as coverage]
             [agraph.dependency :as dependency]
             [agraph.evidence :as evidence]
+            [agraph.fs :as fs]
             [agraph.query :as query]
             [agraph.xtdb :as store]
             [clojure.test :refer [deftest is]]))
@@ -167,5 +168,80 @@
                      :count 1
                      :mcpTool "agraph_sync_activity"
                      :command "agraph sync activity <project.edn> --json"}
+                    %)
+                (:nextActions summary))))))
+
+(deftest summarize-reports-mechanical-freshness
+  (with-redefs [coverage/project-coverage (fn [& _]
+                                            {:totals {:skipped 0}
+                                             :files-by-kind []
+                                             :extractors []
+                                             :skipped-by-extension []
+                                             :skipped-by-reason []
+                                             :diagnostics {:total 0}})
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :versions 0
+                                                      :imports-package 0
+                                                      :version-conflicts 0
+                                                      :declared-without-import-evidence 0
+                                                      :unresolved-imports 0}
+                                             :ecosystems []})
+                fs/scan-files (fn [root]
+                                (is (= "/repo" root))
+                                [{:path "src/changed.clj"
+                                  :content-sha "sha256:new"}
+                                 {:path "src/new.clj"
+                                  :content-sha "sha256:new-file"}])
+                store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:changed"
+                                                   :project-id "fixture"
+                                                   :repo-id "app"
+                                                   :path "src/changed.clj"
+                                                   :content-sha "sha256:old"
+                                                   :active? true}
+                                                  {:xt/id "file:deleted"
+                                                   :project-id "fixture"
+                                                   :repo-id "app"
+                                                   :path "src/deleted.clj"
+                                                   :content-sha "sha256:deleted"
+                                                   :active? true}]
+                                   []))
+                query/all-nodes (fn [& _] [])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                activity/all-items (fn [& _] [])
+                activity/all-events (fn [& _] [])]
+    (let [summary (evidence/summarize :xtdb
+                                      {:id "fixture"
+                                       :repos [{:id "app"
+                                                :root "/repo"}]}
+                                      {:config-path "project.edn"
+                                       :map-path "agraph.map.json"})]
+      (is (= :stale (get-in summary [:freshness :status])))
+      (is (= {:indexed 2
+              :current 2
+              :changed 1
+              :missing 1
+              :unindexed 1}
+             (get-in summary [:freshness :counts])))
+      (is (= [{:repo-id "app"
+               :path "src/changed.clj"}]
+             (get-in summary [:freshness :repos 0 :samples :changed])))
+      (is (= [{:repo-id "app"
+               :path "src/deleted.clj"}]
+             (get-in summary [:freshness :repos 0 :samples :missing])))
+      (is (= [{:repo-id "app"
+               :path "src/new.clj"}]
+             (get-in summary [:freshness :repos 0 :samples :unindexed])))
+      (is (some #(= {:kind :freshness
+                     :label "Refresh indexed graph basis"
+                     :count 3
+                     :command "agraph sync project.edn --check --map agraph.map.json"}
                     %)
                 (:nextActions summary))))))

@@ -323,7 +323,7 @@
                                     :map-path map-path})}))
 
 (defn- print-evidence-summary
-  [{:keys [available counts next]}]
+  [{:keys [available counts freshness next]}]
   (println)
   (println "## Evidence Surface")
   (println "- available"
@@ -340,6 +340,15 @@
   (println "- activity-events" (:activity-events counts 0))
   (println "- validation-events" (:validation-events counts 0))
   (println "- result-schema-mismatch-events" (:result-schema-mismatch-events counts 0))
+  (when freshness
+    (println)
+    (println "## Freshness")
+    (println "- status" (name (:status freshness)))
+    (println "- indexed" (get-in freshness [:counts :indexed] 0))
+    (println "- current" (get-in freshness [:counts :current] 0))
+    (println "- changed" (get-in freshness [:counts :changed] 0))
+    (println "- missing" (get-in freshness [:counts :missing] 0))
+    (println "- unindexed" (get-in freshness [:counts :unindexed] 0)))
   (when (seq next)
     (println)
     (println "## Next")

@@ -285,7 +285,7 @@
       (is (= first-content (slurp agents)))
       (is (str/includes? first-content "Keep this line."))
       (is (str/includes? first-content "agraph status <project.edn> --json"))
-      (is (str/includes? first-content "`available`, `counts`, and structured `nextActions`"))
+      (is (str/includes? first-content "graph-basis freshness, available evidence"))
       (is (str/includes? first-content "agraph explore \"<question>\" --project <project-id> --json"))
       (is (str/includes? first-content "agraph explore search <cursor-id> \"<follow-up query>\""))
       (is (str/includes? first-content "agraph sync check <project.edn> --map agraph.map.json --enqueue"))
@@ -1197,6 +1197,13 @@
                                       :project-id (:id project)
                                       :config-path (:config-path opts)
                                       :available [:source-graph :docs]
+                                      :freshness {:status :stale
+                                                  :counts {:indexed 2
+                                                           :current 3
+                                                           :changed 1
+                                                           :missing 0
+                                                           :unindexed 1}
+                                                  :repos []}
                                       :counts {:files 2
                                                :nodes 3
                                                :edges 4
@@ -1227,6 +1234,10 @@
       (is (str/includes? plain-out "- activity-events 5"))
       (is (str/includes? plain-out "- validation-events 1"))
       (is (str/includes? plain-out "- result-schema-mismatch-events 1"))
+      (is (str/includes? plain-out "## Freshness"))
+      (is (str/includes? plain-out "- status stale"))
+      (is (str/includes? plain-out "- changed 1"))
+      (is (str/includes? plain-out "- unindexed 1"))
       (let [status-out (with-out-str
                          (cli/dispatch "status" ["project.edn" "--json"]))
             status-parsed (read-json-output status-out)]
