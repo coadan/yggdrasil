@@ -957,7 +957,8 @@
                                                   :target-kind :chunk
                                                   :target-id "chunk:auth"
                                                   :label "auth/start"
-                                                  :source-line 12}]})
+                                                  :source-line 12
+                                                  :end-line 18}]})
                 graph/system-graph (fn [_ project-id _]
                                      {:basis {:project-id project-id}
                                       :nodes []
@@ -1007,7 +1008,8 @@
                :score 1.2
                :targetKind "chunk"
                :label "auth/start"
-               :sourceLine 12}]
+               :sourceLine 12
+               :endLine 18}]
              (:candidateFiles packet))))))
 
 (deftest context-packet-includes-architecture-section-for-selected-systems

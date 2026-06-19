@@ -676,6 +676,7 @@
                 (:repo result) (assoc :repo (:repo result))
                 (:kind result) (assoc :kind (display-name (:kind result)))
                 (:source-line result) (assoc :sourceLine (:source-line result))
+                (:end-line result) (assoc :endLine (:end-line result))
                 (:result-kind result) (assoc :resultKind (name (:result-kind result)))
                 (:reason result) (assoc :reason (:reason result))
                 (:score-components result) (assoc :scoreComponents
