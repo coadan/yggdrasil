@@ -2029,6 +2029,90 @@
                graph-score-supported?)
           (assoc :graph-neighbor-score graph-score))))))
 
+(defn- architecture-evidence-text
+  [row]
+  (str/join "\n"
+            (remove blankish?
+                    [(:path row)
+                     (:kind row)
+                     (:fileKind row)
+                     (:relation row)
+                     (:label row)
+                     (:normalizedValue row)
+                     (:source row)
+                     (:target row)])))
+
+(defn- architecture-file-evidence
+  [section row path]
+  (str "architecture-evidence:"
+       section
+       ":"
+       path
+       (when-let [kind (not-empty (str (:kind row)))]
+         (str " kind=" kind))
+       (when-let [relation (not-empty (str (:relation row)))]
+         (str " relation=" relation))
+       (when-let [label (not-empty (str (:label row)))]
+         (str " label=" (pr-str label)))
+       (when-some [score (:score row)]
+         (str " score=" score))))
+
+(defn- architecture-file-prediction
+  [root query-tokens idx section row]
+  (let [path (:path row)]
+    (when (existing-file-path? root path)
+      (let [evidence-text (architecture-evidence-text row)]
+        {:path path
+         :source-rank (+ 700 (inc idx))
+         :confidence (bounded-confidence (:score row))
+         :evidence-score (* 0.7 (double (or (parse-double-safe (:score row)) 0.0)))
+         :evidence-kind :candidate-file
+         :retrieved-source? false
+         :exact-path-source? false
+         :definition-kind (some-> (:kind row) str)
+         :matched-tokens (token-matches query-tokens evidence-text)
+         :matched-token-pairs (compact-token-pair-matches query-tokens evidence-text)
+         :matched-compound-token-pairs (compact-compound-token-pair-matches
+                                        query-tokens
+                                        evidence-text)
+         :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
+                                                 query-tokens
+                                                 (:path row)
+                                                 (:label row)
+                                                 (:kind row)
+                                                 (:relation row))
+         :evidence [(architecture-file-evidence section row path)]
+         :reason (str "AGraph architecture "
+                      section
+                      " row "
+                      (or (:id row) path)
+                      " references "
+                      path
+                      ".")}))))
+
+(defn- architecture-file-rows
+  [root query-tokens packet]
+  (vec
+   (concat
+    (keep-indexed #(architecture-file-prediction root
+                                                 query-tokens
+                                                 %1
+                                                 "runtimeEvidence"
+                                                 %2)
+                  (get-in packet [:architecture :runtimeEvidence]))
+    (keep-indexed #(architecture-file-prediction root
+                                                 query-tokens
+                                                 %1
+                                                 "boundaryEvidence"
+                                                 %2)
+                  (get-in packet [:architecture :boundaryEvidence]))
+    (keep-indexed #(architecture-file-prediction root
+                                                 query-tokens
+                                                 %1
+                                                 "dependencyEvidence"
+                                                 %2)
+                  (get-in packet [:architecture :dependencyEvidence])))))
+
 (defn- ranked-file-predictions
   [rows]
   (let [combine-rows (fn [path grouped-rows]
@@ -2334,9 +2418,11 @@
          entity-rows (keep-indexed #(entity-prediction root query-tokens %1 %2) (:entities packet))
          candidate-file-rows (keep-indexed #(candidate-file-prediction root query-tokens %1 %2)
                                            (:candidateFiles packet))
+         architecture-rows (architecture-file-rows root query-tokens packet)
          raw-candidate-files (ranked-file-predictions (concat doc-rows
                                                               entity-rows
-                                                              candidate-file-rows))
+                                                              candidate-file-rows
+                                                              architecture-rows))
          candidate-files (->> raw-candidate-files
                               (filter #(keep-coverage-source-kind? source-kinds
                                                                    kind-by-path

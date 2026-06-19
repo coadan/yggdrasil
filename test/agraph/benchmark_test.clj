@@ -2516,6 +2516,38 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-uses-architecture-runtime-evidence
+  (let [root (temp-dir "agraph-bench-architecture-runtime")
+        _ (spit-file! root "config/runtime.env" "DATABASE_URL=postgres://example\n")
+        packet {:query "database runtime config"
+                :architecture {:runtimeEvidence [{:id "evidence:database-url"
+                                                  :path "config/runtime.env"
+                                                  :kind "env-var"
+                                                  :fileKind "env"
+                                                  :label "DATABASE_URL"
+                                                  :normalizedValue "database-url"
+                                                  :score 1.2}]}}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["config/runtime.env"]
+           (mapv :path files)))
+    (is (= ["architecture-evidence:runtimeEvidence:config/runtime.env kind=env-var label=\"DATABASE_URL\" score=1.2"]
+           (get-in files [0 :evidence])))
+    (is (= "AGraph architecture runtimeEvidence row evidence:database-url references config/runtime.env."
+           (get-in files [0 :reason])))
+    (is (= {:firstSourceRank 701
+            :supportCount 1
+            :docCount 0
+            :entityCount 0
+            :candidateFileCount 1
+            :retrievedSourceCount 0
+            :exactPathSourceCount 0
+            :maxConfidence 1.0
+            :rankScore 1.62
+            :matchedTokenCount 3
+            :definitionKinds ["env-var"]}
+           (get-in files [0 :metrics])))))
+
 (deftest file-ranking-requires-lexical-support-for-graph-neighbor-boost
   (let [root (temp-dir "agraph-bench-candidate-graph-support")
         _ (spit-file! root "src/thin.clj" "(ns thin)\n")
