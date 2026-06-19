@@ -4,7 +4,8 @@
             [agraph.coverage :as coverage]
             [agraph.dependency :as dependency]
             [agraph.query :as query]
-            [agraph.xtdb :as store]))
+            [agraph.xtdb :as store]
+            [clojure.string :as str]))
 
 (def schema
   "agraph.evidence/v1")
@@ -74,60 +75,140 @@
   [value]
   (pos? (long (or value 0))))
 
-(defn- package-next-commands
+(defn- distinct-by
+  [f coll]
+  (loop [remaining (seq coll)
+         seen #{}
+         out []]
+    (if-let [item (first remaining)]
+      (let [k (f item)]
+        (if (contains? seen k)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen k) (conj out item))))
+      out)))
+
+(defn- shell-token
+  [value]
+  (let [value (str value)]
+    (if (or (re-matches #"<[^>]+>" value)
+            (re-matches #"[A-Za-z0-9_./:=+@%-]+" value))
+      value
+      (str "'" (str/replace value #"'" "'\"'\"'") "'"))))
+
+(defn- package-command
+  [project-id & args]
+  (str "agraph packages --project " (shell-token (or project-id "<project-id>"))
+       (when (seq args)
+         (str " " (str/join " " (map shell-token args))))))
+
+(defn- sync-command
+  [config-path & args]
+  (str "agraph sync " (shell-token (or config-path "<project.edn>"))
+       (when (seq args)
+         (str " " (str/join " " (map shell-token args))))))
+
+(defn- sync-subcommand
+  [subcommand config-path & args]
+  (str "agraph sync " subcommand " " (shell-token (or config-path "<project.edn>"))
+       (when (seq args)
+         (str " " (str/join " " (map shell-token args))))))
+
+(defn- view-systems-command
+  [project-id]
+  (str "agraph view systems --project " (shell-token (or project-id "<project-id>"))))
+
+(defn- ask-command
+  [project-id]
+  (str "agraph ask \"where is this handled?\" --project "
+       (shell-token (or project-id "<project-id>"))
+       " --json"))
+
+(defn- package-next-actions
   [project-id {:keys [packages package-evidence-gaps unresolved-imports package-conflicts]}
    {:keys [config-path map-path]}]
-  (let [base (str "agraph packages --project " project-id)
-        check-base (str "agraph sync check " (or config-path "<project.edn>")
-                        (when map-path (str " --map " map-path)))]
+  (let [check-command (str (sync-subcommand "check" config-path)
+                           (when map-path
+                             (str " --map " (shell-token map-path))))]
     (cond-> []
       (zero? (long (or packages 0)))
-      (conj (str base " --json"))
+      (conj {:kind :dependencies
+             :label "Inspect package graph facts"
+             :command (package-command project-id "--json")})
 
       (positive-count? package-evidence-gaps)
-      (conj (str base " --without-import-evidence --json"))
+      (conj {:kind :dependencies
+             :label "Inspect packages without source import evidence"
+             :count package-evidence-gaps
+             :command (package-command project-id "--without-import-evidence" "--json")})
 
       (positive-count? package-conflicts)
-      (conj (str base " --with-conflicts --json"))
+      (conj {:kind :dependencies
+             :label "Inspect package version conflicts"
+             :count package-conflicts
+             :command (package-command project-id "--with-conflicts" "--json")})
 
       (positive-count? unresolved-imports)
-      (conj (str base " --json"))
+      (conj {:kind :dependencies
+             :label "Inspect unresolved import package evidence"
+             :count unresolved-imports
+             :command (package-command project-id "--json")})
 
       (positive-count? unresolved-imports)
-      (conj (str check-base " --enqueue")))))
+      (conj {:kind :dependency-review
+             :label "Queue unresolved import review work"
+             :count unresolved-imports
+             :command (str check-command " --enqueue")}))))
 
-(defn- next-commands
+(defn- next-actions
   [{:keys [project config-path map-path counts]}]
   (let [{:keys [files search-docs system-nodes system-edges activity-items
                 activity-events diagnostics]} counts
         project-id (:id project)]
     (->> (cond-> []
            (zero? files)
-           (conj (str "agraph sync " (or config-path "<project.edn>") " --check"
-                      (when map-path (str " --map " map-path))))
+           (conj {:kind :source-files
+                  :label "Index and validate project source files"
+                  :command (str (sync-command config-path "--check")
+                                (when map-path
+                                  (str " --map " (shell-token map-path))))})
 
            (zero? search-docs)
-           (conj (str "agraph sync " (or config-path "<project.edn>") " --query-index"))
+           (conj {:kind :docs
+                  :label "Build query index"
+                  :command (sync-command config-path "--query-index")})
 
            (zero? (+ system-nodes system-edges))
-           (conj (str "agraph view systems --project " project-id))
+           (conj {:kind :systems
+                  :label "Inspect system graph"
+                  :command (view-systems-command project-id)})
 
            true
-           (into (package-next-commands project-id counts
-                                        {:config-path config-path
-                                         :map-path map-path}))
+           (into (package-next-actions project-id counts
+                                       {:config-path config-path
+                                        :map-path map-path}))
 
            (zero? (+ activity-items activity-events))
-           (conj (str "agraph sync activity " (or config-path "<project.edn>") " --json"))
+           (conj {:kind :activity
+                  :label "Import local activity and work rows"
+                  :command (sync-subcommand "activity" config-path "--json")})
 
            (pos? diagnostics)
-           (conj (str "agraph sync coverage " (or config-path "<project.edn>") " --json"))
+           (conj {:kind :coverage
+                  :label "Inspect extractor diagnostics"
+                  :count diagnostics
+                  :command (sync-subcommand "coverage" config-path "--json")})
 
            true
-           (conj (str "agraph ask \"where is this handled?\" --project " project-id " --json")))
-         distinct
+           (conj {:kind :ask
+                  :label "Ask a graph-grounded implementation question"
+                  :command (ask-command project-id)}))
+         (distinct-by :command)
          (take 8)
          vec)))
+
+(defn- next-commands
+  [actions]
+  (mapv :command actions))
 
 (defn summarize
   "Return a project-level mechanical evidence summary.
@@ -179,7 +260,11 @@
                 :validation-events (count validation-events)
                 :diagnostics (get-in coverage-report [:diagnostics :total] 0)
                 :skipped-files (get-in coverage-report [:totals :skipped] 0)
-                :map-overlay (overlay-counts map-overlay)}]
+                :map-overlay (overlay-counts map-overlay)}
+        actions (next-actions {:project project
+                               :config-path config-path
+                               :map-path map-path
+                               :counts counts})]
     {:schema schema
      :project-id (:id project)
      :repo-id repo-id
@@ -195,7 +280,5 @@
                                [:total :by-stage :by-extractor])
      :packages {:counts (:counts package-report)
                 :ecosystems (:ecosystems package-report)}
-     :next (next-commands {:project project
-                           :config-path config-path
-                           :map-path map-path
-                           :counts counts})}))
+     :next (next-commands actions)
+     :nextActions actions}))

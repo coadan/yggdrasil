@@ -68,8 +68,10 @@ human or agent to inspect.
 
 The project evidence surface (`agraph.evidence/v1` in reports and
 `sync inspect --json`) includes the same dependency counts and adds `next`
-commands for the package report variants when declared-package evidence gaps,
-version conflicts, or unresolved imports are present.
+commands plus structured `nextActions` rows for the package report variants when
+declared-package evidence gaps, version conflicts, or unresolved imports are
+present. Agents should prefer `nextActions` because each row carries a bounded
+`kind`, `label`, optional `count`, and executable `command`.
 
 `sync check --enqueue` turns unresolved imports into
 `agraph.dependency.review-packet/v1` queue items. A completed
