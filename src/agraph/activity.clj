@@ -301,6 +301,19 @@
      :deleted-items (count existing-items)
      :deleted-events (count existing-events)}))
 
+(defn- mismatch-summary
+  [item]
+  (cond-> {:sourceId (:source-id item)
+           :itemId (:xt/id item)
+           :kind (:kind item)
+           :status (some-> (:status item) name)
+           :expectedResultSchema (:expected-result-schema item)
+           :resultSchema (:result-schema item)
+           :summary (:summary item)
+           :updatedAtMs (:updated-at-ms item)}
+    (:source-path item) (assoc :sourcePath (:source-path item))
+    (:completed-at-ms item) (assoc :completedAtMs (:completed-at-ms item))))
+
 (defn sync-queue!
   "Import local filesystem queue items as durable activity rows."
   [xtdb project {:keys [queue-root now]}]
@@ -310,6 +323,14 @@
         founds (queue/list-items queue-root {:project-id (:id project)})
         items (mapv #(queue-item->row run-id %) founds)
         events (into [] (mapcat #(queue-item->events run-id %)) founds)
+        mismatches (->> items
+                        (filter #(and (present? (:expected-result-schema %))
+                                      (present? (:result-schema %))
+                                      (not= (:expected-result-schema %)
+                                            (:result-schema %))))
+                        (sort-by (juxt (comp - :updated-at-ms) :source-id))
+                        (take default-limit)
+                        (mapv mismatch-summary))
         counts (commit-activity! xtdb
                                  {:project-id (:id project)
                                   :source :queue
@@ -330,7 +351,8 @@
                                                       events))
                     :result-schema-mismatch-events
                     (count (filter #(= :result-schema-mismatch (:event-kind %))
-                                   events)))}))
+                                   events)))
+     :result-schema-mismatches mismatches}))
 
 (defn- event-summary
   [event]

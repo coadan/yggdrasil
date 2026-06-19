@@ -254,7 +254,10 @@ When a completed work item returns a different `schema` than its
 `expectedResultSchema`, activity sync records a `result-schema-mismatch` event.
 Answerability and project evidence surfaces count those events as
 `result-schema-mismatch-events` and direct agents to inspect activity before
-trusting the prior result.
+trusting the prior result. The `sync activity --json` result also includes a
+bounded `result-schema-mismatches` list with the work source id, item id,
+expected schema, actual schema, status, summary, and timestamps for direct
+audit.
 `sync work apply` validates supported result schemas before writing accepted
 changes to `agraph.map.json`.
 

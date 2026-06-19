@@ -3,6 +3,7 @@
             [agraph.context :as context]
             [agraph.queue :as queue]
             [agraph.xtdb :as store]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (defn- temp-dir
@@ -89,8 +90,17 @@
                                                  {:project-id "demo"})
               result (activity/sync-queue! xtdb project {:queue-root root :now 3000})
               mismatch (first (filter #(= :result-schema-mismatch (:event-kind %))
-                                      events))]
+                                      events))
+              sample (first (:result-schema-mismatches result))]
           (is (= 1 (get-in result [:counts :result-schema-mismatch-events])))
+          (is (= (get-in enqueued [:item :id]) (:sourceId sample)))
+          (is (= "test-work" (:kind sample)))
+          (is (= "done" (:status sample)))
+          (is (= "agraph.test.expected/v1" (:expectedResultSchema sample)))
+          (is (= "agraph.test.actual/v1" (:resultSchema sample)))
+          (is (str/includes? (:summary sample) "result schema mismatch"))
+          (is (integer? (:updatedAtMs sample)))
+          (is (integer? (:completedAtMs sample)))
           (is (= #{:completed :created :result-schema-mismatch}
                  (set (map :event-kind events))))
           (is (some? mismatch))
