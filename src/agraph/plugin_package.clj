@@ -24,6 +24,9 @@
 (def remove-schema
   "agraph.plugin.remove/v1")
 
+(def update-schema
+  "agraph.plugin.update/v1")
+
 (def new-schema
   "agraph.plugin.new/v1")
 
@@ -653,6 +656,16 @@
      :removed-entry (:removed removal)
      :remaining (count (:entries removal))}))
 
+(defn- installed-package-entry
+  [entries package-id]
+  (let [package-id (str package-id)
+        matches (filterv #(= package-id (str (:id %))) entries)]
+    (when-not (seq matches)
+      (throw (ex-info "Plugin package is not installed."
+                      {:plugin-package-id package-id
+                       :installed (mapv #(str (:id %)) entries)})))
+    (first matches)))
+
 (defn- installed-entry
   [{:keys [id source rev ref subdir package-path manifest-fingerprint]}]
   (cond-> {:id id
@@ -715,6 +728,44 @@
      :entry entry
      :force? (boolean force?)
      :opts (select-keys opts [:ref :subdir :cache-root])}))
+
+(defn update!
+  "Refresh an installed git plugin package through the install validation path."
+  [config-path package-id {:keys [ref subdir cache-root] :as opts}]
+  (let [data (read-edn-file config-path)
+        entries (vec (:plugin-packages data))
+        entry (installed-package-entry entries package-id)
+        source (:source entry)
+        source-url (or (:url source)
+                       (:source entry))
+        resolved-ref (or ref
+                         (:ref entry)
+                         (:ref source)
+                         (:rev source))
+        resolved-subdir (or subdir
+                            (:subdir source))
+        _ (when-not (present? source-url)
+            (throw (ex-info "Installed plugin package is missing a git source URL."
+                            {:plugin-package-id package-id
+                             :entry entry})))
+        _ (when-not (present? resolved-ref)
+            (throw (ex-info "Installed plugin package is missing a ref or pinned revision."
+                            {:plugin-package-id package-id
+                             :entry entry})))
+        result (install! config-path
+                         source-url
+                         {:ref resolved-ref
+                          :subdir resolved-subdir
+                          :cache-root cache-root
+                          :force? true})]
+    (assoc result
+           :schema update-schema
+           :package-id (str package-id)
+           :previous-entry entry
+           :update-ref resolved-ref
+           :update-subdir resolved-subdir
+           :refresh? true
+           :opts (select-keys opts [:ref :subdir :cache-root]))))
 
 (defn new!
   "Create a local plugin package scaffold."

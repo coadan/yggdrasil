@@ -53,6 +53,25 @@
     (println "- manifest" (:manifest entry) (str "fingerprint=" fingerprint))
     (println "- manifest" (:manifest entry)))
   (println "- path" (:path entry)))
+(defn- print-plugin-update
+  [{:keys [project-id package-id package entry previous-entry update-ref update-subdir refresh?]}]
+  (println "# Plugin Updated")
+  (println "- project" project-id)
+  (println "- package" package-id)
+  (println "- refresh" refresh?)
+  (when update-ref
+    (println "- ref" update-ref))
+  (when update-subdir
+    (println "- subdir" update-subdir))
+  (when-let [previous-rev (get-in previous-entry [:source :rev])]
+    (println "- previous-rev" previous-rev))
+  (when-let [rev (get-in entry [:source :rev])]
+    (println "- rev" rev))
+  (print-plugin-package package)
+  (if-let [fingerprint (:manifest-fingerprint entry)]
+    (println "- manifest" (:manifest entry) (str "fingerprint=" fingerprint))
+    (println "- manifest" (:manifest entry)))
+  (println "- path" (:path entry)))
 (defn- print-plugin-list
   [{:keys [project-id packages]}]
   (println "# Plugins")
@@ -269,6 +288,21 @@
       (if (json-output? args)
         (print-json result)
         (print-plugin-install result)))))
+(defn- plugin-update!
+  [args]
+  (let [[config-path package-id] (positional-args args)]
+    (when-not (and config-path package-id)
+      (throw (ex-info "Missing plugin project config path or package id."
+                      {:usage (usage)})))
+    (let [result (plugin-package/update!
+                  config-path
+                  package-id
+                  {:ref (option-value args "--ref")
+                   :subdir (option-value args "--subdir")
+                   :cache-root (option-value args "--cache-dir")})]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-update result)))))
 (defn- plugin-list!
   [args]
   (let [config-path (first (positional-args args))]
@@ -329,6 +363,9 @@
 
         "install"
         (plugin-install! action-args)
+
+        "update"
+        (plugin-update! action-args)
 
         "list"
         (plugin-list! action-args)

@@ -13,6 +13,7 @@ while keeping core deterministic, project-agnostic, and benchmark-gated.
 
 ```sh
 bb plugin install project.edn https://github.com/org/agraph-datastar.git --ref v0.1.0
+bb plugin update project.edn datastar-hiccup --ref v0.2.0
 bb plugin list project.edn
 bb plugin remove project.edn datastar-hiccup
 ```
@@ -24,7 +25,7 @@ Useful flags:
 - `--cache-dir DIR`: local clone cache; defaults to `.dev/agraph/plugins/cache`
   relative to `project.edn`.
 - `--force`: replace an already installed package with the same package id.
-- `--json`: emit machine-readable install/list output.
+- `--json`: emit machine-readable install/update/list output.
 
 Install writes a `:plugin-packages` entry to `project.edn`:
 
@@ -45,8 +46,13 @@ Install writes a `:plugin-packages` entry to `project.edn`:
 ```
 
 `bb sync` and `bb report` do not fetch network updates. They read the installed
-local package path. Updating a git plugin is explicit: rerun `bb plugin install
-... --force` with the intended ref.
+local package path. Updating a git plugin is explicit: run
+`bb plugin update <project.edn> <package-id>`. The update command resolves the
+installed package source, refreshes the cached checkout, validates the new
+manifest through the same path as install, and only then replaces the project
+entry. Without `--ref`, update reuses the installed ref when one was recorded,
+falling back to the pinned revision. Pass `--ref` to move to a new tag, branch,
+or commit.
 
 Remove a package from a project with `bb plugin remove <project.edn>
 <package-id>`. This edits only the `:plugin-packages` entry in `project.edn`;

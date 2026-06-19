@@ -148,6 +148,75 @@
         (is (some #(str/includes? % "package id")
                   (get-in mismatched [:packages 0 :warnings])))))))
 
+(deftest updates-installed-git-plugin-package-from-pinned-ref
+  (let [workspace (temp-dir "agraph-plugin-update")
+        app-root (io/file workspace "app")
+        package-root (init-git-package! (.getPath (io/file workspace "plugin-package")))
+        branch (git! package-root "rev-parse" "--abbrev-ref" "HEAD")
+        project-edn (io/file workspace "project.edn")
+        cache-root (io/file workspace ".dev/agraph/plugins/cache")]
+    (.mkdirs app-root)
+    (spit project-edn
+          (pr-str {:id "plugin-update-fixture"
+                   :repos [{:id "app"
+                            :root (.getPath app-root)}]}))
+    (let [installed (plugin-package/install!
+                     (.getPath project-edn)
+                     package-root
+                     {:ref branch
+                      :cache-root (.getPath cache-root)})
+          previous-entry (:entry installed)
+          previous-rev (get-in previous-entry [:source :rev])
+          previous-fingerprint (:manifest-fingerprint previous-entry)]
+      (write-file! package-root
+                   plugin-package/manifest-filename
+                   (pr-str
+                    {:schema plugin-package/manifest-schema
+                     :id "sample-plugin-pack"
+                     :name "Sample Plugin Pack"
+                     :version "0.2.0"
+                     :license {:spdx "MIT"}
+                     :distribution {:visibility :public
+                                    :commercial? false}
+                     :benchmark {:status :unbenchmarked}
+                     :extractor-plugins
+                     [{:id "sample-extractor"
+                       :command ["python3" "extract.py"]
+                       :applies-to {:file-kinds [:code]}}]
+                     :report-plugins
+                     [{:id "sample-report"
+                       :command ["python3" "report.py"]
+                       :slots [:plugins]}]}))
+      (git! package-root "add" ".")
+      (git! package-root
+            "-c"
+            "user.name=AGraph Test"
+            "-c"
+            "user.email=agraph-test@example.test"
+            "commit"
+            "--quiet"
+            "-m"
+            "update plugin package")
+      (let [updated (plugin-package/update!
+                     (.getPath project-edn)
+                     "sample-plugin-pack"
+                     {:cache-root (.getPath cache-root)})
+            data (edn/read-string (slurp project-edn))
+            entry (first (:plugin-packages data))]
+        (is (= plugin-package/update-schema (:schema updated)))
+        (is (= "sample-plugin-pack" (:package-id updated)))
+        (is (= previous-entry (:previous-entry updated)))
+        (is (= branch (:update-ref updated)))
+        (is (= true (:refresh? updated)))
+        (is (= "0.2.0" (get-in updated [:package :version])))
+        (is (not= previous-rev (get-in updated [:entry :source :rev])))
+        (is (not= previous-fingerprint
+                  (get-in updated [:entry :manifest-fingerprint])))
+        (is (= (get-in updated [:entry :source :rev])
+               (get-in entry [:source :rev])))
+        (is (= (get-in updated [:entry :manifest-fingerprint])
+               (:manifest-fingerprint entry)))))))
+
 (deftest removes-installed-plugin-package-entry
   (let [workspace (temp-dir "agraph-plugin-remove")
         project-edn (io/file workspace "project.edn")]

@@ -73,6 +73,7 @@
     (is (str/includes? usage "plugin dry-run extractor <dir>"))
     (is (str/includes? usage "plugin dry-run report <dir>"))
     (is (str/includes? usage "plugin install <project.edn>"))
+    (is (str/includes? usage "plugin update <project.edn> <package-id>"))
     (is (str/includes? usage "plugin list <project.edn>"))
     (is (str/includes? usage "plugin remove <project.edn> <package-id>"))
     (is (str/includes? usage "plugin registry validate <registry.edn>"))
@@ -159,6 +160,59 @@
                   :subdir "packages/pkg"
                   :cache-root ".cache/plugins"
                   :force? true}]]
+               @calls))))))
+
+(deftest plugin-update-dispatches-to-package-updater
+  (let [calls (atom [])
+        claim-authority {:status :non-authoritative
+                         :public-claims? false
+                         :review-required? false
+                         :blockers [{:code :unbenchmarked
+                                     :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}]
+    (with-redefs [plugin-package/update! (fn [config-path package-id opts]
+                                           (swap! calls conj [config-path package-id opts])
+                                           {:schema plugin-package/update-schema
+                                            :project-id "fixture"
+                                            :package-id package-id
+                                            :refresh? true
+                                            :update-ref "v0.2.0"
+                                            :update-subdir "packages/pkg"
+                                            :previous-entry {:source {:rev "oldrev"}}
+                                            :package {:id package-id
+                                                      :version "0.2.0"
+                                                      :extractor-plugins 1
+                                                      :report-plugins 1
+                                                      :benchmark-status :unbenchmarked
+                                                      :claim-authority claim-authority
+                                                      :manifest-fingerprint "sha256:def456"
+                                                      :source {:url "git@example.test:org/pkg.git"
+                                                               :rev "newrev"}
+                                                      :warnings []}
+                                            :entry {:manifest "agraph.plugin.edn"
+                                                    :manifest-fingerprint "sha256:def456"
+                                                    :path "/tmp/pkg"
+                                                    :source {:rev "newrev"}}})]
+      (let [out (with-out-str
+                  (cli/dispatch "plugin"
+                                ["update"
+                                 "project.edn"
+                                 "pkg"
+                                 "--ref"
+                                 "v0.2.0"
+                                 "--subdir"
+                                 "packages/pkg"
+                                 "--cache-dir"
+                                 ".cache/plugins"]))]
+        (is (str/includes? out "# Plugin Updated"))
+        (is (str/includes? out "- previous-rev oldrev"))
+        (is (str/includes? out "- rev newrev"))
+        (is (str/includes? out "claim-authority status=non-authoritative public-claims=false"))
+        (is (str/includes? out "manifest-fingerprint sha256:def456"))
+        (is (= [["project.edn"
+                 "pkg"
+                 {:ref "v0.2.0"
+                  :subdir "packages/pkg"
+                  :cache-root ".cache/plugins"}]]
                @calls))))))
 
 (deftest plugin-authoring-dispatches-to-package-helpers
@@ -1183,10 +1237,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
-
-
-
 
 
 

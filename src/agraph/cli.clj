@@ -190,7 +190,6 @@
                  :value payload-schema}]
        :item (queue/item-summary found)})))
 
-
 (defn- print-json
   [value]
   (println (json/write-json-str value {:indent-str "  "})))
@@ -424,7 +423,6 @@
   [args]
   (cli-sync/sync-dispatch! args (sync-deps)))
 
-
 (defn- query-deps
   []
   {:usage usage
@@ -515,7 +513,6 @@
   [actions]
   (cli-start/start-next-commands actions))
 
-
 (defn- agent!
   [args]
   (let [action (first args)
@@ -599,6 +596,7 @@
     "  plugin dry-run extractor <dir> <repo-root> <file> [--plugin ID] [--json]"
     "  plugin dry-run report <dir> [--plugin ID] [--json]"
     "  plugin install <project.edn> <git-url-or-path> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--force] [--json]"
+    "  plugin update <project.edn> <package-id> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--json]"
     "  plugin list <project.edn> [--json]"
     "  plugin remove <project.edn> <package-id> [--json]"
     "  plugin registry validate <registry.edn> [--json]"
