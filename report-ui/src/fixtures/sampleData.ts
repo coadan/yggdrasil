@@ -152,14 +152,54 @@ export const fixtureReport: AGraphReport = {
   project: { id: "fixture", name: "Fixture", detail: "primary", mapPath: "agraph.map.json" },
   repos: [{ id: "app", root: "/tmp/app", role: "application" }],
   evidence: {
-    schema: "agraph.evidence/v1",
-    available: ["source-graph", "docs", "systems"],
+    schema: "agraph.evidence/v2",
+    available: ["source-files", "file-facts", "source-graph", "docs", "system-evidence", "system-graph"],
+    families: [
+      { family: "source-files", status: "weak", counts: { files: 12, "skipped-files": 0, diagnostics: 0 } },
+      { family: "file-facts", status: "available", counts: { "file-facts": 9 } },
+      { family: "source-graph", status: "available", counts: { nodes: 8, edges: 11 } },
+      { family: "docs", status: "available", counts: { chunks: 4, "search-docs": 4 } },
+      { family: "system-evidence", status: "available", counts: { "system-evidence": 7 } },
+      { family: "system-graph", status: "available", counts: { "system-nodes": 2, "system-edges": 1 } }
+    ],
     counts: {
       files: 12,
+      "file-facts": 9,
       nodes: 8,
       edges: 11,
+      chunks: 4,
+      "search-docs": 4,
+      "system-evidence": 7,
+      "system-nodes": 2,
+      "system-edges": 1,
       packages: 2,
-      diagnostics: 0
+      diagnostics: 0,
+      "skipped-files": 0,
+      "package-evidence-gaps": 1,
+      "package-conflicts": 0,
+      "unresolved-imports": 1
+    },
+    kinds: {
+      "file-facts": [
+        { kind: "url", count: 3 },
+        { kind: "env-var", count: 2 },
+        { kind: "auth-reference", count: 1 },
+        { kind: "route", count: 1 },
+        { kind: "port", count: 1 },
+        { kind: "container-image-producer", count: 1 }
+      ],
+      "system-evidence": [
+        { kind: "url", count: 2 },
+        { kind: "auth-reference", count: 1 },
+        { kind: "container-image-producer", count: 1 }
+      ],
+      "source-graph": {
+        nodes: [{ value: "namespace", count: 4 }],
+        edges: [{ value: "imports", count: 3 }]
+      },
+      "source-files": {
+        files: [{ value: "clojure", count: 8 }]
+      }
     },
     freshness: {
       status: "stale",
@@ -188,6 +228,24 @@ export const fixtureReport: AGraphReport = {
           }
         }
       ]
+    },
+    state: {
+      freshness: {
+        status: "stale",
+        counts: {
+          indexed: 9,
+          current: 12,
+          changed: 2,
+          missing: 1,
+          unindexed: 3
+        }
+      },
+      diagnostics: { total: 0 },
+      "dependency-health": {
+        "package-evidence-gaps": 1,
+        "package-conflicts": 0,
+        "unresolved-imports": 1
+      }
     },
     topFileKinds: [{ value: "clojure", count: 8 }],
     topNodeKinds: [{ value: "namespace", count: 4 }],
@@ -349,7 +407,7 @@ export const emptyReport: AGraphReport = {
   project: { id: "empty", name: "Empty Project", detail: "primary" },
   repos: [],
   evidence: {
-    schema: "agraph.evidence/v1",
+    schema: "agraph.evidence/v2",
     available: [],
     counts: {
       files: 0,

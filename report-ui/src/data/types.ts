@@ -5,13 +5,22 @@ export type CountRow = {
   count: number;
 };
 
+export type EvidenceFamily = {
+  family: string;
+  status: string;
+  counts?: Record<string, number>;
+};
+
 export type EvidenceSurface = {
-  schema: "agraph.evidence/v1";
+  schema: "agraph.evidence/v2";
   projectId?: string;
   project_id?: string;
   available: string[];
+  families?: EvidenceFamily[];
   counts: Record<string, number | Record<string, number>>;
   freshness?: Record<string, unknown>;
+  kinds?: Record<string, unknown>;
+  state?: Record<string, unknown>;
   topFileKinds?: CountRow[];
   top_file_kinds?: CountRow[];
   topNodeKinds?: CountRow[];

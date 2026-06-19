@@ -39,12 +39,12 @@ describe("ReportPage", () => {
     expect(screen.getByText("Fixture")).toBeInTheDocument();
     expect(screen.getByText("Project Atlas")).toBeInTheDocument();
     expect(screen.queryByText("agraph-core-report")).not.toBeInTheDocument();
-    expect(screen.getByText("Project Inventory")).toBeInTheDocument();
-    expect(screen.getAllByText("Config/Auth").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Generated artifacts").length).toBeGreaterThan(0);
-    expect(screen.getByText("Inventory Evidence")).toBeInTheDocument();
-    expect(screen.getAllByText("graph.nodes.kind").length).toBeGreaterThan(0);
-    expect(screen.getByText("graph.nodes.kind/tags")).toBeInTheDocument();
+    expect(screen.getByText("Evidence Inventory")).toBeInTheDocument();
+    expect(screen.getByText("Evidence Families")).toBeInTheDocument();
+    expect(screen.getByText("Evidence Kinds")).toBeInTheDocument();
+    expect(screen.getByText("Evidence State")).toBeInTheDocument();
+    expect(screen.getAllByText("system-evidence").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("evidence.kinds.file-facts").length).toBeGreaterThan(0);
     expect(screen.getByText("Operator Review Queue")).toBeInTheDocument();
     expect(screen.getByText("Refresh indexed graph basis")).toBeInTheDocument();
     expect(screen.getByText("Report Actions")).toBeInTheDocument();
@@ -68,23 +68,17 @@ describe("ReportPage", () => {
     expect(screen.getByText("What should I know before I run Regenerate report?")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
-    const inventory = screen.getByText("Project Inventory").closest("section");
+    const inventory = screen.getByText("Evidence Inventory").closest("section");
     expect(inventory).toBeTruthy();
     fireEvent.click(within(inventory as HTMLElement).getByRole("button", { name: "Ask" }));
     expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
       "aria-current",
       "page"
     );
-    expect(screen.getByText("What is this project made of?")).toBeInTheDocument();
+    expect(screen.getByText("What evidence does this report contain?")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
-    const inventoryAgain = screen.getByText("Project Inventory").closest("section");
-    fireEvent.click(within(inventoryAgain as HTMLElement).getByRole("button", { name: "Open config/auth" }));
-    expect(screen.getByRole("button", { name: "Systems" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("button", { name: /Config\/Auth Evidence/ })).toHaveAttribute("aria-pressed", "true");
-
-    fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
-    const inventoryThird = screen.getByText("Project Inventory").closest("section");
+    const inventoryThird = screen.getByText("Evidence Inventory").closest("section");
     fireEvent.click(within(inventoryThird as HTMLElement).getByRole("button", { name: "Open evidence" }));
     expect(screen.getByRole("button", { name: "Evidence" })).toHaveAttribute("aria-current", "page");
 
@@ -336,6 +330,13 @@ describe("ReportPage", () => {
     expect(screen.getByText("Freshness Sample Paths")).toBeInTheDocument();
     expect(screen.getByText("src/app/deleted.clj")).toBeInTheDocument();
     expect(screen.getByText("Makefile")).toBeInTheDocument();
+
+    const freshness = screen.getByText("Evidence Freshness").closest("section");
+    expect(freshness).toBeTruthy();
+    fireEvent.click(within(freshness as HTMLElement).getByRole("button", { name: "Copy freshness JSON" }));
+    expect(within(freshness as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    fireEvent.click(within(freshness as HTMLElement).getByRole("button", { name: "Copy source refs" }));
+    expect(within(freshness as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Ask about freshness" }));
 

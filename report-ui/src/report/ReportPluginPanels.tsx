@@ -460,24 +460,72 @@ function renderPluginMdx(panel: ReportPluginPanel, actions?: PluginPanelActions)
   return nodes.length > 0 ? nodes : [<p key={`${panel.id}-empty`} className="muted">No plugin content.</p>];
 }
 
+function panelEvidencePacket(panel: ReportPluginPanel): string {
+  return JSON.stringify(
+    {
+      id: panel.id,
+      label: panel.label,
+      slot: panel.slot,
+      plugin: panel.plugin,
+      data: panel.data || {}
+    },
+    null,
+    2
+  );
+}
+
 export function PluginPanel({ panel, actions }: { panel: ReportPluginPanel; actions?: PluginPanelActions }) {
   const pluginId = panelPluginId(panel);
   const metaItems = pluginId === coreReportPluginId ? [] : [pluginId, panel.slot].filter(Boolean);
+  const copyKey = `plugin-panel:${pluginId}:${panel.id}`;
   return (
     <section className="panel plugin-panel">
-      {metaItems.length > 0 ? (
-        <div className="plugin-panel-meta">
-          {metaItems.map((item) => (
-            <span key={item}>{item}</span>
-          ))}
-        </div>
-      ) : null}
+      <div className="plugin-panel-header">
+        {metaItems.length > 0 ? (
+          <div className="plugin-panel-meta">
+            {metaItems.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+          </div>
+        ) : null}
+        {actions?.onAsk || actions?.onCopyCommand ? (
+          <div className="plugin-panel-actions">
+            {actions?.onAsk ? (
+              <button
+                type="button"
+                onClick={() =>
+                  actions.onAsk?.({
+                    label: panel.label,
+                    source: `plugins.${pluginId}.${panel.id}`,
+                    question: `What should I inspect in ${panel.label}?`,
+                    evidenceRows: [
+                      {
+                        id: panel.id,
+                        label: panel.label,
+                        slot: panel.slot,
+                        plugin: pluginId,
+                        data: panel.data || {}
+                      }
+                    ]
+                  })
+                }
+              >
+                Ask about panel
+              </button>
+            ) : null}
+            {actions?.onCopyCommand ? (
+              <button type="button" onClick={() => actions.onCopyCommand?.(copyKey, panelEvidencePacket(panel))}>
+                {actions.copiedKey === copyKey ? "Copied" : "Copy panel JSON"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
       {panel.description ? <p className="muted">{panel.description}</p> : null}
       <div className="plugin-mdx">{renderPluginMdx(panel, actions)}</div>
     </section>
   );
 }
-
 export function PluginPanelList({
   report,
   slot,

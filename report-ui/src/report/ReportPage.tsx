@@ -81,17 +81,6 @@ function countValue(counts: unknown, key: string): number {
   return typeof value === "number" ? value : 0;
 }
 
-function nodeTags(node: { tags?: string[] }): string[] {
-  return Array.isArray(node.tags) ? node.tags.map(String) : [];
-}
-
-function nodeSurfaceCount(graph: AGraphGraph, kinds: Set<string>, tags = kinds): number {
-  return graph.nodes.filter((node) => {
-    const kind = String(node.kind || "");
-    return kinds.has(kind) || nodeTags(node).some((tag) => tags.has(tag));
-  }).length;
-}
-
 function CountCard({ label, value, tone }: { label: string; value: number | string; tone?: "warn" | "ok" }) {
   return (
     <div className={`count-card${tone ? ` ${tone}` : ""}`}>
@@ -782,6 +771,18 @@ function freshnessSampleRows(report: AGraphReport): Array<Record<string, unknown
   return rows;
 }
 
+function freshnessEvidencePacket(report: AGraphReport): string {
+  return JSON.stringify(
+    {
+      source: "evidence.freshness",
+      project: report.project.id,
+      freshness: report.evidence.freshness || {}
+    },
+    null,
+    2
+  );
+}
+
 function maintenanceRows(report: AGraphReport, key: string): Array<Record<string, unknown>> {
   const maintenance = asRecord(report.maintenance);
   return asRows(maintenance[key] || maintenance[key.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())]);
@@ -1085,89 +1086,129 @@ function ExternalApiReview({ report }: { report: AGraphReport }) {
 
 function ProjectInventory({
   report,
-  graph,
   onAsk,
-  onOpenGraphSlice,
   onOpenTab
 }: {
   report: AGraphReport;
-  graph: AGraphGraph;
   onAsk: (scope: AskScope) => void;
-  onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
 }) {
-  const graphArtifacts = Object.values(report.graphs || {}).filter((value) => displayValue(asRecord(value).artifact)).length;
-  const pluginArtifacts = report.plugins?.artifacts?.length || 0;
-  const freshness = asRecord(report.evidence.freshness);
+  const families = asRows(report.evidence.families);
+  const kinds = asRecord(report.evidence.kinds);
+  const state = asRecord(report.evidence.state);
+  const freshness = asRecord(state.freshness || report.evidence.freshness);
   const freshnessCounts = asRecord(freshness.counts);
   const staleEvidence =
     countValue(freshnessCounts, "changed") + countValue(freshnessCounts, "missing") + countValue(freshnessCounts, "unindexed");
-  const rows = [
-    { surface: "Graph artifacts", count: graphArtifacts, source: "report.graphs" },
-    { surface: "Plugin artifacts", count: pluginArtifacts, source: "report.plugins.artifacts" },
-    { surface: "Routes", count: nodeSurfaceCount(graph, new Set(["route"])), source: "graph.nodes.kind" },
-    { surface: "URLs", count: nodeSurfaceCount(graph, new Set(["url"])), source: "graph.nodes.kind" },
+  const familyRows = families.map((row) => {
+    const counts = asRecord(row.counts);
+    const count = Object.values(counts).reduce<number>((total, value) => total + (typeof value === "number" ? value : 0), 0);
+    return {
+      family: String(row.family || ""),
+      status: String(row.status || ""),
+      count,
+      source: "evidence.families"
+    };
+  });
+  const kindRows = Object.entries(kinds).flatMap(([family, value]) => {
+    const rows = asRows(value);
+    if (rows.length > 0) {
+      return rows.map((row) => ({
+        family,
+        kind: String(row.kind || row.value || row.relation || ""),
+        count: countValue(row, "count"),
+        source: `evidence.kinds.${family}`
+      }));
+    }
+    return Object.entries(asRecord(value)).flatMap(([bucket, bucketRows]) =>
+      asRows(bucketRows).map((row) => ({
+        family,
+        kind: `${bucket}:${String(row.kind || row.value || row.relation || "")}`,
+        count: countValue(row, "count"),
+        source: `evidence.kinds.${family}.${bucket}`
+      }))
+    );
+  });
+  const dependencyHealth = asRecord(state["dependency-health"] || state.dependencyHealth);
+  const diagnostics = asRecord(state.diagnostics);
+  const stateRows = [
+    { state: "freshness-gaps", count: staleEvidence, source: "evidence.state.freshness" },
     {
-      surface: "Config/Auth",
-      count: nodeSurfaceCount(
-        graph,
-        new Set(["auth", "config", "configuration", "deployment", "secret", "service-account"]),
-        new Set(["auth", "config", "configuration", "deployment", "secret", "service-account"])
-      ),
-      source: "graph.nodes.kind/tags"
+      state: "dependency-health",
+      count:
+        countValue(dependencyHealth, "package-evidence-gaps") +
+        countValue(dependencyHealth, "package-conflicts") +
+        countValue(dependencyHealth, "unresolved-imports"),
+      source: "evidence.state.dependency-health"
     },
-    { surface: "External APIs", count: nodeSurfaceCount(graph, new Set(["external-api"])), source: "graph.nodes.kind" },
-    {
-      surface: "Generated artifacts",
-      count: nodeSurfaceCount(graph, new Set(["generated-artifact", "artifact"])),
-      source: "graph.nodes.kind"
-    },
-    { surface: "Stale/missing evidence", count: staleEvidence, source: "evidence.freshness.counts" }
+    { state: "diagnostics", count: countValue(diagnostics, "total"), source: "evidence.state.diagnostics" }
+  ];
+  const askRows = [
+    ...familyRows.map((row) => ({ axis: "family", ...row })),
+    ...kindRows.map((row) => ({ axis: "kind", ...row })),
+    ...stateRows.map((row) => ({ axis: "state", ...row }))
   ];
 
   return (
     <section className="panel span-2">
       <div className="panel-header">
         <div>
-          <h2>Project Inventory</h2>
-          <p className="muted">Mechanical inventory from loaded report artifacts and exact graph node kinds.</p>
+          <h2>Evidence Inventory</h2>
+          <p className="muted">Concrete evidence families, fact kinds, and evidence state from the current report packet.</p>
         </div>
         <div className="action-row-buttons">
           <button
             type="button"
             onClick={() =>
               onAsk({
-                label: "Project Inventory",
-                source: "report.inventory",
-                question: "What is this project made of?",
-                evidenceRows: rows
+                label: "Evidence Inventory",
+                source: "report.evidence",
+                question: "What evidence does this report contain?",
+                evidenceRows: askRows
               })
             }
           >
             Ask
           </button>
-          {rows.some((row) => row.surface === "Config/Auth" && row.count > 0) ? (
-            <button type="button" onClick={() => onOpenGraphSlice("config-auth-evidence")}>
-              Open config/auth
-            </button>
-          ) : null}
           <button type="button" onClick={() => onOpenTab("evidence")}>
             Open evidence
           </button>
         </div>
       </div>
       <MetricStrip
-        items={rows.map((row) => ({
-          label: row.surface,
+        items={familyRows.map((row) => ({
+          label: row.family,
           value: row.count,
-          tone: row.surface === "Stale/missing evidence" && row.count > 0 ? "warn" : undefined
+          tone: row.status === "weak" ? "warn" : row.status === "available" ? "ok" : undefined
         }))}
       />
       <InlineTable
-        title="Inventory Evidence"
-        rows={rows}
+        title="Evidence Families"
+        rows={familyRows}
         columns={[
-          { key: "surface", label: "Surface" },
+          { key: "family", label: "Family" },
+          { key: "status", label: "Status" },
+          { key: "count", label: "Count" },
+          { key: "source", label: "Source" }
+        ]}
+      />
+      {kindRows.length > 0 ? (
+        <InlineTable
+          title="Evidence Kinds"
+          rows={kindRows}
+          columns={[
+            { key: "family", label: "Family" },
+            { key: "kind", label: "Kind" },
+            { key: "count", label: "Count" },
+            { key: "source", label: "Source" }
+          ]}
+        />
+      ) : null}
+      <InlineTable
+        title="Evidence State"
+        rows={stateRows}
+        columns={[
+          { key: "state", label: "State" },
           { key: "count", label: "Count" },
           { key: "source", label: "Source" }
         ]}
@@ -1223,7 +1264,7 @@ function AtlasTab({
         />
       </section>
 
-      <ProjectInventory report={report} graph={graph} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} />
+      <ProjectInventory report={report} onAsk={onAsk} onOpenTab={onOpenTab} />
       <ReportActions
         report={report}
         copiedKey={copiedActionKey}
@@ -1550,10 +1591,14 @@ function DependenciesTab({
 
 function EvidenceFreshnessPanel({
   report,
-  onAsk
+  onAsk,
+  copiedKey,
+  onCopyCommand
 }: {
   report: AGraphReport;
   onAsk: (scope: AskScope) => void;
+  copiedKey: string | null;
+  onCopyCommand: (key: string, command: string) => void;
 }) {
   const freshness = asRecord(report.evidence.freshness);
   if (Object.keys(freshness).length === 0) return null;
@@ -1570,20 +1615,29 @@ function EvidenceFreshnessPanel({
           <h2>Evidence Freshness</h2>
           <p className="muted">Report-local indexed/current file state with sample paths for stale evidence review.</p>
         </div>
-        <button
-          className="slice-ask-button"
-          type="button"
-          onClick={() =>
-            onAsk({
-              label: "Evidence Freshness",
-              source: "evidence.freshness",
-              question: "What should I do about evidence freshness?",
-              evidenceRows: sampleRows.length > 0 ? sampleRows.slice(0, 12) : repoRows
-            })
-          }
-        >
-          Ask about freshness
-        </button>
+        <div className="action-row-buttons">
+          <button
+            type="button"
+            onClick={() =>
+              onAsk({
+                label: "Evidence Freshness",
+                source: "evidence.freshness",
+                question: "What should I do about evidence freshness?",
+                evidenceRows: sampleRows.length > 0 ? sampleRows.slice(0, 12) : repoRows
+              })
+            }
+          >
+            Ask about freshness
+          </button>
+          <button type="button" onClick={() => onCopyCommand("freshness:evidence-json", freshnessEvidencePacket(report))}>
+            {copiedKey === "freshness:evidence-json" ? "Copied" : "Copy freshness JSON"}
+          </button>
+          {sourceRefs(sampleRows).length > 0 ? (
+            <button type="button" onClick={() => onCopyCommand("freshness:source-refs", sourceRefs(sampleRows).join("\n"))}>
+              {copiedKey === "freshness:source-refs" ? "Copied" : "Copy source refs"}
+            </button>
+          ) : null}
+        </div>
       </div>
       <MetricStrip
         items={[
@@ -1657,7 +1711,7 @@ function EvidenceTab({
           ]}
         />
       </section>
-      <EvidenceFreshnessPanel report={report} onAsk={onAsk} />
+      <EvidenceFreshnessPanel report={report} copiedKey={copiedActionKey} onAsk={onAsk} onCopyCommand={onCopyCommand} />
       <CountTable title="File Kinds" rows={fileKindRows(report)} />
       <CountTable title="Node Kinds" rows={nodeKindRows(report)} />
       <CountTable title="Edge Relations" rows={edgeRelationRows(report)} />
@@ -1893,7 +1947,7 @@ function DashboardTab({
         <p className="eyebrow">Report Dashboard</p>
         <h2>{report.project.name || report.project.id}</h2>
       </section>
-      <ProjectInventory report={report} graph={graph} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} />
+            <ProjectInventory report={report} onAsk={onAsk} onOpenTab={onOpenTab} />
       <ReportActions
         report={report}
         copiedKey={copiedActionKey}
