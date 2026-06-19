@@ -173,6 +173,18 @@
    :totalTokens
    :costUsd])
 
+(def ^:private headline-summary-fields
+  [[:fileRecallAt10 :fileRecallAt10Delta]
+   [:noiseRatioAt20 :noiseRatioAt20Delta]
+   [:evidenceCitationRate :evidenceCitationRateDelta]
+   [:pathEvidenceCitationRate :pathEvidenceCitationRateDelta]
+   [:commandCount :toolCallDelta]
+   [:searchCommandCount :searchCommandDelta]
+   [:fileReadCommandCount :fileReadDelta]
+   [:elapsedMs :elapsedMsDelta]
+   [:totalTokens :totalTokensDelta]
+   [:costUsd :costUsdDelta]])
+
 (def ^:private claim-requirement-keys
   [:sameSuite
    :sameCases
@@ -699,6 +711,25 @@
          (keep deltas-by-key)
          vec)))
 
+(defn- headline-summary
+  [{:keys [summary comparable headline-metrics claim-readiness]}]
+  (let [metrics-by-key (into {} (map (juxt :key identity)) headline-metrics)
+        metric-fields (into {}
+                            (map (fn [[metric-key field]]
+                                   [field (:delta (get metrics-by-key
+                                                       metric-key))]))
+                            headline-summary-fields)]
+    (merge {:status (:signal summary)
+            :claimStatus (:status claim-readiness)
+            :broadEfficiencyClaimSupported
+            (:broadEfficiencyClaimSupported claim-readiness)
+            :sharedCases (long (:sharedCases comparable))
+            :minSharedCases (long (:minSharedCases summary))
+            :unavailableMetrics (->> headline-metrics
+                                     (filter #(= "unavailable" (:result %)))
+                                     (mapv :key))}
+           metric-fields)))
+
 (defn compare-reports
   "Return a shell-only vs AGraph efficiency comparison from two agent reports."
   ([shell-report agraph-report]
@@ -714,7 +745,14 @@
          by-tag (by-tag-comparison shell-report agraph-report)
          problem-coverage (problem-class-coverage shell-report
                                                   agraph-report
-                                                  by-tag)]
+                                                  by-tag)
+         claim-readiness-result (claim-readiness summary
+                                                 comparable
+                                                 by-category
+                                                 problem-coverage
+                                                 shell-report
+                                                 agraph-report)
+         headline-metrics (headline-metric-deltas-from-deltas deltas)]
      {:schema schema
       :status (:signal summary)
       :suiteId (or (:suite-id agraph-report)
@@ -724,17 +762,17 @@
       :shellOnly (report-summary shell-report)
       :agraph (report-summary agraph-report)
       :deltas deltas
-      :headlineMetrics (headline-metric-deltas-from-deltas deltas)
+      :headlineMetrics headline-metrics
+      :headlineSummary (headline-summary {:summary summary
+                                          :comparable comparable
+                                          :headline-metrics headline-metrics
+                                          :claim-readiness
+                                          claim-readiness-result})
       :byCategory by-category
       :byTag by-tag
       :classSignals (class-signals by-tag problem-coverage)
       :problemClassCoverage problem-coverage
-      :claimReadiness (claim-readiness summary
-                                       comparable
-                                       by-category
-                                       problem-coverage
-                                       shell-report
-                                       agraph-report)
+      :claimReadiness claim-readiness-result
       :caseDeltas (case-deltas shell-report agraph-report)})))
 
 (defn compare-report-files!

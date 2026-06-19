@@ -181,6 +181,23 @@
             :totalTokens
             :costUsd]
            (mapv :key (:headlineMetrics comparison))))
+    (is (= {:status "agraph-improved"
+            :claimStatus "not-supported"
+            :broadEfficiencyClaimSupported false
+            :sharedCases 2
+            :minSharedCases 2
+            :fileRecallAt10Delta 0.25
+            :noiseRatioAt20Delta -0.25
+            :evidenceCitationRateDelta 0.25
+            :pathEvidenceCitationRateDelta 0.30000000000000004
+            :toolCallDelta -4.0
+            :searchCommandDelta -3.0
+            :fileReadDelta -1.0
+            :elapsedMsDelta -100.0
+            :totalTokensDelta nil
+            :costUsdDelta nil
+            :unavailableMetrics [:totalTokens :costUsd]}
+           (:headlineSummary comparison)))
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
             :availableMetrics 22
@@ -340,6 +357,13 @@
             :result "improved"}
            (select-keys (:costUsd headline-by-key)
                         [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:totalTokensDelta -5000.0
+            :costUsdDelta -0.25
+            :unavailableMetrics []}
+           (select-keys (:headlineSummary comparison)
+                        [:totalTokensDelta
+                         :costUsdDelta
+                         :unavailableMetrics])))
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
             :availableMetrics 4
