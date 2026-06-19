@@ -692,6 +692,13 @@
                :deltas deltas}))
           shared-case-ids)))
 
+(defn- headline-metric-deltas-from-deltas
+  [deltas]
+  (let [deltas-by-key (into {} (map (juxt :key identity)) deltas)]
+    (->> headline-metric-keys
+         (keep deltas-by-key)
+         vec)))
+
 (defn compare-reports
   "Return a shell-only vs AGraph efficiency comparison from two agent reports."
   ([shell-report agraph-report]
@@ -717,6 +724,7 @@
       :shellOnly (report-summary shell-report)
       :agraph (report-summary agraph-report)
       :deltas deltas
+      :headlineMetrics (headline-metric-deltas-from-deltas deltas)
       :byCategory by-category
       :byTag by-tag
       :classSignals (class-signals by-tag problem-coverage)
@@ -832,10 +840,7 @@
 
 (defn- headline-metric-deltas
   [comparison]
-  (let [deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
-    (->> headline-metric-keys
-         (keep deltas-by-key)
-         vec)))
+  (headline-metric-deltas-from-deltas (:deltas comparison)))
 
 (defn markdown-report
   "Return a compact Markdown summary for a shell-only versus AGraph comparison."

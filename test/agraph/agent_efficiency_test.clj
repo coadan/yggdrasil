@@ -165,9 +165,22 @@
 (deftest compares-shell-only-and-agraph-agent-reports
   (let [comparison (agent-efficiency/compare-reports shell-report agraph-report)
         deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))
+        headline-by-key (into {} (map (juxt :key identity))
+                              (:headlineMetrics comparison))
         categories-by-key (into {} (map (juxt :category identity)) (:byCategory comparison))]
     (is (= "agraph.agent-efficiency/v1" (:schema comparison)))
     (is (= "agraph-improved" (:status comparison)))
+    (is (= [:fileRecallAt10
+            :noiseRatioAt20
+            :evidenceCitationRate
+            :pathEvidenceCitationRate
+            :commandCount
+            :searchCommandCount
+            :fileReadCommandCount
+            :elapsedMs
+            :totalTokens
+            :costUsd]
+           (mapv :key (:headlineMetrics comparison))))
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
             :availableMetrics 22
@@ -205,6 +218,16 @@
             :effect 3.0
             :result "improved"}
            (select-keys (:searchCommandCount deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly nil
+            :agraph nil
+            :result "unavailable"}
+           (select-keys (:totalTokens headline-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly nil
+            :agraph nil
+            :result "unavailable"}
+           (select-keys (:costUsd headline-by-key)
                         [:shellOnly :agraph :delta :effect :result])))
     (is (= {:shellOnly 0.0
             :agraph 2.0
@@ -286,6 +309,8 @@
         comparison (agent-efficiency/compare-reports shell agraph)
         markdown (agent-efficiency/markdown-report comparison)
         deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))
+        headline-by-key (into {} (map (juxt :key identity))
+                              (:headlineMetrics comparison))
         categories-by-key (into {} (map (juxt :category identity)) (:byCategory comparison))]
     (is (= {:shellOnly 12000.0
             :agraph 7000.0
@@ -300,6 +325,20 @@
             :effect 0.25
             :result "improved"}
            (select-keys (:costUsd deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly 12000.0
+            :agraph 7000.0
+            :delta -5000.0
+            :effect 5000.0
+            :result "improved"}
+           (select-keys (:totalTokens headline-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly 0.6
+            :agraph 0.35
+            :delta -0.25
+            :effect 0.25
+            :result "improved"}
+           (select-keys (:costUsd headline-by-key)
                         [:shellOnly :agraph :delta :effect :result])))
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
