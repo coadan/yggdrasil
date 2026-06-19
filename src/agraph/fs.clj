@@ -9,20 +9,20 @@
            [java.nio.file Files]))
 
 (def supported-extensions
-  #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs" ".cts"
+  #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".class" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs" ".cts"
     ".bmp" ".code-workspace" ".conf" ".crt" ".cer" ".cert" ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
     ".dvc"
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
-    ".gif" ".gz" ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
+    ".gif" ".gz" ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".jar" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".key" ".lua"
     ".kt" ".kts" ".m" ".md" ".mdx" ".mjs" ".ml" ".mli" ".mm" ".mo" ".mts" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
-    ".mp4" ".mustache" ".neon" ".nix" ".njk" ".odin" ".otf" ".out" ".patch" ".pem" ".ppm" ".prisma" ".properties" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
+    ".mp4" ".mustache" ".neon" ".nix" ".njk" ".odin" ".otf" ".out" ".patch" ".pem" ".penpot" ".ppm" ".prisma" ".properties" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
     ".service" ".sln" ".snap" ".socket" ".sql" ".subj" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".tmpl" ".ttf"
     ".license" ".template" ".toml" ".ts" ".tsx" ".txt" ".types" ".vb" ".vbproj" ".vue" ".xcconfig"
     ".webm" ".webp" ".woff" ".woff2" ".yaml" ".yml" ".zig" ".xml"})
 
 (def binary-file-kinds
-  #{:archive-asset :font-asset :gettext-binary :image-asset :media-asset :secret-material})
+  #{:archive-asset :compiled-artifact :font-asset :gettext-binary :image-asset :media-asset :opaque-asset :secret-material})
 
 (def unknown-text-fallback-blocked-extensions
   #{".bin" ".class" ".dll" ".dylib" ".ear" ".exe" ".jar" ".o" ".pdf" ".so" ".war" ".wasm" ".zip"})
@@ -381,7 +381,9 @@
         ".groovy" :groovy
         (".bmp" ".gif" ".ico" ".jpeg" ".jpg" ".png" ".ppm" ".webp") :image-asset
         (".mp4" ".webm") :media-asset
-        ".gz" :archive-asset
+        (".gz" ".jar") :archive-asset
+        ".class" :compiled-artifact
+        ".penpot" :opaque-asset
         ".ipynb" :notebook
         ".java" :java
         (".js" ".jsx" ".mjs" ".cjs") :javascript

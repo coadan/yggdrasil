@@ -325,9 +325,12 @@
     (spit-file! root "assets/tutorial.mp4" "mp4\n")
     (spit-file! root "assets/tutorial.webm" "webm\n")
     (spit-file! root "assets/trace.svg.gz" "gz\n")
+    (spit-file! root "assets/plugin.jar" "jar\n")
     (spit-file! root "assets/favicon.ico" "ico\n")
     (spit-file! root "assets/fonts/outfit.ttf" "ttf\n")
     (spit-file! root "assets/fonts/display.otf" "otf\n")
+    (spit-file! root "build/classes/App.class" "class\n")
+    (spit-file! root "design/template.penpot" "penpot\n")
     (spit-file! root "secrets/dev.crt" "-----BEGIN CERTIFICATE-----\n")
     (spit-file! root "secrets/dev.key" "-----BEGIN PRIVATE KEY-----\n")
     (spit-file! root "secrets/dev.pem" "-----BEGIN CERTIFICATE-----\n")
@@ -502,8 +505,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 266
-              :supported 265
+      (is (= {:files 269
+              :supported 268
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -573,7 +576,9 @@
       (is (= 7 (:count (row-by :kind "image-asset" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "font-asset" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "media-asset" (:files-by-kind report)))))
-      (is (= 1 (:count (row-by :kind "archive-asset" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "archive-asset" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "compiled-artifact" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "opaque-asset" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "secret-material" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "html" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "shell" (:files-by-kind report)))))
@@ -729,6 +734,14 @@
                       (= 2 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "archive-asset" (:kind %))
+                      (= "asset/v1" (:extractor-version %))
+                      (= 2 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "compiled-artifact" (:kind %))
+                      (= "asset/v1" (:extractor-version %))
+                      (= 1 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "opaque-asset" (:kind %))
                       (= "asset/v1" (:extractor-version %))
                       (= 1 (:files %)))
                 (:extractors report)))

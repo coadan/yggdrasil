@@ -61,6 +61,10 @@ classification in core extractors; store bounded facts and relationships first.
   valid UTF-8 text and not a known compiled/archive binary extension. This keeps
   extensionless fixtures and deployment text files visible without inventing
   semantic file kinds.
+- JVM and opaque binary artifacts: `.class`, `.jar`, and `.penpot` files are
+  supported as metadata-only artifact rows. They expose concrete path, size, and
+  hash facts for compiled/archive/native project data without extracting or
+  searching binary payloads.
 
 ## Future Candidates
 
