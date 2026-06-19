@@ -1355,6 +1355,18 @@
                                                                         :meanReciprocalRankFile 0.0
                                                                         :noiseRatioAt20 1.0}}))
                                                   {})
+        shifted-target (benchmark/compare-agent-reports
+                        (assoc baseline
+                               :improvementSummary [{:kind "coverage-filtered-candidates"
+                                                     :area "agent-context-quality"
+                                                     :runs 2
+                                                     :caseIds ["case-1"]}])
+                        (assoc baseline
+                               :improvementSummary [{:kind "audit-scope-trust-boundary"
+                                                     :area "audit-scope-quality"
+                                                     :runs 2
+                                                     :caseIds ["case-2"]}])
+                        {})
         different-parser-worker (benchmark/compare-agent-reports
                                  baseline
                                  (assoc candidate
@@ -1382,10 +1394,13 @@
              "coverageExcludedGroundTruthFiles"
              "unsupportedGroundTruthFiles"
              "improvementTargetRuns"
+             "improvementTargetRuns.hint-diagnostics"
              "case.fileRecallAt10"}
            (set (map :metric (:regressions failed)))))
     (is (= 2
            (get-in failed [:candidate :improvementTargetRuns])))
+    (is (= {"hint-diagnostics" 2}
+           (get-in failed [:candidate :improvementTargetRunsByKind])))
     (is (= "regressed"
            (get-in (first (filter #(= "case-1" (:case-id %))
                                   (:caseDeltas failed)))
@@ -1398,6 +1413,12 @@
            (:aggregateComparableReasons expanded)))
     (is (some #(= "added" (:status %)) (:caseDeltas expanded)))
     (is (empty? (:regressions expanded)))
+    (is (= "failed" (:status shifted-target)))
+    (is (= #{"improvementTargetRuns.audit-scope-trust-boundary"}
+           (set (map :metric (:regressions shifted-target)))))
+    (is (= 0.0
+           (:delta (first (filter #(= "improvementTargetRuns" (:metric %))
+                                  (:aggregateDeltas shifted-target))))))
     (is (= "passed" (:status different-parser-worker)))
     (is (false? (:aggregateComparable different-parser-worker)))
     (is (= ["parser-worker-profile-changed"]

@@ -81,9 +81,32 @@
   [report]
   (reduce + 0 (map #(long (or (:runs %) 0))
                    (:improvementSummary report))))
+(defn- improvement-target-runs-by-kind
+  [report]
+  (->> (:improvementSummary report)
+       (reduce (fn [runs-by-kind {:keys [kind runs]}]
+                 (if-let [kind (some-> kind str not-empty)]
+                   (update runs-by-kind kind (fnil + 0) (long (or runs 0)))
+                   runs-by-kind))
+               (sorted-map))))
+(defn- improvement-target-specs
+  [baseline-report candidate-report]
+  (->> (concat (keys (get-in baseline-report
+                             [:comparison :improvementTargetRunsByKind]))
+               (keys (get-in candidate-report
+                             [:comparison :improvementTargetRunsByKind])))
+       set
+       sort
+       (mapv (fn [kind]
+               {:path [:comparison :improvementTargetRunsByKind kind]
+                :label (str "improvementTargetRuns." kind)
+                :direction :lower}))))
 (defn- comparison-report
   [report]
-  (assoc report :comparison {:improvementTargetRuns (improvement-target-runs report)}))
+  (assoc report
+         :comparison {:improvementTargetRuns (improvement-target-runs report)
+                      :improvementTargetRunsByKind (improvement-target-runs-by-kind
+                                                    report)}))
 (defn- comparison-delta
   [baseline candidate {:keys [path key label direction]} tolerance]
   (let [value-path (or path [key])
@@ -215,7 +238,14 @@
                                                  tolerance)
                                    (report-deltas baseline-comparison-report
                                                   candidate-comparison-report
-                                                  tolerance)))
+                                                  tolerance)
+                                   (mapv #(comparison-delta baseline-comparison-report
+                                                            candidate-comparison-report
+                                                            %
+                                                            tolerance)
+                                         (improvement-target-specs
+                                          baseline-comparison-report
+                                          candidate-comparison-report))))
         aggregate-deltas (if aggregate-comparable?
                            raw-aggregate-deltas
                            (mark-aggregate-deltas-not-comparable
@@ -246,6 +276,8 @@
                 :coverageDiagnostics (:coverageDiagnostics baseline-report)
                 :improvementSummary (:improvementSummary baseline-report)
                 :improvementTargetRuns (improvement-target-runs baseline-report)
+                :improvementTargetRunsByKind (improvement-target-runs-by-kind
+                                              baseline-report)
                 :scores (:scores baseline-report)}
      :candidate {:cases (:cases candidate-report)
                  :completed (:completed candidate-report)
@@ -255,6 +287,8 @@
                  :coverageDiagnostics (:coverageDiagnostics candidate-report)
                  :improvementSummary (:improvementSummary candidate-report)
                  :improvementTargetRuns (improvement-target-runs candidate-report)
+                 :improvementTargetRunsByKind (improvement-target-runs-by-kind
+                                               candidate-report)
                  :scores (:scores candidate-report)}
      :aggregateDeltas aggregate-deltas
      :caseDeltas cases

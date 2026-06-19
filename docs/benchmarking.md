@@ -329,9 +329,9 @@ generated output root.
   warning runs, hint diagnostic runs, unverified score artifacts, obsolete score
   schemas, obsolete agent-result schemas, stale score artifacts, missing
   declared source-kind runs, coverage-excluded ground-truth files, unsupported
-  ground-truth files, and `improvementSummary` target runs as lower-is-better
-  regressions when the compared report case set and parser-worker profiles are
-  unchanged.
+  ground-truth files, total `improvementSummary` target runs, and
+  per-`kind` improvement target runs as lower-is-better regressions when the
+  compared report case set and parser-worker profiles are unchanged.
 - `bench run <suite.edn>` creates a detached worktree at each base SHA, indexes
   it with the query profile, runs lexical retrieval over the issue text, and
   writes one scored result artifact per case.
@@ -705,8 +705,9 @@ given.
   ground-truth files, and unsupported ground-truth files as lower-is-better
   regressions when reports are comparable.
 - `improvementSummary`: ordered remediation targets derived from the report
-  diagnostics. `agent-compare` sums their `runs` as `improvementTargetRuns` and
-  treats increases as lower-is-better regressions when reports are comparable.
+  diagnostics. `agent-compare` sums their `runs` as `improvementTargetRuns`,
+  exposes `improvementTargetRunsByKind`, and treats total or per-kind increases
+  as lower-is-better regressions when reports are comparable.
 - `artifactDiagnostics`: aggregate score-artifact freshness counters.
   `agent-compare` treats increases in unverified score runs, obsolete score
   schema runs, obsolete agent-result schema runs, and stale score runs as
