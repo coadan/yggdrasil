@@ -77,8 +77,11 @@ bb efficiency \
 Read `Problem-class signals`, `Architecture-class signals`, and
 `Claim readiness` together. A headline result is useful only when the compared
 lanes share completed cases, architecture-class tags are measured, evidence
-quality is available, and the report remains claim-ready. Treat generated files
-under `.dev/agraph/headline-bench/` as disposable artifacts.
+quality is available, and the report remains claim-ready. In `--json` output,
+read `classSignals.problemClasses` and `classSignals.architectureClasses`; a
+row with `measured: false` is useful context but does not count toward broad
+claim readiness. Treat generated files under `.dev/agraph/headline-bench/` as
+disposable artifacts.
 
 ## Workflow
 

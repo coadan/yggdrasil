@@ -135,7 +135,10 @@ Use existing benchmark report fields first:
   lower-is-better regression gate; if only observed metrics are available,
   `bb efficiency` reports `observed-only` instead of a win or loss, and broad
   claim readiness remains blocked until directional metrics are available)
-- task fit: `bb efficiency` `byTag.groups`, especially problem-class tags
+- task fit: `bb efficiency` `classSignals` for compact problem-class and
+  architecture-class rows. Use each row's `measured` flag to distinguish a
+  shared class-shaped tag from a class that counts toward claim readiness; fall
+  back to `byTag.groups` only when inspecting arbitrary non-class tags.
 - timing: stage timings and active-stage diagnostics from progress artifacts
 
 For patching runs, also record test pass rate, lint pass rate, unrelated file
