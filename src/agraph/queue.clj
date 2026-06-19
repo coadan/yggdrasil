@@ -92,6 +92,8 @@
     "agraph.maintenance.classification/v1" "maintenance-classification"
     "agraph.infra.review-packet/v1" "infra-review"
     "agraph.infra.review-result/v1" "infra-review-result"
+    "agraph.dependency.review-packet/v1" "dependency-review"
+    "agraph.dependency.review-result/v1" "dependency-review-result"
     "agraph.maintain/v1" "maintenance-report"
     nil))
 
@@ -262,6 +264,13 @@
                           {:id (:reviewId payload)
                            :kind (:kind payload)
                            :artifact (:artifact payload)}
+
+                          "agraph.dependency.review-packet/v1"
+                          {:id (:reviewId payload)
+                           :kind (:kind payload)
+                           :import (get-in payload [:facts :unresolvedImport :import])
+                           :path (get-in payload [:facts :unresolvedImport :path])
+                           :line (get-in payload [:facts :unresolvedImport :line])}
 
                           "agraph.maintenance.decision-packet/v1"
                           (cond-> {:id (:decisionId payload)

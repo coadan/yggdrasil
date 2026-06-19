@@ -7,6 +7,7 @@
             [agraph.coverage :as coverage]
             [agraph.cursor :as cursor]
             [agraph.dependency :as dependency]
+            [agraph.dependency-review :as dependency-review]
             [agraph.embedding :as embedding]
             [agraph.embedding.openai :as openai]
             [agraph.embedding.openrouter :as openrouter]
@@ -177,6 +178,9 @@
     (case payload-schema
       "agraph.infra.review-packet/v1"
       (infra-review/apply-work-result! root id map-path)
+
+      "agraph.dependency.review-packet/v1"
+      (dependency-review/apply-work-result! root id map-path)
 
       "agraph.maintenance.decision-packet/v1"
       (decision-classifier/apply-work-result! root id map-path)
@@ -630,7 +634,7 @@
 (defn- print-maintenance-report
   [{:keys [project-id graph-basis map counts scale graph-health fold-in orphaned-systems
            dangling-edges low-confidence-edges decision-summary
-           external-api-review decision-queue infra-review-queue]}]
+           external-api-review decision-queue infra-review-queue dependency-review-queue]}]
   (println "# Maintain")
   (println "- project" project-id)
   (when graph-basis
@@ -733,6 +737,19 @@
     (doseq [{:keys [reviewId kind artifact question]} (take 20 infra-review-queue)]
       (println "-" kind artifact "-" question)
       (println " " reviewId)))
+  (when (seq dependency-review-queue)
+    (println)
+    (println "## Dependency Review Queue")
+    (doseq [{:keys [reviewId question facts]} (take 20 dependency-review-queue)]
+      (let [unresolved (:unresolvedImport facts)]
+        (println "-"
+                 (:import unresolved)
+                 (when-let [path (:path unresolved)]
+                   (str path (when-let [line (:line unresolved)]
+                               (str ":" line))))
+                 "-"
+                 question)
+        (println " " reviewId))))
   (when (seq (:actions fold-in))
     (println)
     (println "## Fold In")
@@ -809,12 +826,26 @@
         :priority (queue-priority args 50)})))
    packets))
 
+(defn- enqueue-dependency-review-packets!
+  [args packets]
+  (mapv
+   (fn [packet]
+     (queue/item-summary
+      (queue/enqueue!
+       packet
+       {:root (queue-root args)
+        :kind dependency-review/work-kind
+        :project-id (:project-id packet)
+        :priority (queue-priority args 45)})))
+   packets))
+
 (defn- enqueue-sync-work!
   [args report]
   (vec
    (concat
     (enqueue-maintenance-decisions! args (:decision-queue report))
-    (enqueue-infra-review-packets! args (:infra-review-queue report)))))
+    (enqueue-infra-review-packets! args (:infra-review-queue report))
+    (enqueue-dependency-review-packets! args (:dependency-review-queue report)))))
 
 (defn- maintenance-result
   [args report]

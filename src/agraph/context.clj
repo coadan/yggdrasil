@@ -649,10 +649,16 @@
       with-warning
       packet)))
 
+(defn- compact-answerability
+  [answerability]
+  (when answerability
+    (select-keys answerability [:status :available :missing :weak :counts :retrieval :next])))
+
 (defn- trim-optional-context-metadata
   [packet budget]
   (let [trim-steps [#(update-in % [:search :instrumentation] dissoc :context-chunks)
                     #(dissoc % :sourceCoverage)
+                    #(update % :answerability compact-answerability)
                     #(assoc % :warnings [])
                     #(assoc % :drilldowns [])]]
     (reduce (fn [packet trim-step]
@@ -673,14 +679,44 @@
       with-estimate
       packet)))
 
+(defn- reviewed-doc?
+  [doc]
+  (or (some? (:role doc))
+      (some? (:status doc))))
+
+(defn- reviewed-doc-packet-variants
+  [packet]
+  (reductions (fn [packet trim-step]
+                (trim-step packet))
+              packet
+              [#(update-in % [:search :instrumentation] dissoc :context-chunks)
+               #(dissoc % :sourceCoverage)
+               #(update % :answerability compact-answerability)
+               #(assoc % :warnings [])
+               #(assoc % :drilldowns [])
+               #(assoc % :activity [])
+               #(assoc % :edges [])]))
+
+(defn- first-fitting-doc-packet
+  [packet doc budget]
+  (->> (if (reviewed-doc? doc)
+         (reviewed-doc-packet-variants packet)
+         [packet])
+       (filter #(<= (estimate-tokens (update % :docs conj doc)) budget))
+       first))
+
 (defn- add-doc-with-budget
   [packet doc budget]
-  (let [with-snippet (update packet :docs conj doc)]
+  (let [packet (or (first-fitting-doc-packet packet doc budget)
+                   packet)
+        with-snippet (update packet :docs conj doc)]
     (if (<= (estimate-tokens with-snippet) budget)
       with-snippet
       (let [ref-doc (-> doc
                         (dissoc :snippet)
                         (assoc :snippetOmitted true))
+            packet (or (first-fitting-doc-packet packet ref-doc budget)
+                       packet)
             with-ref (update packet :docs conj ref-doc)]
         (if (<= (estimate-tokens with-ref) budget)
           (add-warning-with-budget with-ref
@@ -748,7 +784,9 @@
 (defn- fit-budget
   [packet docs budget]
   (let [candidate-files (vec (:candidateFiles packet))
-        packet (assoc packet :candidateFiles [])
+        packet (-> packet
+                   (assoc :candidateFiles [])
+                   (trim-optional-context-metadata budget))
         packet (reduce #(add-doc-with-budget %1 %2 budget) packet docs)
         packet (fit-candidate-files (assoc packet :candidateFiles candidate-files)
                                     budget)

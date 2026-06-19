@@ -224,7 +224,8 @@
 (defn- queue-summary
   [maintenance]
   {:decisions (count (:decision-queue maintenance))
-   :infra-review (count (:infra-review-queue maintenance))})
+   :infra-review (count (:infra-review-queue maintenance))
+   :dependency-review (count (:dependency-review-queue maintenance))})
 
 (defn- compact-declared-package
   [entry]
@@ -305,7 +306,9 @@
                  :queue (queue-summary maintenance)
                  :decision-summary (:decision-summary maintenance)
                  :decision-queue (vec (take 20 (:decision-queue maintenance)))
-                 :infra-review-queue (vec (take 20 (:infra-review-queue maintenance)))}
+                 :infra-review-queue (vec (take 20 (:infra-review-queue maintenance)))
+                 :dependency-review-queue (vec (take 20 (:dependency-review-queue
+                                                         maintenance)))}
    :context-example {:artifact "context-example.json"
                      :answerability (:answerability context-example)}
    :artifacts artifacts
@@ -362,6 +365,17 @@
        (when question (str " - " question))
        "\n  id: `" reviewId "`"))
 
+(defn- dependency-line
+  [{:keys [reviewId question facts]}]
+  (let [unresolved (:unresolvedImport facts)]
+    (str "- unresolved import " (:import unresolved)
+         (when (:path unresolved)
+           (str " at " (:path unresolved)
+                (when (:line unresolved)
+                  (str ":" (:line unresolved)))))
+         (when question (str " - " question))
+         "\n  id: `" reviewId "`")))
+
 (defn- report-mdx
   [{:keys [project map-path detail generated-at-ms graph-data systems-data coverage maintenance
            evidence]}]
@@ -372,7 +386,8 @@
                                  (remove #(= "noise" (:visibility %)))
                                  (take 20))
         queue (concat (:decision-queue maintenance)
-                      (:infra-review-queue maintenance))
+                      (:infra-review-queue maintenance)
+                      (:dependency-review-queue maintenance))
         config-path (:path project)]
     (str "import { EvidenceSurface, MetricGrid, GraphSummary, PackageSummary, "
          "MaintenanceQueue, CommandList } from './components'\n\n"
@@ -422,7 +437,13 @@
                    "\n\n"))
             (when (seq (:infra-review-queue maintenance))
               (str "### Infra Review\n\n"
-                   (bullets (take 20 (:infra-review-queue maintenance)) "none" infra-line))))
+                   (bullets (take 20 (:infra-review-queue maintenance)) "none" infra-line)
+                   "\n\n"))
+            (when (seq (:dependency-review-queue maintenance))
+              (str "### Dependency Review\n\n"
+                   (bullets (take 20 (:dependency-review-queue maintenance))
+                            "none"
+                            dependency-line))))
            "- none\n")
          "\n## Suggested Commands\n\n"
          "<CommandList commands={report.commands} />\n\n"

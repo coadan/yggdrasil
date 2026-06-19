@@ -6,6 +6,7 @@
             [agraph.context :as context]
             [agraph.coverage :as coverage]
             [agraph.cursor :as cursor]
+            [agraph.dependency-review :as dependency-review]
             [agraph.evidence :as evidence]
             [agraph.graph :as graph]
             [agraph.hook :as hook]
@@ -953,15 +954,28 @@
                       :facts {:systems []
                               :evidence []}
                       :allowedActions ["none"]
-                      :expectedResultSchema infra-review/result-schema}]
+                      :expectedResultSchema infra-review/result-schema}
+        dependency-packet {:schema dependency-review/packet-schema
+                           :reviewId "dependency-review:test"
+                           :project-id "fixture"
+                           :kind "unresolved-import"
+                           :facts {:unresolvedImport {:import "org.slf4j.Logger"
+                                                      :path "App.java"
+                                                      :line 1}
+                                   :packages []
+                                   :evidence []}
+                           :allowedActions ["none"]
+                           :expectedResultSchema dependency-review/result-schema}]
     (with-redefs [project/read-project (constantly project-fixture)
                   store/with-node (fn [_ f] (f :xtdb))
                   project/maintain-project (fn [_ _ _]
                                              {:project-id "fixture"
                                               :counts {:maintenance-decisions 1
-                                                       :infra-review-items 1}
+                                                       :infra-review-items 1
+                                                       :dependency-review-items 1}
                                               :decision-queue [decision]
-                                              :infra-review-queue [infra-packet]})]
+                                              :infra-review-queue [infra-packet]
+                                              :dependency-review-queue [dependency-packet]})]
       (let [out (with-out-str
                   (cli/dispatch "sync"
                                 ["check" "project.edn"
@@ -971,12 +985,20 @@
             parsed (read-json-output out)
             items (queue/list-items root {:status "ready"})]
         (is (= "agraph.sync.check/v1" (:schema parsed)))
-        (is (= #{"maintenance-decision" "infra-review"}
+        (is (= #{"maintenance-decision" "infra-review" "dependency-review"}
                (set (mapv #(get-in % [:item :kind]) items))))
         (is (= #{"maintenance-decision:test" nil}
                (set (mapv #(get-in % [:item :payload :decisionId]) items))))
         (is (= #{"infra-review:test" nil}
-               (set (mapv #(get-in % [:item :payload :reviewId]) items))))))))
+               (set (mapv #(when (= infra-review/packet-schema
+                                    (get-in % [:item :payload :schema]))
+                             (get-in % [:item :payload :reviewId]))
+                          items))))
+        (is (= #{"dependency-review:test" nil}
+               (set (mapv #(when (= dependency-review/packet-schema
+                                    (get-in % [:item :payload :schema]))
+                             (get-in % [:item :payload :reviewId]))
+                          items))))))))
 
 (deftest sync-coverage-returns-source-coverage-report
   (with-redefs [project/read-project (constantly project-fixture)
@@ -1194,6 +1216,63 @@
                :error "Edge patch must cite at least one facts.evidence[].id."}]
              (:errors parsed)))
       (is (false? (graph-map/file-exists? map-path))))))
+
+(deftest sync-work-apply-valid-dependency-review-result-updates-map
+  (let [root (temp-dir "agraph-cli-work-dependency-apply")
+        dir (temp-dir "agraph-cli-work-dependency-map")
+        map-path (.getPath (io/file dir "agraph.map.json"))
+        result-path (.getPath (io/file dir "result.json"))
+        evidence-id "dependency-evidence:test"
+        packet {:schema dependency-review/packet-schema
+                :reviewId "dependency-review:test"
+                :project-id "fixture"
+                :facts {:unresolvedImport {:repo-id "app"
+                                           :import "org.slf4j.Logger"
+                                           :path "App.java"
+                                           :line 1}
+                        :packages [{:ecosystem "maven"
+                                    :package-name "org.slf4j:slf4j-api"}]
+                        :evidence [{:id evidence-id}]}
+                :allowedActions ["add-package-import" "none"]}
+        id (get-in (queue/enqueue! packet {:root root
+                                           :kind dependency-review/work-kind
+                                           :project-id "fixture"})
+                   [:item :id])]
+    (queue/claim-next! root {:agent-id "codex"
+                             :project-id "fixture"})
+    (spit result-path
+          (json/write-json-str
+           {:schema dependency-review/result-schema
+            :reviewId "dependency-review:test"
+            :recommendation "add-package-import"
+            :confidence 0.86
+            :reason "The import prefix is provided by the declared package."
+            :mapPatch [{:op "add-package-import"
+                        :import "org.slf4j"
+                        :ecosystem "maven"
+                        :package "org.slf4j:slf4j-api"
+                        :evidence [evidence-id]
+                        :reason "Explicit package import mapping."}]}
+           {:indent-str "  "}))
+    (with-out-str
+      (cli/dispatch "sync"
+                    ["work" "complete" id
+                     "--result" result-path
+                     "--queue-dir" root]))
+    (let [out (with-out-str
+                (cli/dispatch "sync"
+                              ["work" "apply" id
+                               "--map" map-path
+                               "--queue-dir" root]))
+          parsed (read-json-output out)
+          package-import (first (:packageImports (graph-map/read-map map-path)))]
+      (is (= dependency-review/apply-schema (:schema parsed)))
+      (is (= "applied" (:status parsed)))
+      (is (= 1 (:patchesApplied parsed)))
+      (is (= "org.slf4j" (:import package-import)))
+      (is (= "maven" (:ecosystem package-import)))
+      (is (= "org.slf4j:slf4j-api" (:package package-import)))
+      (is (= [evidence-id] (:evidence package-import))))))
 
 (deftest infra-review-result-requires-supported-recommendation-and-reason
   (let [packet {:schema infra-review/packet-schema

@@ -363,7 +363,7 @@
 
 (defn add-package-import
   "Record an accepted source import prefix to external package mapping."
-  [overlay {:keys [repo import ecosystem package reason]}]
+  [overlay {:keys [repo import ecosystem package reason evidence]}]
   (update overlay
           :packageImports
           (fnil conj [])
@@ -372,6 +372,7 @@
                    :package package
                    :status "accepted"}
             repo (assoc :repo repo)
+            (seq evidence) (assoc :evidence (vec evidence))
             (seq reason) (assoc :reason reason))))
 
 (defn add-edge

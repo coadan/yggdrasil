@@ -71,6 +71,12 @@ The project evidence surface (`agraph.evidence/v1` in reports and
 commands for the package report variants when declared-package evidence gaps,
 version conflicts, or unresolved imports are present.
 
+`sync check --enqueue` turns unresolved imports into
+`agraph.dependency.review-packet/v1` queue items. A completed
+`agraph.dependency.review-result/v1` can apply an explicit `packageImports`
+correction to `agraph.map.json`; the result must cite packet evidence and choose
+one package from the packet.
+
 Use `agraph view deps <package-label>` for a package evidence graph. For package
 nodes, `deps` includes the declaring manifests, resolved lockfile versions,
 lockfiles that resolved those versions, and source namespaces with import

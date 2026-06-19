@@ -1,6 +1,8 @@
 (ns agraph.system
   "Derived project system graph inference."
-  (:require [agraph.hash :as hash]
+  (:require [agraph.dependency :as dependency]
+            [agraph.dependency-review :as dependency-review]
+            [agraph.hash :as hash]
             [agraph.infra-review :as infra-review]
             [agraph.map :as graph-map]
             [agraph.search-doc :as search-doc]
@@ -1457,6 +1459,14 @@
                              :basis basis
                              :systems systems
                              :evidence evidence})
+        package-report (dependency/package-report xtdb
+                                                  {:project-id project-id}
+                                                  {:map-overlay map-overlay
+                                                   :limit 100})
+        dependency-review-queue (dependency-review/review-packets
+                                 {:project-id project-id
+                                  :basis basis
+                                  :package-report package-report})
         scale (scale-report systems
                             evidence
                             semantic-edges
@@ -1478,7 +1488,8 @@
               :visible-connections (count visible-edges)
               :clusters (count clusters)
               :maintenance-decisions (count decision-queue)
-              :infra-review-items (count infra-review-queue)}
+              :infra-review-items (count infra-review-queue)
+              :dependency-review-items (count dependency-review-queue)}
      :scale scale
      :external-api-review external-api-review
      :graph-health graph-health
@@ -1491,4 +1502,5 @@
      :semantic-connections semantic-edges
      :clusters clusters
      :decision-queue decision-queue
-     :infra-review-queue infra-review-queue}))
+     :infra-review-queue infra-review-queue
+     :dependency-review-queue dependency-review-queue}))

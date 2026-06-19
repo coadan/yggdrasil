@@ -460,6 +460,7 @@
              :source-label (:label source)
              :target-id (:target-id edge)
              :import (import-target-label nodes-by-id edge)
+             :repo-id (:repo-id edge)
              :path (:path edge)
              :line (:source-line edge)}
       (:kind file) (assoc :kind (:kind file)))))
