@@ -29,6 +29,10 @@ describe("ReportPage", () => {
     expect(screen.getByText("Fixture Graph Crawl")).toBeInTheDocument();
     expect(screen.getAllByText("fixture-report-plugin").length).toBeGreaterThan(0);
     expect(screen.getByText("Fixture diagnostic")).toBeInTheDocument();
+    expect(screen.getByText("Plugin Artifacts")).toBeInTheDocument();
+    expect(screen.getByText(".dev/reports/fixture/graph-crawl.json")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy artifact refs" }));
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
     expect(screen.getByText("flows-api / candidate-system, events-worker / candidate-system")).toBeInTheDocument();
     expect(screen.getByText("src/app/plugin_crawl.clj")).toBeInTheDocument();
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();

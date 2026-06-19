@@ -91,6 +91,7 @@ Panel MDX is rendered by the report UI with a safe allowlist:
 
 - `MetricGrid dataKey="..."`
 - `DataTable dataKey="..."`
+- `ActionList dataKey="..."`
 - `CommandList dataKey="..."`
 - `Callout dataKey="..."`
 - `KeyValueTable dataKey="..."`
@@ -182,6 +183,11 @@ and plugin diagnostics.
 warnings, benchmark status, source pins, manifest fingerprints, and diagnose
 commands. Report plugins receive the same data directly as `pluginPackages` and
 inside the full report packet as `report.plugin-packages`.
+
+The report UI renders plugin artifacts on the Plugins tab. Artifact rows are
+treated as review inventory: common explicit reference fields such as `path`,
+`file`, `url`, `artifact`, and `artifactPath` are copyable so operators can
+move from a plugin decision surface to generated evidence quickly.
 
 Report plugins are presentation and planning tools. They should emit panel data,
 diagnostics, or artifacts for review. They should not mutate graph facts or

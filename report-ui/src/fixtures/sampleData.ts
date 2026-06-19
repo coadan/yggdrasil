@@ -276,7 +276,15 @@ export const fixtureReport: AGraphReport = {
         message: "Fixture diagnostic"
       }
     ],
-    artifacts: []
+    artifacts: [
+      {
+        id: "fixture-plugin-artifact",
+        label: "Fixture crawl packet",
+        path: ".dev/reports/fixture/graph-crawl.json",
+        kind: "json",
+        plugin: { id: "fixture-report-plugin" }
+      }
+    ]
   },
   commands: [
     "agraph sync project.edn --check --map agraph.map.json",

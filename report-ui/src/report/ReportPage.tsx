@@ -390,6 +390,30 @@ function sourceRefs(rows: Array<Record<string, unknown>>): string[] {
   return [...refs];
 }
 
+function pluginArtifactRefs(rows: Array<Record<string, unknown>>): string[] {
+  const refs = new Set<string>();
+  for (const row of rows) {
+    for (const key of ["path", "file", "url", "artifact", "artifactPath", "artifact_path"]) {
+      const value = displayValue(row[key]);
+      if (value) refs.add(value);
+    }
+  }
+  return [...refs];
+}
+
+function inferredColumns(rows: Array<Record<string, unknown>>, preferred: string[]): TableColumn[] {
+  const keys = new Set<string>();
+  for (const key of preferred) {
+    if (rows.some((row) => row[key] !== undefined && row[key] !== null)) keys.add(key);
+  }
+  for (const row of rows.slice(0, 5)) {
+    Object.keys(row).forEach((key) => keys.add(key));
+  }
+  return Array.from(keys)
+    .slice(0, 8)
+    .map((key) => ({ key, label: key }));
+}
+
 function ReviewEvidenceTable({ rows }: { rows: Array<Record<string, unknown>> }) {
   if (rows.length === 0) return null;
   const columns = reviewEvidenceColumns(rows);
@@ -1518,6 +1542,56 @@ function DashboardTab({
   );
 }
 
+function PluginArtifacts({
+  artifacts,
+  copiedKey,
+  onCopyCommand
+}: {
+  artifacts: Array<Record<string, unknown>>;
+  copiedKey: string | null;
+  onCopyCommand: (key: string, command: string) => void;
+}) {
+  if (artifacts.length === 0) return null;
+
+  const refs = pluginArtifactRefs(artifacts);
+  const columns = inferredColumns(artifacts, ["label", "path", "url", "kind", "plugin"]);
+  return (
+    <section className="panel span-2">
+      <div className="panel-header">
+        <div>
+          <h2>Plugin Artifacts</h2>
+          <p className="muted">Files, URLs, and other review artifacts emitted by report plugins.</p>
+        </div>
+        {refs.length > 0 ? (
+          <button className="slice-ask-button" type="button" onClick={() => onCopyCommand("plugin-artifacts:refs", refs.join("\n"))}>
+            {copiedKey === "plugin-artifacts:refs" ? "Copied" : "Copy artifact refs"}
+          </button>
+        ) : null}
+      </div>
+      <table>
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.key}>{column.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {artifacts.map((row, index) => (
+            <tr key={String(row.id || row.path || row.url || row.artifact || index)}>
+              {columns.map((column) => (
+                <td key={column.key} className={numericCell(row[column.key])}>
+                  {displayValue(row[column.key])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 function PluginsTab({
   report,
   copiedActionKey,
@@ -1535,6 +1609,7 @@ function PluginsTab({
 }) {
   const panels = externalPanels(report);
   const diagnostics = report.plugins?.diagnostics || [];
+  const artifacts = report.plugins?.artifacts || [];
   const actions = pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab });
 
   return (
@@ -1547,6 +1622,7 @@ function PluginsTab({
       ) : (
         panels.map((panel) => <PluginPanel key={`${panelPluginId(panel)}:${panel.id}`} panel={panel} actions={actions} />)
       )}
+      <PluginArtifacts artifacts={artifacts} copiedKey={copiedActionKey} onCopyCommand={onCopyCommand} />
       <PluginDiagnostics diagnostics={diagnostics} />
     </div>
   );
