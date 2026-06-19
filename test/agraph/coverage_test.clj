@@ -442,6 +442,7 @@
     (spit-file! root "workflows/tekton/pipeline.yaml" "apiVersion: tekton.dev/v1\nkind: Pipeline\nmetadata:\n  name: panel-pipeline\n")
     (spit-file! root "infra/docker-compose.yml" "services:\n  web:\n    image: ghcr.io/acme/web:latest\n    build: ./web\n    ports:\n      - \"8080:8080\"\n    environment:\n      PANEL_ENV: dev\n")
     (spit-file! root "runtime/Dockerfile" "FROM alpine:3.20 AS runtime\nCMD [\"demo\"]\n")
+    (spit-file! root "runtime/Dockerfile.worker" "FROM alpine:3.20\nCMD [\"worker\"]\n")
     (spit-file! root "runtime/Containerfile" "FROM busybox:1.36\nENTRYPOINT [\"demo\"]\n")
     (spit-file! root "runtime/Procfile" "web: demo web\n")
     (spit-file! root "infra/chart/Chart.yaml" "apiVersion: v2\nname: panels\nversion: 0.1.0\n")
@@ -485,8 +486,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 249
-              :supported 248
+      (is (= {:files 250
+              :supported 249
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -524,7 +525,7 @@
       (is (= 15 (:count (row-by :kind "web-framework" (:files-by-kind report)))))
       (is (= 8 (:count (row-by :kind "workflow-orchestration" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "storybook" (:files-by-kind report)))))
-      (is (= 2 (:count (row-by :kind "docker" (:files-by-kind report)))))
+      (is (= 3 (:count (row-by :kind "docker" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "procfile" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "compose" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "helm" (:files-by-kind report)))))
@@ -732,7 +733,7 @@
                 (:extractors report)))
       (is (some #(and (= "docker" (:kind %))
                       (= "docker/v1" (:extractor-version %))
-                      (= 2 (:files %)))
+                      (= 3 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "procfile" (:kind %))
                       (= "procfile/v1" (:extractor-version %))

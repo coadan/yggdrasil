@@ -40,6 +40,10 @@ classification in core extractors; store bounded facts and relationships first.
   indexed through existing bounded text/config extractors so agent context can
   include concrete template and runtime configuration artifacts without adding
   project-specific semantics.
+- Container build variants: dotted `Dockerfile.*` and `Containerfile.*` names
+  are routed through the existing Docker extractor so multi-image repos expose
+  the same bounded build stages, images, environment, ports, and runtime command
+  facts as canonical Dockerfile names.
 
 ## Future Candidates
 

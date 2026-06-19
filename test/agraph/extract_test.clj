@@ -3486,9 +3486,18 @@
         relations (fn [result] (frequencies (map :relation (:edges result))))
         docker (result-for "runtime/Dockerfile")
         containerfile (result-for "runtime/Containerfile")
+        docker-variant (extract/extract-file
+                        "run/test"
+                        {:file-id "file:runtime/Dockerfile.backend"
+                         :id-scope "fixture"
+                         :path "runtime/Dockerfile.backend"
+                         :kind (fs/file-kind "runtime/Dockerfile.backend")
+                         :content "FROM alpine:3.20 AS backend\nCMD [\"backend\"]\n"})
         procfile (result-for "runtime/Procfile")]
     (is (= :docker (kind-for "runtime/Dockerfile")))
     (is (= :docker (kind-for "runtime/Containerfile")))
+    (is (= :docker (fs/file-kind "runtime/Dockerfile.backend")))
+    (is (true? (fs/supported-path? "runtime/Dockerfile.backend")))
     (is (= :procfile (kind-for "runtime/Procfile")))
     (is (contains? (labels docker) "deps"))
     (is (contains? (labels docker) "build"))
@@ -3518,6 +3527,10 @@
     (is (= 1 (:docker-stage (kinds containerfile))))
     (is (= 1 (:container-image (kinds containerfile))))
     (is (= 2 (:runtime-command (kinds containerfile))))
+    (is (contains? (labels docker-variant) "backend"))
+    (is (contains? (labels docker-variant) "CMD [\"backend\"]"))
+    (is (= [:docker-file :docker-stage]
+           (mapv :kind (:chunks docker-variant))))
     (is (contains? (labels procfile) "web"))
     (is (contains? (labels procfile) "worker"))
     (is (contains? (labels procfile) "web:bin/panels-web --port $PORT"))

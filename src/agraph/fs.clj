@@ -183,6 +183,12 @@
       ""
       (str/lower-case (subs name idx)))))
 
+(defn- docker-build-filename?
+  [filename]
+  (or (contains? #{"dockerfile" "containerfile"} filename)
+      (str/starts-with? filename "dockerfile.")
+      (str/starts-with? filename "containerfile.")))
+
 (defn file-kind
   "Return AGraph file kind for extension."
   [path]
@@ -197,7 +203,7 @@
       (env-filename? filename) :env
       (str/ends-with? filename ".sh.in") :shell
       (str/ends-with? filename ".rb.template") :ruby
-      (contains? #{"dockerfile" "containerfile"} filename) :docker
+      (docker-build-filename? filename) :docker
       (= "procfile" filename) :procfile
       (= "ols.json" filename) :odin
       (or (re-find #"(^|/)\.github/workflows/[^/]+\.ya?ml$" path-lower)
@@ -436,6 +442,7 @@
     (or (contains? supported-extensions (extension path))
         (env-filename? filename)
         (str/ends-with? filename ".sh.in")
+        (docker-build-filename? filename)
         (re-find #"(^|/)\.github/workflows/[^/]+\.ya?ml$" path-lower)
         (re-find #"(^|/)\.github/issue_template/[^/]+\.(?:md|ya?ml|json)$" path-lower)
         (re-find #"(^|/)\.github/pull_request_template(?:/[^/]+\.md|\.md)$" path-lower)
