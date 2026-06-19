@@ -98,6 +98,9 @@
 (def default-agent-baseline-candidate-file-only-quota
   5)
 
+(def ^:private problem-class-minimum-cases
+  2)
+
 (def default-local-vector-model
   "sentence-transformers/all-MiniLM-L6-v2")
 
@@ -4357,11 +4360,12 @@
        sort
        vec))
 
-(defn- group-agent-scores-by-tag
-  [expected-fingerprints results]
+(defn- group-agent-scores-by-filtered-tag
+  [expected-fingerprints results include-tag?]
   (->> results
        (mapcat (fn [result]
-                 (map (fn [tag] [tag result]) (result-tags result))))
+                 (map (fn [tag] [tag result])
+                      (filter include-tag? (result-tags result)))))
        (group-by first)
        (map (fn [[tag pairs]]
               (let [rows (mapv second pairs)]
@@ -4379,6 +4383,41 @@
                                        rows)})))
        (sort-by :key)
        vec))
+
+(defn- group-agent-scores-by-tag
+  [expected-fingerprints results]
+  (group-agent-scores-by-filtered-tag expected-fingerprints
+                                      results
+                                      (constantly true)))
+
+(defn- problem-class-tag?
+  [tag]
+  (str/starts-with? tag "problem-"))
+
+(defn- architecture-class-tag?
+  [tag]
+  (str/starts-with? tag "architecture-"))
+
+(defn- add-problem-class-claim-status
+  [row]
+  (assoc row
+         :minimumCases problem-class-minimum-cases
+         :claimStatus (if (<= problem-class-minimum-cases (:cases row))
+                        "measured"
+                        "insufficient-cases")))
+
+(defn- problem-class-summary
+  [expected-fingerprints results]
+  {:minimumCasesForClassClaim problem-class-minimum-cases
+   :classes (mapv add-problem-class-claim-status
+                  (group-agent-scores-by-filtered-tag expected-fingerprints
+                                                      results
+                                                      problem-class-tag?))
+   :architectureClasses (mapv add-problem-class-claim-status
+                              (group-agent-scores-by-filtered-tag
+                               expected-fingerprints
+                               results
+                               architecture-class-tag?))})
 
 (defn- group-agent-scores-by-parser-worker
   [expected-fingerprints results]
@@ -4770,6 +4809,8 @@
                                                  allow-unverified?)
                 :coverage (aggregate-coverage results)
                 :tags (aggregate-case-tags cases)
+                :problemClasses (problem-class-summary expected-fingerprints
+                                                       results)
                 :timings (aggregate-progress progress)
                 :caseProgress progress
                 :byMode (group-agent-scores expected-fingerprints

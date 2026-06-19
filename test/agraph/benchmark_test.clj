@@ -791,6 +791,97 @@
              (:failures
               (benchmark/check-agent-report report {:allow-missing? true})))))))
 
+(deftest reports-problem-class-summaries
+  (let [out (temp-dir "agraph-agent-report-problem-classes")
+        suite {:id "suite"
+               :cases [{:id "arch-runtime"
+                        :tags [:problem-architecture
+                               :architecture-runtime-boundary]}
+                       {:id "arch-deps"
+                        :tags [:problem-architecture
+                               :architecture-dependency-flow]}
+                       {:id "localization"
+                        :tags [:problem-localization]}]}
+        write-score! (fn [case-id tags recall]
+                       (spit-json!
+                        out
+                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
+                        {:schema benchmark/agent-score-schema
+                         :suite-id "suite"
+                         :case-id case-id
+                         :repo-id "repo"
+                         :tags tags
+                         :agent {:agentId "codex"
+                                 :mode "agraph"
+                                 :topFiles [{:path (str case-id ".clj")
+                                             :rank 1
+                                             :evidence ["candidate-file"]}]
+                                 :commands ["agraph explore"]}
+                         :groundTruth {:changedFiles [(str case-id ".clj")]
+                                       :scoreableFiles [(str case-id ".clj")]
+                                       :unsupportedGroundTruthFiles []}
+                         :groundTruthRanks {:files [{:path (str case-id ".clj")
+                                                     :rank 1
+                                                     :found? true}]}
+                         :scores {:fileRecallAt5 recall
+                                  :fileRecallAt10 recall
+                                  :fileRecallAt20 recall
+                                  :meanReciprocalRankFile recall
+                                  :noiseRatioAt20 (- 1.0 recall)
+                                  :evidenceCitationRate 1.0
+                                  :pathEvidenceCitationRate 1.0
+                                  :changedFiles 1
+                                  :scoreableChangedFiles 1
+                                  :unsupportedGroundTruthFiles 0}}))]
+    (write-score! "arch-runtime"
+                  ["problem-architecture" "architecture-runtime-boundary"]
+                  1.0)
+    (write-score! "arch-deps"
+                  ["problem-architecture" "architecture-dependency-flow"]
+                  0.5)
+    (write-score! "localization"
+                  ["problem-localization"]
+                  0.25)
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})
+          problem-classes (get-in report [:problemClasses :classes])
+          architecture-classes (get-in report [:problemClasses :architectureClasses])]
+      (is (= 2 (get-in report [:problemClasses :minimumCasesForClassClaim])))
+      (is (= [{:key "problem-architecture"
+               :cases 2
+               :runs 2
+               :claimStatus "measured"
+               :minimumCases 2}
+              {:key "problem-localization"
+               :cases 1
+               :runs 1
+               :claimStatus "insufficient-cases"
+               :minimumCases 2}]
+             (mapv #(select-keys % [:key
+                                    :cases
+                                    :runs
+                                    :claimStatus
+                                    :minimumCases])
+                   problem-classes)))
+      (is (= 0.75
+             (get-in (first problem-classes) [:scores :fileRecallAt10])))
+      (is (= [{:key "architecture-dependency-flow"
+               :cases 1
+               :runs 1
+               :claimStatus "insufficient-cases"
+               :minimumCases 2}
+              {:key "architecture-runtime-boundary"
+               :cases 1
+               :runs 1
+               :claimStatus "insufficient-cases"
+               :minimumCases 2}]
+             (mapv #(select-keys % [:key
+                                    :cases
+                                    :runs
+                                    :claimStatus
+                                    :minimumCases])
+                   architecture-classes))))))
+
 (deftest reports-exclude-obsolete-agent-score-schema
   (let [out (temp-dir "agraph-agent-report-obsolete-score-schema")
         case {:id "case-1"
