@@ -101,7 +101,7 @@
                          (:hash basis)])))
 
 (defn- review-packet
-  [{:keys [project-id basis unresolved packages]}]
+  [{:keys [project-id basis unresolved packages package-selection]}]
   (let [package-ids (mapv :id packages)
         review-id (packet-id project-id basis unresolved package-ids)
         evidence [(evidence-row project-id unresolved)]
@@ -115,6 +115,7 @@
                                                :line
                                                :kind])
                :packages (mapv package-summary packages)
+               :packageSelection package-selection
                :evidence evidence}
         expected-output {:schema result-schema
                          :reviewId review-id
@@ -154,13 +155,20 @@
   "Return bounded dependency-review packets from a package report."
   [{:keys [project-id basis package-report limit]
     :or {limit default-packet-limit}}]
-  (let [packages (vec (take default-package-limit (:packages package-report)))]
+  (let [total-packages (long (or (get-in package-report [:counts :packages])
+                                 (count (:packages package-report))))
+        packages (vec (take default-package-limit (:packages package-report)))
+        package-selection {:totalPackages total-packages
+                           :includedPackages (count packages)
+                           :packageLimit default-package-limit
+                           :truncated (> total-packages (count packages))}]
     (->> (:unresolved-imports package-report)
          (take limit)
          (mapv #(review-packet {:project-id project-id
                                 :basis basis
                                 :unresolved %
-                                :packages packages})))))
+                                :packages packages
+                                :package-selection package-selection})))))
 
 (defn- payload
   [item]

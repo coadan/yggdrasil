@@ -75,7 +75,9 @@ version conflicts, or unresolved imports are present.
 `agraph.dependency.review-packet/v1` queue items. A completed
 `agraph.dependency.review-result/v1` can apply an explicit `packageImports`
 correction to `agraph.map.json`; the result must cite packet evidence and choose
-one package from the packet.
+one package from the packet. Packets include `facts.packageSelection` with the
+total package rows, included rows, packet limit, and truncation flag so reviewers
+can distinguish insufficient packet evidence from a true no-change result.
 
 Use `agraph view deps <package-label>` for a package evidence graph. For package
 nodes, `deps` includes the declaring manifests, resolved lockfile versions,

@@ -41,6 +41,11 @@
                    [:item :id])]
     (is (= dependency-review/packet-schema (:schema packet)))
     (is (= "org.slf4j.Logger" (get-in packet [:facts :unresolvedImport :import])))
+    (is (= {:totalPackages 1
+            :includedPackages 1
+            :packageLimit 40
+            :truncated false}
+           (get-in packet [:facts :packageSelection])))
     (is (= ["add-package-import" "none"] (:allowedActions packet)))
     (queue/claim-next! root {:agent-id "codex"
                              :project-id "fixture"})
@@ -103,3 +108,27 @@
              :value {:ecosystem "maven"
                      :package "org.slf4j:slf4j-api"}}]
            errors))))
+
+(deftest dependency-review-packet-reports-truncated-package-selection
+  (let [packages (mapv (fn [idx]
+                         {:id (str "package:npm:pkg-" idx)
+                          :label (str "npm:pkg-" idx)
+                          :ecosystem "npm"
+                          :package-name (str "pkg-" idx)})
+                       (range 45))
+        packet (first (dependency-review/review-packets
+                       {:project-id "fixture"
+                        :basis {:hash "basis"}
+                        :package-report {:counts {:packages 45}
+                                         :packages packages
+                                         :unresolved-imports [{:repo-id "app"
+                                                               :import "pkg-44"
+                                                               :path "src/app.js"
+                                                               :line 1}]}}))]
+    (is (= {:totalPackages 45
+            :includedPackages 40
+            :packageLimit 40
+            :truncated true}
+           (get-in packet [:facts :packageSelection])))
+    (is (= 40 (count (get-in packet [:facts :packages]))))
+    (is (= "pkg-39" (get-in packet [:facts :packages 39 :package-name])))))
