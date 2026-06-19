@@ -36,7 +36,7 @@
   "agraph.benchmark.agent-result/v2")
 
 (def agent-score-schema
-  "agraph.benchmark.agent-score/v2")
+  "agraph.benchmark.agent-score/v3")
 
 (def ^:private agent-run-modes
   ["agraph" "shell-only"])
@@ -1140,6 +1140,21 @@
        (double (count top-files)))
     0.0))
 
+(defn- path-evidence-cited?
+  [row]
+  (let [path (not-empty (str (:path row)))]
+    (boolean
+     (and path
+          (some #(str/includes? (str %) path)
+                (:evidence row))))))
+
+(defn- path-evidence-citation-rate
+  [top-files]
+  (if (seq top-files)
+    (/ (double (count (filter path-evidence-cited? top-files)))
+       (double (count top-files)))
+    0.0))
+
 (defn score-result
   "Return mechanical localization scores for a benchmark result shape."
   [{:keys [groundTruth agraph]}]
@@ -1156,6 +1171,7 @@
                                                          (:topFiles agraph))
       :noiseRatioAt20 (noise-ratio-at scoreable-files paths 20)
       :evidenceCitationRate (evidence-citation-rate (:topFiles agraph))
+      :pathEvidenceCitationRate (path-evidence-citation-rate (:topFiles agraph))
       :changedFiles (count changed-files)
       :localizationFiles (count (or (:localizationFiles groundTruth)
                                     changed-files))
@@ -2095,6 +2111,7 @@
                                     :rank-score
                                     :evidence-score
                                     :evidence-kind
+                                    :graph-neighbor-score
                                     :retrieved-source?
                                     :exact-path-source?
                                     :matched-tokens
@@ -3809,7 +3826,8 @@
                     :fileRecallAt20
                     :meanReciprocalRankFile
                     :noiseRatioAt20
-                    :evidenceCitationRate]]
+                    :evidenceCitationRate
+                    :pathEvidenceCitationRate]]
     (into {}
           (map (fn [k]
                  [k (average (keep #(get-in % [:scores k]) results))]))
@@ -4660,11 +4678,14 @@
                  [:min-mrr :minMeanReciprocalRankFile]
                  [:max-noise-at-20 :maxNoiseRatioAt20]
                  [:min-evidence-citation-rate :minEvidenceCitationRate]
+                 [:min-path-evidence-citation-rate :minPathEvidenceCitationRate]
                  [:min-case-file-recall-at-5 :minCaseFileRecallAt5]
                  [:min-case-file-recall-at-10 :minCaseFileRecallAt10]
                  [:min-case-file-recall-at-20 :minCaseFileRecallAt20]
                  [:min-case-mrr :minCaseMeanReciprocalRankFile]
                  [:min-case-evidence-citation-rate :minCaseEvidenceCitationRate]
+                 [:min-case-path-evidence-citation-rate
+                  :minCasePathEvidenceCitationRate]
                  [:max-case-noise-at-20 :maxCaseNoiseRatioAt20]
                  [:max-input-hinted-cases :maxInputHintedCases]
                  [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
@@ -4803,7 +4824,10 @@
                  "case.meanReciprocalRankFile"]
                 [:minCaseEvidenceCitationRate
                  :evidenceCitationRate
-                 "case.evidenceCitationRate"]])
+                 "case.evidenceCitationRate"]
+                [:minCasePathEvidenceCitationRate
+                 :pathEvidenceCitationRate
+                 "case.pathEvidenceCitationRate"]])
          (keep (fn [[threshold-key metric-key metric-label]]
                  (case-max-failure check result threshold-key metric-key metric-label))
                [[:maxCaseNoiseRatioAt20 :noiseRatioAt20 "case.noiseRatioAt20"]])))
@@ -5118,6 +5142,7 @@
    :meanReciprocalRankFile
    :noiseRatioAt20
    :evidenceCitationRate
+   :pathEvidenceCitationRate
    :changedFiles
    :scoreableChangedFiles
    :unsupportedGroundTruthFiles])
@@ -5204,7 +5229,10 @@
                            "meanReciprocalRankFile"]
                           [:minEvidenceCitationRate
                            :evidenceCitationRate
-                           "evidenceCitationRate"]])
+                           "evidenceCitationRate"]
+                          [:minPathEvidenceCitationRate
+                           :pathEvidenceCitationRate
+                           "pathEvidenceCitationRate"]])
                    (keep (fn [[threshold-key metric-path metric-label]]
                            (max-failure check-base
                                         threshold-key
@@ -5260,6 +5288,9 @@
     :direction :lower}
    {:key :evidenceCitationRate
     :label "evidenceCitationRate"
+    :direction :higher}
+   {:key :pathEvidenceCitationRate
+    :label "pathEvidenceCitationRate"
     :direction :higher}])
 
 (def ^:private comparison-report-specs

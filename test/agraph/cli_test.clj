@@ -75,7 +75,9 @@
     (is (str/includes? usage "bench agent-compare"))
     (is (str/includes? usage "--cases ID,ID"))
     (is (str/includes? usage "--min-evidence-citation-rate N"))
+    (is (str/includes? usage "--min-path-evidence-citation-rate N"))
     (is (str/includes? usage "--min-case-evidence-citation-rate N"))
+    (is (str/includes? usage "--min-case-path-evidence-citation-rate N"))
     (is (str/includes? usage "--max-commandless-runs N"))
     (is (str/includes? usage "--max-missing-predicted-file-runs N"))
     (is (str/includes? usage "--max-warning-runs N"))
@@ -614,9 +616,11 @@
                                  "--min-mrr" "0.9"
                                  "--max-noise-at-20" "0.5"
                                  "--min-evidence-citation-rate" "0.8"
+                                 "--min-path-evidence-citation-rate" "0.6"
                                  "--min-case-file-recall-at-10" "1.0"
                                  "--min-case-mrr" "0.9"
                                  "--min-case-evidence-citation-rate" "0.7"
+                                 "--min-case-path-evidence-citation-rate" "0.55"
                                  "--max-case-noise-at-20" "0.75"
                                  "--max-input-hinted-cases" "0"
                                  "--max-unsupported-ground-truth-files" "0"
@@ -655,9 +659,11 @@
                   :min-mrr 0.9
                   :max-noise-at-20 0.5
                   :min-evidence-citation-rate 0.8
+                  :min-path-evidence-citation-rate 0.6
                   :min-case-file-recall-at-10 1.0
                   :min-case-mrr 0.9
                   :min-case-evidence-citation-rate 0.7
+                  :min-case-path-evidence-citation-rate 0.55
                   :max-case-noise-at-20 0.75
                   :max-input-hinted-cases 0.0
                   :max-unsupported-ground-truth-files 0.0

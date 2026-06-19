@@ -41,7 +41,7 @@ bb bench agent-baseline benchmark.edn --case penpot-example --retriever local-ve
 bb bench agent-run benchmark.edn --agent codex --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' --mode agraph --prompt-profile fast --timeout-ms 120000
 bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
 bb bench agent-report benchmark.edn
-bb bench agent-check benchmark.edn --mode agraph --agent agraph-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
+bb bench agent-check benchmark.edn --mode agraph --agent agraph-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
 bb bench agent-compare benchmark.edn --baseline-report .dev/agraph/bench-before/agent-report.json --candidate-report .dev/agraph/bench-after/agent-report.json
 bb bench run benchmark.edn
 bb bench report benchmark.edn
@@ -181,7 +181,9 @@ generated output root.
   `--min-file-recall-at-20`, `--min-case-file-recall-at-5`,
   `--min-case-file-recall-at-10`, `--min-case-file-recall-at-20`, `--min-mrr`,
   `--min-case-mrr`, `--min-evidence-citation-rate`,
-  `--min-case-evidence-citation-rate`, `--max-noise-at-20`, `--max-case-noise-at-20`,
+  `--min-path-evidence-citation-rate`,
+  `--min-case-evidence-citation-rate`,
+  `--min-case-path-evidence-citation-rate`, `--max-noise-at-20`, `--max-case-noise-at-20`,
   `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`,
   `--max-empty-result-runs` to fail when agents produce no rankable suspected
   files, `--max-missing-predicted-file-runs` to fail when agents predict paths
@@ -482,6 +484,10 @@ given.
 - `evidenceCitationRate`: fraction of ranked files whose result row includes at
   least one non-empty evidence string. This is a mechanical auditability metric;
   it does not judge whether the evidence is semantically correct.
+- `pathEvidenceCitationRate`: fraction of ranked files whose evidence strings
+  include the ranked file path. This stricter mechanical traceability metric is
+  useful for agent-first gates where each suspected file should point back to a
+  concrete context row, candidate row, command, or snippet mentioning that path.
 - `changedFiles`: files changed by the fixing diff.
 - `localizationFiles`: localization target files, or changed files when no
   explicit localization set was provided.

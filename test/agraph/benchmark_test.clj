@@ -114,15 +114,17 @@
                               :unsupportedGroundTruthFiles []}
                 :agraph {:topFiles [{:path "src/app.clj"
                                      :rank 1
-                                     :evidence ["rg broken"]}
+                                     :evidence ["context-doc:src/app.clj"]}
                                     {:path "src/other.clj"
                                      :rank 2
-                                     :evidence []}
+                                     :evidence ["rg broken"]}
                                     {:path "src/more.clj"
-                                     :rank 3}]}}
+                                     :rank 3
+                                     :evidence []}]}}
         scores (benchmark/score-result result)]
     (is (= 1.0 (:fileRecallAt5 scores)))
-    (is (= (/ 1.0 3.0) (:evidenceCitationRate scores)))))
+    (is (= (/ 2.0 3.0) (:evidenceCitationRate scores)))
+    (is (= (/ 1.0 3.0) (:pathEvidenceCitationRate scores)))))
 
 (deftest scores-only-base-visible-ground-truth-files
   (let [result {:groundTruth {:changedFiles [".chloggen/fix.yaml"
@@ -841,6 +843,7 @@
                          :meanReciprocalRankFile 0.5
                          :noiseRatioAt20 0.75
                          :evidenceCitationRate 0.25
+                         :pathEvidenceCitationRate 0.0
                          :unsupportedGroundTruthFiles 1}
                 :parserWorkers [{:mode "all"
                                  :source "option"
@@ -926,7 +929,8 @@
                                     :fileRecallAt20 1.0
                                     :meanReciprocalRankFile 0.5
                                     :noiseRatioAt20 0.75
-                                    :evidenceCitationRate 0.25}}]}
+                                    :evidenceCitationRate 0.25
+                                    :pathEvidenceCitationRate 0.0}}]}
         failed (benchmark/check-agent-report
                 report
                 {:min-cases 3
@@ -935,9 +939,11 @@
                  :min-mrr 0.8
                  :max-noise-at-20 0.5
                  :min-evidence-citation-rate 0.9
+                 :min-path-evidence-citation-rate 0.9
                  :min-case-file-recall-at-10 0.9
                  :min-case-mrr 0.8
                  :min-case-evidence-citation-rate 0.9
+                 :min-case-path-evidence-citation-rate 0.9
                  :max-case-noise-at-20 0.5
                  :max-input-hinted-cases 0
                  :max-unsupported-ground-truth-files 0
@@ -985,9 +991,11 @@
                  :min-mrr 0.5
                  :max-noise-at-20 0.75
                  :min-evidence-citation-rate 0.25
+                 :min-path-evidence-citation-rate 0.0
                  :min-case-file-recall-at-10 0.75
                  :min-case-mrr 0.5
                  :min-case-evidence-citation-rate 0.25
+                 :min-case-path-evidence-citation-rate 0.0
                  :max-case-noise-at-20 0.75
                  :max-input-hinted-cases 1
                  :max-unsupported-ground-truth-files 1
@@ -1018,9 +1026,11 @@
              "meanReciprocalRankFile"
              "noiseRatioAt20"
              "evidenceCitationRate"
+             "pathEvidenceCitationRate"
              "case.fileRecallAt10"
              "case.meanReciprocalRankFile"
              "case.evidenceCitationRate"
+             "case.pathEvidenceCitationRate"
              "case.noiseRatioAt20"
              "inputHintedCases"
              "unsupportedGroundTruthFiles"
@@ -1060,6 +1070,7 @@
                   ["case.fileRecallAt10"
                    "case.meanReciprocalRankFile"
                    "case.evidenceCitationRate"
+                   "case.pathEvidenceCitationRate"
                    "case.noiseRatioAt20"
                    "case.graphExpectations"
                    "missingPredictedFileRuns"
@@ -1092,7 +1103,8 @@
             :fileRecallAt20 1.0
             :meanReciprocalRankFile 0.5
             :noiseRatioAt20 0.75
-            :evidenceCitationRate 0.25}
+            :evidenceCitationRate 0.25
+            :pathEvidenceCitationRate 0.0}
            (get-in failed [:caseDiagnostics 0 :scores])))
     (is (= {:case-id "case-2"
             :status "missing"}
@@ -1114,9 +1126,11 @@
             :minMeanReciprocalRankFile 0.8
             :maxNoiseRatioAt20 0.5
             :minEvidenceCitationRate 0.9
+            :minPathEvidenceCitationRate 0.9
             :minCaseFileRecallAt10 0.9
             :minCaseMeanReciprocalRankFile 0.8
             :minCaseEvidenceCitationRate 0.9
+            :minCasePathEvidenceCitationRate 0.9
             :maxCaseNoiseRatioAt20 0.5
             :maxInputHintedCases 0.0
             :maxUnsupportedGroundTruthFiles 0.0
@@ -2275,6 +2289,7 @@
            (mapv :path files)))
     (is (= ["candidate-file:src/importing.clj rank=50 targetKind=node label=\"importing stream context\" score=0.35 components=graph:0.6,lexical:0.2"]
            (get-in files [0 :evidence])))
+    (is (not (contains? (first files) :graph-neighbor-score)))
     (is (= 0.6 (get-in files [0 :metrics :graphNeighborScore])))
     (is (= 2 (get-in files [0 :metrics :matchedTokenCount])))
     (is (> (get-in files [0 :metrics :rankScore])
