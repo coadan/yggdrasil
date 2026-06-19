@@ -37,7 +37,10 @@
                  :coverage {:diagnostics {:total 2}}
                  :maintenance {}
                  :context-example {}
-                 :evidence {}
+                 :evidence {:counts {:activity-items 3
+                                     :activity-events 4
+                                     :validation-events 1
+                                     :result-schema-mismatch-events 1}}
                  :package-report {:counts {:packages 2
                                            :unresolved-imports 1
                                            :declared-without-import-evidence 1
@@ -97,9 +100,15 @@
     (is (= 2 (get-in packet [:atlas :dependencies :packages])))
     (is (= 1 (get-in packet [:atlas :dependencies :unresolved-imports])))
     (is (= 1 (get-in packet [:atlas :dependencies :version-conflicts])))
+    (is (= {:items 3
+            :events 4
+            :validation-events 1
+            :result-schema-mismatch-events 1}
+           (get-in packet [:atlas :activity])))
     (is (= #{"agraph packages --project fixture --json"
              "agraph packages --project fixture --with-conflicts --json"
-             "agraph sync coverage project.edn --json"}
+             "agraph sync coverage project.edn --json"
+             "agraph sync activity project.edn --json"}
            (set (map :command (get-in packet [:atlas :next-actions])))))))
 
 (deftest report-data-suggests-maintenance-work-commands

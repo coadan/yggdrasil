@@ -284,11 +284,12 @@
          (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- atlas-next-actions
-  [project package-report maintenance coverage]
+  [project package-report maintenance coverage evidence]
   (let [package-counts (:counts package-report)
         maintenance-queue (queue-summary maintenance)
         external-api-counts (get-in maintenance [:external-api-review :counts])
-        diagnostics (get-in coverage [:diagnostics :total] 0)]
+        diagnostics (get-in coverage [:diagnostics :total] 0)
+        schema-mismatches (get-in evidence [:counts :result-schema-mismatch-events] 0)]
     (cond-> []
       (pos? (long (get package-counts :unresolved-imports 0)))
       (conj {:kind :dependency-review
@@ -319,7 +320,13 @@
       (conj {:kind :coverage
              :label "Inspect extractor diagnostics"
              :count diagnostics
-             :command (sync-subcommand project "coverage" "--json")}))))
+             :command (sync-subcommand project "coverage" "--json")})
+
+      (pos? (long schema-mismatches))
+      (conj {:kind :activity
+             :label "Inspect result schema mismatch activity"
+             :count schema-mismatches
+             :command (sync-subcommand project "activity" "--json")}))))
 
 (defn- atlas-summary
   [{:keys [project graph-data systems-data coverage maintenance evidence package-report]}]
@@ -358,10 +365,17 @@
                                                            :declared-without-import-evidence
                                                            0)
                     :version-conflicts (get package-counts :version-conflicts 0)}
+     :activity {:items (get-in evidence [:counts :activity-items] 0)
+                :events (get-in evidence [:counts :activity-events] 0)
+                :validation-events (get-in evidence [:counts :validation-events] 0)
+                :result-schema-mismatch-events (get-in evidence
+                                                       [:counts
+                                                        :result-schema-mismatch-events]
+                                                       0)}
      :maintenance {:queue (queue-summary maintenance)
                    :decision-summary (:decision-summary maintenance)
                    :external-api-review external-api-counts}
-     :next-actions (atlas-next-actions project package-report maintenance coverage)}))
+     :next-actions (atlas-next-actions project package-report maintenance coverage evidence)}))
 
 (defn- maintenance-work-commands
   [project-id map-path maintenance]
@@ -572,6 +586,9 @@
          "- edges: " (get-in evidence [:counts :edges] 0) "\n"
          "- packages: " (get-in evidence [:counts :packages] 0) "\n"
          "- diagnostics: " (get-in evidence [:counts :diagnostics] 0) "\n"
+         "- activity-events: " (get-in evidence [:counts :activity-events] 0) "\n"
+         "- result-schema-mismatch-events: "
+         (get-in evidence [:counts :result-schema-mismatch-events] 0) "\n"
          "\n\n## File Coverage\n\n"
          "<MetricGrid data={report.coverage} />\n\n"
          (str/join "\n" (coverage-lines coverage))
