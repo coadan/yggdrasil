@@ -27,6 +27,21 @@
    :active? true
    :run-id run-id})
 
+(defn namespace-node
+  [run-id id-scope file-id path ns-name]
+  {:xt/id (node-id id-scope :namespace ns-name)
+   :label ns-name
+   :kind :namespace
+   :file-id file-id
+   :path path
+   :namespace ns-name
+   :name ns-name
+   :public? true
+   :source-line 1
+   :tokens (text/tokenize ns-name)
+   :active? true
+   :run-id run-id})
+
 (defn edge-id
   "Return stable edge id."
   [source-id target-id relation _path _source-line]
@@ -306,6 +321,15 @@
      :source-line 1
      :active? true
      :run-id run-id}))
+
+(defn source-module-name
+  [path]
+  (-> path
+      (str/replace #"\.d\.(?:ts|mts|cts)$" "")
+      (str/replace #"\.rb\.template$" "")
+      (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|groovy|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|m|ml|mli|mm|mts|cts|mjs|cjs|jsx|js|odin|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
+      (str/replace #"/" ".")
+      (str/replace #"-" "_")))
 
 (defn line-start-offsets
   [content]
