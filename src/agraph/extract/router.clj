@@ -28,6 +28,7 @@
             [agraph.extract.sbom :as extract.sbom]
             [agraph.extract.source-basic :as extract.source-basic]
             [agraph.extract.source-clojure :as extract.source-clojure]
+            [agraph.extract.source-dart :as extract.source-dart]
             [agraph.extract.source-dotnet :as extract.source-dotnet]
             [agraph.extract.source-dotnet-worker :as extract.source-dotnet-worker]
             [agraph.extract.source-jvm :as extract.source-jvm]
@@ -74,7 +75,7 @@
      :ruby (extract.source-native/extract-ruby run-id file)
      :cpp (extract.source-native/extract-cpp run-id file)
      :objective-c (extract.source-native/extract-objective-c run-id file)
-     :dart (extract.source-misc/extract-dart run-id file)
+     :dart (extract.source-dart/extract-dart run-id file)
      :scala (extract.source-misc/extract-scala run-id file)
      :elixir (extract.source-misc/extract-elixir run-id file)
      :erlang (extract.source-misc/extract-erlang run-id file)
