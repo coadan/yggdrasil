@@ -84,13 +84,20 @@
       (fn [xtdb]
         (activity/sync-queue! xtdb project {:queue-root root :now 2000})
         (let [events (activity/all-events xtdb {:project-id "demo"})
+              selected (activity/select-activity xtdb
+                                                 "result schema mismatch"
+                                                 {:project-id "demo"})
               mismatch (first (filter #(= :result-schema-mismatch (:event-kind %))
                                       events))]
           (is (= #{:completed :created :result-schema-mismatch}
                  (set (map :event-kind events))))
           (is (some? mismatch))
           (is (= "result schema mismatch expected agraph.test.expected/v1 actual agraph.test.actual/v1"
-                 (:summary mismatch))))))))
+                 (:summary mismatch)))
+          (is (= [(get-in enqueued [:item :id])]
+                 (mapv :sourceId selected)))
+          (is (= #{:completed :created :result-schema-mismatch}
+                 (set (mapcat #(map :event-kind (:events %)) selected)))))))))
 
 (deftest context-packet-can-answer-from-activity-when-graph-is-empty
   (let [root (temp-dir "agraph-context-activity-queue")

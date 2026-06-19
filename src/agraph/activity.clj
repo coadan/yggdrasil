@@ -105,6 +105,14 @@
   [item]
   (get-in item [:payload :expectedResultSchema]))
 
+(defn- result-schema-mismatch?
+  [item]
+  (let [expected (expected-result-schema item)
+        actual (result-schema item)]
+    (and (present? expected)
+         (present? actual)
+         (not= expected actual))))
+
 (defn- summary-text
   [item target-ids]
   (compact (:kind item)
@@ -112,6 +120,7 @@
            (:payload-schema item)
            (expected-result-schema item)
            (result-schema item)
+           (when (result-schema-mismatch? item) "result schema mismatch")
            target-ids
            (collect-text (:payload item))
            (collect-text (:result item))))
@@ -182,14 +191,6 @@
       (seq (:scores result))
       (seq (:groundTruthRanks result))
       (seq (:ground-truth-ranks result))))
-
-(defn- result-schema-mismatch?
-  [item]
-  (let [expected (expected-result-schema item)
-        actual (result-schema item)]
-    (and (present? expected)
-         (present? actual)
-         (not= expected actual))))
 
 (defn queue-item->events
   "Return durable lifecycle and validation events for a queue item row."
