@@ -1226,6 +1226,14 @@
       (is (str/includes? first-content "agraph audit-scope <project.edn> --map agraph.map.json --json"))
       (is (str/includes? first-content "`audit-scope --json` summarizes core evidence"))
       (is (str/includes? first-content "graph-basis freshness, `evidence.families`"))
+      (is (str/includes? first-content "When coverage, status, or answerability points at skipped or unsupported"))
+      (is (str/includes? first-content "bb plugin registry list <registry.edn> --kind extractor"))
+      (is (str/includes? first-content "bb plugin gap extractor <package-dir> <repo-root> <file> --json"))
+      (is (str/includes? first-content "bb plugin dry-run extractor <package-dir> <repo-root> <file> --json"))
+      (is (str/includes? first-content "Extractor plugins run after core extraction"))
+      (is (str/includes? first-content "Report plugins use the same package model"))
+      (is (str/includes? first-content "unbenchmarked or project-local plugin output as useful review evidence"))
+      (is (str/includes? first-content "base-scoped, FOSS/non-commercial packages with benchmark artifacts"))
       (is (str/includes? first-content "agraph explore \"<question>\" --project <project-id> --json"))
       (is (str/includes? first-content "agraph explore search <cursor-id> \"<follow-up query>\""))
       (is (str/includes? first-content "agraph sync check <project.edn> --map agraph.map.json --enqueue"))
@@ -1699,6 +1707,5 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
