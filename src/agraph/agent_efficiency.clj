@@ -258,13 +258,16 @@
         regressed (count-results deltas "regressed")
         unchanged (count-results deltas "unchanged")
         unavailable (count-results deltas "unavailable")
+        available (+ improved regressed unchanged)
         signal (cond
                  (zero? (:sharedCases comparable)) "not-comparable"
+                 (zero? available) "metrics-unavailable"
                  (and (pos? improved) (zero? regressed)) "agraph-improved"
                  (and (zero? improved) (pos? regressed)) "agraph-regressed"
                  (and (pos? improved) (pos? regressed)) "mixed"
                  :else "unchanged")]
     {:signal signal
+     :availableMetrics available
      :improvedMetrics improved
      :regressedMetrics regressed
      :unchangedMetrics unchanged

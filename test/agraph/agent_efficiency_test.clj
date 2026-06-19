@@ -118,6 +118,7 @@
     (is (= "agraph.agent-efficiency/v1" (:schema comparison)))
     (is (= "agraph-improved" (:status comparison)))
     (is (= {:signal "agraph-improved"
+            :availableMetrics 17
             :improvedMetrics 16
             :regressedMetrics 0
             :unchangedMetrics 1
@@ -257,6 +258,7 @@
         comparison (agent-efficiency/compare-reports shell agraph)
         deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
     (is (= {:signal "agraph-improved"
+            :availableMetrics 15
             :improvedMetrics 14
             :regressedMetrics 0
             :unchangedMetrics 1
@@ -276,6 +278,29 @@
                         [:shellOnly :agraph :available :result])))
     (is (not (contains? (:elapsedMs deltas-by-key) :delta)))
     (is (not (contains? (:evidenceCitationRate deltas-by-key) :effect)))))
+
+(deftest reports-all-missing-metrics-as-unavailable-signal
+  (let [strip-metrics (fn [report]
+                        (-> report
+                            (dissoc :scores
+                                    :localizationDiagnostics
+                                    :agentDiagnostics
+                                    :timings)
+                            (assoc :results (mapv #(dissoc % :scores)
+                                                  (:results report)))))
+        comparison (agent-efficiency/compare-reports
+                    (strip-metrics shell-report)
+                    (strip-metrics agraph-report))]
+    (is (= "metrics-unavailable" (:status comparison)))
+    (is (= {:signal "metrics-unavailable"
+            :availableMetrics 0
+            :improvedMetrics 0
+            :regressedMetrics 0
+            :unchangedMetrics 0
+            :unavailableMetrics 17}
+           (:summary comparison)))
+    (is (every? #(= "unavailable" (:result %))
+                (:deltas comparison)))))
 
 (deftest writes-comparison-from-agent-report-files
   (let [root (temp-dir "agraph-agent-efficiency")
