@@ -1748,6 +1748,12 @@
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
                           :key-fn keyword)
                          [:properties :caseFingerprint])))
+          (is (= {:type "string"
+                  :enum ["agraph" "shell-only" "local-vector"]}
+                 (get-in (json/read-json
+                          (slurp (get-in run [:artifacts :outputSchemaPath]))
+                          :key-fn keyword)
+                         [:properties :mode])))
           (is (= {:type "object"
                   :additionalProperties false
                   :properties {:mode {:type "string"}

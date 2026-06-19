@@ -361,6 +361,10 @@ Agents should return JSON shaped like this:
 }
 ```
 
+`mode` is one of `agraph`, `shell-only`, or `local-vector`. `agent-run` only
+uses `agraph` and `shell-only`; `local-vector` is reserved for the optional
+local semantic-vector baseline lane.
+
 Recall, MRR, and noise use `suspectedFiles.path` and rank. The citation score
 uses the presence of non-empty `suspectedFiles[].evidence` rows. Reasons,
 commands, warnings, and symbols are still part of the artifact because they make

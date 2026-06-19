@@ -38,6 +38,15 @@
 (def agent-score-schema
   "agraph.benchmark.agent-score/v2")
 
+(def ^:private agent-run-modes
+  ["agraph" "shell-only"])
+
+(def ^:private agent-run-mode-set
+  (set agent-run-modes))
+
+(def ^:private agent-result-modes
+  ["agraph" "shell-only" "local-vector"])
+
 (def agent-report-schema
   "agraph.benchmark.agent-report/v1")
 
@@ -1527,10 +1536,10 @@
 (defn- agent-mode
   [opts]
   (let [mode (name (keyword (or (:mode opts) :agraph)))]
-    (when-not (#{"agraph" "shell-only"} mode)
+    (when-not (contains? agent-run-mode-set mode)
       (throw (ex-info "Unknown benchmark agent mode."
                       {:mode mode
-                       :supported ["agraph" "shell-only"]})))
+                       :supported agent-run-modes})))
     mode))
 
 (defn- score-json-file?
@@ -1680,7 +1689,7 @@
    :caseId "case id from the packet"
    :caseFingerprint "case fingerprint from the packet"
    :agentId "stable id for the agent run"
-   :mode "agraph or shell-only"
+   :mode "agraph, shell-only, or local-vector"
    :parserWorker {:mode "none|java|dotnet|all"
                   :source "option|env|default|agent-result|unknown"}
    :suspectedFiles [{:path "repo-relative/path.ext"
@@ -2791,7 +2800,7 @@
                  "caseFingerprint" {"type" "string"}
                  "agentId" {"type" "string"}
                  "mode" {"type" "string"
-                         "enum" ["agraph" "shell-only"]}
+                         "enum" agent-result-modes}
                  "parserWorker" {"type" "object"
                                  "additionalProperties" false
                                  "properties" {"mode" {"type" "string"}
