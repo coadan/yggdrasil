@@ -128,7 +128,9 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
   indexed. Runtime/config support is reported as `system-evidence`, the active
   count of concrete runtime/config evidence rows selected from indexed system
   evidence. Queue-backed activity counts include `activity-items`,
-  `activity-events`, `validation-events`, and
+  `activity-events`, `validation-events`, `result-schema-statuses`,
+  `result-schema-status-items`, per-status item counts such as
+  `result-schema-matching-items` and `result-schema-missing-result-items`, and
   `result-schema-mismatch-events`.
 - `retrieval`: requested and effective retriever, including lexical fallback
 - `warnings`: short mechanical explanations
@@ -374,17 +376,19 @@ consumer result should be an explicit JSON artifact such as a map patch,
 classification, or finding. `sync work complete` stores the artifact for audit.
 `sync activity` imports queue item lifecycle and validation-shaped result facts
 into XTDB so future `ask --json` packets can include `activity` matches.
-Activity matches include `payloadSchema`, `expectedResultSchema`, and
-`resultSchema` when available, preserving both the requested and actual result
-contracts.
+Activity matches include `payloadSchema`, `expectedResultSchema`,
+`resultSchema`, and `resultSchemaStatus` when available, preserving both the
+requested and actual result contracts. `resultSchemaStatus` is mechanical:
+`matching`, `mismatch`, `missing-result`, or `unexpected-result`.
 When a completed work item returns a different `schema` than its
 `expectedResultSchema`, activity sync records a `result-schema-mismatch` event.
-Answerability and project evidence surfaces count those events as
-`result-schema-mismatch-events` and direct agents to inspect activity before
-trusting the prior result. The `sync activity --json` result also includes a
-bounded `result-schema-mismatches` list with the work source id, item id,
-expected schema, actual schema, status, summary, and timestamps for direct
-audit.
+Answerability and project evidence surfaces count both item-level
+`result-schema-statuses` and `result-schema-mismatch-events`. Missing or
+unexpected result schemas direct agents to inspect activity before reusing prior
+work, and mismatches direct agents to inspect activity before trusting the prior
+result. The `sync activity --json` result also includes a bounded
+`result-schema-mismatches` list with the work source id, item id, expected
+schema, actual schema, status, summary, and timestamps for direct audit.
 `sync work apply` validates supported result schemas before writing accepted
 changes to `agraph.map.json`.
 
