@@ -105,6 +105,10 @@
     (is (str/includes? instructions "evidence-family readiness"))
     (is (str/includes? instructions "query-index readiness"))
     (is (str/includes? instructions "plugin package caveats"))
+    (is (str/includes? instructions "skipped unsupported source"))
+    (is (str/includes? instructions "registry/list, gap, new"))
+    (is (str/includes? instructions "Extractor plugins may enhance core"))
+    (is (str/includes? instructions "unbenchmarked or project-local plugin output is non-authoritative"))
     (is (str/includes? instructions "Use agraph_systems"))
     (is (str/includes? instructions "do not infer architecture from names"))
     (is (= ["agraph_explore"
