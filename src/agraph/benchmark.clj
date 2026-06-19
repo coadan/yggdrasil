@@ -3203,26 +3203,51 @@
          [(row-rank-warning field idx item)
           (row-confidence-warning field idx item)])))
 
-(defn- rankable-row-shape-warnings
-  [field rows required-fields]
+(defn- duplicate-rank-warnings
+  [field rows]
   (->> rows
        (map-indexed
         (fn [idx item]
-          (if-not (map? item)
-            [(str "agent result " (name field) " " (row-label idx item) " is not an object")]
-            (vec
-             (concat
-              (->> required-fields
-                   (filter #(required-field-missing? item %))
-                   (mapv #(str "agent result "
-                               (name field)
-                               " "
-                               (row-label idx item)
-                               " missing "
-                               (name %))))
-              (rankable-row-value-warnings field idx item))))))
-       (mapcat identity)
+          (when (map? item)
+            (let [rank (parse-long-safe (:rank item))]
+              (when (pos? (long (or rank 0)))
+                {:idx idx
+                 :rank rank
+                 :label (row-label idx item)})))))
+       (keep identity)
+       (group-by :rank)
+       (keep (fn [[rank ranked-rows]]
+               (when (< 1 (count ranked-rows))
+                 (str "agent result "
+                      (name field)
+                      " rank "
+                      rank
+                      " is duplicated by "
+                      (str/join " and " (map :label ranked-rows))))))
        vec))
+
+(defn- rankable-row-shape-warnings
+  [field rows required-fields]
+  (vec
+   (concat
+    (->> rows
+         (map-indexed
+          (fn [idx item]
+            (if-not (map? item)
+              [(str "agent result " (name field) " " (row-label idx item) " is not an object")]
+              (vec
+               (concat
+                (->> required-fields
+                     (filter #(required-field-missing? item %))
+                     (mapv #(str "agent result "
+                                 (name field)
+                                 " "
+                                 (row-label idx item)
+                                 " missing "
+                                 (name %))))
+                (rankable-row-value-warnings field idx item))))))
+         (mapcat identity))
+    (duplicate-rank-warnings field rows))))
 
 (defn- agent-result-shape-warnings
   [agent-result]

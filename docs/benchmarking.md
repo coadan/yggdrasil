@@ -358,7 +358,8 @@ Scoring warns when an agent result has the wrong schema, case id, or
 case fingerprint; use `--max-warning-runs 0` when stale or misrouted artifacts
 must fail the benchmark run.
 It also warns when ranked file or symbol rows contain non-positive ranks or
-confidence values outside the `0..1` range.
+confidence values outside the `0..1` range, or when ranks are duplicated within
+the same ranked section.
 
 ## Fair Inputs
 
