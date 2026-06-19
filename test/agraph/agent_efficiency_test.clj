@@ -52,6 +52,7 @@
                                          :searchCommandCount search-command-count
                                          :fileReadCommandCount file-read-command-count
                                          :shellCommandCount shell-command-count}}
+   :improvementSummary []
    :timings {:elapsedMs elapsed
              :failedCases failed
              :runningCases running}
@@ -202,10 +203,10 @@
            (:headlineSummary comparison)))
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
-            :availableMetrics 22
+            :availableMetrics 23
             :improvedMetrics 20
             :regressedMetrics 0
-            :unchangedMetrics 1
+            :unchangedMetrics 2
             :observedMetrics 1
             :unavailableMetrics 4}
            (:summary comparison)))
@@ -264,6 +265,14 @@
             :observedMetrics 1
             :unavailableMetrics 0}
            (get-in categories-by-key ["command-telemetry" :summary])))
+    (is (= {:signal "agraph-improved"
+            :minSharedCases 2
+            :availableMetrics 4
+            :improvedMetrics 3
+            :regressedMetrics 0
+            :unchangedMetrics 1
+            :unavailableMetrics 0}
+           (get-in categories-by-key ["result-health" :summary])))
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
             :availableMetrics 3
@@ -379,6 +388,29 @@
            (get-in categories-by-key ["token-cost" :summary])))
     (is (.contains markdown "- totalTokens: improved (shell: 12000.0, agraph: 7000.0, delta: -5000.0)"))
     (is (.contains markdown "- costUsd: improved (shell: 0.6, agraph: 0.35, delta: -0.25)"))))
+
+(deftest improvement-targets-count-against-efficiency-claims
+  (let [agraph (assoc agraph-report
+                      :improvementSummary [{:kind "hint-diagnostics"
+                                            :area "agent-context-quality"
+                                            :runs 2
+                                            :caseIds ["case-1"]
+                                            :message "AGraph hints contained diagnostics."}])
+        comparison (agent-efficiency/compare-reports shell-report agraph)
+        deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
+    (is (= {:shellOnly 0.0
+            :agraph 2.0
+            :delta 2.0
+            :effect -2.0
+            :result "regressed"}
+           (select-keys (:improvementTargetRuns deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= "mixed" (:status comparison)))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness
+                    :requirements
+                    :agraphImprovedWithoutRegressions])))))
 
 (deftest compares-shell-only-and-agraph-by-tag-groups
   (let [shell (assoc shell-report

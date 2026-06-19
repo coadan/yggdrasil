@@ -83,6 +83,11 @@
     :category :result-health
     :path [:agentDiagnostics :warningRuns]
     :direction :lower}
+   {:key :improvementTargetRuns
+    :label "improvementTargetRuns"
+    :category :result-health
+    :path [:efficiency :improvementTargetRuns]
+    :direction :lower}
    {:key :commandCount
     :label "commandCount"
     :category :command-telemetry
@@ -235,6 +240,14 @@
   (let [value (get-in m path)]
     (when (number? value)
       (double value))))
+(defn- improvement-target-runs
+  [report]
+  (reduce + 0 (map #(long (or (:runs %) 0))
+                   (:improvementSummary report))))
+(defn- efficiency-report
+  [report]
+  (assoc report :efficiency {:improvementTargetRuns
+                             (improvement-target-runs report)}))
 
 (defn- result-label
   [effect]
@@ -332,6 +345,8 @@
    :scores (:scores report)
    :localizationDiagnostics (:localizationDiagnostics report)
    :agentDiagnostics (:agentDiagnostics report)
+   :improvementSummary (:improvementSummary report)
+   :improvementTargetRuns (improvement-target-runs report)
    :tags (:tags report)
    :claimReadiness (:claimReadiness report)
    :timings (:timings report)})
@@ -751,8 +766,13 @@
   ([shell-report agraph-report]
    (compare-reports shell-report agraph-report {}))
   ([shell-report agraph-report {:keys [min-shared-cases]}]
-   (let [comparable (comparability shell-report agraph-report)
-         deltas (mapv #(metric-delta shell-report agraph-report %) metric-specs)
+   (let [shell-efficiency-report (efficiency-report shell-report)
+         agraph-efficiency-report (efficiency-report agraph-report)
+         comparable (comparability shell-report agraph-report)
+         deltas (mapv #(metric-delta shell-efficiency-report
+                                     agraph-efficiency-report
+                                     %)
+                      metric-specs)
          min-shared-cases (long (or min-shared-cases default-min-shared-cases))
          summary (aggregate-summary deltas
                                     comparable

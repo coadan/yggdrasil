@@ -100,7 +100,10 @@ read `classSignals.problemClasses` and `classSignals.architectureClasses`; a
 row with `measured: false` is useful context but does not count toward broad
 claim readiness. Use `classSignals.summary.measuredProblemClasses` and
 `classSignals.summary.measuredArchitectureClasses` for automated gates. Treat
-generated files under `.dev/agraph/headline-bench/` as disposable artifacts.
+`improvementTargetRuns` as lower-is-better: a run that improves recall but
+introduces more remediation targets is a mixed result, not a broad efficiency
+win. Generated files under `.dev/agraph/headline-bench/` are disposable
+artifacts.
 Use `summary.json` for machine gates and `REPORT.md` for a compact human review
 of the same comparison.
 
