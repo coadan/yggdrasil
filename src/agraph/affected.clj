@@ -287,6 +287,18 @@
        (sort-by :relation)
        vec))
 
+(defn- distinct-by
+  [f coll]
+  (loop [remaining (seq coll)
+         seen #{}
+         out []]
+    (if-let [item (first remaining)]
+      (let [k (f item)]
+        (if (contains? seen k)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen k) (conj out item))))
+      out)))
+
 (defn- affected-file-row
   [nodes-by-file chunks-by-file tests-only? [file-id rows]]
   (let [file (:file (first rows))
@@ -309,6 +321,37 @@
              :directions ["changed-file"]
              :via []
              :testEvidence test-evidence))))
+
+(defn- merge-test-evidence
+  [rows]
+  (->> rows
+       (mapcat :testEvidence)
+       (distinct-by :xt/id)
+       vec))
+
+(defn- merge-affected-file-row
+  [rows]
+  (let [base (first rows)
+        via (mapv identity (mapcat :via rows))
+        directions (->> rows
+                        (mapcat :directions)
+                        distinct
+                        vec)
+        test-evidence (merge-test-evidence rows)]
+    (cond-> (assoc base
+                   :edgeCount (count via)
+                   :directions directions
+                   :via via)
+      (seq test-evidence) (assoc :testEvidence test-evidence))))
+
+(defn- merge-affected-file-rows
+  [rows]
+  (->> rows
+       (group-by :fileId)
+       vals
+       (map merge-affected-file-row)
+       (sort-by (juxt :repo-id :path))
+       vec))
 
 (defn- warning-rows
   [resolved-inputs changed-nodes affected-files tests-only?]
@@ -334,18 +377,6 @@
                (empty? affected-files))
       [{:kind "no-mechanical-test-impact"
         :message "No impacted files had indexed :test definitions."}]))))
-
-(defn- distinct-by
-  [f coll]
-  (loop [remaining (seq coll)
-         seen #{}
-         out []]
-    (if-let [item (first remaining)]
-      (let [k (f item)]
-        (if (contains? seen k)
-          (recur (next remaining) seen out)
-          (recur (next remaining) (conj seen k) (conj out item))))
-      out)))
 
 (defn- sync-command
   [config-path & args]
@@ -436,9 +467,8 @@
                                                            chunks-by-file
                                                            tests-only?
                                                            %)))
-        affected-files (->> (concat changed-test-files edge-affected-files)
-                            (sort-by (juxt :repo-id :path))
-                            vec)
+        affected-files (merge-affected-file-rows
+                        (concat changed-test-files edge-affected-files))
         unsupported-edges (->> (:edges rows)
                                (filter #(unsupported-incident-edge? changed-node-ids %))
                                (mapv unsupported-edge-row))

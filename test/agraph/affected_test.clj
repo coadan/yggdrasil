@@ -132,6 +132,23 @@
                  (:affectedFiles result))))
     (is (not-any? #(= "no-mechanical-test-impact" (:kind %)) (:warnings result)))))
 
+(deftest tests-filter-merges-changed-and-edge-affected-test-files
+  (let [result (affected/analyze-rows project
+                                      rows
+                                      {:repo-id "app"
+                                       :files ["src/core.clj" "test/core_test.clj"]
+                                       :tests-only? true})
+        affected-files (:affectedFiles result)]
+    (is (= ["test/core_test.clj"] (mapv :path affected-files)))
+    (is (= [{:directions ["changed-file" "incoming-dependent"]
+             :edgeCount 1
+             :via 1}]
+           (mapv (fn [row]
+                   {:directions (:directions row)
+                    :edgeCount (:edgeCount row)
+                    :via (count (:via row))})
+                 affected-files)))))
+
 (deftest ambiguous-unscoped-paths-are-boundary-warnings
   (let [result (affected/analyze-rows project
                                       {:files [(file-row "app" "src/core.clj" "file:app-core")
