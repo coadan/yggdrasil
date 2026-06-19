@@ -11465,53 +11465,75 @@
                  theme-entry (conj theme-entry))))
       (vec (distinct out)))))
 
+(def ^:private nextra-next-config-filenames
+  #{"next.config.cjs" "next.config.js" "next.config.mjs"
+    "next.config.mts" "next.config.cts" "next.config.ts"})
+
+(def ^:private nextra-meta-filenames
+  #{"_meta.js" "_meta.jsx" "_meta.mjs" "_meta.mts" "_meta.cts"
+    "_meta.ts" "_meta.tsx"})
+
+(def ^:private js-docs-config-filenames
+  #{"config.js" "config.mjs" "config.mts" "config.cts" "config.ts"
+    "index.js" "index.mjs" "index.mts" "index.cts" "index.ts"})
+
+(def ^:private astro-content-config-filenames
+  #{"content.config.js" "content.config.mjs" "content.config.mts"
+    "content.config.cts" "content.config.ts"})
+
+(def ^:private docusaurus-config-filenames
+  #{"docusaurus.config.js" "docusaurus.config.cjs" "docusaurus.config.mjs"
+    "docusaurus.config.mts" "docusaurus.config.cts" "docusaurus.config.ts"})
+
+(def ^:private sidebar-config-filenames
+  #{"sidebars.js" "sidebars.mjs" "sidebars.mts" "sidebars.cts"
+    "sidebars.ts"})
+
+(defn- astro-content-config-path?
+  [path]
+  (boolean
+   (re-find #"(^|/)src/content/config\.(?:js|mjs|mts|cts|ts)$"
+            (str/replace (str/lower-case (str path)) "\\" "/"))))
+
 (defn- docs-config-facts
   [{:keys [path content]}]
   (let [filename (manifest-name path)]
-    (case filename
-      ("next.config.cjs" "next.config.js" "next.config.mjs"
-                         "next.config.mts" "next.config.cts" "next.config.ts")
+    (cond
+      (contains? nextra-next-config-filenames filename)
       (nextra-next-config-facts path content)
 
-      ("_meta.js" "_meta.jsx" "_meta.mjs" "_meta.mts" "_meta.cts"
-                  "_meta.ts" "_meta.tsx")
+      (contains? nextra-meta-filenames filename)
       (nextra-meta-facts content)
 
-      "conf.py"
+      (= "conf.py" filename)
       (sphinx-config-facts content)
 
-      ("config.js" "config.mjs" "config.mts" "config.cts" "config.ts"
-                   "index.js" "index.mjs" "index.mts" "index.cts" "index.ts")
+      (contains? js-docs-config-filenames filename)
       (cond
         (vitepress-config-path? path)
         (vitepress-config-facts {:path path :content content})
 
-        (re-find #"(^|/)src/content/config\.(?:js|mjs|mts|cts|ts)$"
-                 (str/replace (str/lower-case (str path)) "\\" "/"))
+        (astro-content-config-path? path)
         (astro-content-config-facts {:path path :content content})
 
         :else [])
 
-      ("content.config.js" "content.config.mjs" "content.config.mts"
-                           "content.config.cts" "content.config.ts")
+      (contains? astro-content-config-filenames filename)
       (astro-content-config-facts {:path path :content content})
 
-      ("docusaurus.config.js" "docusaurus.config.cjs"
-                              "docusaurus.config.mjs" "docusaurus.config.mts"
-                              "docusaurus.config.cts" "docusaurus.config.ts")
+      (contains? docusaurus-config-filenames filename)
       (vec (concat (docs-config-title-facts content)
                    (docs-config-route-facts content)
                    (docs-config-reference-facts content)
                    (docs-config-plugin-facts content)))
 
-      ("sidebars.js" "sidebars.mjs" "sidebars.mts" "sidebars.cts"
-                     "sidebars.ts")
+      (contains? sidebar-config-filenames filename)
       (docs-sidebar-facts content)
 
-      ("mkdocs.yml" "mkdocs.yaml")
+      (contains? #{"mkdocs.yml" "mkdocs.yaml"} filename)
       (mkdocs-line-facts content)
 
-      [])))
+      :else [])))
 
 (defn extract-docs-config
   "Extract deterministic docs/content-system configuration facts."

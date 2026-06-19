@@ -22,6 +22,38 @@
 (def binary-file-kinds
   #{:font-asset :gettext-binary :image-asset})
 
+(def docs-config-filenames
+  #{"content.config.js" "content.config.mjs" "content.config.mts"
+    "content.config.cts" "content.config.ts"
+    "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.mts" "_meta.cts"
+    "_meta.ts" "_meta.tsx"
+    "docusaurus.config.js" "docusaurus.config.cjs" "docusaurus.config.mjs"
+    "docusaurus.config.mts" "docusaurus.config.cts" "docusaurus.config.ts"
+    "sidebars.js" "sidebars.mjs" "sidebars.mts" "sidebars.cts"
+    "sidebars.ts" "mkdocs.yml" "mkdocs.yaml"})
+
+(def nextra-meta-filenames
+  #{"_meta.js" "_meta.jsx" "_meta.mjs" "_meta.mts" "_meta.cts"
+    "_meta.ts" "_meta.tsx"})
+
+(defn- astro-content-config-path?
+  [path-lower]
+  (boolean
+   (re-find #"(^|/)src/content/config\.(?:js|mjs|mts|cts|ts)$" path-lower)))
+
+(defn- vitepress-config-path?
+  [path-lower]
+  (boolean
+   (or (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|cts|ts)$" path-lower)
+       (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|cts|ts)$"
+                path-lower))))
+
+(defn- docs-config-path?
+  [filename path-lower]
+  (or (contains? docs-config-filenames filename)
+      (astro-content-config-path? path-lower)
+      (vitepress-config-path? path-lower)))
+
 (def supported-filenames
   #{"dockerfile" "containerfile" "procfile"
     "docker-compose.yml" "docker-compose.yaml"
@@ -285,17 +317,7 @@
       (or (re-matches #"tsconfig\.[a-z0-9_.-]+\.json" filename)
           (re-find #"(^|/)\.github/dependabot\.ya?ml$" path-lower))
       :tool-config
-      (or (contains? #{"content.config.js" "content.config.mjs" "content.config.mts" "content.config.cts" "content.config.ts"
-                       "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.mts" "_meta.cts" "_meta.ts" "_meta.tsx"
-                       "docusaurus.config.js" "docusaurus.config.cjs"
-                       "docusaurus.config.mjs" "docusaurus.config.mts"
-                       "docusaurus.config.cts" "docusaurus.config.ts"
-                       "sidebars.js" "sidebars.mjs" "sidebars.mts"
-                       "sidebars.cts" "sidebars.ts" "mkdocs.yml" "mkdocs.yaml"}
-                     filename)
-          (re-find #"(^|/)src/content/config\.(?:js|mjs|mts|cts|ts)$" path-lower)
-          (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|cts|ts)$" path-lower)
-          (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|cts|ts)$" path-lower))
+      (docs-config-path? filename path-lower)
       :docs-config
       (or (re-find #"(^|/)\.storybook/(?:main|preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
                    path-lower)
@@ -497,9 +519,7 @@
   [path-kind file]
   (let [filename (str/lower-case (.getName (io/file file)))]
     (cond
-      (contains? #{"_meta.js" "_meta.jsx" "_meta.mjs" "_meta.mts" "_meta.cts"
-                   "_meta.ts" "_meta.tsx"}
-                 filename)
+      (contains? nextra-meta-filenames filename)
       :docs-config
 
       (and (contains? #{:javascript :typescript :web-framework} path-kind)
@@ -732,9 +752,7 @@
         (re-find #"^\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower)
         (re-find #"^\.storybook/(?:preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
                  path-lower)
-        (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|cts|ts)$" path-lower)
-        (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|cts|ts)$"
-                 path-lower)
+        (vitepress-config-path? path-lower)
         (re-find #"^\.vscode/(?:settings|tasks|extensions)\.json$" path-lower)
         (re-find #"^\.changeset/(?:config\.json|[^/]+\.md)$" path-lower)
         (re-find #"^\.circleci/config\.ya?ml$" path-lower)
