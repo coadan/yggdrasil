@@ -35,6 +35,7 @@
             [agraph.extract.source-jvm :as extract.source-jvm]
             [agraph.extract.source-jvm-worker :as extract.source-jvm-worker]
             [agraph.extract.source-js :as extract.source-js]
+            [agraph.extract.source-ml :as extract.source-ml]
             [agraph.extract.source-misc :as extract.source-misc]
             [agraph.extract.source-native :as extract.source-native]
             [agraph.extract.source-python :as extract.source-python]
@@ -85,9 +86,9 @@
      :lua (extract.source-scripting/extract-lua run-id file)
      :r (extract.source-scripting/extract-r run-id file)
      :julia (extract.source-scripting/extract-julia run-id file)
-     :ocaml (extract.source-misc/extract-ocaml run-id file)
-     :perl (extract.source-misc/extract-perl run-id file)
-     :haskell (extract.source-misc/extract-haskell run-id file)
+     :ocaml (extract.source-ml/extract-ocaml run-id file)
+     :perl (extract.source-ml/extract-perl run-id file)
+     :haskell (extract.source-ml/extract-haskell run-id file)
      :odin (extract.source-misc/extract-odin run-id file)
      :zig (extract.source-misc/extract-zig run-id file)
      :apple-config (extract.xml/extract-apple-config run-id file)
