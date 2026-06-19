@@ -180,6 +180,46 @@
       (is (str/includes? out "- commandless-runs 1 cases case-2"))
       (is (str/includes? out "- warning-runs 1 cases case-3")))))
 
+(deftest benchmark-summary-prints-artifact-diagnostics
+  (let [diagnostics {:unverifiedScoreRuns 2
+                     :unverifiedScoreCaseIds ["case-1" "case-2"]
+                     :obsoleteScoreSchemaRuns 1
+                     :obsoleteScoreSchemaCaseIds ["case-1"]
+                     :obsoleteScoreSchemas ["agraph.benchmark.agent-score/v1"]
+                     :expectedScoreSchema benchmark/agent-score-schema
+                     :staleScoreRuns 1
+                     :staleScoreCaseIds ["case-2"]}
+        report-out (with-out-str
+                     (#'cli/print-benchmark-summary
+                      {:schema benchmark/agent-report-schema
+                       :suite-id "suite"
+                       :cases 2
+                       :completed 1
+                       :runs 1
+                       :scores {:fileRecallAt10 0.5
+                                :meanReciprocalRankFile 0.25
+                                :evidenceCitationRate 0.75}
+                       :artifactDiagnostics diagnostics}))
+        check-out (with-out-str
+                    (#'cli/print-benchmark-summary
+                     {:schema benchmark/agent-check-schema
+                      :suite-id "suite"
+                      :status "failed"
+                      :report {:cases 2
+                               :completed 1
+                               :runs 1
+                               :scores {:fileRecallAt10 0.5
+                                        :meanReciprocalRankFile 0.25
+                                        :evidenceCitationRate 0.75
+                                        :noiseRatioAt20 0.9}
+                               :artifactDiagnostics diagnostics}
+                      :failures []}))]
+    (doseq [out [report-out check-out]]
+      (is (str/includes? out "- unverified-score-runs 2 cases case-1,case-2"))
+      (is (str/includes? out "- obsolete-score-schema-runs 1 schemas agraph.benchmark.agent-score/v1 expected "))
+      (is (str/includes? out " cases case-1"))
+      (is (str/includes? out "- stale-score-runs 1 cases case-2")))))
+
 (deftest benchmark-summary-prints-compare-comparability
   (let [out (with-out-str
               (#'cli/print-benchmark-summary

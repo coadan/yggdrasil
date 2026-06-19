@@ -2102,6 +2102,28 @@
                                   :extra-key :hintDiagnosticRows
                                   :extra-label "rows")))
 
+(defn- print-artifact-diagnostics-summary
+  [diagnostics]
+  (when diagnostics
+    (print-agent-diagnostic-count diagnostics
+                                  "unverified-score-runs"
+                                  :unverifiedScoreRuns
+                                  :unverifiedScoreCaseIds)
+    (let [obsolete-runs (long (or (:obsoleteScoreSchemaRuns diagnostics) 0))]
+      (when (pos? obsolete-runs)
+        (println "- obsolete-score-schema-runs"
+                 obsolete-runs
+                 "schemas"
+                 (str/join "," (:obsoleteScoreSchemas diagnostics))
+                 "expected"
+                 (:expectedScoreSchema diagnostics)
+                 "cases"
+                 (str/join "," (:obsoleteScoreSchemaCaseIds diagnostics)))))
+    (print-agent-diagnostic-count diagnostics
+                                  "stale-score-runs"
+                                  :staleScoreRuns
+                                  :staleScoreCaseIds)))
+
 (defn- print-benchmark-summary
   [result]
   (println "# Benchmark")
@@ -2159,6 +2181,7 @@
                (format "%.2f" (double (get-in result [:scores :evidenceCitationRate] 0.0))))
       (print-parser-worker-summary (:parserWorkers result))
       (print-agent-diagnostics-summary (:agentDiagnostics result))
+      (print-artifact-diagnostics-summary (:artifactDiagnostics result))
       (when-let [blocker (first (get-in result
                                         [:localizationDiagnostics
                                          :rankedOutsideTop5BlockingFiles]))]
@@ -2224,6 +2247,7 @@
                                               0.0))))
       (print-parser-worker-summary (get-in result [:report :parserWorkers]))
       (print-agent-diagnostics-summary (get-in result [:report :agentDiagnostics]))
+      (print-artifact-diagnostics-summary (get-in result [:report :artifactDiagnostics]))
       (println "- noise@20"
                (format "%.2f" (double (get-in result
                                               [:report :scores :noiseRatioAt20]
