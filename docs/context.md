@@ -85,7 +85,9 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
 - `counts`: compact row counts used to make the decision, including
   `external-packages`, `package-import-edges`, `unresolved-imports`,
   `package-evidence-gaps`, and `package-conflicts` when dependency facts are
-  indexed
+  indexed. Queue-backed activity counts include `activity-items`,
+  `activity-events`, `validation-events`, and
+  `result-schema-mismatch-events`.
 - `retrieval`: requested and effective retriever, including lexical fallback
 - `warnings`: short mechanical explanations
 - `next`: bounded follow-up commands
@@ -248,6 +250,11 @@ into XTDB so future `ask --json` packets can include `activity` matches.
 Activity matches include `payloadSchema`, `expectedResultSchema`, and
 `resultSchema` when available, preserving both the requested and actual result
 contracts.
+When a completed work item returns a different `schema` than its
+`expectedResultSchema`, activity sync records a `result-schema-mismatch` event.
+Answerability and project evidence surfaces count those events as
+`result-schema-mismatch-events` and direct agents to inspect activity before
+trusting the prior result.
 `sync work apply` validates supported result schemas before writing accepted
 changes to `agraph.map.json`.
 
