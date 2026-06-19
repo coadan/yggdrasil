@@ -124,6 +124,7 @@
     (:package-rev plugin) (assoc :packageRev (:package-rev plugin))
     (:package-manifest-fingerprint plugin)
     (assoc :packageManifestFingerprint (:package-manifest-fingerprint plugin))
+    (:package-source plugin) (assoc :packageSource (:package-source plugin))
     (:package-claim-authority plugin)
     (assoc :packageClaimAuthority (:package-claim-authority plugin))
     (:benchmark-status plugin) (assoc :benchmarkStatus (name (:benchmark-status plugin)))))

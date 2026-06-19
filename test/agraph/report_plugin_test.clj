@@ -172,3 +172,41 @@
     (is (contains? diagnostics
                    ["invalid-artifact"
                     "expected artifact at index 0 to be an object"]))))
+
+(deftest packaged-report-plugin-summary-includes-source-provenance
+  (let [source {:type :git
+                :url "https://github.com/org/agraph-plugins.git"
+                :rev "abc123"
+                :subdir "packages/report"}
+        claim-authority {:status :non-authoritative
+                         :public-claims? false
+                         :review-required? false
+                         :blockers [{:code :unbenchmarked
+                                     :message "Unbenchmarked package output is non-authoritative."}]}
+        plugin (report-plugin/normalize-plugin
+                (assoc (plugin-config)
+                       :package-id "report-pack"
+                       :package-version "0.1.0"
+                       :package-rev "abc123"
+                       :package-manifest-fingerprint "sha256:manifest"
+                       :package-source source
+                       :package-claim-authority claim-authority))
+        normalized (report-plugin/normalize-result
+                    plugin
+                    {:schema report-plugin/result-schema
+                     :panels [{:id "packaged-panel"
+                               :label "Packaged Panel"
+                               :mdx "## Packaged"}]
+                     :diagnostics [{:message "review this panel"}]
+                     :artifacts [{:path "artifacts/report.json"}]})
+        panel-plugin (get-in normalized [:panels 0 :plugin])
+        diagnostic-plugin (get-in normalized [:diagnostics 0 :plugin])
+        artifact-plugin (get-in normalized [:artifacts 0 :plugin])]
+    (doseq [summary [panel-plugin diagnostic-plugin artifact-plugin]]
+      (is (= "report-pack" (:packageId summary)))
+      (is (= "0.1.0" (:packageVersion summary)))
+      (is (= "abc123" (:packageRev summary)))
+      (is (= "sha256:manifest" (:packageManifestFingerprint summary)))
+      (is (= source (:packageSource summary)))
+      (is (= claim-authority (:packageClaimAuthority summary)))
+      (is (= "unbenchmarked" (:benchmarkStatus summary))))))
