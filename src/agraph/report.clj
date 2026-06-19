@@ -254,6 +254,50 @@
                       :package-name
                       :versions]))
 
+(defn- maintenance-work-commands
+  [project-id map-path maintenance]
+  (let [queue (queue-summary maintenance)
+        pull (fn [kind]
+               (str "agraph sync work pull --project " project-id
+                    " --kind " kind
+                    " --agent <agent-id>"))]
+    (cond-> []
+      (some pos? (vals queue))
+      (conj (str "agraph sync work list --project " project-id)
+            (str "agraph sync work pull --project " project-id
+                 " --agent <agent-id>"))
+
+      (pos? (long (:decisions queue 0)))
+      (conj (pull "maintenance-decision"))
+
+      (pos? (long (:infra-review queue 0)))
+      (conj (pull "infra-review"))
+
+      (pos? (long (:dependency-review queue 0)))
+      (conj (pull "dependency-review"))
+
+      (some pos? (vals queue))
+      (conj "agraph sync work complete <work-id> --result result.json"
+            (str "agraph sync work apply <work-id> --map "
+                 (or map-path "agraph.map.json"))))))
+
+(defn- suggested-commands
+  [project map-path maintenance]
+  (let [project-id (:id project)
+        config-path (or (:path project) "<project.edn>")]
+    (vec
+     (concat
+      [(str "agraph sync " config-path " --check"
+            (when map-path (str " --map " map-path)))
+       (str "agraph ask \"where is this handled?\" --project " project-id " --json")
+       (str "agraph view systems --project " project-id
+            (when map-path (str " --map " map-path)))
+       (str "agraph packages --project " project-id " --json")
+       (str "agraph report " config-path
+            (when map-path (str " --map " map-path))
+            " --out " default-output-dir)]
+      (maintenance-work-commands project-id map-path maintenance)))))
+
 (defn report-data
   "Return the canonical project report packet for a generated report bundle."
   [{:keys [project map-path detail generated-at-ms graph-data systems-data coverage
@@ -312,15 +356,7 @@
    :context-example {:artifact "context-example.json"
                      :answerability (:answerability context-example)}
    :artifacts artifacts
-   :commands [(str "agraph sync " (or (:path project) "<project.edn>") " --check"
-                   (when map-path (str " --map " map-path)))
-              (str "agraph ask \"where is this handled?\" --project " (:id project) " --json")
-              (str "agraph view systems --project " (:id project)
-                   (when map-path (str " --map " map-path)))
-              (str "agraph packages --project " (:id project) " --json")
-              (str "agraph report " (or (:path project) "<project.edn>")
-                   (when map-path (str " --map " map-path))
-                   " --out " default-output-dir)]})
+   :commands (suggested-commands project map-path maintenance)})
 
 (defn- hub-line
   [{:keys [label kind repo-id degree salience] :as hub}]
@@ -388,6 +424,7 @@
         queue (concat (:decision-queue maintenance)
                       (:infra-review-queue maintenance)
                       (:dependency-review-queue maintenance))
+        commands (suggested-commands project map-path maintenance)
         config-path (:path project)]
     (str "import { EvidenceSurface, MetricGrid, GraphSummary, PackageSummary, "
          "MaintenanceQueue, CommandList } from './components'\n\n"
@@ -447,16 +484,8 @@
            "- none\n")
          "\n## Suggested Commands\n\n"
          "<CommandList commands={report.commands} />\n\n"
-         "- `agraph sync " (or config-path "<project.edn>") " --check"
-         (when map-path (str " --map " map-path))
-         "`\n"
-         "- `agraph ask \"where is this handled?\" --project " (:id project) " --json`\n"
-         "- `agraph view systems --project " (:id project)
-         (when map-path (str " --map " map-path))
-         "`\n"
-         "- `agraph report " (or config-path "<project.edn>")
-         (when map-path (str " --map " map-path))
-         " --out " default-output-dir "`\n")))
+         (bullets commands "none" #(str "`" % "`"))
+         "\n")))
 
 (defn- context-example
   [xtdb project map-path]

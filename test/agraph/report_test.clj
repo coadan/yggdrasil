@@ -93,6 +93,33 @@
              :versions ["18.3.1" "19.1.0"]}]
            (get-in packet [:packages :version-conflicts])))))
 
+(deftest report-data-suggests-maintenance-work-commands
+  (let [packet (report/report-data
+                {:project {:id "fixture"
+                           :path "project.edn"
+                           :repos []}
+                 :map-path "agraph.map.json"
+                 :detail :primary
+                 :generated-at-ms 1
+                 :graph-data {:nodes [] :edges []}
+                 :systems-data {:nodes [] :edges []}
+                 :coverage {}
+                 :maintenance {:decision-queue [{:id "maintenance-decision:1"}]
+                               :infra-review-queue [{:reviewId "infra-review:1"}]
+                               :dependency-review-queue [{:reviewId "dependency-review:1"}]}
+                 :context-example {}
+                 :evidence {}
+                 :package-report {}
+                 :artifacts {}})
+        commands (set (:commands packet))]
+    (is (contains? commands "agraph sync work list --project fixture"))
+    (is (contains? commands "agraph sync work pull --project fixture --agent <agent-id>"))
+    (is (contains? commands "agraph sync work pull --project fixture --kind maintenance-decision --agent <agent-id>"))
+    (is (contains? commands "agraph sync work pull --project fixture --kind infra-review --agent <agent-id>"))
+    (is (contains? commands "agraph sync work pull --project fixture --kind dependency-review --agent <agent-id>"))
+    (is (contains? commands "agraph sync work complete <work-id> --result result.json"))
+    (is (contains? commands "agraph sync work apply <work-id> --map agraph.map.json"))))
+
 (deftest writes-report-bundle-from-project-fixture
   (let [xtdb-path (temp-dir "agraph-report-xtdb")
         out-dir (io/file (temp-dir "agraph-report-out") "bundle")
