@@ -72,6 +72,37 @@
   [text line-limit]
   (str/join "\n" (take line-limit (str/split-lines (or text "")))))
 
+(defn bounded-message
+  [message]
+  (let [message (str (or message ""))]
+    (subs message 0 (min 500 (count message)))))
+
+(defn diagnostic-row
+  [run-id file-id path stage line message]
+  {:xt/id (str "diagnostic:"
+               (hash/short-hash [file-id stage line message]))
+   :file-id file-id
+   :path path
+   :stage (keyword (str (or stage "extract")))
+   :message (bounded-message message)
+   :source-line (or line 1)
+   :active? true
+   :run-id run-id})
+
+(defn source-text-chunk
+  [run-id id-scope file-id path chunk-kind label content line-limit]
+  (let [chunk-text (bounded-lines content line-limit)]
+    {:xt/id (chunk-id id-scope path label 1)
+     :file-id file-id
+     :path path
+     :kind chunk-kind
+     :label label
+     :text chunk-text
+     :tokens (text/tokenize (str label "\n" chunk-text))
+     :source-line 1
+     :active? true
+     :run-id run-id}))
+
 (defn line-start-offsets
   [content]
   (loop [idx 0

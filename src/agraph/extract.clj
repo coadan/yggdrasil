@@ -3,6 +3,7 @@
   (:require [agraph.extract.assets :as extract.assets]
             [agraph.extract.assets-text :as extract.assets-text]
             [agraph.extract.common :as extract.common]
+            [agraph.extract.notebook :as extract.notebook]
             [agraph.extract.text :as extract.text]
             [agraph.extract.xml :as extract.xml]
             [agraph.fs :as fs]
@@ -11337,76 +11338,7 @@
     (string? value) value
     :else (str value)))
 
-(defn- notebook-cell-source
-  [cell]
-  (let [source (:source cell)]
-    (cond
-      (string? source) source
-      (vector? source) (apply str source)
-      :else "")))
 
-(defn extract-notebook
-  "Extract notebook metadata and cell chunks from Jupyter `.ipynb` files."
-  [run-id {:keys [id-scope file-id path content]}]
-  (let [parsed (read-json-value content)
-        notebook-node (generic-node run-id id-scope file-id path :notebook-file path 1)
-        metadata (when (map? parsed) (:metadata parsed))
-        kernel (get-in metadata [:kernelspec :name])
-        language (get-in metadata [:language_info :name])
-        cells (if (vector? (:cells parsed)) (:cells parsed) [])
-        metadata-facts (vec (remove nil?
-                                    [(when (seq kernel)
-                                       {:kind :notebook-kernel
-                                        :label (json-label kernel)
-                                        :source-line 1
-                                        :relation :uses})
-                                     (when (seq language)
-                                       {:kind :notebook-language
-                                        :label (json-label language)
-                                        :source-line 1
-                                        :relation :uses})]))
-        cell-facts (mapv (fn [idx cell]
-                           (let [cell-type (json-label (or (:cell_type cell) "unknown"))]
-                             {:kind :notebook-cell
-                              :label (str path "#cell-" idx ":" cell-type)
-                              :source-line 1
-                              :relation :defines
-                              :cell-type cell-type
-                              :cell-source (notebook-cell-source cell)}))
-                         (range)
-                         cells)
-        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
-                           (generic-node run-id id-scope file-id path kind label source-line))
-                         (concat metadata-facts cell-facts))
-        fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
-                           (edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id notebook-node)
-                                     (node-id id-scope kind label)
-                                     relation
-                                     :extracted
-                                     source-line))
-                         (concat metadata-facts cell-facts))
-        cell-chunks (mapv (fn [{:keys [label cell-type cell-source]}]
-                            (source-text-chunk run-id
-                                               id-scope
-                                               file-id
-                                               path
-                                               (if (= "code" cell-type)
-                                                 :notebook-code-cell
-                                                 :notebook-markdown-cell)
-                                               label
-                                               cell-source
-                                               jvm-family-definition-chunk-lines))
-                          cell-facts)
-        diagnostic (when-not (map? parsed)
-                     [(diagnostic-row run-id file-id path :parse 1
-                                      "Notebook JSON could not be parsed.")])]
-    {:nodes (into [notebook-node] fact-nodes)
-     :edges fact-edges
-     :chunks cell-chunks
-     :diagnostics (or diagnostic [])}))
 
 (def devcontainer-command-keys
   [:initializeCommand :onCreateCommand :updateContentCommand
@@ -19987,7 +19919,7 @@
      :ops-config (extract-ops-config run-id file)
      :astro (extract-astro run-id file)
      :php (extract-php run-id file)
-     :notebook (extract-notebook run-id file)
+     :notebook (extract.notebook/extract-notebook run-id file)
      :devcontainer (extract-devcontainer run-id file)
      :kustomize (extract-kustomize run-id file)
      :pre-commit-config (extract-pre-commit-config run-id file)
