@@ -37,6 +37,12 @@ depend on one LLM provider, hidden agent loop, or semantic classifier path.
 Keep implementation local-first and deterministic. XTDB stores durable graph
 facts and audit history; semantic/vector providers are optional later backends.
 
+Do not justify AGraph agent-efficiency work with hand-wavy claims. Any claim
+that AGraph makes agents faster, easier, or more effective must point to
+replayable shell-only versus AGraph evidence: benchmark reports, `bb efficiency`
+summaries, command counts, timing, localization, citation rates, or patch
+success. Treat anecdotes as hypotheses until measured.
+
 Use `.dev/` for local XTDB data, caches, and generated reports. Put local plan
 artifacts under `.dev/plans/` and local report artifacts under `.dev/reports/`.
 Do not commit generated graph databases.
@@ -56,6 +62,7 @@ Core commands:
 - `bb explore create "text" --project <project-id>`
 - `bb view systems --project <project-id>`
 - `bb packages --project <project-id> --json`
+- `bb efficiency <shell-agent-report.json> <agraph-agent-report.json> --json`
 - `bb report <project.edn> --map agraph.map.json --out agraph-out`
 - `agraph-mcp --config project.edn --map agraph.map.json`
 - `bb test`

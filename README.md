@@ -217,6 +217,11 @@ the subsystem or task it is actively working on.
 Avoid dumping the full graph unless the task explicitly needs broad inventory.
 Use `--detail primary` by default; move to `expanded`, then `evidence`, then
 `raw` only when the current task needs more proof.
+Claims that AGraph makes agents faster or more effective should be backed by
+replayable evidence, not intuition. Use the shell-only versus AGraph protocol in
+[docs/agent-efficiency-study.md](docs/agent-efficiency-study.md) and compare
+existing `agent-report.json` artifacts with `bb efficiency` before treating an
+efficiency gain as real.
 During coding tasks, agents should update the map when research reveals a stale
 classification, missing connection, orphaned system, or false external API.
 Use `agraph sync check --enqueue` when another agent, model, or human should
@@ -284,6 +289,8 @@ Context packets and doc attachments are documented in
 [docs/context.md](docs/context.md). XTDB valid-time storage and read contexts are
 documented in [docs/bitemporal-core.md](docs/bitemporal-core.md). Issue replay
 benchmarking is documented in [docs/benchmarking.md](docs/benchmarking.md).
+Agent efficiency comparisons are documented in
+[docs/agent-efficiency-study.md](docs/agent-efficiency-study.md).
 
 ```sh
 bb test

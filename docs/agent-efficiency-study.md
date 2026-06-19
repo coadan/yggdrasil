@@ -56,6 +56,16 @@ bb bench agent-report .dev/benchmarks/oss-issue-replay.edn \
   --json
 ```
 
+Compare the two reports without changing benchmark scoring:
+
+```sh
+bb efficiency \
+  .dev/agraph/agent-efficiency/shell-only/agent-report.json \
+  .dev/agraph/agent-efficiency/agraph/agent-report.json \
+  --out .dev/agraph/agent-efficiency/summary.json \
+  --json
+```
+
 ## Metrics
 
 Use existing benchmark report fields first:
