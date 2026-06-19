@@ -2316,6 +2316,13 @@
         packet {:query "broken app"
                 :drilldowns ["agraph ask 'broken app' --project fixture"]
                 :warnings ["Context warning."]
+                :answerability {:next ["Run agraph packages --project fixture --json"]
+                                :nextActions [{:kind :dependencies
+                                               :command "agraph packages --project fixture --json"}]}
+                :architecture {:validationGaps [{:plane "dependencies"
+                                                 :status "missing"
+                                                 :nextActions [{:kind :dependency-review
+                                                                :command "agraph sync project.edn --check --enqueue"}]}]}
                 :docs [{:source {:path "src/app.clj"
                                  :heading "broken"
                                  :definitionKind :function
@@ -2393,7 +2400,11 @@
              :reason "AGraph context doc \"missing\" references src/missing.clj."
              :evidence ["context-doc:src/missing.clj provenance=retrieved-doc"]}]
            (:suspectedSymbols result)))
-    (is (= ["agraph ask 'broken app' --project fixture"] (:commands result)))
+    (is (= ["agraph ask 'broken app' --project fixture"
+            "Run agraph packages --project fixture --json"
+            "agraph packages --project fixture --json"
+            "agraph sync project.edn --check --enqueue"]
+           (:commands result)))
     (is (= ["Context warning."] (:warnings result)))
     (is (= {:rawCandidateFiles 2
             :candidateFiles 2
