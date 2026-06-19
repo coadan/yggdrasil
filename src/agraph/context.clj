@@ -1072,9 +1072,23 @@
   [item]
   (not= "completed" (s (:status item))))
 
+(def ^:private freshness-gap-statuses
+  #{"partial" "stale" "unknown" "unsynced"})
+
+(defn- freshness-validation-gap
+  [freshness]
+  (let [status (display-name (:status freshness))]
+    (when (contains? freshness-gap-statuses status)
+      (cond-> {:plane "graph-basis"
+               :status status}
+        (seq (:counts freshness)) (assoc :counts (:counts freshness))
+        (seq (:warnings freshness)) (assoc :warnings (vec (take 3 (:warnings freshness))))))))
+
 (defn- validation-gaps
-  [answerability]
-  (vec (concat (map (fn [plane]
+  [answerability freshness]
+  (vec (concat (when-let [gap (freshness-validation-gap freshness)]
+                 [gap])
+               (map (fn [plane]
                       {:plane (name plane)
                        :status "missing"})
                     (:missing answerability))
@@ -1280,7 +1294,7 @@
           (take 2 docs)))))
 
 (defn- architecture-section
-  [{:keys [overlay entities results edges runtime-evidence docs activity answerability]}]
+  [{:keys [overlay entities results edges runtime-evidence docs activity answerability freshness]}]
   (let [accepted-systems (selected-accepted-systems overlay entities results)
         candidate-systems (selected-candidate-systems accepted-systems entities)
         selected-ids (set (concat (map :id entities)
@@ -1314,7 +1328,7 @@
                  :docs architecture-docs
                  :openDecisions (mapv open-decision-row
                                       (take 6 (filter open-decision? activity)))
-                 :validationGaps (vec (take 12 (validation-gaps answerability)))
+                 :validationGaps (vec (take 12 (validation-gaps answerability freshness)))
                  :warnings (vec (take 5 (:warnings answerability)))
                  :nextActions (vec (take 6 (concat inspect-actions
                                                    (:nextActions answerability))))}
@@ -2293,7 +2307,8 @@
                                             :runtime-evidence runtime-evidence
                                             :docs docs
                                             :activity activity
-                                            :answerability answerability})
+                                            :answerability answerability
+                                            :freshness freshness})
         systems (systems-section architecture)
         audit-scopes (audit-scope/selected-summaries
                       {:boundary-evidence (:boundaryEvidence architecture)

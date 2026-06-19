@@ -814,6 +814,38 @@
                  (map (juxt :family :status))
                  (:evidenceFamilies section))))))
 
+(deftest architecture-section-reports-stale-graph-basis-validation-gap
+  (let [section (#'context/architecture-section
+                 {:overlay {:systems [{:id "system:billing"
+                                       :label "Billing"}]}
+                  :entities [{:id "system:billing"
+                              :label "Billing"
+                              :kind "system"}]
+                  :edges []
+                  :runtime-evidence []
+                  :docs []
+                  :activity []
+                  :answerability {:missing [:dependencies]
+                                  :weak []
+                                  :unsupported []}
+                  :freshness {:status :stale
+                              :counts {:changed 2
+                                       :missing 1}
+                              :warnings ["Graph basis is stale."
+                                         "Another warning."
+                                         "Third warning."
+                                         "Dropped warning."]}})]
+    (is (= [{:plane "graph-basis"
+             :status "stale"
+             :counts {:changed 2
+                      :missing 1}
+             :warnings ["Graph basis is stale."
+                        "Another warning."
+                        "Third warning."]}
+            {:plane "dependencies"
+             :status "missing"}]
+           (:validationGaps section)))))
+
 (deftest architecture-section-ranks-boundary-evidence-by-mechanical-support
   (let [section (#'context/architecture-section
                  {:overlay {:systems [{:id "system:alpha"
