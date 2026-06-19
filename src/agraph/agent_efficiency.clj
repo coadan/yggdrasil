@@ -185,6 +185,18 @@
    [:totalTokens :totalTokensDelta]
    [:costUsd :costUsdDelta]])
 
+(def ^:private headline-summary-lines
+  [[:fileRecallAt10Delta "fileRecallAt10 delta"]
+   [:noiseRatioAt20Delta "noiseRatioAt20 delta"]
+   [:evidenceCitationRateDelta "evidenceCitationRate delta"]
+   [:pathEvidenceCitationRateDelta "pathEvidenceCitationRate delta"]
+   [:toolCallDelta "tool call delta"]
+   [:searchCommandDelta "search command delta"]
+   [:fileReadDelta "file read delta"]
+   [:elapsedMsDelta "elapsedMs delta"]
+   [:totalTokensDelta "totalTokens delta"]
+   [:costUsdDelta "costUsd delta"]])
+
 (def ^:private claim-requirement-keys
   [:sameSuite
    :sameCases
@@ -864,6 +876,10 @@
        ", agraph: " (format-metric-value agraph)
        ", delta: " (format-metric-value delta) ")"))
 
+(defn- headline-summary-line
+  [summary [key label]]
+  (str "- " label ": " (format-metric-value (get summary key))))
+
 (defn- claim-requirement-line
   [requirements key]
   (str "- " (name key) ": " (if (true? (get requirements key))
@@ -888,6 +904,7 @@
         requirements (get-in comparison [:claimReadiness :requirements])
         warnings (get-in comparison [:claimReadiness :warnings])
         notes (get-in comparison [:claimReadiness :notes])
+        headline-summary (:headlineSummary comparison)
         key-deltas (headline-metric-deltas comparison)
         categories (:byCategory comparison)
         case-deltas (:caseDeltas comparison)
@@ -934,6 +951,25 @@
                       (:measuredArchitectureClasses class-summary)
                       "/"
                       (:architectureClasses class-summary))])
+              (when headline-summary
+                (concat ["" "## Headline Summary" ""
+                         (str "- Status: " (:status headline-summary))
+                         (str "- Claim readiness: "
+                              (:claimStatus headline-summary))
+                         (str "- Broad efficiency claim supported: "
+                              (:broadEfficiencyClaimSupported
+                               headline-summary))
+                         (str "- Shared cases: "
+                              (:sharedCases headline-summary)
+                              "/"
+                              (:minSharedCases headline-summary))]
+                        (map #(headline-summary-line headline-summary %)
+                             headline-summary-lines)
+                        [(str "- Unavailable headline metrics: "
+                              (if-let [metrics (seq (:unavailableMetrics
+                                                     headline-summary))]
+                                (str/join ", " (map name metrics))
+                                "none"))]))
               (when (seq key-deltas)
                 (concat ["" "## Key Metric Deltas" ""]
                         (map metric-delta-line key-deltas)))
