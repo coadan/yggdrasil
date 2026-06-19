@@ -67,7 +67,7 @@ not supported by the current model.
 
 Project-level reports and `agraph status --json` expose the same mechanical
 inventory as `agraph.evidence/v1`. Use that evidence surface when an agent needs
-to see what can be asked about at a glance. Use `agraph ask --json` when the
+to see what can be asked about at a glance. Use `agraph explore --json` when the
 agent has a concrete question and needs the smaller query-scoped
 `answerability` packet plus matching entities, edges, docs, and activity.
 Both surfaces use `dependencies` for the evidence plane backed by package
@@ -121,8 +121,9 @@ When indexed diagnostics are present, `answerability.warnings` points agents to
 `sourceCoverage` and `agraph sync coverage`; this is a source-support signal, not
 a semantic classification.
 
-Plain `agraph ask` prints a concise answerability warning only when no query
-results are found. Use `agraph ask --json` for the full structured packet.
+Plain `agraph explore` prints a concise answerability warning only when no query
+results are found. Use `agraph explore --json` for the full structured packet.
+`agraph ask --json` returns the same one-shot packet for compatibility.
 
 ## Source Coverage
 

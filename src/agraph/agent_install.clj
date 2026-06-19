@@ -95,7 +95,7 @@
        "before broad raw-file search.\n\n"
        "For one-shot evidence packets:\n\n"
        "```sh\n"
-       "agraph ask \"<question>\" --project <project-id> --json\n"
+       "agraph explore \"<question>\" --project <project-id> --json\n"
        "```\n\n"
        "For longer investigations with stable graph context:\n\n"
        "```sh\n"

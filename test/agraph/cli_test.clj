@@ -57,6 +57,7 @@
     (is (str/includes? usage "sync <project.edn>"))
     (is (str/includes? usage "init <repo-root>"))
     (is (str/includes? usage "ask <text>"))
+    (is (str/includes? usage "explore <text>"))
     (is (str/includes? usage "explore create"))
     (is (str/includes? usage "view overview|deps|query|systems"))
     (is (str/includes? usage "report <project.edn>"))
@@ -285,7 +286,7 @@
       (is (str/includes? first-content "Keep this line."))
       (is (str/includes? first-content "agraph status <project.edn> --json"))
       (is (str/includes? first-content "`available`, `counts`, and structured `nextActions`"))
-      (is (str/includes? first-content "agraph ask \"<question>\" --project <project-id> --json"))
+      (is (str/includes? first-content "agraph explore \"<question>\" --project <project-id> --json"))
       (is (str/includes? first-content "agraph explore search <cursor-id> \"<follow-up query>\""))
       (is (str/includes? first-content "agraph sync check <project.edn> --map agraph.map.json --enqueue"))
       (is (str/includes? first-content "agraph sync work list --project <project-id> --status ready"))
@@ -1738,6 +1739,28 @@
       (is (= context/schema (:schema parsed)))
       (is (= "where auth" (:query parsed)))
       (is (= "fixture" (:project-id parsed))))))
+
+(deftest explore-json-returns-one-shot-context-packet
+  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                context/context-packet (fn [xtdb query-text opts]
+                                         {:schema context/schema
+                                          :xtdb xtdb
+                                          :query query-text
+                                          :project-id (:project-id opts)
+                                          :retriever (:retriever opts)
+                                          :answerability {:status :usable}})]
+    (let [out (with-out-str
+                (cli/dispatch "explore"
+                              ["where" "auth"
+                               "--project" "fixture"
+                               "--retriever" "lexical"
+                               "--json"]))
+          parsed (read-json-output out)]
+      (is (= context/schema (:schema parsed)))
+      (is (= "where auth" (:query parsed)))
+      (is (= "fixture" (:project-id parsed)))
+      (is (= "lexical" (:retriever parsed)))
+      (is (= {:status "usable"} (:answerability parsed))))))
 
 (deftest ask-plain-empty-result-prints-answerability-warning
   (let [err (java.io.StringWriter.)

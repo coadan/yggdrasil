@@ -245,12 +245,13 @@ supported files, unsupported extensions, intentionally ignored lockfiles,
 supported dependency lockfiles, active extractor versions, and indexed
 diagnostics; `--json` emits the stable `agraph.source-coverage/v1` shape for
 smoke reports or CI.
-Use `agraph ask --json` when handing graph evidence to an agent prompt; it
+Use `agraph explore --json` when handing graph evidence to an agent prompt; it
 returns a budgeted packet of relevant entities, edges, snippets, warnings, and
-drilldown commands instead of the whole graph.
-Use `agraph explore` for longer investigations where an agent should keep a
-stable graph basis and progressively call `show`, `open`, `expand`, `docs`, and
-`search` against compact packets.
+drilldown commands instead of the whole graph. `agraph ask --json` returns the
+same one-shot packet for compatibility.
+Use `agraph explore create` for longer investigations where an agent should keep
+a stable graph basis and progressively call `show`, `open`, `expand`, `docs`,
+and `search` against compact packets.
 
 Use `agraph install-agent --platform codex --project` to write concise project
 guidance into `AGENTS.md`. Add `--hooks` to install Codex hook guidance. The

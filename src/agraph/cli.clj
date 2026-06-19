@@ -1661,6 +1661,13 @@
                                      :temporal temporal
                                      :args args}))))))))
 
+(def ^:private cursor-actions
+  #{"create" "show" "open" "expand" "docs" "search"})
+
+(defn- cursor-action?
+  [args]
+  (contains? cursor-actions (first args)))
+
 (defn- view!
   [args]
   (let [format (keyword (or (option-value args "--format") "html"))
@@ -2507,6 +2514,7 @@
     ""
     "Ask and explore:"
     "  ask <text> [--project ID] [--repo ID] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
+    "  explore <text> [--project ID] [--repo ID] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
     "  explore create [query text] --project ID [--budget N] [--limit N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--no-map] [--view ID] [--valid-at INSTANT] [--enqueue] [--queue-dir DIR]"
     "  explore show|open|expand|docs|search ..."
     ""
@@ -2560,7 +2568,9 @@
     (ask! args)
 
     "explore"
-    (dispatch "cursor" args)
+    (if (cursor-action? args)
+      (dispatch "cursor" args)
+      (ask! args))
 
     "view"
     (view! args)
