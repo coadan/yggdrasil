@@ -722,6 +722,18 @@
        (when-let [observed (:observedMetrics summary)]
          (str " (observed metrics: " observed ")"))))
 
+(defn- tag-group-line
+  [{:keys [tag shellOnly agraph summary]}]
+  (str "- " tag ": " (:signal summary)
+       " (shell cases: " (:cases shellOnly)
+       ", agraph cases: " (:cases agraph) ")"))
+
+(defn- class-tag-groups
+  [comparison pred]
+  (->> (get-in comparison [:byTag :groups])
+       (filter #(pred (:tag %)))
+       vec))
+
 (defn- usage
   []
   (str "Usage: bb efficiency <shell-agent-report.json> <agraph-agent-report.json>"
@@ -762,6 +774,16 @@
             (println "Category signals:")
             (doseq [category categories]
               (println (category-line category))))
+          (when-let [groups (seq (class-tag-groups comparison
+                                                   problem-class-tag?))]
+            (println "Problem-class signals:")
+            (doseq [group groups]
+              (println (tag-group-line group))))
+          (when-let [groups (seq (class-tag-groups comparison
+                                                   architecture-class-tag?))]
+            (println "Architecture-class signals:")
+            (doseq [group groups]
+              (println (tag-group-line group))))
           (println (str "Claim readiness: "
                         (get-in comparison [:claimReadiness :status])))
           (when-let [warnings (seq (get-in comparison

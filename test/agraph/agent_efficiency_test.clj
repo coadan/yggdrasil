@@ -735,18 +735,47 @@
     (is (= shell-path (get-in written [:inputs :shellReport])))
     (is (= agraph-path (get-in written [:inputs :agraphReport])))))
 
-(deftest plain-output-warns-when-problem-class-coverage-is-missing
+(deftest plain-output-shows-category-and-class-signals
   (let [root (temp-dir "agraph-agent-efficiency-plain")
-        shell-path (spit-json! root "shell/agent-report.json" shell-report)
-        agraph-path (spit-json! root "agraph/agent-report.json" agraph-report)
+        shell (-> shell-report
+                  with-problem-classes
+                  with-claim-readiness
+                  (assoc :byTag [(tag-row "problem-architecture"
+                                          {:cases 2
+                                           :runs 2
+                                           :recall10 0.5
+                                           :noise 0.5})
+                                 (tag-row "architecture-dependency-flow"
+                                          {:cases 2
+                                           :runs 2
+                                           :recall10 0.5
+                                           :noise 0.5})]))
+        agraph (-> agraph-report
+                   with-problem-classes
+                   with-claim-readiness
+                   (assoc :byTag [(tag-row "problem-architecture"
+                                           {:cases 2
+                                            :runs 2
+                                            :recall10 0.75
+                                            :noise 0.25})
+                                  (tag-row "architecture-dependency-flow"
+                                           {:cases 2
+                                            :runs 2
+                                            :recall10 0.75
+                                            :noise 0.25})]))
+        shell-path (spit-json! root "shell/agent-report.json" shell)
+        agraph-path (spit-json! root "agraph/agent-report.json" agraph)
         out (with-out-str
               (agent-efficiency/-main shell-path agraph-path))]
     (is (.contains out "Category signals:"))
     (is (.contains out "observed metrics: 1"))
     (is (.contains out
                    "- command-telemetry: agraph-improved (observed metrics: 1)"))
-    (is (.contains out "Claim readiness: not-supported"))
-    (is (.contains out "Claim readiness warnings:"))
-    (is (.contains out "No shared problem-class tags"))
-    (is (.contains out "No shared architecture-class tags"))
+    (is (.contains out "Problem-class signals:"))
+    (is (.contains out
+                   "- problem-architecture: agraph-improved (shell cases: 2, agraph cases: 2)"))
+    (is (.contains out "Architecture-class signals:"))
+    (is (.contains out
+                   "- architecture-dependency-flow: agraph-improved (shell cases: 2, agraph cases: 2)"))
+    (is (.contains out "Claim readiness: supported"))
     (is (.contains out "Claim readiness notes:"))))
