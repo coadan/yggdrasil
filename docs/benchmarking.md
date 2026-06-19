@@ -287,21 +287,23 @@ timings such as `scan-ms`, `parser-worker-ms`, `extract-ms`,
 `commit-files-ms`, `dependency-ms`, and `total-ms`; use those fields to separate
 parser cost from XTDB writes, search-doc construction, and derived edge refresh.
 
-Use case tags to slice reports by extractor area, ecosystem, or failure mode
-without duplicating suites:
+Use case tags to slice reports by extractor area, ecosystem, problem class, or
+failure mode without duplicating suites:
 
 ```clojure
 {:id "rails-auth-env"
  :repo-id "rails"
- :tags [:ruby :runtime-config :auth]
+ :tags [:ruby :runtime-config :auth :problem-cross-file-change]
  :base-sha "BASE"
  :fix-sha "FIX"
  :issue {:title "Auth callback fails"}}
 ```
 
 Reports include `tags` and `byTag`, so one wide suite can still answer whether
-auth evidence, runtime config, package resolution, or a specific language family
-regressed.
+auth evidence, runtime config, package resolution, a specific language family,
+or a manually labeled problem class regressed. Problem-class tags are benchmark
+labels for analysis; they are not inferred by AGraph core and should not become
+path, host, or vocabulary heuristics.
 
 Use graph expectations when a benchmark is meant to prove AGraph extracted
 specific bounded facts, not only that the agent ranked the changed file. The
@@ -324,6 +326,15 @@ inference. `agent-report` aggregates those checks under
 `graphExpectationDiagnostics`, and `agent-check` can gate them with
 `--max-graph-expectation-failures 0` when the suite should fail on missing
 evidence or forbidden graph edges.
+
+Architecture-class agent-efficiency cases may be synthetic when the OSS corpus
+has useful structure but no historical issue that asks the architectural
+question directly. Keep them replayable: use a real OSS base checkout, write
+fair issue text that asks about the architecture task, tag the case with
+`:synthetic` plus `:problem-architecture`, and provide curated
+`:ground-truth`/`:expectations` for the files or graph facts a competent agent
+should inspect. The tags are analysis labels only; AGraph core must still emit
+bounded facts and let the benchmark decide whether those facts helped.
 
 Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
 agents through the filesystem queue:

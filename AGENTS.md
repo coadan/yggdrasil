@@ -41,7 +41,11 @@ Do not justify AGraph agent-efficiency work with hand-wavy claims. Any claim
 that AGraph makes agents faster, easier, or more effective must point to
 replayable shell-only versus AGraph evidence: benchmark reports, `bb efficiency`
 summaries, command counts, timing, localization, citation rates, or patch
-success. Treat anecdotes as hypotheses until measured.
+success. Efficiency suites must include manually tagged problem classes, not
+only simple file-localization issues, and claims should name the class where
+AGraph helped or regressed. Include architecture-class cases, using synthetic
+OSS-corpus prompts with curated ground truth when necessary. Treat anecdotes as
+hypotheses until measured.
 
 Use `.dev/` for local XTDB data, caches, and generated reports. Put local plan
 artifacts under `.dev/plans/` and local report artifacts under `.dev/reports/`.

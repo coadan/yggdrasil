@@ -62,6 +62,14 @@
                               :pathEvidenceCitationRate path-evidence}})
                   case-ids)})
 
+(defn- tag-row
+  [key {:keys [cases runs recall10 noise]}]
+  {:key key
+   :cases cases
+   :runs runs
+   :scores {:fileRecallAt10 recall10
+            :noiseRatioAt20 noise}})
+
 (def shell-report
   (report {:mode "shell-only"
            :recall5 0.5
@@ -142,6 +150,53 @@
            (get-in comparison [:shellOnly :modes])))
     (is (= {"agraph" 2}
            (get-in comparison [:agraph :modes])))))
+
+(deftest compares-shell-only-and-agraph-by-tag-groups
+  (let [shell (assoc shell-report
+                     :byTag [(tag-row "problem-localization"
+                                      {:cases 1
+                                       :runs 1
+                                       :recall10 0.5
+                                       :noise 0.5})
+                             (tag-row "problem-cross-file"
+                                      {:cases 1
+                                       :runs 1
+                                       :recall10 0.5
+                                       :noise 0.75})])
+        agraph (assoc agraph-report
+                      :byTag [(tag-row "problem-localization"
+                                       {:cases 1
+                                        :runs 1
+                                        :recall10 1.0
+                                        :noise 0.25})
+                              (tag-row "problem-cross-file"
+                                       {:cases 1
+                                        :runs 1
+                                        :recall10 0.25
+                                        :noise 0.5})])
+        comparison (agent-efficiency/compare-reports shell agraph)
+        groups-by-tag (into {} (map (juxt :tag identity)) (get-in comparison
+                                                                  [:byTag :groups]))]
+    (is (= {:sameTags true
+            :sharedTags 2
+            :sharedTagKeys ["problem-cross-file" "problem-localization"]
+            :shellOnlyTagKeys []
+            :agraphOnlyTagKeys []
+            :warnings []}
+           (get-in comparison [:byTag :comparability])))
+    (is (= "agraph-improved"
+           (get-in groups-by-tag ["problem-localization" :summary :signal])))
+    (is (= "mixed"
+           (get-in groups-by-tag ["problem-cross-file" :summary :signal])))
+    (is (= {:shellOnly 0.5
+            :agraph 1.0
+            :delta 0.5
+            :effect 0.5
+            :result "improved"}
+           (->> (get-in groups-by-tag ["problem-localization" :deltas])
+                (filter #(= :fileRecallAt10 (:key %)))
+                first
+                (#(select-keys % [:shellOnly :agraph :delta :effect :result])))))))
 
 (deftest reports-comparability-warnings-for-different-case-sets
   (let [agraph-partial (assoc agraph-report

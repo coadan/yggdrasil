@@ -98,6 +98,11 @@
        (filter #(= :scores (first (:path %))))
        vec))
 
+(def ^:private group-metric-specs
+  (->> metric-specs
+       (remove #(= :timing (:category %)))
+       vec))
+
 (defn- read-json-file
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
@@ -189,7 +194,16 @@
    :scores (:scores report)
    :localizationDiagnostics (:localizationDiagnostics report)
    :agentDiagnostics (:agentDiagnostics report)
+   :tags (:tags report)
    :timings (:timings report)})
+
+(defn- rows-by-key
+  [rows]
+  (->> rows
+       (keep (fn [row]
+               (when-let [key (some-> (:key row) str not-empty)]
+                 [key row])))
+       (into {})))
 
 (defn- comparability
   [shell-report agraph-report]
@@ -233,6 +247,53 @@
      :regressedMetrics regressed
      :unchangedMetrics unchanged}))
 
+(defn- tag-comparability
+  [shell-report agraph-report]
+  (let [shell-tags (set (keys (rows-by-key (:byTag shell-report))))
+        agraph-tags (set (keys (rows-by-key (:byTag agraph-report))))
+        shell-only-tags (sort (remove agraph-tags shell-tags))
+        agraph-only-tags (sort (remove shell-tags agraph-tags))
+        shared-tags (sort (filter agraph-tags shell-tags))
+        same-tags? (and (empty? shell-only-tags)
+                        (empty? agraph-only-tags))]
+    {:sameTags same-tags?
+     :sharedTags (count shared-tags)
+     :sharedTagKeys (vec shared-tags)
+     :shellOnlyTagKeys (vec shell-only-tags)
+     :agraphOnlyTagKeys (vec agraph-only-tags)
+     :warnings (cond-> []
+                 (not same-tags?)
+                 (conj "Reports do not contain the same completed tag groups.")
+
+                 (empty? shared-tags)
+                 (conj "Reports have no shared completed tag groups."))}))
+
+(defn- tag-deltas
+  [shell-report agraph-report]
+  (let [shell-by-tag (rows-by-key (:byTag shell-report))
+        agraph-by-tag (rows-by-key (:byTag agraph-report))
+        shared-tags (->> (keys shell-by-tag)
+                         (filter #(contains? agraph-by-tag %))
+                         sort)]
+    (mapv (fn [tag]
+            (let [shell-row (get shell-by-tag tag)
+                  agraph-row (get agraph-by-tag tag)
+                  deltas (mapv #(metric-delta shell-row agraph-row %)
+                               group-metric-specs)]
+              {:tag tag
+               :shellOnly {:cases (long (or (:cases shell-row) 0))
+                           :runs (long (or (:runs shell-row) 0))}
+               :agraph {:cases (long (or (:cases agraph-row) 0))
+                        :runs (long (or (:runs agraph-row) 0))}
+               :summary (aggregate-summary deltas {:sharedCases 1})
+               :deltas deltas}))
+          shared-tags)))
+
+(defn- by-tag-comparison
+  [shell-report agraph-report]
+  {:comparability (tag-comparability shell-report agraph-report)
+   :groups (tag-deltas shell-report agraph-report)})
+
 (defn- case-deltas
   [shell-report agraph-report]
   (let [shell-by-case (result-by-case shell-report)
@@ -265,6 +326,7 @@
      :shellOnly (report-summary shell-report)
      :agraph (report-summary agraph-report)
      :deltas deltas
+     :byTag (by-tag-comparison shell-report agraph-report)
      :caseDeltas (case-deltas shell-report agraph-report)}))
 
 (defn compare-report-files!
@@ -318,5 +380,7 @@
                         (get-in comparison [:summary :regressedMetrics])
                         ", unchanged metrics: "
                         (get-in comparison [:summary :unchangedMetrics])))
+          (println (str "Shared tag groups: "
+                        (get-in comparison [:byTag :comparability :sharedTags])))
           (when-let [out (option-value args "--out")]
             (println (str "Wrote " out))))))))

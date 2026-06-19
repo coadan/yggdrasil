@@ -224,7 +224,11 @@ Claims that AGraph makes agents faster or more effective should be backed by
 replayable evidence, not intuition. Use the shell-only versus AGraph protocol in
 [docs/agent-efficiency-study.md](docs/agent-efficiency-study.md) and compare
 existing `agent-report.json` artifacts with `bb efficiency` before treating an
-efficiency gain as real.
+efficiency gain as real. Efficiency reports should include manually tagged
+problem classes so a win on simple localization is not mistaken for broad
+agent-development leverage; include architecture-class cases, including
+synthetic OSS-corpus prompts when historical issues do not cover that shape of
+work.
 During coding tasks, agents should update the map when research reveals a stale
 classification, missing connection, orphaned system, or false external API.
 Use `agraph sync check --enqueue` when another agent, model, or human should

@@ -18,6 +18,25 @@ Keep the model, agent command, timeout, benchmark suite, cases, parser-worker
 profile, and prompt profile identical across both modes. The mode should be the
 only intentional difference.
 
+Do not treat a win on simple file-localization issues as proof that AGraph is
+the right tool for all agent work. Tag every efficiency case with manually
+chosen problem-class tags such as `:problem-localization`,
+`:problem-cross-file-change`, `:problem-architecture`,
+`:problem-dependency-upgrade`, `:problem-runtime-config`,
+`:problem-api-contract`, or `:problem-refactor`. These are benchmark labels, not
+AGraph core semantics. `bb efficiency` compares the shared `byTag` groups from
+each `agent-report.json`, so the summary can show which classes improve,
+regress, or remain shell-sufficient.
+
+Include an architecture-class slice even if some cases are synthetic prompts on
+the OSS corpus. Synthetic cases should still use real base checkouts and fair
+task text, but may use curated `:ground-truth` and `:expectations` when the
+question is about system boundaries, dependency flow, route-to-handler shape,
+runtime configuration, data ownership, or cross-file impact rather than one
+historical bug fix. Mark them with tags such as `:synthetic`,
+`:problem-architecture`, `:architecture-boundary`,
+`:architecture-dependency-flow`, or `:architecture-cross-system-impact`.
+
 ## Commands
 
 Use separate generated output roots so artifacts cannot overwrite each other:
@@ -25,18 +44,18 @@ Use separate generated output roots so artifacts cannot overwrite each other:
 ```sh
 bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --agent codex-efficiency \
-  --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' \
+  --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$AGRAPH_BENCH_RESULT" - < "$AGRAPH_BENCH_PROMPT"' \
   --mode shell-only \
   --prompt-profile fast \
-  --timeout-ms 120000 \
+  --timeout-ms 300000 \
   --out .dev/agraph/agent-efficiency/shell-only
 
 bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --agent codex-efficiency \
-  --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' \
+  --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$AGRAPH_BENCH_RESULT" - < "$AGRAPH_BENCH_PROMPT"' \
   --mode agraph \
   --prompt-profile fast \
-  --timeout-ms 120000 \
+  --timeout-ms 300000 \
   --out .dev/agraph/agent-efficiency/agraph
 ```
 
@@ -74,6 +93,7 @@ Use existing benchmark report fields first:
 - noise: noise at 20 and predicted files that do not exist
 - evidence: evidence citation rate and path evidence citation rate
 - result health: warning runs, empty result runs, commandless runs
+- task fit: `bb efficiency` `byTag.groups`, especially problem-class tags
 - timing: stage timings and active-stage diagnostics from progress artifacts
 
 For patching runs, also record test pass rate, lint pass rate, unrelated file
@@ -101,6 +121,9 @@ view spreads indexing cost across a batch of agent tasks.
 - Do not edit `src/agraph/benchmark.clj`, benchmark tests, or
   `docs/benchmarking.md` for this study.
 - Do not change benchmark scoring semantics while collecting the first results.
+- Do not claim broad agent efficiency from a suite that only contains simple
+  localization cases. Cover several manually tagged problem classes, or state
+  the narrower class where AGraph helped.
 - Store generated outputs under `.dev/agraph/agent-efficiency/`.
 - Keep ad hoc analysis scripts separate from benchmark core until their metrics
   are proven useful across multiple cases.
