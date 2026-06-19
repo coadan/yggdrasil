@@ -523,6 +523,18 @@
               :rankedOutsideTop10CaseIds []
               :rankedOutsideTop20Runs 0
               :rankedOutsideTop20CaseIds []
+              :pathUncitedRuns 1
+              :pathUncitedCaseIds ["case-1"]
+              :pathUncitedRankedFiles [{:path "src/other.clj"
+                                        :occurrences 1
+                                        :runs 1
+                                        :caseIds ["case-1"]
+                                        :bestRank 1}
+                                       {:path "src/app.clj"
+                                        :occurrences 1
+                                        :runs 1
+                                        :caseIds ["case-1"]
+                                        :bestRank 7}]
               :rankedOutsideTop5BlockingFiles [{:path "src/other.clj"
                                                 :occurrences 1
                                                 :runs 1
@@ -622,6 +634,10 @@
                                     :rank 1}
                                    {:path "src/app.clj"
                                     :rank 7}]
+              :pathUncitedRankedFiles [{:path "src/other.clj"
+                                        :rank 1}
+                                       {:path "src/app.clj"
+                                        :rank 7}]
               :contextRanks [{:path "src/app.clj"
                               :rank 7
                               :found? true}

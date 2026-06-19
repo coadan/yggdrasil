@@ -128,6 +128,9 @@
 (def ^:private aggregate-rank-blocker-limit
   20)
 
+(def ^:private aggregate-ranked-file-diagnostic-limit
+  20)
+
 (def ^:private retrieved-source-rank-bonus-window
   20)
 
@@ -4431,6 +4434,9 @@
         uncited-ranked-files (->> top-files
                                   (remove evidence-cited?)
                                   (mapv #(select-keys % [:path :rank])))
+        path-uncited-ranked-files (->> top-files
+                                       (remove path-evidence-cited?)
+                                       (mapv #(select-keys % [:path :rank])))
         missed (->> ranks
                     (remove :found?)
                     (mapv #(select-keys % [:path])))
@@ -4469,6 +4475,7 @@
                     :unsupportedGroundTruthFiles (vec (:unsupportedGroundTruthFiles ground-truth))
                     :ranks ranks
                     :uncitedRankedFiles uncited-ranked-files
+                    :pathUncitedRankedFiles path-uncited-ranked-files
                     :missedFiles missed
                     :rankedOutsideTop5 (ranked-outside 5)
                     :rankedOutsideTop10 (ranked-outside 10)
@@ -4515,6 +4522,33 @@
          (take aggregate-rank-blocker-limit)
          vec)))
 
+(defn- aggregate-ranked-file-diagnostics
+  [result-pairs diagnostic-key]
+  (let [rows (mapcat
+              (fn [[result diagnostic]]
+                (map (fn [ranked-file]
+                       (assoc ranked-file :case-id (:case-id result)))
+                     (get diagnostic diagnostic-key)))
+              result-pairs)]
+    (->> rows
+         (group-by :path)
+         (map (fn [[path path-rows]]
+                (let [ranks (keep :rank path-rows)]
+                  (cond-> {:path path
+                           :occurrences (count path-rows)
+                           :runs (count (set (map :case-id path-rows)))
+                           :caseIds (->> path-rows
+                                         (map :case-id)
+                                         set
+                                         sort
+                                         vec)}
+                    (seq ranks) (assoc :bestRank (apply min ranks))))))
+         (sort-by (juxt (comp - :occurrences)
+                        #(or (:bestRank %) Long/MAX_VALUE)
+                        :path))
+         (take aggregate-ranked-file-diagnostic-limit)
+         vec)))
+
 (defn- aggregate-localization-diagnostics
   [results]
   (let [diagnostics (map localization-diagnostic results)
@@ -4540,6 +4574,9 @@
         outside-top20 (filter (fn [[_ diagnostic]]
                                 (seq (:rankedOutsideTop20 diagnostic)))
                               result-pairs)
+        path-uncited (filter (fn [[_ diagnostic]]
+                               (seq (:pathUncitedRankedFiles diagnostic)))
+                             result-pairs)
         missed-present-in-context (filter (fn [[_ diagnostic]]
                                             (seq (:missedFilesPresentInContext diagnostic)))
                                           result-pairs)
@@ -4561,6 +4598,11 @@
      :rankedOutsideTop10CaseIds (case-ids outside-top10)
      :rankedOutsideTop20Runs (count outside-top20)
      :rankedOutsideTop20CaseIds (case-ids outside-top20)
+     :pathUncitedRuns (count path-uncited)
+     :pathUncitedCaseIds (case-ids path-uncited)
+     :pathUncitedRankedFiles (aggregate-ranked-file-diagnostics
+                              result-pairs
+                              :pathUncitedRankedFiles)
      :rankedOutsideTop5BlockingFiles (aggregate-rank-blockers
                                       result-pairs
                                       :rankedOutsideTop5Blockers)

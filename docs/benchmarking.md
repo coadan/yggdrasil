@@ -488,6 +488,9 @@ given.
   include the ranked file path. This stricter mechanical traceability metric is
   useful for agent-first gates where each suspected file should point back to a
   concrete context row, candidate row, command, or snippet mentioning that path.
+  Report diagnostics include `pathUncitedRankedFiles` per case and aggregate
+  `pathUncitedRuns`, `pathUncitedCaseIds`, and `pathUncitedRankedFiles` so a
+  failed gate points at the ranked files whose evidence did not cite their path.
 - `changedFiles`: files changed by the fixing diff.
 - `localizationFiles`: localization target files, or changed files when no
   explicit localization set was provided.
