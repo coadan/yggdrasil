@@ -29,7 +29,7 @@
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "bench"
                       *command-line-args*)}
 
-  efficiency {:doc "Compare shell-only and AGraph agent reports. Usage: bb efficiency <shell-agent-report.json> <agraph-agent-report.json> [--out report.json] [--json]"
+  efficiency {:doc "Compare shell-only and AGraph agent reports. Usage: bb efficiency <shell-agent-report.json> <agraph-agent-report.json> [--out report.json] [--json] [--min-shared-cases N]"
               :task (apply shell "clojure" "-M:run" "-m" "agraph.agent-efficiency"
                            *command-line-args*)}
 

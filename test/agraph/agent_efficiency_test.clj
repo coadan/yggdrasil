@@ -118,6 +118,7 @@
     (is (= "agraph.agent-efficiency/v1" (:schema comparison)))
     (is (= "agraph-improved" (:status comparison)))
     (is (= {:signal "agraph-improved"
+            :minSharedCases 2
             :availableMetrics 17
             :improvedMetrics 16
             :regressedMetrics 0
@@ -221,7 +222,9 @@
                        :running 0
                        :case-ids ["case-1"]})
         agraph (assoc-in shell [:timings :elapsedMs] 1025)
-        comparison (agent-efficiency/compare-reports shell agraph)
+        comparison (agent-efficiency/compare-reports shell
+                                                     agraph
+                                                     {:min-shared-cases 1})
         elapsed-delta (->> (:deltas comparison)
                            (filter #(= :elapsedMs (:key %)))
                            first)]
@@ -252,12 +255,39 @@
     (is (= ["Reports do not contain the same completed case ids."]
            (get-in comparison [:comparability :warnings])))))
 
+(deftest refuses-broad-efficiency-signal-below-minimum-shared-cases
+  (let [shell (report {:mode "shell-only"
+                       :recall5 1.0
+                       :recall10 1.0
+                       :recall20 1.0
+                       :mrr 1.0
+                       :noise 0.0
+                       :evidence 1.0
+                       :path-evidence 1.0
+                       :missed 0
+                       :outside5 0
+                       :outside10 0
+                       :missing-predicted 0
+                       :empty 0
+                       :commandless 0
+                       :warnings 0
+                       :elapsed 1000
+                       :failed 0
+                       :running 0
+                       :case-ids ["case-1"]})
+        agraph (assoc-in shell [:scores :fileRecallAt10] 1.0)
+        comparison (agent-efficiency/compare-reports shell agraph)]
+    (is (= "insufficient-cases" (:status comparison)))
+    (is (= 1 (get-in comparison [:comparability :sharedCases])))
+    (is (= 2 (get-in comparison [:summary :minSharedCases])))))
+
 (deftest reports-missing-metrics-as-unavailable
   (let [shell (update shell-report :scores dissoc :evidenceCitationRate)
         agraph (update agraph-report :timings dissoc :elapsedMs)
         comparison (agent-efficiency/compare-reports shell agraph)
         deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
     (is (= {:signal "agraph-improved"
+            :minSharedCases 2
             :availableMetrics 15
             :improvedMetrics 14
             :regressedMetrics 0
@@ -293,6 +323,7 @@
                     (strip-metrics agraph-report))]
     (is (= "metrics-unavailable" (:status comparison)))
     (is (= {:signal "metrics-unavailable"
+            :minSharedCases 2
             :availableMetrics 0
             :improvedMetrics 0
             :regressedMetrics 0

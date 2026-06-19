@@ -6,6 +6,9 @@
 
 (def schema "agraph.agent-efficiency/v1")
 
+(def default-min-shared-cases
+  2)
+
 (def ^:private metric-specs
   [{:key :fileRecallAt5
     :label "fileRecallAt5"
@@ -253,25 +256,31 @@
                  (conj "Reports have no shared completed cases."))}))
 
 (defn- aggregate-summary
-  [deltas comparable]
-  (let [improved (count-results deltas "improved")
-        regressed (count-results deltas "regressed")
-        unchanged (count-results deltas "unchanged")
-        unavailable (count-results deltas "unavailable")
-        available (+ improved regressed unchanged)
-        signal (cond
-                 (zero? (:sharedCases comparable)) "not-comparable"
-                 (zero? available) "metrics-unavailable"
-                 (and (pos? improved) (zero? regressed)) "agraph-improved"
-                 (and (zero? improved) (pos? regressed)) "agraph-regressed"
-                 (and (pos? improved) (pos? regressed)) "mixed"
-                 :else "unchanged")]
-    {:signal signal
-     :availableMetrics available
-     :improvedMetrics improved
-     :regressedMetrics regressed
-     :unchangedMetrics unchanged
-     :unavailableMetrics unavailable}))
+  ([deltas comparable]
+   (aggregate-summary deltas comparable {}))
+  ([deltas comparable {:keys [min-shared-cases]}]
+   (let [improved (count-results deltas "improved")
+         regressed (count-results deltas "regressed")
+         unchanged (count-results deltas "unchanged")
+         unavailable (count-results deltas "unavailable")
+         available (+ improved regressed unchanged)
+         min-shared-cases (long (or min-shared-cases 1))
+         enough-cases? (<= min-shared-cases (long (:sharedCases comparable)))
+         signal (cond
+                  (zero? (:sharedCases comparable)) "not-comparable"
+                  (not enough-cases?) "insufficient-cases"
+                  (zero? available) "metrics-unavailable"
+                  (and (pos? improved) (zero? regressed)) "agraph-improved"
+                  (and (zero? improved) (pos? regressed)) "agraph-regressed"
+                  (and (pos? improved) (pos? regressed)) "mixed"
+                  :else "unchanged")]
+     {:signal signal
+      :minSharedCases min-shared-cases
+      :availableMetrics available
+      :improvedMetrics improved
+      :regressedMetrics regressed
+      :unchangedMetrics unchanged
+      :unavailableMetrics unavailable})))
 
 (defn- tag-comparability
   [shell-report agraph-report]
@@ -339,27 +348,33 @@
 
 (defn compare-reports
   "Return a shell-only vs AGraph efficiency comparison from two agent reports."
-  [shell-report agraph-report]
-  (let [comparable (comparability shell-report agraph-report)
-        deltas (mapv #(metric-delta shell-report agraph-report %) metric-specs)
-        summary (aggregate-summary deltas comparable)]
-    {:schema schema
-     :status (:signal summary)
-     :suiteId (or (:suite-id agraph-report)
-                  (:suite-id shell-report))
-     :summary summary
-     :comparability comparable
-     :shellOnly (report-summary shell-report)
-     :agraph (report-summary agraph-report)
-     :deltas deltas
-     :byTag (by-tag-comparison shell-report agraph-report)
-     :caseDeltas (case-deltas shell-report agraph-report)}))
+  ([shell-report agraph-report]
+   (compare-reports shell-report agraph-report {}))
+  ([shell-report agraph-report {:keys [min-shared-cases]}]
+   (let [comparable (comparability shell-report agraph-report)
+         deltas (mapv #(metric-delta shell-report agraph-report %) metric-specs)
+         min-shared-cases (long (or min-shared-cases default-min-shared-cases))
+         summary (aggregate-summary deltas
+                                    comparable
+                                    {:min-shared-cases min-shared-cases})]
+     {:schema schema
+      :status (:signal summary)
+      :suiteId (or (:suite-id agraph-report)
+                   (:suite-id shell-report))
+      :summary summary
+      :comparability comparable
+      :shellOnly (report-summary shell-report)
+      :agraph (report-summary agraph-report)
+      :deltas deltas
+      :byTag (by-tag-comparison shell-report agraph-report)
+      :caseDeltas (case-deltas shell-report agraph-report)})))
 
 (defn compare-report-files!
   "Read two agent-report JSON files and optionally write the comparison."
   [shell-report-path agraph-report-path opts]
   (let [comparison (-> (read-json-file shell-report-path)
-                       (compare-reports (read-json-file agraph-report-path))
+                       (compare-reports (read-json-file agraph-report-path)
+                                        {:min-shared-cases (:min-shared-cases opts)})
                        (assoc-in [:inputs :shellReport] shell-report-path)
                        (assoc-in [:inputs :agraphReport] agraph-report-path))]
     (when-let [out (:out opts)]
@@ -376,6 +391,20 @@
   [args flag]
   (some #{flag} args))
 
+(defn- parse-positive-long
+  [value flag]
+  (try
+    (let [n (Long/parseLong (str value))]
+      (when-not (pos? n)
+        (throw (ex-info "Option must be positive."
+                        {:flag flag
+                         :value value})))
+      n)
+    (catch NumberFormatException _
+      (throw (ex-info "Option must be an integer."
+                      {:flag flag
+                       :value value})))))
+
 (defn- positional-args
   [args]
   (vec (take-while #(not (str/starts-with? % "--")) args)))
@@ -383,7 +412,7 @@
 (defn- usage
   []
   (str "Usage: bb efficiency <shell-agent-report.json> <agraph-agent-report.json>"
-       " [--out report.json] [--json]"))
+       " [--out report.json] [--json] [--min-shared-cases N]"))
 
 (defn -main
   [& args]
@@ -392,10 +421,13 @@
         agraph-report-path (second positions)]
     (when-not (and shell-report-path agraph-report-path)
       (throw (ex-info "Missing report paths." {:usage (usage)})))
-    (let [comparison (compare-report-files!
+    (let [min-shared-cases (some-> (option-value args "--min-shared-cases")
+                                   (parse-positive-long "--min-shared-cases"))
+          comparison (compare-report-files!
                       shell-report-path
                       agraph-report-path
-                      {:out (option-value args "--out")})]
+                      {:out (option-value args "--out")
+                       :min-shared-cases min-shared-cases})]
       (if (flag? args "--json")
         (println (json/write-json-str comparison {:indent-str "  "}))
         (do
