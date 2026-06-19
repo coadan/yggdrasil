@@ -161,6 +161,18 @@
        distinct
        vec))
 
+(def ^:private headline-metric-keys
+  [:fileRecallAt10
+   :noiseRatioAt20
+   :evidenceCitationRate
+   :pathEvidenceCitationRate
+   :commandCount
+   :searchCommandCount
+   :fileReadCommandCount
+   :elapsedMs
+   :totalTokens
+   :costUsd])
+
 (defn- read-json-file
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
@@ -780,11 +792,31 @@
        ", regressed: " (:regressedMetrics summary)
        ", unavailable: " (:unavailableMetrics summary) ")"))
 
+(defn- format-metric-value
+  [value]
+  (if (some? value)
+    (str value)
+    "unavailable"))
+
+(defn- metric-delta-line
+  [{:keys [metric result shellOnly agraph delta]}]
+  (str "- " metric ": " result
+       " (shell: " (format-metric-value shellOnly)
+       ", agraph: " (format-metric-value agraph)
+       ", delta: " (format-metric-value delta) ")"))
+
 (defn- class-tag-groups
   [comparison pred]
   (->> (get-in comparison [:byTag :groups])
        (filter #(pred (:tag %)))
        vec))
+
+(defn- headline-metric-deltas
+  [comparison]
+  (let [deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
+    (->> headline-metric-keys
+         (keep deltas-by-key)
+         vec)))
 
 (defn markdown-report
   "Return a compact Markdown summary for a shell-only versus AGraph comparison."
@@ -792,6 +824,7 @@
   (let [class-summary (get-in comparison [:classSignals :summary])
         warnings (get-in comparison [:claimReadiness :warnings])
         notes (get-in comparison [:claimReadiness :notes])
+        key-deltas (headline-metric-deltas comparison)
         categories (:byCategory comparison)
         case-deltas (:caseDeltas comparison)
         problem-groups (class-tag-groups comparison
@@ -829,6 +862,9 @@
                       (:measuredArchitectureClasses class-summary)
                       "/"
                       (:architectureClasses class-summary))])
+              (when (seq key-deltas)
+                (concat ["" "## Key Metric Deltas" ""]
+                        (map metric-delta-line key-deltas)))
               (when (seq categories)
                 (concat ["" "## Category Signals" ""]
                         (map category-line categories)))
