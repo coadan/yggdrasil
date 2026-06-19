@@ -325,9 +325,22 @@ export const fixtureReport: AGraphReport = {
         label: "Fixture Graph Crawl",
         slot: "plugins",
         order: 10,
-        mdx: "## Fixture Graph Crawl\n\n<Callout dataKey=\"summary\" />\n\n<ActionList dataKey=\"actions\" />\n\n<DataTable dataKey=\"rows\" />\n\n<CommandList dataKey=\"commands\" />",
+        mdx: "## Fixture Graph Crawl\n\n<Callout dataKey=\"summary\" />\n\n<GraphCrawl dataKey=\"crawl\" />\n\n<ActionList dataKey=\"actions\" />\n\n<DataTable dataKey=\"rows\" />\n\n<CommandList dataKey=\"commands\" />",
         data: {
           summary: "Plugin output can be shaped from graph traversal evidence.",
+          crawl: {
+            metrics: [
+              { label: "Sources", value: 1 },
+              { label: "Nodes", value: 3 },
+              { label: "Edges", value: 2 }
+            ],
+            seeds: [{ label: "checkout", kind: "candidate-system" }],
+            sources: [{ source: "systems.json", path: "src/app/plugin_crawl.clj", line: 18 }],
+            edges: [
+              { source: "checkout", relation: "calls", target: "flows-api" },
+              { source: "checkout", relation: "publishes", target: "events-worker" }
+            ]
+          },
           actions: [
             {
               id: "fixture-review-checkout",

@@ -311,6 +311,83 @@ function KeyValueTable({ value }: { value: unknown }) {
   return <InlineDataTable value={{ columns: [{ key: "key", label: "Key" }, { key: "value", label: "Value" }], rows }} actionKey="key-value" />;
 }
 
+function metricRowsFrom(record: Record<string, unknown>): Array<{ label: string; value: string | number }> {
+  const metrics = asRows(record.metrics).map((row) => ({
+    label: displayValue(firstValue(row, ["label", "name", "key"])),
+    value: displayValue(firstValue(row, ["value", "count", "total"])) || 0
+  }));
+  if (metrics.length > 0) return metrics;
+  return [
+    { label: "Seeds", value: asRows(record.seeds).length },
+    { label: "Sources", value: asRows(record.sources).length },
+    { label: "Nodes", value: asRows(record.nodes).length },
+    { label: "Edges", value: asRows(record.edges).length }
+  ].filter((row) => Number(row.value) > 0);
+}
+
+function PluginGraphCrawl({ value, actions, actionKey }: { value: unknown; actions?: PluginPanelActions; actionKey: string }) {
+  const record = asRecord(value);
+  const metrics = metricRowsFrom(record);
+  const seeds = asRows(record.seeds);
+  const sources = asRows(record.sources);
+  const nodes = asRows(record.nodes);
+  const edges = asRows(record.edges);
+  const rows = tableRowsFrom(value);
+  const refs = sourceRefs([...seeds, ...sources, ...nodes, ...edges, ...rows]);
+
+  if (metrics.length === 0 && seeds.length === 0 && sources.length === 0 && nodes.length === 0 && edges.length === 0 && rows.length === 0) {
+    return <p className="muted">No graph crawl rows.</p>;
+  }
+
+  return (
+    <div className="plugin-graph-crawl">
+      {metrics.length > 0 ? <MetricStrip items={metrics} /> : null}
+      {refs.length > 0 && actions?.onCopyCommand ? (
+        <div className="plugin-table-actions">
+          <button type="button" onClick={() => actions.onCopyCommand?.(`plugin-graph-crawl-sources:${actionKey}`, refs.join("\n"))}>
+            {actions.copiedKey === `plugin-graph-crawl-sources:${actionKey}` ? "Copied" : "Copy source refs"}
+          </button>
+        </div>
+      ) : null}
+      {seeds.length > 0 ? (
+        <InlineDataTable
+          value={{ columns: [{ key: "label", label: "Seed" }, { key: "kind", label: "Kind" }, { key: "path", label: "Path" }], rows: seeds }}
+          actions={actions}
+          actionKey={`${actionKey}:seeds`}
+        />
+      ) : null}
+      {sources.length > 0 ? (
+        <InlineDataTable
+          value={{
+            columns: [{ key: "source", label: "Source" }, { key: "path", label: "Path" }, { key: "line", label: "Line" }],
+            rows: sources
+          }}
+          actions={actions}
+          actionKey={`${actionKey}:sources`}
+        />
+      ) : null}
+      {nodes.length > 0 ? (
+        <InlineDataTable
+          value={{ columns: [{ key: "label", label: "Node" }, { key: "kind", label: "Kind" }, { key: "degree", label: "Degree" }], rows: nodes }}
+          actions={actions}
+          actionKey={`${actionKey}:nodes`}
+        />
+      ) : null}
+      {edges.length > 0 ? (
+        <InlineDataTable
+          value={{
+            columns: [{ key: "source", label: "Source" }, { key: "relation", label: "Relation" }, { key: "target", label: "Target" }],
+            rows: edges
+          }}
+          actions={actions}
+          actionKey={`${actionKey}:edges`}
+        />
+      ) : null}
+      {rows.length > 0 ? <InlineDataTable value={value} actions={actions} actionKey={`${actionKey}:rows`} /> : null}
+    </div>
+  );
+}
+
 function dataForPanel(panel: ReportPluginPanel, key?: string): unknown {
   const data = asRecord(panel.data);
   return key ? data[key] : data;
@@ -345,6 +422,8 @@ function renderMdxComponent(
       return <PluginCallout key={key} value={value} />;
     case "KeyValueTable":
       return <KeyValueTable key={key} value={value} />;
+    case "GraphCrawl":
+      return <PluginGraphCrawl key={key} value={value} actions={actions} actionKey={`${panel.id}:${props.dataKey || key}`} />;
     default:
       return (
         <p key={key} className="plugin-warning">

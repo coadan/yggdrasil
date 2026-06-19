@@ -72,4 +72,46 @@ describe("PluginPanel", () => {
       expect.stringContaining("\"id\": \"operator-topology\"")
     );
   });
+
+  it("renders plugin graph crawl surfaces with copyable source refs", () => {
+    const onCopyCommand = vi.fn();
+    render(
+      <PluginPanel
+        panel={{
+          id: "operator-crawl",
+          label: "Operator Crawl",
+          slot: "systems",
+          mdx: "## Operator Crawl\n\n<GraphCrawl dataKey=\"crawl\" />",
+          data: {
+            crawl: {
+              metrics: [
+                { label: "Seeds", value: 1 },
+                { label: "Edges", value: 2 }
+              ],
+              seeds: [{ label: "flows-api", kind: "candidate-system", path: "bases/flows-api" }],
+              sources: [{ source: "systems.json", path: "src/app/core.clj", line: 12 }],
+              edges: [{ source: "flows-api", relation: "calls", target: "events-worker" }]
+            }
+          },
+          plugin: {
+            id: "breyta-operator-topology",
+            version: "0.1.0",
+            authority: "project-plugin"
+          }
+        }}
+        actions={{ onCopyCommand }}
+      />
+    );
+
+    expect(screen.getByText("Operator Crawl")).toBeInTheDocument();
+    expect(screen.getAllByText("flows-api").length).toBeGreaterThan(0);
+    expect(screen.getByText("events-worker")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Copy source refs" })[0]);
+
+    expect(onCopyCommand).toHaveBeenCalledWith(
+      "plugin-graph-crawl-sources:operator-crawl:crawl",
+      expect.stringContaining("src/app/core.clj:12")
+    );
+  });
 });
