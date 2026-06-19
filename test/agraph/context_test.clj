@@ -1386,6 +1386,7 @@
       (is (= [{:id "evidence:billing-env"
                :kind "env-var"
                :path "src/billing/api.clj"
+               :repo "app"
                :sourceLine 4
                :fileKind "clojure"
                :section "runtimeEvidence"}]

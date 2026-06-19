@@ -141,3 +141,137 @@
                                   :target "node:b"
                                   :relation "calls"}]
            :docs []}))))
+
+(deftest report-from-rows-summarizes-indexed-audit-scopes
+  (let [report (audit-scope/report-from-rows
+                {:project {:id "fixture"}
+                 :config-path "project.edn"
+                 :coverage-report {:totals {:files 7
+                                            :supported 6
+                                            :skipped 1}
+                                   :diagnostics {:total 1}
+                                   :skipped-by-reason [{:reason "unsupported-extension"
+                                                        :count 1
+                                                        :samples [{:repo-id "app"
+                                                                   :path "assets/app.wasm"}]}]}
+                 :map-overlay {:docs [{:target "system:billing"
+                                       :role "overview"
+                                       :source {:path "docs/billing.md"}}]}
+                 :rows {:files [{:xt/id "file:src"
+                                 :project-id "fixture"
+                                 :repo-id "app"
+                                 :path "src/app.clj"
+                                 :kind :code
+                                 :active? true}
+                                {:xt/id "file:docs"
+                                 :project-id "fixture"
+                                 :repo-id "app"
+                                 :path "docs/billing.md"
+                                 :kind :doc
+                                 :active? true}
+                                {:xt/id "file:manifest"
+                                 :project-id "fixture"
+                                 :repo-id "app"
+                                 :path "package.json"
+                                 :kind :manifest
+                                 :active? true}
+                                {:xt/id "file:env"
+                                 :project-id "fixture"
+                                 :repo-id "app"
+                                 :path ".env"
+                                 :kind :env
+                                 :active? true}
+                                {:xt/id "file:docker"
+                                 :project-id "fixture"
+                                 :repo-id "app"
+                                 :path "Dockerfile"
+                                 :kind :docker
+                                 :active? true}
+                                {:xt/id "file:asset"
+                                 :project-id "fixture"
+                                 :repo-id "app"
+                                 :path "assets/logo.png"
+                                 :kind :image-asset
+                                 :active? true}
+                                {:xt/id "file:panel"
+                                 :project-id "fixture"
+                                 :repo-id "app"
+                                 :path "flows/home.panel"
+                                 :kind :panel
+                                 :active? true}]
+                        :nodes []
+                        :edges [{:xt/id "edge:next"
+                                 :project-id "fixture"
+                                 :repo-id "app"
+                                 :file-id "file:src"
+                                 :path "src/app.clj"
+                                 :source-id "node:app"
+                                 :target-id "package:npm:next"
+                                 :relation :imports-package
+                                 :active? true}]
+                        :chunks [{:xt/id "chunk:billing"
+                                  :project-id "fixture"
+                                  :repo-id "app"
+                                  :file-id "file:docs"
+                                  :path "docs/billing.md"
+                                  :kind :markdown-heading
+                                  :label "Billing"
+                                  :active? true}]
+                        :file-facts [{:xt/id "fact:env"
+                                      :project-id "fixture"
+                                      :repo-id "app"
+                                      :file-id "file:env"
+                                      :path ".env"
+                                      :file-kind :env
+                                      :kind :env-var
+                                      :label "DATABASE_URL"
+                                      :normalized-value "database-url"
+                                      :source-line 1
+                                      :active? true}]
+                        :system-evidence [{:xt/id "evidence:image"
+                                           :project-id "fixture"
+                                           :repo-id "app"
+                                           :file-id "file:docker"
+                                           :path "Dockerfile"
+                                           :file-kind :docker
+                                           :kind :container-image
+                                           :label "alpine:3.20"
+                                           :normalized-value "container-image:alpine"
+                                           :source-line 1
+                                           :active? true}]
+                        :diagnostics [{:xt/id "diagnostic:panel"
+                                       :project-id "fixture"
+                                       :repo-id "app"
+                                       :file-id "file:panel"
+                                       :path "flows/home.panel"
+                                       :stage :parse
+                                       :message "unsupported panel"
+                                       :active? true}]}})
+        scopes-by-kind (into {} (map (juxt :kind identity)) (:scopes report))]
+    (is (= audit-scope/report-schema (:schema report)))
+    (is (= ["source"
+            "docs"
+            "dependencies"
+            "runtime-config"
+            "containers"
+            "assets"
+            "unclassified-extractor"]
+           (mapv :kind (:scopes report))))
+    (is (= {:files 7
+            :supportedFiles 6
+            :skippedFiles 1
+            :diagnostics 1}
+           (:coverage report)))
+    (is (= 1 (get-in scopes-by-kind ["source" :supportedFiles])))
+    (is (= 1 (get-in scopes-by-kind ["docs" :facts])))
+    (is (= 1 (get-in scopes-by-kind ["docs" :overlayCount])))
+    (is (= 1 (get-in scopes-by-kind ["dependencies" :facts])))
+    (is (= 1 (get-in scopes-by-kind ["runtime-config" :facts])))
+    (is (= 1 (get-in scopes-by-kind ["containers" :facts])))
+    (is (= 1 (get-in scopes-by-kind ["assets" :supportedFiles])))
+    (is (= 1 (get-in scopes-by-kind ["unclassified-extractor" :supportedFiles])))
+    (is (= 1 (get-in scopes-by-kind ["unclassified-extractor" :skippedFiles])))
+    (is (= 1 (get-in scopes-by-kind ["unclassified-extractor" :diagnostics])))
+    (is (= #{"agraph packages --project fixture --json"
+             "agraph sync coverage project.edn --json"}
+           (set (map :command (:nextActions report)))))))

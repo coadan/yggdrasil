@@ -2,6 +2,7 @@
   "Command line interface."
   (:require [agraph.agent-install :as agent-install]
             [agraph.activity :as activity]
+            [agraph.audit-scope :as audit-scope]
             [agraph.benchmark :as benchmark]
             [agraph.command :as command]
             [agraph.context :as context]
@@ -479,6 +480,49 @@
     (println "## Diagnostics By Extractor")
     (doseq [{:keys [kind extractor-version stage count]} (:by-extractor diagnostics)]
       (println "-" kind extractor-version stage count))))
+
+(defn- print-audit-scope-report
+  [{:keys [project-id repo-id coverage scopes nextActions]}]
+  (println "# Audit Scopes")
+  (println "- project" project-id)
+  (when repo-id
+    (println "- repo" repo-id))
+  (println "- files" (:files coverage 0))
+  (println "- supported" (:supportedFiles coverage 0))
+  (println "- skipped" (:skippedFiles coverage 0))
+  (println "- diagnostics" (:diagnostics coverage 0))
+  (doseq [{:keys [kind supportedFiles skippedFiles facts diagnostics overlayCount
+                  topEvidenceTypes samples]} scopes]
+    (println)
+    (println "##" kind)
+    (println "- supported-files" supportedFiles)
+    (println "- skipped-files" skippedFiles)
+    (println "- facts" facts)
+    (println "- diagnostics" diagnostics)
+    (println "- overlays" overlayCount)
+    (when (seq topEvidenceTypes)
+      (println "- evidence"
+               (str/join ", "
+                         (map (fn [{:keys [kind count]}]
+                                (str kind ":" count))
+                              topEvidenceTypes))))
+    (when (seq samples)
+      (println "- samples"
+               (str/join ", "
+                         (keep (fn [{:keys [repo-id path id target reason]}]
+                                 (or (when path
+                                       (if repo-id
+                                         (str repo-id ":" path)
+                                         path))
+                                     id
+                                     target
+                                     reason))
+                               samples)))))
+  (when (seq nextActions)
+    (println)
+    (println "## Next")
+    (doseq [{:keys [command]} nextActions]
+      (println "-" command))))
 
 (defn- print-sync-summary
   [{:keys [project-id repo-id index-summary system-summary check-report enqueued]}]
@@ -2518,6 +2562,7 @@
     ""
     "Sync and maintenance:"
     "  status <project.edn> [--map PATH] [--json]"
+    "  audit-scope <project.edn> [--repo ID] [--map PATH] [--json]"
     "  sync <project.edn> [--repo ID] [--map PATH] [--check] [--enqueue] [--query-index] [--dry-run] [--json]"
     "  sync inspect <project.edn>"
     "  sync coverage <project.edn> [--json]"
@@ -2596,6 +2641,22 @@
 
     "status"
     (print-project-status! (first (positional-args args)) args)
+
+    "audit-scope"
+    (let [config-path (first (positional-args args))]
+      (when-not config-path
+        (throw (ex-info "Missing project config path." {:usage (usage)})))
+      (let [project (project/read-project config-path)
+            opts {:config-path config-path
+                  :repo-id (option-value args "--repo")
+                  :map-path (default-map-path args)
+                  :read-context (temporal-options args)}]
+        (store/with-node (store/storage-path)
+          (fn [xtdb]
+            (let [report (audit-scope/report xtdb project opts)]
+              (if (json-output? args)
+                (print-json report)
+                (print-audit-scope-report report)))))))
 
     "ask"
     (ask! args)

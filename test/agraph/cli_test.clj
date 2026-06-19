@@ -1,6 +1,7 @@
 (ns agraph.cli-test
   (:require [agraph.agent-install :as agent-install]
             [agraph.activity :as activity]
+            [agraph.audit-scope :as audit-scope]
             [agraph.benchmark :as benchmark]
             [agraph.cli :as cli]
             [agraph.context :as context]
@@ -54,6 +55,7 @@
     (is (str/includes? usage "Server integration:"))
     (is (str/includes? usage "start <repo-root>"))
     (is (str/includes? usage "status <project.edn>"))
+    (is (str/includes? usage "audit-scope <project.edn>"))
     (is (str/includes? usage "sync <project.edn>"))
     (is (str/includes? usage "init <repo-root>"))
     (is (str/includes? usage "ask <text>"))
@@ -1195,6 +1197,59 @@
                          "- .wasm 1 samples app:web/widget.wasm"))
       (is (str/includes? plain-out
                          "- unsupported-extension 1 samples app:web/widget.wasm")))))
+
+(deftest audit-scope-command-returns-core-scope-report
+  (with-redefs [project/read-project (constantly project-fixture)
+                store/with-node (fn [_ f] (f :xtdb))
+                graph-map/file-exists? (constantly false)
+                audit-scope/report (fn [xtdb project opts]
+                                     {:schema audit-scope/report-schema
+                                      :xtdb xtdb
+                                      :project-id (:id project)
+                                      :repo-id (:repo-id opts)
+                                      :coverage {:files 2
+                                                 :supportedFiles 1
+                                                 :skippedFiles 1
+                                                 :diagnostics 0}
+                                      :scopes [{:kind "runtime-config"
+                                                :basis "indexed-graph"
+                                                :supportedFiles 1
+                                                :skippedFiles 0
+                                                :facts 2
+                                                :diagnostics 0
+                                                :overlayCount 0
+                                                :topEvidenceTypes [{:kind "env-var"
+                                                                    :count 2}]
+                                                :samples [{:repo-id "app"
+                                                           :path ".env"}]}]
+                                      :nextActions [{:kind :coverage
+                                                     :command "agraph sync coverage project.edn --json"}]})]
+    (let [out (with-out-str
+                (cli/dispatch "audit-scope"
+                              ["project.edn" "--repo" "app" "--json"]))
+          plain-out (with-out-str
+                      (cli/dispatch "audit-scope"
+                                    ["project.edn" "--repo" "app"]))
+          parsed (read-json-output out)]
+      (is (= audit-scope/report-schema (:schema parsed)))
+      (is (= "fixture" (:project-id parsed)))
+      (is (= "app" (:repo-id parsed)))
+      (is (= [{:kind "runtime-config"
+               :basis "indexed-graph"
+               :supportedFiles 1
+               :skippedFiles 0
+               :facts 2
+               :diagnostics 0
+               :overlayCount 0
+               :topEvidenceTypes [{:kind "env-var"
+                                   :count 2}]
+               :samples [{:repo-id "app"
+                          :path ".env"}]}]
+             (:scopes parsed)))
+      (is (str/includes? plain-out "# Audit Scopes"))
+      (is (str/includes? plain-out "## runtime-config"))
+      (is (str/includes? plain-out "- evidence env-var:2"))
+      (is (str/includes? plain-out "- agraph sync coverage project.edn --json")))))
 
 (deftest sync-inspect-json-includes-evidence-surface
   (with-redefs [project/read-project (constantly project-fixture)

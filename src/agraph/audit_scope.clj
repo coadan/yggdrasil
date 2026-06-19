@@ -1,10 +1,17 @@
 (ns agraph.audit-scope
   "Mechanical audit-scope summaries for selected graph evidence."
-  (:require [clojure.set :as set]
+  (:require [agraph.command :as command]
+            [agraph.coverage :as coverage]
+            [agraph.map :as graph-map]
+            [agraph.xtdb :as store]
+            [clojure.set :as set]
             [clojure.string :as str]))
 
 (def schema
   "agraph.audit-scopes/v1")
+
+(def report-schema
+  "agraph.audit-scopes.report/v1")
 
 (def ^:private sample-limit
   3)
@@ -20,7 +27,20 @@
    "infra" 4
    "docs" 5
    "assets" 6
-   "unknown-text" 7})
+   "unknown-text" 7
+   "unclassified-extractor" 99})
+
+(def ^:private report-scope-order
+  {"source" 0
+   "docs" 1
+   "dependencies" 2
+   "runtime-config" 3
+   "containers" 4
+   "infra" 5
+   "assets" 6
+   "unknown-text" 7
+   "source-structure" 8
+   "unclassified-extractor" 99})
 
 (def ^:private dependency-relations
   {"imports-package" #{"dependencies"}
@@ -72,6 +92,106 @@
    "terraform" #{"infra"}
    "unknown" #{"unknown-text"}})
 
+(def ^:private source-file-kinds
+  #{"astro"
+    "code"
+    "cpp"
+    "dart"
+    "dotnet"
+    "elixir"
+    "erlang"
+    "go"
+    "groovy"
+    "haskell"
+    "html"
+    "java"
+    "javascript"
+    "julia"
+    "kotlin"
+    "lua"
+    "objective-c"
+    "ocaml"
+    "odin"
+    "perl"
+    "php"
+    "python"
+    "r"
+    "ruby"
+    "rust"
+    "scala"
+    "svelte"
+    "swift"
+    "typescript"
+    "vue"
+    "zig"})
+
+(def ^:private docs-file-kinds
+  #{"codeowners"
+    "doc"
+    "docs-config"
+    "gettext"
+    "governance"
+    "notebook"
+    "text"})
+
+(def ^:private dependency-file-kinds
+  #{"dependency-lock"
+    "manifest"
+    "sbom"})
+
+(def ^:private runtime-file-kinds
+  #{"apple-config"
+    "config"
+    "db-config"
+    "db-migration"
+    "devcontainer"
+    "editor-config"
+    "edn"
+    "env"
+    "json-schema"
+    "ops-config"
+    "pre-commit-config"
+    "procfile"
+    "release-config"
+    "task-runner"
+    "test-config"
+    "tool-config"
+    "tool-version-config"
+    "web-framework"
+    "yaml"})
+
+(def ^:private infra-file-kinds
+  #{"asyncapi"
+    "avro"
+    "build"
+    "ci"
+    "codegen-config"
+    "data-science"
+    "dbt"
+    "graphql"
+    "helm"
+    "kustomize"
+    "observability-config"
+    "openapi"
+    "prisma"
+    "protobuf"
+    "quality-config"
+    "sql"
+    "starlark"
+    "storybook"
+    "style"
+    "terraform"
+    "workflow-orchestration"
+    "xml"})
+
+(def ^:private report-file-kind-scopes
+  (merge (zipmap source-file-kinds (repeat #{"source"}))
+         (zipmap docs-file-kinds (repeat #{"docs"}))
+         (zipmap dependency-file-kinds (repeat #{"dependencies"}))
+         (zipmap runtime-file-kinds (repeat #{"runtime-config"}))
+         (zipmap infra-file-kinds (repeat #{"infra"}))
+         file-kind-scopes))
+
 (defn- display-name
   [value]
   (cond
@@ -100,16 +220,34 @@
   (or (:path row)
       (get-in row [:source :path])))
 
+(defn- row-id
+  [row]
+  (or (:id row)
+      (:xt/id row)))
+
+(defn- row-source-line
+  [row]
+  (or (:sourceLine row)
+      (:source-line row)
+      (:line row)))
+
 (defn- sample-row
   [row]
-  (cond-> (select-keys row [:id
-                            :kind
+  (cond-> (select-keys row [:kind
                             :relation
                             :path
                             :target
                             :source
-                            :sourceLine
-                            :score])
+                            :score
+                            :repo-id
+                            :repo
+                            :ext
+                            :reason
+                            :skipReason
+                            :skip-reason
+                            :count])
+    (row-id row) (assoc :id (row-id row))
+    (row-source-line row) (assoc :sourceLine (row-source-line row))
     (row-file-kind row) (assoc :fileKind (display-name (row-file-kind row)))))
 
 (defn- audit-row
@@ -200,3 +338,300 @@
                   [(get scope-order (:kind row) 100)
                    (:kind row)]))
        vec))
+
+(defn- report-scopes-for-file-kind
+  [file-kind]
+  (let [scopes (scopes-for-keys report-file-kind-scopes [file-kind])]
+    (if (seq scopes)
+      scopes
+      #{"unclassified-extractor"})))
+
+(defn- report-row
+  [scope section row evidence-type flags]
+  (merge (audit-row scope section row evidence-type)
+         flags))
+
+(defn- file-report-rows
+  [file]
+  (let [kind (normalize-key (:kind file))
+        row (assoc file :file-kind (:kind file))]
+    (mapv #(report-row % "files" row (or kind "file") {:file? true})
+          (report-scopes-for-file-kind kind))))
+
+(defn- package-node?
+  [node]
+  (contains? #{:external-package
+               "external-package"
+               :external-package-version
+               "external-package-version"}
+             (:kind node)))
+
+(defn- node-report-rows
+  [file-by-id node]
+  (let [file-kind (get-in file-by-id [(:file-id node) :kind])
+        row (assoc node :file-kind file-kind)
+        scopes (if (package-node? node)
+                 #{"dependencies"}
+                 (report-scopes-for-file-kind file-kind))]
+    (mapv #(report-row % "nodes" row (or (normalize-key (:kind node)) "node") {})
+          scopes)))
+
+(defn- dependency-relation-scopes
+  [relation]
+  (get dependency-relations (normalize-key relation)))
+
+(defn- edge-report-rows
+  [file-by-id edge]
+  (let [file-kind (get-in file-by-id [(:file-id edge) :kind])
+        row (assoc edge :file-kind file-kind)
+        relation (or (normalize-key (:relation edge)) "edge")
+        scopes (or (dependency-relation-scopes (:relation edge))
+                   (report-scopes-for-file-kind file-kind))]
+    (mapv #(report-row % "edges" row relation {}) scopes)))
+
+(defn- chunk-report-rows
+  [file-by-id chunk]
+  (let [file-kind (get-in file-by-id [(:file-id chunk) :kind])
+        row (assoc chunk :file-kind file-kind)
+        evidence-type (or (normalize-key (:kind chunk))
+                          (normalize-key file-kind)
+                          "chunk")]
+    (mapv #(report-row % "chunks" row evidence-type {})
+          (report-scopes-for-file-kind file-kind))))
+
+(defn- fact-report-rows
+  [section row]
+  (let [scopes (set/union (scopes-for-keys fact-kind-scopes [(:kind row)])
+                          (scopes-for-keys report-file-kind-scopes
+                                           [(row-file-kind row)]))
+        scopes (if (seq scopes) scopes #{"unclassified-extractor"})
+        evidence-type (or (normalize-key (:kind row))
+                          (normalize-key (row-file-kind row))
+                          "fact")]
+    (mapv #(report-row % section row evidence-type {}) scopes)))
+
+(defn- diagnostic-report-rows
+  [file-by-id diagnostic]
+  (let [file-kind (get-in file-by-id [(:file-id diagnostic) :kind])
+        row (assoc diagnostic
+                   :file-kind file-kind
+                   :reason (normalize-key (:stage diagnostic)))
+        evidence-type (str "diagnostic:" (or (normalize-key (:stage diagnostic))
+                                             "unknown"))]
+    (mapv #(report-row % "diagnostics" row evidence-type {:diagnostic? true})
+          (report-scopes-for-file-kind file-kind))))
+
+(defn- overlay-doc-report-rows
+  [doc]
+  [(report-row "docs"
+               "mapOverlay"
+               doc
+               (or (normalize-key (:role doc))
+                   (normalize-key (:status doc))
+                   "map-doc")
+               {:overlay? true})])
+
+(defn- coverage-skipped-report-rows
+  [coverage-report]
+  (->> (:skipped-by-reason coverage-report)
+       (mapv (fn [{:keys [reason count samples]}]
+               (report-row "unclassified-extractor"
+                           "coverage"
+                           {:reason reason
+                            :count count
+                            :samples samples}
+                           (str "skipped:" (or reason "unknown"))
+                           {:skipped-count (long (or count 0))})))))
+
+(defn- report-evidence-type-counts
+  [rows]
+  (->> rows
+       (group-by :evidenceType)
+       (map (fn [[evidence-type grouped]]
+              {:kind evidence-type
+               :count (reduce + 0 (map #(long (or (:skipped-count %) 1))
+                                       grouped))}))
+       (sort-by (juxt (comp - long :count) :kind))
+       (take evidence-type-limit)
+       vec))
+
+(defn- report-sample-rows
+  [rows]
+  (->> rows
+       (mapcat (fn [{:keys [section row]}]
+                 (if-let [samples (seq (:samples row))]
+                   (map #(assoc % :section section) samples)
+                   [(assoc (sample-row row) :section section)])))
+       (take sample-limit)
+       vec))
+
+(defn- summarize-report-scope
+  [[scope rows]]
+  (let [supported-files (->> rows
+                             (filter :file?)
+                             (keep :path)
+                             set
+                             count)
+        skipped-files (reduce + 0 (map #(long (or (:skipped-count %) 0)) rows))
+        facts (count (remove #(or (:file? %)
+                                  (:diagnostic? %)
+                                  (:overlay? %)
+                                  (:skipped-count %))
+                             rows))
+        diagnostics (count (filter :diagnostic? rows))
+        overlays (count (filter :overlay? rows))
+        evidence-types (report-evidence-type-counts rows)
+        samples (report-sample-rows rows)]
+    (cond-> {:kind scope
+             :basis "indexed-graph"
+             :supportedFiles supported-files
+             :skippedFiles skipped-files
+             :facts facts
+             :diagnostics diagnostics
+             :overlayCount overlays}
+      (seq evidence-types) (assoc :topEvidenceTypes evidence-types)
+      (seq samples) (assoc :samples samples))))
+
+(defn- sync-subcommand
+  [subcommand config-path & args]
+  (str "agraph sync " subcommand " " (command/shell-token (or config-path "<project.edn>"))
+       (when (seq args)
+         (str " " (str/join " " (map command/shell-token args))))))
+
+(defn- package-command
+  [project-id]
+  (str "agraph packages --project "
+       (command/shell-token (or project-id "<project-id>"))
+       " --json"))
+
+(defn- scope-next-actions
+  [{:keys [project-id config-path]} scope]
+  (let [coverage-command (sync-subcommand "coverage" config-path "--json")]
+    (cond-> []
+      (= "dependencies" (:kind scope))
+      (conj {:kind :dependencies
+             :label "Inspect package dependency evidence"
+             :command (package-command project-id)})
+
+      (pos? (long (:diagnostics scope)))
+      (conj {:kind :coverage
+             :label "Inspect extractor diagnostics for audit scope"
+             :count (:diagnostics scope)
+             :command coverage-command})
+
+      (pos? (long (:skippedFiles scope)))
+      (conj {:kind :coverage
+             :label "Inspect skipped or unsupported files"
+             :count (:skippedFiles scope)
+             :command coverage-command})
+
+      (= "unclassified-extractor" (:kind scope))
+      (conj {:kind :coverage
+             :label "Classify or inspect unclassified extractor coverage"
+             :command coverage-command}))))
+
+(defn- distinct-actions
+  [actions]
+  (->> actions
+       (reduce (fn [out action]
+                 (if (contains? (:seen out) (:command action))
+                   out
+                   (-> out
+                       (update :seen conj (:command action))
+                       (update :actions conj action))))
+               {:seen #{}
+                :actions []})
+       :actions))
+
+(defn report-from-rows
+  "Return a full-project audit-scope report from indexed rows and coverage data."
+  [{:keys [project rows coverage-report map-overlay config-path repo-id]}]
+  (let [file-by-id (into {} (map (juxt :xt/id identity)) (:files rows))
+        audit-rows (concat (mapcat file-report-rows (:files rows))
+                           (mapcat (partial node-report-rows file-by-id) (:nodes rows))
+                           (mapcat (partial edge-report-rows file-by-id) (:edges rows))
+                           (mapcat (partial chunk-report-rows file-by-id) (:chunks rows))
+                           (mapcat (partial fact-report-rows "fileFacts")
+                                   (:file-facts rows))
+                           (mapcat (partial fact-report-rows "systemEvidence")
+                                   (:system-evidence rows))
+                           (mapcat (partial diagnostic-report-rows file-by-id)
+                                   (:diagnostics rows))
+                           (mapcat overlay-doc-report-rows (:docs map-overlay))
+                           (coverage-skipped-report-rows coverage-report))
+        scopes (->> audit-rows
+                    (group-by :scope)
+                    (map summarize-report-scope)
+                    (sort-by (fn [scope]
+                               [(get report-scope-order (:kind scope) 100)
+                                (:kind scope)]))
+                    vec)
+        action-context {:project-id (:id project)
+                        :config-path config-path}
+        next-actions (->> scopes
+                          (mapcat #(scope-next-actions action-context %))
+                          distinct-actions
+                          (take 8)
+                          vec)]
+    (cond-> {:schema report-schema
+             :project-id (:id project)
+             :repo-id repo-id
+             :basis "indexed-graph"
+             :coverage {:files (get-in coverage-report [:totals :files] 0)
+                        :supportedFiles (get-in coverage-report [:totals :supported] 0)
+                        :skippedFiles (get-in coverage-report [:totals :skipped] 0)
+                        :diagnostics (get-in coverage-report [:diagnostics :total] 0)}
+             :scopes scopes}
+      (seq next-actions) (assoc :nextActions next-actions))))
+
+(defn- read-context
+  [opts]
+  (store/read-context (merge (:read-context opts)
+                             (select-keys opts [:valid-at
+                                                :known-at
+                                                :snapshot-token
+                                                :current-time]))))
+
+(defn- scope-match?
+  [{:keys [project-id repo-id]} row]
+  (and (or (str/blank? (str project-id)) (= project-id (:project-id row)))
+       (or (str/blank? (str repo-id)) (= repo-id (:repo-id row)))))
+
+(defn- active-row?
+  [row]
+  (not= false (:active? row)))
+
+(defn- scoped-active-rows
+  [xtdb table opts]
+  (->> (store/all-rows xtdb table (read-context opts))
+       (filter active-row?)
+       (filter #(scope-match? opts %))
+       vec))
+
+(defn- indexed-rows
+  [xtdb opts]
+  {:files (scoped-active-rows xtdb (:files store/tables) opts)
+   :nodes (scoped-active-rows xtdb (:nodes store/tables) opts)
+   :edges (scoped-active-rows xtdb (:edges store/tables) opts)
+   :chunks (scoped-active-rows xtdb (:chunks store/tables) opts)
+   :file-facts (scoped-active-rows xtdb (:file-facts store/tables) opts)
+   :system-evidence (scoped-active-rows xtdb (:system-evidence store/tables) opts)
+   :diagnostics (scoped-active-rows xtdb (:diagnostics store/tables) opts)})
+
+(defn- map-overlay
+  [{:keys [map-overlay map-path]}]
+  (or map-overlay
+      (when (and map-path (graph-map/file-exists? map-path))
+        (graph-map/read-map map-path))))
+
+(defn report
+  "Return a mechanical audit-scope report for the indexed project graph."
+  [xtdb project {:keys [repo-id] :as opts}]
+  (let [scope (assoc opts :project-id (:id project))
+        coverage-report (coverage/project-coverage xtdb project opts)]
+    (report-from-rows {:project project
+                       :repo-id repo-id
+                       :config-path (or (:config-path opts) (:path project))
+                       :coverage-report coverage-report
+                       :map-overlay (map-overlay opts)
+                       :rows (indexed-rows xtdb scope)})))
