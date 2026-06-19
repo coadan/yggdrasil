@@ -300,6 +300,15 @@
                                                                 :manifest-fingerprint "sha256:demo"
                                                                 :warnings ["demo is unbenchmarked"]}
                                                       :plugins [{:id "demo-extractor"}]
+                                                      :selection {:kind :extractor
+                                                                  :requested-plugin-id "demo-extractor"
+                                                                  :available ["demo-extractor"
+                                                                              "other-extractor"]
+                                                                  :selected ["demo-extractor"]
+                                                                  :skipped ["other-extractor"]
+                                                                  :counts {:available 2
+                                                                           :selected 1
+                                                                           :skipped 1}}
                                                       :file {:path file
                                                              :kind :code}
                                                       :core-counts {:nodes 1}
@@ -318,6 +327,15 @@
                                                              :manifest-fingerprint "sha256:demo"
                                                              :warnings ["demo is unbenchmarked"]}
                                                    :plugins [{:id "demo-report"}]
+                                                   :selection {:kind :report
+                                                               :requested-plugin-id "demo-report"
+                                                               :available ["demo-report"
+                                                                           "other-report"]
+                                                               :selected ["demo-report"]
+                                                               :skipped ["other-report"]
+                                                               :counts {:available 2
+                                                                        :selected 1
+                                                                        :skipped 1}}
                                                    :counts {:panels 1
                                                             :diagnostics 0
                                                             :artifacts 0}
@@ -392,9 +410,17 @@
         (is (str/includes? extractor-out "claim-blockers project-local,unbenchmarked"))
         (is (str/includes? extractor-out "manifest-fingerprint sha256:demo"))
         (is (str/includes? extractor-out "warning demo is unbenchmarked"))
+        (is (str/includes?
+             extractor-out
+             "- selection available=demo-extractor,other-extractor selected=demo-extractor skipped=other-extractor"))
+        (is (str/includes? extractor-out "- requested-plugin demo-extractor"))
         (is (str/includes? report-out "benchmark=unbenchmarked"))
         (is (str/includes? report-out "scope=project-local"))
-        (is (str/includes? report-out "claim-authority status=non-authoritative public-claims=false")))
+        (is (str/includes? report-out "claim-authority status=non-authoritative public-claims=false"))
+        (is (str/includes?
+             report-out
+             "- selection available=demo-report,other-report selected=demo-report skipped=other-report"))
+        (is (str/includes? report-out "- requested-plugin demo-report")))
       (let [remove-out (with-out-str
                          (cli/dispatch "plugin"
                                        ["remove"
@@ -1265,7 +1291,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
 

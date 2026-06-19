@@ -143,8 +143,9 @@ diagnostics, before/after counts, and the full package summary with benchmark,
 scope, claim authority, fingerprint, core-promotion evidence, and warning
 caveats. Each selected plugin summary includes package id, version, source,
 pinned revision, manifest fingerprint, benchmark status, and claim authority.
-Dry-run JSON also includes `selection`, listing available, selected, and skipped
-package plugins plus the requested plugin id when one was provided.
+Dry-run JSON and plain CLI output also include `selection`, listing available,
+selected, and skipped package plugins plus the requested plugin id when one was
+provided.
 This is the fastest feedback loop for agents building project-local architecture
 understanding. If the package has no extractor plugin for the selected lane, the
 dry-run fails with a structured diagnostic instead of passing without testing
@@ -160,7 +161,7 @@ summaries under `report.plugin-packages`, so report plugins receive the same
 report generation. This keeps report plugin authoring in the same scaffold /
 validate / diagnose / dry-run loop as extractors. Report dry-runs also fail with
 a structured diagnostic when no report plugin is selected, and failed report
-dry-runs also fail the CLI command. Report dry-run JSON includes the same
+dry-runs also fail the CLI command. Report dry-runs include the same
 `selection` shape as extractor dry-runs.
 
 ## Manifest

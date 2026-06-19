@@ -147,8 +147,31 @@
     (println "## Diagnostics")
     (doseq [{:keys [severity code message]} diagnostics]
       (println "-" (name severity) (name code) "-" message))))
+(defn- id-list
+  [ids]
+  (if (seq ids)
+    (str/join "," ids)
+    "none"))
+(defn- print-plugin-selection
+  [selection]
+  (when selection
+    (println "- selection"
+             (str "available=" (id-list (:available selection)))
+             (str "selected=" (id-list (:selected selection)))
+             (str "skipped=" (id-list (:skipped selection))))
+    (when-let [plugin-id (:requested-plugin-id selection)]
+      (println "- requested-plugin" plugin-id))))
 (defn- print-plugin-dry-run
-  [{:keys [kind status package plugins file core-counts enhanced-counts counts diagnostics]}]
+  [{:keys [kind
+           status
+           package
+           plugins
+           selection
+           file
+           core-counts
+           enhanced-counts
+           counts
+           diagnostics]}]
   (println "# Plugin Dry Run")
   (println "- status" (name status))
   (println "- kind" (name (or kind :extractor)))
@@ -172,6 +195,7 @@
                (str "kind=" (name kind))
                "")))
   (println "- plugins" (str/join "," (map :id plugins)))
+  (print-plugin-selection selection)
   (when core-counts
     (println "- core" core-counts))
   (when enhanced-counts
