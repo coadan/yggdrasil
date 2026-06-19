@@ -224,7 +224,10 @@ rows cannot be mapped to a known family, the report includes
 `unclassified-extractor` plus `registryDiagnostics`, grouped by source section
 and evidence type with bounded samples. Treat those diagnostics as reviewable
 extractor-family gaps: either add a bounded core family mapping or leave the
-rows explicitly unclassified.
+rows explicitly unclassified. Each report scope can include `topFileKinds`, a
+bounded count of distinct indexed files by persisted file kind, so agents can
+audit which concrete file families support the scope without treating the scope
+as a semantic project classification.
 
 `candidateFiles` lists ranked file candidates from retrieval. Rows include
 `repo` when the indexed search result is repo-scoped, so agents can distinguish
