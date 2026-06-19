@@ -104,7 +104,12 @@
     (is (not (str/includes? usage "overlay")))))
 
 (deftest plugin-install-dispatches-to-package-installer
-  (let [calls (atom [])]
+  (let [calls (atom [])
+        claim-authority {:status :non-authoritative
+                         :public-claims? false
+                         :review-required? false
+                         :blockers [{:code :unbenchmarked
+                                     :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}]
     (with-redefs [plugin-package/install! (fn [config-path source opts]
                                             (swap! calls conj [config-path source opts])
                                             {:schema plugin-package/install-schema
@@ -114,6 +119,7 @@
                                                        :extractor-plugins 1
                                                        :report-plugins 1
                                                        :benchmark-status :unbenchmarked
+                                                       :claim-authority claim-authority
                                                        :manifest-fingerprint "sha256:abc123"
                                                        :source {:url source
                                                                 :rev "abc123"}
@@ -135,6 +141,8 @@
                                  ".cache/plugins"
                                  "--force"]))]
         (is (str/includes? out "# Plugin Installed"))
+        (is (str/includes? out "claim-authority status=non-authoritative public-claims=false"))
+        (is (str/includes? out "claim-blockers unbenchmarked"))
         (is (str/includes? out "manifest-fingerprint sha256:abc123"))
         (is (str/includes? out "fingerprint=sha256:abc123"))
         (is (= [["project.edn"
@@ -146,7 +154,14 @@
                @calls))))))
 
 (deftest plugin-authoring-dispatches-to-package-helpers
-  (let [calls (atom [])]
+  (let [calls (atom [])
+        claim-authority {:status :non-authoritative
+                         :public-claims? false
+                         :review-required? false
+                         :blockers [{:code :project-local
+                                     :message "Project-local package output stays external and cannot support public claims."}
+                                    {:code :unbenchmarked
+                                     :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}]
     (with-redefs [plugin-package/new! (fn [dir opts]
                                         (swap! calls conj [:new dir opts])
                                         {:schema plugin-package/new-schema
@@ -161,7 +176,8 @@
                                                   {:schema plugin-package/validate-schema
                                                    :status :warning
                                                    :package {:id "demo"
-                                                             :version "0.1.0"}
+                                                             :version "0.1.0"
+                                                             :claim-authority claim-authority}
                                                    :extractor-plugins [{}]
                                                    :report-plugins [{}]
                                                    :warnings ["demo is unbenchmarked"]
@@ -171,7 +187,8 @@
                                                   {:schema plugin-package/diagnose-schema
                                                    :status :warning
                                                    :package {:id "demo"
-                                                             :version "0.1.0"}
+                                                             :version "0.1.0"
+                                                             :claim-authority claim-authority}
                                                    :diagnostics [{:severity :warning
                                                                   :code :unbenchmarked
                                                                   :message "demo is unbenchmarked"}]
@@ -186,6 +203,7 @@
                                                       :package {:id "demo"
                                                                 :version "0.1.0"
                                                                 :benchmark-status :unbenchmarked
+                                                                :claim-authority claim-authority
                                                                 :scope {:kind :project-local}
                                                                 :manifest-fingerprint "sha256:demo"
                                                                 :warnings ["demo is unbenchmarked"]}
@@ -203,6 +221,7 @@
                                                    :package {:id "demo"
                                                              :version "0.1.0"
                                                              :benchmark-status :unbenchmarked
+                                                             :claim-authority claim-authority
                                                              :scope {:kind :project-local}
                                                              :manifest-fingerprint "sha256:demo"
                                                              :warnings ["demo is unbenchmarked"]}
@@ -233,11 +252,11 @@
                                                                   :errors []}]})]
       (with-out-str
         (cli/dispatch "plugin" ["new" ".dev/plugins/demo" "--id" "demo" "--force"]))
-      (with-out-str
-        (cli/dispatch "plugin" ["validate" ".dev/plugins/demo"]))
-      (with-out-str
-        (cli/dispatch "plugin" ["diagnose" ".dev/plugins/demo"]))
-      (let [extractor-out (with-out-str
+      (let [validate-out (with-out-str
+                           (cli/dispatch "plugin" ["validate" ".dev/plugins/demo"]))
+            diagnose-out (with-out-str
+                           (cli/dispatch "plugin" ["diagnose" ".dev/plugins/demo"]))
+            extractor-out (with-out-str
                             (cli/dispatch "plugin"
                                           ["dry-run"
                                            "extractor"
@@ -253,12 +272,17 @@
                                         ".dev/plugins/demo"
                                         "--plugin"
                                         "demo-report"]))]
+        (is (str/includes? validate-out "claim-authority status=non-authoritative public-claims=false"))
+        (is (str/includes? diagnose-out "claim-blockers project-local,unbenchmarked"))
         (is (str/includes? extractor-out "benchmark=unbenchmarked"))
         (is (str/includes? extractor-out "scope=project-local"))
+        (is (str/includes? extractor-out "claim-authority status=non-authoritative public-claims=false"))
+        (is (str/includes? extractor-out "claim-blockers project-local,unbenchmarked"))
         (is (str/includes? extractor-out "manifest-fingerprint sha256:demo"))
         (is (str/includes? extractor-out "warning demo is unbenchmarked"))
         (is (str/includes? report-out "benchmark=unbenchmarked"))
-        (is (str/includes? report-out "scope=project-local")))
+        (is (str/includes? report-out "scope=project-local"))
+        (is (str/includes? report-out "claim-authority status=non-authoritative public-claims=false")))
       (let [remove-out (with-out-str
                          (cli/dispatch "plugin"
                                        ["remove"

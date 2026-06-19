@@ -78,6 +78,8 @@ to scaffold only one lane.
 `plugin validate` reads the package manifest and runs the same plugin config
 normalizers used by project loading. It reports package caveats such as
 `:unbenchmarked` status without blocking local experiments.
+Plain output includes claim authority so unbenchmarked or project-local packages
+are visible as non-authoritative without requiring `--json`.
 
 `plugin diagnose` explains package readiness for four lanes:
 

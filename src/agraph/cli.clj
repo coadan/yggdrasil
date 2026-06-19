@@ -2724,6 +2724,22 @@
                          :failures (or (:failures result)
                                        (:regressions result))}))))))
 
+(defn- claim-authority-text
+  [claim-authority]
+  [(str "status=" (name (:status claim-authority)))
+   (str "public-claims=" (boolean (:public-claims? claim-authority)))])
+
+(defn- claim-blocker-codes
+  [claim-authority]
+  (str/join "," (map (comp name :code) (:blockers claim-authority))))
+
+(defn- print-plugin-claim-authority
+  [prefix claim-authority]
+  (when claim-authority
+    (apply println prefix "claim-authority" (claim-authority-text claim-authority))
+    (when (seq (:blockers claim-authority))
+      (println prefix "claim-blockers" (claim-blocker-codes claim-authority)))))
+
 (defn- print-plugin-package
   [package]
   (println "-"
@@ -2732,6 +2748,7 @@
            (str "extractors=" (:extractor-plugins package))
            (str "reports=" (:report-plugins package))
            (str "benchmark=" (name (or (:benchmark-status package) :unbenchmarked))))
+  (print-plugin-claim-authority " " (:claim-authority package))
   (when-let [source (:source package)]
     (println "  source" (:url source) (str "rev=" (:rev source))))
   (when-let [fingerprint (:manifest-fingerprint package)]
@@ -2783,7 +2800,8 @@
   (println "# Plugin Validation")
   (println "- status" (name status))
   (when package
-    (println "- package" (:id package) (str "version=" (:version package))))
+    (println "- package" (:id package) (str "version=" (:version package)))
+    (print-plugin-claim-authority "-" (:claim-authority package)))
   (println "- extractors" (count extractor-plugins))
   (println "- reports" (count report-plugins))
   (doseq [warning warnings]
@@ -2796,7 +2814,8 @@
   (println "# Plugin Diagnosis")
   (println "- status" (name status))
   (when package
-    (println "- package" (:id package) (str "version=" (:version package))))
+    (println "- package" (:id package) (str "version=" (:version package)))
+    (print-plugin-claim-authority "-" (:claim-authority package)))
   (println "## Readiness")
   (doseq [[k {:keys [status reason next-actions]}] readiness]
     (println "-" (name k) (name status) "-" reason)
@@ -2822,6 +2841,7 @@
                        (conj (str "scope=" (name (get-in package [:scope :kind])))))))
   (when-let [fingerprint (:manifest-fingerprint package)]
     (println "- manifest-fingerprint" fingerprint))
+  (print-plugin-claim-authority "-" (:claim-authority package))
   (doseq [warning (:warnings package)]
     (println "- warning" warning))
   (when file
