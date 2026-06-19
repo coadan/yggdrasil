@@ -49,6 +49,12 @@
   [ecosystem package-name]
   (str (name ecosystem) ":" package-name))
 
+(defn package-reference?
+  [value]
+  (and (string? value)
+       (not (str/starts-with? value "."))
+       (not (str/starts-with? value "/"))))
+
 (defn package-fact
   [{:keys [ecosystem package-name version-range dependency-scope import-names
            source-line relation]
