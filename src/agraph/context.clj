@@ -926,7 +926,9 @@
 (defn- weak-planes
   [counts {:keys [entity-count doc-count activity-count validation-count]}]
   (cond-> []
-    (pos? (:unresolved-imports counts 0))
+    (or (pos? (:unresolved-imports counts 0))
+        (pos? (:package-evidence-gaps counts 0))
+        (pos? (:package-conflicts counts 0)))
     (conj :dependencies)
 
     (and (pos? (+ (:system-nodes counts) (:system-edges counts)))
@@ -964,6 +966,12 @@
 
     (pos? (:unresolved-imports counts 0))
     (conj "Dependency graph has unresolved imports; dependency answers may need package review.")
+
+    (pos? (:package-evidence-gaps counts 0))
+    (conj "Some declared packages have no source import evidence.")
+
+    (pos? (:package-conflicts counts 0))
+    (conj "Package version conflicts are present in dependency facts.")
 
     (zero? (+ (:system-nodes counts) (:system-edges counts)))
     (conj "No system graph rows are indexed for this project.")
@@ -1007,8 +1015,20 @@
          (or (zero? (+ (:external-packages counts 0)
                        (:package-import-edges counts 0)
                        (:unresolved-imports counts 0)))
-             (pos? (:unresolved-imports counts 0)))
+             (pos? (:unresolved-imports counts 0))
+             (pos? (:package-evidence-gaps counts 0))
+             (pos? (:package-conflicts counts 0)))
          (conj (str "Run agraph packages --project " (or project-id "<project-id>") " --json"))
+
+         (pos? (:package-evidence-gaps counts 0))
+         (conj (str "Run agraph packages --project "
+                    (or project-id "<project-id>")
+                    " --without-import-evidence --json"))
+
+         (pos? (:package-conflicts counts 0))
+         (conj (str "Run agraph packages --project "
+                    (or project-id "<project-id>")
+                    " --with-conflicts --json"))
 
          (pos? (:unresolved-imports counts 0))
          (conj "Run agraph sync <project.edn> --check --enqueue")

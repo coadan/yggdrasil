@@ -80,8 +80,9 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
 - `unsupported`: useful evidence planes AGraph cannot model yet, currently
   `remote-work` and `session-history`
 - `counts`: compact row counts used to make the decision, including
-  `external-packages`, `package-import-edges`, and `unresolved-imports` when
-  dependency facts are indexed
+  `external-packages`, `package-import-edges`, `unresolved-imports`,
+  `package-evidence-gaps`, and `package-conflicts` when dependency facts are
+  indexed
 - `retrieval`: requested and effective retriever, including lexical fallback
 - `warnings`: short mechanical explanations
 - `next`: bounded follow-up commands
@@ -91,7 +92,9 @@ agents can inspect whether the graph has package declarations, import evidence,
 conflicts, or unresolved imports before answering dependency-shaped questions.
 When unresolved imports are present, `next` also suggests
 `agraph sync <project.edn> --check --enqueue` so the package mapping can move
-through the review queue.
+through the review queue. When declared packages lack source import evidence or
+version conflicts are present, `next` includes the matching package-report
+filter command.
 
 Agents should treat `answerability` as a confidence boundary. Local queue
 activity and validation-shaped queue results are supported after
