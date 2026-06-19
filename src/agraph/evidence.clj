@@ -65,6 +65,7 @@
   [:source-files
    :source-graph
    :dependencies
+   :runtime-config
    :docs
    :embeddings
    :system-graph
@@ -80,6 +81,7 @@
                   :package-evidence-gaps
                   :package-conflicts
                   :unresolved-imports]
+   :runtime-config [:system-evidence]
    :docs [:chunks :search-docs]
    :embeddings [:embeddings]
    :system-graph [:system-nodes :system-edges]
@@ -88,12 +90,13 @@
    :map-overlay [:systems :docs :edges :rejects :package-imports]})
 
 (defn- available
-  [{:keys [files nodes edges chunks search-docs embeddings system-nodes system-edges
-           activity-items activity-events validation-events result-schema-mismatch-events
-           packages map-overlay]}]
+  [{:keys [files nodes edges chunks search-docs embeddings system-evidence
+           system-nodes system-edges activity-items activity-events validation-events
+           result-schema-mismatch-events packages map-overlay]}]
   (cond-> []
     (pos? files) (conj :source-files)
     (pos? (+ nodes edges)) (conj :source-graph)
+    (pos? system-evidence) (conj :runtime-config)
     (pos? (+ chunks search-docs)) (conj :docs)
     (pos? embeddings) (conj :embeddings)
     (pos? (+ system-nodes system-edges)) (conj :system-graph)
@@ -247,7 +250,8 @@
 (defn- next-actions
   [{:keys [project config-path map-path counts freshness]}]
   (let [{:keys [files search-docs system-nodes system-edges activity-items
-                activity-events result-schema-mismatch-events diagnostics skipped-files]}
+                activity-events result-schema-mismatch-events diagnostics skipped-files
+                system-evidence]}
         counts
         project-id (:id project)
         stale-count (+ (get-in freshness [:counts :changed] 0)
@@ -307,6 +311,11 @@
            (conj {:kind :coverage
                   :label "Inspect extractor diagnostics"
                   :count diagnostics
+                  :command (sync-subcommand "coverage" config-path "--json")})
+
+           (zero? system-evidence)
+           (conj {:kind :runtime-config
+                  :label "Inspect runtime/config evidence coverage"
                   :command (sync-subcommand "coverage" config-path "--json")})
 
            (pos? files)
@@ -496,6 +505,7 @@
         chunks (filter active? (query/all-chunks xtdb scope))
         search-docs (query/all-search-docs xtdb scope)
         embeddings (query/all-embeddings xtdb scope)
+        system-evidence (query/all-system-evidence xtdb scope)
         system-nodes (query/all-system-nodes xtdb {:project-id (:id project)
                                                    :read-context read-context})
         system-edges (query/all-system-edges xtdb {:project-id (:id project)
@@ -515,6 +525,7 @@
                 :chunks (count chunks)
                 :search-docs (count search-docs)
                 :embeddings (count embeddings)
+                :system-evidence (count system-evidence)
                 :system-nodes (count system-nodes)
                 :system-edges (count system-edges)
                 :packages (get-in package-report [:counts :packages] 0)

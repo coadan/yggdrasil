@@ -75,6 +75,7 @@
                 query/all-embeddings (fn [& _] [])
                 query/all-system-nodes (fn [& _] [])
                 query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
     (let [summary (evidence/summarize :xtdb
@@ -142,6 +143,59 @@
                     %)
                 (:nextActions summary))))))
 
+(deftest summarize-exposes-runtime-config-evidence-plane
+  (with-redefs [coverage/project-coverage (fn [& _]
+                                            {:totals {:skipped 0}
+                                             :files-by-kind []
+                                             :extractors []
+                                             :skipped-by-extension []
+                                             :skipped-by-reason []
+                                             :diagnostics {:total 0}})
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :versions 0
+                                                      :imports-package 0
+                                                      :version-conflicts 0
+                                                      :declared-without-import-evidence 0
+                                                      :unresolved-imports 0}
+                                             :ecosystems []})
+                store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :project-id "fixture"
+                                                   :active? true}]
+                                   []))
+                query/all-nodes (fn [& _] [])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _]
+                                            [{:xt/id "evidence:database-url"
+                                              :project-id "fixture"
+                                              :repo-id "app"
+                                              :system-id "system:billing"
+                                              :path "config/runtime.env"
+                                              :kind :env-var
+                                              :label "DATABASE_URL"
+                                              :normalized-value "database-url"
+                                              :active? true}])
+                activity/all-items (fn [& _] [])
+                activity/all-events (fn [& _] [])]
+    (let [summary (evidence/summarize :xtdb
+                                      {:id "fixture"
+                                       :repos []}
+                                      {})]
+      (is (contains? (set (:available summary)) :runtime-config))
+      (is (= {:plane :runtime-config
+              :status :available
+              :counts {:system-evidence 1}}
+             (some #(when (= :runtime-config (:plane %)) %)
+                   (:planes summary))))
+      (is (= 1 (get-in summary [:counts :system-evidence]))))))
+
 (deftest summarize-next-actions-quote-shell-paths
   (with-redefs [coverage/project-coverage (fn [& _]
                                             {:totals {:skipped 0}
@@ -169,6 +223,7 @@
                 query/all-embeddings (fn [& _] [])
                 query/all-system-nodes (fn [& _] [])
                 query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
     (let [summary (evidence/summarize :xtdb
@@ -181,6 +236,11 @@
                 (:nextActions summary)))
       (is (some #(= "agraph packages --project 'fixture project' --json"
                     (:command %))
+                (:nextActions summary)))
+      (is (some #(= {:kind :runtime-config
+                     :label "Inspect runtime/config evidence coverage"
+                     :command "agraph sync coverage 'Project Files/project.edn' --json"}
+                    %)
                 (:nextActions summary))))))
 
 (deftest summarize-audit-scope-next-action-quotes-shell-paths
@@ -212,6 +272,7 @@
                 query/all-embeddings (fn [& _] [])
                 query/all-system-nodes (fn [& _] [])
                 query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
     (let [summary (evidence/summarize :xtdb
@@ -254,6 +315,7 @@
                 query/all-embeddings (fn [& _] [])
                 query/all-system-nodes (fn [& _] [])
                 query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _]
                                       [{:event-kind :result-schema-mismatch
@@ -322,6 +384,7 @@
                 query/all-embeddings (fn [& _] [])
                 query/all-system-nodes (fn [& _] [])
                 query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
     (let [summary (evidence/summarize :xtdb
@@ -392,6 +455,7 @@
                   query/all-embeddings (fn [& _] [])
                   query/all-system-nodes (fn [& _] [])
                   query/all-system-edges (fn [& _] [])
+                  query/all-system-evidence (fn [& _] [])
                   activity/all-items (fn [& _] [])
                   activity/all-events (fn [& _] [])]
       (let [summary (evidence/summarize :xtdb
