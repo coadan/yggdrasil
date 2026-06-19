@@ -186,6 +186,62 @@
   (keyword (or (get-in manifest [:benchmark :status])
                :unbenchmarked)))
 
+(defn- benchmark-artifacts
+  [package]
+  (let [artifacts (get-in package [:benchmark :artifacts])]
+    (cond
+      (nil? artifacts) []
+      (sequential? artifacts) (vec artifacts)
+      :else [artifacts])))
+
+(defn- artifact-path
+  [artifact]
+  (cond
+    (map? artifact) (:path artifact)
+    (present? artifact) (str artifact)
+    :else nil))
+
+(defn- artifact-summary
+  [package artifact]
+  (let [path (artifact-path artifact)]
+    (cond-> {:path path}
+      (map? artifact) (merge (select-keys artifact [:kind :case-id :report-id :description]))
+      (present? path) (assoc :resolved-path (resolve-path (:path package) path)))))
+
+(defn- benchmark-artifact-diagnostics
+  [{:keys [id benchmark-status] :as package}]
+  (let [artifacts (benchmark-artifacts package)]
+    (vec
+     (concat
+      (when (and (= :benchmarked benchmark-status)
+                 (empty? artifacts))
+        [{:code :benchmark-artifacts-missing
+          :severity :error
+          :applies-to [:claims :core-promotion]
+          :message (str id " is marked benchmarked but declares no benchmark artifacts.")
+          :evidence {:benchmark-status benchmark-status}}])
+      (mapcat
+       (fn [artifact]
+         (let [{:keys [path resolved-path] :as summary} (artifact-summary package artifact)]
+           (cond
+             (not (present? path))
+             [{:code :benchmark-artifact-path-missing
+               :severity :error
+               :applies-to [:claims :core-promotion]
+               :message (str id " declares a benchmark artifact without :path.")
+               :evidence {:artifact artifact}}]
+
+             (not (.isFile (io/file resolved-path)))
+             [{:code :benchmark-artifact-not-found
+               :severity :error
+               :applies-to [:claims :core-promotion]
+               :message (str id " benchmark artifact does not exist: " path)
+               :evidence summary}]
+
+             :else
+             [])))
+       artifacts)))))
+
 (defn- package-diagnostics
   [{:keys [id visibility license benchmark-status] :as package}]
   (vec
@@ -211,7 +267,8 @@
         :severity :warning
         :applies-to [:claims :core-promotion]
         :message (str id " is unbenchmarked; keep claims scoped until benchmarks show material improvement.")
-        :evidence {:benchmark-status benchmark-status}}]))))
+        :evidence {:benchmark-status benchmark-status}}])
+    (benchmark-artifact-diagnostics package))))
 
 (defn- package-warnings
   [package]
@@ -283,6 +340,8 @@
    :visibility (:visibility package)
    :license (:license package)
    :benchmark-status (:benchmark-status package)
+   :benchmark-artifacts (mapv #(artifact-summary package %)
+                              (benchmark-artifacts package))
    :extractor-plugins (count (:resolved-extractor-plugins package))
    :report-plugins (count (:resolved-report-plugins package))
    :warnings (:warnings package)})
@@ -428,11 +487,12 @@
        "Useful commands:\n\n"
        "```sh\n"
        "bb plugin validate .\n"
+       "bb plugin diagnose .\n"
        "bb plugin dry-run extractor . /path/to/repo src/example.clj --json\n"
        "bb plugin install /path/to/project.edn . --force\n"
        "```\n\n"
        "Keep project-specific experiments in plugins. Promote to core only with "
-       "project-agnostic behavior, fixtures, and benchmark evidence.\n"))
+       "project-agnostic behavior, fixtures, and package-local benchmark artifacts.\n"))
 
 (defn- manifest
   [package-id {:keys [name extractor? report?]}]
@@ -560,6 +620,9 @@
         public-policy-errors (filter #(and (= :error (:severity %))
                                            (some #{:public-sharing} (:applies-to %)))
                                      diagnostics)
+        benchmark-evidence-errors (filter #(and (= :error (:severity %))
+                                                (some #{:claims} (:applies-to %)))
+                                          diagnostics)
         unbenchmarked? (= :unbenchmarked (:benchmark-status package))]
     {:local-use
      (if validation-failed?
@@ -597,6 +660,28 @@
              "Package declares public FOSS, non-commercial distribution metadata and benchmark status."
              ["Review benchmark artifacts before making performance or quality claims."]))
 
+     :claims
+     (cond
+       validation-failed?
+       (lane :blocked
+             "Invalid packages cannot support public claims."
+             ["Fix validation errors first."])
+
+       unbenchmarked?
+       (lane :blocked
+             "Public improvement claims require benchmark evidence."
+             ["Run replayable benchmarks and add benchmark artifacts to the package manifest."])
+
+       (seq benchmark-evidence-errors)
+       (lane :blocked
+             "Benchmark status is declared, but benchmark artifacts are missing or invalid."
+             ["Add package-local benchmark report artifacts or set benchmark status back to :unbenchmarked."])
+
+       :else
+       (lane :ready
+             "Benchmark artifacts are present for review."
+             ["Cite the benchmark artifacts when making public claims."]))
+
      :core-promotion
      (cond
        validation-failed?
@@ -608,6 +693,11 @@
        (lane :blocked
              "Core promotion requires benchmark evidence."
              ["Add fixtures, tests, benchmark cases, and reports showing material improvement."])
+
+       (seq benchmark-evidence-errors)
+       (lane :blocked
+             "Core promotion requires existing benchmark artifacts, not benchmark status alone."
+             ["Add package-local benchmark report artifacts or keep the plugin external."])
 
        :else
        (lane :review-required

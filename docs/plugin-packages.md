@@ -66,10 +66,11 @@ one lane.
 normalizers used by project loading. It reports package caveats such as
 `:unbenchmarked` status without blocking local experiments.
 
-`plugin diagnose` explains package readiness for three lanes:
+`plugin diagnose` explains package readiness for four lanes:
 
 - local use;
 - public sharing;
+- public claims;
 - core promotion.
 
 Diagnosis is manifest- and config-based. It does not judge architecture quality
@@ -147,6 +148,28 @@ Package install surfaces warnings instead of blocking local use when:
 
 `bb plugin diagnose <dir>` treats public license/commercial policy violations as
 public-sharing blockers while still keeping private local experiments possible.
+
+## Benchmark Evidence
+
+Use `:benchmark {:status :unbenchmarked}` while a package is experimental. Plugin
+output remains auditable and useful, but claims about agent effectiveness or
+architecture-understanding improvement must stay scoped.
+
+Use `:benchmark {:status :benchmarked}` only when the package includes
+package-local benchmark artifacts:
+
+```clojure
+:benchmark
+{:status :benchmarked
+ :artifacts [{:path "benchmarks/datastar-hiccup-report.json"
+              :kind :agent-report
+              :case-id "datastar-hiccup-architecture"}]}
+```
+
+`bb plugin diagnose <dir>` checks that every declared artifact path exists. A
+package marked `:benchmarked` without artifacts is blocked for public claims and
+core promotion. Diagnosis does not decide whether the benchmark proves enough
+material improvement; it only verifies that reviewable evidence exists.
 
 ## Core Promotion
 

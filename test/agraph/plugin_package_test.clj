@@ -163,6 +163,9 @@
         package-dir (io/file workspace "plugin")]
     (.mkdirs package-dir)
     (write-file! (.getPath package-dir)
+                 "benchmarks/report.json"
+                 "{\"schema\":\"agraph.benchmark.agent-report/v1\",\"suite-id\":\"plugin\"}\n")
+    (write-file! (.getPath package-dir)
                  plugin-package/manifest-filename
                  (pr-str
                   {:schema plugin-package/manifest-schema
@@ -171,7 +174,9 @@
                    :license {:spdx "Proprietary"}
                    :distribution {:visibility :public
                                   :commercial? true}
-                   :benchmark {:status :benchmarked}
+                   :benchmark {:status :benchmarked
+                               :artifacts [{:path "benchmarks/report.json"
+                                            :kind :agent-report}]}
                    :extractor-plugins
                    [{:id "paid-extractor"
                      :command ["python3" "extract.py"]
@@ -185,3 +190,65 @@
       (is (= :review-required (get-in diagnosis [:readiness :core-promotion :status])))
       (is (= #{:public-license-missing :public-commercial}
              (set (map :code (:diagnostics diagnosis))))))))
+
+(deftest diagnose-requires-benchmark-artifacts-for-claims-and-core-promotion
+  (let [workspace (temp-dir "agraph-plugin-benchmark-evidence")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "claimed-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :benchmark {:status :benchmarked}
+                   :extractor-plugins
+                   [{:id "claimed-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+      (is (= :failed (:status diagnosis)))
+      (is (= :blocked (get-in diagnosis [:readiness :claims :status])))
+      (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= [:benchmark-artifacts-missing]
+             (mapv :code (:diagnostics diagnosis)))))))
+
+(deftest diagnose-accepts-existing-benchmark-artifacts-for-claims
+  (let [workspace (temp-dir "agraph-plugin-benchmark-ready")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 "benchmarks/report.json"
+                 "{\"schema\":\"agraph.benchmark.agent-report/v1\",\"suite-id\":\"plugin\"}\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "benchmarked-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :benchmark {:status :benchmarked
+                               :artifacts [{:path "benchmarks/report.json"
+                                            :kind :agent-report
+                                            :case-id "plugin-case"}]}
+                   :extractor-plugins
+                   [{:id "benchmarked-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+      (is (= :passed (:status diagnosis)))
+      (is (= :ready (get-in diagnosis [:readiness :claims :status])))
+      (is (= :review-required (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= ["benchmarks/report.json"]
+             (mapv :path (get-in diagnosis [:package :benchmark-artifacts])))))))
