@@ -102,32 +102,46 @@
     (instance? java.util.Date value) (str (.toInstant ^java.util.Date value))
     :else (str value)))
 
+(defn- portable-value
+  [value]
+  (if (keyword? value)
+    (name value)
+    value))
+
+(defn- node-evidence-row
+  [row]
+  (update-vals row portable-value))
+
 (defn- node-row
   [degree score-by-id node]
   (let [id (node-id node)
         kind (:kind node)
         score (double (get score-by-id id 0.0))]
-    {:id id
-     :label (:label node)
-     :kind (name kind)
-     :repo (:repo-id node)
-     :repoRole (some-> (:repo-role node) name)
-     :path (:path node)
-     :pathPrefix (:path-prefix node)
-     :ecosystem (some-> (:ecosystem node) name)
-     :packageName (:package-name node)
-     :versionRange (:version-range node)
-     :resolvedVersion (:resolved-version node)
-     :dependencyScope (:dependency-scope node)
-     :importNames (:import-names node)
-     :source (some-> (:source node) name)
-     :candidateTypes (some->> (:candidate-types node) (mapv name))
-     :metrics (:metrics node)
-     :line (:source-line node)
-     :degree (long (get degree id 0))
-     :score score
-     :color (get kind-color kind "#334155")
-     :size (+ 8 (min 22 (* 2 (Math/sqrt (double (max 1 (get degree id 1)))))) (* 14 score))}))
+    (cond-> {:id id
+             :label (:label node)
+             :kind (name kind)
+             :repo (:repo-id node)
+             :repoRole (some-> (:repo-role node) name)
+             :path (:path node)
+             :pathPrefix (:path-prefix node)
+             :ecosystem (some-> (:ecosystem node) name)
+             :packageName (:package-name node)
+             :versionRange (:version-range node)
+             :resolvedVersion (:resolved-version node)
+             :dependencyScope (:dependency-scope node)
+             :importNames (:import-names node)
+             :source (some-> (:source node) name)
+             :candidateTypes (some->> (:candidate-types node) (mapv name))
+             :metrics (:metrics node)
+             :line (:source-line node)
+             :degree (long (get degree id 0))
+             :score score
+             :color (get kind-color kind "#334155")
+             :size (+ 8
+                      (min 22 (* 2 (Math/sqrt (double (max 1 (get degree id 1))))))
+                      (* 14 score))}
+      (seq (:evidence node)) (assoc :candidateEvidence
+                                    (mapv node-evidence-row (:evidence node))))))
 
 (defn- edge-row
   [edge]

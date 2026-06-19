@@ -126,6 +126,8 @@
     (:pathPrefix entity) (assoc :pathPrefix (:pathPrefix entity))
     (:clusterId entity) (assoc :clusterId (:clusterId entity))
     (:clusterLabel entity) (assoc :clusterLabel (:clusterLabel entity))
+    (seq (:candidateTypes entity)) (assoc :candidateTypes (:candidateTypes entity))
+    (seq (:candidateEvidence entity)) (assoc :candidateEvidence (:candidateEvidence entity))
     (:why entity) (assoc :why (:why entity))))
 (defn- selected-candidate-systems
   [accepted-systems entities]
@@ -961,6 +963,7 @@
                        :repo
                        :path
                        :pathPrefix
+                       :candidateTypes
                        :score
                        :why
                        :reason]))

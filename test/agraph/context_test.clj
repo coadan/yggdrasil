@@ -788,7 +788,10 @@
                                                :label "Worker"
                                                :kind "candidate-system"
                                                :repo "app"
-                                               :pathPrefix "src/worker"}]
+                                               :pathPrefix "src/worker"
+                                               :candidateTypes ["runtime-url-host"]
+                                               :candidateEvidence [{:type "runtime-url-host"
+                                                                    :host "worker.example.test"}]}]
                                       :edges [{:id "edge:billing-worker"
                                                :source "system:billing"
                                                :target "system:worker"
@@ -917,6 +920,7 @@
                             :basis "system-graph"
                             :repo "app"
                             :pathPrefix "src/worker"
+                            :candidateTypes ["runtime-url-host"]
                             :score 1.08125
                             :why "retrieval and graph match"}]
               :counts {:accepted 1
@@ -931,6 +935,9 @@
                :basis "system-graph"
                :repo "app"
                :pathPrefix "src/worker"
+               :candidateTypes ["runtime-url-host"]
+               :candidateEvidence [{:type "runtime-url-host"
+                                    :host "worker.example.test"}]
                :why "retrieval and graph match"}]
              (mapv #(select-keys % [:id
                                     :label
@@ -939,6 +946,8 @@
                                     :basis
                                     :repo
                                     :pathPrefix
+                                    :candidateTypes
+                                    :candidateEvidence
                                     :why])
                    (:candidateSystems architecture))))
       (is (= [{:kind "graph-edge"

@@ -1,9 +1,10 @@
 (ns agraph.context-budget-test
   (:require [agraph.context :as context]
+            [agraph.context-budget :as context-budget]
             [clojure.test :refer [deftest is]]))
 
 (deftest compact-answerability-keeps-bounded-actionable-detail
-  (let [compact (#'context/compact-answerability
+  (let [compact (context-budget/compact-answerability
                  {:status :limited
                   :available [:source-graph]
                   :missing [:docs]
@@ -47,7 +48,7 @@
                            :command "agraph packages --project fixture --json"}]}
            compact))))
 (deftest minimal-answerability-keeps-result-schema-status-summary
-  (let [minimal (#'context/minimal-answerability
+  (let [minimal (context-budget/minimal-answerability
                  {:status :limited
                   :available [:activity :validation-history]
                   :missing [:docs]
@@ -78,7 +79,7 @@
                      :result-schema-mismatch-events 0}}
            minimal))))
 (deftest compact-freshness-keeps-bounded-mechanical-detail
-  (let [compact (#'context/compact-freshness
+  (let [compact (context-budget/compact-freshness
                  {:status :stale
                   :counts {:indexed 5
                            :current 5
@@ -144,7 +145,7 @@
                                  :count 1
                                  :targets [{:id "edge:other"
                                             :target "node:dep"}]}]}
-        compact (#'context/compact-relationships-in-packet packet)]
+        compact (context-budget/compact-relationships-in-packet packet)]
     (is (= 2 (count (:relationships compact))))
     (is (= 4 (count (get-in compact [:relationships 0 :targets]))))))
 (deftest blast-radius-keeps-only-crossing-mechanical-edges
@@ -195,7 +196,7 @@
                                                           {:id (str "edge:u" idx)
                                                            :source (str "node:u" idx)})
                                                         (range 5))}}}
-        compact (#'context/compact-blast-radius-in-packet packet)]
+        compact (context-budget/compact-blast-radius-in-packet packet)]
     (is (= 4 (count (get-in compact [:blastRadius :downstream :targets]))))
     (is (= 4 (count (get-in compact [:blastRadius :upstream :targets]))))))
 (deftest compact-systems-keeps-bounded-orientation
@@ -208,7 +209,7 @@
                                             (range 6))
                           :counts {:accepted 6
                                    :candidates 6}}}
-        compact (#'context/compact-systems-in-packet packet)]
+        compact (context-budget/compact-systems-in-packet packet)]
     (is (= "mechanical-plus-map" (get-in compact [:systems :basis])))
     (is (= {:accepted 6
             :candidates 6}
@@ -223,11 +224,11 @@
                                                    :text "snippet"})
                                                 (range 4))})
                                 (range 6))}
-        compact (#'context/compact-snippets-in-packet packet)]
+        compact (context-budget/compact-snippets-in-packet packet)]
     (is (= 4 (count (:snippets compact))))
     (is (every? #(= 2 (count (:items %))) (:snippets compact)))))
 (deftest packet-trimming-keeps-architecture-summary-before-dropping-section
-  (let [trim @#'context/trim-optional-context-metadata
+  (let [trim context-budget/trim-optional-context-metadata
         summary {:counts {:acceptedSystems 12
                           :candidateSystems 10
                           :boundaryEvidence 40
@@ -357,6 +358,9 @@
                               :repo "app"
                               :pathPrefix "src/candidate"
                               :score 0.7
+                              :candidateTypes ["runtime-url-host"]
+                              :candidateEvidence [{:type "runtime-url-host"
+                                                   :host "api.example.test"}]
                               :why "graph label match"}]
                   :edges [{:id "edge:billing-candidate"
                            :source "system:billing"
@@ -448,6 +452,9 @@
              :score 0.7
              :repo "app"
              :pathPrefix "src/candidate"
+             :candidateTypes ["runtime-url-host"]
+             :candidateEvidence [{:type "runtime-url-host"
+                                  :host "api.example.test"}]
              :why "graph label match"}]
            (:candidateSystems section)))
     (is (= [{:kind "map-edge"
@@ -939,7 +946,7 @@
             "edge:weak"]
            (mapv :id (:dependencyEvidence section))))))
 (deftest context-budget-compacts-source-coverage-before-dropping-it
-  (let [trim @#'context/trim-optional-context-metadata
+  (let [trim context-budget/trim-optional-context-metadata
         source-coverage {:schema "agraph.source-coverage.context/v1"
                          :basis "indexed-graph"
                          :totals {:indexedFiles 200
@@ -1015,7 +1022,7 @@
                 :sourceCoverage source-coverage}
         compacted (-> packet
                       (update-in [:search :instrumentation] dissoc :context-chunks)
-                      (update :sourceCoverage @#'context/compact-source-coverage))
+                      (update :sourceCoverage context-budget/compact-source-coverage))
         trimmed (trim packet (context/estimate-tokens compacted))]
     (is (contains? trimmed :sourceCoverage))
     (is (= {:indexedFiles 200
@@ -1037,7 +1044,7 @@
     (is (= 3 (count (get-in trimmed [:sourceCoverage :diagnostics :samples]))))))
 
 (deftest compact-audit-scopes-preserves-trust-boundary-counts
-  (let [trim @#'context/trim-optional-context-metadata
+  (let [trim context-budget/trim-optional-context-metadata
         scope {:kind "unclassified-extractor"
                :basis "indexed-graph"
                :supportedFiles 2
@@ -1110,8 +1117,8 @@
                        :section "files"}]}
            (first (:auditScopes trimmed))))))
 (deftest reviewed-doc-fitting-compacts-source-coverage-before-dropping-it
-  (let [add-doc @#'context/add-doc-with-budget
-        compact-source @#'context/compact-source-coverage
+  (let [add-doc context-budget/add-doc-with-budget
+        compact-source context-budget/compact-source-coverage
         source-coverage {:schema "agraph.source-coverage.context/v1"
                          :basis "indexed-graph"
                          :totals {:indexedFiles 200

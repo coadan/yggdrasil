@@ -13,6 +13,22 @@
                                                       (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(deftest system-node-rows-keep-candidate-provenance
+  (let [row (#'graph/node-row
+             {}
+             {}
+             {:xt/id "system:fixture:__external:external-api/api.example.test"
+              :label "api.example.test"
+              :kind :external-api
+              :repo-id "__external"
+              :candidate-types [:runtime-url-host]
+              :evidence [{:type :runtime-url-host
+                          :host "api.example.test"}]})]
+    (is (= {:candidateTypes ["runtime-url-host"]
+            :candidateEvidence [{:type "runtime-url-host"
+                                 :host "api.example.test"}]}
+           (select-keys row [:candidateTypes :candidateEvidence])))))
+
 (deftest builds-graph-views
   (let [xtdb-path (temp-dir "agraph-graph-xtdb")
         out-dir (temp-dir "agraph-graph-html")

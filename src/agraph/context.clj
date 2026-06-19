@@ -183,6 +183,9 @@
                                "graph label match")}
                  (:attrs node) (assoc :attrs (:attrs node))
                  (seq (:tags node)) (assoc :tags (:tags node))
+                 (seq (:candidateTypes node)) (assoc :candidateTypes (:candidateTypes node))
+                 (seq (:candidateEvidence node)) (assoc :candidateEvidence
+                                                        (:candidateEvidence node))
                  (:metrics node) (assoc :metrics (:metrics node)))))))
 
 (defn- edge-score
@@ -738,46 +741,6 @@
     (seq relationships) (assoc :relationships relationships)
     blast-radius (assoc :blastRadius blast-radius)
     source-coverage (assoc :sourceCoverage source-coverage)))
-
-(defn- compact-answerability
-  [answerability]
-  (context-budget/compact-answerability answerability))
-
-(defn- minimal-answerability
-  [answerability]
-  (context-budget/minimal-answerability answerability))
-
-(defn- compact-freshness
-  [freshness]
-  (context-budget/compact-freshness freshness))
-
-(defn- compact-source-coverage
-  [source-coverage]
-  (context-budget/compact-source-coverage source-coverage))
-
-(defn- compact-systems-in-packet
-  [packet]
-  (context-budget/compact-systems-in-packet packet))
-
-(defn- compact-relationships-in-packet
-  [packet]
-  (context-budget/compact-relationships-in-packet packet))
-
-(defn- compact-blast-radius-in-packet
-  [packet]
-  (context-budget/compact-blast-radius-in-packet packet))
-
-(defn- compact-snippets-in-packet
-  [packet]
-  (context-budget/compact-snippets-in-packet packet))
-
-(defn- trim-optional-context-metadata
-  [packet budget]
-  (context-budget/trim-optional-context-metadata packet budget))
-
-(defn- add-doc-with-budget
-  [packet doc budget]
-  (context-budget/add-doc-with-budget packet doc budget))
 
 (defn- fit-budget
   [packet docs budget]

@@ -579,6 +579,9 @@
                             :repo "repo"
                             :score 0.7
                             :why "retrieval and graph match"
+                            :candidateTypes ["runtime-url-host"]
+                            :candidateEvidence [{:type "runtime-url-host"
+                                                 :host "api.example.test"}]
                             :metrics {:file-count 2}}]
                 :architecture {:basis "mechanical-plus-map"
                                :acceptedSystems [{:id "system:repo:path/src"
@@ -693,6 +696,9 @@
              :label "src"
              :score 0.7
              :why "retrieval and graph match"
+             :candidateTypes ["runtime-url-host"]
+             :candidateEvidence [{:type "runtime-url-host"
+                                  :host "api.example.test"}]
              :metrics {:file-count 2}}]
            (:candidateSystems hints)))
     (is (= ["agraph ask 'broken app' --project project"

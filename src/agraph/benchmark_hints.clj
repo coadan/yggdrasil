@@ -28,7 +28,8 @@
 (defn- hint-system
   [idx entity]
   (select-keys (assoc entity :rank (inc idx))
-               [:rank :id :repo :path :label :kind :score :why :metrics :pathPrefix]))
+               [:rank :id :repo :path :label :kind :score :why :metrics :pathPrefix
+                :candidateTypes :candidateEvidence]))
 (defn- takev
   [n coll]
   (vec (take n coll)))
