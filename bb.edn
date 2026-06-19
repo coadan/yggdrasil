@@ -85,7 +85,7 @@
           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "report"
                        *command-line-args*)}
 
-  plugin {:doc "Install or list AGraph plugin packages. Usage: bb plugin install|list ..."
+  plugin {:doc "Manage AGraph plugin packages. Usage: bb plugin new|validate|diagnose|dry-run|install|list|remove|registry ..."
           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "plugin"
                        *command-line-args*)}
 
