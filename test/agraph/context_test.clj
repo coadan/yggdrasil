@@ -665,6 +665,20 @@
              :summary "review billing boundary"
              :score 1.0}]
            (:openDecisions section)))
+    (is (= {:counts {:acceptedSystems 1
+                     :candidateSystems 1
+                     :boundaryEvidence 2
+                     :runtimeEvidence 2
+                     :deployEvidence 1
+                     :dependencyEvidence 1
+                     :docs 1
+                     :openDecisions 1
+                     :validationGaps 3}
+            :evidenceFamilyStatuses {"available" 7}
+            :validationGapStatuses {"missing" 1
+                                    "unsupported" 1
+                                    "weak" 1}}
+           (:summary section)))
     (is (= [{:family "source-structure"
              :status "available"
              :rowCount 4

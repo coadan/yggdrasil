@@ -1360,6 +1360,28 @@
     (keep architecture-doc-inspect-action
           (take 2 docs)))))
 
+(defn- status-counts
+  [rows]
+  (->> rows
+       (map :status)
+       (remove nil?)
+       frequencies
+       (into (sorted-map))))
+
+(defn- architecture-summary
+  [section]
+  {:counts {:acceptedSystems (count (:acceptedSystems section))
+            :candidateSystems (count (:candidateSystems section))
+            :boundaryEvidence (count (:boundaryEvidence section))
+            :runtimeEvidence (count (:runtimeEvidence section))
+            :deployEvidence (count (:deployEvidence section))
+            :dependencyEvidence (count (:dependencyEvidence section))
+            :docs (count (:docs section))
+            :openDecisions (count (:openDecisions section))
+            :validationGaps (count (:validationGaps section))}
+   :evidenceFamilyStatuses (status-counts (:evidenceFamilies section))
+   :validationGapStatuses (status-counts (:validationGaps section))})
+
 (defn- freshness-next-actions
   [freshness]
   (vec (take 3 (:nextActions freshness))))
@@ -1416,7 +1438,8 @@
                                                    (:nextActions answerability))))}
         section (assoc section
                        :evidenceFamilies
-                       (architecture-evidence-families section answerability))]
+                       (architecture-evidence-families section answerability))
+        section (assoc section :summary (architecture-summary section))]
     (when (architecture-supported? section)
       section)))
 
