@@ -9,7 +9,10 @@
           :role :application}
          {:id "axios"
           :root "../.dev/oss-test-cases/repos/axios"
-          :role :application}]
+          :role :application}
+         {:id "dapper"
+          :root "../.dev/oss-test-cases/repos/dapper"
+          :role :library}]
  :cases [{:id "bootstrap-synthetic-docs-route-impact"
           :repo-id "bootstrap"
           :coverage {:source-kinds [:web-framework]}
@@ -106,4 +109,36 @@
           :issue {:id "synthetic-axios-native-proxy-boundary"
                   :url "local:synthetic/axios/native-proxy-boundary"
                   :title "Locate the boundary between Node native proxy handling and Axios proxy rewriting"
-                  :body "Node can handle environment proxies natively. Identify the Axios adapter and tests that define the boundary between native proxy handling and Axios' own proxy rewriting. Return the files likely to need edits and cite environment-variable evidence."}}]}
+                  :body "Node can handle environment proxies natively. Identify the Axios adapter and tests that define the boundary between native proxy handling and Axios' own proxy rewriting. Return the files likely to need edits and cite environment-variable evidence."}}
+
+         {:id "dapper-synthetic-jsonb-test-stack"
+          :repo-id "dapper"
+          :coverage {:source-kinds [:dotnet :manifest :compose]}
+          :tags [:synthetic
+                 :problem-architecture
+                 :architecture-dependency-flow
+                 :runtime-config
+                 :database
+                 :dotnet
+                 :container]
+          :base-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
+          :fix-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
+          :ground-truth {:localization-files ["Dapper/SqlMapper.cs"
+                                               "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                               "tests/docker-compose.yml"]}
+          :expectations {:evidence [{:kind :container-image-consumer
+                                     :path "tests/docker-compose.yml"
+                                     :label "postgres:alpine"}
+                                    {:kind :env-var
+                                     :path "tests/docker-compose.yml"
+                                     :label "POSTGRES_DB"}]
+                         :nodes [{:kind :external-package
+                                  :path "tests/Dapper.Tests/Dapper.Tests.csproj"
+                                  :label "nuget:Npgsql"}]
+                         :edges [{:relation :shares-config
+                                  :source-id "system:oss-architecture-synthetic-dapper-synthetic-jsonb-test-stack:dapper:path/tests"
+                                  :target-id "system:oss-architecture-synthetic-dapper-synthetic-jsonb-test-stack:dapper:path/tests/Dapper.Tests"}]}
+          :issue {:id "synthetic-dapper-jsonb-test-stack"
+                  :url "local:synthetic/dapper/jsonb-test-stack"
+                  :title "Trace the PostgreSQL JSONB test stack through Dapper type handling"
+                  :body "A regression around querying PostgreSQL jsonb values as strings needs an architecture pass before editing. Identify how the PostgreSQL test container, Npgsql test dependency, Dapper core type handling, and type-handler regression tests connect. Return only files likely to need edits or test/runtime setup changes, and cite dependency or container evidence."}}]}
