@@ -11,6 +11,14 @@ regressions in source support, extraction, ranking, and system inference. The
 retrieval runner is still useful, but treat it as a diagnostic for why an agent
 did or did not get useful help.
 
+Tracked starter suites:
+
+- `benchmarks/oss-architecture-synthetic.edn`: diagnostic architecture-class
+  suite with synthetic tasks on real OSS checkouts.
+- `benchmarks/headline.edn`: small architecture-first headline suite for
+  shell-only versus AGraph agent-efficiency runs. Generated lane outputs should
+  still live under `.dev/agraph/`.
+
 ## Workflow
 
 Create a benchmark suite EDN file:

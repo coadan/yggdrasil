@@ -135,6 +135,40 @@
                  "architecture-data-ownership"
                  "architecture-runtime-boundary"]))))
 
+(deftest headline-suite-covers-architecture-first-agent-questions
+  (let [suite (benchmark/read-suite "benchmarks/headline.edn")
+        cases (:cases suite)
+        tags (set (mapcat :tags cases))
+        source-kinds (set (mapcat #(get-in % [:coverage :source-kinds]) cases))
+        repo-ids (set (map :repo-id cases))
+        evidence-kinds (set (mapcat #(map :kind (get-in % [:expectations :evidence])) cases))
+        node-kinds (set (mapcat #(map :kind (get-in % [:expectations :nodes])) cases))]
+    (is (= "headline-architecture" (:id suite)))
+    (is (<= 5 (count cases) 10))
+    (is (every? #(contains? (set (:tags %)) "headline") cases))
+    (is (every? #(contains? (set (:tags %)) "problem-architecture") cases))
+    (is (every? #(seq (get-in % [:coverage :source-kinds])) cases))
+    (is (every? #(seq (get-in % [:ground-truth :localization-files])) cases))
+    (is (every? #(or (seq (get-in % [:expectations :evidence]))
+                     (seq (get-in % [:expectations :nodes]))
+                     (seq (get-in % [:expectations :chunks]))
+                     (seq (get-in % [:expectations :edges])))
+                cases))
+    (is (every? repo-ids ["bootstrap" "supabase-postgres" "axios" "dapper"]))
+    (is (every? source-kinds
+                [:web-framework :manifest :env :sql :javascript :dotnet :compose]))
+    (is (every? evidence-kinds
+                [:env-var :container-image-consumer]))
+    (is (every? node-kinds
+                [:web-framework-route :web-framework-import :web-framework-plugin :external-package]))
+    (is (every? tags
+                ["architecture-cross-system-impact"
+                 "architecture-dependency-flow"
+                 "architecture-data-ownership"
+                 "architecture-runtime-boundary"
+                 "docs-contracts"
+                 "runtime-config"]))))
+
 (deftest scores-file-localization
   (let [result {:groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]
                               :unsupportedGroundTruthFiles []}

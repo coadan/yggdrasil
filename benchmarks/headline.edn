@@ -1,0 +1,150 @@
+{:id "headline-architecture"
+ :project-id "headline-architecture"
+ :description "Small architecture-first headline suite for shell-only versus AGraph agent-efficiency runs."
+ :repos [{:id "bootstrap"
+          :root "../.dev/oss-test-cases/repos/bootstrap"
+          :role :application}
+         {:id "supabase-postgres"
+          :root "../.dev/oss-test-cases/repos/supabase-postgres"
+          :role :application}
+         {:id "axios"
+          :root "../.dev/oss-test-cases/repos/axios"
+          :role :application}
+         {:id "dapper"
+          :root "../.dev/oss-test-cases/repos/dapper"
+          :role :library}]
+ :cases [{:id "headline-bootstrap-docs-route-impact"
+          :repo-id "bootstrap"
+          :coverage {:source-kinds [:web-framework]}
+          :tags [:headline
+                 :synthetic
+                 :problem-architecture
+                 :architecture-cross-system-impact
+                 :docs-contracts
+                 :web-framework
+                 :astro]
+          :base-sha "320f7139052be98339726cac20895f50172000f9"
+          :fix-sha "320f7139052be98339726cac20895f50172000f9"
+          :ground-truth {:localization-files ["site/src/pages/index.astro"
+                                               "site/src/pages/docs/[version]/examples/index.astro"]}
+          :expectations {:nodes [{:kind :web-framework-route
+                                  :path "site/src/pages/index.astro"}
+                                 {:kind :web-framework-route
+                                  :path "site/src/pages/docs/[version]/examples/index.astro"}
+                                 {:kind :web-framework-import
+                                  :path "site/src/pages/index.astro"}
+                                 {:kind :web-framework-import
+                                  :path "site/src/pages/docs/[version]/examples/index.astro"}]
+                         :chunks [{:kind :astro-file
+                                   :path "site/src/pages/index.astro"}
+                                  {:kind :astro-file
+                                   :path "site/src/pages/docs/[version]/examples/index.astro"}]}
+          :issue {:id "headline-bootstrap-docs-route-impact"
+                  :url "local:headline/bootstrap/docs-route-impact"
+                  :title "Identify docs route impact before removing theme components"
+                  :body "The docs team wants to remove the theme UI from Bootstrap's Astro docs. Identify the route files and component imports that a change would affect before editing code. Return only the files that are likely to need edits; cite imported components or comparable files as evidence instead of ranking them as suspected edit files."}}
+
+         {:id "headline-bootstrap-astro-plugin-config"
+          :repo-id "bootstrap"
+          :coverage {:source-kinds [:manifest :web-framework]}
+          :tags [:headline
+                 :synthetic
+                 :problem-architecture
+                 :architecture-dependency-flow
+                 :web-framework-config
+                 :astro]
+          :base-sha "c82919e8970c7ebebb87ded191b815c76737cd04"
+          :fix-sha "c82919e8970c7ebebb87ded191b815c76737cd04"
+          :ground-truth {:localization-files ["site/astro.config.ts"
+                                               "package.json"]}
+          :expectations {:nodes [{:kind :web-framework
+                                  :label "astro"}
+                                 {:kind :web-framework-import
+                                  :path "site/astro.config.ts"
+                                  :label "astro/config"}
+                                 {:kind :web-framework-plugin
+                                  :path "site/astro.config.ts"}]
+                         :chunks [{:kind :web-framework-file
+                                   :path "site/astro.config.ts"}]}
+          :issue {:id "headline-bootstrap-astro-plugin-config"
+                  :url "local:headline/bootstrap/astro-plugin-config"
+                  :title "Wire a docs build integration through Astro config"
+                  :body "Bootstrap's docs build needs a new Astro integration. Identify where the integration should be configured and where the package dependency should be declared. Return the config and manifest files likely to need edits, and cite import/plugin evidence from the graph."}}
+
+         {:id "headline-supabase-trigger-ownership-flow"
+          :repo-id "supabase-postgres"
+          :coverage {:source-kinds [:env :sql]}
+          :tags [:headline
+                 :synthetic
+                 :problem-architecture
+                 :architecture-data-ownership
+                 :runtime-config
+                 :database]
+          :base-sha "948b5feb51b9605babc6820475b5ccff44f29552"
+          :fix-sha "948b5feb51b9605babc6820475b5ccff44f29552"
+          :ground-truth {:localization-files ["migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                               "migrations/.env"]}
+          :expectations {:evidence [{:kind :env-var
+                                     :path "migrations/.env"
+                                     :label "DATABASE_URL"}
+                                    {:kind :env-var
+                                     :path "migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                     :label "SECURITY"}]}
+          :issue {:id "headline-supabase-trigger-ownership-flow"
+                  :url "local:headline/supabase-postgres/trigger-ownership-flow"
+                  :title "Trace event trigger ownership through database initialization"
+                  :body "Before changing built-in event trigger ownership, identify the database initialization script and runtime configuration files that control the trigger function owner and privileged setup context. Return only files likely to need edits; cite SQL/security/env evidence."}}
+
+         {:id "headline-axios-native-proxy-boundary"
+          :repo-id "axios"
+          :coverage {:source-kinds [:javascript]}
+          :tags [:headline
+                 :synthetic
+                 :problem-architecture
+                 :architecture-runtime-boundary
+                 :runtime-config
+                 :javascript]
+          :base-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
+          :fix-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
+          :ground-truth {:localization-files ["lib/adapters/http.js"
+                                               "tests/unit/adapters/http.test.js"]}
+          :expectations {:evidence [{:kind :env-var
+                                     :path "tests/unit/adapters/http.test.js"
+                                     :label "PROXY_PORT"}]}
+          :issue {:id "headline-axios-native-proxy-boundary"
+                  :url "local:headline/axios/native-proxy-boundary"
+                  :title "Locate the boundary between Node native proxy handling and Axios proxy rewriting"
+                  :body "Node can handle environment proxies natively. Identify the Axios adapter and tests that define the boundary between native proxy handling and Axios' own proxy rewriting. Return the files likely to need edits and cite environment-variable evidence."}}
+
+         {:id "headline-dapper-jsonb-test-stack"
+          :repo-id "dapper"
+          :coverage {:source-kinds [:dotnet :manifest :compose]}
+          :tags [:headline
+                 :synthetic
+                 :problem-architecture
+                 :architecture-dependency-flow
+                 :runtime-config
+                 :database
+                 :dotnet
+                 :container]
+          :base-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
+          :fix-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
+          :ground-truth {:localization-files ["Dapper/SqlMapper.cs"
+                                               "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                               "tests/docker-compose.yml"]}
+          :expectations {:evidence [{:kind :container-image-consumer
+                                     :path "tests/docker-compose.yml"
+                                     :label "postgres:alpine"}
+                                    {:kind :env-var
+                                     :path "tests/docker-compose.yml"
+                                     :label "POSTGRES_DB"}]
+                         :nodes [{:kind :external-package
+                                  :path "tests/Dapper.Tests/Dapper.Tests.csproj"
+                                  :label "nuget:Npgsql"}]
+                         :edges [{:relation :shares-config
+                                  :source-id "system:headline-architecture-headline-dapper-jsonb-test-stack:dapper:path/tests"
+                                  :target-id "system:headline-architecture-headline-dapper-jsonb-test-stack:dapper:path/tests/Dapper.Tests"}]}
+          :issue {:id "headline-dapper-jsonb-test-stack"
+                  :url "local:headline/dapper/jsonb-test-stack"
+                  :title "Trace the PostgreSQL JSONB test stack through Dapper type handling"
+                  :body "A regression around querying PostgreSQL jsonb values as strings needs an architecture pass before editing. Identify how the PostgreSQL test container, Npgsql test dependency, Dapper core type handling, and type-handler regression tests connect. Return only files likely to need edits or test/runtime setup changes, and cite dependency or container evidence."}}]}
