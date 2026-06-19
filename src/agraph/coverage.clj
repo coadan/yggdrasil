@@ -196,6 +196,22 @@
                      (:stage row)]))
          vec)))
 
+(defn- context-diagnostic-samples
+  [files diagnostics]
+  (let [file-by-id (into {} (map (juxt :xt/id identity)) files)]
+    (->> diagnostics
+         (sort-by (juxt :file-id :source-line :stage :message))
+         (take 12)
+         (mapv (fn [diagnostic]
+                 (let [file (get file-by-id (:file-id diagnostic))]
+                   (cond-> (select-keys diagnostic
+                                        [:file-id
+                                         :stage
+                                         :message
+                                         :source-line])
+                     (:path file) (assoc :path (:path file))
+                     (:kind file) (assoc :kind (display-value (:kind file))))))))))
+
 (defn context-summary
   "Return compact indexed source coverage for context packets.
 
@@ -217,7 +233,8 @@
      :diagnostics {:byStage (vec (take 8 (count-rows :stage :stage diagnostics)))
                    :byExtractor (vec (take 8 (context-diagnostic-extractor-rows
                                               files
-                                              diagnostics)))}}))
+                                              diagnostics)))
+                   :samples (context-diagnostic-samples files diagnostics)}}))
 
 (defn- indexed-extractor-fingerprint-summary
   [xtdb project-id]

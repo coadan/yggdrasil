@@ -124,9 +124,11 @@ generated output root.
   kinds so benchmark misses can be debugged from the same artifact the agent
   saw. Hints flatten context drilldowns and `answerability.next` into
   `commands` so agents see bounded follow-up checks without inspecting nested
-  context JSON. Use `--timeout-ms <n>` to bound long-running agents. Use
-  `--skip-existing` to resume interrupted agent runs with the same current-score
-  matching rules as `agent-baseline`.
+  context JSON. `sourceCoverage.diagnostics.samples` carries a bounded set of
+  file/stage/message rows for indexed extraction diagnostics so agents can jump
+  straight to concrete parser or extractor failures. Use `--timeout-ms <n>` to
+  bound long-running agents. Use `--skip-existing` to resume interrupted agent
+  runs with the same current-score matching rules as `agent-baseline`.
 - `bench agent-score <suite.edn> --case <case-id> --result result.json` scores
   one agent result JSON against hidden ground truth.
 - `bench agent-report <suite.edn>` aggregates existing agent score artifacts

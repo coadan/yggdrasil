@@ -58,11 +58,14 @@
                                      :project-id "fixture"
                                      :repo-id "app"
                                      :stage :parse
+                                     :message "parser failed"
+                                     :source-line 12
                                      :active? true}
                                     {:file-id "file:missing"
                                      :project-id "fixture"
                                      :repo-id "app"
                                      :stage :extract
+                                     :message "missing file row"
                                      :active? true}
                                     {:file-id "file:other"
                                      :project-id "other"
@@ -116,7 +119,17 @@
                :extractorVersion "unknown"
                :stage "extract"
                :count 1}]
-             (get-in summary [:diagnostics :byExtractor]))))))
+             (get-in summary [:diagnostics :byExtractor])))
+      (is (= [{:file-id "file:missing"
+               :stage :extract
+               :message "missing file row"}
+              {:file-id "file:service"
+               :stage :parse
+               :message "parser failed"
+               :source-line 12
+               :path "src/Service.java"
+               :kind "java"}]
+             (get-in summary [:diagnostics :samples]))))))
 
 (deftest project-coverage-reports-indexed-extractor-fingerprints
   (let [root (temp-dir "agraph-coverage-fingerprints")]
