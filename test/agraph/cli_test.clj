@@ -1625,6 +1625,17 @@
                                                                   :count 1
                                                                   :samples [{:repo-id "app"
                                                                              :path "web/widget.wasm"}]}]
+                                             :indexedConnectivity {:indexedFiles 1
+                                                                   :nodes 2
+                                                                   :edges 1
+                                                                   :connectedFiles 1
+                                                                   :crossFileConnectedFiles 0
+                                                                   :isolatedFiles 0
+                                                                   :byKind [{:kind "clojure"
+                                                                             :indexedFiles 1
+                                                                             :connectedFiles 1
+                                                                             :crossFileConnectedFiles 0
+                                                                             :isolatedFiles 0}]}
                                              :extractors []
                                              :diagnostics {:total 0}
                                              :repos []})]
@@ -1640,7 +1651,13 @@
       (is (str/includes? plain-out
                          "- .wasm 1 samples app:web/widget.wasm"))
       (is (str/includes? plain-out
-                         "- unsupported-extension 1 samples app:web/widget.wasm")))))
+                         "- unsupported-extension 1 samples app:web/widget.wasm"))
+      (is (str/includes? plain-out
+                         "- indexed-connectivity indexed=1 nodes=2 edges=1 connected=1 cross-file=0 isolated=0"))
+      (is (str/includes? plain-out
+                         "## Connectivity By Kind"))
+      (is (str/includes? plain-out
+                         "- clojure indexed=1 connected=1 cross-file=0 isolated=0")))))
 
 (deftest audit-scope-command-returns-core-scope-report
   (with-redefs [project/read-project (constantly project-fixture)

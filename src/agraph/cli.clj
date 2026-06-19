@@ -563,7 +563,7 @@
 
 (defn- print-source-coverage
   [{:keys [project-id totals files-by-kind skipped-by-extension skipped-by-reason
-           extractors diagnostics repos]}]
+           extractors diagnostics indexedConnectivity repos]}]
   (println "# Source Coverage")
   (println "- project" project-id)
   (println "- repos" (count repos))
@@ -571,9 +571,27 @@
   (println "- supported" (:supported totals))
   (println "- skipped" (:skipped totals))
   (println "- diagnostics" (:total diagnostics))
+  (when indexedConnectivity
+    (println "- indexed-connectivity"
+             (str "indexed=" (:indexedFiles indexedConnectivity 0))
+             (str "nodes=" (:nodes indexedConnectivity 0))
+             (str "edges=" (:edges indexedConnectivity 0))
+             (str "connected=" (:connectedFiles indexedConnectivity 0))
+             (str "cross-file=" (:crossFileConnectedFiles indexedConnectivity 0))
+             (str "isolated=" (:isolatedFiles indexedConnectivity 0))))
   (print-count-rows "## Files By Kind" :kind files-by-kind)
   (print-count-rows "## Skipped By Extension" :ext skipped-by-extension)
   (print-count-rows "## Skipped By Reason" :reason skipped-by-reason)
+  (when (seq (:byKind indexedConnectivity))
+    (println)
+    (println "## Connectivity By Kind")
+    (doseq [{:keys [kind indexedFiles connectedFiles crossFileConnectedFiles
+                    isolatedFiles]} (:byKind indexedConnectivity)]
+      (println "-" kind
+               (str "indexed=" (or indexedFiles 0))
+               (str "connected=" (or connectedFiles 0))
+               (str "cross-file=" (or crossFileConnectedFiles 0))
+               (str "isolated=" (or isolatedFiles 0)))))
   (when (seq extractors)
     (println)
     (println "## Extractors")
