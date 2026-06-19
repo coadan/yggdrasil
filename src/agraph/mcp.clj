@@ -142,6 +142,12 @@
                    :limit {:type "integer"
                            :minimum 1}}
                   [])}
+   {:name "agraph_work_show"
+    :description "Return one filesystem queue work item without changing its state."
+    :inputSchema (json-schema
+                  {:queueDir {:type "string"}
+                   :workId {:type "string"}}
+                  ["workId"])}
    {:name "agraph_work_pull"
     :description "Claim one ready filesystem queue item for an agent."
     :inputSchema (json-schema
@@ -350,6 +356,16 @@
                          :kind (:kind args)
                          :limit (:limit args)})))
 
+(defn- work-show
+  [ctx args]
+  (let [root (or (:queueDir args) (:queue-dir ctx))
+        work-id (require-string! args :workId "agraph_work_show requires workId.")]
+    (if-let [found (queue/find-item root work-id)]
+      (assoc (queue/item-summary found) :item (:item found))
+      {:schema "agraph.queue.error/v1"
+       :error "sync work item not found"
+       :id work-id})))
+
 (defn- work-pull
   [ctx args]
   (let [root (or (:queueDir args) (:queue-dir ctx))
@@ -416,6 +432,7 @@
     "agraph_sync_inspect" (sync-inspect ctx args)
     "agraph_sync_check" (sync-check ctx args)
     "agraph_work_list" (work-list ctx args)
+    "agraph_work_show" (work-show ctx args)
     "agraph_work_pull" (work-pull ctx args)
     "agraph_work_heartbeat" (work-heartbeat ctx args)
     "agraph_work_complete" (work-complete ctx args)

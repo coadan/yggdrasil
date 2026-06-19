@@ -60,6 +60,7 @@
             "agraph_sync_inspect"
             "agraph_sync_check"
             "agraph_work_list"
+            "agraph_work_show"
             "agraph_work_pull"
             "agraph_work_heartbeat"
             "agraph_work_complete"
@@ -78,6 +79,8 @@
            (get-in schemas ["agraph_explore_docs" :required])))
     (is (= ["cursorId" "query"]
            (get-in schemas ["agraph_explore_search" :required])))
+    (is (= ["workId"]
+           (get-in schemas ["agraph_work_show" :required])))
     (is (= ["workId"]
            (get-in schemas ["agraph_work_heartbeat" :required])))
     (is (= ["workId" "result"]
@@ -222,6 +225,38 @@
     (is (= "ready" (get-in (queue/find-item root (:id first-item))
                            [:item :status])))))
 
+(deftest work-show-returns-summary-and-embedded-item
+  (let [root (temp-dir "agraph-mcp-queue-show")
+        payload {:schema context/schema
+                 :project-id "fixture"
+                 :query "where auth"}
+        item (queue/enqueue! payload {:root root
+                                      :kind "context"
+                                      :project-id "fixture"})
+        response (mcp/handle-message
+                  (mcp/server-context [])
+                  (tool-call 14
+                             "agraph_work_show"
+                             {:queueDir root
+                              :workId (:id (:item item))}))
+        shown (get-in response [:result :structuredContent])]
+    (is (= queue/summary-schema (:schema shown)))
+    (is (= (:id (:item item)) (:id shown)))
+    (is (= "ready" (:status shown)))
+    (is (= payload (get-in shown [:item :payload])))))
+
+(deftest work-show-returns-queue-error-for-missing-item
+  (let [response (mcp/handle-message
+                  (mcp/server-context [])
+                  (tool-call 15
+                             "agraph_work_show"
+                             {:queueDir (temp-dir "agraph-mcp-queue-show-missing")
+                              :workId "queue:missing"}))
+        shown (get-in response [:result :structuredContent])]
+    (is (= "agraph.queue.error/v1" (:schema shown)))
+    (is (= "sync work item not found" (:error shown)))
+    (is (= "queue:missing" (:id shown)))))
+
 (deftest work-pull-claims-ready-queue-item
   (let [root (temp-dir "agraph-mcp-queue")
         payload {:schema context/schema
@@ -231,7 +266,7 @@
                                       :project-id "fixture"})
         response (mcp/handle-message
                   (mcp/server-context [])
-                  (tool-call 14
+                  (tool-call 16
                              "agraph_work_pull"
                              {:queueDir root
                               :projectId "fixture"
@@ -254,7 +289,7 @@
                                    :lease-ms 1000})
         response (mcp/handle-message
                   (mcp/server-context [])
-                  (tool-call 15
+                  (tool-call 17
                              "agraph_work_heartbeat"
                              {:queueDir root
                               :workId item-id
@@ -278,7 +313,7 @@
                                    :project-id "fixture"})
         response (mcp/handle-message
                   (mcp/server-context [])
-                  (tool-call 16
+                  (tool-call 18
                              "agraph_work_release"
                              {:queueDir root
                               :workId item-id
@@ -300,7 +335,7 @@
                         [:item :id])
         response (mcp/handle-message
                   (mcp/server-context [])
-                  (tool-call 17
+                  (tool-call 19
                              "agraph_work_reject"
                              {:queueDir root
                               :workId item-id
