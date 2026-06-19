@@ -1,6 +1,5 @@
 (ns agraph.benchmark-agent-test
   (:require [agraph.benchmark :as benchmark]
-            [agraph.benchmark-progress :as benchmark-progress]
             [agraph.benchmark-test-support :refer [commit! git! sh! spit-file! spit-json! temp-dir]]
             [agraph.context :as context]
             [agraph.extract :as extract]
@@ -692,7 +691,13 @@
         packet {:query "bug report app"
                 :sourceCoverage {:schema "agraph.source-coverage.context/v1"
                                  :totals {:indexedFiles 2
-                                          :diagnostics 2}}
+                                          :diagnostics 2}
+                                 :indexedConnectivity {:indexedFiles 2
+                                                       :nodes 1
+                                                       :edges 0
+                                                       :connectedFiles 0
+                                                       :crossFileConnectedFiles 0
+                                                       :isolatedFiles 2}}
                 :docs [{:source {:path ".github/ISSUE_TEMPLATE/bug_report.md"
                                  :heading "bug report"}
                         :score 10.0
@@ -728,7 +733,13 @@
             {:kind "source-extraction-diagnostics"
              :severity "warning"
              :message "Indexed source coverage contains extraction diagnostics; inspect sourceCoverage.diagnostics.samples."
-             :diagnostics 2}]
+             :diagnostics 2}
+            {:kind "isolated-indexed-files"
+             :severity "info"
+             :message "Indexed source coverage contains files without active graph edges; inspect sourceCoverage.indexedConnectivity."
+             :isolatedFiles 2
+             :connectedFiles 0
+             :crossFileConnectedFiles 0}]
            (:diagnostics hints)))
     (is (not (contains? hints :groundTruth)))
     (is (not (contains? hints :inputHints)))))

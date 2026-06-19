@@ -79,7 +79,9 @@
         source-diagnostics (long (or (get-in packet [:sourceCoverage
                                                      :totals
                                                      :diagnostics])
-                                     0))]
+                                     0))
+        connectivity (get-in packet [:sourceCoverage :indexedConnectivity])
+        isolated-files (long (or (:isolatedFiles connectivity) 0))]
     (cond-> []
       (zero? raw-candidates)
       (conj {:kind "zero-candidate-files"
@@ -105,7 +107,16 @@
       (conj {:kind "source-extraction-diagnostics"
              :severity "warning"
              :message "Indexed source coverage contains extraction diagnostics; inspect sourceCoverage.diagnostics.samples."
-             :diagnostics source-diagnostics}))))
+             :diagnostics source-diagnostics})
+
+      (pos? isolated-files)
+      (conj {:kind "isolated-indexed-files"
+             :severity "info"
+             :message "Indexed source coverage contains files without active graph edges; inspect sourceCoverage.indexedConnectivity."
+             :isolatedFiles isolated-files
+             :connectedFiles (long (or (:connectedFiles connectivity) 0))
+             :crossFileConnectedFiles (long (or (:crossFileConnectedFiles connectivity)
+                                                0))}))))
 (defn context-packet->agent-hints
   "Return a compact agent-facing summary of one AGraph context packet.
 
