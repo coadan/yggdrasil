@@ -274,9 +274,9 @@
                                      "--file-kind"
                                      "htmx"
                                      "--path-glob"
-                                     "templates/**/*.html"
+                                     "templates/*.html"
                                      "--scan-glob"
-                                     "templates/**/*.html"
+                                     "templates/*.html"
                                      "--fixture"
                                      "fixtures/sample.html"
                                      "--extractor"]))]
@@ -339,8 +339,8 @@
                                          :report? false
                                          :force? false
                                          :file-kind "htmx"
-                                         :path-globs "templates/**/*.html"
-                                         :scan-globs "templates/**/*.html"
+                                         :path-globs "templates/*.html"
+                                         :scan-globs "templates/*.html"
                                          :fixture-path "fixtures/sample.html"}]
               [:validate ".dev/plugins/demo"]
               [:diagnose ".dev/plugins/demo"]

@@ -84,8 +84,8 @@ bb plugin new .dev/agraph/plugins/htmx \
   --id htmx \
   --extractor \
   --file-kind htmx \
-  --path-glob 'templates/**/*.html' \
-  --scan-glob 'templates/**/*.html' \
+  --path-glob 'templates/*.html' \
+  --scan-glob 'templates/*.html' \
   --fixture fixtures/sample.html
 ```
 

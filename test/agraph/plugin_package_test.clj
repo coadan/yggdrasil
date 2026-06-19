@@ -316,34 +316,49 @@
 (deftest scaffolds-unsupported-file-family-extractor-options
   (let [workspace (temp-dir "agraph-plugin-unsupported-file-family")
         package-dir (io/file workspace "plugins" "htmx")
+        repo-root (io/file workspace "repo")
+        template-dir (io/file repo-root "templates")
         created (plugin-package/new! (.getPath package-dir)
                                      {:id "htmx-plugin"
                                       :extractor? true
                                       :file-kind "htmx"
-                                      :path-globs "templates/**/*.html,resources/**/*.html"
-                                      :scan-globs "templates/**/*.html"
+                                      :path-globs "templates/*.html,resources/**/*.html"
+                                      :scan-globs "templates/*.html"
                                       :fixture-path "fixtures/sample.html"})
         manifest (edn/read-string
                   (slurp (io/file package-dir plugin-package/manifest-filename)))
         validation (plugin-package/validate-local (.getPath package-dir))
         extractor (first (:extractor-plugins validation))]
+    (.mkdirs template-dir)
+    (spit (io/file template-dir "page.html") "<button hx-post=\"/save\">Save</button>\n")
     (is (= :htmx (:file-kind created)))
-    (is (= ["templates/**/*.html" "resources/**/*.html"] (:path-globs created)))
-    (is (= ["templates/**/*.html"] (:scan-globs created)))
+    (is (= ["templates/*.html" "resources/**/*.html"] (:path-globs created)))
+    (is (= ["templates/*.html"] (:scan-globs created)))
     (is (= "fixtures/sample.html" (:fixture-path created)))
     (is (.exists (io/file package-dir "fixtures" "sample.html")))
     (is (str/includes? (slurp (io/file package-dir "fixtures" "sample.html"))
                        "Sample htmx fixture"))
     (is (= [:htmx]
            (get-in manifest [:extractor-plugins 0 :applies-to :file-kinds])))
-    (is (= ["templates/**/*.html" "resources/**/*.html"]
+    (is (= ["templates/*.html" "resources/**/*.html"]
            (get-in manifest [:extractor-plugins 0 :applies-to :path-globs])))
-    (is (= {:path-globs ["templates/**/*.html"]
+    (is (= {:path-globs ["templates/*.html"]
             :file-kind :htmx}
            (get-in manifest [:extractor-plugins 0 :scan])))
     (is (= :warning (:status validation)))
     (is (= #{:enhance :scan} (:modes extractor)))
-    (is (= :htmx (get-in extractor [:scan :file-kind])))))
+    (is (= :htmx (get-in extractor [:scan :file-kind])))
+    (let [dry-run (plugin-package/dry-run-extractor
+                   (.getPath package-dir)
+                   (.getPath repo-root)
+                   "templates/page.html"
+                   {})]
+      (is (= :passed (:status dry-run)))
+      (is (= :htmx (get-in dry-run [:file :kind])))
+      (is (= true (get-in dry-run [:file :plugin-scanned?])))
+      (is (= ["htmx-plugin-extractor"] (get-in dry-run [:file :plugin-ids])))
+      (is (pos? (get-in dry-run [:enhanced-counts :file-facts])))
+      (is (pos? (get-in dry-run [:enhanced-counts :chunks]))))))
 
 (deftest dry-run-fails-when-package-has-no-plugin-for-selected-lane
   (let [workspace (temp-dir "agraph-plugin-empty-lane")
