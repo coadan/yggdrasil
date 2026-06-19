@@ -251,6 +251,13 @@ function firstCommandMatching(commands: string[], pattern: RegExp): string | und
   return commands.find((command) => pattern.test(command));
 }
 
+function enqueueWorkCommand(commands: string[]): string | undefined {
+  const explicit = firstCommandMatching(commands, /\bsync\s+.*--check\b.*--enqueue\b|\bsync\s+.*--enqueue\b.*--check\b/);
+  if (explicit) return explicit;
+  const check = firstCommandMatching(commands, /\bsync\s+.*--check\b/);
+  return check && !/\s--enqueue\b/.test(check) ? `${check} --enqueue` : check;
+}
+
 function reportActionCommands(report: AGraphReport): ReportActionCommand[] {
   const commands = report.commands || [];
   const rows = [
@@ -266,6 +273,13 @@ function reportActionCommands(report: AGraphReport): ReportActionCommand[] {
       description: "Run sync checks against the indexed graph basis before trusting stale rows.",
       command: firstCommandMatching(commands, /\bsync\s+.*--check/),
       targetTab: "evidence" as const
+    },
+    {
+      id: "enqueue-review-work",
+      label: "Enqueue review work",
+      description: "Turn current maintenance, dependency, and external review evidence into queue work items.",
+      command: enqueueWorkCommand(commands),
+      targetTab: "maintenance" as const
     },
     {
       id: "review-work-queue",

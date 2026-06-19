@@ -49,6 +49,8 @@ describe("ReportPage", () => {
     expect(screen.getByText("Refresh indexed graph basis")).toBeInTheDocument();
     expect(screen.getByText("Report Actions")).toBeInTheDocument();
     expect(screen.getByText("Regenerate report")).toBeInTheDocument();
+    expect(screen.getByText("Enqueue review work")).toBeInTheDocument();
+    expect(screen.getByText("agraph sync project.edn --check --map agraph.map.json --enqueue")).toBeInTheDocument();
     expect(screen.getByText("agraph report project.edn --map agraph.map.json --out agraph-out")).toBeInTheDocument();
     expect(screen.getByText("packages.unresolved-imports")).toBeInTheDocument();
     expect(screen.getAllByText("Evidence Rows").length).toBeGreaterThan(0);
@@ -60,6 +62,10 @@ describe("ReportPage", () => {
     expect(regenerateRow).toBeTruthy();
     fireEvent.click(within(regenerateRow as HTMLElement).getByRole("button", { name: "Copy command" }));
     expect(within(regenerateRow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    const enqueueRow = within(reportActions as HTMLElement).getByText("Enqueue review work").closest("article");
+    expect(enqueueRow).toBeTruthy();
+    fireEvent.click(within(enqueueRow as HTMLElement).getByRole("button", { name: "Copy command" }));
+    expect(within(enqueueRow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
     fireEvent.click(within(regenerateRow as HTMLElement).getByRole("button", { name: "Ask" }));
     expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
       "aria-current",
