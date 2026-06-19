@@ -10790,7 +10790,7 @@
 
 (defn- angular-route-label
   [path-value]
-  (let [path-value (str/trim (str path-value))]
+  (let [path-value (str/replace (str/trim (str path-value)) #"^/+" "")]
     (cond
       (str/blank? path-value) "/"
       (= "**" path-value) "/{...wildcard}"
@@ -10884,6 +10884,78 @@
                       :relation :imports})
                    imports)))))
        (angular-route-blocks content))))))
+
+(defn- ember-router-source?
+  [content]
+  (and (re-find #"(?m)^\s*import\s+.+\s+from\s+['\"]@ember/routing/router['\"]" content)
+       (re-find #"(?m)\bRouter\.map\s*\(" content)
+       (re-find #"(?m)\bthis\.route\s*\(" content)))
+
+(defn- ember-config-source?
+  [content]
+  (and (re-find #"(?m)\bmodulePrefix\s*:" content)
+       (re-find #"(?m)\brootURL\s*:" content)
+       (re-find #"(?m)\blocationType\s*:" content)))
+
+(defn- ember-route-facts
+  [content path]
+  (when (ember-router-source? content)
+    (let [lines (str/split-lines content)]
+      (vec
+       (concat
+        [{:kind :web-framework
+          :label "ember"
+          :source-line 1
+          :relation :defines}]
+        (->> lines
+             (map-indexed vector)
+             (keep
+              (fn [[idx line]]
+                (when-let [[_ route-name path-option]
+                           (re-find #"\bthis\.route\s*\(\s*['\"]([^'\"]+)['\"](?:\s*,\s*\{[^}]*\bpath\s*:\s*['\"]([^'\"]+)['\"])?"
+                                    line)]
+                  {:kind :web-framework-route
+                   :label (angular-route-label (or path-option route-name))
+                   :source-line (inc idx)
+                   :relation :defines})))
+             distinct)
+        (->> lines
+             (map-indexed #(js-import-targets %1 path %2))
+             (mapcat identity)
+             (map (fn [{:keys [target source-line]}]
+                    {:kind :web-framework-import
+                     :label target
+                     :source-line source-line
+                     :relation :imports}))
+             distinct))))))
+
+(defn- ember-config-facts
+  [content]
+  (when (ember-config-source? content)
+    (vec
+     (concat
+      [{:kind :web-framework
+        :label "ember"
+        :source-line 1
+        :relation :defines}]
+      (map (fn [value]
+             {:kind :web-framework-project
+              :label value
+              :source-line 1
+              :relation :defines})
+           (docs-config-property-values content "modulePrefix"))
+      (map (fn [value]
+             {:kind :web-framework-route
+              :label value
+              :source-line 1
+              :relation :references})
+           (docs-config-property-values content "rootURL"))
+      (map (fn [value]
+             {:kind :web-framework-setting
+              :label (str "locationType:" value)
+              :source-line 1
+              :relation :defines})
+           (docs-config-property-values content "locationType"))))))
 
 (defn- web-route-info
   [path]
@@ -11001,6 +11073,8 @@
   (cond
     (web-route-info path) (web-route-facts file)
     (angular-router-source? content) (angular-route-facts content path)
+    (ember-router-source? content) (ember-route-facts content path)
+    (ember-config-source? content) (ember-config-facts content)
     :else (web-config-facts file)))
 
 (defn- web-framework-base-kind
@@ -11016,7 +11090,9 @@
 (defn- web-framework-base-result
   [run-id {:keys [path content] :as file}]
   (when (or (web-route-info path)
-            (angular-router-source? content))
+            (angular-router-source? content)
+            (ember-router-source? content)
+            (ember-config-source? content))
     (case (web-framework-base-kind path)
       :typescript (extract-js-family run-id (assoc file :kind :typescript))
       :javascript (extract-js-family run-id (assoc file :kind :javascript))

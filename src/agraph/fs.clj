@@ -618,10 +618,16 @@
   [path-kind file]
   (when (contains? #{:javascript :typescript} path-kind)
     (let [content (text-file-prefix file)]
-      (when (and (re-find #"(?m)^\s*import\s+\{?[^;\n]*\bRoutes\b[^;\n]*\}?\s+from\s+['\"]@angular/router['\"]" content)
-                 (or (re-find #"(?m)\bRoutes\s*=" content)
-                     (re-find #"(?m)\bprovideRouter\s*\(" content))
-                 (re-find #"(?m)\bpath\s*:\s*['\"]" content))
+      (when (or (and (re-find #"(?m)^\s*import\s+\{?[^;\n]*\bRoutes\b[^;\n]*\}?\s+from\s+['\"]@angular/router['\"]" content)
+                     (or (re-find #"(?m)\bRoutes\s*=" content)
+                         (re-find #"(?m)\bprovideRouter\s*\(" content))
+                     (re-find #"(?m)\bpath\s*:\s*['\"]" content))
+                (and (re-find #"(?m)^\s*import\s+.+\s+from\s+['\"]@ember/routing/router['\"]" content)
+                     (re-find #"(?m)\bRouter\.map\s*\(" content)
+                     (re-find #"(?m)\bthis\.route\s*\(" content))
+                (and (re-find #"(?m)\bmodulePrefix\s*:" content)
+                     (re-find #"(?m)\brootURL\s*:" content)
+                     (re-find #"(?m)\blocationType\s*:" content)))
         :web-framework))))
 
 (defn- dbt-content-kind

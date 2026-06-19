@@ -190,6 +190,8 @@
   (is (watch/watchable-path? "web-frameworks/remix/remix.config.mjs"))
   (is (watch/watchable-path? "web-frameworks/remix/app/routes/_index.tsx"))
   (is (watch/watchable-path? "web-frameworks/remix/app/routes/panels.$id.tsx"))
+  (is (watch/watchable-path? "web-frameworks/ember/app/router.js"))
+  (is (watch/watchable-path? "web-frameworks/ember/config/environment.js"))
   (is (watch/watchable-path? "web-frameworks/vite/vite.config.ts"))
   (is (watch/watchable-path? "workflows/airflow/panel_dag.py"))
   (is (watch/watchable-path? "workflows/dagster/assets.py"))

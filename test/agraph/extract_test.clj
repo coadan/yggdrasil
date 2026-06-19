@@ -3638,6 +3638,8 @@
         remix-config (result-for "web-frameworks/remix/remix.config.mjs")
         remix-index (result-for "web-frameworks/remix/app/routes/_index.tsx")
         remix-panel (result-for "web-frameworks/remix/app/routes/panels.$id.tsx")
+        ember-router (result-for "web-frameworks/ember/app/router.js")
+        ember-config (result-for "web-frameworks/ember/config/environment.js")
         vite-config (result-for "web-frameworks/vite/vite.config.ts")]
     (doseq [path ["web-frameworks/next/next.config.mjs"
                   "web-frameworks/next/app/page.tsx"
@@ -3654,6 +3656,8 @@
                   "web-frameworks/remix/remix.config.mjs"
                   "web-frameworks/remix/app/routes/_index.tsx"
                   "web-frameworks/remix/app/routes/panels.$id.tsx"
+                  "web-frameworks/ember/app/router.js"
+                  "web-frameworks/ember/config/environment.js"
                   "web-frameworks/vite/vite.config.ts"]]
       (is (= :web-framework (kind-for path))))
     (is (contains? (labels next-config) "next"))
@@ -3700,6 +3704,14 @@
     (is (contains? (labels remix-panel) "/panels/{id}:route-module"))
     (is (contains? (labels remix-panel) "/panels/{id}:loader"))
     (is (contains? (labels remix-panel) "/panels/{id}:action"))
+    (is (contains? (labels ember-router) "ember"))
+    (is (contains? (labels ember-router) "/panels"))
+    (is (contains? (labels ember-router) "/panels/{id}"))
+    (is (contains? (labels ember-router) "@ember/routing/router"))
+    (is (contains? (labels ember-config) "ember"))
+    (is (contains? (labels ember-config) "panels-web"))
+    (is (contains? (labels ember-config) "/"))
+    (is (contains? (labels ember-config) "locationType:history"))
     (is (contains? (labels vite-config) "vite"))
     (is (contains? (labels vite-config) "@vitejs/plugin-react"))
     (is (contains? (labels vite-config) "/vite-panels"))
@@ -3713,11 +3725,14 @@
     (is (= 1 (:web-framework-route-redirect (kinds angular-routes))))
     (is (= 1 (:web-framework-loader (kinds remix-index))))
     (is (= 1 (:web-framework-action (kinds remix-panel))))
+    (is (= 2 (:web-framework-route (kinds ember-router))))
+    (is (= 1 (:web-framework-setting (kinds ember-config))))
     (is (pos? (get (relations next-panel) :imports 0)))
     (is (pos? (get (relations angular-config) :uses 0)))
     (is (pos? (get (relations angular-routes) :imports 0)))
     (is (some #(= :typescript-file (:kind %)) (:chunks next-panel)))
     (is (some #(= :typescript-file (:kind %)) (:chunks angular-routes)))
+    (is (some #(= :javascript-file (:kind %)) (:chunks ember-router)))
     (is (some #(= :web-framework-file (:kind %)) (:chunks next-panel)))
     (is (some #(= :web-framework-file (:kind %)) (:chunks remix-panel)))
     (is (some #(= :astro-file (:kind %)) (:chunks astro-panel)))))
