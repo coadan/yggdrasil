@@ -1324,10 +1324,37 @@
     (when (architecture-supported? section)
       section)))
 
+(defn- system-summary-row
+  [system]
+  (select-keys system [:id
+                       :label
+                       :kind
+                       :status
+                       :basis
+                       :repo
+                       :path
+                       :pathPrefix
+                       :score
+                       :why
+                       :reason]))
+
+(defn- systems-section
+  [architecture]
+  (let [accepted-systems (:acceptedSystems architecture)
+        candidate-systems (:candidateSystems architecture)
+        accepted (mapv system-summary-row (take 6 accepted-systems))
+        candidates (mapv system-summary-row (take 6 candidate-systems))]
+    (when (or (seq accepted) (seq candidates))
+      {:basis (:basis architecture)
+       :accepted accepted
+       :candidates candidates
+       :counts {:accepted (count accepted-systems)
+                :candidates (count candidate-systems)}})))
+
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns answerability
-   search-instrumentation freshness source-coverage architecture audit-scopes relationships
-   blast-radius candidate-files]
+   search-instrumentation freshness source-coverage architecture systems audit-scopes
+   relationships blast-radius candidate-files]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data)
@@ -1343,6 +1370,7 @@
     search-instrumentation (assoc :search search-instrumentation)
     freshness (assoc :freshness freshness)
     architecture (assoc :architecture architecture)
+    systems (assoc :systems systems)
     (seq audit-scopes) (assoc :auditScopes audit-scopes)
     (seq relationships) (assoc :relationships relationships)
     blast-radius (assoc :blastRadius blast-radius)
@@ -1466,6 +1494,19 @@
     (update packet :architecture compact-architecture)
     packet))
 
+(defn- compact-systems
+  [systems]
+  (when systems
+    (-> systems
+        (update :accepted #(vec (take 4 %)))
+        (update :candidates #(vec (take 4 %))))))
+
+(defn- compact-systems-in-packet
+  [packet]
+  (if (contains? packet :systems)
+    (update packet :systems compact-systems)
+    packet))
+
 (defn- compact-audit-scope
   [scope]
   (cond-> (select-keys scope [:kind :basis :facts :files])
@@ -1523,6 +1564,7 @@
                     compact-source-coverage-in-packet
                     #(dissoc % :sourceCoverage)
                     compact-architecture-in-packet
+                    compact-systems-in-packet
                     compact-audit-scopes-in-packet
                     compact-relationships-in-packet
                     compact-blast-radius-in-packet
@@ -1533,6 +1575,7 @@
                     #(dissoc % :blastRadius)
                     #(dissoc % :auditScopes)
                     #(dissoc % :architecture)
+                    #(dissoc % :systems)
                     #(assoc % :warnings [])
                     #(assoc % :drilldowns [])]]
     (reduce (fn [packet trim-step]
@@ -1567,6 +1610,7 @@
                compact-source-coverage-in-packet
                #(dissoc % :sourceCoverage)
                compact-architecture-in-packet
+               compact-systems-in-packet
                compact-audit-scopes-in-packet
                compact-relationships-in-packet
                compact-blast-radius-in-packet
@@ -1578,6 +1622,7 @@
                #(dissoc % :blastRadius)
                #(dissoc % :auditScopes)
                #(dissoc % :architecture)
+               #(dissoc % :systems)
                #(assoc % :warnings [])
                #(assoc % :drilldowns [])
                #(assoc % :activity [])
@@ -2246,6 +2291,7 @@
                                             :docs docs
                                             :activity activity
                                             :answerability answerability})
+        systems (systems-section architecture)
         audit-scopes (audit-scope/selected-summaries
                       {:boundary-evidence (:boundaryEvidence architecture)
                        :runtime-evidence (:runtimeEvidence architecture)
@@ -2265,6 +2311,7 @@
                              freshness
                              source-coverage
                              architecture
+                             systems
                              audit-scopes
                              (relationship-groups edges)
                              blast-radius

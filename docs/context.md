@@ -22,6 +22,12 @@ The packet schema is `agraph.context/v1`:
     "downstream": {"count": 0, "targets": []},
     "upstream": {"count": 0, "targets": []}
   },
+  "systems": {
+    "basis": "mechanical-plus-map",
+    "accepted": [],
+    "candidates": [],
+    "counts": {"accepted": 0, "candidates": 0}
+  },
   "activity": [],
   "docs": [],
   "sourceCoverage": {
@@ -188,6 +194,11 @@ selected entities. Edges whose source and target are both selected are omitted
 from `blastRadius` because they describe the selected work area itself. This is
 not semantic impact analysis; it is a bounded neighbor list for follow-up
 inspection.
+
+`systems` is a compact top-level orientation summary derived from the same
+accepted and candidate rows emitted under `architecture`. It keeps ids, labels,
+mechanical basis, repo/path hints, scores, and short reasons, while leaving
+bulky audit details such as includes and evidence ids in `architecture`.
 
 ## Architecture Evidence
 

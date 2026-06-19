@@ -432,6 +432,24 @@
     (is (= 4 (count (get-in compact [:blastRadius :downstream :targets]))))
     (is (= 4 (count (get-in compact [:blastRadius :upstream :targets]))))))
 
+(deftest compact-systems-keeps-bounded-orientation
+  (let [packet {:systems {:basis "mechanical-plus-map"
+                          :accepted (mapv (fn [idx]
+                                            {:id (str "system:a" idx)})
+                                          (range 6))
+                          :candidates (mapv (fn [idx]
+                                              {:id (str "system:c" idx)})
+                                            (range 6))
+                          :counts {:accepted 6
+                                   :candidates 6}}}
+        compact (#'context/compact-systems-in-packet packet)]
+    (is (= "mechanical-plus-map" (get-in compact [:systems :basis])))
+    (is (= {:accepted 6
+            :candidates 6}
+           (get-in compact [:systems :counts])))
+    (is (= 4 (count (get-in compact [:systems :accepted]))))
+    (is (= 4 (count (get-in compact [:systems :candidates]))))))
+
 (deftest compact-snippets-keeps-bounded-files-and-items
   (let [packet {:snippets (mapv (fn [file-idx]
                                   {:path (str "src/file_" file-idx ".clj")
@@ -1469,6 +1487,25 @@
                                                         :path "src/billing"}]}]}})
           architecture (:architecture packet)]
       (is (= "mechanical-plus-map" (:basis architecture)))
+      (is (= {:basis "mechanical-plus-map"
+              :accepted [{:id "system:billing"
+                          :label "Billing"
+                          :kind "service"
+                          :status "accepted"
+                          :repo "app"
+                          :pathPrefix "src/billing"}]
+              :candidates [{:id "system:worker"
+                            :label "Worker"
+                            :kind "candidate-system"
+                            :status "candidate"
+                            :basis "system-graph"
+                            :repo "app"
+                            :pathPrefix "src/worker"
+                            :score 1.08125
+                            :why "retrieval and graph match"}]
+              :counts {:accepted 1
+                       :candidates 1}}
+             (:systems packet)))
       (is (= ["system:billing"]
              (mapv :id (:acceptedSystems architecture))))
       (is (= [{:id "system:worker"
