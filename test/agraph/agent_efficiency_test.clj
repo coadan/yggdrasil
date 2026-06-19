@@ -284,6 +284,7 @@
                           :outputTokens 1500
                           :costUsd 0.35})
         comparison (agent-efficiency/compare-reports shell agraph)
+        markdown (agent-efficiency/markdown-report comparison)
         deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))
         categories-by-key (into {} (map (juxt :category identity)) (:byCategory comparison))]
     (is (= {:shellOnly 12000.0
@@ -307,7 +308,9 @@
             :regressedMetrics 0
             :unchangedMetrics 0
             :unavailableMetrics 0}
-           (get-in categories-by-key ["token-cost" :summary])))))
+           (get-in categories-by-key ["token-cost" :summary])))
+    (is (.contains markdown "- totalTokens: improved (shell: 12000.0, agraph: 7000.0, delta: -5000.0)"))
+    (is (.contains markdown "- costUsd: improved (shell: 0.6, agraph: 0.35, delta: -0.25)"))))
 
 (deftest compares-shell-only-and-agraph-by-tag-groups
   (let [shell (assoc shell-report
