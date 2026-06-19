@@ -225,6 +225,14 @@ answer is backed by code, config, deployment evidence, dependency, docs, map
 correction, or maintenance evidence without classifying architecture from path
 names or prose.
 
+`architecture.validationGaps` also reports graph-basis freshness when the
+packet freshness status is `stale`, `partial`, `unknown`, or `unsynced`. These
+rows use `plane: "graph-basis"` and include bounded freshness counts and
+warnings when available. Matching freshness repair commands are included in
+`architecture.nextActions`, and freshness warnings are surfaced in
+`architecture.warnings` before answerability warnings so agents see basis
+problems before trusting missing architecture evidence.
+
 ## Doc Attachments
 
 Docs are indexed as Markdown heading chunks with source lines, end lines,
