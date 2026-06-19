@@ -1,5 +1,6 @@
 (ns agraph.benchmark-report-test
   (:require [agraph.benchmark :as benchmark]
+            [agraph.benchmark-command-telemetry :as benchmark-command-telemetry]
             [agraph.benchmark-report :as benchmark-report]
             [agraph.benchmark-test-support :refer [spit-json! temp-dir]]
             [clojure.test :refer [deftest is]]))
@@ -683,6 +684,35 @@
             :fileReadSegmentCount 2
             :shellSegmentCount 1}
            (:commandTelemetry diagnostic)))))
+
+(deftest aggregate-command-telemetry-falls-back-to-command-counts-for-single-segment-runs
+  (let [summary (benchmark-command-telemetry/aggregate-command-telemetry
+                 [{:commandTelemetry {:commandCount 1
+                                      :agraphCommandCount 1
+                                      :searchCommandCount 0
+                                      :fileReadCommandCount 0
+                                      :shellCommandCount 0}}
+                  {:commandTelemetry {:commandCount 1
+                                      :agraphCommandCount 0
+                                      :searchCommandCount 1
+                                      :fileReadCommandCount 0
+                                      :shellCommandCount 0
+                                      :segmentCount 2
+                                      :agraphSegmentCount 0
+                                      :searchSegmentCount 1
+                                      :fileReadSegmentCount 1
+                                      :shellSegmentCount 0}}])]
+    (is (= {:commandCount 2
+            :agraphCommandCount 1
+            :searchCommandCount 1
+            :fileReadCommandCount 0
+            :shellCommandCount 0
+            :segmentCount 3
+            :agraphSegmentCount 1
+            :searchSegmentCount 1
+            :fileReadSegmentCount 1
+            :shellSegmentCount 0}
+           summary))))
 
 (deftest reports-problem-class-summaries
   (let [out (temp-dir "agraph-agent-report-problem-classes")

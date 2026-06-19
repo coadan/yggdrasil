@@ -680,6 +680,10 @@ given.
 - `agentDiagnostics.commandTelemetry`: aggregate counts derived from cited
   `commands`, including `commandCount`, `agraphCommandCount`,
   `searchCommandCount`, `fileReadCommandCount`, and `shellCommandCount`.
+  When a cited command contains multiple shell segments separated by pipes,
+  `&&`, `||`, or `;`, reports also include `segmentCount`,
+  `agraphSegmentCount`, `searchSegmentCount`, `fileReadSegmentCount`, and
+  `shellSegmentCount` so compound commands cannot hide extra search/read work.
   Search counts cover command forms such as `rg`, `grep`, `git grep`, `fd`,
   and `find`; file-read counts cover common local read commands such as `cat`,
   `sed`, `head`, `tail`, `nl`, `awk`, and pagers. These are mechanical cited
