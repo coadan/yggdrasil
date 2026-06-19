@@ -51,6 +51,10 @@ function displayValue(value: unknown): string {
   return String(value);
 }
 
+function numericCell(value: unknown): string | undefined {
+  return typeof value === "number" ? "numeric-cell" : undefined;
+}
+
 function firstValue(row: Record<string, unknown>, keys: string[]): unknown {
   for (const key of keys) {
     if (row[key] !== undefined && row[key] !== null) return row[key];
@@ -95,7 +99,7 @@ function CountTable({ title, rows }: { title: string; rows: CountRow[] }) {
             {rows.map((row) => (
               <tr key={`${row.value || row.kind || row.relation}-${row.count}`}>
                 <td>{row.value || row.kind || row.relation}</td>
-                <td>{row.count}</td>
+                <td className="numeric-cell">{row.count}</td>
               </tr>
             ))}
           </tbody>
@@ -134,7 +138,9 @@ function DataTable({
             {rows.map((row, index) => (
               <tr key={String(row.id || row.reviewId || row.review_id || row.source_id || index)}>
                 {columns.map((column) => (
-                  <td key={column.key}>{displayValue(row[column.key])}</td>
+                  <td key={column.key} className={numericCell(row[column.key])}>
+                    {displayValue(row[column.key])}
+                  </td>
                 ))}
               </tr>
             ))}
@@ -480,7 +486,7 @@ function ExternalApiReview({ report }: { report: AGraphReport }) {
                 <td>{nestedLabel(row, "peer")}</td>
                 <td>{String(row.relation || "")}</td>
                 <td>{String(row.visibility || "")}</td>
-                <td>{Number(row.targetCount || row["target-count"] || 0)}</td>
+                <td className="numeric-cell">{Number(row.targetCount || row["target-count"] || 0)}</td>
               </tr>
             ))}
           </tbody>
@@ -578,7 +584,7 @@ function AtlasTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph 
               {nextActions.map((row, index) => (
                 <tr key={String(row.kind || index)}>
                   <td>{displayValue(row.label || row.kind)}</td>
-                  <td>{displayValue(row.count)}</td>
+                  <td className={numericCell(row.count)}>{displayValue(row.count)}</td>
                 </tr>
               ))}
             </tbody>

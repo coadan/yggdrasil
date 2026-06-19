@@ -23,6 +23,10 @@ function displayValue(value: unknown): string {
   return String(value);
 }
 
+function numericCell(value: unknown): string | undefined {
+  return typeof value === "number" ? "numeric-cell" : undefined;
+}
+
 function firstValue(row: Record<string, unknown>, keys: string[]): unknown {
   for (const key of keys) {
     if (row[key] !== undefined && row[key] !== null) return row[key];
@@ -127,7 +131,9 @@ function InlineDataTable({ value }: { value: unknown }) {
         {rows.map((row, index) => (
           <tr key={String(row.id || row.key || index)}>
             {columns.map((column) => (
-              <td key={column.key}>{displayValue(row[column.key])}</td>
+              <td key={column.key} className={numericCell(row[column.key])}>
+                {displayValue(row[column.key])}
+              </td>
             ))}
           </tr>
         ))}

@@ -324,7 +324,7 @@ td {
   vertical-align: top;
 }
 
-td:last-child {
+td.numeric-cell {
   text-align: right;
 }
 
