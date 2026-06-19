@@ -161,6 +161,9 @@ generated output root.
   Obsolete score schemas are counted separately with the actual schema values
   and expected current schema so CI output can distinguish rerun-required
   scorer changes from stale case fingerprints.
+  Obsolete agent-result schemas are counted separately as well, because a score
+  can be freshly regenerated from an old result artifact whose shape no longer
+  satisfies the current evidence and fingerprint contract.
   Unverified score artifacts are excluded from aggregate report scores by
   default; use `--allow-unverified-scores` only for forensic inspection of older
   benchmark runs.
@@ -216,7 +219,7 @@ generated output root.
   `bb bench agent-compare benchmark.edn --baseline-report before/agent-report.json
   --candidate-report after/agent-report.json`. It also treats higher aggregate
   warning runs, hint diagnostic runs, unverified score artifacts, obsolete score
-  schemas, stale score artifacts, missing declared source-kind runs,
+  schemas, obsolete agent-result schemas, stale score artifacts, missing declared source-kind runs,
   coverage-excluded ground-truth files, and unsupported ground-truth files as
   lower-is-better regressions when the compared report case set and
   parser-worker profiles are unchanged.
@@ -336,7 +339,7 @@ Agents should return JSON shaped like this:
 
 ```json
 {
-  "schema": "agraph.benchmark.agent-result/v1",
+  "schema": "agraph.benchmark.agent-result/v2",
   "caseId": "penpot-example",
   "caseFingerprint": "sha256:...",
   "agentId": "codex",
@@ -505,8 +508,8 @@ given.
   regressions when reports are comparable.
 - `artifactDiagnostics`: aggregate score-artifact freshness counters.
   `agent-compare` treats increases in unverified score runs, obsolete score
-  schema runs, and stale score runs as lower-is-better regressions when reports
-  are comparable.
+  schema runs, obsolete agent-result schema runs, and stale score runs as
+  lower-is-better regressions when reports are comparable.
 
 Each result also records `groundTruthRanks.files`, which lists every scoreable
 localization file and the rank where AGraph found it, or `found? false` when it

@@ -2119,6 +2119,16 @@
                  (:expectedScoreSchema diagnostics)
                  "cases"
                  (str/join "," (:obsoleteScoreSchemaCaseIds diagnostics)))))
+    (let [obsolete-runs (long (or (:obsoleteAgentResultSchemaRuns diagnostics) 0))]
+      (when (pos? obsolete-runs)
+        (println "- obsolete-agent-result-schema-runs"
+                 obsolete-runs
+                 "schemas"
+                 (str/join "," (:obsoleteAgentResultSchemas diagnostics))
+                 "expected"
+                 (:expectedAgentResultSchema diagnostics)
+                 "cases"
+                 (str/join "," (:obsoleteAgentResultSchemaCaseIds diagnostics)))))
     (print-agent-diagnostic-count diagnostics
                                   "stale-score-runs"
                                   :staleScoreRuns

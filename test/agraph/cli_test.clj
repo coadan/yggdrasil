@@ -187,6 +187,10 @@
                      :obsoleteScoreSchemaCaseIds ["case-1"]
                      :obsoleteScoreSchemas ["agraph.benchmark.agent-score/v1"]
                      :expectedScoreSchema benchmark/agent-score-schema
+                     :obsoleteAgentResultSchemaRuns 1
+                     :obsoleteAgentResultSchemaCaseIds ["case-1"]
+                     :obsoleteAgentResultSchemas ["agraph.benchmark.agent-result/v1"]
+                     :expectedAgentResultSchema benchmark/agent-result-schema
                      :staleScoreRuns 1
                      :staleScoreCaseIds ["case-2"]}
         report-out (with-out-str
@@ -217,6 +221,7 @@
     (doseq [out [report-out check-out]]
       (is (str/includes? out "- unverified-score-runs 2 cases case-1,case-2"))
       (is (str/includes? out "- obsolete-score-schema-runs 1 schemas agraph.benchmark.agent-score/v1 expected "))
+      (is (str/includes? out "- obsolete-agent-result-schema-runs 1 schemas agraph.benchmark.agent-result/v1 expected "))
       (is (str/includes? out " cases case-1"))
       (is (str/includes? out "- stale-score-runs 1 cases case-2")))))
 

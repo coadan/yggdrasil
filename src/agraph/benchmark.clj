@@ -33,7 +33,7 @@
   "agraph.benchmark.agent-hints/v1")
 
 (def agent-result-schema
-  "agraph.benchmark.agent-result/v1")
+  "agraph.benchmark.agent-result/v2")
 
 (def agent-score-schema
   "agraph.benchmark.agent-score/v2")
@@ -1559,6 +1559,7 @@
                                    nil))]
                      (when (and score
                                 (= agent-score-schema (:schema score))
+                                (= agent-result-schema (get-in score [:agent :schema]))
                                 (= (:id case) (:case-id score))
                                 (= expected-fingerprint (:caseFingerprint score))
                                 (= agent-id (get-in score [:agent :agentId]))
@@ -2775,6 +2776,7 @@
    "additionalProperties" false
    "required" ["schema"
                "caseId"
+               "caseFingerprint"
                "agentId"
                "mode"
                "suspectedFiles"
@@ -3250,6 +3252,7 @@
 (def ^:private agent-result-required-fields
   [:schema
    :caseId
+   :caseFingerprint
    :agentId
    :mode
    :suspectedFiles
@@ -3865,15 +3868,24 @@
         actual (:caseFingerprint result)
         actual-schema (:schema result)
         schema-current? (= agent-score-schema actual-schema)
+        agent-result-schema-value (get-in result [:agent :schema])
+        agent-result-schema-current? (= agent-result-schema
+                                        agent-result-schema-value)
         status (cond
                  (not schema-current?) "legacy"
+                 (not agent-result-schema-current?) "legacy"
                  (blankish? actual) "legacy"
                  (= actual expected) "current"
                  :else "stale")]
     (cond-> {:fingerprintStatus status
              :scoreSchemaStatus (if schema-current? "current" "legacy")
-             :expectedScoreSchema agent-score-schema}
+             :expectedScoreSchema agent-score-schema
+             :agentResultSchemaStatus (if agent-result-schema-current?
+                                        "current"
+                                        "legacy")
+             :expectedAgentResultSchema agent-result-schema}
       actual-schema (assoc :scoreSchema actual-schema)
+      agent-result-schema-value (assoc :agentResultSchema agent-result-schema-value)
       actual (assoc :caseFingerprint actual)
       expected (assoc :expectedCaseFingerprint expected))))
 
@@ -3884,6 +3896,8 @@
                           results)
         by-status (group-by (comp :fingerprintStatus second) result-pairs)
         by-schema-status (group-by (comp :scoreSchemaStatus second) result-pairs)
+        by-agent-result-schema-status (group-by (comp :agentResultSchemaStatus second)
+                                                result-pairs)
         case-ids (fn [status]
                    (->> (get by-status status)
                         (map (comp :case-id first))
@@ -3898,9 +3912,22 @@
                                vec))
         schemas (->> (get by-schema-status "legacy")
                      (map (comp :scoreSchema second))
+                     (filter some?)
                      distinct
                      sort
-                     vec)]
+                     vec)
+        agent-result-schema-case-ids (fn [status]
+                                       (->> (get by-agent-result-schema-status status)
+                                            (map (comp :case-id first))
+                                            distinct
+                                            sort
+                                            vec))
+        agent-result-schemas (->> (get by-agent-result-schema-status "legacy")
+                                  (map (comp :agentResultSchema second))
+                                  (filter some?)
+                                  distinct
+                                  sort
+                                  vec)]
     {:currentScoreRuns (count (get by-status "current"))
      :legacyScoreRuns (count (get by-status "legacy"))
      :legacyScoreCaseIds (case-ids "legacy")
@@ -3908,6 +3935,11 @@
      :obsoleteScoreSchemaCaseIds (schema-case-ids "legacy")
      :obsoleteScoreSchemas schemas
      :expectedScoreSchema agent-score-schema
+     :obsoleteAgentResultSchemaRuns (count (get by-agent-result-schema-status
+                                                "legacy"))
+     :obsoleteAgentResultSchemaCaseIds (agent-result-schema-case-ids "legacy")
+     :obsoleteAgentResultSchemas agent-result-schemas
+     :expectedAgentResultSchema agent-result-schema
      :staleScoreRuns (count (get by-status "stale"))
      :staleScoreCaseIds (case-ids "stale")
      :unverifiedScoreRuns (+ (count (get by-status "legacy"))
@@ -4750,10 +4782,22 @@
                                                [:report
                                                 :artifactDiagnostics
                                                 :obsoleteScoreSchemas])
+                 :obsoleteAgentResultSchemaCaseIds (get-in check
+                                                           [:report
+                                                            :artifactDiagnostics
+                                                            :obsoleteAgentResultSchemaCaseIds])
+                 :obsoleteAgentResultSchemas (get-in check
+                                                     [:report
+                                                      :artifactDiagnostics
+                                                      :obsoleteAgentResultSchemas])
                  :expectedScoreSchema (get-in check
                                               [:report
                                                :artifactDiagnostics
                                                :expectedScoreSchema])
+                 :expectedAgentResultSchema (get-in check
+                                                    [:report
+                                                     :artifactDiagnostics
+                                                     :expectedAgentResultSchema])
                  :message "Some agent score artifacts are legacy, use an obsolete score schema, or do not match the current suite case fingerprint."})]))))
 
 (defn- localization-diagnostic-failures
@@ -5073,6 +5117,9 @@
     :direction :lower}
    {:path [:artifactDiagnostics :obsoleteScoreSchemaRuns]
     :label "obsoleteScoreSchemaRuns"
+    :direction :lower}
+   {:path [:artifactDiagnostics :obsoleteAgentResultSchemaRuns]
+    :label "obsoleteAgentResultSchemaRuns"
     :direction :lower}
    {:path [:artifactDiagnostics :staleScoreRuns]
     :label "staleScoreRuns"

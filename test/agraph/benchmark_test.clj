@@ -537,6 +537,10 @@
               :obsoleteScoreSchemaCaseIds []
               :obsoleteScoreSchemas []
               :expectedScoreSchema benchmark/agent-score-schema
+              :obsoleteAgentResultSchemaRuns 2
+              :obsoleteAgentResultSchemaCaseIds ["case-1"]
+              :obsoleteAgentResultSchemas []
+              :expectedAgentResultSchema benchmark/agent-result-schema
               :staleScoreRuns 0
               :staleScoreCaseIds []
               :unverifiedScoreRuns 2
@@ -796,6 +800,10 @@
               :obsoleteScoreSchemaCaseIds ["case-1"]
               :obsoleteScoreSchemas ["agraph.benchmark.agent-score/v1"]
               :expectedScoreSchema benchmark/agent-score-schema
+              :obsoleteAgentResultSchemaRuns 1
+              :obsoleteAgentResultSchemaCaseIds ["case-1"]
+              :obsoleteAgentResultSchemas []
+              :expectedAgentResultSchema benchmark/agent-result-schema
               :staleScoreRuns 0
               :staleScoreCaseIds []
               :unverifiedScoreRuns 1
@@ -1197,6 +1205,7 @@
                                      :identityMismatchRuns 0}
                   :artifactDiagnostics {:unverifiedScoreRuns 0
                                         :obsoleteScoreSchemaRuns 0
+                                        :obsoleteAgentResultSchemaRuns 0
                                         :staleScoreRuns 0}
                   :coverageDiagnostics {:missingDeclaredSourceKindRuns 0
                                         :coverageExcludedGroundTruthFiles 0
@@ -1232,6 +1241,7 @@
                                       :identityMismatchRuns 1}
                    :artifactDiagnostics {:unverifiedScoreRuns 2
                                          :obsoleteScoreSchemaRuns 1
+                                         :obsoleteAgentResultSchemaRuns 1
                                          :staleScoreRuns 1}
                    :coverageDiagnostics {:missingDeclaredSourceKindRuns 1
                                          :coverageExcludedGroundTruthFiles 1
@@ -1303,6 +1313,7 @@
              "identityMismatchRuns"
              "unverifiedScoreRuns"
              "obsoleteScoreSchemaRuns"
+             "obsoleteAgentResultSchemaRuns"
              "staleScoreRuns"
              "missingDeclaredSourceKindRuns"
              "coverageExcludedGroundTruthFiles"
@@ -1592,6 +1603,7 @@
                :case-id "case-1"
                :caseFingerprint (#'benchmark/case-fingerprint suite case)
                :agent {:agentId "agraph-baseline-lexical"
+                       :schema benchmark/agent-result-schema
                        :mode "agraph"}
                :agentResultPath (.getCanonicalPath (io/file result-path))
                :parserWorker {:mode "dotnet"
@@ -1673,7 +1685,8 @@
                    "{\"schema\":\"" benchmark/agent-result-schema "\","
                    "\"suspectedFiles\":[{\"path\":\"src/app.clj\","
                    "\"rank\":1,\"confidence\":1.0,\"reason\":\"script\","
-                   "\"evidence\":[\"rg broken src/app.clj\"]}],"
+                   "\"evidence\":[{\"kind\":\"command\","
+                   "\"value\":\"rg broken src/app.clj\"}]}],"
                    "\"warnings\":[\"agent note\"],"
                    "\"summary\":\"script result\"}\n"
                    "JSON\n"
@@ -1718,6 +1731,7 @@
                              "final response"))
           (is (= ["schema"
                   "caseId"
+                  "caseFingerprint"
                   "agentId"
                   "mode"
                   "suspectedFiles"
@@ -1779,9 +1793,11 @@
                                         :body "The app returns the old value."}}]}))
         (spit script-path
               (str "cat > \"$AGRAPH_BENCH_RESULT\" <<'JSON'\n"
-                   "{\"schema\":\"agraph.benchmark.agent-result/old\","
+                   "{\"schema\":\"" benchmark/agent-result-schema "\","
                    "\"caseId\":\"case-2\","
                    "\"caseFingerprint\":\"sha256:old-case\","
+                   "\"agentId\":\"identity-agent\","
+                   "\"mode\":\"shell-only\","
                    "\"suspectedFiles\":[{\"path\":\"src/app.clj\","
                    "\"rank\":1,\"confidence\":1.0,\"reason\":\"script\","
                    "\"evidence\":[\"rg broken src/app.clj\"]}],"
@@ -1801,14 +1817,13 @@
                                                           :agent-id "identity-agent"})
               warnings (get-in report [:results 0 :agentOutput :identityWarnings])]
           (is (= 1 (:completed result)))
-          (is (= ["agent result schema agraph.benchmark.agent-result/old does not match expected schema agraph.benchmark.agent-result/v1"
-                  "agent result caseId case-2 does not match expected case case-1"
+          (is (= ["agent result caseId case-2 does not match expected case case-1"
                   (str "agent result caseFingerprint sha256:old-case does not match expected case fingerprint "
                        (get-in report [:results 0 :caseFingerprint]))]
                  warnings))
           (is (= {:identityMismatchRuns 1
                   :identityMismatchCaseIds ["case-1"]
-                  :identityMismatches 3}
+                  :identityMismatches 2}
                  (select-keys (:agentDiagnostics report)
                               [:identityMismatchRuns
                                :identityMismatchCaseIds
@@ -2703,6 +2718,7 @@
         scored (benchmark/score-agent-result prepared agent-result)]
     (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
     (is (= ["agent result missing required field caseId"
+            "agent result missing required field caseFingerprint"
             "agent result missing required field agentId"
             "agent result missing required field mode"
             "agent result missing required field commands"
@@ -2882,7 +2898,8 @@
         scored (benchmark/score-agent-result prepared agent-result)
         diagnostic (#'benchmark/agent-output-diagnostic scored)]
     (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
-    (is (= ["agent result schema agraph.benchmark.agent-result/old does not match expected schema agraph.benchmark.agent-result/v1"
+    (is (= [(str "agent result schema agraph.benchmark.agent-result/old does not match expected schema "
+                 benchmark/agent-result-schema)
             "agent result caseId case-2 does not match expected case case-1"
             "agent result caseFingerprint sha256:old-case does not match expected case fingerprint sha256:test-case"]
            (get-in scored [:agent :warnings])))
