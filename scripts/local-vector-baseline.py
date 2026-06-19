@@ -156,18 +156,23 @@ def main(argv: list[str]) -> int:
             "rank": idx + 1,
             "confidence": confidence(score),
             "reason": f"Local vector cosine match with {model_name}.",
+            "evidence": [
+                f"local-vector:{model_name}",
+                f"cosine:{score:.6f}",
+            ],
             "metrics": {"cosine": score, "model": model_name},
         }
         for idx, (rel, score) in enumerate(ranked[:limit])
     ]
     result = {
-        "schema": "agraph.benchmark.agent-result/v1",
+        "schema": "agraph.benchmark.agent-result/v2",
         "caseId": request.get("caseId"),
+        "caseFingerprint": request.get("caseFingerprint"),
         "agentId": request.get("agentId") or "agraph-baseline-local-vector",
         "mode": "local-vector",
         "suspectedFiles": suspected_files,
         "suspectedSymbols": [],
-        "commands": [],
+        "commands": [f"local-vector-baseline.py {model_name}"],
         "warnings": [],
         "summary": (
             f"Local vector baseline ranked {len(suspected_files)} files "

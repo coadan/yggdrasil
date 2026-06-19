@@ -75,8 +75,9 @@ generated output root.
   Use `--retriever local-vector` to run an optional local semantic-vector
   control lane instead of the graph/context packet. The default worker is
   `python3 scripts/local-vector-baseline.py`, which uses
-  `sentence-transformers` locally and writes the same agent-result contract for
-  the existing scorer. Install the optional worker dependencies in a local
+  `sentence-transformers` locally and writes the current agent-result contract,
+  including the case fingerprint and citation evidence, for the existing
+  scorer. Install the optional worker dependencies in a local
   environment with `python3 -m venv .dev/agraph/local-vector-venv &&
   .dev/agraph/local-vector-venv/bin/python -m pip install -r
   scripts/local-vector-requirements.txt`, then pass

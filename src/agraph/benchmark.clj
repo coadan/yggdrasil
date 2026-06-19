@@ -2409,6 +2409,7 @@
   [prepared opts agent-id]
   {:schema "agraph.benchmark.local-vector-request/v1"
    :caseId (:case-id prepared)
+   :caseFingerprint (:caseFingerprint prepared)
    :agentId agent-id
    :mode "local-vector"
    :worktreeRoot (:worktreeRoot prepared)

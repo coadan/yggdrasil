@@ -2446,10 +2446,20 @@
                      worker-dir
                      "fake-vector-worker.sh"
                      (str "#!/bin/sh\n"
-                          "cat > \"$2\" <<'JSON'\n"
-                          "{\"suspectedFiles\":[{\"path\":\"src/app.clj\",\"rank\":1,"
-                          "\"confidence\":0.9,\"reason\":\"fake local vector match\"}],"
-                          "\"suspectedSymbols\":[],\"commands\":[],\"warnings\":[]}\n"
+                          "case_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"caseId\"])' \"$1\")\n"
+                          "case_fingerprint=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"caseFingerprint\"])' \"$1\")\n"
+                          "agent_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"agentId\"])' \"$1\")\n"
+                          "cat > \"$2\" <<JSON\n"
+                          "{\"schema\":\"agraph.benchmark.agent-result/v2\","
+                          "\"caseId\":\"$case_id\","
+                          "\"caseFingerprint\":\"$case_fingerprint\","
+                          "\"agentId\":\"$agent_id\","
+                          "\"mode\":\"local-vector\","
+                          "\"suspectedFiles\":[{\"path\":\"src/app.clj\",\"rank\":1,"
+                          "\"confidence\":0.9,\"reason\":\"fake local vector match\","
+                          "\"evidence\":[\"fake-vector:src/app.clj\"]}],"
+                          "\"suspectedSymbols\":[],\"commands\":[\"fake-vector-worker\"],"
+                          "\"warnings\":[],\"summary\":\"fake vector result\"}\n"
                           "JSON\n"))]
     (.setExecutable (io/file worker-path) true)
     (sh! "git" "init" repo)
@@ -2503,15 +2513,73 @@
           (is (= 1.0 (get-in baseline [:scores :fileRecallAt5])))
           (is (= 1.0 (get-in baseline [:scores :meanReciprocalRankFile])))
           (is (= "agraph.benchmark.local-vector-request/v1" (:schema request)))
+          (is (= (:caseFingerprint baseline) (:caseFingerprint request)))
           (is (= "fake-local-model" (:model request)))
           (is (not (contains? request :groundTruth)))
+          (is (= benchmark/agent-result-schema (get-in scored [:agent :schema])))
           (is (= "local-vector" (get-in scored [:agent :mode])))
+          (is (empty? (get-in scored [:agent :warnings])))
+          (is (= 1.0 (get-in scored [:scores :evidenceCitationRate])))
           (is (= ["src/app.clj"]
                  (mapv :path (get-in scored [:agent :topFiles]))))
           (is (= 1 (:skipped resumed)))
           (is (= "skipped" (:status skipped)))
           (is (= "current-score-artifact" (:skipReason skipped)))
           (is (= (:scores baseline) (:scores skipped))))))))
+
+(deftest local-vector-worker-emits-current-agent-result-contract
+  (let [repo (temp-dir "agraph-bench-local-vector-worker-repo")
+        module-dir (temp-dir "agraph-bench-local-vector-worker-module")
+        request-dir (temp-dir "agraph-bench-local-vector-worker-request")
+        request-path (spit-json!
+                      request-dir
+                      "request.json"
+                      {:schema "agraph.benchmark.local-vector-request/v1"
+                       :caseId "case-1"
+                       :caseFingerprint "sha256:case-1"
+                       :agentId "agraph-baseline-local-vector"
+                       :mode "local-vector"
+                       :worktreeRoot repo
+                       :input {:title "broken app"
+                               :body "The app returns the old value."}
+                       :limit 2
+                       :model "fake-local-model"})
+        result-path (.getPath (io/file request-dir "result.json"))]
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (spit-file! repo "docs/readme.md" "Quiet documentation.\n")
+    (spit-file!
+     module-dir
+     "sentence_transformers/__init__.py"
+     (str "class SentenceTransformer:\n"
+          "    def __init__(self, name):\n"
+          "        self.name = name\n"
+          "    def encode(self, texts, batch_size=None, normalize_embeddings=True, show_progress_bar=False):\n"
+          "        vectors = []\n"
+          "        for text in texts:\n"
+          "            if 'broken' in text.lower():\n"
+          "                vectors.append([1.0, 0.0])\n"
+          "            else:\n"
+          "                vectors.append([0.0, 1.0])\n"
+          "        return vectors\n"))
+    (let [{:keys [exit err]} (shell/sh "env"
+                                       (str "PYTHONPATH=" module-dir)
+                                       "python3"
+                                       "scripts/local-vector-baseline.py"
+                                       request-path
+                                       result-path
+                                       "fake-local-model")]
+      (is (zero? exit) err)
+      (when (zero? exit)
+        (let [result (json/read-json (slurp result-path) :key-fn keyword)]
+          (is (= benchmark/agent-result-schema (:schema result)))
+          (is (= "case-1" (:caseId result)))
+          (is (= "sha256:case-1" (:caseFingerprint result)))
+          (is (= "agraph-baseline-local-vector" (:agentId result)))
+          (is (= "local-vector" (:mode result)))
+          (is (= ["src/app.clj" "docs/readme.md"]
+                 (mapv :path (:suspectedFiles result))))
+          (is (every? #(seq (:evidence %)) (:suspectedFiles result)))
+          (is (seq (:commands result))))))))
 
 (deftest context-packet-can-be-written-as-agent-hints
   (let [root (temp-dir "agraph-bench-context-hints")
