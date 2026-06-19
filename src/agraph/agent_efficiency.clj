@@ -7,6 +7,8 @@
 
 (def schema "agraph.agent-efficiency/v1")
 
+(declare markdown-report)
+
 (def default-min-shared-cases
   2)
 
@@ -169,6 +171,14 @@
     (when-let [parent (.getParentFile file)]
       (.mkdirs parent))
     (spit file (str (json/write-json-str value {:indent-str "  "}) "\n"))
+    (.getPath file)))
+
+(defn- write-text-file!
+  [path value]
+  (let [file (io/file path)]
+    (when-let [parent (.getParentFile file)]
+      (.mkdirs parent))
+    (spit file (str value "\n"))
     (.getPath file)))
 
 (defn- metric-value
@@ -704,6 +714,8 @@
                        (assoc-in [:inputs :agraphReport] agraph-report-path))]
     (when-let [out (:out opts)]
       (write-json-file! out comparison))
+    (when-let [out (:markdown-out opts)]
+      (write-text-file! out (markdown-report comparison)))
     comparison))
 
 (defn- option-value
@@ -767,10 +779,65 @@
        (filter #(pred (:tag %)))
        vec))
 
+(defn markdown-report
+  "Return a compact Markdown summary for a shell-only versus AGraph comparison."
+  [comparison]
+  (let [class-summary (get-in comparison [:classSignals :summary])
+        warnings (get-in comparison [:claimReadiness :warnings])
+        notes (get-in comparison [:claimReadiness :notes])
+        problem-groups (class-tag-groups comparison
+                                         benchmark-classes/problem-class-tag?)
+        architecture-groups (class-tag-groups
+                             comparison
+                             benchmark-classes/architecture-class-tag?)]
+    (str/join
+     "\n"
+     (remove nil?
+             (concat
+              ["# AGraph Agent Efficiency"
+               ""
+               (str "- Status: " (:status comparison))
+               (str "- Suite: " (or (:suiteId comparison) "unknown"))
+               (str "- Shared cases: "
+                    (get-in comparison [:comparability :sharedCases]))
+               (str "- Improved metrics: "
+                    (get-in comparison [:summary :improvedMetrics]))
+               (str "- Regressed metrics: "
+                    (get-in comparison [:summary :regressedMetrics]))
+               (str "- Unavailable metrics: "
+                    (get-in comparison [:summary :unavailableMetrics]))
+               (str "- Claim readiness: "
+                    (get-in comparison [:claimReadiness :status]))]
+              (when class-summary
+                [""
+                 "## Class Signals"
+                 ""
+                 (str "- Problem classes measured: "
+                      (:measuredProblemClasses class-summary)
+                      "/"
+                      (:problemClasses class-summary))
+                 (str "- Architecture classes measured: "
+                      (:measuredArchitectureClasses class-summary)
+                      "/"
+                      (:architectureClasses class-summary))])
+              (when (seq problem-groups)
+                (concat ["" "## Problem-Class Signals" ""]
+                        (map tag-group-line problem-groups)))
+              (when (seq architecture-groups)
+                (concat ["" "## Architecture-Class Signals" ""]
+                        (map tag-group-line architecture-groups)))
+              (when (seq warnings)
+                (concat ["" "## Claim Readiness Warnings" ""]
+                        (map #(str "- " %) warnings)))
+              (when (seq notes)
+                (concat ["" "## Claim Readiness Notes" ""]
+                        (map #(str "- " %) notes))))))))
+
 (defn- usage
   []
   (str "Usage: bb efficiency <shell-agent-report.json> <agraph-agent-report.json>"
-       " [--out report.json] [--json] [--min-shared-cases N]"))
+       " [--out report.json] [--markdown-out REPORT.md]"
+       " [--json] [--min-shared-cases N]"))
 
 (defn -main
   [& args]
@@ -785,6 +852,7 @@
                       shell-report-path
                       agraph-report-path
                       {:out (option-value args "--out")
+                       :markdown-out (option-value args "--markdown-out")
                        :min-shared-cases min-shared-cases})]
       (if (flag? args "--json")
         (println (json/write-json-str comparison {:indent-str "  "}))
@@ -831,4 +899,6 @@
             (doseq [note notes]
               (println (str "- " note))))
           (when-let [out (option-value args "--out")]
+            (println (str "Wrote " out)))
+          (when-let [out (option-value args "--markdown-out")]
             (println (str "Wrote " out))))))))

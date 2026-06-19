@@ -88,7 +88,8 @@ bb bench agent-report benchmarks/headline.edn \
 bb efficiency \
   .dev/agraph/headline-bench/shell-only/agent-report.json \
   .dev/agraph/headline-bench/agraph/agent-report.json \
-  --out .dev/agraph/headline-bench/summary.json
+  --out .dev/agraph/headline-bench/summary.json \
+  --markdown-out .dev/agraph/headline-bench/REPORT.md
 ```
 
 Read `Problem-class signals`, `Architecture-class signals`, and
@@ -100,6 +101,8 @@ row with `measured: false` is useful context but does not count toward broad
 claim readiness. Use `classSignals.summary.measuredProblemClasses` and
 `classSignals.summary.measuredArchitectureClasses` for automated gates. Treat
 generated files under `.dev/agraph/headline-bench/` as disposable artifacts.
+Use `summary.json` for machine gates and `REPORT.md` for a compact human review
+of the same comparison.
 
 ## Workflow
 

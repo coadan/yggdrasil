@@ -147,7 +147,8 @@ compare() {
   run bb efficiency \
     "$out/shell-only/agent-report.json" \
     "$out/agraph/agent-report.json" \
-    --out "$out/summary.json"
+    --out "$out/summary.json" \
+    --markdown-out "$out/REPORT.md"
 }
 
 case "$action" in

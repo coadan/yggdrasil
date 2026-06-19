@@ -809,15 +809,21 @@
         shell-path (spit-json! root "shell/agent-report.json" shell-report)
         agraph-path (spit-json! root "agraph/agent-report.json" agraph-report)
         out-path (.getPath (io/file root "summary.json"))
+        markdown-path (.getPath (io/file root "REPORT.md"))
         comparison (agent-efficiency/compare-report-files!
                     shell-path
                     agraph-path
-                    {:out out-path})
-        written (read-json out-path)]
+                    {:out out-path
+                     :markdown-out markdown-path})
+        written (read-json out-path)
+        markdown (slurp markdown-path)]
     (is (= "agraph-improved" (:status comparison)))
     (is (= "agraph-improved" (:status written)))
     (is (= shell-path (get-in written [:inputs :shellReport])))
-    (is (= agraph-path (get-in written [:inputs :agraphReport])))))
+    (is (= agraph-path (get-in written [:inputs :agraphReport])))
+    (is (.contains markdown "# AGraph Agent Efficiency"))
+    (is (.contains markdown "- Status: agraph-improved"))
+    (is (.contains markdown "- Claim readiness: not-supported"))))
 
 (deftest plain-output-shows-category-and-class-signals
   (let [root (temp-dir "agraph-agent-efficiency-plain")
@@ -850,7 +856,10 @@
         shell-path (spit-json! root "shell/agent-report.json" shell)
         agraph-path (spit-json! root "agraph/agent-report.json" agraph)
         out (with-out-str
-              (agent-efficiency/-main shell-path agraph-path))]
+              (agent-efficiency/-main shell-path
+                                      agraph-path
+                                      "--markdown-out"
+                                      (.getPath (io/file root "REPORT.md"))))]
     (is (.contains out "Category signals:"))
     (is (.contains out "observed metrics: 1"))
     (is (.contains out
@@ -864,4 +873,5 @@
     (is (.contains out
                    "- architecture-dependency-flow: agraph-improved (shell cases: 2, agraph cases: 2)"))
     (is (.contains out "Claim readiness: supported"))
-    (is (.contains out "Claim readiness notes:"))))
+    (is (.contains out "Claim readiness notes:"))
+    (is (.contains out "Wrote "))))
