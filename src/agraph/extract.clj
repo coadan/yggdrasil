@@ -53,6 +53,7 @@
             [agraph.extract.parser-worker :as extract.parser-worker]
             [agraph.extract.source-jvm-worker :as extract.source-jvm-worker]
             [agraph.extract.source-dotnet-worker :as extract.source-dotnet-worker]
+            [agraph.extract.yaml-generic :as extract.yaml-generic]
             [clojure.string :as str]))
 
 
@@ -60,17 +61,10 @@
 (def extraction-buckets
   [:nodes :edges :chunks :diagnostics])
 
-(declare extract-format-facts
-         read-json-map
-         strip-yaml-scalar
-         yaml-key-line
-         yaml-section-items
-         leading-spaces
-         docs-config-array-property-values
+(declare docs-config-array-property-values
          docs-config-property-values
          extract-astro
          extract-sfc
-         json-label
          js-import-targets
          json-ref-tail
          json-ref-values)
@@ -671,9 +665,6 @@
 
 
 
-(defn- manifest-name
-  [path]
-  (str/lower-case (last (str/split path #"/"))))
 
 
 
@@ -727,31 +718,9 @@
 
 
 
-(defn- read-json-map
-  [content]
-  (try
-    (let [parsed (json/read-json content :key-fn keyword)]
-      (when (map? parsed)
-        parsed))
-    (catch Exception _
-      nil)))
 
-(defn- read-json-value
-  [content]
-  (try
-    (json/read-json content :key-fn keyword)
-    (catch Exception _
-      nil)))
 
 
-(defn- json-key-label
-  [k]
-  (cond
-    (keyword? k) (if-let [ns (namespace k)]
-                   (str ns "/" (name k))
-                   (name k))
-    (string? k) k
-    :else (str k)))
 
 
 
@@ -775,13 +744,6 @@
 
 
 
-(defn- toml-array-strings
-  [value]
-  (->> (re-seq #"\"([^\"]+)\"" (str value))
-       (map second)
-       (remove str/blank?)
-       distinct
-       vec))
 
 
 
@@ -875,19 +837,6 @@
 
 
 
-(defn- properties-assignment-lines
-  [content]
-  (->> (str/split-lines content)
-       (map-indexed vector)
-       (keep (fn [[idx line]]
-               (when-let [[_ key value]
-                          (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*[=:]\s*(.*?)\s*$"
-                                      line)]
-                 (when-not (or (str/blank? key)
-                               (str/starts-with? (str/trim line) "#"))
-                   {:key key
-                    :value (str/trim value)
-                    :source-line (inc idx)}))))))
 
 
 
@@ -915,10 +864,6 @@
      :chunks (:chunks chunk-result)
      :diagnostics []}))
 
-
-(declare yaml-scalar-list-values
-         yaml-top-section-blocks
-         block-key-values)
 
 
 
@@ -1046,11 +991,11 @@
 (defn extract-web-framework
   "Extract deterministic web framework config and file-backed route facts."
   [run-id file]
-  (let [web-result (extract-format-facts run-id
-                                         file
-                                         :web-framework-file
-                                         :web-framework-file
-                                         (extract.web-framework/web-framework-facts file))
+  (let [web-result (extract.common/extract-format-facts run-id
+                                                        file
+                                                        :web-framework-file
+                                                        :web-framework-file
+                                                        (extract.web-framework/web-framework-facts file))
         base-result (web-framework-base-result run-id file)]
     (if base-result
       {:nodes (vec (distinct (concat (:nodes base-result) (:nodes web-result))))
@@ -1101,35 +1046,7 @@
 
 
 
-(defn- extract-format-facts
-  [run-id {:keys [id-scope file-id path] :as file} root-kind chunk-kind facts]
-  (let [root-node (generic-node run-id id-scope file-id path root-kind path 1)
-        facts (vec (distinct facts))
-        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
-                           (generic-node run-id id-scope file-id path kind label source-line))
-                         facts)
-        fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
-                           (edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id root-node)
-                                     (node-id id-scope kind label)
-                                     (or relation :defines)
-                                     :extracted
-                                     source-line))
-                         facts)
-        chunk-result (extract-text-source run-id file chunk-kind)]
-    {:nodes (into [root-node] fact-nodes)
-     :edges fact-edges
-     :chunks (:chunks chunk-result)
-     :diagnostics []}))
 
-(defn- json-label
-  [value]
-  (cond
-    (keyword? value) (json-key-label value)
-    (string? value) value
-    :else (str value)))
 
 
 
@@ -1139,63 +1056,11 @@
 
 
 
-(defn- yaml-section-items
-  [content section-names]
-  (let [sections (set section-names)]
-    (loop [remaining (map-indexed vector (str/split-lines content))
-           section nil
-           out []]
-      (if-let [[idx line] (first remaining)]
-        (cond
-          (re-matches #"^[A-Za-z_][A-Za-z0-9_-]*:\s*.*" line)
-          (let [[_ next-section inline-value]
-                (re-matches #"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)" line)
-                inline-values (yaml-scalar-list-values inline-value)]
-            (recur (rest remaining)
-                   (when (contains? sections next-section) next-section)
-                   (into out
-                         (map (fn [value]
-                                {:section next-section
-                                 :value value
-                                 :source-line (inc idx)}))
-                         (when (contains? sections next-section)
-                           inline-values))))
 
-          (and section
-               (re-matches #"^\s*-\s+name:\s+(.+?)\s*$" line))
-          (let [[_ value] (re-matches #"^\s*-\s+name:\s+(.+?)\s*$" line)]
-            (recur (rest remaining)
-                   section
-                   (conj out {:section section
-                              :value (strip-yaml-scalar value)
-                              :source-line (inc idx)})))
 
-          (and section
-               (re-matches #"^\s*-\s+(.+?)\s*$" line))
-          (let [[_ value] (re-matches #"^\s*-\s+(.+?)\s*$" line)]
-            (recur (rest remaining)
-                   section
-                   (conj out {:section section
-                              :value (strip-yaml-scalar value)
-                              :source-line (inc idx)})))
 
-          (and section
-               (re-matches #"^\s+name:\s+(.+?)\s*$" line))
-          (let [[_ value] (re-matches #"^\s+name:\s+(.+?)\s*$" line)]
-            (recur (rest remaining)
-                   section
-                   (conj out {:section section
-                              :value (strip-yaml-scalar value)
-                              :source-line (inc idx)})))
 
-          (and section
-               (not (str/blank? (str/trim line)))
-               (zero? (leading-spaces line)))
-          (recur (rest remaining) nil out)
 
-          :else
-          (recur (rest remaining) section out))
-        out))))
 
 
 
@@ -1275,90 +1140,16 @@
 
 
 
-(defn- leading-spaces
-  [line]
-  (count (take-while #(= \space %) line)))
 
-(defn- yaml-key-line
-  [idx line]
-  (when-let [[_ indent key value]
-             (re-matches #"^(\s*)(?:-\s*)?([A-Za-z0-9_.-]+):(?:\s*(.*))?$" line)]
-    {:indent (count indent)
-     :key key
-     :value (str/trim (or value ""))
-     :source-line (inc idx)}))
 
-(defn- strip-yaml-scalar
-  [value]
-  (-> (str value)
-      (str/replace #"^\s*['\"]|['\"]\s*$" "")
-      str/trim))
 
-(defn- yaml-scalar-list-values
-  [value]
-  (let [value (str/trim (or value ""))]
-    (cond
-      (str/blank? value) []
-      (and (str/starts-with? value "[")
-           (str/ends-with? value "]"))
-      (->> (subs value 1 (dec (count value)))
-           (#(str/split % #","))
-           (map strip-yaml-scalar)
-           (remove str/blank?)
-           vec)
 
-      :else
-      [(strip-yaml-scalar value)])))
 
-(defn- yaml-top-section-blocks
-  [lines section-name]
-  (loop [remaining (map-indexed vector lines)
-         in-section? false
-         section-indent nil
-         current nil
-         out []]
-    (if-let [[idx line] (first remaining)]
-      (let [entry (yaml-key-line idx line)]
-        (cond
-          (and entry (= section-name (:key entry)))
-          (recur (rest remaining) true (:indent entry) nil out)
 
-          (and in-section?
-               entry
-               (<= (:indent entry) section-indent)
-               (not= section-name (:key entry)))
-          (recur (rest remaining) false nil nil (cond-> out current (conj current)))
 
-          (and in-section?
-               entry
-               (= (:indent entry) (+ section-indent 2)))
-          (recur (rest remaining)
-                 true
-                 section-indent
-                 {:label (:key entry)
-                  :source-line (:source-line entry)
-                  :lines [[idx line]]}
-                 (cond-> out current (conj current)))
 
-          (and in-section? current)
-          (recur (rest remaining)
-                 true
-                 section-indent
-                 (update current :lines conj [idx line])
-                 out)
 
-          :else
-          (recur (rest remaining) in-section? section-indent current out)))
-      (cond-> out current (conj current)))))
 
-(defn- block-key-values
-  [block]
-  (->> (:lines block)
-       (keep (fn [[_idx line]]
-               (when-let [{:keys [key value]} (yaml-key-line 0 line)]
-                 (when (seq value)
-                   [key (strip-yaml-scalar value)]))))
-       (into {})))
 
 
 
@@ -1435,60 +1226,6 @@
 
 
 
-
-
-
-
-
-
-
-
-
-(defn- framework-yaml-facts
-  [content]
-  (->> (str/split-lines content)
-       (map-indexed vector)
-       (mapcat
-        (fn [[idx line]]
-          (let [source-line (inc idx)]
-            (concat
-             (when-let [[_ route] (re-matches #"^\s*path:\s*['\"]?(/[^'\"\s#]+).*" line)]
-               [{:kind :framework-route
-                 :label route
-                 :source-line source-line
-                 :relation :defines}])
-             (when-let [[_ controller] (re-matches #"^\s*controller:\s*['\"]?([^'\"\s#]+).*" line)]
-               [{:kind :framework-controller
-                 :label controller
-                 :source-line source-line
-                 :relation :references}])))))
-       distinct
-       vec))
-
-(defn extract-yaml
-  "Extract generic YAML files and explicit Kubernetes resource declarations."
-  [run-id {:keys [id-scope file-id path content] :as file}]
-  (let [yaml-node (generic-node run-id id-scope file-id path :yaml-file path 1)
-        resource-facts (vec (concat (extract.infra/k8s-resource-facts content)
-                                    (framework-yaml-facts content)))
-        resource-nodes (mapv (fn [{:keys [kind label source-line]}]
-                               (generic-node run-id id-scope file-id path kind label source-line))
-                             resource-facts)
-        resource-edges (mapv (fn [{:keys [kind label source-line relation]}]
-                               (edge-row run-id
-                                         file-id
-                                         path
-                                         (:xt/id yaml-node)
-                                         (node-id id-scope kind label)
-                                         (or relation :defines)
-                                         :extracted
-                                         source-line))
-                             resource-facts)
-        chunk-result (extract-text-source run-id file :yaml-file)]
-    {:nodes (into [yaml-node] resource-nodes)
-     :edges resource-edges
-     :chunks (:chunks chunk-result)
-     :diagnostics []}))
 
 
 
@@ -1738,7 +1475,7 @@
      :avro (extract.avro/extract-avro run-id file)
      :graphql (extract.graphql/extract-graphql run-id file)
      :protobuf (extract.protobuf/extract-protobuf run-id file)
-     :yaml (extract-yaml run-id file)
+     :yaml (extract.yaml-generic/extract-yaml run-id file)
      :docker (extract.runtime/extract-docker run-id file)
      :procfile (extract.runtime/extract-procfile run-id file)
      :compose (extract.compose/extract-compose run-id file)

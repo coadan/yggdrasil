@@ -155,6 +155,10 @@ def cmd_move(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_delete(args: argparse.Namespace) -> None:
+    delete_forms(source=args.source, form_names=args.forms)
+
+
 def selected_form_names(
     forms: list[Form],
     *,
@@ -287,6 +291,23 @@ def move_forms(
     target.write_text(target_text)
 
 
+def delete_forms(*, source: Path, form_names: list[str]) -> None:
+    source_text, forms = read_forms(source)
+    by_name = {form.name: form for form in forms}
+    missing = [name for name in form_names if name not in by_name]
+    if missing:
+        raise SystemExit(f"missing top-level forms: {', '.join(missing)}")
+
+    deleting_ranges = sorted((by_name[name].start, by_name[name].end) for name in form_names)
+    out_parts: list[str] = []
+    cursor = 0
+    for start, end in deleting_ranges:
+        out_parts.append(source_text[cursor:start])
+        cursor = end
+    out_parts.append(source_text[cursor:])
+    source.write_text("".join(out_parts))
+
+
 def add_ns_require(source: Path, require: str) -> None:
     text = source.read_text()
     if require in text:
@@ -406,6 +427,11 @@ def main() -> None:
     move_parser.add_argument("--replace", type=parse_replacement, action="append", default=[])
     move_parser.add_argument("forms", nargs="+")
     move_parser.set_defaults(func=cmd_move)
+
+    delete_parser = subparsers.add_parser("delete")
+    delete_parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    delete_parser.add_argument("forms", nargs="+")
+    delete_parser.set_defaults(func=cmd_delete)
 
     manifest_parser = subparsers.add_parser("manifest")
     manifest_parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
