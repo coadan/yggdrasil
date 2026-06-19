@@ -47,12 +47,25 @@ describe("ReportPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Maintenance" }));
 
     expect(screen.getAllByText(/agraph ask/).length).toBeGreaterThan(0);
+
+    const commandItem = screen
+      .getAllByText(/agraph ask/)
+      .map((element) => element.closest("li"))
+      .find(Boolean);
+    expect(commandItem).toBeTruthy();
+    fireEvent.click(within(commandItem as HTMLElement).getByRole("button", { name: "Copy command" }));
+    expect(within(commandItem as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
   it("opens focused report sections from review rows", () => {
     render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Open dependencies" })[0]);
+    const row = screen.getByText("Resolve import-to-package gaps").closest("article");
+    expect(row).toBeTruthy();
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Copy command" }));
+    expect(within(row as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Open dependencies" }));
 
     expect(screen.getByText("Package Summary")).toBeInTheDocument();
     expect(screen.getByText("missing.lib")).toBeInTheDocument();

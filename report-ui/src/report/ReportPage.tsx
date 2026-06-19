@@ -201,7 +201,15 @@ function InlineTable({
   );
 }
 
-function CommandList({ commands }: { commands: string[] }) {
+function CommandList({
+  commands,
+  copiedKey,
+  onCopyCommand
+}: {
+  commands: string[];
+  copiedKey: string | null;
+  onCopyCommand: (key: string, command: string) => void;
+}) {
   return (
     <section className="panel">
       <h2>Suggested Commands</h2>
@@ -209,11 +217,17 @@ function CommandList({ commands }: { commands: string[] }) {
         <p className="muted">No commands.</p>
       ) : (
         <ul className="command-list">
-          {commands.map((command) => (
-            <li key={command}>
-              <code>{command}</code>
-            </li>
-          ))}
+          {commands.map((command, index) => {
+            const key = `suggested:${index}:${command}`;
+            return (
+              <li key={command}>
+                <code>{command}</code>
+                <button type="button" onClick={() => onCopyCommand(key, command)}>
+                  {copiedKey === key ? "Copied" : "Copy command"}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
@@ -369,14 +383,18 @@ function ReviewEvidenceTable({ rows }: { rows: Array<Record<string, unknown>> })
 
 function ReviewQueue({
   rows,
+  copiedKey,
   onAsk,
+  onCopyCommand,
   onOpenGraphSlice,
   onOpenTab,
   limit,
   title = "Operator Review Queue"
 }: {
   rows: ReviewQueueRow[];
+  copiedKey: string | null;
   onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
   limit?: number;
@@ -429,6 +447,11 @@ function ReviewQueue({
                 {row.graphSliceId ? (
                   <button type="button" onClick={() => onOpenGraphSlice(row.graphSliceId as string)}>
                     Open graph slice
+                  </button>
+                ) : null}
+                {row.command ? (
+                  <button type="button" onClick={() => onCopyCommand(`review:${row.id}`, row.command as string)}>
+                    {copiedKey === `review:${row.id}` ? "Copied" : "Copy command"}
                   </button>
                 ) : null}
               </div>
@@ -907,7 +930,15 @@ function AtlasTab({
         copiedKey={copiedActionKey}
       />
 
-      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} limit={5} />
+      <ReviewQueue
+        rows={reviewRows}
+        copiedKey={copiedActionKey}
+        onAsk={onAsk}
+        onCopyCommand={onCopyCommand}
+        onOpenGraphSlice={onOpenGraphSlice}
+        onOpenTab={onOpenTab}
+        limit={5}
+      />
     </div>
   );
 }
@@ -1239,12 +1270,16 @@ function EvidenceTab({ report, onAsk }: { report: AGraphReport; onAsk: (scope: A
 
 function MaintenanceTab({
   report,
+  copiedActionKey,
   onAsk,
+  onCopyCommand,
   onOpenGraphSlice,
   onOpenTab
 }: {
   report: AGraphReport;
+  copiedActionKey: string | null;
   onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
 }) {
@@ -1252,8 +1287,15 @@ function MaintenanceTab({
   const reviewRows = reviewQueueRows(report);
   return (
     <div className="report-grid">
-      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} />
-      <CommandList commands={report.commands} />
+      <ReviewQueue
+        rows={reviewRows}
+        copiedKey={copiedActionKey}
+        onAsk={onAsk}
+        onCopyCommand={onCopyCommand}
+        onOpenGraphSlice={onOpenGraphSlice}
+        onOpenTab={onOpenTab}
+      />
+      <CommandList commands={report.commands} copiedKey={copiedActionKey} onCopyCommand={onCopyCommand} />
       <DataTable
         title="Maintenance Decisions"
         rows={asRows(maintenance["decision-queue"] || maintenance.decisionQueue)}
@@ -1336,7 +1378,15 @@ function DashboardTab({
         onOpenTab={onOpenTab}
         copiedKey={copiedActionKey}
       />
-      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} limit={5} />
+      <ReviewQueue
+        rows={reviewRows}
+        copiedKey={copiedActionKey}
+        onAsk={onAsk}
+        onCopyCommand={onCopyCommand}
+        onOpenGraphSlice={onOpenGraphSlice}
+        onOpenTab={onOpenTab}
+        limit={5}
+      />
       <PluginPanelList report={report} includeCore />
       <PluginDiagnostics diagnostics={report.plugins?.diagnostics || []} />
     </div>
@@ -1528,7 +1578,16 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
       case "evidence":
         return <EvidenceTab report={report} onAsk={askFromScope} />;
       case "maintenance":
-        return <MaintenanceTab report={report} onAsk={askFromScope} onOpenGraphSlice={openGraphSlice} onOpenTab={setActiveTab} />;
+        return (
+          <MaintenanceTab
+            report={report}
+            copiedActionKey={copiedActionKey}
+            onAsk={askFromScope}
+            onCopyCommand={copyCommand}
+            onOpenGraphSlice={openGraphSlice}
+            onOpenTab={setActiveTab}
+          />
+        );
       case "plugins":
         return <PluginsTab report={report} />;
       default:
