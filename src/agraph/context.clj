@@ -1454,6 +1454,9 @@
       (assoc :extractorFingerprints
              (vec (take 5 (:extractorFingerprints source-coverage))))
 
+      (seq (:nextActions source-coverage))
+      (assoc :nextActions (vec (take 3 (:nextActions source-coverage))))
+
       (seq (get-in source-coverage [:diagnostics :byStage]))
       (assoc-in [:diagnostics :byStage]
                 (vec (take 5 (get-in source-coverage [:diagnostics :byStage]))))

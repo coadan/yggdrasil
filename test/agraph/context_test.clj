@@ -884,6 +884,12 @@
                                                          :extractorFingerprint (str "fp-" idx)
                                                          :files idx})
                                                       (range 10))
+                         :nextActions (mapv (fn [idx]
+                                              {:kind :coverage
+                                               :label (str "Inspect coverage " idx)
+                                               :command (str "agraph sync coverage "
+                                                             idx)})
+                                            (range 5))
                          :diagnostics {:byStage (mapv (fn [idx]
                                                         {:stage (str "stage-" idx)
                                                          :count idx})
@@ -927,6 +933,7 @@
     (is (= 5 (count (get-in trimmed [:sourceCoverage :topFileKinds]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :extractors]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :extractorFingerprints]))))
+    (is (= 3 (count (get-in trimmed [:sourceCoverage :nextActions]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :diagnostics :byStage]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :diagnostics :byExtractor]))))
     (is (= 3 (count (get-in trimmed [:sourceCoverage :diagnostics :samples]))))))
