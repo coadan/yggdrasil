@@ -262,23 +262,69 @@
            :tags (case-tags case)
            :expectations (case-expectations case))))
 
+(defn- duplicate-values
+  [values]
+  (->> values
+       frequencies
+       (keep (fn [[value n]]
+               (when (< 1 n)
+                 value)))
+       sort
+       vec))
+
+(defn- suite-shape-errors
+  [repos cases]
+  (let [repo-id-dups (duplicate-values (map :id repos))
+        case-id-dups (duplicate-values (map :id cases))
+        repo-ids (set (map :id repos))
+        unknown-repos (->> cases
+                           (keep (fn [case]
+                                   (when-not (contains? repo-ids (:repo-id case))
+                                     {:case-id (:id case)
+                                      :repo-id (:repo-id case)})))
+                           (sort-by (juxt :repo-id :case-id))
+                           vec)]
+    (cond-> []
+      (seq repo-id-dups)
+      (conj {:kind :duplicate-repo-ids
+             :ids repo-id-dups})
+
+      (seq case-id-dups)
+      (conj {:kind :duplicate-case-ids
+             :ids case-id-dups})
+
+      (seq unknown-repos)
+      (conj {:kind :unknown-case-repos
+             :cases unknown-repos}))))
+
+(defn- validate-suite-shape!
+  [suite-id repos cases]
+  (let [errors (suite-shape-errors repos cases)]
+    (when (seq errors)
+      (throw (ex-info "Benchmark suite has ambiguous or invalid ids."
+                      {:suite-id suite-id
+                       :errors errors})))))
+
 (defn read-suite
   "Read and normalize a benchmark suite EDN file."
   [path]
   (let [base (config-dir path)
         data (edn/read-string (slurp (io/file path)))
-        suite-id (str (or (:id data) (safe-id (.getName (io/file path)))))]
+        suite-id (str (or (:id data) (safe-id (.getName (io/file path)))))
+        repos (mapv #(normalize-repo base %) (:repos data))
+        cases (mapv normalize-case (:cases data))]
     (when-not (seq (:repos data))
       (throw (ex-info "Benchmark suite is missing :repos." {:path path})))
     (when-not (seq (:cases data))
       (throw (ex-info "Benchmark suite is missing :cases." {:path path})))
+    (validate-suite-shape! suite-id repos cases)
     (assoc data
            :schema suite-schema
            :id suite-id
            :project-id (str (or (:project-id data) suite-id))
            :path (fs/canonical-path path)
-           :repos (mapv #(normalize-repo base %) (:repos data))
-           :cases (mapv normalize-case (:cases data)))))
+           :repos repos
+           :cases cases)))
 
 (defn- repo-by-id
   [suite]

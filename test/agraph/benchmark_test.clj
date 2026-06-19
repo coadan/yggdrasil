@@ -62,6 +62,40 @@
                           #"Benchmark case not found"
                           (benchmark/selected-cases suite ["case-1" "missing"])))))
 
+(deftest read-suite-rejects-ambiguous-or-invalid-ids
+  (let [suite-dir (temp-dir "agraph-bench-suite-shape")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))]
+    (spit suite-path
+          (pr-str {:id "shape-fixture"
+                   :repos [{:id "repo"
+                            :root "."}
+                           {:id "repo"
+                            :root "."}]
+                   :cases [{:id "case-1"
+                            :repo-id "repo"
+                            :issue {:title "first"}}
+                           {:id "case-1"
+                            :repo-id "repo"
+                            :issue {:title "duplicate"}}
+                           {:id "case-2"
+                            :repo-id "missing"
+                            :issue {:title "unknown repo"}}]}))
+    (try
+      (benchmark/read-suite suite-path)
+      (is false "Expected duplicate and unknown ids to fail suite reading.")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= "Benchmark suite has ambiguous or invalid ids."
+               (ex-message e)))
+        (is (= {:suite-id "shape-fixture"
+                :errors [{:kind :duplicate-repo-ids
+                          :ids ["repo"]}
+                         {:kind :duplicate-case-ids
+                          :ids ["case-1"]}
+                         {:kind :unknown-case-repos
+                          :cases [{:case-id "case-2"
+                                   :repo-id "missing"}]}]}
+               (ex-data e)))))))
+
 (deftest scores-file-localization
   (let [result {:groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]
                               :unsupportedGroundTruthFiles []}
