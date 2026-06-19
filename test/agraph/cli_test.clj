@@ -229,6 +229,7 @@
                                                       :errors []
                                                       :packages [{:id "demo"
                                                                   :status :passed
+                                                                  :install {:command "bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"}
                                                                   :errors []}]})]
       (with-out-str
         (cli/dispatch "plugin" ["new" ".dev/plugins/demo" "--id" "demo" "--force"]))
@@ -265,11 +266,13 @@
                                         "demo"]))]
         (is (str/includes? remove-out "# Plugin Removed"))
         (is (str/includes? remove-out "- package demo")))
-      (with-out-str
-        (cli/dispatch "plugin"
-                      ["registry"
-                       "validate"
-                       ".dev/plugins/registry.edn"]))
+      (let [registry-out (with-out-str
+                           (cli/dispatch "plugin"
+                                         ["registry"
+                                          "validate"
+                                          ".dev/plugins/registry.edn"]))]
+        (is (str/includes? registry-out
+                           "install bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0")))
       (is (= [[:new ".dev/plugins/demo" {:id "demo"
                                          :extractor? false
                                          :report? false

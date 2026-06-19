@@ -215,6 +215,7 @@ registry check. Unbenchmarked base packages may be listed as experimental, but
 public claims and core promotion remain blocked until benchmark artifacts exist.
 JSON validation output includes install metadata when `:source` is present,
 including a copyable `bb plugin install` command.
+Text output prints that install command under each installable registry package.
 
 ## Scope
 

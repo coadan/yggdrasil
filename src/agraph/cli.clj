@@ -2801,8 +2801,10 @@
   (println "- failed" (:failed counts))
   (doseq [{:keys [code message]} errors]
     (println "- error" (name code) "-" message))
-  (doseq [{:keys [id status errors]} packages]
+  (doseq [{:keys [id status errors install]} packages]
     (println "-" id (name status))
+    (when-let [command (:command install)]
+      (println "  install" command))
     (doseq [{:keys [code message]} errors]
       (println "  error" (name code) "-" message))))
 
