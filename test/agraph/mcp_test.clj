@@ -666,7 +666,26 @@
                                      []))
                   query/all-nodes (fn [_ _] [])
                   query/all-system-evidence (fn [_ _] [evidence-row])
-                  query/all-edges (fn [_ _] [edge-row])]
+                  query/all-edges (fn [_ _] [edge-row])
+                  graph/system-graph (fn [xtdb project-id opts]
+                                       (is (= :xtdb xtdb))
+                                       (is (= "fixture" project-id))
+                                       (is (= :expanded (:detail opts)))
+                                       {:schema graph/schema
+                                        :nodes [{:id "system:runtime"
+                                                 :label "Runtime"
+                                                 :kind "service"
+                                                 :repo "app"
+                                                 :pathPrefix "src"}
+                                                {:id "system:api"
+                                                 :label "API"
+                                                 :kind "external"
+                                                 :repo "app"}]
+                                        :edges [{:id "system-edge:runtime-api"
+                                                 :source "system:runtime"
+                                                 :target "system:api"
+                                                 :relation "uses-runtime-url"
+                                                 :confidence "high"}]})]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"])
                       (tool-call 19
@@ -688,6 +707,10 @@
                 {:line 5
                  :text "{:d 4}"}]
                (get-in packet [:source :lines])))
+        (is (= ["system:runtime" "system:api"]
+               (mapv :id (get-in packet [:systemRelationships :nodes]))))
+        (is (= ["system-edge:runtime-api"]
+               (mapv :id (get-in packet [:systemRelationships :edges]))))
         (is (= ["edge:runtime:source"]
                (mapv :xt/id (get-in packet [:relationships :edges]))))))))
 

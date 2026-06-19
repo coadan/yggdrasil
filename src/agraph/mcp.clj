@@ -776,7 +776,12 @@
                                  (mapcat (juxt :source :target) incident-edges)))]
     {:nodes (->> related-ids
                  (keep nodes-by-id)
-                 (sort-by (juxt :repo :pathPrefix :label :id))
+                 (sort-by (fn [node]
+                            [(if (= system-id (:id node)) 0 1)
+                             (:repo node)
+                             (:pathPrefix node)
+                             (:label node)
+                             (:id node)]))
                  (take limit)
                  (mapv compact-system-node))
      :edges (mapv compact-system-edge incident-edges)}))
@@ -883,19 +888,23 @@
                          :evidence (file-for-evidence files row)
                          :package (file-for-node files row)
                          :node (file-for-node files row)
-                         nil)]
+                         nil)
+                  related-system-id (case target-kind
+                                      :system (:id row)
+                                      :evidence (:system-id row)
+                                      nil)]
               (cond-> {:schema node-inspect-schema
                        :target target
                        :project {:id project-id}
                        :status :found
                        :match (target-choice target-kind match row)
                        :relationships (incident-graph selected nodes edges limit)}
-                (= :system target-kind) (assoc :systemRelationships
-                                               (system-relationships xtdb
-                                                                     project-id
-                                                                     overlay
-                                                                     (:id row)
-                                                                     limit))
+                related-system-id (assoc :systemRelationships
+                                         (system-relationships xtdb
+                                                               project-id
+                                                               overlay
+                                                               related-system-id
+                                                               limit))
                 (= :file target-kind) (assoc :file (compact-file-row row))
                 (= :evidence target-kind) (assoc :evidence (compact-evidence-row row))
                 (= :system target-kind) (assoc :system (compact-system-row row))
