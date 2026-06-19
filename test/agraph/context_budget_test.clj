@@ -1013,6 +1013,80 @@
     (is (= 5 (count (get-in trimmed [:sourceCoverage :diagnostics :byStage]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :diagnostics :byExtractor]))))
     (is (= 3 (count (get-in trimmed [:sourceCoverage :diagnostics :samples]))))))
+
+(deftest compact-audit-scopes-preserves-trust-boundary-counts
+  (let [trim @#'context/trim-optional-context-metadata
+        scope {:kind "unclassified-extractor"
+               :basis "indexed-graph"
+               :supportedFiles 2
+               :skippedFiles 1
+               :facts 4
+               :diagnostics 3
+               :overlayCount 1
+               :topEvidenceTypes (mapv (fn [idx]
+                                         {:kind (str "kind-" idx)
+                                          :count idx})
+                                       (range 6))
+               :samples (mapv (fn [idx]
+                                {:path (str "file-" idx ".edn")
+                                 :section "files"})
+                              (range 5))
+               :extra "drop"}
+        packet {:schema context/schema
+                :query "audit scope"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 1}
+                :entities []
+                :edges []
+                :activity []
+                :candidateFiles []
+                :docs []
+                :warnings []
+                :drilldowns []
+                :search {:instrumentation {:context-chunks (vec (range 100))}}
+                :auditScopes [scope]}
+        compacted (-> packet
+                      (update-in [:search :instrumentation] dissoc :context-chunks)
+                      (assoc :auditScopes
+                             [{:kind "unclassified-extractor"
+                               :basis "indexed-graph"
+                               :supportedFiles 2
+                               :skippedFiles 1
+                               :facts 4
+                               :diagnostics 3
+                               :overlayCount 1
+                               :topEvidenceTypes [{:kind "kind-0"
+                                                   :count 0}
+                                                  {:kind "kind-1"
+                                                   :count 1}
+                                                  {:kind "kind-2"
+                                                   :count 2}]
+                               :samples [{:path "file-0.edn"
+                                          :section "files"}
+                                         {:path "file-1.edn"
+                                          :section "files"}]}]))
+        trimmed (trim packet (context/estimate-tokens compacted))]
+    (is (= {:kind "unclassified-extractor"
+            :basis "indexed-graph"
+            :supportedFiles 2
+            :skippedFiles 1
+            :facts 4
+            :diagnostics 3
+            :overlayCount 1
+            :topEvidenceTypes [{:kind "kind-0"
+                                :count 0}
+                               {:kind "kind-1"
+                                :count 1}
+                               {:kind "kind-2"
+                                :count 2}]
+            :samples [{:path "file-0.edn"
+                       :section "files"}
+                      {:path "file-1.edn"
+                       :section "files"}]}
+           (first (:auditScopes trimmed))))))
 (deftest reviewed-doc-fitting-compacts-source-coverage-before-dropping-it
   (let [add-doc @#'context/add-doc-with-budget
         compact-source @#'context/compact-source-coverage

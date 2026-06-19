@@ -172,7 +172,14 @@
     packet))
 (defn- compact-audit-scope
   [scope]
-  (cond-> (select-keys scope [:kind :basis :facts :files])
+  (cond-> (select-keys scope [:kind
+                              :basis
+                              :facts
+                              :files
+                              :supportedFiles
+                              :skippedFiles
+                              :diagnostics
+                              :overlayCount])
     (seq (:topEvidenceTypes scope)) (assoc :topEvidenceTypes
                                            (vec (take 3 (:topEvidenceTypes scope))))
     (seq (:samples scope)) (assoc :samples
