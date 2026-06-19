@@ -25,6 +25,16 @@
 (def server-version
   "0.1.0")
 
+(def server-instructions
+  (str "Use agraph_explore first for structural coding questions when a project "
+       "graph exists. Check freshness and answerability before trusting missing "
+       "evidence. Use agraph_node for one exact file, node, package, system, or "
+       "evidence target; ambiguous labels return choices. Use agraph_status for "
+       "graph freshness, coverage, and next actions. Use agraph_systems for a "
+       "compact systems view. Treat AGraph output as mechanical facts plus "
+       "accepted map/metadata corrections; do not infer architecture from names "
+       "or path vocabulary."))
+
 (def default-root
   ".")
 
@@ -956,7 +966,8 @@
    :capabilities {:tools {}
                   :resources {}}
    :serverInfo {:name server-name
-                :version server-version}})
+                :version server-version}
+   :instructions server-instructions})
 
 (defn- json-rpc-error
   ([id code message] (json-rpc-error id code message nil))

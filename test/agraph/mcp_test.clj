@@ -47,12 +47,18 @@
                                           "initialize"
                                           {:protocolVersion "2025-03-26"}))
         listed (mcp/handle-message ctx (request 2 "tools/list" {}))
+        instructions (get-in init [:result :instructions])
         tool-names (mapv :name (get-in listed [:result :tools]))]
     (is (= "2.0" (:jsonrpc init)))
     (is (= "2025-03-26" (get-in init [:result :protocolVersion])))
     (is (= {:name "agraph-mcp"
             :version "0.1.0"}
            (get-in init [:result :serverInfo])))
+    (is (str/includes? instructions "Use agraph_explore first"))
+    (is (str/includes? instructions "Use agraph_node for one exact"))
+    (is (str/includes? instructions "Use agraph_status"))
+    (is (str/includes? instructions "Use agraph_systems"))
+    (is (str/includes? instructions "do not infer architecture from names"))
     (is (= ["agraph_explore"
             "agraph_node"
             "agraph_systems"
