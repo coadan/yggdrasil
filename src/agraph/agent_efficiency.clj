@@ -726,6 +726,7 @@
 (defn- headline-summary
   [{:keys [summary comparable headline-metrics claim-readiness]}]
   (let [metrics-by-key (into {} (map (juxt :key identity)) headline-metrics)
+        requirements (:requirements claim-readiness)
         metric-fields (into {}
                             (map (fn [[metric-key field]]
                                    [field (:delta (get metrics-by-key
@@ -737,6 +738,9 @@
             (:broadEfficiencyClaimSupported claim-readiness)
             :sharedCases (long (:sharedCases comparable))
             :minSharedCases (long (:minSharedCases summary))
+            :failedRequirements (->> claim-requirement-keys
+                                     (remove #(true? (get requirements %)))
+                                     vec)
             :unavailableMetrics (->> headline-metrics
                                      (filter #(= "unavailable" (:result %)))
                                      (mapv :key))}
@@ -962,7 +966,13 @@
                          (str "- Shared cases: "
                               (:sharedCases headline-summary)
                               "/"
-                              (:minSharedCases headline-summary))]
+                              (:minSharedCases headline-summary))
+                         (str "- Failed claim requirements: "
+                              (if-let [requirements
+                                       (seq (:failedRequirements
+                                             headline-summary))]
+                                (str/join ", " (map name requirements))
+                                "none"))]
                         (map #(headline-summary-line headline-summary %)
                              headline-summary-lines)
                         [(str "- Unavailable headline metrics: "

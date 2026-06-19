@@ -186,6 +186,8 @@
             :broadEfficiencyClaimSupported false
             :sharedCases 2
             :minSharedCases 2
+            :failedRequirements [:problemClassCoverage
+                                 :architectureClassCoverage]
             :fileRecallAt10Delta 0.25
             :noiseRatioAt20Delta -0.25
             :evidenceCitationRateDelta 0.25
@@ -359,10 +361,13 @@
                         [:shellOnly :agraph :delta :effect :result])))
     (is (= {:totalTokensDelta -5000.0
             :costUsdDelta -0.25
+            :failedRequirements [:problemClassCoverage
+                                 :architectureClassCoverage]
             :unavailableMetrics []}
            (select-keys (:headlineSummary comparison)
                         [:totalTokensDelta
                          :costUsdDelta
+                         :failedRequirements
                          :unavailableMetrics])))
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
@@ -895,6 +900,7 @@
     (is (.contains markdown "## Headline Summary"))
     (is (.contains markdown "- Broad efficiency claim supported: false"))
     (is (.contains markdown "- Shared cases: 2/2"))
+    (is (.contains markdown "- Failed claim requirements: problemClassCoverage, architectureClassCoverage"))
     (is (.contains markdown "- tool call delta: -4.0"))
     (is (.contains markdown "- totalTokens delta: unavailable"))
     (is (.contains markdown "- Unavailable headline metrics: totalTokens, costUsd"))
