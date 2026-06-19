@@ -342,6 +342,73 @@
          (sort-by (juxt :kind :extractor-version :extractor-fingerprint))
          vec)))
 
+(defn- active-project-rows
+  [xtdb table project-id]
+  (->> (store/rows-by-field xtdb table :project-id project-id)
+       (filter active-index-row?)
+       vec))
+
+(defn- edge-file-pairs
+  [node-file-by-id edge]
+  (let [source-file-id (get node-file-by-id (:source-id edge))
+        target-file-id (get node-file-by-id (:target-id edge))]
+    (cond-> []
+      source-file-id (conj [source-file-id target-file-id])
+      target-file-id (conj [target-file-id source-file-id]))))
+
+(defn- connected-file-ids
+  [node-file-by-id edges]
+  (->> edges
+       (mapcat #(edge-file-pairs node-file-by-id %))
+       (map first)
+       set))
+
+(defn- cross-file-connected-file-ids
+  [node-file-by-id edges]
+  (->> edges
+       (mapcat #(edge-file-pairs node-file-by-id %))
+       (filter (fn [[file-id neighbor-file-id]]
+                 (and neighbor-file-id
+                      (not= file-id neighbor-file-id))))
+       (map first)
+       set))
+
+(defn- connectivity-kind-rows
+  [files connected-file-ids cross-file-file-ids]
+  (->> files
+       (group-by :kind)
+       (map (fn [[kind kind-files]]
+              (let [file-ids (set (map :xt/id kind-files))]
+                {:kind (display-value kind)
+                 :indexedFiles (count kind-files)
+                 :connectedFiles (count (filter file-ids connected-file-ids))
+                 :crossFileConnectedFiles (count (filter file-ids
+                                                         cross-file-file-ids))
+                 :isolatedFiles (count (remove connected-file-ids file-ids))})))
+       (sort-by (juxt :kind))
+       vec))
+
+(defn- indexed-connectivity-summary
+  [xtdb project-id]
+  (when xtdb
+    (let [files (active-project-rows xtdb (:files store/tables) project-id)
+          nodes (active-project-rows xtdb (:nodes store/tables) project-id)
+          edges (active-project-rows xtdb (:edges store/tables) project-id)
+          file-ids (set (map :xt/id files))
+          node-file-by-id (into {} (keep (fn [node]
+                                           (when (contains? file-ids (:file-id node))
+                                             [(:xt/id node) (:file-id node)])))
+                                nodes)
+          connected-ids (connected-file-ids node-file-by-id edges)
+          cross-file-ids (cross-file-connected-file-ids node-file-by-id edges)]
+      {:indexedFiles (count files)
+       :nodes (count nodes)
+       :edges (count edges)
+       :connectedFiles (count connected-ids)
+       :crossFileConnectedFiles (count cross-file-ids)
+       :isolatedFiles (count (remove connected-ids file-ids))
+       :byKind (connectivity-kind-rows files connected-ids cross-file-ids)})))
+
 (defn- diagnostics-summary
   [xtdb project-id]
   (if-not xtdb
@@ -417,6 +484,7 @@
                                                                :reason)
                  :extractors (merge-extractors repos)
                  :extractor-fingerprints (indexed-extractor-fingerprint-summary xtdb id)
+                 :indexedConnectivity (indexed-connectivity-summary xtdb id)
                  :diagnostics (diagnostics-summary xtdb id)
                  :repos repos}
          actions (coverage-next-actions report (or config-path path))]

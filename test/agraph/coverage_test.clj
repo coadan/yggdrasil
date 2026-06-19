@@ -272,6 +272,130 @@
                  :files 1}]
                (:extractor-fingerprints report)))))))
 
+(deftest project-coverage-reports-indexed-connectivity
+  (let [root (temp-dir "agraph-coverage-connectivity")]
+    (spit-file! root "src/app.clj" "(ns app)\n")
+    (with-redefs [store/rows-by-field (fn [_ table field value]
+                                        (case [table field value]
+                                          [:agraph/files :project-id "fixture"]
+                                          [{:xt/id "file:app"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/app.clj"
+                                            :kind :code
+                                            :active? true}
+                                           {:xt/id "file:helper"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/helper.py"
+                                            :kind :python
+                                            :active? true}
+                                           {:xt/id "file:self"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/Self.java"
+                                            :kind :java
+                                            :active? true}
+                                           {:xt/id "file:doc"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "README.md"
+                                            :kind :doc
+                                            :active? true}
+                                           {:xt/id "file:inactive"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/Old.java"
+                                            :kind :java
+                                            :active? false}]
+
+                                          [:agraph/nodes :project-id "fixture"]
+                                          [{:xt/id "node:app"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :file-id "file:app"
+                                            :active? true}
+                                           {:xt/id "node:helper"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :file-id "file:helper"
+                                            :active? true}
+                                           {:xt/id "node:self-a"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :file-id "file:self"
+                                            :active? true}
+                                           {:xt/id "node:self-b"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :file-id "file:self"
+                                            :active? true}
+                                           {:xt/id "node:inactive"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :file-id "file:inactive"
+                                            :active? false}]
+
+                                          [:agraph/edges :project-id "fixture"]
+                                          [{:xt/id "edge:app-helper"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :source-id "node:app"
+                                            :target-id "node:helper"
+                                            :active? true}
+                                           {:xt/id "edge:self"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :source-id "node:self-a"
+                                            :target-id "node:self-b"
+                                            :active? true}
+                                           {:xt/id "edge:inactive"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :source-id "node:app"
+                                            :target-id "node:inactive"
+                                            :active? false}]
+
+                                          [:agraph/index-diagnostics :project-id "fixture"]
+                                          []
+
+                                          []))]
+      (let [report (coverage/project-coverage
+                    :xtdb
+                    {:id "fixture"
+                     :repos [{:id "app"
+                              :root root
+                              :role :application}]}
+                    {})]
+        (is (= {:indexedFiles 4
+                :nodes 4
+                :edges 2
+                :connectedFiles 3
+                :crossFileConnectedFiles 2
+                :isolatedFiles 1}
+               (dissoc (:indexedConnectivity report) :byKind)))
+        (is (= [{:kind "code"
+                 :indexedFiles 1
+                 :connectedFiles 1
+                 :crossFileConnectedFiles 1
+                 :isolatedFiles 0}
+                {:kind "doc"
+                 :indexedFiles 1
+                 :connectedFiles 0
+                 :crossFileConnectedFiles 0
+                 :isolatedFiles 1}
+                {:kind "java"
+                 :indexedFiles 1
+                 :connectedFiles 1
+                 :crossFileConnectedFiles 0
+                 :isolatedFiles 0}
+                {:kind "python"
+                 :indexedFiles 1
+                 :connectedFiles 1
+                 :crossFileConnectedFiles 1
+                 :isolatedFiles 0}]
+               (get-in report [:indexedConnectivity :byKind])))))))
+
 (deftest project-coverage-reports-supported-and-skipped-source-types
   (let [root (temp-dir "agraph-coverage-repo")]
     (spit-file! root "src/app.py" "def main():\n    return 1\n")
