@@ -5751,6 +5751,15 @@
    {:path [:agentDiagnostics :commandlessRuns]
     :label "commandlessRuns"
     :direction :lower}
+   {:path [:agentDiagnostics :commandTelemetry :searchCommandCount]
+    :label "searchCommandCount"
+    :direction :lower}
+   {:path [:agentDiagnostics :commandTelemetry :fileReadCommandCount]
+    :label "fileReadCommandCount"
+    :direction :lower}
+   {:path [:agentDiagnostics :commandTelemetry :shellCommandCount]
+    :label "shellCommandCount"
+    :direction :lower}
    {:path [:agentDiagnostics :hintDiagnosticRuns]
     :label "hintDiagnosticRuns"
     :direction :lower}
