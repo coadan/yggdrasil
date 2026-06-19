@@ -319,6 +319,9 @@ questions; it returns graph-basis freshness, answerability, candidate files,
 docs, graph facts, and drilldowns without creating a cursor. MCP agents should
 inspect `freshness`, `evidence.planes`, `answerability.planes`, and
 `nextActions` before treating missing facts as absent.
+Use `agraph_node` for a single file, evidence row, package, node, or accepted
+system; when map docs are attached, the node packet includes bounded
+line-numbered doc source windows when the file is available.
 `agraph_work_complete` records an explicit result artifact; applying validated
 results to `agraph.map.json` stays a separate CLI step.
 

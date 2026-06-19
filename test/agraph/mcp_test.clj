@@ -399,6 +399,7 @@
 (deftest node-tool-inspects-exact-map-system-target
   (let [root (temp-dir "agraph-mcp-map-system")
         map-path (str root "/agraph.map.json")
+        doc-file (java.io.File. root "docs/billing.md")
         overlay {:schema "agraph.map/v1"
                  :project "fixture"
                  :systems [{:id "system:billing"
@@ -422,8 +423,12 @@
                          :status "accepted"}]
                  :packageImports []
                  :updated-at-ms 1}]
+    (.mkdirs (.getParentFile doc-file))
+    (spit doc-file "# Billing\n\nContract text.\n")
     (spit map-path (json/write-json-str overlay))
-    (with-redefs [project/read-project (constantly project-fixture)
+    (with-redefs [project/read-project (constantly (assoc-in project-fixture
+                                                             [:repos 0 :root]
+                                                             root))
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
                   query/all-nodes (fn [_ _] [])
@@ -471,6 +476,15 @@
         (is (= ["docs/billing.md"]
                (mapv #(get-in % [:source :path])
                      (get-in packet [:map :docs]))))
+        (is (= :available
+               (get-in packet [:map :docs 0 :sourceWindow :status])))
+        (is (= [{:line 1
+                 :text "# Billing"}
+                {:line 2
+                 :text ""}
+                {:line 3
+                 :text "Contract text."}]
+               (get-in packet [:map :docs 0 :sourceWindow :lines])))
         (is (= ["map-edge:billing-db"]
                (mapv :id (get-in packet [:map :edges]))))
         (is (= ["system:billing" "system:database"]

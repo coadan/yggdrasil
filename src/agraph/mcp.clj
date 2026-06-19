@@ -804,8 +804,33 @@
                   (:name row)
                   (repo-path row)]))))
 
+(defn- doc-source-row
+  [doc]
+  (let [source (:source doc)
+        repo-id (or (:repo-id source)
+                    (:repo source))
+        path (:path source)]
+    (when (and repo-id path)
+      {:repo-id repo-id
+       :path path})))
+
+(defn- doc-source-line
+  [doc]
+  (or (get-in doc [:source :source-line])
+      (get-in doc [:source :sourceLine])))
+
+(defn- map-doc-row
+  [project source-lines doc]
+  (let [source-row (doc-source-row doc)]
+    (cond-> (select-keys doc [:target :role :source :status :reason])
+      source-row (assoc :sourceWindow
+                        (line-numbered-source project
+                                              source-row
+                                              source-lines
+                                              {:center-line (doc-source-line doc)})))))
+
 (defn- map-attachments
-  [overlay target match]
+  [project source-lines overlay target match]
   (let [values (target-values target match)
         row (:row match)
         file? (= :file (:target-kind match))
@@ -830,7 +855,7 @@
                                             :reason :tags])))
        :docs (->> (:docs overlay)
                   (filter doc-match?)
-                  (mapv #(select-keys % [:target :role :source :status :reason])))
+                  (mapv #(map-doc-row project source-lines %)))
        :edges (->> (:edges overlay)
                    (filter edge-match?)
                    (mapv #(select-keys % [:id :source :target :relation :status
@@ -918,7 +943,12 @@
                                                   (if (= :file target-kind)
                                                     {}
                                                     {:center-line (:source-line row)})))
-                overlay (assoc :map (map-attachments overlay target selected))))))))))
+                overlay (assoc :map
+                               (map-attachments project
+                                                source-lines
+                                                overlay
+                                                target
+                                                selected))))))))))
 
 (defn- explore-create
   [ctx args]
