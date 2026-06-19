@@ -1,6 +1,7 @@
 (ns agraph.extract
   "Deterministic extraction from supported source, config, and document files."
-  (:require [agraph.fs :as fs]
+  (:require [agraph.extract.assets :as extract.assets]
+            [agraph.fs :as fs]
             [agraph.hash :as hash]
             [agraph.text :as text]
             [charred.api :as json]
@@ -14282,17 +14283,6 @@
      :chunks (:chunks chunk-result)
      :diagnostics []}))
 
-(defn extract-binary-asset
-  "Extract metadata for supported binary assets without reading text chunks."
-  [run-id {:keys [id-scope file-id path kind size-bytes content-sha]}]
-  (let [asset-node (cond-> (generic-node run-id id-scope file-id path kind path 1)
-                     size-bytes (assoc :size-bytes size-bytes)
-                     content-sha (assoc :content-sha content-sha))]
-    {:nodes [asset-node]
-     :edges []
-     :chunks []
-     :diagnostics []}))
-
 (defn- leading-spaces
   [line]
   (count (take-while #(= \space %) line)))
@@ -20586,7 +20576,7 @@
      :text (extract-text-source run-id file :text-file)
      :unknown (extract-text-source run-id file :unknown-file)
      (:archive-asset :compiled-artifact :font-asset :gettext-binary :image-asset :media-asset :opaque-asset :secret-material)
-     (extract-binary-asset run-id file)
+     (extract.assets/extract-binary-asset run-id file)
      :doc (extract-doc run-id file)
      :edn (extract-edn run-id file)
      :config (extract-edn run-id file)
