@@ -311,13 +311,14 @@
     (let [extractor-result (plugin-package/dry-run-extractor
                             (.getPath report-only-dir)
                             (.getPath repo-root)
-                            "src/page.clj"
+                            "src/missing.clj"
                             {})
           report-result (plugin-package/dry-run-report
                          (.getPath extractor-only-dir)
                          {})]
       (is (= :failed (:status extractor-result)))
       (is (= [] (:plugins extractor-result)))
+      (is (= "src/missing.clj" (get-in extractor-result [:file :path])))
       (is (= [:no-extractor-plugins-selected]
              (mapv :code (:diagnostics extractor-result))))
       (is (= [:no-extractor-plugins-selected]

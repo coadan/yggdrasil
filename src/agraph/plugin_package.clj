@@ -1255,8 +1255,6 @@
   (let [package (read-local-package package-dir)
         plugins (selected-extractor-plugins package plugin-id)
         root-path (fs/canonical-path root)
-        file-record (file-record-for-dry-run root-path file plugins)
-        run-id "run:plugin-dry-run"
         plugin-summaries (mapv #(select-keys % [:id
                                                 :version
                                                 :authority
@@ -1272,12 +1270,15 @@
          :status :failed
          :package (package-summary package)
          :plugins plugin-summaries
-         :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
+         :file {:path (str file)
+                :root root-path}
          :core-counts (counts rows)
          :enhanced-counts (counts rows)
          :diagnostics diagnostics
          :rows (assoc rows :diagnostics diagnostics)})
-      (let [extract-file (requiring-resolve 'agraph.extract/extract-file)
+      (let [file-record (file-record-for-dry-run root-path file plugins)
+            run-id "run:plugin-dry-run"
+            extract-file (requiring-resolve 'agraph.extract/extract-file)
             core (extract-file run-id file-record)
             enhanced (extractor-plugin/enhance-extraction
                       {:plugins plugins
