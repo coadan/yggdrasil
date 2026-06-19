@@ -1,6 +1,7 @@
 (ns agraph.benchmark
   "Issue replay benchmarks for AGraph retrieval quality."
   (:require [agraph.benchmark-classes :as benchmark-classes]
+            [agraph.benchmark-paths :as benchmark-paths]
             [agraph.context :as context]
             [agraph.extract :as extract]
             [agraph.fs :as fs]
@@ -77,9 +78,6 @@
 
 (def ^:private suspected-files-scope-rule
   "Only include files likely to require edits in suspectedFiles; cite comparison, example, generated, or read-only support files as evidence instead.")
-
-(def default-output-root
-  ".dev/agraph/bench")
 
 (def default-limit
   50)
@@ -222,15 +220,6 @@
   [value]
   (str/blank? (str value)))
 
-(defn- safe-id
-  [value]
-  (-> (str value)
-      str/lower-case
-      (str/replace #"[^a-z0-9._-]+" "-")
-      (str/replace #"(^[-._]+|[-._]+$)" "")
-      not-empty
-      (or "benchmark")))
-
 (defn- canonical-or-relative
   [base path]
   (let [file (io/file path)]
@@ -258,7 +247,7 @@
 
 (defn- normalize-case-tag
   [tag]
-  (some-> tag name safe-id not-empty))
+  (some-> tag name benchmark-paths/safe-id not-empty))
 
 (defn- case-tags
   [case]
@@ -338,7 +327,7 @@
   [path]
   (let [base (config-dir path)
         data (edn/read-string (slurp (io/file path)))
-        suite-id (str (or (:id data) (safe-id (.getName (io/file path)))))
+        suite-id (str (or (:id data) (benchmark-paths/safe-id (.getName (io/file path)))))
         repos (mapv #(normalize-repo base %) (:repos data))
         cases (mapv normalize-case (:cases data))]
     (when-not (seq (:repos data))
@@ -386,140 +375,13 @@
   (or (:case-ids opts)
       (:case-id opts)))
 
-(defn- output-root
-  [suite opts]
-  (io/file (or (:out opts) default-output-root) (safe-id (:id suite))))
-
-(defn- case-output-dir
-  [suite case opts]
-  (io/file (output-root suite opts) "cases" (safe-id (:id case))))
-
-(defn- worktree-dir
-  [suite case opts]
-  (io/file (case-output-dir suite case opts) "worktree"))
-
-(defn- xtdb-dir
-  [suite case opts]
-  (.getPath (io/file (case-output-dir suite case opts) "xtdb")))
-
-(defn- prepared-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts) "prepared.json"))
-
-(defn- result-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts) "result.json"))
-
-(defn- agent-project-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts) "agent-project.edn"))
-
-(defn- agent-packet-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts) "agent-packet.json"))
-
-(defn- agent-baseline-id
-  [opts]
-  (str "agraph-baseline-" (name (keyword (or (:retriever opts) :lexical)))))
-
 (defn- agent-baseline-result-path
   [suite case opts]
-  (io/file (case-output-dir suite case opts)
-           "agent-results"
-           (str (safe-id (agent-baseline-id opts)) ".json")))
-
-(defn- agent-baseline-context-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts)
-           "agent-results"
-           (str (safe-id (agent-baseline-id opts)) ".context.json")))
-
-(defn- local-vector-request-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts)
-           "agent-results"
-           (str (safe-id (agent-baseline-id opts)) ".request.json")))
-
-(defn- agent-run-id
-  [opts]
-  (or (some-> (:agent-id opts) safe-id not-empty)
-      "agent"))
-
-(defn- agent-run-result-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts)
-           "agent-results"
-           (str (agent-run-id opts) ".json")))
-
-(defn- agent-run-log-path
-  [suite case opts stream]
-  (io/file (case-output-dir suite case opts)
-           "agent-logs"
-           (str (agent-run-id opts) "." stream ".txt")))
-
-(defn- agent-run-prompt-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts)
-           "agent-prompts"
-           (str (agent-run-id opts) ".md")))
-
-(defn- agent-run-output-schema-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts)
-           "agent-output-schemas"
-           (str (agent-run-id opts) ".schema.json")))
-
-(defn- agent-run-context-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts)
-           "agent-contexts"
-           (str (agent-run-id opts) ".agraph-context.json")))
-
-(defn- agent-run-hints-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts)
-           "agent-contexts"
-           (str (agent-run-id opts) ".agraph-hints.json")))
-
-(defn- agent-run-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts)
-           "agent-runs"
-           (str (agent-run-id opts) ".json")))
-
-(defn- without-json-suffix
-  [path]
-  (str/replace (.getName (io/file path)) #"\.json$" ""))
+  (benchmark-paths/agent-baseline-result-path suite case opts))
 
 (defn- agent-score-path
   [suite case opts result-file]
-  (io/file (case-output-dir suite case opts)
-           "agent-scores"
-           (str (safe-id (without-json-suffix result-file)) ".score.json")))
-
-(defn- agent-score-dir
-  [suite case opts]
-  (io/file (case-output-dir suite case opts) "agent-scores"))
-
-(defn- agent-report-path
-  [suite opts]
-  (io/file (output-root suite opts) "agent-report.json"))
-
-(defn- agent-check-path
-  [suite opts]
-  (io/file (output-root suite opts) "agent-check.json"))
-
-(defn- agent-compare-path
-  [suite opts]
-  (io/file (output-root suite opts) "agent-compare.json"))
-
-(defn- progress-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts) "progress.json"))
-
-(defn- report-path
-  [suite opts]
-  (io/file (output-root suite opts) "report.json"))
+  (benchmark-paths/agent-score-path suite case opts result-file))
 
 (defn- ensure-parent!
   [file]
@@ -623,7 +485,7 @@
 
 (defn- append-progress-event!
   [suite case opts event]
-  (let [path (progress-path suite case opts)
+  (let [path (benchmark-paths/progress-path suite case opts)
         progress (read-progress path suite case)]
     (write-json-file! path
                       (-> progress
@@ -1002,7 +864,7 @@
                        :prepare-worktree
                        #(ensure-worktree! (:root repo)
                                           base-sha
-                                          (.getPath (worktree-dir suite case opts)))
+                                          (.getPath (benchmark-paths/worktree-dir suite case opts)))
                        (fn [root]
                          {:worktreeRoot root
                           :baseSha base-sha}))
@@ -1021,7 +883,7 @@
      case
      opts
      :write-prepared-case
-     #(write-json-file! (prepared-path suite case opts) prepared)
+     #(write-json-file! (benchmark-paths/prepared-path suite case opts) prepared)
      (fn [path]
        {:path (fs/canonical-path path)}))
     prepared))
@@ -1480,7 +1342,7 @@
         bench-project {:id (:project-id prepared)
                        :name (:case-id prepared)
                        :repos [repo]}]
-    (store/with-node (xtdb-dir suite case opts)
+    (store/with-node (benchmark-paths/xtdb-dir suite case opts)
       (fn [xtdb]
         (let [index-summary (with-benchmark-parser-worker
                               opts
@@ -1524,7 +1386,7 @@
                               (get-in result-base [:agraph :topFiles]))})
               result (assoc result-without-scores
                             :scores (score-result result-without-scores))]
-          (write-json-file! (result-path suite case opts) result)
+          (write-json-file! (benchmark-paths/result-path suite case opts) result)
           result)))))
 
 (defn run-suite!
@@ -1584,7 +1446,7 @@
 
 (defn- current-agent-score-artifacts
   [suite case opts {:keys [agent-id mode result-path]}]
-  (let [dir (agent-score-dir suite case opts)
+  (let [dir (benchmark-paths/agent-score-dir suite case opts)
         expected-fingerprint (case-fingerprint suite case)
         expected-result-path (some-> result-path fs/canonical-path)
         expected-parser-worker-mode (:mode (parser-worker-profile opts))
@@ -1642,10 +1504,10 @@
    :skipReason "current-score-artifact"
    :artifacts (cond-> {:agentResultPath (:agentResultPath score)
                        :agentScorePath (:agentScorePath score)
-                       :progressPath (fs/canonical-path (progress-path suite case opts))}
+                       :progressPath (fs/canonical-path (benchmark-paths/progress-path suite case opts))}
                 (= "local-vector" (get-in score [:agent :mode]))
                 (assoc :localVectorRequestPath
-                       (fs/canonical-path (local-vector-request-path suite case opts))))
+                       (fs/canonical-path (benchmark-paths/local-vector-request-path suite case opts))))
    :scores (:scores score)})
 
 (defn- skipped-agent-run
@@ -1663,7 +1525,7 @@
    :skipReason "current-score-artifact"
    :artifacts {:agentResultPath (:agentResultPath score)
                :agentScorePath (:agentScorePath score)
-               :agentRunPath (fs/canonical-path (agent-run-path suite case opts))}
+               :agentRunPath (fs/canonical-path (benchmark-paths/agent-run-path suite case opts))}
    :scores (:scores score)
    :warnings (get-in score [:agent :warnings])})
 
@@ -1745,9 +1607,9 @@
 (defn- agent-packet-from-prepared!
   [suite case prepared opts]
   (let [mode (agent-mode opts)
-        project-path (fs/canonical-path (agent-project-path suite case opts))
-        xtdb-path (fs/canonical-path (xtdb-dir suite case opts))
-        packet-path (fs/canonical-path (agent-packet-path suite case opts))
+        project-path (fs/canonical-path (benchmark-paths/agent-project-path suite case opts))
+        xtdb-path (fs/canonical-path (benchmark-paths/xtdb-dir suite case opts))
+        packet-path (fs/canonical-path (benchmark-paths/agent-packet-path suite case opts))
         project-config (agent-project prepared)
         artifacts (cond-> {:projectConfig project-path
                            :packetPath packet-path
@@ -2527,11 +2389,11 @@
   [suite case opts]
   (let [prepared (prepare-case! suite case opts)
         bench-project (agent-project prepared)
-        project-path (fs/canonical-path (agent-project-path suite case opts))
-        result-path (agent-baseline-result-path suite case opts)
-        context-path (agent-baseline-context-path suite case opts)
-        progress-path (progress-path suite case opts)
-        agent-id (agent-baseline-id opts)]
+        project-path (fs/canonical-path (benchmark-paths/agent-project-path suite case opts))
+        result-path (benchmark-paths/agent-baseline-result-path suite case opts)
+        context-path (benchmark-paths/agent-baseline-context-path suite case opts)
+        progress-path (benchmark-paths/progress-path suite case opts)
+        agent-id (benchmark-paths/agent-baseline-id opts)]
     (progress-stage!
      suite
      case
@@ -2540,7 +2402,7 @@
      #(write-edn-file! project-path bench-project)
      (fn [path]
        {:path (fs/canonical-path path)}))
-    (store/with-node (xtdb-dir suite case opts)
+    (store/with-node (benchmark-paths/xtdb-dir suite case opts)
       (fn [xtdb]
         (let [parser-worker (parser-worker-profile opts)
               index-summary (progress-stage!
@@ -2594,7 +2456,7 @@
                             (fn [result]
                               {:suspectedFiles (count (:suspectedFiles result))
                                :suspectedSymbols (count (:suspectedSymbols result))}))
-              score-path (agent-score-path suite case opts result-path)
+              score-path (benchmark-paths/agent-score-path suite case opts result-path)
               scored (progress-stage!
                       suite
                       case
@@ -2726,11 +2588,11 @@
   keeps vector dependencies outside AGraph core."
   [suite case opts]
   (let [prepared (prepare-case! suite case opts)
-        agent-id (agent-baseline-id opts)
-        request-path (local-vector-request-path suite case opts)
-        result-path (agent-baseline-result-path suite case opts)
-        score-path (agent-score-path suite case opts result-path)
-        progress-path (progress-path suite case opts)
+        agent-id (benchmark-paths/agent-baseline-id opts)
+        request-path (benchmark-paths/local-vector-request-path suite case opts)
+        result-path (benchmark-paths/agent-baseline-result-path suite case opts)
+        score-path (benchmark-paths/agent-score-path suite case opts result-path)
+        progress-path (benchmark-paths/progress-path suite case opts)
         request (local-vector-request prepared opts agent-id)]
     (progress-stage!
      suite
@@ -2813,9 +2675,9 @@
   [suite opts]
   (let [baseline-for-case (fn [case]
                             (or (when (:skip-existing? opts)
-                                  (some->> {:agent-id (agent-baseline-id opts)
+                                  (some->> {:agent-id (benchmark-paths/agent-baseline-id opts)
                                             :mode (agent-baseline-mode opts)
-                                            :result-path (agent-baseline-result-path
+                                            :result-path (benchmark-paths/agent-baseline-result-path
                                                           suite
                                                           case
                                                           opts)}
@@ -3036,8 +2898,8 @@
 
 (defn- write-agent-run-logs!
   [suite case opts process-result]
-  (let [stdout-path (agent-run-log-path suite case opts "stdout")
-        stderr-path (agent-run-log-path suite case opts "stderr")]
+  (let [stdout-path (benchmark-paths/agent-run-log-path suite case opts "stdout")
+        stderr-path (benchmark-paths/agent-run-log-path suite case opts "stderr")]
     (write-text-file! stdout-path (:stdout process-result))
     (write-text-file! stderr-path (:stderr process-result))
     {:stdoutPath (fs/canonical-path stdout-path)
@@ -3181,7 +3043,7 @@
 
 (defn- write-agent-output-schema!
   [suite case opts]
-  (let [schema-path (agent-run-output-schema-path suite case opts)]
+  (let [schema-path (benchmark-paths/agent-run-output-schema-path suite case opts)]
     (write-json-file! schema-path (agent-result-json-schema))
     (fs/canonical-path schema-path)))
 
@@ -3282,7 +3144,7 @@
 
 (defn- write-agent-run-prompt!
   [suite case packet result-path output-schema-path opts]
-  (let [prompt-path (agent-run-prompt-path suite case opts)]
+  (let [prompt-path (benchmark-paths/agent-run-prompt-path suite case opts)]
     (write-text-file! prompt-path
                       (agent-run-prompt packet
                                         result-path
@@ -3378,9 +3240,9 @@
 (defn- prepare-agent-graph-and-artifacts!
   [suite case prepared opts]
   (when (= "agraph" (agent-mode opts))
-    (let [context-path (agent-run-context-path suite case opts)
-          hints-path (agent-run-hints-path suite case opts)]
-      (store/with-node (xtdb-dir suite case opts)
+    (let [context-path (benchmark-paths/agent-run-context-path suite case opts)
+          hints-path (benchmark-paths/agent-run-hints-path suite case opts)]
+      (store/with-node (benchmark-paths/xtdb-dir suite case opts)
         (fn [xtdb]
           (let [bench-project (agent-project prepared)
                 summary {:indexSummary (with-benchmark-parser-worker
@@ -3428,9 +3290,9 @@
                                               (:hints-path agraph-artifacts)
                                               (assoc :agraph-hints-path
                                                      (:hints-path agraph-artifacts))))
-        result-path (agent-run-result-path suite case opts)
-        run-path (agent-run-path suite case opts)
-        score-path (agent-score-path suite case opts result-path)
+        result-path (benchmark-paths/agent-run-result-path suite case opts)
+        run-path (benchmark-paths/agent-run-path suite case opts)
+        score-path (benchmark-paths/agent-score-path suite case opts result-path)
         output-schema-path (write-agent-output-schema! suite case opts)
         prompt-path (write-agent-run-prompt! suite
                                              case
@@ -3511,7 +3373,7 @@
                        (or (when (:skip-existing? opts)
                              (some->> {:agent-id (:agent-id opts)
                                        :mode (agent-mode opts)
-                                       :result-path (agent-run-result-path suite case opts)}
+                                       :result-path (benchmark-paths/agent-run-result-path suite case opts)}
                                       (reusable-agent-score suite case opts)
                                       (skipped-agent-run suite case opts)))
                            (agent-run! suite case opts)))
@@ -3947,7 +3809,7 @@
                                      opts
                                      agent-result)
                       :agentResultPath (fs/canonical-path result-file))]
-    (write-json-file! (agent-score-path suite case opts result-file) scored)
+    (write-json-file! (benchmark-paths/agent-score-path suite case opts result-file) scored)
     scored))
 
 (defn- json-file?
@@ -3957,7 +3819,7 @@
 
 (defn- agent-score-files
   [suite case opts]
-  (let [dir (agent-score-dir suite case opts)]
+  (let [dir (benchmark-paths/agent-score-dir suite case opts)]
     (when (.isDirectory dir)
       (->> (file-seq dir)
            (filter json-file?)
@@ -3982,7 +3844,7 @@
 
 (defn- progress-summary
   [suite case opts]
-  (let [path (progress-path suite case opts)]
+  (let [path (benchmark-paths/progress-path suite case opts)]
     (when (.isFile (io/file path))
       (let [progress (read-json-file path)
             events (vec (:events progress))
@@ -4063,7 +3925,7 @@
 
 (defn- case-result-file
   [suite case opts]
-  (let [file (result-path suite case opts)]
+  (let [file (benchmark-paths/result-path suite case opts)]
     (when (.isFile file)
       file)))
 
@@ -4077,7 +3939,7 @@
   [suite case-id opts]
   (let [case (first (selected-cases suite case-id))
         result (case-result suite case opts)
-        prepared (prepared-path suite case opts)]
+        prepared (benchmark-paths/prepared-path suite case opts)]
     (or result
         (when (.isFile prepared)
           (read-json-file prepared))
@@ -5131,7 +4993,7 @@
                                     results)}
         report (assoc report-base
                       :claimReadiness (report-claim-readiness report-base))]
-    (write-json-file! (agent-report-path suite opts) report)
+    (write-json-file! (benchmark-paths/agent-report-path suite opts) report)
     report))
 
 (defn- threshold
@@ -5799,7 +5661,7 @@
   "Aggregate existing agent score artifacts and check them against thresholds."
   [suite opts]
   (let [check (check-agent-report (report-agent-suite suite opts) opts)]
-    (write-json-file! (agent-check-path suite opts) check)
+    (write-json-file! (benchmark-paths/agent-check-path suite opts) check)
     check))
 
 (def ^:private comparison-score-specs
@@ -6064,7 +5926,7 @@
         comparison (compare-agent-reports (read-json-file baseline-path)
                                           (read-json-file candidate-path)
                                           opts)]
-    (write-json-file! (agent-compare-path suite opts) comparison)
+    (write-json-file! (benchmark-paths/agent-compare-path suite opts) comparison)
     comparison))
 
 (defn report-suite
@@ -6087,5 +5949,5 @@
                                                 :fixSha
                                                 :scores])
                                results)}]
-    (write-json-file! (report-path suite opts) report)
+    (write-json-file! (benchmark-paths/report-path suite opts) report)
     report))
