@@ -27,13 +27,15 @@
 
 (def server-instructions
   (str "Use agraph_explore first for structural coding questions when a project "
-       "graph exists. Check freshness and answerability before trusting missing "
-       "evidence. Treat returned snippets as already-read source context and "
-       "use relationships for nearby mechanical edges before broad grep. "
+       "graph exists. Check freshness, evidence.planes, answerability.planes, "
+       "and nextActions before trusting missing evidence. Treat returned "
+       "snippets as already-read source context and use relationships for "
+       "nearby mechanical edges before broad grep. "
        "Use agraph_node for one exact file, node, package, system, or "
        "evidence target; ambiguous labels return choices. Use agraph_status for "
-       "graph freshness, coverage, and next actions. Use agraph_systems for a "
-       "compact systems view. Treat AGraph output as mechanical facts plus "
+       "graph freshness, evidence-plane readiness, coverage, and next actions. "
+       "Use agraph_systems for a compact systems view. Treat AGraph output as "
+       "mechanical facts plus "
        "accepted map/metadata corrections; do not infer architecture from names "
        "or path vocabulary."))
 

@@ -246,7 +246,9 @@ The MCP server returns the same packet schemas as the CLI. By default,
 `AGRAPH_MCP_TOOLS=all` to list advanced cursor, sync, and queue handoff tools.
 Use `agraph_explore` as the primary one-shot MCP packet for structural
 questions; it returns graph-basis freshness, answerability, candidate files,
-docs, graph facts, and drilldowns without creating a cursor.
+docs, graph facts, and drilldowns without creating a cursor. MCP agents should
+inspect `freshness`, `evidence.planes`, `answerability.planes`, and
+`nextActions` before treating missing facts as absent.
 `agraph_work_complete` records an explicit result artifact; applying validated
 results to `agraph.map.json` stays a separate CLI step.
 
