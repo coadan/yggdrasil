@@ -27,8 +27,20 @@
           :base-sha "320f7139052be98339726cac20895f50172000f9"
           :fix-sha "320f7139052be98339726cac20895f50172000f9"
           :ground-truth {:localization-files ["site/src/pages/index.astro"
-                                               "site/src/pages/docs/[version]/examples/index.astro"]}
-          :expectations {:nodes [{:kind :web-framework-route
+                                              "site/src/pages/docs/[version]/examples/index.astro"]}
+          :expectations {:evidence [{:kind :web-framework-route
+                                     :path "site/src/pages/index.astro"
+                                     :label "index route"}
+                                    {:kind :web-framework-route
+                                     :path "site/src/pages/docs/[version]/examples/index.astro"
+                                     :label "examples route"}
+                                    {:kind :web-framework-import
+                                     :path "site/src/pages/index.astro"
+                                     :label "theme import"}
+                                    {:kind :web-framework-import
+                                     :path "site/src/pages/docs/[version]/examples/index.astro"
+                                     :label "theme import"}]
+                         :nodes [{:kind :web-framework-route
                                   :path "site/src/pages/index.astro"}
                                  {:kind :web-framework-route
                                   :path "site/src/pages/docs/[version]/examples/index.astro"}
@@ -58,8 +70,17 @@
           :base-sha "c82919e8970c7ebebb87ded191b815c76737cd04"
           :fix-sha "c82919e8970c7ebebb87ded191b815c76737cd04"
           :ground-truth {:localization-files ["site/astro.config.ts"
-                                               "package.json"]}
-          :expectations {:nodes [{:kind :web-framework
+                                              "package.json"]}
+          :expectations {:evidence [{:kind :web-framework-import
+                                     :path "site/astro.config.ts"
+                                     :label "astro/config"}
+                                    {:kind :web-framework-plugin
+                                     :path "site/astro.config.ts"
+                                     :label "Astro integration"}
+                                    {:kind :manifest-package
+                                     :path "package.json"
+                                     :label "astro dependency"}]
+                         :nodes [{:kind :web-framework
                                   :label "astro"}
                                  {:kind :web-framework-import
                                   :path "site/astro.config.ts"
@@ -87,7 +108,7 @@
           :base-sha "948b5feb51b9605babc6820475b5ccff44f29552"
           :fix-sha "948b5feb51b9605babc6820475b5ccff44f29552"
           :ground-truth {:localization-files ["migrations/db/init-scripts/00000000000003-post-setup.sql"
-                                               "migrations/.env"]}
+                                              "migrations/.env"]}
           :expectations {:evidence [{:kind :env-var
                                      :path "migrations/.env"
                                      :label "DATABASE_URL"}
@@ -112,7 +133,7 @@
           :base-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
           :fix-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
           :ground-truth {:localization-files ["lib/adapters/http.js"
-                                               "tests/unit/adapters/http.test.js"]}
+                                              "tests/unit/adapters/http.test.js"]}
           :expectations {:evidence [{:kind :env-var
                                      :path "tests/unit/adapters/http.test.js"
                                      :label "PROXY_PORT"}]}
@@ -137,8 +158,8 @@
           :base-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
           :fix-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
           :ground-truth {:localization-files ["Dapper/SqlMapper.cs"
-                                               "tests/Dapper.Tests/TypeHandlerTests.cs"
-                                               "tests/docker-compose.yml"]}
+                                              "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                              "tests/docker-compose.yml"]}
           :expectations {:evidence [{:kind :container-image-consumer
                                      :path "tests/docker-compose.yml"
                                      :label "postgres:alpine"}

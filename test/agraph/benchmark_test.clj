@@ -76,6 +76,7 @@
     (is (every? #(contains? (set (:tags %)) "problem-architecture") cases))
     (is (every? #(seq (get-in % [:coverage :source-kinds])) cases))
     (is (every? #(seq (get-in % [:ground-truth :localization-files])) cases))
+    (is (every? #(seq (get-in % [:expectations :evidence])) cases))
     (is (every? #(or (seq (get-in % [:expectations :evidence]))
                      (seq (get-in % [:expectations :nodes]))
                      (seq (get-in % [:expectations :chunks]))
@@ -85,7 +86,12 @@
     (is (every? source-kinds
                 [:web-framework :manifest :env :sql :javascript :dotnet :compose]))
     (is (every? evidence-kinds
-                [:env-var :container-image-consumer]))
+                [:web-framework-route
+                 :web-framework-import
+                 :web-framework-plugin
+                 :manifest-package
+                 :env-var
+                 :container-image-consumer]))
     (is (every? node-kinds
                 [:web-framework-route :web-framework-import :web-framework-plugin :external-package]))
     (is (every? #(contains? (set (keys cases-by-id)) %)
@@ -122,6 +128,7 @@
     (is (every? #(contains? (set (:tags %)) "problem-architecture") cases))
     (is (every? #(seq (get-in % [:coverage :source-kinds])) cases))
     (is (every? #(seq (get-in % [:ground-truth :localization-files])) cases))
+    (is (every? #(seq (get-in % [:expectations :evidence])) cases))
     (is (every? #(or (seq (get-in % [:expectations :evidence]))
                      (seq (get-in % [:expectations :nodes]))
                      (seq (get-in % [:expectations :chunks]))
@@ -131,7 +138,12 @@
     (is (every? source-kinds
                 [:web-framework :manifest :env :sql :javascript :dotnet :compose]))
     (is (every? evidence-kinds
-                [:env-var :container-image-consumer]))
+                [:web-framework-route
+                 :web-framework-import
+                 :web-framework-plugin
+                 :manifest-package
+                 :env-var
+                 :container-image-consumer]))
     (is (every? node-kinds
                 [:web-framework-route :web-framework-import :web-framework-plugin :external-package]))
     (is (every? tags
