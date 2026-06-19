@@ -219,8 +219,9 @@ registry check. Unbenchmarked base packages may be listed as experimental, but
 public claims and core promotion remain blocked until benchmark artifacts exist.
 JSON validation output includes install metadata when `:source` is present,
 including a copyable `bb plugin install` command, plus `:claim-ready` and
-`:non-authoritative` counts. A package can pass registry sharing checks while
-still being non-authoritative for public claims.
+`:non-authoritative` counts and `:error-counts` grouped by registry error code.
+A package can pass registry sharing checks while still being non-authoritative
+for public claims.
 Text output prints that install command and claim authority under each
 installable registry package.
 

@@ -570,6 +570,9 @@
               :claim-ready 0
               :non-authoritative 3}
              (:counts result)))
+      (is (= {:registry-source-missing 2
+              :public-sharing-not-ready 1}
+             (:error-counts result)))
       (is (= :passed (get-in by-id ["base-plugin" :status])))
       (is (= {:type :git
               :url "https://github.com/org/agraph-plugins.git"

@@ -1105,6 +1105,13 @@
     {:claim-ready (get statuses :benchmark-backed 0)
      :non-authoritative (get statuses :non-authoritative 0)}))
 
+(defn- registry-error-counts
+  [schema-errors results]
+  (frequencies
+   (keep :code
+         (concat schema-errors
+                 (mapcat :errors results)))))
+
 (defn validate-registry
   "Validate a local public plugin registry index."
   [registry-path]
@@ -1125,7 +1132,8 @@
                     []
                     (mapv #(validate-registry-entry registry-path %) entries))
           failed (count (filter #(= :failed (:status %)) results))
-          claim-counts (registry-claim-counts results)]
+          claim-counts (registry-claim-counts results)
+          error-counts (registry-error-counts schema-errors results)]
       {:schema registry-validate-schema
        :registry (select-keys registry [:schema :id :name :description])
        :path (fs/canonical-path registry-path)
@@ -1134,6 +1142,7 @@
                        :passed (count (filter #(= :passed (:status %)) results))
                        :failed failed}
                       claim-counts)
+       :error-counts error-counts
        :errors schema-errors
        :packages results})
     (catch Exception e
@@ -1145,6 +1154,7 @@
                 :failed 0
                 :claim-ready 0
                 :non-authoritative 0}
+       :error-counts {:registry-read 1}
        :errors [{:code :registry-read
                  :message (or (ex-message e) (str e))
                  :data (ex-data e)}]
