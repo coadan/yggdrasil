@@ -106,6 +106,10 @@
         (is (= [{:kind :coverage
                  :label "Inspect extractor diagnostics"
                  :count 1
+                 :command "agraph sync coverage project.edn --json"}
+                {:kind :coverage
+                 :label "Inspect isolated indexed files"
+                 :count 1
                  :command "agraph sync coverage project.edn --json"}]
                (:nextActions report)))))))
 
@@ -394,7 +398,12 @@
                  :connectedFiles 1
                  :crossFileConnectedFiles 1
                  :isolatedFiles 0}]
-               (get-in report [:indexedConnectivity :byKind])))))))
+               (get-in report [:indexedConnectivity :byKind])))
+        (is (= [{:kind :coverage
+                 :label "Inspect isolated indexed files"
+                 :count 1
+                 :command "agraph sync coverage <project.edn> --json"}]
+               (:nextActions report)))))))
 
 (deftest project-coverage-reports-supported-and-skipped-source-types
   (let [root (temp-dir "agraph-coverage-repo")]

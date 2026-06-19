@@ -176,9 +176,10 @@
        " --json"))
 
 (defn- coverage-next-actions
-  [{:keys [totals diagnostics]} config-path]
+  [{:keys [totals diagnostics indexedConnectivity]} config-path]
   (let [skipped (long (or (:skipped totals) 0))
         diagnostic-count (long (or (:total diagnostics) 0))
+        isolated-count (long (or (:isolatedFiles indexedConnectivity) 0))
         command (coverage-command config-path)]
     (cond-> []
       (pos? skipped)
@@ -191,6 +192,12 @@
       (conj {:kind :coverage
              :label "Inspect extractor diagnostics"
              :count diagnostic-count
+             :command command})
+
+      (pos? isolated-count)
+      (conj {:kind :coverage
+             :label "Inspect isolated indexed files"
+             :count isolated-count
              :command command}))))
 
 (defn- active-rows
