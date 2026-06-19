@@ -26,6 +26,7 @@ Useful flags:
   relative to `project.edn`.
 - `--force`: replace an already installed package with the same package id.
 - `--json`: emit machine-readable install/update/list output.
+- `--no-progress`: suppress stderr progress lines for install/update.
 
 Install writes a `:plugin-packages` entry to `project.edn`:
 
@@ -175,6 +176,8 @@ understanding. If the package has no extractor plugin for the selected lane, the
 dry-run fails with a structured diagnostic instead of passing without testing
 any plugin. Failed dry-runs make the CLI command fail, so agents and CI can use
 them as an authoring gate.
+Plain dry-runs print start/complete progress lines to stderr; use `--json` or
+`--no-progress` for quiet automation.
 
 `plugin dry-run report` runs the package report plugin against a synthetic report
 context without generating a full report. It returns panels, artifacts,
@@ -331,6 +334,8 @@ by registry error code. A package can pass registry sharing checks while still
 being non-authoritative for public claims.
 Text output prints public registry metadata, the install command, and claim
 authority under each installable registry package.
+Plain registry validation prints start/complete progress lines to stderr; use
+`--json` or `--no-progress` for quiet automation.
 
 ### Registry Workflow
 

@@ -14,6 +14,25 @@
   [data]
   (*print-json* data))
 
+(defn- progress-output?
+  [args]
+  (and (not (json-output? args))
+       (not (some #{"--no-progress"} args))))
+(defn- plugin-progress-fn
+  [args]
+  (when (progress-output? args)
+    (let [printed-header? (atom false)]
+      (fn [line]
+        (binding [*out* *err*]
+          (when (compare-and-set! printed-header? false true)
+            (println "# Plugin Progress"))
+          (println line)
+          (flush))))))
+(defn- plugin-progress!
+  [progress & parts]
+  (when progress
+    (progress (str/join " " (remove nil? parts)))))
+
 (defn- claim-authority-text
   [claim-authority]
   [(str "status=" (name (:status claim-authority)))
@@ -424,13 +443,23 @@
                (not (and root file)))
       (throw (ex-info "Missing plugin dry-run repo root or file."
                       {:usage (usage)})))
-    (let [opts {:plugin-id (option-value args "--plugin")}
+    (let [progress (plugin-progress-fn args)
+          opts {:plugin-id (option-value args "--plugin")}
+          _ (plugin-progress! progress
+                              "- dry-run start"
+                              kind
+                              package-dir
+                              (when (= "extractor" kind) file))
           result (case kind
                    "extractor"
                    (plugin-package/dry-run-extractor package-dir root file opts)
 
                    "report"
                    (plugin-package/dry-run-report package-dir opts))]
+      (plugin-progress! progress
+                        "- dry-run complete"
+                        (str "status=" (name (:status result)))
+                        (str "plugins=" (count (:plugins result))))
       (if (json-output? args)
         (print-json result)
         (print-plugin-dry-run result))
@@ -508,13 +537,20 @@
     (when-not (and config-path source)
       (throw (ex-info "Missing plugin project config path or git source."
                       {:usage (usage)})))
-    (let [result (plugin-package/install!
+    (let [progress (plugin-progress-fn args)
+          _ (plugin-progress! progress "- install start" source)
+          result (plugin-package/install!
                   config-path
                   source
                   {:ref (option-value args "--ref")
                    :subdir (option-value args "--subdir")
                    :cache-root (option-value args "--cache-dir")
                    :force? (boolean (some #{"--force"} args))})]
+      (plugin-progress! progress
+                        "- install complete"
+                        (str "package=" (get-in result [:package :id]))
+                        (when-let [rev (get-in result [:entry :source :rev])]
+                          (str "rev=" rev)))
       (if (json-output? args)
         (print-json result)
         (print-plugin-install result)))))
@@ -524,12 +560,19 @@
     (when-not (and config-path package-id)
       (throw (ex-info "Missing plugin project config path or package id."
                       {:usage (usage)})))
-    (let [result (plugin-package/update!
+    (let [progress (plugin-progress-fn args)
+          _ (plugin-progress! progress "- update start" package-id)
+          result (plugin-package/update!
                   config-path
                   package-id
                   {:ref (option-value args "--ref")
                    :subdir (option-value args "--subdir")
                    :cache-root (option-value args "--cache-dir")})]
+      (plugin-progress! progress
+                        "- update complete"
+                        (str "package=" (:package-id result))
+                        (when-let [rev (get-in result [:entry :source :rev])]
+                          (str "rev=" rev)))
       (if (json-output? args)
         (print-json result)
         (print-plugin-update result)))))
@@ -564,7 +607,14 @@
     (when-not registry-path
       (throw (ex-info "Missing plugin registry path."
                       {:usage (usage)})))
-    (let [result (plugin-package/validate-registry registry-path)]
+    (let [progress (plugin-progress-fn args)
+          _ (plugin-progress! progress "- registry validate start" registry-path)
+          result (plugin-package/validate-registry registry-path)]
+      (plugin-progress! progress
+                        "- registry validate complete"
+                        (str "status=" (name (:status result)))
+                        (str "packages=" (get-in result [:counts :packages] 0))
+                        (str "failed=" (get-in result [:counts :failed] 0)))
       (if (json-output? args)
         (print-json result)
         (print-plugin-registry-validation result))

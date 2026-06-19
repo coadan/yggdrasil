@@ -142,19 +142,24 @@
                                                      :manifest-fingerprint "sha256:abc123"
                                                      :path "/tmp/pkg"}
                                              :force? (:force? opts)})]
-      (let [out (with-out-str
-                  (cli/dispatch "plugin"
-                                ["install"
-                                 "project.edn"
-                                 "git@example.test:org/pkg.git"
-                                 "--ref"
-                                 "v0.1.0"
-                                 "--subdir"
-                                 "packages/pkg"
-                                 "--cache-dir"
-                                 ".cache/plugins"
-                                 "--force"]))]
+      (let [err (java.io.StringWriter.)
+            out (binding [*err* err]
+                  (with-out-str
+                    (cli/dispatch "plugin"
+                                  ["install"
+                                   "project.edn"
+                                   "git@example.test:org/pkg.git"
+                                   "--ref"
+                                   "v0.1.0"
+                                   "--subdir"
+                                   "packages/pkg"
+                                   "--cache-dir"
+                                   ".cache/plugins"
+                                   "--force"])))]
         (is (str/includes? out "# Plugin Installed"))
+        (is (str/includes? (str err) "# Plugin Progress"))
+        (is (str/includes? (str err) "- install start git@example.test:org/pkg.git"))
+        (is (str/includes? (str err) "- install complete package=pkg"))
         (is (str/includes? out "claim-authority status=non-authoritative public-claims=false"))
         (is (str/includes? out "claim-blockers unbenchmarked"))
         (is (str/includes? out "manifest-fingerprint sha256:abc123"))
@@ -197,18 +202,23 @@
                                                     :manifest-fingerprint "sha256:def456"
                                                     :path "/tmp/pkg"
                                                     :source {:rev "newrev"}}})]
-      (let [out (with-out-str
-                  (cli/dispatch "plugin"
-                                ["update"
-                                 "project.edn"
-                                 "pkg"
-                                 "--ref"
-                                 "v0.2.0"
-                                 "--subdir"
-                                 "packages/pkg"
-                                 "--cache-dir"
-                                 ".cache/plugins"]))]
+      (let [err (java.io.StringWriter.)
+            out (binding [*err* err]
+                  (with-out-str
+                    (cli/dispatch "plugin"
+                                  ["update"
+                                   "project.edn"
+                                   "pkg"
+                                   "--ref"
+                                   "v0.2.0"
+                                   "--subdir"
+                                   "packages/pkg"
+                                   "--cache-dir"
+                                   ".cache/plugins"])))]
         (is (str/includes? out "# Plugin Updated"))
+        (is (str/includes? (str err) "# Plugin Progress"))
+        (is (str/includes? (str err) "- update start pkg"))
+        (is (str/includes? (str err) "- update complete package=pkg rev=newrev"))
         (is (str/includes? out "- previous-rev oldrev"))
         (is (str/includes? out "- rev newrev"))
         (is (str/includes? out "claim-authority status=non-authoritative public-claims=false"))
@@ -519,19 +529,21 @@
                                      "--extractor"]))]
         (is (str/includes? new-out "- file-kind htmx"))
         (is (str/includes? new-out "- fixture fixtures/sample.html")))
-      (let [validate-out (with-out-str
+      (let [progress-err (java.io.StringWriter.)
+            validate-out (with-out-str
                            (cli/dispatch "plugin" ["validate" ".dev/plugins/demo"]))
             diagnose-out (with-out-str
                            (cli/dispatch "plugin" ["diagnose" ".dev/plugins/demo"]))
-            extractor-out (with-out-str
-                            (cli/dispatch "plugin"
-                                          ["dry-run"
-                                           "extractor"
-                                           ".dev/plugins/demo"
-                                           "."
-                                           "src/page.clj"
-                                           "--plugin"
-                                           "demo-extractor"]))
+            extractor-out (binding [*err* progress-err]
+                            (with-out-str
+                              (cli/dispatch "plugin"
+                                            ["dry-run"
+                                             "extractor"
+                                             ".dev/plugins/demo"
+                                             "."
+                                             "src/page.clj"
+                                             "--plugin"
+                                             "demo-extractor"])))
             input-out (with-out-str
                         (cli/dispatch "plugin"
                                       ["input"
@@ -550,13 +562,14 @@
                                      "src/page.clj"
                                      "--plugin"
                                      "demo-extractor"]))
-            report-out (with-out-str
-                         (cli/dispatch "plugin"
-                                       ["dry-run"
-                                        "report"
-                                        ".dev/plugins/demo"
-                                        "--plugin"
-                                        "demo-report"]))
+            report-out (binding [*err* progress-err]
+                         (with-out-str
+                           (cli/dispatch "plugin"
+                                         ["dry-run"
+                                          "report"
+                                          ".dev/plugins/demo"
+                                          "--plugin"
+                                          "demo-report"])))
             report-input-out (with-out-str
                                (cli/dispatch "plugin"
                                              ["input"
@@ -574,6 +587,10 @@
         (is (str/includes? validate-out "claim-authority status=non-authoritative public-claims=false"))
         (is (str/includes? diagnose-out "claim-blockers project-local,unbenchmarked"))
         (is (str/includes? extractor-out "benchmark=unbenchmarked"))
+        (is (str/includes? (str progress-err) "# Plugin Progress"))
+        (is (str/includes? (str progress-err) "- dry-run start extractor .dev/plugins/demo src/page.clj"))
+        (is (str/includes? (str progress-err) "- dry-run complete status=passed plugins=1"))
+        (is (str/includes? (str progress-err) "- dry-run start report .dev/plugins/demo"))
         (is (str/includes? extractor-out "scope=project-local"))
         (is (str/includes? extractor-out "claim-authority status=non-authoritative public-claims=false"))
         (is (str/includes? extractor-out "claim-blockers project-local,unbenchmarked"))
@@ -615,13 +632,18 @@
                                         "demo"]))]
         (is (str/includes? remove-out "# Plugin Removed"))
         (is (str/includes? remove-out "- package demo")))
-      (let [registry-out (with-out-str
-                           (cli/dispatch "plugin"
-                                         ["registry"
-                                          "validate"
-                                          ".dev/plugins/registry.edn"]))]
+      (let [registry-err (java.io.StringWriter.)
+            registry-out (binding [*err* registry-err]
+                           (with-out-str
+                             (cli/dispatch "plugin"
+                                           ["registry"
+                                            "validate"
+                                            ".dev/plugins/registry.edn"])))]
         (is (str/includes? registry-out
                            "install bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"))
+        (is (str/includes? (str registry-err) "# Plugin Progress"))
+        (is (str/includes? (str registry-err) "- registry validate start .dev/plugins/registry.edn"))
+        (is (str/includes? (str registry-err) "- registry validate complete status=passed packages=1 failed=0"))
         (is (str/includes? registry-out "kinds extractor,report"))
         (is (str/includes? registry-out "support experimental"))
         (is (str/includes? registry-out "code-reviewed false"))
@@ -675,17 +697,21 @@
                      :diagnostics [diagnostic]
                      :rows {:diagnostics [diagnostic]}})]
       (let [error (atom nil)
-            out (with-out-str
-                  (try
-                    (cli/dispatch "plugin"
-                                  ["dry-run"
-                                   "extractor"
-                                   ".dev/plugins/demo"
-                                   "."
-                                   "src/missing.clj"])
-                    (catch clojure.lang.ExceptionInfo e
-                      (reset! error e))))]
+            err (java.io.StringWriter.)
+            out (binding [*err* err]
+                  (with-out-str
+                    (try
+                      (cli/dispatch "plugin"
+                                    ["dry-run"
+                                     "extractor"
+                                     ".dev/plugins/demo"
+                                     "."
+                                     "src/missing.clj"])
+                      (catch clojure.lang.ExceptionInfo e
+                        (reset! error e)))))]
         (is (str/includes? out "- status failed"))
+        (is (str/includes? (str err) "- dry-run start extractor .dev/plugins/demo src/missing.clj"))
+        (is (str/includes? (str err) "- dry-run complete status=failed plugins=0"))
         (is (str/includes? out "error no-extractor-plugins-selected"))
         (is (= "Plugin dry-run failed." (ex-message @error)))
         (is (= {:kind "extractor"
@@ -1486,10 +1512,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
-
-
-
 
 
 
