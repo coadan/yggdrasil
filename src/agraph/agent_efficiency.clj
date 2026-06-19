@@ -761,6 +761,21 @@
        " (shell cases: " (:cases shellOnly)
        ", agraph cases: " (:cases agraph) ")"))
 
+(defn- class-summary-line
+  [{:keys [problemClasses
+           measuredProblemClasses
+           architectureClasses
+           measuredArchitectureClasses]}]
+  (str "Class signal summary: problem "
+       measuredProblemClasses
+       "/"
+       problemClasses
+       " measured, architecture "
+       measuredArchitectureClasses
+       "/"
+       architectureClasses
+       " measured"))
+
 (defn- class-tag-groups
   [comparison pred]
   (->> (get-in comparison [:byTag :groups])
@@ -803,6 +818,8 @@
                         (get-in comparison [:summary :unavailableMetrics])))
           (println (str "Shared tag groups: "
                         (get-in comparison [:byTag :comparability :sharedTags])))
+          (when-let [summary (get-in comparison [:classSignals :summary])]
+            (println (class-summary-line summary)))
           (when-let [categories (seq (:byCategory comparison))]
             (println "Category signals:")
             (doseq [category categories]

@@ -799,6 +799,8 @@
     (is (.contains out "Category signals:"))
     (is (.contains out "observed metrics: 1"))
     (is (.contains out
+                   "Class signal summary: problem 1/1 measured, architecture 1/2 measured"))
+    (is (.contains out
                    "- command-telemetry: agraph-improved (observed metrics: 1)"))
     (is (.contains out "Problem-class signals:"))
     (is (.contains out
