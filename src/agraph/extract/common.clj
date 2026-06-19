@@ -117,6 +117,90 @@
     (string? value) value
     :else (str value)))
 
+(defn leading-spaces
+  [line]
+  (count (take-while #(= \space %) line)))
+
+(defn strip-yaml-scalar
+  [value]
+  (-> (str value)
+      (str/replace #"^\s*['\"]|['\"]\s*$" "")
+      str/trim))
+
+(defn yaml-scalar-list-values
+  [value]
+  (let [value (str/trim (or value ""))]
+    (cond
+      (str/blank? value) []
+      (and (str/starts-with? value "[")
+           (str/ends-with? value "]"))
+      (->> (subs value 1 (dec (count value)))
+           (#(str/split % #","))
+           (map strip-yaml-scalar)
+           (remove str/blank?)
+           vec)
+
+      :else
+      [(strip-yaml-scalar value)])))
+
+(defn yaml-section-items
+  [content section-names]
+  (let [sections (set section-names)]
+    (loop [remaining (map-indexed vector (str/split-lines content))
+           section nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (cond
+          (re-matches #"^[A-Za-z_][A-Za-z0-9_-]*:\s*.*" line)
+          (let [[_ next-section inline-value]
+                (re-matches #"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)" line)
+                inline-values (yaml-scalar-list-values inline-value)]
+            (recur (rest remaining)
+                   (when (contains? sections next-section) next-section)
+                   (into out
+                         (map (fn [value]
+                                {:section next-section
+                                 :value value
+                                 :source-line (inc idx)}))
+                         (when (contains? sections next-section)
+                           inline-values))))
+
+          (and section
+               (re-matches #"^\s*-\s+name:\s+(.+?)\s*$" line))
+          (let [[_ value] (re-matches #"^\s*-\s+name:\s+(.+?)\s*$" line)]
+            (recur (rest remaining)
+                   section
+                   (conj out {:section section
+                              :value (strip-yaml-scalar value)
+                              :source-line (inc idx)})))
+
+          (and section
+               (re-matches #"^\s*-\s+(.+?)\s*$" line))
+          (let [[_ value] (re-matches #"^\s*-\s+(.+?)\s*$" line)]
+            (recur (rest remaining)
+                   section
+                   (conj out {:section section
+                              :value (strip-yaml-scalar value)
+                              :source-line (inc idx)})))
+
+          (and section
+               (re-matches #"^\s+name:\s+(.+?)\s*$" line))
+          (let [[_ value] (re-matches #"^\s+name:\s+(.+?)\s*$" line)]
+            (recur (rest remaining)
+                   section
+                   (conj out {:section section
+                              :value (strip-yaml-scalar value)
+                              :source-line (inc idx)})))
+
+          (and section
+               (not (str/blank? (str/trim line)))
+               (zero? (leading-spaces line)))
+          (recur (rest remaining) nil out)
+
+          :else
+          (recur (rest remaining) section out))
+        out))))
+
 (defn bounded-lines
   [text line-limit]
   (str/join "\n" (take line-limit (str/split-lines (or text "")))))
