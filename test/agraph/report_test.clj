@@ -275,7 +275,7 @@
               report-md (slurp (:report files))]
           (is (= report/schema (:schema result)))
           (is (= "fixture" (:project-id result)))
-          (is (= "agraph.evidence/v1" (get-in result [:evidence :schema])))
+          (is (= "agraph.evidence/v2" (get-in result [:evidence :schema])))
           (is (every? #(.exists (io/file %)) (vals files)))
           (is (= graph/schema (:schema graph-json)))
           (is (= graph/schema (:schema systems-json)))
@@ -286,7 +286,7 @@
           (is (some #(= report-plugin/core-plugin-id (get-in % [:plugin :id]))
                     (:panels plugins-json)))
           (is (= "fixture" (get-in report-json [:project :id])))
-          (is (= "agraph.evidence/v1" (get-in report-json [:evidence :schema])))
+          (is (= "agraph.evidence/v2" (get-in report-json [:evidence :schema])))
           (is (= "agraph.report.atlas/v1" (get-in report-json [:atlas :schema])))
           (is (number? (get-in report-json [:atlas :evidence :files])))
           (is (number? (get-in report-json [:atlas :systems :nodes])))
