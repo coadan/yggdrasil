@@ -232,6 +232,16 @@ answer is backed by code, config, deployment evidence, dependency, docs, map
 correction, or maintenance evidence without classifying architecture from path
 names or prose.
 
+`architecture.summary` is the smallest architecture signal agents should keep
+when token budgets force packet trimming. It includes row counts for accepted
+systems, candidate systems, boundary/runtime/deploy/dependency evidence, docs,
+open decisions, validation gaps, warnings, and next actions. It also includes
+status counts and keyed status maps for `evidenceFamilies` and
+`validationGaps`, plus bounded `validationGapSamples` and `nextActionSamples`.
+Those samples are copied from existing rows, not inferred, so a summary-only
+packet still tells the agent which evidence families or validation planes need
+inspection and which first actions are available.
+
 `architecture.validationGaps` also reports graph-basis freshness when the
 packet freshness status is `stale`, `partial`, `unknown`, or `unsynced`. These
 rows use `plane: "graph-basis"` and include bounded freshness counts and
