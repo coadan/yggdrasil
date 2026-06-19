@@ -783,6 +783,7 @@
       {:kind :work-review
        :label (compact "Inspect open decision" work-id)
        :target work-id
+       :command (str "agraph sync work show " work-id)
        :mcpTool "agraph_work_show"
        :mcpArgs {:workId work-id}
        :reason "Open queued review packet before accepting or rejecting architecture evidence"})))

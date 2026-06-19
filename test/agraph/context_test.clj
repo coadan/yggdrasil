@@ -1074,10 +1074,11 @@
              (mapv :target (take 2 (drop 3 (:nextActions architecture))))))
       (is (= {:kind :work-review
               :target "work:boundary"
+              :command "agraph sync work show work:boundary"
               :mcpTool "agraph_work_show"
               :mcpArgs {:workId "work:boundary"}}
              (select-keys (nth (:nextActions architecture) 5)
-                          [:kind :target :mcpTool :mcpArgs]))))))
+                          [:kind :target :command :mcpTool :mcpArgs]))))))
 
 (deftest context-packet-selects-accepted-system-from-result-path
   (with-redefs [query/search-report (fn [_ query-text opts]
