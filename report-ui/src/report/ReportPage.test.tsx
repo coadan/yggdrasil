@@ -26,6 +26,22 @@ describe("ReportPage", () => {
     expect(screen.getByText(/agraph ask/)).toBeInTheDocument();
   });
 
+  it("answers report-local questions from loaded artifacts", () => {
+    render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(screen.getByText("Ask this report")).toBeInTheDocument();
+    expect(screen.getByText("Report-local Ask")).toBeInTheDocument();
+    expect(screen.getByText("Maintenance work")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "What dependency issues exist?" }));
+
+    expect(screen.getByText("Dependency issues")).toBeInTheDocument();
+    expect(screen.getAllByText("packages.counts")).toHaveLength(3);
+    expect(screen.getByText("Unresolved imports")).toBeInTheDocument();
+  });
+
   it("renders empty report packets without crashing", () => {
     render(<ReportPage report={emptyReport} graph={emptyGraph} />);
 
