@@ -168,6 +168,11 @@ and plugin diagnostics.
 - `report-plugins.json`, containing only the plugin bundle
 - `index.html`, which renders the report UI
 
+`report.json` also includes `plugin-packages`: compact package summaries with
+warnings, benchmark status, source pins, manifest fingerprints, and diagnose
+commands. Report plugins receive this data through their input packet under
+`report.plugin-packages`.
+
 Report plugins are presentation and planning tools. They should emit panel data,
 diagnostics, or artifacts for review. They should not mutate graph facts or
 write accepted semantic corrections directly; accepted corrections still belong

@@ -270,6 +270,46 @@
                       :package-name
                       :versions]))
 
+(defn- plugin-package-source
+  [source]
+  (select-keys source [:type :url :rev :ref :subdir :path]))
+
+(defn- plugin-package-diagnose-command
+  [package]
+  (when-let [path (:path package)]
+    (str "agraph plugin diagnose " (command/shell-token path) " --json")))
+
+(defn- compact-plugin-package
+  [package]
+  (cond-> (select-keys package
+                       [:id
+                        :name
+                        :version
+                        :path
+                        :visibility
+                        :license
+                        :scope
+                        :benchmark-status
+                        :benchmark-artifacts
+                        :manifest-fingerprint
+                        :expected-manifest-fingerprint
+                        :extractor-plugins
+                        :report-plugins
+                        :warnings])
+    (:source package) (assoc :source (plugin-package-source (:source package)))
+    (:path package) (assoc :diagnose-command (plugin-package-diagnose-command package))))
+
+(defn- plugin-package-summary
+  [project]
+  (let [packages (mapv compact-plugin-package (:plugin-packages project))
+        warning-count (reduce + 0 (map (comp count :warnings) packages))
+        by-benchmark (frequencies (map :benchmark-status packages))]
+    {:counts {:packages (count packages)
+              :warnings warning-count
+              :unbenchmarked (get by-benchmark :unbenchmarked 0)
+              :benchmarked (get by-benchmark :benchmarked 0)}
+     :packages packages}))
+
 (defn- role-counts
   [repos]
   (->> repos
@@ -491,6 +531,7 @@
                                        (take report-package-diagnostic-limit
                                              (:version-conflicts package-report)))
               :artifact "report.json"}
+   :plugin-packages (plugin-package-summary project)
    :maintenance {:counts (:counts maintenance)
                  :external-api-review (:external-api-review maintenance)
                  :top-hubs (vec (take 10 (or (get-in maintenance [:graph-health :high-degree-hubs])

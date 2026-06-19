@@ -30,7 +30,25 @@
                 {:project {:id "fixture"
                            :name "Fixture"
                            :path "project.edn"
-                           :repos []}
+                           :repos []
+                           :plugin-packages
+                           [{:id "datastar-hiccup"
+                             :name "Datastar Hiccup"
+                             :version "0.1.0"
+                             :path ".dev/agraph/plugins/cache/datastar"
+                             :source {:type :git
+                                      :url "https://example.test/datastar.git"
+                                      :rev "abc123"
+                                      :extra "drop"}
+                             :visibility :public
+                             :license {:spdx "MIT"}
+                             :scope {:kind :base}
+                             :benchmark-status :unbenchmarked
+                             :manifest-fingerprint "sha256:manifest"
+                             :expected-manifest-fingerprint "sha256:manifest"
+                             :extractor-plugins 1
+                             :report-plugins 1
+                             :warnings ["datastar-hiccup is unbenchmarked"]}]}
                  :detail :primary
                  :generated-at-ms 1
                  :graph-data {:nodes [] :edges []}
@@ -100,6 +118,30 @@
     (is (= "agraph.report.atlas/v1" (get-in packet [:atlas :schema])))
     (is (= report-plugin/bundle-schema (get-in packet [:plugins :schema])))
     (is (empty? (get-in packet [:plugins :panels])))
+    (is (= {:packages 1
+            :warnings 1
+            :unbenchmarked 1
+            :benchmarked 0}
+           (get-in packet [:plugin-packages :counts])))
+    (is (= [{:id "datastar-hiccup"
+             :name "Datastar Hiccup"
+             :version "0.1.0"
+             :path ".dev/agraph/plugins/cache/datastar"
+             :visibility :public
+             :license {:spdx "MIT"}
+             :scope {:kind :base}
+             :benchmark-status :unbenchmarked
+             :manifest-fingerprint "sha256:manifest"
+             :expected-manifest-fingerprint "sha256:manifest"
+             :extractor-plugins 1
+             :report-plugins 1
+             :warnings ["datastar-hiccup is unbenchmarked"]
+             :source {:type :git
+                      :url "https://example.test/datastar.git"
+                      :rev "abc123"}
+             :diagnose-command
+             "agraph plugin diagnose .dev/agraph/plugins/cache/datastar --json"}]
+           (get-in packet [:plugin-packages :packages])))
     (is (= 2 (get-in packet [:atlas :dependencies :packages])))
     (is (= 1 (get-in packet [:atlas :dependencies :unresolved-imports])))
     (is (= 1 (get-in packet [:atlas :dependencies :version-conflicts])))

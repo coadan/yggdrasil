@@ -144,6 +144,11 @@ Project-local `:extractor-plugins` and `:report-plugins` still work. They are
 loaded after packaged plugins, so local config can intentionally override or
 augment a package during development.
 
+Generated reports include a `plugin-packages` section in `report.json`. It keeps
+package counts, benchmark status, warnings, source pins, manifest fingerprints,
+and `agraph plugin diagnose ... --json` commands with the report artifact, even
+when no report plugin renders those caveats.
+
 ## Ecosystem Policy
 
 Private/local packages are project dependencies. AGraph does not block them
