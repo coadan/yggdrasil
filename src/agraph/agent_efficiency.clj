@@ -494,18 +494,25 @@
                  (conj "No shared measured architecture-class groups; architecture tags are present but below the benchmark claim threshold in at least one lane."))}))
 
 (defn- class-signal-row
-  [group]
-  (select-keys group [:tag :shellOnly :agraph :summary]))
+  [measured-tags group]
+  (assoc (select-keys group [:tag :shellOnly :agraph :summary])
+         :measured (contains? measured-tags (:tag group))))
 
 (defn- class-signals
-  [by-tag]
-  (let [groups (:groups by-tag)]
+  [by-tag problem-coverage]
+  (let [groups (:groups by-tag)
+        measured-problem-tags (set (:sharedMeasuredProblemClassTags
+                                    problem-coverage))
+        measured-architecture-tags (set (:sharedMeasuredArchitectureClassTags
+                                         problem-coverage))]
     {:problemClasses (->> groups
                           (filter #(problem-class-tag? (:tag %)))
-                          (mapv class-signal-row))
+                          (mapv #(class-signal-row measured-problem-tags %)))
      :architectureClasses (->> groups
                                (filter #(architecture-class-tag? (:tag %)))
-                               (mapv class-signal-row))}))
+                               (mapv #(class-signal-row
+                                       measured-architecture-tags
+                                       %)))}))
 
 (defn- category-summaries
   [deltas comparable min-shared-cases]
@@ -681,7 +688,7 @@
       :deltas deltas
       :byCategory by-category
       :byTag by-tag
-      :classSignals (class-signals by-tag)
+      :classSignals (class-signals by-tag problem-coverage)
       :problemClassCoverage problem-coverage
       :claimReadiness (claim-readiness summary
                                        comparable

@@ -439,13 +439,21 @@
            (mapv :tag architecture-signals)))
     (is (= {:shellOnly {:cases 2 :runs 2}
             :agraph {:cases 2 :runs 2}
-            :signal "agraph-improved"}
+            :signal "agraph-improved"
+            :measured true}
            {:shellOnly (:shellOnly (first problem-signals))
             :agraph (:agraph (first problem-signals))
-            :signal (get-in (first problem-signals) [:summary :signal])}))
+            :signal (get-in (first problem-signals) [:summary :signal])
+            :measured (:measured (first problem-signals))}))
     (is (= "agraph-improved"
            (get-in architecture-by-tag
                    ["architecture-dependency-flow" :summary :signal])))
+    (is (= true
+           (get-in architecture-by-tag
+                   ["architecture-dependency-flow" :measured])))
+    (is (= false
+           (get-in architecture-by-tag
+                   ["problem-architecture" :measured])))
     (is (= {:status "supported"
             :broadEfficiencyClaimSupported true
             :sharedCases 2
