@@ -57,6 +57,13 @@
     (nil? value) nil
     :else (str value)))
 
+(defn- numeric
+  [value]
+  (cond
+    (number? value) (double value)
+    (nil? value) nil
+    :else (Double/parseDouble (str value))))
+
 (defn- path-under?
   [path prefix]
   (and (seq path)
@@ -363,7 +370,8 @@
 
 (defn add-package-import
   "Record an accepted source import prefix to external package mapping."
-  [overlay {:keys [repo import ecosystem package reason evidence]}]
+  [overlay {:keys [repo import ecosystem package reason evidence rules reviewId confidence]
+            :as package-import}]
   (update overlay
           :packageImports
           (fnil conj [])
@@ -373,6 +381,9 @@
                    :status "accepted"}
             repo (assoc :repo repo)
             (seq evidence) (assoc :evidence (vec evidence))
+            (seq rules) (assoc :rules rules)
+            (seq reviewId) (assoc :reviewId reviewId)
+            (contains? package-import :confidence) (assoc :confidence (numeric confidence))
             (seq reason) (assoc :reason reason))))
 
 (defn add-edge

@@ -84,6 +84,9 @@
               :status "accepted"
               :repo "app"
               :evidence [evidence-id]
+              :rules (:reviewId packet)
+              :reviewId (:reviewId packet)
+              :confidence 0.9
               :reason "The package declares the matching API."}
              package-import)))))
 

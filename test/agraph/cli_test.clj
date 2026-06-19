@@ -1321,7 +1321,10 @@
       (is (= "org.slf4j" (:import package-import)))
       (is (= "maven" (:ecosystem package-import)))
       (is (= "org.slf4j:slf4j-api" (:package package-import)))
-      (is (= [evidence-id] (:evidence package-import))))))
+      (is (= [evidence-id] (:evidence package-import)))
+      (is (= "dependency-review:test" (:rules package-import)))
+      (is (= "dependency-review:test" (:reviewId package-import)))
+      (is (= 0.86 (:confidence package-import))))))
 
 (deftest infra-review-result-requires-supported-recommendation-and-reason
   (let [packet {:schema infra-review/packet-schema

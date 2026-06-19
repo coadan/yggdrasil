@@ -302,24 +302,31 @@
               (map-indexed vector (map-patch result)))))))
 
 (defn- patch->package-import
-  [packet patch]
+  [packet result patch]
   (when (= "add-package-import" (s (:op patch)))
     (cond-> {:repo (get-in packet [:facts :unresolvedImport :repo-id])
              :import (s (:import patch))
              :ecosystem (s (:ecosystem patch))
              :package (s (:package patch))
-             :evidence (patch-evidence patch)}
+             :evidence (patch-evidence patch)
+             :rules (:reviewId packet)
+             :reviewId (:reviewId packet)}
+      (or (contains? patch :confidence)
+          (contains? result :confidence))
+      (assoc :confidence (confidence (or (:confidence patch)
+                                         (:confidence result))
+                                     1.0))
       (:reason patch) (assoc :reason (:reason patch)))))
 
 (defn- apply-patch
-  [overlay packet patch]
-  (if-let [package-import (patch->package-import packet patch)]
+  [overlay packet result patch]
+  (if-let [package-import (patch->package-import packet result patch)]
     (graph-map/add-package-import overlay package-import)
     overlay))
 
 (defn- apply-patches
   [overlay packet result]
-  (reduce #(apply-patch %1 packet %2)
+  (reduce #(apply-patch %1 packet result %2)
           overlay
           (map-patch result)))
 
