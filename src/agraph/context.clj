@@ -9,6 +9,7 @@
             [agraph.dependency :as dependency]
             [agraph.graph :as graph]
             [agraph.map :as graph-map]
+            [agraph.plugin-package-view :as plugin-package-view]
             [agraph.query :as query]
             [agraph.text :as text]
             [agraph.xtdb :as store]
@@ -717,42 +718,6 @@
   [architecture]
   (context-architecture/systems-section architecture))
 
-(defn- plugin-package-source
-  [source]
-  (select-keys source [:type :url :rev :ref :subdir :path]))
-
-(defn- compact-plugin-package
-  [package]
-  (cond-> (select-keys package [:id
-                                :version
-                                :path
-                                :visibility
-                                :scope
-                                :benchmark-status
-                                :benchmark-cases
-                                :claim-authority
-                                :manifest-fingerprint
-                                :expected-package-id
-                                :expected-manifest-fingerprint
-                                :diagnostic-counts
-                                :warnings])
-    (:source package) (assoc :source (plugin-package-source (:source package)))))
-
-(defn- plugin-package-caveats
-  [packages]
-  (let [packages (mapv compact-plugin-package packages)
-        by-benchmark (frequencies (map :benchmark-status packages))
-        non-authoritative (count (filter #(= :non-authoritative
-                                             (get-in % [:claim-authority :status]))
-                                         packages))
-        warning-count (reduce + 0 (map (comp count :warnings) packages))]
-    {:counts {:packages (count packages)
-              :warnings warning-count
-              :unbenchmarked (get by-benchmark :unbenchmarked 0)
-              :benchmarked (get by-benchmark :benchmarked 0)
-              :nonAuthoritative non-authoritative}
-     :packages packages}))
-
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns answerability
    search-instrumentation freshness source-coverage architecture systems audit-scopes
@@ -774,7 +739,7 @@
     architecture (assoc :architecture architecture)
     systems (assoc :systems systems)
     (seq audit-scopes) (assoc :auditScopes audit-scopes)
-    (seq plugin-packages) (assoc :pluginPackages (plugin-package-caveats plugin-packages))
+    (seq plugin-packages) (assoc :pluginPackages (plugin-package-view/caveats plugin-packages))
     (seq relationships) (assoc :relationships relationships)
     blast-radius (assoc :blastRadius blast-radius)
     source-coverage (assoc :sourceCoverage source-coverage)))

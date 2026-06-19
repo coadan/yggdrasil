@@ -6,6 +6,7 @@
             [agraph.evidence :as evidence]
             [agraph.graph :as graph]
             [agraph.map :as graph-map]
+            [agraph.plugin-package-view :as plugin-package-view]
             [agraph.project :as project]
             [agraph.query :as query]
             [agraph.queue :as queue]
@@ -1050,41 +1051,9 @@
                              :limit (or (:limit args) graph/default-node-limit)
                              :map-overlay (map-overlay ctx args)})))))
 
-(defn- plugin-package-source
-  [source]
-  (select-keys source [:type :url :rev :ref :subdir :path]))
-
-(defn- compact-plugin-package
-  [package]
-  (cond-> (select-keys package [:id
-                                :version
-                                :path
-                                :visibility
-                                :scope
-                                :benchmark-status
-                                :benchmark-cases
-                                :claim-authority
-                                :manifest-fingerprint
-                                :expected-package-id
-                                :expected-manifest-fingerprint
-                                :diagnostic-counts
-                                :warnings])
-    (:source package) (assoc :source (plugin-package-source (:source package)))))
-
 (defn- plugin-package-caveats
   [project]
-  (let [packages (mapv compact-plugin-package (:plugin-packages project))
-        by-benchmark (frequencies (map :benchmark-status packages))
-        non-authoritative (count (filter #(= :non-authoritative
-                                             (get-in % [:claim-authority :status]))
-                                         packages))
-        warning-count (reduce + 0 (map (comp count :warnings) packages))]
-    {:counts {:packages (count packages)
-              :warnings warning-count
-              :unbenchmarked (get by-benchmark :unbenchmarked 0)
-              :benchmarked (get by-benchmark :benchmarked 0)
-              :nonAuthoritative non-authoritative}
-     :packages packages}))
+  (plugin-package-view/caveats (:plugin-packages project)))
 
 (defn- sync-inspect
   [ctx args]
