@@ -10594,6 +10594,7 @@
   [filename]
   (cond
     (re-matches #"next\.config\.(?:js|cjs|mjs|mts|cts|ts)" filename) "next"
+    (re-matches #"remix\.config\.(?:js|cjs|mjs|mts|cts|ts)" filename) "remix"
     (re-matches #"vite\.config\.(?:js|cjs|mjs|mts|cts|ts)" filename) "vite"
     (re-matches #"svelte\.config\.(?:js|cjs|mjs|mts|cts|ts)" filename) "sveltekit"
     (re-matches #"nuxt\.config\.(?:js|cjs|mjs|mts|cts|ts)" filename) "nuxt"
@@ -10759,6 +10760,131 @@
       (str "/" (str/join "/" segments))
       "/")))
 
+(defn- remix-route-segment-label
+  [segment]
+  (cond
+    (or (= "_index" segment)
+        (str/blank? segment)) nil
+    (= "$" segment) "{...splat}"
+    (str/starts-with? segment "$") (str "{" (subs segment 1) "}")
+    (str/starts-with? segment "_") nil
+    (str/ends-with? segment "_") (subs segment 0 (dec (count segment)))
+    :else segment))
+
+(defn- remix-route-path
+  [route-part]
+  (let [segments (->> (str/split route-part #"\.")
+                      (map remix-route-segment-label)
+                      (remove str/blank?)
+                      vec)]
+    (if (seq segments)
+      (str "/" (str/join "/" segments))
+      "/")))
+
+(defn- angular-router-source?
+  [content]
+  (and (re-find #"(?m)^\s*import\s+\{?[^;\n]*\bRoutes\b[^;\n]*\}?\s+from\s+['\"]@angular/router['\"]" content)
+       (or (re-find #"(?m)\bRoutes\s*=" content)
+           (re-find #"(?m)\bprovideRouter\s*\(" content))
+       (re-find #"(?m)\bpath\s*:\s*['\"]" content)))
+
+(defn- angular-route-label
+  [path-value]
+  (let [path-value (str/trim (str path-value))]
+    (cond
+      (str/blank? path-value) "/"
+      (= "**" path-value) "/{...wildcard}"
+      :else (str "/"
+                 (->> (str/split path-value #"/")
+                      (map (fn [segment]
+                             (if (str/starts-with? segment ":")
+                               (str "{" (subs segment 1) "}")
+                               segment)))
+                      (str/join "/"))))))
+
+(defn- char-count
+  [s ch]
+  (count (filter #(= ch %) s)))
+
+(defn- angular-route-blocks
+  [content]
+  (let [lines (vec (str/split-lines content))]
+    (loop [remaining (map-indexed vector lines)
+           current nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [starts-route? (and (nil? current)
+                                 (re-find #"\bpath\s*:\s*['\"]" line))
+              current* (cond
+                         starts-route?
+                         {:source-line (inc idx)
+                          :depth (let [delta (- (char-count line \{)
+                                                (char-count line \}))]
+                                   (if (and (zero? delta)
+                                            (not (str/includes? line "}")))
+                                     1
+                                     delta))
+                          :lines [line]}
+
+                         current
+                         (-> current
+                             (update :depth + (- (char-count line \{)
+                                                 (char-count line \})))
+                             (update :lines conj line))
+
+                         :else nil)]
+          (if (and current* (<= (:depth current*) 0))
+            (recur (rest remaining) nil (conj out current*))
+            (recur (rest remaining) current* out)))
+        (cond-> out current (conj current))))))
+
+(defn- angular-route-facts
+  [content path]
+  (when (angular-router-source? content)
+    (vec
+     (concat
+      [{:kind :web-framework
+        :label "angular"
+        :source-line 1
+        :relation :defines}]
+      (mapcat
+       (fn [{:keys [source-line lines]}]
+         (let [block (str/join "\n" lines)
+               route-label (some->> (re-find #"\bpath\s*:\s*['\"]([^'\"]*)['\"]" block)
+                                    second
+                                    angular-route-label)
+               component (some->> (re-find #"\bcomponent\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*)" block)
+                                  second)
+               redirect (some->> (re-find #"\bredirectTo\s*:\s*['\"]([^'\"]+)['\"]" block)
+                                 second)
+               imports (->> lines
+                            (map-indexed #(js-import-targets (+ source-line %1 -1) path %2))
+                            (mapcat identity)
+                            distinct)]
+           (when route-label
+             (concat
+              [{:kind :web-framework-route
+                :label route-label
+                :source-line source-line
+                :relation :defines}]
+              (when component
+                [{:kind :web-framework-component
+                  :label (str route-label ":" component)
+                  :source-line source-line
+                  :relation :references}])
+              (when redirect
+                [{:kind :web-framework-route-redirect
+                  :label (str route-label ":" (angular-route-label redirect))
+                  :source-line source-line
+                  :relation :references}])
+              (map (fn [{:keys [target source-line]}]
+                     {:kind :web-framework-import
+                      :label target
+                      :source-line source-line
+                      :relation :imports})
+                   imports)))))
+       (angular-route-blocks content))))))
+
 (defn- web-route-info
   [path]
   (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")]
@@ -10807,6 +10933,13 @@
          :route (route-path-from-segments (str/split (strip-route-extension route-part) #"/"))
          :role "page"})
 
+      (re-find #"(?:^|/)app/routes/.+\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$" path-lower)
+      (let [[_ route-part] (re-find #"(?:^|/)app/routes/(.+)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$"
+                                    path-lower)]
+        {:framework "remix"
+         :route (remix-route-path (strip-route-extension route-part))
+         :role "route-module"})
+
       :else nil)))
 
 (defn- web-route-facts
@@ -10826,10 +10959,32 @@
                 "layout" :web-framework-layout
                 "route" :web-framework-route-handler
                 "server" :web-framework-route-handler
+                "route-module" :web-framework-page
                 :web-framework-page)
         :label (str route ":" role)
         :source-line 1
         :relation :defines}]
+      (when (= "remix" framework)
+        (->> (str/split-lines content)
+             (map-indexed vector)
+             (mapcat
+              (fn [[idx line]]
+                (cond
+                  (re-find #"^\s*export\s+(?:async\s+)?function\s+loader\b|^\s*export\s+const\s+loader\b"
+                           line)
+                  [{:kind :web-framework-loader
+                    :label (str route ":loader")
+                    :source-line (inc idx)
+                    :relation :defines}]
+
+                  (re-find #"^\s*export\s+(?:async\s+)?function\s+action\b|^\s*export\s+const\s+action\b"
+                           line)
+                  [{:kind :web-framework-action
+                    :label (str route ":action")
+                    :source-line (inc idx)
+                    :relation :defines}]
+
+                  :else [])))))
       (map (fn [{:keys [target source-line]}]
              {:kind :web-framework-import
               :label target
@@ -10842,10 +10997,11 @@
     []))
 
 (defn- web-framework-facts
-  [{:keys [path] :as file}]
-  (if (web-route-info path)
-    (web-route-facts file)
-    (web-config-facts file)))
+  [{:keys [path content] :as file}]
+  (cond
+    (web-route-info path) (web-route-facts file)
+    (angular-router-source? content) (angular-route-facts content path)
+    :else (web-config-facts file)))
 
 (defn- web-framework-base-kind
   [path]
@@ -10858,8 +11014,9 @@
     nil))
 
 (defn- web-framework-base-result
-  [run-id {:keys [path] :as file}]
-  (when (web-route-info path)
+  [run-id {:keys [path content] :as file}]
+  (when (or (web-route-info path)
+            (angular-router-source? content))
     (case (web-framework-base-kind path)
       :typescript (extract-js-family run-id (assoc file :kind :typescript))
       :javascript (extract-js-family run-id (assoc file :kind :javascript))

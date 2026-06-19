@@ -445,6 +445,10 @@
     (spit-file! root "web-frameworks/astro/src/pages/index.astro" "---\n---\n<h1>Panels</h1>\n")
     (spit-file! root "web-frameworks/astro/src/pages/blog/[slug].astro" "---\n---\n<h1>Post</h1>\n")
     (spit-file! root "web-frameworks/angular/angular.json" "{\"projects\":{\"panels-web\":{\"root\":\"projects/panels-web\",\"architect\":{\"build\":{\"builder\":\"@angular-devkit/build-angular:browser\"}}}}}\n")
+    (spit-file! root "web-frameworks/angular/src/app/app.routes.ts" "import { Routes } from '@angular/router';\nimport { PanelListComponent } from './panel-list.component';\nexport const routes: Routes = [\n  { path: '', component: PanelListComponent },\n  { path: 'reports', loadChildren: () => import('./reports/reports.routes') }\n];\n")
+    (spit-file! root "web-frameworks/remix/remix.config.mjs" "import { vitePlugin as remix } from '@remix-run/dev';\nexport default { appDirectory: 'app' };\n")
+    (spit-file! root "web-frameworks/remix/app/routes/_index.tsx" "export async function loader() { return null; }\nexport default function IndexRoute() { return null; }\n")
+    (spit-file! root "web-frameworks/remix/app/routes/panels.$id.tsx" "export async function loader() { return null; }\nexport const action = async () => null;\nexport default function PanelRoute() { return null; }\n")
     (spit-file! root "web-frameworks/vite/vite.config.ts" "import react from '@vitejs/plugin-react';\nexport default { base: '/vite-panels', plugins: [react()] };\n")
     (spit-file! root "workflows/airflow/panel_dag.py" "from airflow import DAG\nwith DAG(\"panel_refresh\", schedule_interval=\"0 2 * * *\") as dag:\n    extract >> transform\n")
     (spit-file! root "workflows/dagster/assets.py" "from dagster import asset\n@asset\ndef panel_asset():\n    return []\n")
@@ -505,8 +509,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 269
-              :supported 268
+      (is (= {:files 273
+              :supported 272
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -541,7 +545,7 @@
       (is (= 8 (:count (row-by :kind "tool-config" (:files-by-kind report)))))
       (is (= 6 (:count (row-by :kind "editor-config" (:files-by-kind report)))))
       (is (= 7 (:count (row-by :kind "release-config" (:files-by-kind report)))))
-      (is (= 15 (:count (row-by :kind "web-framework" (:files-by-kind report)))))
+      (is (= 19 (:count (row-by :kind "web-framework" (:files-by-kind report)))))
       (is (= 8 (:count (row-by :kind "workflow-orchestration" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "storybook" (:files-by-kind report)))))
       (is (= 3 (:count (row-by :kind "docker" (:files-by-kind report)))))
@@ -680,7 +684,7 @@
                 (:extractors report)))
       (is (some #(and (= "web-framework" (:kind %))
                       (= "web-framework/v1" (:extractor-version %))
-                      (= 15 (:files %)))
+                      (= 19 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "workflow-orchestration" (:kind %))
                       (= "workflow-orchestration/v1" (:extractor-version %))

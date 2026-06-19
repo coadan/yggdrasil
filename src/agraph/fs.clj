@@ -99,6 +99,7 @@
     "semantic-release.config.ts" "standard-version.json" ".versionrc"
     ".versionrc.json" ".versionrc.yaml" ".versionrc.yml"
     "next.config.js" "next.config.cjs" "next.config.mjs" "next.config.mts" "next.config.cts" "next.config.ts"
+    "remix.config.js" "remix.config.cjs" "remix.config.mjs" "remix.config.mts" "remix.config.cts" "remix.config.ts"
     "vite.config.js" "vite.config.cjs" "vite.config.mjs" "vite.config.mts" "vite.config.cts" "vite.config.ts"
     "svelte.config.js" "svelte.config.cjs" "svelte.config.mjs" "svelte.config.mts" "svelte.config.cts" "svelte.config.ts"
     "nuxt.config.js" "nuxt.config.cjs" "nuxt.config.mjs" "nuxt.config.mts" "nuxt.config.cts" "nuxt.config.ts"
@@ -271,6 +272,7 @@
           (re-find #"(^|/)\.changeset/(?:config\.json|[^/]+\.md)$"
                    path-lower)) :release-config
       (contains? #{"next.config.js" "next.config.cjs" "next.config.mjs" "next.config.mts" "next.config.cts" "next.config.ts"
+                   "remix.config.js" "remix.config.cjs" "remix.config.mjs" "remix.config.mts" "remix.config.cts" "remix.config.ts"
                    "vite.config.js" "vite.config.cjs" "vite.config.mjs" "vite.config.mts" "vite.config.cts" "vite.config.ts"
                    "svelte.config.js" "svelte.config.cjs" "svelte.config.mjs" "svelte.config.mts" "svelte.config.cts" "svelte.config.ts"
                    "nuxt.config.js" "nuxt.config.cjs" "nuxt.config.mjs" "nuxt.config.mts" "nuxt.config.cts" "nuxt.config.ts"
@@ -601,6 +603,8 @@
               (or (re-find #"(^|/)app/(?:.+/)?(?:page|layout|route)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$"
                            path-lower)
                   (re-find #"(^|/)pages/(?:.+\.)?(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$"
+                           path-lower)
+                  (re-find #"(^|/)app/routes/.+\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$"
                            path-lower)))
          (and (= :svelte path-kind)
               (re-find #"(^|/)src/routes/(?:.+/)?\+(?:page|layout|server)\.svelte$"
@@ -609,6 +613,16 @@
               (re-find #"(^|/)pages/.+\.vue$" path-lower))
          (and (= :astro path-kind)
               (re-find #"(^|/)src/pages/.+\.astro$" path-lower))))))
+
+(defn- web-framework-content-kind
+  [path-kind file]
+  (when (contains? #{:javascript :typescript} path-kind)
+    (let [content (text-file-prefix file)]
+      (when (and (re-find #"(?m)^\s*import\s+\{?[^;\n]*\bRoutes\b[^;\n]*\}?\s+from\s+['\"]@angular/router['\"]" content)
+                 (or (re-find #"(?m)\bRoutes\s*=" content)
+                     (re-find #"(?m)\bprovideRouter\s*\(" content))
+                 (re-find #"(?m)\bpath\s*:\s*['\"]" content))
+        :web-framework))))
 
 (defn- dbt-content-kind
   [path-kind file]
@@ -727,6 +741,7 @@
         (nextra-content-kind path-kind file)
         (when (web-framework-route-path? path-kind file)
           :web-framework)
+        (web-framework-content-kind path-kind file)
         (workflow-orchestration-content-kind path-kind file)
         (data-science-content-kind path-kind file)
         (observability-content-kind path-kind file)
