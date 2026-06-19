@@ -998,6 +998,15 @@ function ProjectInventory({
           tone: row.surface === "Stale/missing evidence" && row.count > 0 ? "warn" : undefined
         }))}
       />
+      <InlineTable
+        title="Inventory Evidence"
+        rows={rows}
+        columns={[
+          { key: "surface", label: "Surface" },
+          { key: "count", label: "Count" },
+          { key: "source", label: "Source" }
+        ]}
+      />
     </section>
   );
 }

@@ -19,8 +19,11 @@ describe("ReportPage", () => {
     expect(screen.getByText("Project Atlas")).toBeInTheDocument();
     expect(screen.queryByText("agraph-core-report")).not.toBeInTheDocument();
     expect(screen.getByText("Project Inventory")).toBeInTheDocument();
-    expect(screen.getByText("Config/Auth")).toBeInTheDocument();
-    expect(screen.getByText("Generated artifacts")).toBeInTheDocument();
+    expect(screen.getAllByText("Config/Auth").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Generated artifacts").length).toBeGreaterThan(0);
+    expect(screen.getByText("Inventory Evidence")).toBeInTheDocument();
+    expect(screen.getAllByText("graph.nodes.kind").length).toBeGreaterThan(0);
+    expect(screen.getByText("graph.nodes.kind/tags")).toBeInTheDocument();
     expect(screen.getByText("Operator Review Queue")).toBeInTheDocument();
     expect(screen.getByText("Refresh indexed graph basis")).toBeInTheDocument();
     expect(screen.getByText("packages.unresolved-imports")).toBeInTheDocument();
