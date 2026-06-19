@@ -529,6 +529,7 @@
        "bb plugin validate .\n"
        "bb plugin diagnose .\n"
        "bb plugin dry-run extractor . /path/to/repo src/example.clj --json\n"
+       "bb plugin dry-run report . --json\n"
        "bb plugin install /path/to/project.edn . --force\n"
        "```\n\n"
        "Keep project-specific experiments in plugins. Promote to core only with "
@@ -815,6 +816,19 @@
         selected)
       plugins)))
 
+(defn- selected-report-plugins
+  [package plugin-id]
+  (let [plugins (report-plugin/normalize-plugins
+                 (:resolved-report-plugins package))]
+    (if (present? plugin-id)
+      (let [selected (filterv #(= plugin-id (:id %)) plugins)]
+        (when-not (seq selected)
+          (throw (ex-info "Report plugin not found in package."
+                          {:plugin-id plugin-id
+                           :available (mapv :id plugins)})))
+        selected)
+      plugins)))
+
 (defn- file-record-for-dry-run
   [root file plugins]
   (let [root-path (fs/canonical-path root)
@@ -860,6 +874,7 @@
                    :file file-record}
                   core)]
     {:schema dry-run-schema
+     :kind :extractor
      :status (if (seq (:diagnostics enhanced)) :warning :passed)
      :package (select-keys package [:id :version :path :warnings])
      :plugins (mapv #(select-keys % [:id :version :authority :benchmark-status])
@@ -869,3 +884,62 @@
      :enhanced-counts (counts enhanced)
      :diagnostics (:diagnostics enhanced)
      :rows enhanced}))
+
+(defn- report-dry-run-context
+  [package-dir]
+  {:project {:id "plugin-dry-run"
+             :name "Plugin Dry Run"
+             :path (fs/canonical-path package-dir)
+             :repos []}
+   :generated-at-ms (now-ms)
+   :report {:schema "agraph.report/v1"
+            :project {:id "plugin-dry-run"
+                      :name "Plugin Dry Run"}
+            :atlas {:evidence {:files 0
+                               :nodes 0
+                               :edges 0}
+                    :systems {:nodes 0
+                              :edges 0}
+                    :dependencies {:packages 0}}}
+   :graph {:nodes []
+           :edges []}
+   :systems {:nodes []
+             :edges []}
+   :coverage {:counts {}}
+   :maintenance {:queue {}}
+   :evidence {:counts {}}
+   :package-report {:counts {}}
+   :artifacts {}})
+
+(defn- report-output-counts
+  [output]
+  {:panels (count (:panels output))
+   :diagnostics (count (:diagnostics output))
+   :artifacts (count (:artifacts output))})
+
+(defn dry-run-report
+  "Run package report plugins against a synthetic report context."
+  [package-dir {:keys [plugin-id]}]
+  (let [package (read-local-package package-dir)
+        plugins (selected-report-plugins package plugin-id)
+        ctx (report-dry-run-context package-dir)
+        outputs (mapv (fn [plugin]
+                        (let [output (report-plugin/run-plugin ctx plugin)]
+                          {:plugin (select-keys plugin
+                                                [:id :version :authority :benchmark-status])
+                           :counts (report-output-counts output)
+                           :output output}))
+                      plugins)
+        diagnostics (->> outputs
+                         (mapcat (comp :diagnostics :output))
+                         vec)]
+    {:schema dry-run-schema
+     :kind :report
+     :status (if (seq diagnostics) :warning :passed)
+     :package (select-keys package [:id :version :path :warnings])
+     :plugins (mapv :plugin outputs)
+     :counts {:panels (reduce + (map #(count (get-in % [:output :panels] [])) outputs))
+              :diagnostics (count diagnostics)
+              :artifacts (reduce + (map #(count (get-in % [:output :artifacts] [])) outputs))}
+     :diagnostics diagnostics
+     :outputs outputs}))

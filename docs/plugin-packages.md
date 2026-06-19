@@ -55,6 +55,7 @@ bb plugin new .dev/agraph/plugins/datastar-hiccup --id datastar-hiccup
 bb plugin validate .dev/agraph/plugins/datastar-hiccup
 bb plugin diagnose .dev/agraph/plugins/datastar-hiccup
 bb plugin dry-run extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
+bb plugin dry-run report .dev/agraph/plugins/datastar-hiccup --json
 ```
 
 `plugin new` writes `agraph.plugin.edn`, Python extractor/report examples,
@@ -83,6 +84,11 @@ writing graph state. It uses core extraction first, applies the selected plugin
 or all extractor plugins in the package, and returns normalized rows,
 diagnostics, and before/after counts. This is the fastest feedback loop for
 agents building project-local architecture understanding.
+
+`plugin dry-run report` runs the package report plugin against a synthetic report
+context without generating a full report. It returns panels, artifacts,
+diagnostics, and per-plugin counts. This keeps report plugin authoring in the
+same scaffold / validate / diagnose / dry-run loop as extractors.
 
 ## Manifest
 

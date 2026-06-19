@@ -131,7 +131,10 @@
                    (.getPath package-dir)
                    (.getPath repo-root)
                    "src/page.clj"
-                   {})]
+                   {})
+          report-dry-run (plugin-package/dry-run-report
+                          (.getPath package-dir)
+                          {})]
       (is (= plugin-package/new-schema (:schema created)))
       (is (= "demo-plugin" (:package-id created)))
       (is (= true (:extractor? created)))
@@ -157,7 +160,16 @@
       (is (pos? (get-in dry-run [:enhanced-counts :file-facts])))
       (is (pos? (get-in dry-run [:enhanced-counts :chunks])))
       (is (some #(= "demo-plugin-extractor" (:plugin-id %))
-                (get-in dry-run [:rows :file-facts]))))))
+                (get-in dry-run [:rows :file-facts])))
+      (is (= plugin-package/dry-run-schema (:schema report-dry-run)))
+      (is (= :report (:kind report-dry-run)))
+      (is (= :passed (:status report-dry-run)))
+      (is (= 1 (get-in report-dry-run [:counts :panels])))
+      (is (= "demo-plugin-report" (get-in report-dry-run [:plugins 0 :id])))
+      (is (= :unbenchmarked (get-in report-dry-run [:plugins 0 :benchmark-status])))
+      (is (= "unbenchmarked"
+             (get-in report-dry-run
+                     [:outputs 0 :output :panels 0 :plugin :benchmarkStatus]))))))
 
 (deftest diagnose-blocks-invalid-public-package-policy
   (let [workspace (temp-dir "agraph-plugin-diagnose")

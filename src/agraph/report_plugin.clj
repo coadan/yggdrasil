@@ -65,6 +65,7 @@
      :package-version (some-> (:package-version plugin) str)
      :package-rev (some-> (:package-rev plugin) str)
      :package-source (:package-source plugin)
+     :benchmark-status (some-> (:benchmark-status plugin) keyword)
      :fingerprint-seed (:fingerprint plugin)}))
 
 (defn normalize-plugins
@@ -104,7 +105,8 @@
     (:slots plugin) (assoc :slots (:slots plugin))
     (:package-id plugin) (assoc :packageId (:package-id plugin))
     (:package-version plugin) (assoc :packageVersion (:package-version plugin))
-    (:package-rev plugin) (assoc :packageRev (:package-rev plugin))))
+    (:package-rev plugin) (assoc :packageRev (:package-rev plugin))
+    (:benchmark-status plugin) (assoc :benchmarkStatus (name (:benchmark-status plugin)))))
 
 (defn- canonical-key
   [aliases k]

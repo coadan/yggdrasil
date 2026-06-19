@@ -69,6 +69,7 @@
     (is (str/includes? usage "plugin validate <dir>"))
     (is (str/includes? usage "plugin diagnose <dir>"))
     (is (str/includes? usage "plugin dry-run extractor <dir>"))
+    (is (str/includes? usage "plugin dry-run report <dir>"))
     (is (str/includes? usage "plugin install <project.edn>"))
     (is (str/includes? usage "plugin list <project.edn>"))
     (is (str/includes? usage "install-agent --platform codex --project"))
@@ -174,6 +175,7 @@
                   plugin-package/dry-run-extractor (fn [dir root file opts]
                                                      (swap! calls conj [:dry-run dir root file opts])
                                                      {:schema plugin-package/dry-run-schema
+                                                      :kind :extractor
                                                       :status :passed
                                                       :package {:id "demo"
                                                                 :version "0.1.0"}
@@ -182,7 +184,19 @@
                                                              :kind :code}
                                                       :core-counts {:nodes 1}
                                                       :enhanced-counts {:nodes 2}
-                                                      :diagnostics []})]
+                                                      :diagnostics []})
+                  plugin-package/dry-run-report (fn [dir opts]
+                                                  (swap! calls conj [:dry-run-report dir opts])
+                                                  {:schema plugin-package/dry-run-schema
+                                                   :kind :report
+                                                   :status :passed
+                                                   :package {:id "demo"
+                                                             :version "0.1.0"}
+                                                   :plugins [{:id "demo-report"}]
+                                                   :counts {:panels 1
+                                                            :diagnostics 0
+                                                            :artifacts 0}
+                                                   :diagnostics []})]
       (with-out-str
         (cli/dispatch "plugin" ["new" ".dev/plugins/demo" "--id" "demo" "--force"]))
       (with-out-str
@@ -198,13 +212,21 @@
                        "src/page.clj"
                        "--plugin"
                        "demo-extractor"]))
+      (with-out-str
+        (cli/dispatch "plugin"
+                      ["dry-run"
+                       "report"
+                       ".dev/plugins/demo"
+                       "--plugin"
+                       "demo-report"]))
       (is (= [[:new ".dev/plugins/demo" {:id "demo"
                                          :extractor? false
                                          :report? false
                                          :force? true}]
               [:validate ".dev/plugins/demo"]
               [:diagnose ".dev/plugins/demo"]
-              [:dry-run ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]]
+              [:dry-run ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]
+              [:dry-run-report ".dev/plugins/demo" {:plugin-id "demo-report"}]]
              @calls)))))
 
 (deftest benchmark-summary-prints-agent-baseline-scores

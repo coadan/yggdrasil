@@ -2726,18 +2726,24 @@
       (println "-" (name severity) (name code) "-" message))))
 
 (defn- print-plugin-dry-run
-  [{:keys [status package plugins file core-counts enhanced-counts diagnostics]}]
+  [{:keys [kind status package plugins file core-counts enhanced-counts counts diagnostics]}]
   (println "# Plugin Dry Run")
   (println "- status" (name status))
+  (println "- kind" (name (or kind :extractor)))
   (println "- package" (:id package) (str "version=" (:version package)))
-  (println "- file" (:path file) (str "kind=" (name (:kind file))))
+  (when file
+    (println "- file" (:path file) (str "kind=" (name (:kind file)))))
   (println "- plugins" (str/join "," (map :id plugins)))
-  (println "- core" core-counts)
-  (println "- enhanced" enhanced-counts)
+  (when core-counts
+    (println "- core" core-counts))
+  (when enhanced-counts
+    (println "- enhanced" enhanced-counts))
+  (when counts
+    (println "- output" counts))
   (when (seq diagnostics)
     (println "## Diagnostics")
     (doseq [{:keys [stage message path]} diagnostics]
-      (println "-" (name stage) path "-" message))))
+      (println "-" (str stage) path "-" message))))
 
 (defn- plugin-new!
   [args]
@@ -2786,19 +2792,25 @@
 (defn- plugin-dry-run!
   [args]
   (let [[kind package-dir root file] (positional-args args)]
-    (when-not (= "extractor" kind)
+    (when-not (#{"extractor" "report"} kind)
       (throw (ex-info "Unsupported plugin dry-run kind."
                       {:kind kind
-                       :supported ["extractor"]
+                       :supported ["extractor" "report"]
                        :usage (usage)})))
-    (when-not (and package-dir root file)
-      (throw (ex-info "Missing plugin dry-run package directory, repo root, or file."
+    (when-not package-dir
+      (throw (ex-info "Missing plugin dry-run package directory."
                       {:usage (usage)})))
-    (let [result (plugin-package/dry-run-extractor
-                  package-dir
-                  root
-                  file
-                  {:plugin-id (option-value args "--plugin")})]
+    (when (and (= "extractor" kind)
+               (not (and root file)))
+      (throw (ex-info "Missing plugin dry-run repo root or file."
+                      {:usage (usage)})))
+    (let [opts {:plugin-id (option-value args "--plugin")}
+          result (case kind
+                   "extractor"
+                   (plugin-package/dry-run-extractor package-dir root file opts)
+
+                   "report"
+                   (plugin-package/dry-run-report package-dir opts))]
       (if (json-output? args)
         (print-json result)
         (print-plugin-dry-run result)))))
@@ -2918,6 +2930,7 @@
     "  plugin validate <dir> [--json]"
     "  plugin diagnose <dir> [--json]"
     "  plugin dry-run extractor <dir> <repo-root> <file> [--plugin ID] [--json]"
+    "  plugin dry-run report <dir> [--plugin ID] [--json]"
     "  plugin install <project.edn> <git-url-or-path> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--force] [--json]"
     "  plugin list <project.edn> [--json]"
     ""
