@@ -133,7 +133,8 @@ Use existing benchmark report fields first:
   file-read, AGraph, and shell counts derived from cited benchmark commands
   (`agraphCommandCount` is reported for interpretation, not treated as a
   lower-is-better regression gate; if only observed metrics are available,
-  `bb efficiency` reports `observed-only` instead of a win or loss)
+  `bb efficiency` reports `observed-only` instead of a win or loss, and broad
+  claim readiness remains blocked until directional metrics are available)
 - task fit: `bb efficiency` `byTag.groups`, especially problem-class tags
 - timing: stage timings and active-stage diagnostics from progress artifacts
 
@@ -152,6 +153,10 @@ unacceptable noise or runtime cost. Strong evidence includes:
 - higher citation rates
 - fewer opened files or shell commands when command telemetry is available
 - equal or better patch success on task-completion runs
+
+Observed-only telemetry is useful for debugging how agents use AGraph, but it
+does not prove efficiency. Broad claims need directional metrics such as recall,
+noise, citation quality, elapsed time, command reductions, or patch outcomes.
 
 Track cold, warm, and amortized costs separately. A cold run includes initial
 indexing. A warm run assumes the project graph already exists. The amortized
