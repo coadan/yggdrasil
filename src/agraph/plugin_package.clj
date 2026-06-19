@@ -1263,30 +1263,44 @@
              :rows enhanced}))))))
 
 (defn- report-dry-run-context
-  [package-dir]
-  {:project {:id "plugin-dry-run"
-             :name "Plugin Dry Run"
-             :path (fs/canonical-path package-dir)
-             :repos []}
-   :generated-at-ms (now-ms)
-   :report {:schema "agraph.report/v1"
-            :project {:id "plugin-dry-run"
-                      :name "Plugin Dry Run"}
-            :atlas {:evidence {:files 0
-                               :nodes 0
-                               :edges 0}
-                    :systems {:nodes 0
-                              :edges 0}
-                    :dependencies {:packages 0}}}
-   :graph {:nodes []
-           :edges []}
-   :systems {:nodes []
+  [package-dir package]
+  (let [package-summary (package-summary package)
+        plugin-packages {:counts {:packages 1
+                                  :warnings (get-in package-summary
+                                                    [:diagnostic-counts :warnings]
+                                                    0)
+                                  :errors (get-in package-summary
+                                                  [:diagnostic-counts :errors]
+                                                  0)
+                                  :unbenchmarked (if (= :unbenchmarked
+                                                        (:benchmark-status package-summary))
+                                                   1
+                                                   0)}
+                         :packages [package-summary]}]
+    {:project {:id "plugin-dry-run"
+               :name "Plugin Dry Run"
+               :path (fs/canonical-path package-dir)
+               :repos []}
+     :generated-at-ms (now-ms)
+     :report {:schema "agraph.report/v1"
+              :project {:id "plugin-dry-run"
+                        :name "Plugin Dry Run"}
+              :atlas {:evidence {:files 0
+                                 :nodes 0
+                                 :edges 0}
+                      :systems {:nodes 0
+                                :edges 0}
+                      :dependencies {:packages 0}}
+              :plugin-packages plugin-packages}
+     :graph {:nodes []
              :edges []}
-   :coverage {:counts {}}
-   :maintenance {:queue {}}
-   :evidence {:counts {}}
-   :package-report {:counts {}}
-   :artifacts {}})
+     :systems {:nodes []
+               :edges []}
+     :coverage {:counts {}}
+     :maintenance {:queue {}}
+     :evidence {:counts {}}
+     :package-report {:counts {}}
+     :artifacts {}}))
 
 (defn- report-output-counts
   [output]
@@ -1320,7 +1334,7 @@
                       :artifacts 0}
              :diagnostics diagnostics
              :outputs []})
-          (let [ctx (report-dry-run-context package-dir)
+          (let [ctx (report-dry-run-context package-dir package)
                 outputs (mapv (fn [plugin]
                                 (let [output (report-plugin/run-plugin ctx plugin)]
                                   {:plugin (plugin-summary plugin)

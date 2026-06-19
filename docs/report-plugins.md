@@ -188,6 +188,8 @@ diagnostic counts, structured diagnostics, warnings, benchmark status, claim
 authority, source pins, manifest fingerprints, and diagnose commands. Report
 plugins receive the same data directly as `pluginPackages` and inside the full
 report packet as `report.plugin-packages`.
+Packaged report plugin dry-runs use the same shape in their synthetic report
+context, so package caveats are visible before generating a full dashboard.
 
 The report UI renders plugin artifacts on the Plugins tab. Artifact rows are
 treated as review inventory: common explicit reference fields such as `path`,

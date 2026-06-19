@@ -200,6 +200,9 @@
           report-dry-run (plugin-package/dry-run-report
                           (.getPath package-dir)
                           {})
+          report-context (#'plugin-package/report-dry-run-context
+                          (.getPath package-dir)
+                          (plugin-package/read-local-package (.getPath package-dir)))
           claim-authority {:status :non-authoritative
                            :public-claims? false
                            :review-required? false
@@ -327,7 +330,14 @@
                      [:outputs 0 :output :panels 0 :plugin :packageManifestFingerprint])))
       (is (= claim-authority
              (get-in report-dry-run
-                     [:outputs 0 :output :panels 0 :plugin :packageClaimAuthority]))))))
+                     [:outputs 0 :output :panels 0 :plugin :packageClaimAuthority])))
+      (is (= 1 (get-in report-context [:report :plugin-packages :counts :packages])))
+      (is (= 1 (get-in report-context [:report :plugin-packages :counts :unbenchmarked])))
+      (is (= "demo-plugin"
+             (get-in report-context [:report :plugin-packages :packages 0 :id])))
+      (is (= claim-authority
+             (get-in report-context
+                     [:report :plugin-packages :packages 0 :claim-authority]))))))
 
 (deftest scaffolds-unsupported-file-family-extractor-options
   (let [workspace (temp-dir "agraph-plugin-unsupported-file-family")

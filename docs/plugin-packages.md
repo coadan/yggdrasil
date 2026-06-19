@@ -138,7 +138,10 @@ them as an authoring gate.
 `plugin dry-run report` runs the package report plugin against a synthetic report
 context without generating a full report. It returns panels, artifacts,
 diagnostics, per-plugin counts, per-plugin package pins/source, and the same
-package caveats. This keeps report plugin authoring in the same scaffold /
+package caveats. The synthetic report context also carries those package
+summaries under `report.plugin-packages`, so report plugins receive the same
+`pluginPackages` input during dry-run authoring that they receive during full
+report generation. This keeps report plugin authoring in the same scaffold /
 validate / diagnose / dry-run loop as extractors. Report dry-runs also fail with
 a structured diagnostic when no report plugin is selected, and failed report
 dry-runs also fail the CLI command.
