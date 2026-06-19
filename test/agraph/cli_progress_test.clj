@@ -1,5 +1,5 @@
 (ns agraph.cli-progress-test
-  (:require [agraph.cli :as cli]
+  (:require [agraph.cli-sync :as cli]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
