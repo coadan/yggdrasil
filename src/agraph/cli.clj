@@ -2692,6 +2692,22 @@
   (doseq [error errors]
     (println "- error" error)))
 
+(defn- print-plugin-diagnosis
+  [{:keys [status package diagnostics readiness]}]
+  (println "# Plugin Diagnosis")
+  (println "- status" (name status))
+  (when package
+    (println "- package" (:id package) (str "version=" (:version package))))
+  (println "## Readiness")
+  (doseq [[k {:keys [status reason next-actions]}] readiness]
+    (println "-" (name k) (name status) "-" reason)
+    (doseq [action next-actions]
+      (println "  next" action)))
+  (when (seq diagnostics)
+    (println "## Diagnostics")
+    (doseq [{:keys [severity code message]} diagnostics]
+      (println "-" (name severity) (name code) "-" message))))
+
 (defn- print-plugin-dry-run
   [{:keys [status package plugins file core-counts enhanced-counts diagnostics]}]
   (println "# Plugin Dry Run")
@@ -2735,6 +2751,20 @@
       (when (= :failed (:status result))
         (throw (ex-info "Plugin validation failed."
                         {:errors (:errors result)}))))))
+
+(defn- plugin-diagnose!
+  [args]
+  (let [dir (first (positional-args args))]
+    (when-not dir
+      (throw (ex-info "Missing plugin package directory."
+                      {:usage (usage)})))
+    (let [result (plugin-package/diagnose-local dir)]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-diagnosis result))
+      (when (= :failed (:status result))
+        (throw (ex-info "Plugin diagnosis failed."
+                        {:diagnostics (:diagnostics result)}))))))
 
 (defn- plugin-dry-run!
   [args]
@@ -2794,6 +2824,9 @@
 
       "validate"
       (plugin-validate! action-args)
+
+      "diagnose"
+      (plugin-diagnose! action-args)
 
       "dry-run"
       (plugin-dry-run! action-args)
@@ -2866,6 +2899,7 @@
     "Plugins:"
     "  plugin new <dir> [--id ID] [--extractor] [--report] [--force] [--json]"
     "  plugin validate <dir> [--json]"
+    "  plugin diagnose <dir> [--json]"
     "  plugin dry-run extractor <dir> <repo-root> <file> [--plugin ID] [--json]"
     "  plugin install <project.edn> <git-url-or-path> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--force] [--json]"
     "  plugin list <project.edn> [--json]"

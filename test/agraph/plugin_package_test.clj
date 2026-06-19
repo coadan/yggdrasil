@@ -126,6 +126,7 @@
     (let [created (plugin-package/new! (.getPath package-dir)
                                        {:id "demo-plugin"})
           validation (plugin-package/validate-local (.getPath package-dir))
+          diagnosis (plugin-package/diagnose-local (.getPath package-dir))
           dry-run (plugin-package/dry-run-extractor
                    (.getPath package-dir)
                    (.getPath repo-root)
@@ -143,6 +144,12 @@
       (is (= 1 (count (:extractor-plugins validation))))
       (is (= 1 (count (:report-plugins validation))))
       (is (some #(str/includes? % "unbenchmarked") (:warnings validation)))
+      (is (= plugin-package/diagnose-schema (:schema diagnosis)))
+      (is (= :warning (:status diagnosis)))
+      (is (= :ready (get-in diagnosis [:readiness :local-use :status])))
+      (is (= :private (get-in diagnosis [:readiness :public-sharing :status])))
+      (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= [:unbenchmarked] (mapv :code (:diagnostics diagnosis))))
       (is (= plugin-package/dry-run-schema (:schema dry-run)))
       (is (= :passed (:status dry-run)))
       (is (= "src/page.clj" (get-in dry-run [:file :path])))
@@ -150,3 +157,31 @@
       (is (pos? (get-in dry-run [:enhanced-counts :chunks])))
       (is (some #(= "demo-plugin-extractor" (:plugin-id %))
                 (get-in dry-run [:rows :file-facts]))))))
+
+(deftest diagnose-blocks-invalid-public-package-policy
+  (let [workspace (temp-dir "agraph-plugin-diagnose")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "paid-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "Proprietary"}
+                   :distribution {:visibility :public
+                                  :commercial? true}
+                   :benchmark {:status :benchmarked}
+                   :extractor-plugins
+                   [{:id "paid-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+      (is (= :failed (:status diagnosis)))
+      (is (= :blocked (get-in diagnosis [:readiness :public-sharing :status])))
+      (is (= :review-required (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= #{:public-license-missing :public-commercial}
+             (set (map :code (:diagnostics diagnosis))))))))

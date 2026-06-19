@@ -67,6 +67,7 @@
     (is (str/includes? usage "report <project.edn>"))
     (is (str/includes? usage "plugin new <dir>"))
     (is (str/includes? usage "plugin validate <dir>"))
+    (is (str/includes? usage "plugin diagnose <dir>"))
     (is (str/includes? usage "plugin dry-run extractor <dir>"))
     (is (str/includes? usage "plugin install <project.edn>"))
     (is (str/includes? usage "plugin list <project.edn>"))
@@ -158,6 +159,18 @@
                                                    :report-plugins [{}]
                                                    :warnings ["demo is unbenchmarked"]
                                                    :errors []})
+                  plugin-package/diagnose-local (fn [dir]
+                                                  (swap! calls conj [:diagnose dir])
+                                                  {:schema plugin-package/diagnose-schema
+                                                   :status :warning
+                                                   :package {:id "demo"
+                                                             :version "0.1.0"}
+                                                   :diagnostics [{:severity :warning
+                                                                  :code :unbenchmarked
+                                                                  :message "demo is unbenchmarked"}]
+                                                   :readiness {:local-use {:status :ready
+                                                                           :reason "ready"
+                                                                           :next-actions []}}})
                   plugin-package/dry-run-extractor (fn [dir root file opts]
                                                      (swap! calls conj [:dry-run dir root file opts])
                                                      {:schema plugin-package/dry-run-schema
@@ -175,6 +188,8 @@
       (with-out-str
         (cli/dispatch "plugin" ["validate" ".dev/plugins/demo"]))
       (with-out-str
+        (cli/dispatch "plugin" ["diagnose" ".dev/plugins/demo"]))
+      (with-out-str
         (cli/dispatch "plugin"
                       ["dry-run"
                        "extractor"
@@ -188,6 +203,7 @@
                                          :report? false
                                          :force? true}]
               [:validate ".dev/plugins/demo"]
+              [:diagnose ".dev/plugins/demo"]
               [:dry-run ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]]
              @calls)))))
 

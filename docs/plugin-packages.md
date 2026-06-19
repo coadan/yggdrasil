@@ -53,6 +53,7 @@ Start with a local scaffold:
 ```sh
 bb plugin new .dev/agraph/plugins/datastar-hiccup --id datastar-hiccup
 bb plugin validate .dev/agraph/plugins/datastar-hiccup
+bb plugin diagnose .dev/agraph/plugins/datastar-hiccup
 bb plugin dry-run extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
 ```
 
@@ -64,6 +65,17 @@ one lane.
 `plugin validate` reads the package manifest and runs the same plugin config
 normalizers used by project loading. It reports package caveats such as
 `:unbenchmarked` status without blocking local experiments.
+
+`plugin diagnose` explains package readiness for three lanes:
+
+- local use;
+- public sharing;
+- core promotion.
+
+Diagnosis is manifest- and config-based. It does not judge architecture quality
+or project-specific usefulness. It surfaces the caveats that should travel with
+plugin output: public/FOSS/non-commercial policy, benchmark status, validation
+errors, and promotion blockers.
 
 `plugin dry-run extractor` runs the package extractor against one file without
 writing graph state. It uses core extraction first, applies the selected plugin
@@ -132,6 +144,9 @@ Package install surfaces warnings instead of blocking local use when:
 - a public package does not declare a known FOSS license;
 - a public package is marked commercial or monetized;
 - a package is unbenchmarked.
+
+`bb plugin diagnose <dir>` treats public license/commercial policy violations as
+public-sharing blockers while still keeping private local experiments possible.
 
 ## Core Promotion
 

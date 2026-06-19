@@ -30,6 +30,9 @@
 (def dry-run-schema
   "agraph.plugin.dry-run/v1")
 
+(def diagnose-schema
+  "agraph.plugin.diagnose/v1")
+
 (def manifest-filename
   "agraph.plugin.edn")
 
@@ -183,18 +186,36 @@
   (keyword (or (get-in manifest [:benchmark :status])
                :unbenchmarked)))
 
-(defn- package-warnings
+(defn- package-diagnostics
   [{:keys [id visibility license benchmark-status] :as package}]
   (vec
    (concat
     (when (= :public visibility)
       (concat
        (when-not (foss-license? license)
-         [(str id " is marked public but does not declare a known FOSS license.")])
+         [{:code :public-license-missing
+           :severity :error
+           :applies-to [:public-sharing]
+           :message (str id " is marked public but does not declare a known FOSS license.")
+           :evidence {:visibility visibility
+                      :license license}}])
        (when (commercial? package)
-         [(str id " is marked public and commercial; public AGraph/Yggdrasil plugins should be non-commercial.")])))
+         [{:code :public-commercial
+           :severity :error
+           :applies-to [:public-sharing]
+           :message (str id " is marked public and commercial; public AGraph/Yggdrasil plugins should be non-commercial.")
+           :evidence {:visibility visibility
+                      :distribution (:distribution package)}}])))
     (when (= :unbenchmarked benchmark-status)
-      [(str id " is unbenchmarked; keep claims scoped until benchmarks show material improvement.")]))))
+      [{:code :unbenchmarked
+        :severity :warning
+        :applies-to [:claims :core-promotion]
+        :message (str id " is unbenchmarked; keep claims scoped until benchmarks show material improvement.")
+        :evidence {:benchmark-status benchmark-status}}]))))
+
+(defn- package-warnings
+  [package]
+  (mapv :message (package-diagnostics package)))
 
 (defn- plugin-defaults
   [package entry]
@@ -516,6 +537,107 @@
        :warnings []
        :errors [(or (ex-message e) (str e))]
        :data (ex-data e)})))
+
+(defn- validation-diagnostics
+  [validation]
+  (mapv (fn [error]
+          {:code :validation-error
+           :severity :error
+           :applies-to [:local-use :public-sharing :core-promotion]
+           :message error})
+        (:errors validation)))
+
+(defn- lane
+  [status reason next-actions]
+  {:status status
+   :reason reason
+   :next-actions next-actions})
+
+(defn- readiness
+  [package validation diagnostics]
+  (let [validation-failed? (= :failed (:status validation))
+        public? (= :public (:visibility package))
+        public-policy-errors (filter #(and (= :error (:severity %))
+                                           (some #{:public-sharing} (:applies-to %)))
+                                     diagnostics)
+        unbenchmarked? (= :unbenchmarked (:benchmark-status package))]
+    {:local-use
+     (if validation-failed?
+       (lane :blocked
+             "Package manifest or plugin configs failed validation."
+             ["Fix validation errors before using this package."])
+       (lane :ready
+             "Package loads through the same normalizers used by project config."
+             ["Use plugin dry-run on representative files before installing."]))
+
+     :public-sharing
+     (cond
+       validation-failed?
+       (lane :blocked
+             "Invalid packages should not be shared."
+             ["Fix validation errors first."])
+
+       (not public?)
+       (lane :private
+             "Package is not declared public."
+             ["Keep it private for local experiments, or declare public distribution metadata before publishing."])
+
+       (seq public-policy-errors)
+       (lane :blocked
+             "Public plugin packages must be FOSS and non-commercial."
+             ["Declare a known FOSS license and remove commercial/monetized distribution metadata, or keep the package private."])
+
+       unbenchmarked?
+       (lane :caution
+             "Package can be shared as experimental, but claims must stay scoped."
+             ["Add benchmark artifacts before claiming agent or architecture-understanding improvements."])
+
+       :else
+       (lane :ready
+             "Package declares public FOSS, non-commercial distribution metadata and benchmark status."
+             ["Review benchmark artifacts before making performance or quality claims."]))
+
+     :core-promotion
+     (cond
+       validation-failed?
+       (lane :blocked
+             "Invalid packages cannot be promoted."
+             ["Fix validation errors first."])
+
+       unbenchmarked?
+       (lane :blocked
+             "Core promotion requires benchmark evidence."
+             ["Add fixtures, tests, benchmark cases, and reports showing material improvement."])
+
+       :else
+       (lane :review-required
+             "Benchmark metadata is present; project-agnostic core suitability still needs review."
+             ["Verify there are no project-specific rules, path/name semantics, host-name heuristics, or brittle substring classifiers."]))}))
+
+(defn diagnose-local
+  "Diagnose package readiness for local use, public sharing, and core promotion."
+  [package-dir]
+  (let [validation (validate-local package-dir)]
+    (if (= :failed (:status validation))
+      {:schema diagnose-schema
+       :status :failed
+       :package-dir (fs/canonical-path package-dir)
+       :validation validation
+       :diagnostics (validation-diagnostics validation)
+       :readiness (readiness nil validation (validation-diagnostics validation))}
+      (let [package (read-local-package package-dir)
+            diagnostics (vec (concat (package-diagnostics package)
+                                     (validation-diagnostics validation)))
+            status (cond
+                     (some #(= :error (:severity %)) diagnostics) :failed
+                     (some #(= :warning (:severity %)) diagnostics) :warning
+                     :else :passed)]
+        {:schema diagnose-schema
+         :status status
+         :package (package-summary package)
+         :validation validation
+         :diagnostics diagnostics
+         :readiness (readiness package validation diagnostics)}))))
 
 (defn- selected-extractor-plugins
   [package plugin-id]
