@@ -100,14 +100,6 @@
       (pprint/pprint data)))
   path)
 
-(defn- write-file!
-  [path content]
-  (let [file (io/file path)]
-    (when-let [parent (.getParentFile file)]
-      (.mkdirs parent))
-    (spit file content)
-    (fs/canonical-path file)))
-
 (defn- git!
   [& args]
   (let [{:keys [exit out err]} (apply shell/sh "git" args)]
