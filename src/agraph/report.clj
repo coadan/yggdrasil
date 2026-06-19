@@ -315,6 +315,7 @@
    :evidence evidence
    :coverage {:totals (:totals coverage)
               :top-file-kinds (vec (take 12 (:files-by-kind coverage)))
+              :skipped-by-extension (vec (take 8 (:skipped-by-extension coverage)))
               :skipped-by-reason (vec (take 8 (:skipped-by-reason coverage)))
               :extractors (vec (take 20 (:extractors coverage)))
               :extractor-fingerprints (vec (take 20 (:extractor-fingerprints

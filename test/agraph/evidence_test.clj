@@ -12,6 +12,10 @@
                                             {:totals {:skipped 0}
                                              :files-by-kind []
                                              :extractors []
+                                             :skipped-by-extension [{:ext ".wasm"
+                                                                     :count 2
+                                                                     :samples [{:repo-id "app"
+                                                                                :path "web/app.wasm"}]}]
                                              :skipped-by-reason []
                                              :diagnostics {:total 0}})
                 dependency/package-report (fn [& _]
@@ -56,6 +60,11 @@
               :declared-without-import-evidence 1
               :unresolved-imports 1}
              (get-in summary [:packages :counts])))
+      (is (= [{:ext ".wasm"
+               :count 2
+               :samples [{:repo-id "app"
+                          :path "web/app.wasm"}]}]
+             (:skipped-by-extension summary)))
       (is (some #{"agraph packages --project fixture --without-import-evidence --json"}
                 (:next summary)))
       (is (some #{"agraph sync check <project.edn> --enqueue"}

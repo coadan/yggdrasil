@@ -189,6 +189,7 @@
      :top-node-kinds (top-counts nodes :kind)
      :top-edge-relations (top-counts edges :relation)
      :extractors (vec (take 20 (:extractors coverage-report)))
+     :skipped-by-extension (vec (take 8 (:skipped-by-extension coverage-report)))
      :skipped-by-reason (vec (take 8 (:skipped-by-reason coverage-report)))
      :diagnostics (select-keys (:diagnostics coverage-report)
                                [:total :by-stage :by-extractor])

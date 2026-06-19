@@ -152,6 +152,7 @@
           (is (vector? (get-in report-json [:packages :declared-without-import-evidence])))
           (is (vector? (get-in report-json [:packages :unresolved-imports])))
           (is (vector? (get-in report-json [:packages :version-conflicts])))
+          (is (vector? (get-in report-json [:coverage :skipped-by-extension])))
           (is (seq (get-in report-json [:coverage :extractors])))
           (is (every? #(and (:kind %)
                             (:extractor-version %)
