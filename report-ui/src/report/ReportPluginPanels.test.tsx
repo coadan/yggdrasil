@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { PluginPanel } from "./ReportPluginPanels";
+import { PluginDiagnostics, PluginPanel } from "./ReportPluginPanels";
 
 describe("PluginPanel", () => {
   it("does not render implicit core report plugin source pills", () => {
@@ -120,5 +120,28 @@ describe("PluginPanel", () => {
       "plugin-graph-crawl-json:operator-crawl:crawl",
       expect.stringContaining("\"edges\"")
     );
+  });
+
+  it("asks about and copies plugin diagnostics", () => {
+    const onAsk = vi.fn();
+    const onCopyCommand = vi.fn();
+    render(
+      <PluginDiagnostics
+        diagnostics={[{ plugin: { id: "fixture-report-plugin" }, stage: "render", message: "Missing crawl data" }]}
+        actions={{ onAsk, onCopyCommand }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect(onAsk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: "Plugin Diagnostics",
+        source: "plugins.diagnostics",
+        evidenceRows: [expect.objectContaining({ stage: "render" })]
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics JSON" }));
+    expect(onCopyCommand).toHaveBeenCalledWith("plugin-diagnostics:json", expect.stringContaining("Missing crawl data"));
   });
 });

@@ -637,11 +637,40 @@ export function PluginPanelList({
   );
 }
 
-export function PluginDiagnostics({ diagnostics }: { diagnostics: ReportPluginDiagnostic[] }) {
+export function PluginDiagnostics({ diagnostics, actions }: { diagnostics: ReportPluginDiagnostic[]; actions?: PluginPanelActions }) {
   if (diagnostics.length === 0) return null;
   return (
     <section className="panel span-2">
-      <h2>Plugin Diagnostics</h2>
+      <div className="panel-header">
+        <div>
+          <h2>Plugin Diagnostics</h2>
+          <p className="muted">Plugin emitted diagnostic rows from report rendering or graph crawl preparation.</p>
+        </div>
+        {actions?.onAsk || actions?.onCopyCommand ? (
+          <div className="action-row-buttons">
+            {actions?.onAsk ? (
+              <button
+                type="button"
+                onClick={() =>
+                  actions.onAsk?.({
+                    label: "Plugin Diagnostics",
+                    source: "plugins.diagnostics",
+                    question: "What should I inspect in report plugin diagnostics?",
+                    evidenceRows: diagnostics
+                  })
+                }
+              >
+                Ask
+              </button>
+            ) : null}
+            {actions?.onCopyCommand ? (
+              <button type="button" onClick={() => actions.onCopyCommand?.("plugin-diagnostics:json", JSON.stringify(diagnostics, null, 2))}>
+                {actions.copiedKey === "plugin-diagnostics:json" ? "Copied" : "Copy diagnostics JSON"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
       <table>
         <thead>
           <tr>

@@ -2102,6 +2102,7 @@ function DashboardTab({
   const reviewRows = reviewQueueRows(report);
   const atlas = reportAtlas(report, graph);
   const nextActions = asRows(atlas["next-actions"] || atlas.nextActions);
+  const actions = pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab });
   if (panels.length === 0) {
     return (
       <AtlasTab
@@ -2152,9 +2153,9 @@ function DashboardTab({
       <PluginPanelList
         report={report}
         includeCore
-        actions={pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab })}
+        actions={actions}
       />
-      <PluginDiagnostics diagnostics={report.plugins?.diagnostics || []} />
+      <PluginDiagnostics diagnostics={report.plugins?.diagnostics || []} actions={actions} />
     </div>
   );
 }
@@ -2240,7 +2241,7 @@ function PluginsTab({
         panels.map((panel) => <PluginPanel key={`${panelPluginId(panel)}:${panel.id}`} panel={panel} actions={actions} />)
       )}
       <PluginArtifacts artifacts={artifacts} copiedKey={copiedActionKey} onCopyCommand={onCopyCommand} />
-      <PluginDiagnostics diagnostics={diagnostics} />
+      <PluginDiagnostics diagnostics={diagnostics} actions={actions} />
     </div>
   );
 }
