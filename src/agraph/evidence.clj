@@ -88,13 +88,25 @@
    :system-evidence [:system-evidence]
    :system-graph [:system-nodes :system-edges]
    :activity [:activity-items :activity-events]
-   :validation-history [:validation-events :result-schema-mismatch-events]
+   :validation-history [:validation-events
+                        :result-schema-status-items
+                        :result-schema-matching-items
+                        :result-schema-mismatch-items
+                        :result-schema-missing-result-items
+                        :result-schema-unexpected-result-items
+                        :result-schema-mismatch-events]
    :map-overlay [:systems :docs :edges :rejects :package-imports]})
+
+(defn- validation-history-count
+  [counts]
+  (+ (:validation-events counts 0)
+     (:result-schema-status-items counts 0)
+     (:result-schema-mismatch-events counts 0)))
 
 (defn- available
   [{:keys [files file-facts nodes edges chunks search-docs embeddings system-evidence
-           system-nodes system-edges activity-items activity-events validation-events
-           result-schema-mismatch-events packages map-overlay]}]
+           system-nodes system-edges activity-items activity-events packages map-overlay]
+    :as counts}]
   (cond-> []
     (pos? files) (conj :source-files)
     (pos? file-facts) (conj :file-facts)
@@ -105,7 +117,7 @@
     (pos? (+ system-nodes system-edges)) (conj :system-graph)
     (pos? packages) (conj :dependencies)
     (pos? (+ activity-items activity-events)) (conj :activity)
-    (pos? (+ validation-events result-schema-mismatch-events)) (conj :validation-history)
+    (pos? (validation-history-count counts)) (conj :validation-history)
     (pos? (reduce + (vals map-overlay))) (conj :map-overlay)))
 
 (defn- family-counts
@@ -135,7 +147,32 @@
 
 (defn- validation-history-weak?
   [counts]
-  (positive-count? (:result-schema-mismatch-events counts)))
+  (or (positive-count? (:result-schema-mismatch-events counts))
+      (positive-count? (:result-schema-mismatch-items counts))
+      (positive-count? (:result-schema-missing-result-items counts))
+      (positive-count? (:result-schema-unexpected-result-items counts))))
+
+(defn- result-schema-status-counts
+  [activity-items]
+  (->> activity-items
+       (map activity/item-result-schema-status)
+       (remove #{:none})
+       frequencies
+       (into (sorted-map))))
+
+(defn- result-schema-count
+  [statuses status]
+  (long (get statuses status 0)))
+
+(defn- result-schema-counts
+  [activity-items]
+  (let [statuses (result-schema-status-counts activity-items)]
+    {:result-schema-statuses statuses
+     :result-schema-status-items (reduce + 0 (vals statuses))
+     :result-schema-matching-items (result-schema-count statuses :matching)
+     :result-schema-mismatch-items (result-schema-count statuses :mismatch)
+     :result-schema-missing-result-items (result-schema-count statuses :missing-result)
+     :result-schema-unexpected-result-items (result-schema-count statuses :unexpected-result)}))
 
 (defn- family-status
   [counts available-families family]
@@ -285,7 +322,9 @@
 (defn- next-actions
   [{:keys [project config-path map-path counts freshness]}]
   (let [{:keys [files search-docs system-nodes system-edges activity-items
-                activity-events result-schema-mismatch-events diagnostics skipped-files
+                activity-events result-schema-mismatch-events
+                result-schema-missing-result-items result-schema-unexpected-result-items
+                diagnostics skipped-files
                 system-evidence]}
         counts
         project-id (:id project)
@@ -331,6 +370,17 @@
            (conj (merge {:kind :activity
                          :label "Inspect result schema mismatch activity"
                          :count result-schema-mismatch-events
+                         :mcpTool "agraph_sync_activity"
+                         :command (sync-subcommand "activity" config-path "--json")}
+                        (when config-path
+                          {:mcpArgs {:configPath config-path}})))
+
+           (pos? (+ (long (or result-schema-missing-result-items 0))
+                    (long (or result-schema-unexpected-result-items 0))))
+           (conj (merge {:kind :activity
+                         :label "Inspect result schema status activity"
+                         :count (+ (long (or result-schema-missing-result-items 0))
+                                   (long (or result-schema-unexpected-result-items 0)))
                          :mcpTool "agraph_sync_activity"
                          :command (sync-subcommand "activity" config-path "--json")}
                         (when config-path
@@ -555,31 +605,32 @@
                                                   (:event-kind %))
                                               activity-events)
         freshness (freshness-summary files project repo-id)
-        counts {:files (count files)
-                :file-facts (count file-facts)
-                :nodes (count nodes)
-                :edges (count edges)
-                :chunks (count chunks)
-                :search-docs (count search-docs)
-                :embeddings (count embeddings)
-                :system-evidence (count system-evidence)
-                :system-nodes (count system-nodes)
-                :system-edges (count system-edges)
-                :packages (get-in package-report [:counts :packages] 0)
-                :package-versions (get-in package-report [:counts :versions] 0)
-                :package-imports (get-in package-report [:counts :imports-package] 0)
-                :package-conflicts (get-in package-report [:counts :version-conflicts] 0)
-                :package-evidence-gaps (get-in package-report
-                                               [:counts :declared-without-import-evidence]
-                                               0)
-                :unresolved-imports (get-in package-report [:counts :unresolved-imports] 0)
-                :activity-items (count activity-items)
-                :activity-events (count activity-events)
-                :validation-events (count validation-events)
-                :result-schema-mismatch-events (count result-schema-mismatch-events)
-                :diagnostics (get-in coverage-report [:diagnostics :total] 0)
-                :skipped-files (get-in coverage-report [:totals :skipped] 0)
-                :map-overlay (overlay-counts map-overlay)}
+        counts (merge {:files (count files)
+                       :file-facts (count file-facts)
+                       :nodes (count nodes)
+                       :edges (count edges)
+                       :chunks (count chunks)
+                       :search-docs (count search-docs)
+                       :embeddings (count embeddings)
+                       :system-evidence (count system-evidence)
+                       :system-nodes (count system-nodes)
+                       :system-edges (count system-edges)
+                       :packages (get-in package-report [:counts :packages] 0)
+                       :package-versions (get-in package-report [:counts :versions] 0)
+                       :package-imports (get-in package-report [:counts :imports-package] 0)
+                       :package-conflicts (get-in package-report [:counts :version-conflicts] 0)
+                       :package-evidence-gaps (get-in package-report
+                                                      [:counts :declared-without-import-evidence]
+                                                      0)
+                       :unresolved-imports (get-in package-report [:counts :unresolved-imports] 0)
+                       :activity-items (count activity-items)
+                       :activity-events (count activity-events)
+                       :validation-events (count validation-events)
+                       :result-schema-mismatch-events (count result-schema-mismatch-events)
+                       :diagnostics (get-in coverage-report [:diagnostics :total] 0)
+                       :skipped-files (get-in coverage-report [:totals :skipped] 0)
+                       :map-overlay (overlay-counts map-overlay)}
+                      (result-schema-counts activity-items))
         freshness (annotate-freshness freshness counts opts)
         available-families (available counts)
         families (evidence-families counts available-families)

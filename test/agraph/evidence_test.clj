@@ -359,12 +359,133 @@
       (is (= {:family :validation-history
               :status :weak
               :counts {:validation-events 0
+                       :result-schema-status-items 0
+                       :result-schema-matching-items 0
+                       :result-schema-mismatch-items 0
+                       :result-schema-missing-result-items 0
+                       :result-schema-unexpected-result-items 0
                        :result-schema-mismatch-events 1}}
              (some #(when (= :validation-history (:family %)) %)
                    (:families summary))))
       (is (= 1 (get-in summary [:counts :result-schema-mismatch-events])))
       (is (some #(= {:kind :activity
                      :label "Inspect result schema mismatch activity"
+                     :count 1
+                     :mcpTool "agraph_sync_activity"
+                     :command "agraph sync activity <project.edn> --json"}
+                    %)
+                (:nextActions summary))))))
+
+(deftest summarize-counts-result-schema-status-activity
+  (with-redefs [coverage/project-coverage (fn [& _]
+                                            {:totals {:skipped 0}
+                                             :files-by-kind []
+                                             :extractors []
+                                             :skipped-by-extension []
+                                             :skipped-by-reason []
+                                             :diagnostics {:total 0}})
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :versions 0
+                                                      :imports-package 0
+                                                      :version-conflicts 0
+                                                      :declared-without-import-evidence 0
+                                                      :unresolved-imports 0}
+                                             :ecosystems []})
+                store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :project-id "fixture"
+                                                   :active? true}]
+                                   []))
+                query/all-nodes (fn [& _] [])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                activity/all-items (fn [& _]
+                                     [{:xt/id "work:ok"
+                                       :expected-result-schema "agraph.result/v1"
+                                       :result-schema "agraph.result/v1"}])
+                activity/all-events (fn [& _] [])]
+    (let [summary (evidence/summarize :xtdb
+                                      {:id "fixture"
+                                       :repos []}
+                                      {})]
+      (is (contains? (set (:available summary)) :validation-history))
+      (is (= {:family :validation-history
+              :status :available
+              :counts {:validation-events 0
+                       :result-schema-status-items 1
+                       :result-schema-matching-items 1
+                       :result-schema-mismatch-items 0
+                       :result-schema-missing-result-items 0
+                       :result-schema-unexpected-result-items 0
+                       :result-schema-mismatch-events 0}}
+             (some #(when (= :validation-history (:family %)) %)
+                   (:families summary))))
+      (is (= {:matching 1}
+             (get-in summary [:counts :result-schema-statuses])))
+      (is (= 1 (get-in summary [:counts :result-schema-status-items])))
+      (is (not (some #(= "agraph sync activity <project.edn> --json" (:command %))
+                     (:nextActions summary)))))))
+
+(deftest summarize-actions-result-schema-status-gaps
+  (with-redefs [coverage/project-coverage (fn [& _]
+                                            {:totals {:skipped 0}
+                                             :files-by-kind []
+                                             :extractors []
+                                             :skipped-by-extension []
+                                             :skipped-by-reason []
+                                             :diagnostics {:total 0}})
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :versions 0
+                                                      :imports-package 0
+                                                      :version-conflicts 0
+                                                      :declared-without-import-evidence 0
+                                                      :unresolved-imports 0}
+                                             :ecosystems []})
+                store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :project-id "fixture"
+                                                   :active? true}]
+                                   []))
+                query/all-nodes (fn [& _] [])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                activity/all-items (fn [& _]
+                                     [{:xt/id "work:missing"
+                                       :expected-result-schema "agraph.result/v1"}])
+                activity/all-events (fn [& _] [])]
+    (let [summary (evidence/summarize :xtdb
+                                      {:id "fixture"
+                                       :repos []}
+                                      {})]
+      (is (= {:family :validation-history
+              :status :weak
+              :counts {:validation-events 0
+                       :result-schema-status-items 1
+                       :result-schema-matching-items 0
+                       :result-schema-mismatch-items 0
+                       :result-schema-missing-result-items 1
+                       :result-schema-unexpected-result-items 0
+                       :result-schema-mismatch-events 0}}
+             (some #(when (= :validation-history (:family %)) %)
+                   (:families summary))))
+      (is (= {:missing-result 1}
+             (get-in summary [:counts :result-schema-statuses])))
+      (is (some #(= {:kind :activity
+                     :label "Inspect result schema status activity"
                      :count 1
                      :mcpTool "agraph_sync_activity"
                      :command "agraph sync activity <project.edn> --json"}
