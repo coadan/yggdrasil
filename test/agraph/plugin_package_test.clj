@@ -25,7 +25,8 @@
   {:metric :file-recall-at-5
    :baseline :core-agraph
    :candidate :plugin-enhanced-agraph
-   :delta "+0.25"})
+   :delta "+0.25"
+   :effect 0.25})
 
 (defn- git!
   [root & args]
@@ -1232,7 +1233,8 @@
                                             :problem-class :architecture-understanding
                                             :improvement {:metric :file-recall-at-5
                                                           :baseline :core-agraph
-                                                          :candidate :plugin-enhanced-agraph}}]}
+                                                          :candidate :plugin-enhanced-agraph
+                                                          :effect 0.25}}]}
                    :core-promotion {:fixtures [{:path "fixtures/sample.clj"
                                                 :kind :fixture}]
                                     :tests [{:path "test/sample_test.clj"
@@ -1249,6 +1251,58 @@
       (is (= :blocked (get-in diagnosis [:readiness :claims :status])))
       (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
       (is (= [:benchmark-artifact-improvement-delta-missing]
+             (mapv :code (:diagnostics diagnosis)))))))
+
+(deftest diagnose-requires-positive-material-improvement-effect
+  (let [workspace (temp-dir "agraph-plugin-benchmark-effect")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 "benchmarks/report.json"
+                 "{\"schema\":\"agraph.benchmark.agent-report/v1\",\"suite-id\":\"plugin\"}\n")
+    (write-file! (.getPath package-dir)
+                 "fixtures/sample.clj"
+                 "(ns sample)\n")
+    (write-file! (.getPath package-dir)
+                 "test/sample_test.clj"
+                 "(ns sample-test)\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "improvement-effect-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Benchmark effect metadata test fixture."}
+                   :benchmark {:status :benchmarked
+                               :artifacts [{:path "benchmarks/report.json"
+                                            :kind :agent-report
+                                            :case-id "plugin-case"
+                                            :problem-class :architecture-understanding
+                                            :improvement {:metric :file-recall-at-5
+                                                          :baseline :core-agraph
+                                                          :candidate :plugin-enhanced-agraph
+                                                          :delta "+0.00"
+                                                          :effect 0}}]}
+                   :core-promotion {:fixtures [{:path "fixtures/sample.clj"
+                                                :kind :fixture}]
+                                    :tests [{:path "test/sample_test.clj"
+                                             :kind :test}]}
+                   :extractor-plugins
+                   [{:id "improvement-effect-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+      (is (= :failed (:status diagnosis)))
+      (is (= :blocked (get-in diagnosis [:readiness :claims :status])))
+      (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= [:benchmark-artifact-improvement-effect-invalid]
              (mapv :code (:diagnostics diagnosis)))))))
 
 (deftest diagnose-requires-core-promotion-fixtures-and-tests

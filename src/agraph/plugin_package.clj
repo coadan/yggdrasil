@@ -367,7 +367,31 @@
    :candidate {:code :benchmark-artifact-improvement-candidate-missing
                :label ":candidate"}
    :delta {:code :benchmark-artifact-improvement-delta-missing
-           :label ":delta"}})
+           :label ":delta"}
+   :effect {:code :benchmark-artifact-improvement-effect-missing
+            :label ":effect"}})
+
+(defn- positive-number?
+  [value]
+  (cond
+    (number? value) (pos? (double value))
+    (string? value) (try
+                      (pos? (Double/parseDouble value))
+                      (catch NumberFormatException _
+                        false))
+    :else false))
+
+(defn- invalid-benchmark-improvement-effect
+  [id artifact summary]
+  (let [effect (get-in artifact [:improvement :effect])]
+    (when (and (present? effect)
+               (not (positive-number? effect)))
+      [{:code :benchmark-artifact-improvement-effect-invalid
+        :severity :error
+        :applies-to [:claims :core-promotion]
+        :message (str id " benchmark artifact " (:path summary)
+                      " improvement :effect must be a positive number.")
+        :evidence summary}])))
 
 (defn- missing-benchmark-improvement-metadata
   [id artifact summary]
@@ -385,15 +409,17 @@
         :evidence summary}]
 
       :else
-      (keep (fn [[field {:keys [code label]}]]
-              (when-not (present? (get improvement field))
-                {:code code
-                 :severity :error
-                 :applies-to [:claims :core-promotion]
-                 :message (str id " benchmark artifact " (:path summary)
-                               " improvement is missing " label ".")
-                 :evidence summary}))
-            benchmark-improvement-required-fields))))
+      (concat
+       (keep (fn [[field {:keys [code label]}]]
+               (when-not (present? (get improvement field))
+                 {:code code
+                  :severity :error
+                  :applies-to [:claims :core-promotion]
+                  :message (str id " benchmark artifact " (:path summary)
+                                " improvement is missing " label ".")
+                  :evidence summary}))
+             benchmark-improvement-required-fields)
+       (invalid-benchmark-improvement-effect id artifact summary)))))
 
 (defn- missing-benchmark-artifact-metadata
   [id artifact summary]

@@ -457,16 +457,19 @@ package-local benchmark artifacts:
               :improvement {:metric :file-recall-at-5
                             :baseline :core-agraph
                             :candidate :plugin-enhanced-agraph
-                            :delta "+0.25"}}]}
+                            :delta "+0.25"
+                            :effect 0.25}}]}
 ```
 
 `bb plugin diagnose <dir>` checks that every declared artifact path exists and
 that benchmarked packages identify each artifact with `:kind`, `:case-id`, and
 `:problem-class`, plus an `:improvement` map naming the claimed metric,
-baseline, candidate, and delta. A package marked `:benchmarked` without
-artifacts or declared improvement metadata is blocked for public claims and
-core promotion. Diagnosis does not decide whether the benchmark proves enough
-material improvement; it verifies that reviewable, replayable evidence exists.
+baseline, candidate, delta, and positive effect. A package marked
+`:benchmarked` without artifacts or declared improvement metadata is blocked for
+public claims and core promotion. Diagnosis does not decide whether the
+benchmark proves enough material improvement for a human reviewer; it verifies
+that reviewable, replayable evidence exists and that the manifest exposes a
+positive claimed effect.
 
 Package summaries expose compact `:benchmark-cases` metadata with artifact
 count, case ids, problem classes, and improvement metrics. Reports, registry
