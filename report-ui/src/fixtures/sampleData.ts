@@ -43,6 +43,53 @@ export const fixtureGraph: AGraphGraph = {
   ]
 };
 
+export const inventoryGraph: AGraphGraph = {
+  ...fixtureGraph,
+  title: "Inventory Fixture Graph",
+  nodes: [
+    ...fixtureGraph.nodes,
+    {
+      id: "route:checkout",
+      label: "/checkout",
+      kind: "route",
+      clusterId: "cluster:runtime",
+      clusterLabel: "Runtime"
+    },
+    {
+      id: "url:payments",
+      label: "https://payments.example.test",
+      kind: "url",
+      clusterId: "cluster:runtime",
+      clusterLabel: "Runtime"
+    },
+    {
+      id: "config:env",
+      label: ".env.example",
+      kind: "config",
+      tags: ["config"]
+    },
+    {
+      id: "auth:service-account",
+      label: "checkout-service-account",
+      kind: "service-account",
+      tags: ["auth"]
+    },
+    {
+      id: "artifact:generated-client",
+      label: "generated/graphql-client.ts",
+      kind: "generated-artifact"
+    }
+  ],
+  edges: [
+    ...fixtureGraph.edges,
+    { id: "edge:a-route", source: "node:a", target: "route:checkout", relation: "defines-route" },
+    { id: "edge:a-url", source: "node:a", target: "url:payments", relation: "references-url" },
+    { id: "edge:a-config", source: "node:a", target: "config:env", relation: "references-config" },
+    { id: "edge:config-auth", source: "config:env", target: "auth:service-account", relation: "references-auth" },
+    { id: "edge:a-artifact", source: "node:a", target: "artifact:generated-client", relation: "generates" }
+  ]
+};
+
 export const emptyGraph: AGraphGraph = {
   schema: "agraph.graph/v2",
   title: "Empty Graph",

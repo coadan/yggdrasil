@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { emptyGraph, emptyReport, fixtureGraph, fixtureReport, sourceDocsSystemReport } from "../fixtures/sampleData";
+import { emptyGraph, emptyReport, fixtureGraph, fixtureReport, inventoryGraph, sourceDocsSystemReport } from "../fixtures/sampleData";
 import { ReportPage } from "./ReportPage";
 
 vi.mock("../graph/GraphPanel", () => ({
@@ -13,16 +13,39 @@ vi.mock("../graph/GraphPanel", () => ({
 
 describe("ReportPage", () => {
   it("renders evidence counts and commands", () => {
-    render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
+    render(<ReportPage report={fixtureReport} graph={inventoryGraph} />);
 
     expect(screen.getByText("Fixture")).toBeInTheDocument();
     expect(screen.getByText("Project Atlas")).toBeInTheDocument();
     expect(screen.queryByText("agraph-core-report")).not.toBeInTheDocument();
+    expect(screen.getByText("Project Inventory")).toBeInTheDocument();
+    expect(screen.getByText("Config/Auth")).toBeInTheDocument();
+    expect(screen.getByText("Generated artifacts")).toBeInTheDocument();
     expect(screen.getByText("Operator Review Queue")).toBeInTheDocument();
     expect(screen.getByText("Refresh indexed graph basis")).toBeInTheDocument();
     expect(screen.getByText("packages.unresolved-imports")).toBeInTheDocument();
     expect(screen.getAllByText("Evidence Rows").length).toBeGreaterThan(0);
     expect(screen.getByText("src/app/core.clj")).toBeInTheDocument();
+
+    const inventory = screen.getByText("Project Inventory").closest("section");
+    expect(inventory).toBeTruthy();
+    fireEvent.click(within(inventory as HTMLElement).getByRole("button", { name: "Ask" }));
+    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.getByText("What is this project made of?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
+    const inventoryAgain = screen.getByText("Project Inventory").closest("section");
+    fireEvent.click(within(inventoryAgain as HTMLElement).getByRole("button", { name: "Open config/auth" }));
+    expect(screen.getByRole("button", { name: "Systems" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: /Config\/Auth Evidence/ })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
+    const inventoryThird = screen.getByText("Project Inventory").closest("section");
+    fireEvent.click(within(inventoryThird as HTMLElement).getByRole("button", { name: "Open evidence" }));
+    expect(screen.getByRole("button", { name: "Evidence" })).toHaveAttribute("aria-current", "page");
 
     fireEvent.click(screen.getByRole("button", { name: "Plugins" }));
 

@@ -81,6 +81,17 @@ function countValue(counts: unknown, key: string): number {
   return typeof value === "number" ? value : 0;
 }
 
+function nodeTags(node: { tags?: string[] }): string[] {
+  return Array.isArray(node.tags) ? node.tags.map(String) : [];
+}
+
+function nodeSurfaceCount(graph: AGraphGraph, kinds: Set<string>, tags = kinds): number {
+  return graph.nodes.filter((node) => {
+    const kind = String(node.kind || "");
+    return kinds.has(kind) || nodeTags(node).some((tag) => tags.has(tag));
+  }).length;
+}
+
 function CountCard({ label, value, tone }: { label: string; value: number | string; tone?: "warn" | "ok" }) {
   return (
     <div className={`count-card${tone ? ` ${tone}` : ""}`}>
@@ -907,6 +918,90 @@ function ExternalApiReview({ report }: { report: AGraphReport }) {
   );
 }
 
+function ProjectInventory({
+  report,
+  graph,
+  onAsk,
+  onOpenGraphSlice,
+  onOpenTab
+}: {
+  report: AGraphReport;
+  graph: AGraphGraph;
+  onAsk: (scope: AskScope) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
+  onOpenTab: (tab: ReportTab) => void;
+}) {
+  const graphArtifacts = Object.values(report.graphs || {}).filter((value) => displayValue(asRecord(value).artifact)).length;
+  const pluginArtifacts = report.plugins?.artifacts?.length || 0;
+  const freshness = asRecord(report.evidence.freshness);
+  const freshnessCounts = asRecord(freshness.counts);
+  const staleEvidence =
+    countValue(freshnessCounts, "changed") + countValue(freshnessCounts, "missing") + countValue(freshnessCounts, "unindexed");
+  const rows = [
+    { surface: "Graph artifacts", count: graphArtifacts, source: "report.graphs" },
+    { surface: "Plugin artifacts", count: pluginArtifacts, source: "report.plugins.artifacts" },
+    { surface: "Routes", count: nodeSurfaceCount(graph, new Set(["route"])), source: "graph.nodes.kind" },
+    { surface: "URLs", count: nodeSurfaceCount(graph, new Set(["url"])), source: "graph.nodes.kind" },
+    {
+      surface: "Config/Auth",
+      count: nodeSurfaceCount(
+        graph,
+        new Set(["auth", "config", "configuration", "deployment", "secret", "service-account"]),
+        new Set(["auth", "config", "configuration", "deployment", "secret", "service-account"])
+      ),
+      source: "graph.nodes.kind/tags"
+    },
+    { surface: "External APIs", count: nodeSurfaceCount(graph, new Set(["external-api"])), source: "graph.nodes.kind" },
+    {
+      surface: "Generated artifacts",
+      count: nodeSurfaceCount(graph, new Set(["generated-artifact", "artifact"])),
+      source: "graph.nodes.kind"
+    },
+    { surface: "Stale/missing evidence", count: staleEvidence, source: "evidence.freshness.counts" }
+  ];
+
+  return (
+    <section className="panel span-2">
+      <div className="panel-header">
+        <div>
+          <h2>Project Inventory</h2>
+          <p className="muted">Mechanical inventory from loaded report artifacts and exact graph node kinds.</p>
+        </div>
+        <div className="action-row-buttons">
+          <button
+            type="button"
+            onClick={() =>
+              onAsk({
+                label: "Project Inventory",
+                source: "report.inventory",
+                question: "What is this project made of?",
+                evidenceRows: rows
+              })
+            }
+          >
+            Ask
+          </button>
+          {rows.some((row) => row.surface === "Config/Auth" && row.count > 0) ? (
+            <button type="button" onClick={() => onOpenGraphSlice("config-auth-evidence")}>
+              Open config/auth
+            </button>
+          ) : null}
+          <button type="button" onClick={() => onOpenTab("evidence")}>
+            Open evidence
+          </button>
+        </div>
+      </div>
+      <MetricStrip
+        items={rows.map((row) => ({
+          label: row.surface,
+          value: row.count,
+          tone: row.surface === "Stale/missing evidence" && row.count > 0 ? "warn" : undefined
+        }))}
+      />
+    </section>
+  );
+}
+
 function AtlasTab({
   report,
   graph,
@@ -953,6 +1048,8 @@ function AtlasTab({
           ]}
         />
       </section>
+
+      <ProjectInventory report={report} graph={graph} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} />
 
       <section className="panel">
         <h2>Evidence Surface</h2>
@@ -1597,6 +1694,7 @@ function DashboardTab({
         <p className="eyebrow">Report Dashboard</p>
         <h2>{report.project.name || report.project.id}</h2>
       </section>
+      <ProjectInventory report={report} graph={graph} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} />
       <OperatorNextActions
         rows={nextActions}
         onAsk={onAsk}
