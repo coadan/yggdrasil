@@ -729,6 +729,9 @@
                         (get-in comparison [:summary :regressedMetrics])
                         ", unchanged metrics: "
                         (get-in comparison [:summary :unchangedMetrics])
+                        (when-let [observed (get-in comparison
+                                                    [:summary :observedMetrics])]
+                          (str ", observed metrics: " observed))
                         ", unavailable metrics: "
                         (get-in comparison [:summary :unavailableMetrics])))
           (println (str "Shared tag groups: "

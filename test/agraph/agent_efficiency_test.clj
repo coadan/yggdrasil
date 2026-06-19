@@ -699,6 +699,7 @@
         out (with-out-str
               (agent-efficiency/-main shell-path agraph-path))]
     (is (.contains out "Category signals:"))
+    (is (.contains out "observed metrics: 1"))
     (is (.contains out "- command-telemetry: agraph-improved"))
     (is (.contains out "Claim readiness: not-supported"))
     (is (.contains out "Claim readiness warnings:"))
