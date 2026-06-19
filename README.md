@@ -46,7 +46,7 @@ agraph ask "where is auth handled" --project my-project --json
 agraph explore create "where is auth handled" --project my-project --map agraph.map.json
 agraph view systems --project my-project --format json
 agraph report project.edn --map agraph.map.json --out agraph-out
-agraph install --platform codex --project --hooks
+agraph agent install --platform codex --project --hooks
 agraph watch project.edn --map agraph.map.json
 agraph hook install project.edn --map agraph.map.json
 ```
@@ -270,10 +270,10 @@ Use `agraph explore create` for longer investigations where an agent should keep
 a stable graph basis and progressively call `show`, `open`, `expand`, `docs`,
 and `search` against compact packets.
 
-Use `agraph install --platform codex --project` to write concise project
+Use `agraph agent install --platform codex --project` to write concise project
 guidance into `AGENTS.md`. Add `--hooks` to install Codex hook guidance. The
-installer only edits marked AGraph sections, and `uninstall` removes those
-sections. `agraph install-agent` remains accepted as the legacy spelling.
+installer only edits marked AGraph sections, and `agraph agent uninstall`
+removes those sections.
 
 Use `agraph-mcp --config project.edn --map agraph.map.json` when an MCP client
 should call AGraph tools directly. The default listed tools are

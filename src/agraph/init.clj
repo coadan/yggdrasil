@@ -85,9 +85,9 @@
            {:kind :systems
             :label "Inspect system graph"
             :command (view-systems-command project-id)}
-           {:kind :install-agent
+           {:kind :agent-install
             :label "Install project-local agent guidance"
-            :command "agraph install-agent --platform codex --project"}]
+            :command "agraph agent install --platform codex --project"}]
     true vec))
 
 (defn- next-commands

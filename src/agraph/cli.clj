@@ -2037,9 +2037,9 @@
                           (when map-path
                             (str " --map " (command/shell-token map-path)))
                           " --out " (command/shell-token report-out))}
-           {:kind :install-agent
+           {:kind :agent-install
             :label "Install project-local agent guidance"
-            :command "agraph install --platform codex --project"}]
+            :command "agraph agent install --platform codex --project"}]
     true vec))
 
 (defn- start-next-commands
@@ -3056,12 +3056,10 @@
                       {:command action
                        :usage (usage)})))))
 
-(defn- install-agent!
+(defn- agent!
   [args]
   (let [action (first args)
-        agent-args (if (#{"list" "uninstall"} action)
-                     (vec (rest args))
-                     args)
+        agent-args (vec (rest args))
         platform (or (option-value agent-args "--platform") "codex")
         opts {:project? (boolean (some #{"--project"} agent-args))
               :hooks? (boolean (some #{"--hooks"} agent-args))
@@ -3073,7 +3071,12 @@
       "uninstall"
       (print-json (agent-install/uninstall! platform opts))
 
-      (print-json (agent-install/install! platform opts)))))
+      "install"
+      (print-json (agent-install/install! platform opts))
+
+      (throw (ex-info "Unknown agent command."
+                      {:command action
+                       :usage "agent install|uninstall|list"})))))
 
 (defn usage
   []
@@ -3085,12 +3088,6 @@
     "  start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map agraph.map.json] [--report-out agraph-out] [--force] [--query-index]"
     "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync] [--map agraph.map.json]"
     "  init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]"
-    "  install --platform codex --project [--hooks]"
-    "  install list"
-    "  uninstall --platform codex --project"
-    "  install-agent --platform codex --project [--hooks]"
-    "  install-agent list"
-    "  install-agent uninstall --platform codex --project"
     ""
     "Sync and maintenance:"
     "  status <project.edn> [--map PATH] [--json]"
@@ -3145,6 +3142,9 @@
     "  plugin registry validate <registry.edn> [--json]"
     ""
     "Agent integration:"
+    "  agent install --platform codex --project [--hooks]"
+    "  agent uninstall --platform codex --project"
+    "  agent list"
     "  watch <project.edn> [--map agraph.map.json] [--query-index] [--debounce-ms N]"
     "  hook install <project.edn> [--map agraph.map.json] [--query-index]"
     "  hook uninstall <project.edn>"
@@ -3218,14 +3218,8 @@
     "plugin"
     (plugin! args)
 
-    "install"
-    (install-agent! args)
-
-    "uninstall"
-    (install-agent! (into ["uninstall"] args))
-
-    "install-agent"
-    (install-agent! args)
+    "agent"
+    (agent! args)
 
     "watch"
     (let [config-path (first (positional-args args))]

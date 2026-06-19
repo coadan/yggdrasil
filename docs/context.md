@@ -300,17 +300,15 @@ Install project-local agent guidance when a coding assistant should discover
 AGraph automatically:
 
 ```sh
-agraph install --platform codex --project
-agraph install --platform codex --project --hooks
+agraph agent install --platform codex --project
+agraph agent install --platform codex --project --hooks
 ```
 
 The installer edits only marked AGraph sections. Remove them with:
 
 ```sh
-agraph uninstall --platform codex --project
+agraph agent uninstall --platform codex --project
 ```
-
-`agraph install-agent` remains accepted as the legacy command spelling.
 
 For MCP clients, run:
 
