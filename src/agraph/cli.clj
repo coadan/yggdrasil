@@ -2386,6 +2386,21 @@
                                   :staleScoreRuns
                                   :staleScoreCaseIds)))
 
+(defn- print-claim-readiness
+  [claim-readiness]
+  (when claim-readiness
+    (println "- claim-readiness" (:status claim-readiness))
+    (when (seq (:measuredProblemClassTags claim-readiness))
+      (println "- measured-problem-classes"
+               (str/join "," (:measuredProblemClassTags claim-readiness))))
+    (when (seq (:measuredArchitectureClassTags claim-readiness))
+      (println "- measured-architecture-classes"
+               (str/join "," (:measuredArchitectureClassTags claim-readiness))))
+    (when (seq (:warnings claim-readiness))
+      (println "## Claim Readiness Warnings")
+      (doseq [warning (:warnings claim-readiness)]
+        (println "-" warning)))))
+
 (defn- print-benchmark-summary
   [result]
   (println "# Benchmark")
@@ -2444,6 +2459,7 @@
       (print-parser-worker-summary (:parserWorkers result))
       (print-agent-diagnostics-summary (:agentDiagnostics result))
       (print-artifact-diagnostics-summary (:artifactDiagnostics result))
+      (print-claim-readiness (:claimReadiness result))
       (when-let [blocker (first (get-in result
                                         [:localizationDiagnostics
                                          :rankedOutsideTop5BlockingFiles]))]
@@ -2510,6 +2526,7 @@
       (print-parser-worker-summary (get-in result [:report :parserWorkers]))
       (print-agent-diagnostics-summary (get-in result [:report :agentDiagnostics]))
       (print-artifact-diagnostics-summary (get-in result [:report :artifactDiagnostics]))
+      (print-claim-readiness (get-in result [:report :claimReadiness]))
       (println "- noise@20"
                (format "%.2f" (double (get-in result
                                               [:report :scores :noiseRatioAt20]

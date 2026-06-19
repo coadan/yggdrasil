@@ -347,6 +347,43 @@
       (is (str/includes? out " cases case-1"))
       (is (str/includes? out "- stale-score-runs 1 cases case-2")))))
 
+(deftest benchmark-summary-prints-claim-readiness
+  (let [claim-readiness {:status "not-supported"
+                         :broadArchitectureClaimSupported false
+                         :measuredProblemClassTags ["problem-architecture"]
+                         :measuredArchitectureClassTags []
+                         :warnings ["No measured architecture-class groups."]}
+        report-out (with-out-str
+                     (#'cli/print-benchmark-summary
+                      {:schema benchmark/agent-report-schema
+                       :suite-id "suite"
+                       :cases 2
+                       :completed 2
+                       :runs 2
+                       :scores {:fileRecallAt10 0.5
+                                :meanReciprocalRankFile 0.25
+                                :evidenceCitationRate 0.75}
+                       :claimReadiness claim-readiness}))
+        check-out (with-out-str
+                    (#'cli/print-benchmark-summary
+                     {:schema benchmark/agent-check-schema
+                      :suite-id "suite"
+                      :status "failed"
+                      :report {:cases 2
+                               :completed 2
+                               :runs 2
+                               :scores {:fileRecallAt10 0.5
+                                        :meanReciprocalRankFile 0.25
+                                        :evidenceCitationRate 0.75
+                                        :noiseRatioAt20 0.5}
+                               :claimReadiness claim-readiness}
+                      :failures []}))]
+    (doseq [out [report-out check-out]]
+      (is (str/includes? out "- claim-readiness not-supported"))
+      (is (str/includes? out "- measured-problem-classes problem-architecture"))
+      (is (str/includes? out "## Claim Readiness Warnings"))
+      (is (str/includes? out "- No measured architecture-class groups.")))))
+
 (deftest benchmark-summary-prints-compare-comparability
   (let [out (with-out-str
               (#'cli/print-benchmark-summary
