@@ -665,7 +665,8 @@
                           :unsupported
                           :counts
                           :retrieval
-                          :next])
+                          :next
+                          :nextActions])
       (seq (:warnings answerability))
       (assoc :warnings (vec (take 3 (:warnings answerability)))))))
 
@@ -1045,21 +1046,53 @@
     true
     (conj "Remote work items and session history are not modeled in the current graph.")))
 
-(defn- next-steps
+(defn- distinct-by
+  [f coll]
+  (loop [remaining (seq coll)
+         seen #{}
+         out []]
+    (if-let [item (first remaining)]
+      (let [k (f item)]
+        (if (contains? seen k)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen k) (conj out item))))
+      out)))
+
+(defn- package-command
+  [project-id & args]
+  (str "agraph packages --project " (or project-id "<project-id>")
+       (when (seq args)
+         (str " " (str/join " " args)))))
+
+(defn- sync-command
+  [& args]
+  (str "agraph sync <project.edn>"
+       (when (seq args)
+         (str " " (str/join " " args)))))
+
+(defn- next-actions
   [counts retrieval project-id]
   (->> (cond-> []
          (zero? (:files counts 0))
-         (conj "Run agraph sync <project.edn>")
+         (conj {:kind :source-files
+                :label "Index project source files"
+                :command (sync-command)})
 
          (and (pos? (:files counts 0))
               (zero? (+ (:nodes counts) (:edges counts))))
-         (conj "Run agraph sync <project.edn> --check")
+         (conj {:kind :source-graph
+                :label "Validate indexed source graph rows"
+                :command (sync-command "--check")})
 
          (zero? (:search-docs counts))
-         (conj "Run agraph sync <project.edn> --query-index")
+         (conj {:kind :docs
+                :label "Build query index"
+                :command (sync-command "--query-index")})
 
          (and (= :auto (:requested retrieval)) (:fallback? retrieval))
-         (conj "Run agraph embed --provider openrouter")
+         (conj {:kind :embeddings
+                :label "Index local graph embeddings"
+                :command "agraph embed --provider openrouter"})
 
          (or (zero? (+ (:external-packages counts 0)
                        (:package-import-edges counts 0)
@@ -1067,32 +1100,48 @@
              (pos? (:unresolved-imports counts 0))
              (pos? (:package-evidence-gaps counts 0))
              (pos? (:package-conflicts counts 0)))
-         (conj (str "Run agraph packages --project " (or project-id "<project-id>") " --json"))
+         (conj {:kind :dependencies
+                :label "Inspect package graph facts"
+                :command (package-command project-id "--json")})
 
          (pos? (:package-evidence-gaps counts 0))
-         (conj (str "Run agraph packages --project "
-                    (or project-id "<project-id>")
-                    " --without-import-evidence --json"))
+         (conj {:kind :dependencies
+                :label "Inspect packages without source import evidence"
+                :command (package-command project-id
+                                          "--without-import-evidence"
+                                          "--json")})
 
          (pos? (:package-conflicts counts 0))
-         (conj (str "Run agraph packages --project "
-                    (or project-id "<project-id>")
-                    " --with-conflicts --json"))
+         (conj {:kind :dependencies
+                :label "Inspect package version conflicts"
+                :command (package-command project-id "--with-conflicts" "--json")})
 
          (pos? (:unresolved-imports counts 0))
-         (conj "Run agraph sync <project.edn> --check --enqueue")
+         (conj {:kind :dependency-review
+                :label "Queue unresolved import review work"
+                :command (sync-command "--check" "--enqueue")})
 
          (zero? (+ (:system-nodes counts) (:system-edges counts)))
-         (conj "Run agraph sync <project.edn>")
+         (conj {:kind :system-graph
+                :label "Index project graph systems"
+                :command (sync-command)})
 
          (zero? (+ (:activity-items counts) (:activity-events counts)))
-         (conj "Run agraph sync activity <project.edn>")
+         (conj {:kind :activity
+                :label "Import local activity and work rows"
+                :command "agraph sync activity <project.edn>"})
 
          (pos? (:diagnostics counts))
-         (conj "Run agraph sync coverage <project.edn> --json"))
-       distinct
+         (conj {:kind :coverage
+                :label "Inspect extractor diagnostics"
+                :command "agraph sync coverage <project.edn> --json"}))
+       (distinct-by :command)
        (take 5)
        vec))
+
+(defn- next-steps
+  [actions]
+  (mapv #(str "Run " (:command %)) actions))
 
 (defn- answerability-status
   [missing weak retrieval {:keys [entity-count doc-count activity-count]}]
@@ -1110,7 +1159,8 @@
   (let [counts (capability-counts xtdb overlay opts)
         retrieval (retrieval-summary opts)
         missing (missing-planes counts)
-        weak (weak-planes counts match-counts)]
+        weak (weak-planes counts match-counts)
+        actions (next-actions counts retrieval (:project-id opts))]
     {:status (answerability-status missing weak retrieval match-counts)
      :available (available-planes counts)
      :missing missing
@@ -1119,7 +1169,8 @@
      :counts counts
      :retrieval retrieval
      :warnings (answerability-warnings counts retrieval weak)
-     :next (next-steps counts retrieval (:project-id opts))}))
+     :next (next-steps actions)
+     :nextActions actions}))
 
 (defn context-packet
   "Return compact graph/doc context for an agent query."

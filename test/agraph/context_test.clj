@@ -151,7 +151,10 @@
   (let [retrieval {:requested :lexical
                    :effective :lexical
                    :fallback? false}
-        no-files (#'context/next-steps
+        next-steps (fn [counts]
+                     (#'context/next-steps
+                      (#'context/next-actions counts retrieval "fixture")))
+        no-files (next-steps
                   {:files 0
                    :nodes 0
                    :edges 0
@@ -165,10 +168,8 @@
                    :system-edges 0
                    :activity-items 1
                    :activity-events 0
-                   :diagnostics 0}
-                  retrieval
-                  "fixture")
-        no-graph (#'context/next-steps
+                   :diagnostics 0})
+        no-graph (next-steps
                   {:files 2
                    :nodes 0
                    :edges 0
@@ -182,9 +183,7 @@
                    :system-edges 0
                    :activity-items 1
                    :activity-events 0
-                   :diagnostics 0}
-                  retrieval
-                  "fixture")]
+                   :diagnostics 0})]
     (is (some #{"Run agraph sync <project.edn>"} no-files))
     (is (not (some #{"Run agraph sync <project.edn> --check"} no-files)))
     (is (some #{"Run agraph sync <project.edn> --check"} no-graph))))
@@ -200,6 +199,9 @@
                   :retrieval {:effective :lexical}
                   :warnings ["one" "two" "three" "four"]
                   :next ["Run agraph packages --project fixture --json"]
+                  :nextActions [{:kind :dependencies
+                                 :label "Inspect package graph facts"
+                                 :command "agraph packages --project fixture --json"}]
                   :extra "drop"})]
     (is (= {:status :limited
             :available [:source-graph]
@@ -209,7 +211,10 @@
             :counts {:unresolved-imports 1}
             :retrieval {:effective :lexical}
             :warnings ["one" "two" "three"]
-            :next ["Run agraph packages --project fixture --json"]}
+            :next ["Run agraph packages --project fixture --json"]
+            :nextActions [{:kind :dependencies
+                           :label "Inspect package graph facts"
+                           :command "agraph packages --project fixture --json"}]}
            compact))))
 
 (deftest context-budget-compacts-source-coverage-before-dropping-it
@@ -427,6 +432,11 @@
                 (:warnings answerability)))
       (is (some #{"Run agraph packages --project fixture --json"}
                 (:next answerability)))
+      (is (some #(= {:kind :dependencies
+                     :label "Inspect package graph facts"
+                     :command "agraph packages --project fixture --json"}
+                    %)
+                (:nextActions answerability)))
       (is (some #{"Run agraph sync <project.edn> --check --enqueue"}
                 (:next answerability))))))
 

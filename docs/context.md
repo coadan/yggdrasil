@@ -43,7 +43,8 @@ The packet schema is `agraph.context/v1`:
     },
     "retrieval": {"requested": "auto", "effective": "lexical", "fallback?": true},
     "warnings": [],
-    "next": []
+    "next": [],
+    "nextActions": []
   },
   "warnings": [],
   "drilldowns": []
@@ -88,6 +89,8 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
 - `retrieval`: requested and effective retriever, including lexical fallback
 - `warnings`: short mechanical explanations
 - `next`: bounded follow-up commands
+- `nextActions`: the same follow-up work as structured rows with `kind`,
+  `label`, and executable `command`
 
 If `dependencies` is missing or weak, `next` points at the package report so
 agents can inspect whether the graph has package declarations, import evidence,
@@ -101,6 +104,8 @@ If source files or source graph rows are missing, `warnings` names that source
 plane explicitly and `next` points at `agraph sync <project.edn>` or
 `agraph sync <project.edn> --check`. Agents should treat those as graph-basis
 problems before concluding that code evidence does not exist.
+Machine consumers should prefer `nextActions` over parsing `next`; `next` stays
+as a compact human-readable command list.
 
 Agents should treat `answerability` as a confidence boundary. Local queue
 activity and validation-shaped queue results are supported after
