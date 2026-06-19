@@ -114,6 +114,58 @@ function DetailRows({ row }: { row: AGraphNode | AGraphEdge | null }) {
   );
 }
 
+function GraphRowsPreview({ graph }: { graph: AGraphGraph }) {
+  const nodeRows = graph.nodes.slice(0, 5);
+  const edgeRows = graph.edges.slice(0, 5);
+  if (nodeRows.length === 0 && edgeRows.length === 0) return null;
+
+  return (
+    <div className="detail-sections graph-row-preview">
+      <div className="detail-section">
+        <h4>Graph Rows</h4>
+        {nodeRows.length > 0 ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Node</th>
+                <th>Kind</th>
+              </tr>
+            </thead>
+            <tbody>
+              {nodeRows.map((node) => (
+                <tr key={node.id}>
+                  <td>{displayValue(node.label || node.id)}</td>
+                  <td>{displayValue(node.kind)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+        {edgeRows.length > 0 ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Relation</th>
+                <th>Source</th>
+                <th>Target</th>
+              </tr>
+            </thead>
+            <tbody>
+              {edgeRows.map((edge) => (
+                <tr key={edgeKey(edge)}>
+                  <td>{displayValue(edge.relation)}</td>
+                  <td>{displayValue(edge.source)}</td>
+                  <td>{displayValue(edge.target)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function externalApiCount(graph: AGraphGraph): number {
   return graph.nodes.filter((node) => node.kind === "external-api").length;
 }
@@ -286,6 +338,7 @@ export function GraphPanel({ graph }: { graph: AGraphGraph }) {
           <aside className="graph-inspector">
             <h3>{selection ? (selection.type === "node" ? "Node" : "Edge") : "Selection"}</h3>
             <DetailRows row={row} />
+            <GraphRowsPreview graph={filtered.graph} />
           </aside>
         </div>
       )}

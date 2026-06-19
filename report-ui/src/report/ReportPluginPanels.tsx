@@ -217,6 +217,7 @@ function actionEvidenceRows(row: Record<string, unknown>): Array<Record<string, 
 
 function InlineActionList({ value, actions, panel }: { value: unknown; actions?: PluginPanelActions; panel: ReportPluginPanel }) {
   const rows = actionRowsFrom(value);
+  const pluginId = panelPluginId(panel);
   if (rows.length === 0) return <p className="muted">No actions.</p>;
 
   return (
@@ -229,7 +230,7 @@ function InlineActionList({ value, actions, panel }: { value: unknown; actions?:
         const command = displayValue(row.command);
         const tab = displayValue(row.tab || row.targetTab || row.target_tab);
         const graphSliceId = displayValue(row.graphSliceId || row.graph_slice_id);
-        const source = displayValue(row.source) || `${panelPluginId(panel)}.${panel.id}`;
+        const source = displayValue(row.source) || (pluginId === coreReportPluginId ? "" : `${pluginId}.${panel.id}`);
         const evidenceRows = actionEvidenceRows(row);
         const question = displayValue(row.question) || `What should I do for ${label}?`;
         return (

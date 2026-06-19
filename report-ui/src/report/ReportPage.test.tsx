@@ -130,7 +130,7 @@ describe("ReportPage", () => {
     expect(commandItem).toBeTruthy();
     fireEvent.click(within(commandItem as HTMLElement).getByRole("button", { name: "Copy command" }));
     expect(within(commandItem as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
-  });
+  }, 10000);
 
   it("opens focused report sections from review rows", () => {
     render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);

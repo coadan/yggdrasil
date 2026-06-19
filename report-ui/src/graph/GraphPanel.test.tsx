@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGraph, externalApiHeavyGraph, fixtureGraph, packageFocusedDepsGraph } from "../fixtures/sampleData";
@@ -17,6 +17,10 @@ describe("GraphPanel", () => {
 
     expect(screen.getByText("Fixture Graph")).toBeInTheDocument();
     expect(screen.getByText("3 of 3 nodes, 2 of 2 edges")).toBeInTheDocument();
+    const graphRows = screen.getByText("Graph Rows").closest(".graph-row-preview");
+    expect(graphRows).toBeTruthy();
+    expect(within(graphRows as HTMLElement).getByText("app.core")).toBeInTheDocument();
+    expect(within(graphRows as HTMLElement).getByText("imports")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Kind"), { target: { value: "package" } });
 

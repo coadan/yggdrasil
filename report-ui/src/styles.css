@@ -241,9 +241,15 @@ h3 {
   border: 1px solid #e2e8f0;
   border-radius: 4px;
   color: #64748b;
+  display: inline-flex;
   font-size: 11px;
   line-height: 1.2;
+  max-width: 220px;
+  min-height: 16px;
+  overflow: hidden;
   padding: 2px 5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .action-row-buttons {
@@ -429,13 +435,21 @@ h3 {
 }
 
 .review-row-meta span {
+  align-items: center;
   background: #f1f5f9;
   border-radius: 999px;
   color: #475569;
+  display: inline-flex;
   font-size: 11px;
   font-weight: 700;
+  line-height: 1.1;
+  max-width: 220px;
+  min-height: 18px;
+  overflow: hidden;
   padding: 4px 7px;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .plugin-panel {
@@ -736,6 +750,17 @@ td.numeric-cell {
 .detail-list dd {
   color: #0f172a;
   margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.graph-row-preview table {
+  margin-top: 8px;
+}
+
+.graph-row-preview th,
+.graph-row-preview td {
+  font-size: 11px;
+  max-width: 140px;
   overflow-wrap: anywhere;
 }
 
