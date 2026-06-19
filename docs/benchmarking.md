@@ -357,6 +357,8 @@ files remain traceable even when snippets are trimmed from the context packet.
 Scoring warns when an agent result has the wrong schema, case id, or
 case fingerprint; use `--max-warning-runs 0` when stale or misrouted artifacts
 must fail the benchmark run.
+It also warns when ranked file or symbol rows contain non-positive ranks or
+confidence values outside the `0..1` range.
 
 ## Fair Inputs
 

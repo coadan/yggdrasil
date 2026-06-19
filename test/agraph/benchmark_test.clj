@@ -2551,6 +2551,46 @@
             "agent result referenced files missing from the base checkout"]
            (get-in scored [:agent :warnings])))))
 
+(deftest score-agent-result-warns-on-invalid-rankable-values
+  (let [root (temp-dir "agraph-bench-agent-score-values")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :caseId "case-1"
+                      :caseFingerprint "sha256:test-case"
+                      :agentId "codex"
+                      :mode "agraph"
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank "later"
+                                        :confidence 1.2
+                                        :reason "bad rank and confidence"
+                                        :evidence ["manual"]}]
+                      :suspectedSymbols [{:name "broken"
+                                          :path "src/app.clj"
+                                          :kind "function"
+                                          :rank 0
+                                          :confidence "sure"
+                                          :reason "bad rank and confidence"
+                                          :evidence ["manual"]}]
+                      :commands []
+                      :warnings []
+                      :summary "Found the changed file."}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (= ["agent result suspectedFiles row 1 path src/app.clj rank must be a positive integer"
+            "agent result suspectedFiles row 1 path src/app.clj confidence must be between 0 and 1"
+            "agent result suspectedSymbols row 1 path src/app.clj rank must be a positive integer"
+            "agent result suspectedSymbols row 1 path src/app.clj confidence must be between 0 and 1"]
+           (get-in scored [:agent :warnings])))))
+
 (deftest score-agent-result-warns-on-mismatched-agent-identity
   (let [root (temp-dir "agraph-bench-agent-score-identity")
         _ (spit-file! root "src/app.clj" "(ns app)\n")

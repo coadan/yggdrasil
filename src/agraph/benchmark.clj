@@ -3173,6 +3173,36 @@
        (when-let [path (and (map? item) (not-empty (str (:path item))))]
          (str " path " path))))
 
+(defn- row-rank-warning
+  [field idx item]
+  (when (and (contains? item :rank)
+             (not (pos? (long (or (parse-long-safe (:rank item)) 0)))))
+    (str "agent result "
+         (name field)
+         " "
+         (row-label idx item)
+         " rank must be a positive integer")))
+
+(defn- row-confidence-warning
+  [field idx item]
+  (when (and (contains? item :confidence)
+             (let [value (parse-double-safe (:confidence item))]
+               (not (and (some? value)
+                         (<= 0.0 value)
+                         (<= value 1.0)))))
+    (str "agent result "
+         (name field)
+         " "
+         (row-label idx item)
+         " confidence must be between 0 and 1")))
+
+(defn- rankable-row-value-warnings
+  [field idx item]
+  (vec
+   (keep identity
+         [(row-rank-warning field idx item)
+          (row-confidence-warning field idx item)])))
+
 (defn- rankable-row-shape-warnings
   [field rows required-fields]
   (->> rows
@@ -3180,14 +3210,17 @@
         (fn [idx item]
           (if-not (map? item)
             [(str "agent result " (name field) " " (row-label idx item) " is not an object")]
-            (->> required-fields
-                 (filter #(required-field-missing? item %))
-                 (mapv #(str "agent result "
-                             (name field)
-                             " "
-                             (row-label idx item)
-                             " missing "
-                             (name %)))))))
+            (vec
+             (concat
+              (->> required-fields
+                   (filter #(required-field-missing? item %))
+                   (mapv #(str "agent result "
+                               (name field)
+                               " "
+                               (row-label idx item)
+                               " missing "
+                               (name %))))
+              (rankable-row-value-warnings field idx item))))))
        (mapcat identity)
        vec))
 
