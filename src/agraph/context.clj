@@ -2116,7 +2116,8 @@
                                             :activity activity
                                             :answerability answerability})
         audit-scopes (audit-scope/selected-summaries
-                      {:runtime-evidence (:runtimeEvidence architecture)
+                      {:boundary-evidence (:boundaryEvidence architecture)
+                       :runtime-evidence (:runtimeEvidence architecture)
                        :dependency-evidence (:dependencyEvidence architecture)
                        :docs (:docs architecture)})]
     (fit-budget (base-packet query-text

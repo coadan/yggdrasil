@@ -1362,7 +1362,12 @@
                :confidence 1.0
                :fileKind "clojure"}]
              (mapv #(dissoc % :score) (:runtimeEvidence architecture))))
-      (is (= [{:kind "runtime-config"
+      (is (= [{:kind "source-structure"
+               :basis "selected-architecture-evidence"
+               :facts 1
+               :topEvidenceTypes [{:kind "shares-config"
+                                   :count 1}]}
+              {:kind "runtime-config"
                :basis "selected-architecture-evidence"
                :facts 1
                :files 1
@@ -1370,6 +1375,14 @@
                                    :count 1}]}]
              (mapv #(dissoc % :samples)
                    (:auditScopes packet))))
+      (is (= [{:id "edge:billing-worker"
+               :kind "graph-edge"
+               :relation "shares-config"
+               :target "system:worker"
+               :source "system:billing"
+               :section "boundaryEvidence"}]
+             (mapv #(dissoc % :score)
+                   (get-in packet [:auditScopes 0 :samples]))))
       (is (= [{:id "evidence:billing-env"
                :kind "env-var"
                :path "src/billing/api.clj"
@@ -1377,7 +1390,7 @@
                :fileKind "clojure"
                :section "runtimeEvidence"}]
              (mapv #(dissoc % :score)
-                   (get-in packet [:auditScopes 0 :samples]))))
+                   (get-in packet [:auditScopes 1 :samples]))))
       (is (< 1.0 (get-in architecture [:runtimeEvidence 0 :score]) 2.0))
       (is (= [{:plane "dependencies"
                :status "missing"}
