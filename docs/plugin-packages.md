@@ -76,6 +76,16 @@ bb plugin registry validate .dev/agraph/plugins/registry.edn
 package README. By default it creates both extractor and report examples; use
 `--extractor` or `--report` to scaffold only one lane.
 
+For unsupported file families, keep the package external and edit the scaffold
+instead of adding project-specific rules to core:
+
+- set the extractor plugin `:applies-to :file-kinds` to the file kind the
+  package handles;
+- set `:scan` when the package should discover files core does not index yet;
+- replace `fixtures/sample.clj` with representative project-agnostic fixtures;
+- keep emitted facts concrete and auditable with source paths, source lines, and
+  diagnostics where possible.
+
 The benchmark README is a placeholder for package-local benchmark artifacts.
 Keep the manifest at `:benchmark {:status :unbenchmarked}` until those artifacts
 exist and can back public claims.

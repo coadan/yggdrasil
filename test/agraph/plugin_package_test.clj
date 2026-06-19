@@ -221,6 +221,8 @@
       (is (some #(str/ends-with? % "benchmarks/README.md") (:files created)))
       (is (str/includes? (slurp (io/file package-dir "README.md"))
                          "`registry.example.edn` is a sharing template"))
+      (is (str/includes? (slurp (io/file package-dir "README.md"))
+                         "Unsupported file families"))
       (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
                          ":benchmark"))
       (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
