@@ -566,7 +566,9 @@ given.
   command counts, not provider-side tool logs. `agent-compare` treats increases
   in search, file-read, and generic shell command counts as lower-is-better
   regressions when reports are comparable; AGraph command counts are reported
-  for interpretation but are not a regression gate.
+  for interpretation but are not a regression gate. If AGraph command counts
+  are the only available shared metric, the comparison status is
+  `observed-only`, not an improvement or regression claim.
 - `agentDiagnostics.missingPredictedFileRuns`: scored agent artifacts whose
   ranked result included repo-relative paths that do not exist in the base
   checkout. Gate this with `--max-missing-predicted-file-runs` to catch
