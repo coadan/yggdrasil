@@ -841,6 +841,12 @@
                  "benchmarks/report.json"
                  "{\"schema\":\"agraph.benchmark.agent-report/v1\",\"suite-id\":\"plugin\"}\n")
     (write-file! (.getPath package-dir)
+                 "fixtures/sample.clj"
+                 "(ns sample)\n")
+    (write-file! (.getPath package-dir)
+                 "test/sample_test.clj"
+                 "(ns sample-test)\n")
+    (write-file! (.getPath package-dir)
                  plugin-package/manifest-filename
                  (pr-str
                   {:schema plugin-package/manifest-schema
@@ -853,7 +859,9 @@
                            :reason "Policy test fixture."}
                    :benchmark {:status :benchmarked
                                :artifacts [{:path "benchmarks/report.json"
-                                            :kind :agent-report}]}
+                                            :kind :agent-report
+                                            :case-id "paid-plugin-case"
+                                            :problem-class :architecture-understanding}]}
                    :extractor-plugins
                    [{:id "paid-extractor"
                      :command ["python3" "extract.py"]
@@ -946,6 +954,12 @@
                  "benchmarks/report.json"
                  "{\"schema\":\"agraph.benchmark.agent-report/v1\",\"suite-id\":\"plugin\"}\n")
     (write-file! (.getPath package-dir)
+                 "fixtures/sample.clj"
+                 "(ns sample)\n")
+    (write-file! (.getPath package-dir)
+                 "test/sample_test.clj"
+                 "(ns sample-test)\n")
+    (write-file! (.getPath package-dir)
                  plugin-package/manifest-filename
                  (pr-str
                   {:schema plugin-package/manifest-schema
@@ -959,7 +973,8 @@
                    :benchmark {:status :benchmarked
                                :artifacts [{:path "benchmarks/report.json"
                                             :kind :agent-report
-                                            :case-id "plugin-case"}]}
+                                            :case-id "plugin-case"
+                                            :problem-class :architecture-understanding}]}
                    :extractor-plugins
                    [{:id "benchmarked-extractor"
                      :command ["python3" "extract.py"]
@@ -975,6 +990,58 @@
              (set (map :code (:diagnostics diagnosis)))))
       (is (= ["benchmarks/report.json"]
              (mapv :path (get-in diagnosis [:package :benchmark-artifacts])))))))
+
+(deftest diagnose-requires-benchmark-artifact-metadata-for-claims
+  (let [workspace (temp-dir "agraph-plugin-benchmark-metadata")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 "benchmarks/report.json"
+                 "{\"schema\":\"agraph.benchmark.agent-report/v1\",\"suite-id\":\"plugin\"}\n")
+    (write-file! (.getPath package-dir)
+                 "fixtures/sample.clj"
+                 "(ns sample)\n")
+    (write-file! (.getPath package-dir)
+                 "test/sample_test.clj"
+                 "(ns sample-test)\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "metadata-missing-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Benchmark metadata test fixture."}
+                   :benchmark {:status :benchmarked
+                               :artifacts [{:path "benchmarks/report.json"}]}
+                   :core-promotion {:fixtures [{:path "fixtures/sample.clj"
+                                                :kind :fixture}]
+                                    :tests [{:path "test/sample_test.clj"
+                                             :kind :test}]}
+                   :extractor-plugins
+                   [{:id "metadata-missing-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+      (is (= :failed (:status diagnosis)))
+      (is (= :blocked (get-in diagnosis [:readiness :claims :status])))
+      (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= #{:benchmark-artifact-kind-missing
+               :benchmark-artifact-case-id-missing
+               :benchmark-artifact-problem-class-missing}
+             (set (map :code (:diagnostics diagnosis)))))
+      (is (= #{:benchmark-artifact-kind-missing
+               :benchmark-artifact-case-id-missing
+               :benchmark-artifact-problem-class-missing}
+             (set (map :code
+                       (get-in diagnosis
+                               [:package :claim-authority :blockers]))))))))
 
 (deftest diagnose-requires-core-promotion-fixtures-and-tests
   (let [workspace (temp-dir "agraph-plugin-core-ready")
@@ -1003,7 +1070,8 @@
                    :benchmark {:status :benchmarked
                                :artifacts [{:path "benchmarks/report.json"
                                             :kind :agent-report
-                                            :case-id "plugin-case"}]}
+                                            :case-id "plugin-case"
+                                            :problem-class :architecture-understanding}]}
                    :core-promotion {:fixtures [{:path "fixtures/sample.clj"
                                                 :kind :fixture}]
                                     :tests [{:path "test/sample_test.clj"
@@ -1055,7 +1123,8 @@
                    :benchmark {:status :benchmarked
                                :artifacts [{:path "benchmarks/report.json"
                                             :kind :agent-report
-                                            :case-id "plugin-case"}]}
+                                            :case-id "plugin-case"
+                                            :problem-class :architecture-understanding}]}
                    :core-promotion {:fixtures [{:path "fixtures/sample.clj"
                                                 :kind :fixture}]
                                     :tests [{:path "test/sample_test.clj"
@@ -1101,7 +1170,9 @@
                            :reason "Depends on one repository's conventions."}
                    :benchmark {:status :benchmarked
                                :artifacts [{:path "benchmarks/report.json"
-                                            :kind :agent-report}]}
+                                            :kind :agent-report
+                                            :case-id "local-plugin-case"
+                                            :problem-class :architecture-understanding}]}
                    :extractor-plugins
                    [{:id "local-extractor"
                      :command ["python3" "extract.py"]

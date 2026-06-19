@@ -310,8 +310,40 @@
   [package artifact]
   (let [path (artifact-path artifact)]
     (cond-> {:path path}
-      (map? artifact) (merge (select-keys artifact [:kind :case-id :report-id :description]))
+      (map? artifact) (merge (select-keys artifact
+                                          [:kind
+                                           :case-id
+                                           :problem-class
+                                           :report-id
+                                           :description]))
       (present? path) (assoc :resolved-path (resolve-path (:path package) path)))))
+
+(def ^:private benchmark-artifact-required-fields
+  {:kind {:code :benchmark-artifact-kind-missing
+          :label ":kind"}
+   :case-id {:code :benchmark-artifact-case-id-missing
+             :label ":case-id"}
+   :problem-class {:code :benchmark-artifact-problem-class-missing
+                   :label ":problem-class"}})
+
+(defn- missing-benchmark-artifact-metadata
+  [id artifact summary]
+  (when (= :benchmarked (:benchmark-status summary))
+    (if-not (map? artifact)
+      [{:code :benchmark-artifact-metadata-missing
+        :severity :error
+        :applies-to [:claims :core-promotion]
+        :message (str id " benchmark artifacts must be maps with :path, :kind, :case-id, and :problem-class.")
+        :evidence summary}]
+      (keep (fn [[field {:keys [code label]}]]
+              (when-not (present? (get artifact field))
+                {:code code
+                 :severity :error
+                 :applies-to [:claims :core-promotion]
+                 :message (str id " benchmark artifact " (:path summary)
+                               " is missing " label ".")
+                 :evidence summary}))
+            benchmark-artifact-required-fields))))
 
 (defn- benchmark-artifact-diagnostics
   [{:keys [id benchmark-status] :as package}]
@@ -328,23 +360,28 @@
       (mapcat
        (fn [artifact]
          (let [{:keys [path resolved-path] :as summary} (artifact-summary package artifact)]
-           (cond
-             (not (present? path))
-             [{:code :benchmark-artifact-path-missing
-               :severity :error
-               :applies-to [:claims :core-promotion]
-               :message (str id " declares a benchmark artifact without :path.")
-               :evidence {:artifact artifact}}]
+           (concat
+            (cond
+              (not (present? path))
+              [{:code :benchmark-artifact-path-missing
+                :severity :error
+                :applies-to [:claims :core-promotion]
+                :message (str id " declares a benchmark artifact without :path.")
+                :evidence {:artifact artifact}}]
 
-             (not (.isFile (io/file resolved-path)))
-             [{:code :benchmark-artifact-not-found
-               :severity :error
-               :applies-to [:claims :core-promotion]
-               :message (str id " benchmark artifact does not exist: " path)
-               :evidence summary}]
+              (not (.isFile (io/file resolved-path)))
+              [{:code :benchmark-artifact-not-found
+                :severity :error
+                :applies-to [:claims :core-promotion]
+                :message (str id " benchmark artifact does not exist: " path)
+                :evidence summary}]
 
-             :else
-             [])))
+              :else
+              [])
+            (missing-benchmark-artifact-metadata id
+                                                 artifact
+                                                 (assoc summary
+                                                        :benchmark-status benchmark-status)))))
        artifacts)))))
 
 (def ^:private core-promotion-evidence-kinds

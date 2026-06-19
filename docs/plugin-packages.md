@@ -412,13 +412,16 @@ package-local benchmark artifacts:
 {:status :benchmarked
  :artifacts [{:path "benchmarks/datastar-hiccup-report.json"
               :kind :agent-report
-              :case-id "datastar-hiccup-architecture"}]}
+              :case-id "datastar-hiccup-architecture"
+              :problem-class :architecture-understanding}]}
 ```
 
-`bb plugin diagnose <dir>` checks that every declared artifact path exists. A
-package marked `:benchmarked` without artifacts is blocked for public claims and
-core promotion. Diagnosis does not decide whether the benchmark proves enough
-material improvement; it only verifies that reviewable evidence exists.
+`bb plugin diagnose <dir>` checks that every declared artifact path exists and
+that benchmarked packages identify each artifact with `:kind`, `:case-id`, and
+`:problem-class`. A package marked `:benchmarked` without artifacts is blocked
+for public claims and core promotion. Diagnosis does not decide whether the
+benchmark proves enough material improvement; it verifies that reviewable,
+replayable evidence exists.
 
 ## Core-Promotion Evidence
 
