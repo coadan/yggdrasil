@@ -211,7 +211,11 @@ include bounded persisted extractor fingerprint groups under
 the indexed basis and jump to concrete files before opening the full coverage
 report. Full coverage reports include the same connectivity signal plus
 `nextActions` rows when skipped files, extractor diagnostics, or isolated
-indexed files need a follow-up coverage inspection.
+indexed files need a follow-up coverage inspection. When skipped files are
+present, the skipped-source action also includes `pluginGapCommand`:
+`bb plugin gap extractor <package-dir> <repo-root> <file> --json`. Use coverage
+samples to choose the concrete file; the command itself stays placeholder-based
+so core does not infer file-family semantics from extensions or paths.
 
 ## Audit Scopes
 
