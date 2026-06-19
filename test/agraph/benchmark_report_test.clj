@@ -1,5 +1,6 @@
 (ns agraph.benchmark-report-test
   (:require [agraph.benchmark :as benchmark]
+            [agraph.benchmark-report :as benchmark-report]
             [agraph.benchmark-test-support :refer [spit-json! temp-dir]]
             [clojure.test :refer [deftest is]]))
 
@@ -279,6 +280,8 @@
               :allScoreableFoundCaseIds []
               :missedRuns 2
               :missedCaseIds ["case-1"]
+              :contextRankMissingRuns 0
+              :contextRankMissingCaseIds []
               :missedButPresentInContextRuns 1
               :missedButPresentInContextCaseIds ["case-1"]
               :missedAndAbsentFromContextRuns 0
@@ -590,6 +593,37 @@
                :message "No current agent score artifacts matched the selected suite, case, and mode. Matching artifacts were excluded because their score schema, agent result schema, or case fingerprint is stale; regenerate the benchmark scores or pass --allow-unverified-scores for exploratory reporting."}]
              (:failures
               (benchmark/check-agent-report report {:allow-missing? true})))))))
+
+(deftest improvement-summary-flags-missing-agraph-context-ranks
+  (let [results [{:case-id "case-1"
+                  :agent {:mode "agraph"
+                          :topFiles []}
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}
+                  :groundTruthRanks {:files [{:path "src/app.clj"
+                                              :found? false}]}}
+                 {:case-id "case-2"
+                  :agent {:mode "shell-only"
+                          :topFiles []}
+                  :groundTruth {:changedFiles ["src/other.clj"]
+                                :unsupportedGroundTruthFiles []}
+                  :groundTruthRanks {:files [{:path "src/other.clj"
+                                              :found? false}]}}]
+        diagnostics (#'benchmark-report/aggregate-localization-diagnostics
+                     results)
+        summary (#'benchmark-report/report-improvement-summary
+                 {:localizationDiagnostics diagnostics})]
+    (is (= 1 (:contextRankMissingRuns diagnostics)))
+    (is (= ["case-1"] (:contextRankMissingCaseIds diagnostics)))
+    (is (= {:kind "missing-context-ranks"
+            :area "benchmark-hygiene"
+            :runs 1
+            :caseIds ["case-1"]
+            :message "AGraph-mode score artifacts did not include context ground-truth ranks, so benchmark attribution is weaker."}
+           (->> summary
+                (filter #(= "missing-context-ranks" (:kind %)))
+                first)))))
+
 (deftest agent-output-diagnostic-normalizes-command-telemetry
   (let [diagnostic (#'benchmark/agent-output-diagnostic
                     {:agent {:commands ["rg broken src"
@@ -944,6 +978,21 @@
              (get-in report [:results 0 :artifact :scoreSchema])))
       (is (= benchmark/agent-score-schema
              (get-in report [:results 0 :artifact :expectedScoreSchema]))))))
+
+(deftest improvement-summary-flags-missing-context-ranks
+  (let [report {:localizationDiagnostics {:contextRankMissingRuns 2
+                                          :contextRankMissingCaseIds ["case-a"
+                                                                      "case-b"]}}
+        row (->> (#'benchmark-report/report-improvement-summary report)
+                 (filter #(= "missing-context-ranks" (:kind %)))
+                 first)]
+    (is (= {:kind "missing-context-ranks"
+            :area "benchmark-hygiene"
+            :runs 2
+            :caseIds ["case-a" "case-b"]
+            :message "AGraph-mode score artifacts did not include context ground-truth ranks, so benchmark attribution is weaker."}
+           row))))
+
 (deftest checks-agent-report-thresholds
   (let [report {:schema benchmark/agent-report-schema
                 :suite-id "suite"

@@ -683,6 +683,12 @@
               :case-ids (:missedButPresentInContextCaseIds localization)
               :message "Scoreable files were available in context but not selected by the agent result."})
             (improvement-row
+             {:kind "missing-context-ranks"
+              :area "benchmark-hygiene"
+              :runs (:contextRankMissingRuns localization)
+              :case-ids (:contextRankMissingCaseIds localization)
+              :message "AGraph-mode score artifacts did not include context ground-truth ranks, so benchmark attribution is weaker."})
+            (improvement-row
              {:kind "ranked-outside-top5"
               :area "ranking-or-context-budget"
               :runs (:rankedOutsideTop5Runs localization)
@@ -1058,6 +1064,11 @@
         path-uncited (filter (fn [[_ diagnostic]]
                                (seq (:pathUncitedRankedFiles diagnostic)))
                              result-pairs)
+        missing-context-ranks (filter (fn [[result diagnostic]]
+                                        (and (= "agraph" (str (get-in result
+                                                                      [:agent :mode])))
+                                             (not (seq (:contextRanks diagnostic)))))
+                                      result-pairs)
         missed-present-in-context (filter (fn [[_ diagnostic]]
                                             (seq (:missedFilesPresentInContext diagnostic)))
                                           result-pairs)
@@ -1069,6 +1080,8 @@
      :allScoreableFoundCaseIds (case-ids all-found)
      :missedRuns (count missed)
      :missedCaseIds (case-ids missed)
+     :contextRankMissingRuns (count missing-context-ranks)
+     :contextRankMissingCaseIds (case-ids missing-context-ranks)
      :missedButPresentInContextRuns (count missed-present-in-context)
      :missedButPresentInContextCaseIds (case-ids missed-present-in-context)
      :missedAndAbsentFromContextRuns (count missed-absent-from-context)
