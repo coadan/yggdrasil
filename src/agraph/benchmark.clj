@@ -4620,6 +4620,67 @@
                                results
                                architecture-class-tag?))})
 
+(defn- measured-class-tags
+  [problem-classes class-key]
+  (->> (get problem-classes class-key)
+       (filter #(= "measured" (:claimStatus %)))
+       (keep #(some-> (:key %) str))
+       sort
+       vec))
+
+(defn- report-claim-readiness
+  [report]
+  (let [problem-classes (:problemClasses report)
+        measured-problem-tags (measured-class-tags problem-classes :classes)
+        measured-architecture-tags (measured-class-tags problem-classes
+                                                        :architectureClasses)
+        completed? (and (pos? (long (:cases report)))
+                        (= (long (:cases report))
+                           (long (:completed report))))
+        has-runs? (pos? (long (:runs report)))
+        evidence-metrics? (and has-runs?
+                               (number? (get-in report
+                                                [:scores
+                                                 :evidenceCitationRate]))
+                               (number? (get-in report
+                                                [:scores
+                                                 :pathEvidenceCitationRate])))
+        command-telemetry? (and has-runs?
+                                (map? (get-in report
+                                              [:agentDiagnostics
+                                               :commandTelemetry])))
+        requirements {:completedCases completed?
+                      :hasRuns has-runs?
+                      :measuredProblemClasses (boolean (seq measured-problem-tags))
+                      :measuredArchitectureClasses (boolean
+                                                    (seq measured-architecture-tags))
+                      :evidenceCitationMetrics evidence-metrics?
+                      :commandTelemetry command-telemetry?}
+        supported? (every? true? (vals requirements))]
+    {:status (if supported? "supported" "not-supported")
+     :broadArchitectureClaimSupported supported?
+     :measuredProblemClassTags measured-problem-tags
+     :measuredArchitectureClassTags measured-architecture-tags
+     :requirements requirements
+     :warnings (cond-> []
+                 (not completed?)
+                 (conj "Not all selected cases completed; do not use this report for broad benchmark claims.")
+
+                 (not has-runs?)
+                 (conj "No agent score runs are included in this report.")
+
+                 (empty? measured-problem-tags)
+                 (conj "No measured problem-class groups; include enough cases per class before claiming representative gains.")
+
+                 (empty? measured-architecture-tags)
+                 (conj "No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent.")
+
+                 (not evidence-metrics?)
+                 (conj "Evidence citation metrics are unavailable; citation quality is unproven.")
+
+                 (not command-telemetry?)
+                 (conj "Command telemetry is unavailable; shell/search/read-loop costs are unproven."))}))
+
 (defn- group-agent-scores-by-parser-worker
   [expected-fingerprints results]
   (->> results
@@ -4988,65 +5049,68 @@
         missing (->> cases
                      (remove #(contains? completed-cases (:id %)))
                      (mapv :id))
-        report {:schema agent-report-schema
-                :suite-id (:id suite)
-                :cases (count cases)
-                :completed (count completed-cases)
-                :runs (count results)
-                :missing missing
-                :scores (aggregate-agent-scores results)
-                :parserWorkers (aggregate-parser-worker-profiles results)
-                :inputHints (input-hint-summary results)
-                :agentDiagnostics (aggregate-agent-diagnostics results)
-                :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics results)
-                :localizationDiagnostics (aggregate-localization-diagnostics results)
-                :coverageDiagnostics (aggregate-coverage-diagnostics results)
-                :artifactDiagnostics (aggregate-artifact-diagnostics
-                                      expected-fingerprints
-                                      raw-results)
-                :artifactPolicy (artifact-policy expected-fingerprints
-                                                 raw-results
+        report-base {:schema agent-report-schema
+                     :suite-id (:id suite)
+                     :cases (count cases)
+                     :completed (count completed-cases)
+                     :runs (count results)
+                     :missing missing
+                     :scores (aggregate-agent-scores results)
+                     :parserWorkers (aggregate-parser-worker-profiles results)
+                     :inputHints (input-hint-summary results)
+                     :agentDiagnostics (aggregate-agent-diagnostics results)
+                     :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
+                                                   results)
+                     :localizationDiagnostics (aggregate-localization-diagnostics results)
+                     :coverageDiagnostics (aggregate-coverage-diagnostics results)
+                     :artifactDiagnostics (aggregate-artifact-diagnostics
+                                           expected-fingerprints
+                                           raw-results)
+                     :artifactPolicy (artifact-policy expected-fingerprints
+                                                      raw-results
+                                                      results
+                                                      allow-unverified?)
+                     :coverage (aggregate-coverage results)
+                     :tags (aggregate-case-tags cases)
+                     :problemClasses (problem-class-summary expected-fingerprints
+                                                            results)
+                     :timings (aggregate-progress progress)
+                     :caseProgress progress
+                     :byMode (group-agent-scores expected-fingerprints
                                                  results
-                                                 allow-unverified?)
-                :coverage (aggregate-coverage results)
-                :tags (aggregate-case-tags cases)
-                :problemClasses (problem-class-summary expected-fingerprints
+                                                 [:agent :mode])
+                     :byAgent (group-agent-scores expected-fingerprints
+                                                  results
+                                                  [:agent :agentId])
+                     :byParserWorker (group-agent-scores-by-parser-worker
+                                      expected-fingerprints
+                                      results)
+                     :byTag (group-agent-scores-by-tag expected-fingerprints
                                                        results)
-                :timings (aggregate-progress progress)
-                :caseProgress progress
-                :byMode (group-agent-scores expected-fingerprints
-                                            results
-                                            [:agent :mode])
-                :byAgent (group-agent-scores expected-fingerprints
-                                             results
-                                             [:agent :agentId])
-                :byParserWorker (group-agent-scores-by-parser-worker
-                                 expected-fingerprints
-                                 results)
-                :byTag (group-agent-scores-by-tag expected-fingerprints
-                                                  results)
-                :results (mapv #(assoc (select-keys % [:case-id
-                                                       :repo-id
-                                                       :baseSha
-                                                       :fixSha
-                                                       :caseFingerprint
-                                                       :tags
-                                                       :expectations
-                                                       :graphExpectations
-                                                       :inputHints
-                                                       :coverage
-                                                       :agentResultPath
-                                                       :parserWorker
-                                                       :agent
-                                                       :progress
-                                                       :scores])
-                                       :localization
-                                       (localization-diagnostic %)
-                                       :agentOutput
-                                       (agent-output-diagnostic %)
-                                       :artifact
-                                       (artifact-diagnostic expected-fingerprints %))
-                               results)}]
+                     :results (mapv #(assoc (select-keys % [:case-id
+                                                            :repo-id
+                                                            :baseSha
+                                                            :fixSha
+                                                            :caseFingerprint
+                                                            :tags
+                                                            :expectations
+                                                            :graphExpectations
+                                                            :inputHints
+                                                            :coverage
+                                                            :agentResultPath
+                                                            :parserWorker
+                                                            :agent
+                                                            :progress
+                                                            :scores])
+                                            :localization
+                                            (localization-diagnostic %)
+                                            :agentOutput
+                                            (agent-output-diagnostic %)
+                                            :artifact
+                                            (artifact-diagnostic expected-fingerprints %))
+                                    results)}
+        report (assoc report-base
+                      :claimReadiness (report-claim-readiness report-base))]
     (write-json-file! (agent-report-path suite opts) report)
     report))
 

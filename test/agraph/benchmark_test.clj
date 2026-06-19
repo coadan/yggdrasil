@@ -910,7 +910,75 @@
                                     :runs
                                     :claimStatus
                                     :minimumCases])
-                   architecture-classes))))))
+                   architecture-classes)))
+      (is (= {:status "not-supported"
+              :broadArchitectureClaimSupported false
+              :measuredProblemClassTags ["problem-architecture"]
+              :measuredArchitectureClassTags []
+              :requirements {:completedCases true
+                             :hasRuns true
+                             :measuredProblemClasses true
+                             :measuredArchitectureClasses false
+                             :evidenceCitationMetrics true
+                             :commandTelemetry true}
+              :warnings ["No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent."]}
+             (:claimReadiness report))))))
+
+(deftest agent-report-claim-readiness-recognizes-measured-architecture-coverage
+  (let [out (temp-dir "agraph-agent-report-claim-readiness")
+        suite {:id "suite"
+               :cases [{:id "arch-deps-1"
+                        :tags [:problem-architecture
+                               :architecture-dependency-flow]}
+                       {:id "arch-deps-2"
+                        :tags [:problem-architecture
+                               :architecture-dependency-flow]}]}
+        write-score! (fn [case-id recall]
+                       (spit-json!
+                        out
+                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
+                        {:schema benchmark/agent-score-schema
+                         :suite-id "suite"
+                         :case-id case-id
+                         :repo-id "repo"
+                         :tags ["problem-architecture"
+                                "architecture-dependency-flow"]
+                         :agent {:agentId "codex"
+                                 :mode "agraph"
+                                 :topFiles [{:path (str case-id ".clj")
+                                             :rank 1
+                                             :evidence ["architecture-evidence"]}]
+                                 :commands ["bb ask architecture --project fixture"]}
+                         :groundTruth {:changedFiles [(str case-id ".clj")]
+                                       :scoreableFiles [(str case-id ".clj")]
+                                       :unsupportedGroundTruthFiles []}
+                         :groundTruthRanks {:files [{:path (str case-id ".clj")
+                                                     :rank 1
+                                                     :found? true}]}
+                         :scores {:fileRecallAt5 recall
+                                  :fileRecallAt10 recall
+                                  :fileRecallAt20 recall
+                                  :meanReciprocalRankFile recall
+                                  :noiseRatioAt20 (- 1.0 recall)
+                                  :evidenceCitationRate 1.0
+                                  :pathEvidenceCitationRate 1.0
+                                  :changedFiles 1
+                                  :scoreableChangedFiles 1
+                                  :unsupportedGroundTruthFiles 0}}))]
+    (write-score! "arch-deps-1" 1.0)
+    (write-score! "arch-deps-2" 0.75)
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= "supported" (get-in report [:claimReadiness :status])))
+      (is (= true
+             (get-in report
+                     [:claimReadiness :broadArchitectureClaimSupported])))
+      (is (= ["problem-architecture"]
+             (get-in report [:claimReadiness :measuredProblemClassTags])))
+      (is (= ["architecture-dependency-flow"]
+             (get-in report [:claimReadiness :measuredArchitectureClassTags])))
+      (is (= []
+             (get-in report [:claimReadiness :warnings]))))))
 
 (deftest reports-exclude-obsolete-agent-score-schema
   (let [out (temp-dir "agraph-agent-report-obsolete-score-schema")
