@@ -231,6 +231,18 @@
   [actions]
   (mapv :command actions))
 
+(def packet-freshness-action-kinds
+  #{:source-files :freshness :docs :coverage})
+
+(defn packet-freshness
+  "Return the bounded freshness value used by primary context packets."
+  [summary]
+  (let [actions (->> (:nextActions summary)
+                     (filter #(contains? packet-freshness-action-kinds (:kind %)))
+                     vec)]
+    (cond-> (:freshness summary)
+      (seq actions) (assoc :nextActions actions))))
+
 (def freshness-sample-limit
   8)
 

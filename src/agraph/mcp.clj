@@ -383,13 +383,13 @@
     (with-xtdb
       ctx
       (fn [xtdb]
-        (let [freshness (:freshness (evidence/summarize xtdb
-                                                        project
-                                                        {:map-overlay overlay
-                                                         :config-path (or config-path
-                                                                          (:path project))
-                                                         :map-path (or (:mapPath args)
-                                                                       (:map-path ctx))}))]
+        (let [evidence-summary (evidence/summarize xtdb
+                                                   project
+                                                   {:map-overlay overlay
+                                                    :config-path (or config-path
+                                                                     (:path project))
+                                                    :map-path (or (:mapPath args)
+                                                                  (:map-path ctx))})]
           (context/context-packet xtdb
                                   (require-string! args
                                                    :query
@@ -398,7 +398,8 @@
                                    :retriever (keyword (or (:retriever args) "lexical"))
                                    :map-overlay overlay
                                    :budget (or (:budget args) context/default-budget)
-                                   :freshness freshness}))))))
+                                   :freshness (evidence/packet-freshness
+                                               evidence-summary)}))))))
 
 (def node-inspect-schema
   "agraph.node.inspect/v1")

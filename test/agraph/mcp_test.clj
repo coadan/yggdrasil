@@ -177,12 +177,18 @@
                                       :xtdb xtdb
                                       :project-id (:id project)
                                       :map-path (:map-path opts)
-                                      :freshness {:status :current
+                                      :freshness {:status :stale
                                                   :counts {:indexed 2
                                                            :current 2
-                                                           :changed 0
+                                                           :changed 1
                                                            :missing 0
-                                                           :unindexed 0}}})]
+                                                           :unindexed 0}}
+                                      :nextActions [{:kind :freshness
+                                                     :label "Refresh indexed graph basis"
+                                                     :count 1
+                                                     :command "agraph sync project.edn --check --map agraph.map.json"}
+                                                    {:kind :ask
+                                                     :command "agraph ask \"where is this handled?\" --project fixture --json"}]})]
     (let [response (mcp/handle-message
                     (mcp/server-context ["--config" "project.edn"])
                     (tool-call 8
@@ -197,12 +203,16 @@
                :path "src/app.clj"}]
              (:candidateFiles packet)))
       (is (= {:status :usable} (:answerability packet)))
-      (is (= {:status :current
+      (is (= {:status :stale
               :counts {:indexed 2
                        :current 2
-                       :changed 0
+                       :changed 1
                        :missing 0
-                       :unindexed 0}}
+                       :unindexed 0}
+              :nextActions [{:kind :freshness
+                             :label "Refresh indexed graph basis"
+                             :count 1
+                             :command "agraph sync project.edn --check --map agraph.map.json"}]}
              (:freshness packet)))
       (is (= ["agraph query \"where auth\" --project fixture"]
              (:drilldowns packet))))))

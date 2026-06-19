@@ -8,6 +8,29 @@
             [agraph.xtdb :as store]
             [clojure.test :refer [deftest is]]))
 
+(deftest packet-freshness-keeps-basis-repair-actions
+  (is (= {:status :stale
+          :counts {:changed 1}
+          :nextActions [{:kind :freshness
+                         :command "agraph sync project.edn --check"}
+                        {:kind :docs
+                         :command "agraph sync project.edn --query-index"}
+                        {:kind :coverage
+                         :command "agraph sync coverage project.edn --json"}]}
+         (evidence/packet-freshness
+          {:freshness {:status :stale
+                       :counts {:changed 1}}
+           :nextActions [{:kind :freshness
+                          :command "agraph sync project.edn --check"}
+                         {:kind :docs
+                          :command "agraph sync project.edn --query-index"}
+                         {:kind :systems
+                          :command "agraph view systems --project fixture"}
+                         {:kind :coverage
+                          :command "agraph sync coverage project.edn --json"}
+                         {:kind :ask
+                          :command "agraph ask \"where is this handled?\" --project fixture --json"}]}))))
+
 (deftest summarize-exposes-dependency-evidence-plane
   (with-redefs [coverage/project-coverage (fn [& _]
                                             {:totals {:skipped 0}
