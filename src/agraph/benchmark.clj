@@ -1,6 +1,7 @@
 (ns agraph.benchmark
   "Issue replay benchmarks for AGraph retrieval quality."
-  (:require [agraph.context :as context]
+  (:require [agraph.benchmark-classes :as benchmark-classes]
+            [agraph.context :as context]
             [agraph.extract :as extract]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
@@ -4618,24 +4619,6 @@
                                       results
                                       (constantly true)))
 
-(defn- problem-class-tag?
-  [tag]
-  (str/starts-with? tag "problem-"))
-
-(def ^:private architecture-class-tags
-  #{"architecture-boundary"
-    "architecture-runtime-boundary"
-    "architecture-dependency-flow"
-    "architecture-data-ownership"
-    "architecture-cross-system-impact"
-    "audit-scope-runtime-config"
-    "audit-scope-containers"
-    "audit-scope-docs"})
-
-(defn- architecture-class-tag?
-  [tag]
-  (contains? architecture-class-tags tag))
-
 (defn- add-problem-class-claim-status
   [row]
   (assoc row
@@ -4650,12 +4633,12 @@
    :classes (mapv add-problem-class-claim-status
                   (group-agent-scores-by-filtered-tag expected-fingerprints
                                                       results
-                                                      problem-class-tag?))
+                                                      benchmark-classes/problem-class-tag?))
    :architectureClasses (mapv add-problem-class-claim-status
                               (group-agent-scores-by-filtered-tag
                                expected-fingerprints
                                results
-                               architecture-class-tag?))})
+                               benchmark-classes/architecture-class-tag?))})
 
 (defn- measured-class-tags
   [problem-classes class-key]

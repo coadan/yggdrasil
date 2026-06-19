@@ -1,6 +1,7 @@
 (ns agraph.agent-efficiency
   "Compare shell-only and AGraph-assisted agent benchmark reports."
-  (:require [charred.api :as json]
+  (:require [agraph.benchmark-classes :as benchmark-classes]
+            [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
@@ -157,24 +158,6 @@
        (map (comp name :category))
        distinct
        vec))
-
-(def ^:private architecture-class-tags
-  #{"architecture-boundary"
-    "architecture-runtime-boundary"
-    "architecture-dependency-flow"
-    "architecture-data-ownership"
-    "architecture-cross-system-impact"
-    "audit-scope-runtime-config"
-    "audit-scope-containers"
-    "audit-scope-docs"})
-
-(defn- problem-class-tag?
-  [tag]
-  (str/starts-with? tag "problem-"))
-
-(defn- architecture-class-tag?
-  [tag]
-  (contains? architecture-class-tags tag))
 
 (defn- read-json-file
   [path]
@@ -437,8 +420,9 @@
 (defn- problem-class-coverage
   [shell-report agraph-report by-tag]
   (let [shared-tags (get-in by-tag [:comparability :sharedTagKeys])
-        problem-tags (filterv problem-class-tag? shared-tags)
-        architecture-tags (filterv architecture-class-tag? shared-tags)
+        problem-tags (filterv benchmark-classes/problem-class-tag? shared-tags)
+        architecture-tags (filterv benchmark-classes/architecture-class-tag?
+                                   shared-tags)
         summary-available? (problem-class-summary-available? shell-report
                                                              agraph-report)
         shell-measured-problem-tags (measured-class-keys shell-report :classes)
@@ -513,10 +497,12 @@
         measured-architecture-tags (set (:sharedMeasuredArchitectureClassTags
                                          problem-coverage))
         problem-classes (->> groups
-                             (filter #(problem-class-tag? (:tag %)))
+                             (filter #(benchmark-classes/problem-class-tag?
+                                       (:tag %)))
                              (mapv #(class-signal-row measured-problem-tags %)))
         architecture-classes (->> groups
-                                  (filter #(architecture-class-tag? (:tag %)))
+                                  (filter #(benchmark-classes/architecture-class-tag?
+                                            (:tag %)))
                                   (mapv #(class-signal-row
                                           measured-architecture-tags
                                           %)))]
@@ -824,12 +810,12 @@
             (doseq [category categories]
               (println (category-line category))))
           (when-let [groups (seq (class-tag-groups comparison
-                                                   problem-class-tag?))]
+                                                   benchmark-classes/problem-class-tag?))]
             (println "Problem-class signals:")
             (doseq [group groups]
               (println (tag-group-line group))))
           (when-let [groups (seq (class-tag-groups comparison
-                                                   architecture-class-tag?))]
+                                                   benchmark-classes/architecture-class-tag?))]
             (println "Architecture-class signals:")
             (doseq [group groups]
               (println (tag-group-line group))))
