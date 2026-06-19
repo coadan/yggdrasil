@@ -1561,6 +1561,18 @@
                                                      :runs 2
                                                      :caseIds ["case-2"]}])
                         {})
+        shifted-source-target (benchmark/compare-agent-reports
+                               (assoc baseline
+                                      :improvementSummary [{:kind "coverage-filtered-candidates"
+                                                            :area "agent-context-quality"
+                                                            :runs 2
+                                                            :caseIds ["case-1"]}])
+                               (assoc baseline
+                                      :improvementSummary [{:kind "source-skipped-files"
+                                                            :area "source-coverage-quality"
+                                                            :runs 2
+                                                            :caseIds ["case-2"]}])
+                               {})
         different-parser-worker (benchmark/compare-agent-reports
                                  baseline
                                  (assoc candidate
@@ -1613,6 +1625,12 @@
     (is (= 0.0
            (:delta (first (filter #(= "improvementTargetRuns" (:metric %))
                                   (:aggregateDeltas shifted-target))))))
+    (is (= "failed" (:status shifted-source-target)))
+    (is (= #{"improvementTargetRuns.source-skipped-files"}
+           (set (map :metric (:regressions shifted-source-target)))))
+    (is (= 0.0
+           (:delta (first (filter #(= "improvementTargetRuns" (:metric %))
+                                  (:aggregateDeltas shifted-source-target))))))
     (is (= "passed" (:status different-parser-worker)))
     (is (false? (:aggregateComparable different-parser-worker)))
     (is (= ["parser-worker-profile-changed"]
