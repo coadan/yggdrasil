@@ -369,10 +369,15 @@
       (is (.exists (io/file package-dir plugin-package/manifest-filename)))
       (is (.exists (io/file package-dir "registry.example.edn")))
       (is (.exists (io/file package-dir "benchmarks" "README.md")))
+      (is (.exists (io/file package-dir "benchmarks" "suite.template.edn")))
+      (is (.exists (io/file package-dir "benchmarks" "agent-report.template.json")))
       (is (.exists (io/file package-dir "extract.py")))
       (is (.exists (io/file package-dir "report.py")))
       (is (some #(str/ends-with? % "registry.example.edn") (:files created)))
       (is (some #(str/ends-with? % "benchmarks/README.md") (:files created)))
+      (is (some #(str/ends-with? % "benchmarks/suite.template.edn") (:files created)))
+      (is (some #(str/ends-with? % "benchmarks/agent-report.template.json")
+                (:files created)))
       (is (str/includes? (slurp (io/file package-dir "README.md"))
                          "`registry.example.edn` is a sharing template"))
       (is (str/includes? (slurp (io/file package-dir "README.md"))
@@ -393,6 +398,39 @@
                          ":benchmark"))
       (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
                          "benchmarks/demo-plugin-agent-report.json"))
+      (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
+                         "Do not list it in `agraph.plugin.edn`"))
+      (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
+                         "bb bench agent-compare benchmarks/suite.edn"))
+      (is (= {:id "demo-plugin-plugin"
+              :project-id "demo-plugin-plugin"
+              :description "Project-agnostic benchmark starter for demo-plugin."
+              :repos [{:id "sample-repo"
+                       :root "../TODO/path/to/repo"
+                       :role :application}]
+              :cases [{:id "demo-plugin-architecture"
+                       :repo-id "sample-repo"
+                       :coverage {:source-kinds [:code]}
+                       :tags [:plugin
+                              :problem-architecture
+                              :architecture-understanding]
+                       :base-sha "TODO_BASE_SHA"
+                       :fix-sha "TODO_FIX_OR_BASE_SHA"
+                       :ground-truth {:localization-files ["fixtures/sample.clj"]}
+                       :expectations {:evidence [{:kind :plugin-observation
+                                                  :path "fixtures/sample.clj"
+                                                  :label "TODO expected plugin evidence"}]
+                                      :chunks [{:kind :plugin-summary
+                                                :path "fixtures/sample.clj"}]}
+                       :issue {:id "demo-plugin-architecture"
+                               :url "local:plugin-benchmark/TODO"
+                               :title "TODO architecture-understanding task title"
+                               :body "TODO ask the agent to identify architecture-relevant files without exposing ground truth."}}]}
+             (edn/read-string
+              (slurp (io/file package-dir "benchmarks" "suite.template.edn")))))
+      (is (str/includes?
+           (slurp (io/file package-dir "benchmarks" "agent-report.template.json"))
+           "Template only. Replace with real bb bench agent-report output"))
       (is (= {:schema plugin-package/registry-schema
               :id "local-plugin-registry"
               :packages [{:id "demo-plugin"

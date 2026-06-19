@@ -85,9 +85,9 @@ bb plugin registry install .dev/agraph/plugins/registry.edn project.edn datastar
 ```
 
 `plugin new` writes `agraph.plugin.edn`, Python extractor/report examples, a
-fixture file, `registry.example.edn`, `benchmarks/README.md`, and a package
-README. By default it creates both extractor and report examples; use
-`--extractor` or `--report` to scaffold only one lane.
+fixture file, `registry.example.edn`, benchmark starter templates under
+`benchmarks/`, and a package README. By default it creates both extractor and
+report examples; use `--extractor` or `--report` to scaffold only one lane.
 
 For unsupported file families, keep the package external and pass explicit
 scaffold options instead of adding project-specific rules to core:
@@ -114,6 +114,12 @@ After creation, review the generated manifest:
 The benchmark README is a placeholder for package-local benchmark artifacts.
 Keep the manifest at `:benchmark {:status :unbenchmarked}` until those artifacts
 exist and can back public claims.
+The scaffold also writes `benchmarks/suite.template.edn` and
+`benchmarks/agent-report.template.json`. Treat both as authoring templates, not
+evidence. Copy the suite template to `benchmarks/suite.edn`, replace the repo,
+commit, task, ground-truth, expectation, and source-kind fields with
+project-agnostic cases, run the benchmark lanes, and list only real
+`bb bench agent-report` output in the package manifest.
 
 `plugin validate` reads the package manifest and runs the same plugin config
 normalizers used by project loading. It reports package caveats such as

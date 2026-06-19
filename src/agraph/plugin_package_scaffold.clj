@@ -134,6 +134,8 @@
        "bb plugin dry-run extractor . /path/to/repo src/example.clj --json\n"
        "bb plugin dry-run report . --json\n"
        "bb plugin install /path/to/project.edn . --force\n"
+       "bb bench agent-baseline benchmarks/suite.template.edn --out .dev/agraph/plugin-bench/core\n"
+       "bb bench agent-report benchmarks/suite.template.edn --mode agraph --agent agraph-baseline-lexical --out .dev/agraph/plugin-bench/core\n"
        "bb plugin registry validate registry.example.edn --json\n"
        "bb plugin registry install registry.example.edn /path/to/project.edn "
        package-id
@@ -177,6 +179,24 @@
   (str "# Benchmarks for " package-id "\n\n"
        "Keep replayable benchmark artifacts here before making public claims or "
        "requesting core promotion.\n\n"
+       "Starter files:\n\n"
+       "- `suite.template.edn`: copy to `suite.edn`, then replace repo root, "
+       "base/fix SHAs, task text, ground truth, expected evidence, and source "
+       "kinds with project-agnostic cases that exercise the plugin.\n"
+       "- `agent-report.template.json`: shape reference only. Do not list it in "
+       "`agraph.plugin.edn`; replace it with real `bb bench agent-report` output.\n\n"
+       "Suggested local flow:\n\n"
+       "```sh\n"
+       "cp benchmarks/suite.template.edn benchmarks/suite.edn\n"
+       "bb bench agent-baseline benchmarks/suite.edn --out .dev/agraph/plugin-bench/core\n"
+       "bb bench agent-report benchmarks/suite.edn --mode agraph --agent agraph-baseline-lexical --out .dev/agraph/plugin-bench/core\n"
+       "bb plugin install /path/to/project.edn . --force\n"
+       "# Re-run the same benchmark lane against a project config that loads this package.\n"
+       "# Then compare core AGraph with plugin-enhanced AGraph:\n"
+       "bb bench agent-compare benchmarks/suite.edn \\\n"
+       "  --baseline-report .dev/agraph/plugin-bench/core/agent-report.json \\\n"
+       "  --candidate-report .dev/agraph/plugin-bench/plugin/agent-report.json\n"
+       "```\n\n"
        "Expected manifest shape:\n\n"
        "```clojure\n"
        ":benchmark\n"
@@ -193,6 +213,47 @@
        "Benchmark artifacts should show material improvement on project-agnostic "
        "cases and include architecture-understanding cases when that is the "
        "claimed benefit.\n"))
+
+(defn- benchmark-suite-template
+  [package-id file-kind fixture-path]
+  (str ";; Copy this file to benchmarks/suite.edn and replace all TODO values\n"
+       ";; before running benchmark commands.\n"
+       "{:id " (pr-str (str package-id "-plugin")) "\n"
+       " :project-id " (pr-str (str package-id "-plugin")) "\n"
+       " :description " (pr-str (str "Project-agnostic benchmark starter for " package-id ".")) "\n"
+       " :repos [{:id \"sample-repo\"\n"
+       "          :root \"../TODO/path/to/repo\"\n"
+       "          :role :application}]\n"
+       " :cases [{:id " (pr-str (str package-id "-architecture")) "\n"
+       "          :repo-id \"sample-repo\"\n"
+       "          :coverage {:source-kinds [" (pr-str file-kind) "]}\n"
+       "          :tags [:plugin\n"
+       "                 :problem-architecture\n"
+       "                 :architecture-understanding]\n"
+       "          :base-sha \"TODO_BASE_SHA\"\n"
+       "          :fix-sha \"TODO_FIX_OR_BASE_SHA\"\n"
+       "          :ground-truth {:localization-files [" (pr-str fixture-path) "]}\n"
+       "          :expectations {:evidence [{:kind :plugin-observation\n"
+       "                                     :path " (pr-str fixture-path) "\n"
+       "                                     :label \"TODO expected plugin evidence\"}]\n"
+       "                         :chunks [{:kind :plugin-summary\n"
+       "                                   :path " (pr-str fixture-path) "}]}\n"
+       "          :issue {:id " (pr-str (str package-id "-architecture")) "\n"
+       "                  :url \"local:plugin-benchmark/TODO\"\n"
+       "                  :title \"TODO architecture-understanding task title\"\n"
+       "                  :body \"TODO ask the agent to identify architecture-relevant files without exposing ground truth.\"}}]}\n"))
+
+(defn- agent-report-template
+  [package-id]
+  (str "{\n"
+       "  \"schema\": \"agraph.benchmark.agent-report/v1\",\n"
+       "  \"suite-id\": \"" package-id "-plugin\",\n"
+       "  \"note\": \"Template only. Replace with real bb bench agent-report output before listing a benchmark artifact in agraph.plugin.edn.\",\n"
+       "  \"cases\": 0,\n"
+       "  \"completed\": 0,\n"
+       "  \"runs\": 0,\n"
+       "  \"results\": []\n"
+       "}\n"))
 
 (defn- manifest
   [package-id {:keys [manifest-schema name extractor? report? file-kind path-globs scan-globs]}]
@@ -258,6 +319,12 @@
                                       (registry-example package-id registry-schema))
                          (write-file! (io/file target "benchmarks/README.md")
                                       (benchmark-readme package-id))
+                         (write-file! (io/file target "benchmarks/suite.template.edn")
+                                      (benchmark-suite-template package-id
+                                                                file-kind
+                                                                fixture-path))
+                         (write-file! (io/file target "benchmarks/agent-report.template.json")
+                                      (agent-report-template package-id))
                          (write-file! (io/file target fixture-path)
                                       (fixture-template file-kind))]
                   extractor? (conj (write-file! (io/file target "extract.py")
