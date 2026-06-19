@@ -333,14 +333,36 @@
      :nextActions (:nextActions evidence-summary)
      :evidence evidence-summary}))
 
+(defn- plane-count-text
+  [counts]
+  (->> counts
+       (sort-by (comp name key))
+       (map (fn [[k v]]
+              (str (name k) "=" v)))
+       (str/join ", ")))
+
+(defn- print-evidence-plane
+  [{:keys [plane status counts]}]
+  (println (str "- "
+                (name plane)
+                " "
+                (name status)
+                (when (seq counts)
+                  (str " " (plane-count-text counts))))))
+
 (defn- print-evidence-summary
-  [{:keys [available counts freshness next]}]
+  [{:keys [available counts freshness next planes]}]
   (println)
   (println "## Evidence Surface")
   (println "- available"
            (if (seq available)
              (str/join ", " (map name available))
              "none"))
+  (when (seq planes)
+    (println)
+    (println "## Evidence Planes")
+    (doseq [plane planes]
+      (print-evidence-plane plane)))
   (println "- files" (:files counts 0))
   (println "- nodes" (:nodes counts 0))
   (println "- edges" (:edges counts 0))

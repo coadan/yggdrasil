@@ -1490,6 +1490,16 @@
                                       :project-id (:id project)
                                       :config-path (:config-path opts)
                                       :available [:source-graph :docs]
+                                      :planes [{:plane :source-graph
+                                                :status :available
+                                                :counts {:nodes 3
+                                                         :edges 4}}
+                                               {:plane :runtime-config
+                                                :status :missing
+                                                :counts {:system-evidence 0}}
+                                               {:plane :docs
+                                                :status :available
+                                                :counts {:search-docs 9}}]
                                       :freshness {:status :stale
                                                   :basis "indexed-graph"
                                                   :projectConfig "project.edn"
@@ -1572,6 +1582,10 @@
       (is (str/includes? plain-out "- activity-events 5"))
       (is (str/includes? plain-out "- validation-events 1"))
       (is (str/includes? plain-out "- result-schema-mismatch-events 1"))
+      (is (str/includes? plain-out "## Evidence Planes"))
+      (is (str/includes? plain-out "- source-graph available edges=4, nodes=3"))
+      (is (str/includes? plain-out "- runtime-config missing system-evidence=0"))
+      (is (str/includes? plain-out "- docs available search-docs=9"))
       (is (str/includes? plain-out "## Freshness"))
       (is (str/includes? plain-out "- status stale"))
       (is (str/includes? plain-out "- basis indexed-graph"))
