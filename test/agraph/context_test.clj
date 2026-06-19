@@ -616,6 +616,55 @@
     (is (= ["system:billing"]
            (mapv :target (:nextActions section))))))
 
+(deftest architecture-section-ranks-boundary-evidence-by-mechanical-support
+  (let [section (#'context/architecture-section
+                 {:overlay {:systems [{:id "system:alpha"
+                                       :label "Alpha"}]
+                            :edges [{:id "map-edge:alpha-beta"
+                                     :source "system:alpha"
+                                     :target "system:beta"
+                                     :relation "reviewed-boundary"
+                                     :status "accepted"
+                                     :evidence ["work:accepted-boundary"]}]}
+                  :entities [{:id "system:alpha"
+                              :label "Alpha"
+                              :kind "system"
+                              :score 1.0}
+                             {:id "system:beta"
+                              :label "Beta"
+                              :kind "system"
+                              :score 0.8}]
+                  :edges [{:id "edge:weak"
+                           :source "system:alpha"
+                           :target "package:weak"
+                           :relation "imports-package"
+                           :score 10.0}
+                          {:id "edge:dense"
+                           :source "system:alpha"
+                           :target "system:beta"
+                           :relation "imports-package"
+                           :evidenceCounts {:imports 3
+                                            :manifests 1}
+                           :score 0.2}
+                          {:id "edge:medium"
+                           :source "system:alpha"
+                           :target "system:beta"
+                           :relation "uses"
+                           :evidenceCounts {:runtime 1}
+                           :score 0.3}]
+                  :runtime-evidence []
+                  :docs []
+                  :activity []
+                  :answerability {}})]
+    (is (= ["map-edge:alpha-beta"
+            "edge:dense"
+            "edge:medium"
+            "edge:weak"]
+           (mapv :id (:boundaryEvidence section))))
+    (is (= ["edge:dense"
+            "edge:weak"]
+           (mapv :id (:dependencyEvidence section))))))
+
 (deftest context-budget-compacts-source-coverage-before-dropping-it
   (let [trim @#'context/trim-optional-context-metadata
         source-coverage {:schema "agraph.source-coverage.context/v1"

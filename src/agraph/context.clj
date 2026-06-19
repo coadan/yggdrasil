@@ -801,6 +801,54 @@
                       (contains? selected-ids (s (:target %)))))
          (mapv map-edge-evidence-row))))
 
+(defn- evidence-count
+  [row]
+  (+ (count (:evidence row))
+     (reduce + 0 (map long (vals (:evidenceCounts row))))
+     (count (:relations row))))
+
+(defn- confidence-rank
+  [confidence]
+  (case (display-name confidence)
+    "high" 3
+    "medium" 2
+    "low" 1
+    (if (number? confidence)
+      (double confidence)
+      0)))
+
+(defn- selected-endpoint-count
+  [selected-ids row]
+  (+ (if (contains? selected-ids (s (:source row))) 1 0)
+     (if (contains? selected-ids (s (:target row))) 1 0)))
+
+(defn- map-evidence-rank
+  [row]
+  (cond
+    (and (= "map-edge" (:kind row))
+         (= "accepted" (display-name (:status row)))) 2
+    (= "map-edge" (:kind row)) 1
+    :else 0))
+
+(defn- evidence-sort-key
+  [selected-ids row]
+  [(- (map-evidence-rank row))
+   (- (selected-endpoint-count selected-ids row))
+   (- (evidence-count row))
+   (- (double (or (:score row) 0.0)))
+   (- (double (or (:salience row) 0.0)))
+   (- (confidence-rank (:confidence row)))
+   (or (display-name (:relation row)) "")
+   (or (s (:source row)) "")
+   (or (s (:target row)) "")
+   (or (s (:id row)) "")])
+
+(defn- ranked-evidence
+  [selected-ids rows]
+  (->> rows
+       (sort-by #(evidence-sort-key selected-ids %))
+       vec))
+
 (defn- relationship-target-row
   [edge]
   (cond-> {:id (:id edge)
@@ -1044,12 +1092,19 @@
   [{:keys [overlay entities results edges runtime-evidence docs activity answerability]}]
   (let [accepted-systems (selected-accepted-systems overlay entities results)
         candidate-systems (selected-candidate-systems accepted-systems entities)
+        selected-ids (set (concat (map :id entities)
+                                  (map :id accepted-systems)))
         map-edges (selected-map-edges overlay entities accepted-systems)
         boundary-evidence (vec (take 12
-                                     (concat map-edges
-                                             (map graph-edge-evidence-row edges))))
-        dependency-evidence (mapv graph-edge-evidence-row
-                                  (take 8 (filter dependency-evidence? edges)))
+                                     (ranked-evidence
+                                      selected-ids
+                                      (concat map-edges
+                                              (map graph-edge-evidence-row edges)))))
+        dependency-evidence (vec (take 8
+                                       (ranked-evidence
+                                        selected-ids
+                                        (map graph-edge-evidence-row
+                                             (filter dependency-evidence? edges)))))
         inspect-actions (architecture-inspect-actions accepted-systems
                                                       candidate-systems
                                                       runtime-evidence)
