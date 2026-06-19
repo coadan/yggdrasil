@@ -407,6 +407,14 @@
               (str (name k) "=" v)))
        (str/join ", ")))
 
+(defn- result-schema-status-text
+  [statuses]
+  (->> statuses
+       (sort-by (comp name key))
+       (map (fn [[status n]]
+              (str (name status) "=" n)))
+       (str/join ", ")))
+
 (defn- print-evidence-family
   [{:keys [family status counts]}]
   (println (str "- "
@@ -438,6 +446,10 @@
   (println "- diagnostics" (:diagnostics counts 0))
   (println "- activity-events" (:activity-events counts 0))
   (println "- validation-events" (:validation-events counts 0))
+  (println "- result-schema-status-items" (:result-schema-status-items counts 0))
+  (when (seq (:result-schema-statuses counts))
+    (println "- result-schema-statuses"
+             (result-schema-status-text (:result-schema-statuses counts))))
   (println "- result-schema-mismatch-events" (:result-schema-mismatch-events counts 0))
   (when freshness
     (println)

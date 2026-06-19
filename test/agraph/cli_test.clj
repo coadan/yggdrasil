@@ -1702,6 +1702,11 @@
                                                :edges 4
                                                :activity-events 5
                                                :validation-events 1
+                                               :result-schema-statuses {:matching 2
+                                                                        :missing-result 1}
+                                               :result-schema-status-items 3
+                                               :result-schema-matching-items 2
+                                               :result-schema-missing-result-items 1
                                                :result-schema-mismatch-events 1
                                                :skipped-files 1
                                                :diagnostics 2}
@@ -1760,12 +1765,20 @@
               :edges 4
               :activity-events 5
               :validation-events 1
+              :result-schema-statuses {:matching 2
+                                       :missing-result 1}
+              :result-schema-status-items 3
+              :result-schema-matching-items 2
+              :result-schema-missing-result-items 1
               :result-schema-mismatch-events 1
               :skipped-files 1
               :diagnostics 2}
              (get-in parsed [:evidence :counts])))
       (is (str/includes? plain-out "- activity-events 5"))
       (is (str/includes? plain-out "- validation-events 1"))
+      (is (str/includes? plain-out "- result-schema-status-items 3"))
+      (is (str/includes? plain-out
+                         "- result-schema-statuses matching=2, missing-result=1"))
       (is (str/includes? plain-out "- result-schema-mismatch-events 1"))
       (is (str/includes? plain-out "## Evidence Families"))
       (is (str/includes? plain-out "- source-graph available edges=4, nodes=3"))
