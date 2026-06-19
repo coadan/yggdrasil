@@ -677,6 +677,40 @@
     (is (every? #(= "unavailable" (:result %))
                 (:deltas comparison)))))
 
+(deftest reports-observed-only-telemetry-separately-from-missing-metrics
+  (let [strip-to-observed (fn [report observed-count]
+                            (-> report
+                                (dissoc :scores
+                                        :localizationDiagnostics
+                                        :agentDiagnostics
+                                        :timings)
+                                (assoc :agentDiagnostics
+                                       {:commandTelemetry
+                                        {:agraphCommandCount observed-count}})
+                                (assoc :results (mapv #(dissoc % :scores)
+                                                      (:results report)))))
+        comparison (agent-efficiency/compare-reports
+                    (strip-to-observed shell-report 0)
+                    (strip-to-observed agraph-report 3))
+        deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
+    (is (= "observed-only" (:status comparison)))
+    (is (= {:signal "observed-only"
+            :minSharedCases 2
+            :availableMetrics 1
+            :improvedMetrics 0
+            :regressedMetrics 0
+            :unchangedMetrics 0
+            :unavailableMetrics 25
+            :observedMetrics 1}
+           (:summary comparison)))
+    (is (= {:shellOnly 0.0
+            :agraph 3.0
+            :delta 3.0
+            :effect 0.0
+            :result "observed"}
+           (select-keys (:agraphCommandCount deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))))
+
 (deftest writes-comparison-from-agent-report-files
   (let [root (temp-dir "agraph-agent-efficiency")
         shell-path (spit-json! root "shell/agent-report.json" shell-report)

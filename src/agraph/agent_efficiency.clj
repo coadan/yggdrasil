@@ -345,6 +345,7 @@
          signal (cond
                   (zero? (:sharedCases comparable)) "not-comparable"
                   (not enough-cases?) "insufficient-cases"
+                  (and (zero? directional-available) (pos? observed)) "observed-only"
                   (zero? directional-available) "metrics-unavailable"
                   (and (pos? improved) (zero? regressed)) "agraph-improved"
                   (and (zero? improved) (pos? regressed)) "agraph-regressed"
