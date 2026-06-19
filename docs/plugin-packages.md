@@ -32,7 +32,11 @@ Useful flags:
 `plugin list` supports `--kind extractor|report` and `--query TEXT` for
 mechanical discovery across installed package metadata. Use it to find which
 installed packages can participate in extractor or report workflows without
-re-reading every package manifest by hand.
+re-reading every package manifest by hand. If a filtered search has no installed
+matches, JSON and plain output include `next-actions` for registry discovery and
+the relevant scaffold/gap workflow. This keeps unsupported file families and
+report gaps on the plugin lane instead of pushing project-specific logic into
+core.
 
 Install writes a `:plugin-packages` entry to `project.edn`:
 

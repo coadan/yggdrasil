@@ -109,8 +109,16 @@
     (println "- manifest" (:manifest entry) (str "fingerprint=" fingerprint))
     (println "- manifest" (:manifest entry)))
   (println "- path" (:path entry)))
+(defn- print-next-actions
+  [actions]
+  (when (seq actions)
+    (println "- next-actions")
+    (doseq [{:keys [id command reason]} actions]
+      (println " " (name id) command)
+      (when reason
+        (println "  " reason)))))
 (defn- print-plugin-list
-  [{:keys [project-id filters counts packages]}]
+  [{:keys [project-id filters counts packages next-actions]}]
   (println "# Plugins")
   (println "- project" project-id)
   (when (seq filters)
@@ -125,6 +133,7 @@
     (println "- matched" (:matched counts))
     (println "- extractor" (:extractor counts))
     (println "- report" (:report counts)))
+  (print-next-actions next-actions)
   (doseq [package packages]
     (print-plugin-package package)))
 (defn- print-plugin-remove

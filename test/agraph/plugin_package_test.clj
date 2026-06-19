@@ -132,6 +132,14 @@
       (is (= ["sample-plugin-pack"] (mapv :id (:packages filtered))))
       (is (= 0 (get-in missing-filter [:counts :matched])))
       (is (empty? (:packages missing-filter)))
+      (is (= [:search-registry :scaffold-report :author-report-gap]
+             (mapv :id (:next-actions missing-filter))))
+      (is (= "bb plugin registry list '<registry.edn>' --kind report --query missing"
+             (get-in missing-filter [:next-actions 0 :command])))
+      (is (= "bb plugin new '<package-dir>' --report"
+             (get-in missing-filter [:next-actions 1 :command])))
+      (is (= "bb plugin gap report '<package-dir>' --json"
+             (get-in missing-filter [:next-actions 2 :command])))
       (is (= 1 (get-in listed [:packages 0 :extractor-plugins])))
       (is (= 1 (get-in listed [:packages 0 :report-plugins])))
       (is (some #(str/includes? % "unbenchmarked")

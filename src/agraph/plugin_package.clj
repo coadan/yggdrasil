@@ -783,23 +783,78 @@
            (str/includes? (installed-package-search-text package)
                           (str/lower-case (str query))))))
 
+(defn- shell-token
+  [value]
+  (let [s (str value)]
+    (if (re-matches #"[A-Za-z0-9_./:@%+=,-]+" s)
+      s
+      (str "'" (str/replace s #"'" "'\"'\"'") "'"))))
+
+(defn- command
+  [parts]
+  (str/join " " (map shell-token parts)))
+
+(defn- plugin-registry-list-command
+  [{:keys [kind query]}]
+  (command
+   (cond-> ["bb" "plugin" "registry" "list" "<registry.edn>"]
+     (present? kind) (conj "--kind" (str kind))
+     (present? query) (conj "--query" (str query)))))
+
+(defn- plugin-list-no-match-next-actions
+  [filters]
+  (let [kind (some-> (:kind filters) str)
+        query (some-> (:query filters) str)
+        filtered? (or (present? kind) (present? query))
+        extractor? (or (nil? kind) (= "extractor" kind))
+        report? (or (nil? kind) (= "report" kind))]
+    (when filtered?
+      (vec
+       (concat
+        [{:id :search-registry
+          :reason "No installed plugin package matched the filters."
+          :command (plugin-registry-list-command filters)}]
+        (when extractor?
+          [{:id :scaffold-extractor
+            :reason "Create a local extractor package for the missing file family or architecture evidence gap."
+            :command (command ["bb" "plugin" "new" "<package-dir>"
+                               "--extractor"
+                               "--file-kind" "<file-kind>"
+                               "--path-glob" "<glob>"
+                               "--fixture" "<file>"])}
+           {:id :author-extractor-gap
+            :reason "Generate the extractor authoring packet after scaffolding or selecting a package."
+            :command (command ["bb" "plugin" "gap" "extractor"
+                               "<package-dir>" "<repo-root>" "<file>" "--json"])}])
+        (when report?
+          [{:id :scaffold-report
+            :reason "Create a local report package when the missing capability is report rendering, diagnostics, or artifacts."
+            :command (command ["bb" "plugin" "new" "<package-dir>" "--report"])}
+           {:id :author-report-gap
+            :reason "Generate the report plugin authoring packet after scaffolding or selecting a package."
+            :command (command ["bb" "plugin" "gap" "report" "<package-dir>" "--json"])}]))))))
+
 (defn list-installed
   ([config-path]
    (list-installed config-path {}))
   ([config-path filters]
    (let [data (read-edn-file config-path)
          packages (mapv package-summary (read-installed-packages config-path))
-         matched (filterv #(installed-package-matches? % filters) packages)]
-     {:schema list-schema
-      :project-id (some-> (:id data) str)
-      :filters (select-keys filters [:kind :query])
-      :counts {:packages (count packages)
-               :matched (count matched)
-               :extractor (count (filter #(installed-package-kind? % :extractor)
-                                         packages))
-               :report (count (filter #(installed-package-kind? % :report)
-                                      packages))}
-      :packages matched})))
+         matched (filterv #(installed-package-matches? % filters) packages)
+         selected-filters (select-keys filters [:kind :query])
+         next-actions (when (zero? (count matched))
+                        (plugin-list-no-match-next-actions selected-filters))]
+     (cond-> {:schema list-schema
+              :project-id (some-> (:id data) str)
+              :filters selected-filters
+              :counts {:packages (count packages)
+                       :matched (count matched)
+                       :extractor (count (filter #(installed-package-kind? % :extractor)
+                                                 packages))
+                       :report (count (filter #(installed-package-kind? % :report)
+                                              packages))}
+              :packages matched}
+       (seq next-actions) (assoc :next-actions next-actions)))))
 
 (defn- remove-package-entry
   [entries package-id]
@@ -1207,13 +1262,6 @@
   [registry-path entry]
   (when-let [path (:path entry)]
     (resolve-path (config-dir registry-path) path)))
-
-(defn- shell-token
-  [value]
-  (let [s (str value)]
-    (if (re-matches #"[A-Za-z0-9_./:@%+=,-]+" s)
-      s
-      (str "'" (str/replace s #"'" "'\"'\"'") "'"))))
 
 (defn- registry-install-args
   [entry]

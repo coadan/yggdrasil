@@ -272,6 +272,41 @@
                                 :query "datastar"}]]
                @calls))))))
 
+(deftest plugin-list-renders-no-match-next-actions
+  (with-redefs [plugin-package/list-installed
+                (fn [_config-path opts]
+                  {:schema plugin-package/list-schema
+                   :project-id "fixture"
+                   :filters opts
+                   :counts {:packages 1
+                            :matched 0
+                            :extractor 0
+                            :report 1}
+                   :next-actions [{:id :search-registry
+                                   :reason "No installed plugin package matched the filters."
+                                   :command "bb plugin registry list '<registry.edn>' --kind extractor --query htmx"}
+                                  {:id :scaffold-extractor
+                                   :reason "Create a local extractor package for the missing file family or architecture evidence gap."
+                                   :command "bb plugin new '<package-dir>' --extractor --file-kind '<file-kind>' --path-glob '<glob>' --fixture '<file>'"}
+                                  {:id :author-extractor-gap
+                                   :reason "Generate the extractor authoring packet after scaffolding or selecting a package."
+                                   :command "bb plugin gap extractor '<package-dir>' '<repo-root>' '<file>' --json"}]
+                   :packages []})]
+    (let [out (with-out-str
+                (cli/dispatch "plugin"
+                              ["list"
+                               "project.edn"
+                               "--kind"
+                               "extractor"
+                               "--query"
+                               "htmx"]))]
+      (is (str/includes? out "- matched 0"))
+      (is (str/includes? out "- next-actions"))
+      (is (str/includes? out "search-registry bb plugin registry list"))
+      (is (str/includes? out "scaffold-extractor bb plugin new"))
+      (is (str/includes? out "author-extractor-gap bb plugin gap extractor"))
+      (is (str/includes? out "No installed plugin package matched the filters.")))))
+
 (deftest plugin-registry-install-dispatches-to-registry-installer
   (let [calls (atom [])]
     (with-redefs [plugin-package/registry-install!
@@ -1707,5 +1742,3 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
-
