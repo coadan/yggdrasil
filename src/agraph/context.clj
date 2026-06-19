@@ -1,6 +1,7 @@
 (ns agraph.context
   "Token-bounded, graph-grounded context packets for agents."
   (:require [agraph.activity :as activity]
+            [agraph.audit-scope :as audit-scope]
             [agraph.command :as command]
             [agraph.coverage :as coverage]
             [agraph.dependency :as dependency]
@@ -1238,7 +1239,8 @@
 
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns answerability
-   search-instrumentation freshness source-coverage architecture relationships candidate-files]
+   search-instrumentation freshness source-coverage architecture audit-scopes relationships
+   candidate-files]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data)
@@ -1254,6 +1256,7 @@
     search-instrumentation (assoc :search search-instrumentation)
     freshness (assoc :freshness freshness)
     architecture (assoc :architecture architecture)
+    (seq audit-scopes) (assoc :auditScopes audit-scopes)
     (seq relationships) (assoc :relationships relationships)
     source-coverage (assoc :sourceCoverage source-coverage)))
 
@@ -1374,6 +1377,20 @@
     (update packet :architecture compact-architecture)
     packet))
 
+(defn- compact-audit-scope
+  [scope]
+  (cond-> (select-keys scope [:kind :basis :facts :files])
+    (seq (:topEvidenceTypes scope)) (assoc :topEvidenceTypes
+                                           (vec (take 3 (:topEvidenceTypes scope))))
+    (seq (:samples scope)) (assoc :samples
+                                  (vec (take 2 (:samples scope))))))
+
+(defn- compact-audit-scopes-in-packet
+  [packet]
+  (if (contains? packet :auditScopes)
+    (update packet :auditScopes #(mapv compact-audit-scope (take 4 %)))
+    packet))
+
 (defn- compact-relationship-group
   [group]
   (update group :targets #(vec (take 4 %))))
@@ -1401,11 +1418,13 @@
                     compact-source-coverage-in-packet
                     #(dissoc % :sourceCoverage)
                     compact-architecture-in-packet
+                    compact-audit-scopes-in-packet
                     compact-relationships-in-packet
                     compact-snippets-in-packet
                     #(update % :answerability compact-answerability)
                     #(dissoc % :snippets)
                     #(dissoc % :relationships)
+                    #(dissoc % :auditScopes)
                     #(dissoc % :architecture)
                     #(assoc % :warnings [])
                     #(assoc % :drilldowns [])]]
@@ -1441,12 +1460,14 @@
                compact-source-coverage-in-packet
                #(dissoc % :sourceCoverage)
                compact-architecture-in-packet
+               compact-audit-scopes-in-packet
                compact-relationships-in-packet
                compact-snippets-in-packet
                #(update % :answerability compact-answerability)
                #(update % :answerability minimal-answerability)
                #(dissoc % :snippets)
                #(dissoc % :relationships)
+               #(dissoc % :auditScopes)
                #(dissoc % :architecture)
                #(assoc % :warnings [])
                #(assoc % :drilldowns [])
@@ -2093,7 +2114,11 @@
                                             :runtime-evidence runtime-evidence
                                             :docs docs
                                             :activity activity
-                                            :answerability answerability})]
+                                            :answerability answerability})
+        audit-scopes (audit-scope/selected-summaries
+                      {:runtime-evidence (:runtimeEvidence architecture)
+                       :dependency-evidence (:dependencyEvidence architecture)
+                       :docs (:docs architecture)})]
     (fit-budget (base-packet query-text
                              budget
                              graph-data
@@ -2107,6 +2132,7 @@
                              freshness
                              source-coverage
                              architecture
+                             audit-scopes
                              (relationship-groups edges)
                              (candidate-files results))
                 docs
