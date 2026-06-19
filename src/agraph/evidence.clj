@@ -75,8 +75,11 @@
   (pos? (long (or value 0))))
 
 (defn- package-next-commands
-  [project-id {:keys [packages package-evidence-gaps unresolved-imports package-conflicts]}]
-  (let [base (str "agraph packages --project " project-id)]
+  [project-id {:keys [packages package-evidence-gaps unresolved-imports package-conflicts]}
+   {:keys [config-path map-path]}]
+  (let [base (str "agraph packages --project " project-id)
+        check-base (str "agraph sync check " (or config-path "<project.edn>")
+                        (when map-path (str " --map " map-path)))]
     (cond-> []
       (zero? (long (or packages 0)))
       (conj (str base " --json"))
@@ -88,7 +91,10 @@
       (conj (str base " --with-conflicts --json"))
 
       (positive-count? unresolved-imports)
-      (conj (str base " --json")))))
+      (conj (str base " --json"))
+
+      (positive-count? unresolved-imports)
+      (conj (str check-base " --enqueue")))))
 
 (defn- next-commands
   [{:keys [project config-path map-path counts]}]
@@ -107,7 +113,9 @@
            (conj (str "agraph view systems --project " project-id))
 
            true
-           (into (package-next-commands project-id counts))
+           (into (package-next-commands project-id counts
+                                        {:config-path config-path
+                                         :map-path map-path}))
 
            (zero? (+ activity-items activity-events))
            (conj (str "agraph sync activity " (or config-path "<project.edn>") " --json"))

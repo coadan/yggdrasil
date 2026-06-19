@@ -193,6 +193,8 @@
       (is (= first-content (slurp agents)))
       (is (str/includes? first-content "Keep this line."))
       (is (str/includes? first-content "agraph ask \"<question>\" --project <project-id> --json"))
+      (is (str/includes? first-content "agraph sync check <project.edn> --map agraph.map.json --enqueue"))
+      (is (str/includes? first-content "Use queued review packets"))
       (is (str/includes? first-content "Do not infer architecture from names")))))
 
 (deftest agent-install-codex-project-hooks-are-valid-json

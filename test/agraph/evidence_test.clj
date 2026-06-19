@@ -20,7 +20,7 @@
                                                       :imports-package 1
                                                       :version-conflicts 0
                                                       :declared-without-import-evidence 1
-                                                      :unresolved-imports 0}
+                                                      :unresolved-imports 1}
                                              :ecosystems [{:ecosystem :npm
                                                            :packages 2
                                                            :versions 3
@@ -54,7 +54,9 @@
               :imports-package 1
               :version-conflicts 0
               :declared-without-import-evidence 1
-              :unresolved-imports 0}
+              :unresolved-imports 1}
              (get-in summary [:packages :counts])))
       (is (some #{"agraph packages --project fixture --without-import-evidence --json"}
+                (:next summary)))
+      (is (some #{"agraph sync check <project.edn> --enqueue"}
                 (:next summary))))))
