@@ -113,6 +113,15 @@ def parse_replacement(value: str) -> tuple[str, str]:
     return old, new
 
 
+def parse_mapping(value: str) -> tuple[str, str]:
+    if "=" not in value:
+        raise argparse.ArgumentTypeError("mapping must be KEY=VALUE")
+    key, mapped = value.split("=", 1)
+    if not key or not mapped:
+        raise argparse.ArgumentTypeError("mapping KEY and VALUE must be non-empty")
+    return key, mapped
+
+
 def apply_replacements(text: str, replacements: list[tuple[str, str]]) -> str:
     for old, new in replacements:
         text = re.sub(rf"(?<![\w.!?/*+<>=-]){re.escape(old)}(?![\w.!?/*+<>=-])", new, text)
@@ -144,6 +153,102 @@ def cmd_move(args: argparse.Namespace) -> None:
         replacements=args.replace,
         form_names=args.forms,
     )
+
+
+def selected_form_names(
+    forms: list[Form],
+    *,
+    explicit: list[str],
+    prefixes: list[str],
+    from_form: str | None,
+    to_form: str | None,
+) -> list[str]:
+    names = [form.name for form in forms]
+    selected: list[str] = []
+    seen: set[str] = set()
+
+    def add(name: str) -> None:
+        if name not in seen:
+            selected.append(name)
+            seen.add(name)
+
+    for name in explicit:
+        if name not in names:
+            raise SystemExit(f"missing top-level form: {name}")
+        add(name)
+
+    for prefix in prefixes:
+        matched = [name for name in names if name.startswith(prefix)]
+        if not matched:
+            raise SystemExit(f"no top-level forms match prefix: {prefix}")
+        for name in matched:
+            add(name)
+
+    if from_form or to_form:
+        if not from_form or not to_form:
+            raise SystemExit("--from-form and --to-form must be provided together")
+        try:
+            start = names.index(from_form)
+            end = names.index(to_form)
+        except ValueError as exc:
+            raise SystemExit(f"missing range form: {exc}") from exc
+        if start > end:
+            raise SystemExit("--from-form must appear before --to-form")
+        for name in names[start : end + 1]:
+            add(name)
+
+    return selected
+
+
+def focused_test_command(test_names: list[str]) -> list[str]:
+    test_vars = " ".join(f"#'agraph.extract-test/{name}" for name in test_names)
+    return [
+        "clojure",
+        "-Sdeps",
+        '{:paths ["src" "resources" "test"] :deps {lambdaisland/kaocha {:mvn/version "1.91.1392"} nubank/matcher-combinators {:mvn/version "3.10.0"}}}',
+        "-M",
+        "-e",
+        f"(require 'clojure.test 'agraph.extract-test) (clojure.test/test-vars [{test_vars}])",
+    ]
+
+
+def cmd_manifest(args: argparse.Namespace) -> None:
+    _, forms = read_forms(args.source)
+    form_names = selected_form_names(
+        forms,
+        explicit=args.forms,
+        prefixes=args.prefix,
+        from_form=args.from_form,
+        to_form=args.to_form,
+    )
+    if not form_names:
+        raise SystemExit("no forms selected")
+
+    manifest: dict[str, object] = {
+        "source": str(args.source),
+        "target": args.target,
+        "ns": args.ns,
+    }
+    if args.require:
+        manifest["require"] = args.require
+    if args.source_require:
+        manifest["sourceRequire"] = args.source_require
+    if args.replace:
+        manifest["replace"] = args.replace
+    manifest["forms"] = form_names
+    if args.route:
+        manifest["routes"] = dict(args.route)
+    if args.test:
+        manifest["tests"] = [focused_test_command(args.test)]
+    if args.stage:
+        manifest["stage"] = args.stage
+    manifest["commit"] = args.commit
+
+    text = json.dumps(manifest, indent=2) + "\n"
+    if args.out:
+        args.out.write_text(text)
+    else:
+        print(text, end="")
 
 
 def move_forms(
@@ -287,6 +392,24 @@ def main() -> None:
     move_parser.add_argument("--replace", type=parse_replacement, action="append", default=[])
     move_parser.add_argument("forms", nargs="+")
     move_parser.set_defaults(func=cmd_move)
+
+    manifest_parser = subparsers.add_parser("manifest")
+    manifest_parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    manifest_parser.add_argument("--target", required=True)
+    manifest_parser.add_argument("--ns", required=True)
+    manifest_parser.add_argument("--require", action="append", default=[])
+    manifest_parser.add_argument("--source-require")
+    manifest_parser.add_argument("--replace", action="append", default=[])
+    manifest_parser.add_argument("--route", type=parse_mapping, action="append", default=[])
+    manifest_parser.add_argument("--test", action="append", default=[])
+    manifest_parser.add_argument("--stage", action="append", default=[])
+    manifest_parser.add_argument("--commit", required=True)
+    manifest_parser.add_argument("--prefix", action="append", default=[])
+    manifest_parser.add_argument("--from-form")
+    manifest_parser.add_argument("--to-form")
+    manifest_parser.add_argument("--out", type=Path)
+    manifest_parser.add_argument("forms", nargs="*")
+    manifest_parser.set_defaults(func=cmd_manifest)
 
     batch_parser = subparsers.add_parser("batch")
     batch_parser.add_argument("manifest", type=Path)
