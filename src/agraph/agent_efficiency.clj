@@ -100,6 +100,26 @@
     :category :command-telemetry
     :path [:agentDiagnostics :commandTelemetry :shellCommandCount]
     :direction :lower}
+   {:key :totalTokens
+    :label "totalTokens"
+    :category :token-cost
+    :path [:agentDiagnostics :tokenTelemetry :totalTokens]
+    :direction :lower}
+   {:key :inputTokens
+    :label "inputTokens"
+    :category :token-cost
+    :path [:agentDiagnostics :tokenTelemetry :inputTokens]
+    :direction :lower}
+   {:key :outputTokens
+    :label "outputTokens"
+    :category :token-cost
+    :path [:agentDiagnostics :tokenTelemetry :outputTokens]
+    :direction :lower}
+   {:key :costUsd
+    :label "costUsd"
+    :category :token-cost
+    :path [:agentDiagnostics :tokenTelemetry :costUsd]
+    :direction :lower}
    {:key :elapsedMs
     :label "elapsedMs"
     :category :timing

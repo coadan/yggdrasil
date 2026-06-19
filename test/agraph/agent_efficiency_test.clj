@@ -137,7 +137,7 @@
             :improvedMetrics 20
             :regressedMetrics 0
             :unchangedMetrics 1
-            :unavailableMetrics 0}
+            :unavailableMetrics 4}
            (:summary comparison)))
     (is (= {:sameSuite true
             :sameCases true
@@ -184,12 +184,59 @@
             :unchangedMetrics 1
             :unavailableMetrics 0}
            (get-in categories-by-key ["timing" :summary])))
+    (is (= {:signal "metrics-unavailable"
+            :minSharedCases 2
+            :availableMetrics 0
+            :improvedMetrics 0
+            :regressedMetrics 0
+            :unchangedMetrics 0
+            :unavailableMetrics 4}
+           (get-in categories-by-key ["token-cost" :summary])))
     (is (= ["case-1" "case-2"]
            (mapv :caseId (:caseDeltas comparison))))
     (is (= {"shell-only" 2}
            (get-in comparison [:shellOnly :modes])))
     (is (= {"agraph" 2}
            (get-in comparison [:agraph :modes])))))
+
+(deftest compares-token-cost-telemetry-when-available
+  (let [shell (assoc-in shell-report
+                        [:agentDiagnostics :tokenTelemetry]
+                        {:totalTokens 12000
+                         :inputTokens 9000
+                         :outputTokens 3000
+                         :costUsd 0.6})
+        agraph (assoc-in agraph-report
+                         [:agentDiagnostics :tokenTelemetry]
+                         {:totalTokens 7000
+                          :inputTokens 5500
+                          :outputTokens 1500
+                          :costUsd 0.35})
+        comparison (agent-efficiency/compare-reports shell agraph)
+        deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))
+        categories-by-key (into {} (map (juxt :category identity)) (:byCategory comparison))]
+    (is (= {:shellOnly 12000.0
+            :agraph 7000.0
+            :delta -5000.0
+            :effect 5000.0
+            :result "improved"}
+           (select-keys (:totalTokens deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly 0.6
+            :agraph 0.35
+            :delta -0.25
+            :effect 0.25
+            :result "improved"}
+           (select-keys (:costUsd deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:signal "agraph-improved"
+            :minSharedCases 2
+            :availableMetrics 4
+            :improvedMetrics 4
+            :regressedMetrics 0
+            :unchangedMetrics 0
+            :unavailableMetrics 0}
+           (get-in categories-by-key ["token-cost" :summary])))))
 
 (deftest compares-shell-only-and-agraph-by-tag-groups
   (let [shell (assoc shell-report
@@ -370,7 +417,7 @@
             :improvedMetrics 18
             :regressedMetrics 0
             :unchangedMetrics 1
-            :unavailableMetrics 2}
+            :unavailableMetrics 6}
            (:summary comparison)))
     (is (= {:shellOnly nil
             :agraph 0.5
@@ -406,7 +453,7 @@
             :improvedMetrics 0
             :regressedMetrics 0
             :unchangedMetrics 0
-            :unavailableMetrics 21}
+            :unavailableMetrics 25}
            (:summary comparison)))
     (is (every? #(= "unavailable" (:result %))
                 (:deltas comparison)))))
