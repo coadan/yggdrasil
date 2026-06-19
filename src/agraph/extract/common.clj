@@ -378,6 +378,24 @@
       (pos? line-count) (assoc :end-line (+ (or source-line 1) line-count -1))
       (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
 
+(defn curly-depth-delta
+  [line]
+  (- (count (re-seq #"\{" line))
+     (count (re-seq #"\}" line))))
+
+(defn curly-balance-diagnostics
+  [run-id file-id path content language]
+  (let [balance (reduce + (map curly-depth-delta (str/split-lines content)))]
+    (if (zero? balance)
+      []
+      [(diagnostic-row run-id
+                       file-id
+                       path
+                       "parse"
+                       1
+                       (str language
+                            " extractor found unbalanced curly braces."))])))
+
 (defn xml-attr-value
   [element attr]
   (or (second (re-find (re-pattern (str "(?i)\\b" attr "\\s*=\\s*\"([^\"]+)\""))

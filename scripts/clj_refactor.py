@@ -194,6 +194,9 @@ def add_ns_require(source: Path, require: str) -> None:
             in_require = True
             insert_idx = idx
             continue
+        if in_require and line.rstrip().endswith("]))"):
+            insert_idx = idx - 1
+            break
         if in_require and line.startswith("            ["):
             insert_idx = idx
         elif in_require and insert_idx is not None:
