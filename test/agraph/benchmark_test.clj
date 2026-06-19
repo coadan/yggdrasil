@@ -2469,6 +2469,40 @@
             "agent result referenced files missing from the base checkout"]
            (get-in scored [:agent :warnings])))))
 
+(deftest score-agent-result-warns-on-mismatched-agent-identity
+  (let [root (temp-dir "agraph-bench-agent-score-identity")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema "agraph.benchmark.agent-result/old"
+                      :caseId "case-2"
+                      :caseFingerprint "sha256:old-case"
+                      :agentId "codex"
+                      :mode "agraph"
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.8
+                                        :reason "AGraph context identified the file."
+                                        :evidence ["context-doc:src/app.clj"]}]
+                      :suspectedSymbols []
+                      :commands []
+                      :warnings []
+                      :summary "Found the changed file."}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
+    (is (= ["agent result schema agraph.benchmark.agent-result/old does not match expected schema agraph.benchmark.agent-result/v1"
+            "agent result caseId case-2 does not match expected case case-1"
+            "agent result caseFingerprint sha256:old-case does not match expected case fingerprint sha256:test-case"]
+           (get-in scored [:agent :warnings])))))
+
 (deftest score-agent-result-writes-parser-worker-provenance
   (let [root (temp-dir "agraph-bench-agent-score-worker")
         _ (spit-file! root "src/app.clj" "(ns app)\n")

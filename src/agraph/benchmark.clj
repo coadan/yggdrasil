@@ -3186,6 +3186,36 @@
                                  (or (:suspectedSymbols agent-result) [])
                                  [:name :path :kind :rank :confidence :reason :evidence]))))
 
+(defn- mismatched-field-warning
+  [agent-result field expected label]
+  (when (and (contains? agent-result field)
+             (not= (str expected) (str (get agent-result field))))
+    (str "agent result "
+         (name field)
+         " "
+         (get agent-result field)
+         " does not match expected "
+         label
+         " "
+         expected)))
+
+(defn- agent-result-identity-warnings
+  [prepared agent-result]
+  (vec
+   (keep identity
+         [(mismatched-field-warning agent-result
+                                    :schema
+                                    agent-result-schema
+                                    "schema")
+          (mismatched-field-warning agent-result
+                                    :caseId
+                                    (:case-id prepared)
+                                    "case")
+          (mismatched-field-warning agent-result
+                                    :caseFingerprint
+                                    (:caseFingerprint prepared)
+                                    "case fingerprint")])))
+
 (defn- missing-predicted-files
   [root predictions]
   (->> predictions
@@ -3201,7 +3231,9 @@
         result-shape {:groundTruth (:groundTruth prepared)
                       :agraph {:topFiles top-files}}
         warnings (cond-> (vec (distinct (concat (or (:warnings agent-result) [])
-                                                (agent-result-shape-warnings agent-result))))
+                                                (agent-result-shape-warnings agent-result)
+                                                (agent-result-identity-warnings prepared
+                                                                                agent-result))))
                    (empty? top-files)
                    (conj "agent result did not contain suspected files")
 

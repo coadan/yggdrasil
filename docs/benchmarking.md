@@ -351,6 +351,9 @@ failures auditable. AGraph-generated baseline evidence uses compact mechanical
 rows such as `context-doc:<path>`, `graph-entity:<label>`, and
 `candidate-file:<path> rank=<n> ... components=<score-components>` so candidate
 files remain traceable even when snippets are trimmed from the context packet.
+Scoring warns when an agent result has the wrong schema, case id, or
+case fingerprint; use `--max-warning-runs 0` when stale or misrouted artifacts
+must fail the benchmark run.
 
 ## Fair Inputs
 
