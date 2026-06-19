@@ -1,6 +1,7 @@
 (ns agraph.system
   "Derived project system graph inference."
-  (:require [agraph.dependency :as dependency]
+  (:require [agraph.command :as command]
+            [agraph.dependency :as dependency]
             [agraph.dependency-review :as dependency-review]
             [agraph.hash :as hash]
             [agraph.infra-review :as infra-review]
@@ -1204,8 +1205,25 @@
                 :scope
                 :recommended-actions]))
 
+(defn- decision-summary-actions
+  [project-id decision-queue]
+  (cond-> []
+    (seq decision-queue)
+    (conj {:kind :pull-work
+           :label "Claim next maintenance decision work item"
+           :command (str "agraph sync work pull --project "
+                         (command/shell-token project-id)
+                         " --kind maintenance-decision --agent <agent-id>")}
+          {:kind :classify-decision
+           :label "Classify the first bounded maintenance decision"
+           :target (:id (first decision-queue))
+           :command (str "agraph classify decision "
+                         (command/shell-token (:id (first decision-queue)))
+                         " --project "
+                         (command/shell-token project-id))})))
+
 (defn- decision-queue-summary
-  [decision-queue]
+  [project-id decision-queue]
   (cond-> {:total (count decision-queue)
            :bySeverity (grouped-decision-counts decision-queue
                                                 :severity
@@ -1218,7 +1236,8 @@
                                             (fn [row]
                                               [(or (some-> (:kind row) name)
                                                    "")]))
-           :byRecommendedAction (grouped-decision-action-counts decision-queue)}
+           :byRecommendedAction (grouped-decision-action-counts decision-queue)
+           :nextActions (decision-summary-actions project-id decision-queue)}
     (seq decision-queue)
     (assoc :next (decision-preview (first decision-queue)))))
 
@@ -1494,7 +1513,7 @@
      :external-api-review external-api-review
      :graph-health graph-health
      :fold-in (fold-in-report project-id scale decision-queue)
-     :decision-summary (decision-queue-summary decision-queue)
+     :decision-summary (decision-queue-summary project-id decision-queue)
      :orphaned-systems orphaned
      :dangling-edges dangling-edges
      :evidence-with-missing-system missing-evidence-systems

@@ -275,6 +275,16 @@
           (is (= (select-keys (first (:decision-queue maintenance))
                               [:id :kind :severity :target :reason :scope :recommended-actions])
                  (get-in maintenance [:decision-summary :next])))
+          (is (= [{:kind :pull-work
+                   :label "Claim next maintenance decision work item"
+                   :command "agraph sync work pull --project noise --kind maintenance-decision --agent <agent-id>"}
+                  {:kind :classify-decision
+                   :label "Classify the first bounded maintenance decision"
+                   :target (:id (first (:decision-queue maintenance)))
+                   :command (str "agraph classify decision "
+                                 (:id (first (:decision-queue maintenance)))
+                                 " --project noise")}]
+                 (get-in maintenance [:decision-summary :nextActions])))
           (is (some? fanout))
           (is (= source (get-in fanout [:data :source :xt/id])))
           (is (= 3 (get-in fanout [:data :edge-count])))
@@ -297,6 +307,18 @@
           (is (= 1 (get-in sparse-decision [:data :evidence-count])))
           (is (contains? (set (:recommended-actions sparse-decision))
                          :reject-external-api)))))))
+
+(deftest maintenance-decision-summary-actions-quote-project-id
+  (let [summary (#'system/decision-queue-summary
+                 "demo project"
+                 [{:id "maintenance-decision:demo"
+                   :kind :unclustered-system
+                   :severity :low
+                   :target "system:demo:api"
+                   :recommended-actions [:accept-system]}])]
+    (is (= ["agraph sync work pull --project 'demo project' --kind maintenance-decision --agent <agent-id>"
+            "agraph classify decision maintenance-decision:demo --project 'demo project'"]
+           (mapv :command (:nextActions summary))))))
 
 (deftest container-image-artifacts-connect-producers-to-deployment-manifests
   (let [xtdb-path (temp-dir "agraph-image-xtdb")
