@@ -691,7 +691,12 @@
         packet {:query "bug report app"
                 :sourceCoverage {:schema "agraph.source-coverage.context/v1"
                                  :totals {:indexedFiles 2
+                                          :skippedFiles 2
                                           :diagnostics 2}
+                                 :skippedByExtension [{:extension ".bin"
+                                                       :count 1}]
+                                 :skippedByReason [{:reason "binary"
+                                                    :count 1}]
                                  :indexedConnectivity {:indexedFiles 2
                                                        :nodes 1
                                                        :edges 0
@@ -744,6 +749,14 @@
              :severity "warning"
              :message "Indexed source coverage contains extraction diagnostics; inspect sourceCoverage.diagnostics.samples."
              :diagnostics 2}
+            {:kind "source-skipped-files"
+             :severity "info"
+             :message "Indexed source coverage contains skipped files; inspect sourceCoverage skipped breakdowns before treating missing facts as absent."
+             :skippedFiles 2
+             :skippedByExtension [{:extension ".bin"
+                                   :count 1}]
+             :skippedByReason [{:reason "binary"
+                                :count 1}]}
             {:kind "isolated-indexed-files"
              :severity "info"
              :message "Indexed source coverage contains files without active graph edges; inspect sourceCoverage.indexedConnectivity."

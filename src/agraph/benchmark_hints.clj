@@ -119,6 +119,10 @@
                                                      :totals
                                                      :diagnostics])
                                      0))
+        source-skipped-files (long (or (get-in packet [:sourceCoverage
+                                                       :totals
+                                                       :skippedFiles])
+                                       0))
         connectivity (get-in packet [:sourceCoverage :indexedConnectivity])
         isolated-files (long (or (:isolatedFiles connectivity) 0))
         audit-diagnostics (audit-scope-diagnostics packet)]
@@ -148,6 +152,18 @@
              :severity "warning"
              :message "Indexed source coverage contains extraction diagnostics; inspect sourceCoverage.diagnostics.samples."
              :diagnostics source-diagnostics})
+
+      (pos? source-skipped-files)
+      (conj (cond-> {:kind "source-skipped-files"
+                     :severity "info"
+                     :message "Indexed source coverage contains skipped files; inspect sourceCoverage skipped breakdowns before treating missing facts as absent."
+                     :skippedFiles source-skipped-files}
+              (seq (get-in packet [:sourceCoverage :skippedByExtension]))
+              (assoc :skippedByExtension
+                     (takev 5 (get-in packet [:sourceCoverage :skippedByExtension])))
+              (seq (get-in packet [:sourceCoverage :skippedByReason]))
+              (assoc :skippedByReason
+                     (takev 5 (get-in packet [:sourceCoverage :skippedByReason])))))
 
       (pos? isolated-files)
       (conj {:kind "isolated-indexed-files"
