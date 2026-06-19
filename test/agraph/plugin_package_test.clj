@@ -272,6 +272,14 @@
       (is (pos? (get-in dry-run [:enhanced-counts :chunks])))
       (is (some #(= "demo-plugin-extractor" (:plugin-id %))
                 (get-in dry-run [:rows :file-facts])))
+      (is (= "demo-plugin"
+             (get-in dry-run [:plugins 0 :package-id])))
+      (is (= "0.1.0"
+             (get-in dry-run [:plugins 0 :package-version])))
+      (is (= {:type :local
+              :path (.getCanonicalPath package-dir)}
+             (select-keys (get-in dry-run [:plugins 0 :package-source])
+                          [:type :path])))
       (is (= manifest-fingerprint
              (get-in dry-run [:plugins 0 :package-manifest-fingerprint])))
       (is (= claim-authority
@@ -299,6 +307,14 @@
       (is (= 1 (get-in report-dry-run [:counts :panels])))
       (is (= "demo-plugin-report" (get-in report-dry-run [:plugins 0 :id])))
       (is (= :unbenchmarked (get-in report-dry-run [:plugins 0 :benchmark-status])))
+      (is (= "demo-plugin"
+             (get-in report-dry-run [:plugins 0 :package-id])))
+      (is (= "0.1.0"
+             (get-in report-dry-run [:plugins 0 :package-version])))
+      (is (= {:type :local
+              :path (.getCanonicalPath package-dir)}
+             (select-keys (get-in report-dry-run [:plugins 0 :package-source])
+                          [:type :path])))
       (is (= claim-authority
              (get-in report-dry-run [:plugins 0 :package-claim-authority])))
       (is (= manifest-fingerprint

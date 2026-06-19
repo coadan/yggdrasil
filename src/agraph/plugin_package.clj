@@ -1196,6 +1196,20 @@
    :diagnostics diagnostics
    :outputs []})
 
+(defn- dry-run-plugin-summary
+  [plugin]
+  (select-keys plugin
+               [:id
+                :version
+                :authority
+                :benchmark-status
+                :package-id
+                :package-version
+                :package-rev
+                :package-source
+                :package-claim-authority
+                :package-manifest-fingerprint]))
+
 (defn dry-run-extractor
   "Run package extractor plugins against one file without writing graph state."
   [package-dir root file {:keys [plugin-id] :as opts}]
@@ -1208,13 +1222,7 @@
 
       :else
       (let [plugins (selected-extractor-plugins package plugin-id)
-            plugin-summaries (mapv #(select-keys % [:id
-                                                    :version
-                                                    :authority
-                                                    :benchmark-status
-                                                    :package-claim-authority
-                                                    :package-manifest-fingerprint])
-                                   plugins)]
+            plugin-summaries (mapv dry-run-plugin-summary plugins)]
         (if (empty? plugins)
           (let [rows (empty-extraction)
                 diagnostics [(no-selected-plugins-diagnostic :extractor
@@ -1297,14 +1305,7 @@
 
       :else
       (let [plugins (selected-report-plugins package plugin-id)
-            plugin-summary (fn [plugin]
-                             (select-keys plugin
-                                          [:id
-                                           :version
-                                           :authority
-                                           :benchmark-status
-                                           :package-claim-authority
-                                           :package-manifest-fingerprint]))]
+            plugin-summary dry-run-plugin-summary]
         (if (empty? plugins)
           (let [diagnostics [(no-selected-plugins-diagnostic :report
                                                              package
