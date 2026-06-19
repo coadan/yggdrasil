@@ -337,23 +337,20 @@ def add_ns_require(source: Path, require: str) -> None:
     if require in text:
         return
     lines = text.splitlines(keepends=True)
-    insert_idx = None
     in_require = False
     for idx, line in enumerate(lines):
         if "(:require" in line:
             in_require = True
-            insert_idx = idx
             continue
-        if in_require and line.rstrip().endswith("]))"):
-            insert_idx = idx - 1
-            break
-        if in_require and line.startswith("            ["):
-            insert_idx = idx
-        elif in_require and insert_idx is not None:
-            break
-    if insert_idx is None:
-        raise SystemExit(f"could not locate require block in {source}")
-    lines.insert(insert_idx + 1, f"            {require}\n")
+        if in_require and (line.startswith("  (:") or line.startswith("  (:import")):
+            lines.insert(idx, f"            {require}\n")
+            source.write_text("".join(lines))
+            return
+        if in_require and line.startswith("            [") and re.search(r"\]\)+\s*$", line.rstrip()):
+            lines.insert(idx, f"            {require}\n")
+            source.write_text("".join(lines))
+            return
+    raise SystemExit(f"could not locate require block in {source}")
     source.write_text("".join(lines))
 
 
