@@ -10,6 +10,7 @@ export type ReviewQueueRow = {
   evidenceRows?: Array<Record<string, unknown>>;
   source: string;
   command?: string;
+  graphSliceId?: string;
   targetTab: "ask" | "systems" | "dependencies" | "evidence" | "maintenance" | "plugins";
 };
 
@@ -116,6 +117,7 @@ function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
       evidenceRows: firstRows(evidenceRows),
       source: "packages.unresolved-imports",
       command,
+      graphSliceId: "package-evidence",
       targetTab: "dependencies"
     });
   }
@@ -133,6 +135,7 @@ function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
       evidenceRows: firstRows(evidenceRows),
       source: "packages.version-conflicts",
       command,
+      graphSliceId: "package-evidence",
       targetTab: "dependencies"
     });
   }
@@ -149,6 +152,7 @@ function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
       evidenceRows: firstRows(evidenceRows),
       source: "packages.declared-without-import-evidence",
       command,
+      graphSliceId: "package-evidence",
       targetTab: "dependencies"
     });
   }
@@ -160,8 +164,20 @@ function maintenanceReviewRows(report: AGraphReport): ReviewQueueRow[] {
   const command = firstCommand(report, [/sync work/, /sync check/, /audit-scope/]);
   const groups = [
     { key: "decision-queue", area: "Maintenance", label: "Apply or reject pending graph decisions", severity: "high" as const },
-    { key: "infra-review-queue", area: "Infrastructure", label: "Review infrastructure evidence", severity: "medium" as const },
-    { key: "dependency-review-queue", area: "Dependencies", label: "Review dependency correction work", severity: "medium" as const }
+    {
+      key: "infra-review-queue",
+      area: "Infrastructure",
+      label: "Review infrastructure evidence",
+      severity: "medium" as const,
+      graphSliceId: "config-auth-evidence"
+    },
+    {
+      key: "dependency-review-queue",
+      area: "Dependencies",
+      label: "Review dependency correction work",
+      severity: "medium" as const,
+      graphSliceId: "package-evidence"
+    }
   ];
 
   return groups.flatMap((group, groupIndex) => {
@@ -179,6 +195,7 @@ function maintenanceReviewRows(report: AGraphReport): ReviewQueueRow[] {
         evidenceRows: firstRows(rows),
         source: `maintenance.${group.key}`,
         command,
+        graphSliceId: group.graphSliceId,
         targetTab: "maintenance" as const
       }
     ];
@@ -205,6 +222,7 @@ function externalRows(report: AGraphReport): ReviewQueueRow[] {
       evidenceRows: firstRows(fanouts),
       source: "maintenance.external-api-review",
       command: firstCommand(report, [/ignore external-api/, /audit-scope/, /ask/]),
+      graphSliceId: "external-surface",
       targetTab: "systems"
     }
   ];

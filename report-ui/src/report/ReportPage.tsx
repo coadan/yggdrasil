@@ -218,12 +218,14 @@ function ReviewEvidenceTable({ rows }: { rows: Array<Record<string, unknown>> })
 function ReviewQueue({
   rows,
   onAsk,
+  onOpenGraphSlice,
   onOpenTab,
   limit,
   title = "Operator Review Queue"
 }: {
   rows: ReviewQueueRow[];
   onAsk: (scope: AskScope) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
   limit?: number;
   title?: string;
@@ -272,6 +274,11 @@ function ReviewQueue({
                 <button type="button" onClick={() => onOpenTab(row.targetTab)}>
                   Open {row.targetTab}
                 </button>
+                {row.graphSliceId ? (
+                  <button type="button" onClick={() => onOpenGraphSlice(row.graphSliceId as string)}>
+                    Open graph slice
+                  </button>
+                ) : null}
               </div>
             </article>
           ))}
@@ -611,11 +618,13 @@ function AtlasTab({
   report,
   graph,
   onAsk,
+  onOpenGraphSlice,
   onOpenTab
 }: {
   report: AGraphReport;
   graph: AGraphGraph;
   onAsk: (scope: AskScope) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
 }) {
   const atlas = reportAtlas(report, graph);
@@ -714,7 +723,7 @@ function AtlasTab({
         )}
       </section>
 
-      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenTab={onOpenTab} limit={5} />
+      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} limit={5} />
     </div>
   );
 }
@@ -722,23 +731,27 @@ function AtlasTab({
 function SystemsTab({
   report,
   graph,
-  onAsk
+  onAsk,
+  selectedSliceId,
+  onSelectSlice
 }: {
   report: AGraphReport;
   graph: AGraphGraph;
   onAsk: (scope: AskScope) => void;
+  selectedSliceId: string;
+  onSelectSlice: (id: string) => void;
 }) {
   const maintenance = asRecord(report.maintenance);
   const slices = useMemo(() => graphSlices(graph), [graph]);
-  const [selectedSliceId, setSelectedSliceId] = useState<string>(() => slices[0]?.id || "full");
-  const selectedSlice = slices.find((slice) => slice.id === selectedSliceId) || null;
+  const activeSliceId = selectedSliceId || slices[0]?.id || "full";
+  const selectedSlice = slices.find((slice) => slice.id === activeSliceId) || null;
   const activeGraph = selectedSlice?.graph || graph;
 
   useEffect(() => {
-    if (selectedSliceId !== "full" && !slices.some((slice) => slice.id === selectedSliceId)) {
-      setSelectedSliceId(slices[0]?.id || "full");
+    if (selectedSliceId && selectedSliceId !== "full" && !slices.some((slice) => slice.id === selectedSliceId)) {
+      onSelectSlice(slices[0]?.id || "full");
     }
-  }, [selectedSliceId, slices]);
+  }, [onSelectSlice, selectedSliceId, slices]);
 
   return (
     <div className="report-grid">
@@ -746,9 +759,9 @@ function SystemsTab({
         graph={graph}
         selectedSlice={selectedSlice}
         slices={slices}
-        selectedSliceId={selectedSliceId}
+        selectedSliceId={activeSliceId}
         onAsk={onAsk}
-        onSelect={setSelectedSliceId}
+        onSelect={onSelectSlice}
       />
       <div className="span-2">
         <GraphPanel graph={activeGraph} />
@@ -964,17 +977,19 @@ function EvidenceTab({ report }: { report: AGraphReport }) {
 function MaintenanceTab({
   report,
   onAsk,
+  onOpenGraphSlice,
   onOpenTab
 }: {
   report: AGraphReport;
   onAsk: (scope: AskScope) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
 }) {
   const maintenance = asRecord(report.maintenance);
   const reviewRows = reviewQueueRows(report);
   return (
     <div className="report-grid">
-      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenTab={onOpenTab} />
+      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} />
       <CommandList commands={report.commands} />
       <DataTable
         title="Maintenance Decisions"
@@ -1013,16 +1028,20 @@ function DashboardTab({
   report,
   graph,
   onAsk,
+  onOpenGraphSlice,
   onOpenTab
 }: {
   report: AGraphReport;
   graph: AGraphGraph;
   onAsk: (scope: AskScope) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
 }) {
   const panels = pluginPanels(report);
   const reviewRows = reviewQueueRows(report);
-  if (panels.length === 0) return <AtlasTab report={report} graph={graph} onAsk={onAsk} onOpenTab={onOpenTab} />;
+  if (panels.length === 0) {
+    return <AtlasTab report={report} graph={graph} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} />;
+  }
 
   return (
     <div className="report-grid">
@@ -1030,7 +1049,7 @@ function DashboardTab({
         <p className="eyebrow">Report Dashboard</p>
         <h2>{report.project.name || report.project.id}</h2>
       </section>
-      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenTab={onOpenTab} limit={5} />
+      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} limit={5} />
       <PluginPanelList report={report} includeCore />
       <PluginDiagnostics diagnostics={report.plugins?.diagnostics || []} />
     </div>
@@ -1176,31 +1195,44 @@ function AskTab({ report, graph, scope }: { report: AGraphReport; graph: AGraphG
 export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGraphGraph }) {
   const [activeTab, setActiveTab] = useState<ReportTab>("dashboard");
   const [askScope, setAskScope] = useState<AskScope | null>(null);
+  const [systemSliceId, setSystemSliceId] = useState<string>("");
   const askFromScope = useCallback((scope: AskScope) => {
     setAskScope(scope);
     setActiveTab("ask");
+  }, []);
+  const openGraphSlice = useCallback((sliceId: string) => {
+    setSystemSliceId(sliceId);
+    setActiveTab("systems");
   }, []);
 
   const activePanel = useMemo(() => {
     switch (activeTab) {
       case "dashboard":
-        return <DashboardTab report={report} graph={graph} onAsk={askFromScope} onOpenTab={setActiveTab} />;
+        return <DashboardTab report={report} graph={graph} onAsk={askFromScope} onOpenGraphSlice={openGraphSlice} onOpenTab={setActiveTab} />;
       case "ask":
         return <AskTab report={report} graph={graph} scope={askScope} />;
       case "systems":
-        return <SystemsTab report={report} graph={graph} onAsk={askFromScope} />;
+        return (
+          <SystemsTab
+            report={report}
+            graph={graph}
+            onAsk={askFromScope}
+            selectedSliceId={systemSliceId}
+            onSelectSlice={setSystemSliceId}
+          />
+        );
       case "dependencies":
         return <DependenciesTab report={report} />;
       case "evidence":
         return <EvidenceTab report={report} />;
       case "maintenance":
-        return <MaintenanceTab report={report} onAsk={askFromScope} onOpenTab={setActiveTab} />;
+        return <MaintenanceTab report={report} onAsk={askFromScope} onOpenGraphSlice={openGraphSlice} onOpenTab={setActiveTab} />;
       case "plugins":
         return <PluginsTab report={report} />;
       default:
-        return <DashboardTab report={report} graph={graph} onAsk={askFromScope} onOpenTab={setActiveTab} />;
+        return <DashboardTab report={report} graph={graph} onAsk={askFromScope} onOpenGraphSlice={openGraphSlice} onOpenTab={setActiveTab} />;
     }
-  }, [activeTab, askFromScope, askScope, graph, report]);
+  }, [activeTab, askFromScope, askScope, graph, openGraphSlice, report, systemSliceId]);
 
   return (
     <div className="report-page">

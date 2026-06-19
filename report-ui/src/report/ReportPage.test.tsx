@@ -58,6 +58,18 @@ describe("ReportPage", () => {
     expect(screen.getByText("missing.lib")).toBeInTheDocument();
   });
 
+  it("opens focused graph slices from review rows", () => {
+    render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
+
+    const row = screen.getByText("Resolve import-to-package gaps").closest("article");
+    expect(row).toBeTruthy();
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Open graph slice" }));
+
+    expect(screen.getByRole("button", { name: "Systems" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: /Package Evidence/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("graph-panel")).toHaveTextContent("Package Evidence");
+  });
+
   it("asks from a review row with scoped evidence", () => {
     render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
 
