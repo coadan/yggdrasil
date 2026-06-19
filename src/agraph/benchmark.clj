@@ -3233,9 +3233,13 @@
        (if (= "agraph" (:mode packet))
          (str "AGraph is available and has already been prepared for this run. "
               "Read `AGRAPH_BENCH_AGRAPH_HINTS` first when it is set; use "
-              "`AGRAPH_BENCH_AGRAPH_CONTEXT` for supporting snippets. Use live "
-              "ask/explore commands only if the context artifact is missing or "
-              "insufficient; run setup only if graph commands report missing data.")
+              "`AGRAPH_BENCH_AGRAPH_CONTEXT` for supporting snippets. In the "
+              "hints, prefer `topFiles`, `architecture`, and `auditScopes` "
+              "before broad shell search; treat `answerability`, "
+              "`sourceCoverage`, and `diagnostics` as trust boundaries. Use "
+              "live ask/explore commands only if the context artifact is "
+              "missing or insufficient; run setup only if graph commands "
+              "report missing data.")
          "AGraph is not part of this run. Use ordinary local shell inspection only.")
        ""
        "## Run Metadata"

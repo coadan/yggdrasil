@@ -1808,6 +1808,33 @@
     (is (= "dotnet" (get env "AGRAPH_BENCH_PARSER_WORKER")))
     (is (= "dotnet" (get env "AGRAPH_PARSER_WORKER")))))
 
+(deftest agraph-agent-run-prompt-points-agents-at-architecture-hints
+  (let [root (temp-dir "agraph-bench-agent-prompt")
+        result-path (.getPath (io/file root "result.json"))
+        schema-path (.getPath (io/file root "schema.json"))
+        prompt (#'benchmark/agent-run-prompt
+                {:suite-id "suite"
+                 :case-id "case-1"
+                 :repo-id "repo"
+                 :project-id "project"
+                 :mode "agraph"
+                 :worktreeRoot "/tmp/worktree"
+                 :task {:objective "Find likely edit locations."}
+                 :artifacts {:packetPath "/tmp/packet.json"
+                             :projectConfig "/tmp/project.edn"
+                             :xtdbPath "/tmp/xtdb"
+                             :agraphHintsPath "/tmp/hints.json"
+                             :agraphContextPath "/tmp/context.json"}}
+                result-path
+                schema-path
+                {:agent-id "agent"
+                 :prompt-profile "fast"})]
+    (is (str/includes? prompt "AGraph hints JSON: /tmp/hints.json"))
+    (is (str/includes? prompt "AGraph context JSON: /tmp/context.json"))
+    (is (str/includes? prompt "`topFiles`, `architecture`, and `auditScopes`"))
+    (is (str/includes? prompt
+                       "`answerability`, `sourceCoverage`, and `diagnostics`"))))
+
 (deftest agraph-agent-run-builds-context-artifacts-after-indexing
   (let [out (temp-dir "agraph-bench-agent-run-context-order")
         worktree (temp-dir "agraph-bench-agent-run-context-worktree")
