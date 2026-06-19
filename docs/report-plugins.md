@@ -1,0 +1,106 @@
+# Report Plugins
+
+Report plugins extend the generated operator dashboard. They are separate from
+extractor plugins: extractor plugins add graph facts during ingestion, while
+report plugins run after report generation and decide how to present, rank, or
+combine already exported evidence for humans.
+
+Report plugins are configured in `project.edn`:
+
+```clojure
+{:id "my-project"
+ :repos [{:id "app" :root "."}]
+ :report-plugins
+ [{:id "planning-panel"
+   :version "0.1.0"
+   :command ["python3" "tools/report_panels.py"]
+   :slots [:plugins :systems]
+   :timeout-ms 10000}]}
+```
+
+AGraph starts each plugin during `bb report`, writes a JSON packet to stdin, and
+expects a JSON result on stdout. Core AGraph dashboard panels use the same panel
+contract and are included in the same `report.plugins` registry.
+
+## Input
+
+Plugins receive `agraph.report-plugin.input/v1`:
+
+```json
+{
+  "schema": "agraph.report-plugin.input/v1",
+  "project": {"id": "my-project", "name": "My Project", "path": "project.edn"},
+  "generatedAtMs": 12345,
+  "plugin": {"id": "planning-panel", "version": "0.1.0"},
+  "report": {"schema": "agraph.report/v2"},
+  "graphs": {
+    "overview": {"schema": "agraph.graph/v2", "nodes": [], "edges": []},
+    "systems": {"schema": "agraph.graph/v2", "nodes": [], "edges": []}
+  },
+  "coverage": {},
+  "maintenance": {},
+  "evidence": {},
+  "packages": {},
+  "artifacts": {}
+}
+```
+
+The `graphs` field intentionally contains the generated graph exports, not just
+compact counts. A plugin may traverse nodes, edges, clusters, attributes, and
+neighborhoods in its own way when a project needs a different report surface.
+
+## Output
+
+Plugins return `agraph.report-plugin.result/v1`:
+
+```json
+{
+  "schema": "agraph.report-plugin.result/v1",
+  "panels": [
+    {
+      "id": "graph-crawl",
+      "label": "Graph Crawl",
+      "slot": "plugins",
+      "order": 10,
+      "mdx": "## Graph Crawl\n\n<MetricGrid dataKey=\"metrics\" />",
+      "data": {
+        "metrics": [{"label": "Nodes", "value": 42}]
+      }
+    }
+  ],
+  "diagnostics": [],
+  "artifacts": []
+}
+```
+
+Panel MDX is rendered by the report UI with a safe allowlist:
+
+- `MetricGrid dataKey="..."`
+- `DataTable dataKey="..."`
+- `CommandList dataKey="..."`
+- `Callout dataKey="..."`
+- `KeyValueTable dataKey="..."`
+
+The browser does not execute plugin JavaScript. Unsupported expressions are
+shown as skipped content so report plugins can fail visibly without taking over
+the dashboard runtime.
+
+## Slots
+
+Known slots are `atlas`, `systems`, `dependencies`, `evidence`, `maintenance`,
+and `plugins`. The dashboard renders all panels; detail tabs render project
+plugin panels for their matching slot. The `plugins` tab shows non-core panels
+and plugin diagnostics.
+
+## Artifacts
+
+`bb report` writes:
+
+- `report.json`, including `report.plugins`
+- `report-plugins.json`, containing only the plugin bundle
+- `index.html`, which renders the report UI
+
+Report plugins are presentation and planning tools. They should emit panel data,
+diagnostics, or artifacts for review. They should not mutate graph facts or
+write accepted semantic corrections directly; accepted corrections still belong
+in validated `agraph.map.json` flows.

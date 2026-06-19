@@ -8,6 +8,7 @@
             [agraph.graph :as graph]
             [agraph.map :as graph-map]
             [agraph.project :as project]
+            [agraph.report-plugin :as report-plugin]
             [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -26,6 +27,12 @@
 
 (def ^:private report-ui-dir
   "resources/agraph/report-ui")
+
+(def ^:private empty-plugin-bundle
+  {:schema report-plugin/bundle-schema
+   :panels []
+   :diagnostics []
+   :artifacts []})
 
 (defn- now-ms
   []
@@ -431,7 +438,7 @@
 (defn report-data
   "Return the canonical project report packet for a generated report bundle."
   [{:keys [project map-path detail generated-at-ms graph-data systems-data coverage
-           maintenance context-example evidence package-report artifacts]}]
+           maintenance context-example evidence package-report artifacts report-plugins]}]
   {:schema schema
    :project {:id (:id project)
              :name (:name project)
@@ -493,6 +500,7 @@
                                                          maintenance)))}
    :context-example {:artifact "context-example.json"
                      :answerability (:answerability context-example)}
+   :plugins (or report-plugins empty-plugin-bundle)
    :artifacts artifacts
    :commands (suggested-commands project map-path maintenance)})
 
@@ -670,19 +678,33 @@
                    :report-data (artifact "report.json")
                    :graph (artifact "graph.json")
                    :systems (artifact "systems.json")
-                   :context-example (artifact "context-example.json")}
-        report-packet (report-data {:project project
-                                    :map-path map-path
-                                    :detail detail
-                                    :generated-at-ms generated-at-ms
-                                    :graph-data graph-data
-                                    :systems-data systems-data
-                                    :coverage coverage
-                                    :maintenance maintenance
-                                    :context-example ctx
-                                    :evidence evidence-summary
-                                    :package-report package-report
-                                    :artifacts artifacts})
+                   :context-example (artifact "context-example.json")
+                   :plugins (artifact "report-plugins.json")}
+        base-report-packet (report-data {:project project
+                                         :map-path map-path
+                                         :detail detail
+                                         :generated-at-ms generated-at-ms
+                                         :graph-data graph-data
+                                         :systems-data systems-data
+                                         :coverage coverage
+                                         :maintenance maintenance
+                                         :context-example ctx
+                                         :evidence evidence-summary
+                                         :package-report package-report
+                                         :artifacts artifacts
+                                         :report-plugins empty-plugin-bundle})
+        plugin-bundle (report-plugin/bundle {:project project
+                                             :generated-at-ms generated-at-ms
+                                             :report base-report-packet
+                                             :graph graph-data
+                                             :systems systems-data
+                                             :coverage coverage
+                                             :maintenance maintenance
+                                             :evidence evidence-summary
+                                             :package-report package-report
+                                             :artifacts artifacts
+                                             :plugins (:report-plugins project)})
+        report-packet (assoc base-report-packet :plugins plugin-bundle)
         report (report-mdx {:project project
                             :map-path map-path
                             :detail detail
@@ -696,7 +718,8 @@
                     :report-data (write-json! (io/file out-dir "report.json") report-packet)
                     :graph (write-json! (io/file out-dir "graph.json") graph-data)
                     :systems (write-json! (io/file out-dir "systems.json") systems-data)
-                    :context-example (write-json! (io/file out-dir "context-example.json") ctx)}
+                    :context-example (write-json! (io/file out-dir "context-example.json") ctx)
+                    :plugins (write-json! (io/file out-dir "report-plugins.json") plugin-bundle)}
         index-path (do
                      (copy-report-ui! out-dir)
                      (write-ui-index! (io/file out-dir "index.html")

@@ -2,6 +2,7 @@
   (:require [agraph.graph :as graph]
             [agraph.project :as project]
             [agraph.report :as report]
+            [agraph.report-plugin :as report-plugin]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -97,6 +98,8 @@
              :versions ["18.3.1" "19.1.0"]}]
            (get-in packet [:packages :version-conflicts])))
     (is (= "agraph.report.atlas/v1" (get-in packet [:atlas :schema])))
+    (is (= report-plugin/bundle-schema (get-in packet [:plugins :schema])))
+    (is (empty? (get-in packet [:plugins :panels])))
     (is (= 2 (get-in packet [:atlas :dependencies :packages])))
     (is (= 1 (get-in packet [:atlas :dependencies :unresolved-imports])))
     (is (= 1 (get-in packet [:atlas :dependencies :version-conflicts])))
@@ -199,6 +202,7 @@
               graph-json (json/read-json (slurp (:graph files)) :key-fn keyword)
               systems-json (json/read-json (slurp (:systems files)) :key-fn keyword)
               report-json (json/read-json (slurp (:report-data files)) :key-fn keyword)
+              plugins-json (json/read-json (slurp (:plugins files)) :key-fn keyword)
               report-md (slurp (:report files))]
           (is (= report/schema (:schema result)))
           (is (= "fixture" (:project-id result)))
@@ -207,6 +211,10 @@
           (is (= graph/schema (:schema graph-json)))
           (is (= graph/schema (:schema systems-json)))
           (is (= report/schema (:schema report-json)))
+          (is (= report-plugin/bundle-schema (:schema plugins-json)))
+          (is (= report-plugin/bundle-schema (get-in report-json [:plugins :schema])))
+          (is (some #(= report-plugin/core-plugin-id (get-in % [:plugin :id]))
+                    (:panels plugins-json)))
           (is (= "fixture" (get-in report-json [:project :id])))
           (is (= "agraph.evidence/v1" (get-in report-json [:evidence :schema])))
           (is (= "agraph.report.atlas/v1" (get-in report-json [:atlas :schema])))

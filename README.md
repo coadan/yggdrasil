@@ -221,6 +221,12 @@ provenance and `:unbenchmarked` status by default. See
 core requires project-agnostic behavior plus benchmark evidence showing a
 material improvement.
 
+Report plugins are a separate presentation extension path for generated
+dashboards. They run after report generation, receive the exported report packet
+plus full overview and systems graph JSON, and emit MDX-backed panels for human
+operators. Core report panels use the same plugin bundle contract. See
+[docs/report-plugins.md](docs/report-plugins.md).
+
 Agent usage should follow progressive disclosure. A fresh agent should start
 with `agraph status` to check graph-basis freshness and evidence planes,
 `agraph sync check`, and a compact system view, then

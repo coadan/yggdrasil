@@ -142,6 +142,63 @@ export const fixtureReport: AGraphReport = {
       ]
     }
   },
+  plugins: {
+    schema: "agraph.report.plugins/v1",
+    panels: [
+      {
+        id: "core-atlas-summary",
+        label: "Project Atlas",
+        slot: "atlas",
+        order: 0,
+        mdx: "## Project Atlas\n\n<MetricGrid dataKey=\"metrics\" />",
+        data: {
+          metrics: [
+            { label: "Files", value: 12 },
+            { label: "Nodes", value: 8 },
+            { label: "Edges", value: 11 },
+            { label: "Systems", value: 2 },
+            { label: "Packages", value: 2 }
+          ]
+        },
+        plugin: {
+          id: "agraph-core-report",
+          version: "1",
+          authority: "core"
+        }
+      },
+      {
+        id: "fixture-graph-crawl",
+        label: "Fixture Graph Crawl",
+        slot: "plugins",
+        order: 10,
+        mdx: "## Fixture Graph Crawl\n\n<Callout dataKey=\"summary\" />\n\n<DataTable dataKey=\"rows\" />",
+        data: {
+          summary: "Plugin output can be shaped from graph traversal evidence.",
+          rows: {
+            columns: [
+              { key: "source", label: "Source" },
+              { key: "nodes", label: "Nodes" },
+              { key: "edges", label: "Edges" }
+            ],
+            rows: [{ source: "systems.json", nodes: 3, edges: 2 }]
+          }
+        },
+        plugin: {
+          id: "fixture-report-plugin",
+          version: "0.1.0",
+          authority: "project-plugin"
+        }
+      }
+    ],
+    diagnostics: [
+      {
+        plugin: { id: "fixture-report-plugin" },
+        stage: "fixture",
+        message: "Fixture diagnostic"
+      }
+    ],
+    artifacts: []
+  },
   commands: ["agraph ask \"where is this handled?\" --project fixture --json"]
 };
 

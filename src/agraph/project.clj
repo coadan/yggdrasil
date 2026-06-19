@@ -3,6 +3,7 @@
   (:require [agraph.fs :as fs]
             [agraph.extractor-plugin :as extractor-plugin]
             [agraph.index :as index]
+            [agraph.report-plugin :as report-plugin]
             [agraph.system :as system]
             [agraph.xtdb :as store]
             [charred.api :as json]
@@ -130,7 +131,11 @@
              :repos (normalize-repos base data)}
       (seq (:extractor-plugins data))
       (assoc :extractor-plugins
-             (extractor-plugin/normalize-plugins (:extractor-plugins data))))))
+             (extractor-plugin/normalize-plugins (:extractor-plugins data)))
+
+      (seq (:report-plugins data))
+      (assoc :report-plugins
+             (report-plugin/normalize-plugins (:report-plugins data))))))
 
 (defn add-repo-to-config!
   "Add a repo entry to project config and return the normalized project.

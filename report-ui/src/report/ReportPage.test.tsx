@@ -13,8 +13,13 @@ describe("ReportPage", () => {
 
     expect(screen.getByText("Fixture")).toBeInTheDocument();
     expect(screen.getByText("Project Atlas")).toBeInTheDocument();
-    expect(screen.getByText("Evidence Surface")).toBeInTheDocument();
-    expect(screen.getByText("source-graph")).toBeInTheDocument();
+    expect(screen.getByText("agraph-core-report")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Plugins" }));
+
+    expect(screen.getByText("Fixture Graph Crawl")).toBeInTheDocument();
+    expect(screen.getAllByText("fixture-report-plugin").length).toBeGreaterThan(0);
+    expect(screen.getByText("Fixture diagnostic")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Systems" }));
 
@@ -53,6 +58,6 @@ describe("ReportPage", () => {
     render(<ReportPage report={sourceDocsSystemReport} graph={fixtureGraph} />);
 
     expect(screen.getByText("Source Docs System")).toBeInTheDocument();
-    expect(screen.getByText("map-overlay")).toBeInTheDocument();
+    expect(screen.getByText("Project Atlas")).toBeInTheDocument();
   });
 });

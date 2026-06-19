@@ -20,6 +20,38 @@ export type EvidenceSurface = {
   next?: string[];
 };
 
+export type ReportPluginPanel = {
+  id: string;
+  label: string;
+  slot: string;
+  order?: number;
+  mdx?: string;
+  data?: Record<string, unknown>;
+  description?: string;
+  component?: string;
+  plugin?: {
+    id?: string;
+    version?: string;
+    authority?: string;
+    fingerprint?: string;
+    [key: string]: unknown;
+  };
+};
+
+export type ReportPluginDiagnostic = {
+  plugin?: Record<string, unknown>;
+  stage?: string;
+  message?: string;
+  [key: string]: unknown;
+};
+
+export type ReportPlugins = {
+  schema: "agraph.report.plugins/v1";
+  panels?: ReportPluginPanel[];
+  diagnostics?: ReportPluginDiagnostic[];
+  artifacts?: Array<Record<string, unknown>>;
+};
+
 export type AGraphReport = {
   schema: "agraph.report/v2";
   project: {
@@ -45,6 +77,7 @@ export type AGraphReport = {
     ecosystems?: Array<Record<string, unknown>>;
   };
   maintenance?: Record<string, unknown>;
+  plugins?: ReportPlugins;
   commands: string[];
 };
 
