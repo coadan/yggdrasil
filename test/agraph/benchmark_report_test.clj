@@ -209,6 +209,26 @@
                                        :caseIds ["case-1"]}]
               :warnings 1}
              (:agentDiagnostics report)))
+      (is (= ["missed-files-present-in-context"
+              "ranked-outside-top5"
+              "path-citation-gaps"
+              "missing-declared-source-kinds"
+              "coverage-excluded-ground-truth"
+              "hint-diagnostics"
+              "coverage-filtered-candidates"
+              "graph-expectation-failures"
+              "commandless-runs"
+              "warning-runs"
+              "unverified-score-artifacts"]
+             (mapv :kind (:improvementSummary report))))
+      (is (= [{:kind "coverage-filtered-candidate-files"
+               :runs 1
+               :cases 1
+               :caseIds ["case-1"]}]
+             (->> (:improvementSummary report)
+                  (filter #(= "hint-diagnostics" (:kind %)))
+                  first
+                  :details)))
       (is (= {:configuredRuns 1
               :passedRuns 0
               :passedCaseIds []

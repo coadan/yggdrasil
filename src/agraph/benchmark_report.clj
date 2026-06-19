@@ -573,6 +573,103 @@
 
                  (not command-telemetry?)
                  (conj "Command telemetry is unavailable; shell/search/read-loop costs are unproven."))}))
+(defn- improvement-row
+  [{:keys [kind area runs case-ids message details]}]
+  (when (pos? (long (or runs 0)))
+    (cond-> {:kind kind
+             :area area
+             :runs runs
+             :caseIds (vec case-ids)
+             :message message}
+      (seq details) (assoc :details details))))
+(defn- hint-diagnostic-details
+  [agent-diagnostics]
+  (->> (:hintDiagnosticsByKind agent-diagnostics)
+       (mapv #(select-keys % [:kind :runs :cases :caseIds]))))
+(defn- report-improvement-summary
+  [report]
+  (let [agent-diagnostics (:agentDiagnostics report)
+        localization (:localizationDiagnostics report)
+        coverage (:coverageDiagnostics report)
+        graph-expectations (:graphExpectationDiagnostics report)
+        artifacts (:artifactDiagnostics report)
+        hint-details (hint-diagnostic-details agent-diagnostics)]
+    (vec
+     (keep identity
+           [(improvement-row
+             {:kind "missed-files-absent-from-context"
+              :area "extraction-or-retrieval"
+              :runs (:missedAndAbsentFromContextRuns localization)
+              :case-ids (:missedAndAbsentFromContextCaseIds localization)
+              :message "Scoreable files were missed and were not present in the AGraph context ranks."})
+            (improvement-row
+             {:kind "missed-files-present-in-context"
+              :area "ranking-or-context-budget"
+              :runs (:missedButPresentInContextRuns localization)
+              :case-ids (:missedButPresentInContextCaseIds localization)
+              :message "Scoreable files were available in context but not selected by the agent result."})
+            (improvement-row
+             {:kind "ranked-outside-top5"
+              :area "ranking-or-context-budget"
+              :runs (:rankedOutsideTop5Runs localization)
+              :case-ids (:rankedOutsideTop5CaseIds localization)
+              :message "Scoreable files were ranked below the top five suspected files."})
+            (improvement-row
+             {:kind "path-citation-gaps"
+              :area "agent-use-and-citation"
+              :runs (:pathUncitedRuns localization)
+              :case-ids (:pathUncitedCaseIds localization)
+              :message "Ranked files lacked path-level evidence citations."})
+            (improvement-row
+             {:kind "missing-declared-source-kinds"
+              :area "coverage-declarations"
+              :runs (:missingDeclaredSourceKindRuns coverage)
+              :case-ids (:missingDeclaredSourceKindCaseIds coverage)
+              :message "Benchmark cases declared source kinds with no scoreable indexed files."
+              :details (:missingDeclaredSourceKinds coverage)})
+            (improvement-row
+             {:kind "coverage-excluded-ground-truth"
+              :area "coverage-declarations"
+              :runs (:coverageExcludedGroundTruthRuns coverage)
+              :case-ids (:coverageExcludedGroundTruthCaseIds coverage)
+              :message "Ground-truth files were excluded by benchmark coverage declarations."})
+            (improvement-row
+             {:kind "hint-diagnostics"
+              :area "agent-context-quality"
+              :runs (:hintDiagnosticRuns agent-diagnostics)
+              :case-ids (:hintDiagnosticCaseIds agent-diagnostics)
+              :message "AGraph hints contained diagnostics that should be inspected before trusting benchmark outcomes."
+              :details hint-details})
+            (improvement-row
+             {:kind "coverage-filtered-candidates"
+              :area "agent-context-quality"
+              :runs (:coverageFilteredRuns agent-diagnostics)
+              :case-ids (:coverageFilteredCaseIds agent-diagnostics)
+              :message "Coverage declarations filtered candidate files out of the agent shortlist."})
+            (improvement-row
+             {:kind "graph-expectation-failures"
+              :area "graph-fact-quality"
+              :runs (:failedRuns graph-expectations)
+              :case-ids (:failedCaseIds graph-expectations)
+              :message "Configured graph expectations failed for these benchmark runs."})
+            (improvement-row
+             {:kind "commandless-runs"
+              :area "agent-use-and-citation"
+              :runs (:commandlessRuns agent-diagnostics)
+              :case-ids (:commandlessCaseIds agent-diagnostics)
+              :message "Agent results did not record any commands, making replay quality weaker."})
+            (improvement-row
+             {:kind "warning-runs"
+              :area "agent-result-shape"
+              :runs (:warningRuns agent-diagnostics)
+              :case-ids (:warningCaseIds agent-diagnostics)
+              :message "Agent result validation produced warnings."})
+            (improvement-row
+             {:kind "unverified-score-artifacts"
+              :area "benchmark-hygiene"
+              :runs (:unverifiedScoreRuns artifacts)
+              :case-ids (:unverifiedScoreCaseIds artifacts)
+              :message "Score artifacts were stale or legacy relative to current benchmark fingerprints."})]))))
 (defn- group-agent-scores-by-parser-worker
   [expected-fingerprints results]
   (->> results
@@ -991,6 +1088,9 @@
                                             :artifact
                                             (artifact-diagnostic expected-fingerprints %))
                                     results)}
+        report-base (assoc report-base
+                           :improvementSummary
+                           (report-improvement-summary report-base))
         report (assoc report-base
                       :claimReadiness (report-claim-readiness report-base))]
     (benchmark-io/write-json-file! (benchmark-paths/agent-report-path suite opts) report)
