@@ -1159,6 +1159,7 @@
          (conj {:kind :activity
                 :label "Inspect result schema mismatch activity"
                 :count (:result-schema-mismatch-events counts 0)
+                :mcpTool "agraph_sync_activity"
                 :command (command/command "agraph" "sync" "activity" "<project.edn>" "--json")})
 
          (zero? (+ (:system-nodes counts) (:system-edges counts)))
@@ -1169,6 +1170,7 @@
          (zero? (+ (:activity-items counts) (:activity-events counts)))
          (conj {:kind :activity
                 :label "Import local activity and work rows"
+                :mcpTool "agraph_sync_activity"
                 :command (command/command "agraph" "sync" "activity" "<project.edn>")}))
        (distinct-by :command)
        (take 5)

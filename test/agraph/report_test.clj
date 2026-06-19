@@ -109,7 +109,15 @@
              "agraph packages --project fixture --with-conflicts --json"
              "agraph sync coverage project.edn --json"
              "agraph sync activity project.edn --json"}
-           (set (map :command (get-in packet [:atlas :next-actions])))))))
+           (set (map :command (get-in packet [:atlas :next-actions])))))
+    (is (some #(= {:kind :activity
+                   :label "Inspect result schema mismatch activity"
+                   :count 1
+                   :mcpTool "agraph_sync_activity"
+                   :mcpArgs {:configPath "project.edn"}
+                   :command "agraph sync activity project.edn --json"}
+                  %)
+              (get-in packet [:atlas :next-actions])))))
 
 (deftest report-data-suggests-maintenance-work-commands
   (let [packet (report/report-data

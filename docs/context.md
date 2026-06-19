@@ -92,7 +92,8 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
 - `warnings`: short mechanical explanations
 - `next`: bounded follow-up commands
 - `nextActions`: the same follow-up work as structured rows with `kind`,
-  `label`, optional `count`, and executable `command`
+  `label`, optional `count`, executable `command`, and optional MCP hints
+  (`mcpTool`, `mcpArgs`) when a typed MCP tool maps directly to the action
 
 If `dependencies` is missing or weak, `next` points at the package report so
 agents can inspect whether the graph has package declarations, import evidence,
@@ -106,8 +107,9 @@ If source files or source graph rows are missing, `warnings` names that source
 plane explicitly and `next` points at `agraph sync <project.edn>` or
 `agraph sync <project.edn> --check`. Agents should treat those as graph-basis
 problems before concluding that code evidence does not exist.
-Machine consumers should prefer `nextActions` over parsing `next`; `next` stays
-as a compact human-readable command list.
+Machine consumers should prefer `nextActions` over parsing `next`; MCP clients
+should use `mcpTool`/`mcpArgs` when present. `next` stays as a compact
+human-readable command list.
 
 Agents should treat `answerability` as a confidence boundary. Local queue
 activity and validation-shaped queue results are supported after

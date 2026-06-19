@@ -323,10 +323,13 @@
              :command (sync-subcommand project "coverage" "--json")})
 
       (pos? (long schema-mismatches))
-      (conj {:kind :activity
-             :label "Inspect result schema mismatch activity"
-             :count schema-mismatches
-             :command (sync-subcommand project "activity" "--json")}))))
+      (conj (merge {:kind :activity
+                    :label "Inspect result schema mismatch activity"
+                    :count schema-mismatches
+                    :mcpTool "agraph_sync_activity"
+                    :command (sync-subcommand project "activity" "--json")}
+                   (when (:path project)
+                     {:mcpArgs {:configPath (:path project)}}))))))
 
 (defn- atlas-summary
   [{:keys [project graph-data systems-data coverage maintenance evidence package-report]}]

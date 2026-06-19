@@ -182,15 +182,21 @@
                                         :map-path map-path}))
 
            (zero? (+ activity-items activity-events))
-           (conj {:kind :activity
-                  :label "Import local activity and work rows"
-                  :command (sync-subcommand "activity" config-path "--json")})
+           (conj (merge {:kind :activity
+                         :label "Import local activity and work rows"
+                         :mcpTool "agraph_sync_activity"
+                         :command (sync-subcommand "activity" config-path "--json")}
+                        (when config-path
+                          {:mcpArgs {:configPath config-path}})))
 
            (pos? result-schema-mismatch-events)
-           (conj {:kind :activity
-                  :label "Inspect result schema mismatch activity"
-                  :count result-schema-mismatch-events
-                  :command (sync-subcommand "activity" config-path "--json")})
+           (conj (merge {:kind :activity
+                         :label "Inspect result schema mismatch activity"
+                         :count result-schema-mismatch-events
+                         :mcpTool "agraph_sync_activity"
+                         :command (sync-subcommand "activity" config-path "--json")}
+                        (when config-path
+                          {:mcpArgs {:configPath config-path}})))
 
            (pos? diagnostics)
            (conj {:kind :coverage

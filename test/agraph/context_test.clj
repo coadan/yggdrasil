@@ -525,6 +525,7 @@
       (is (some #(= {:kind :activity
                      :label "Inspect result schema mismatch activity"
                      :count 1
+                     :mcpTool "agraph_sync_activity"
                      :command "agraph sync activity <project.edn> --json"}
                     %)
                 (:nextActions answerability))))))
