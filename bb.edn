@@ -102,6 +102,10 @@
                  :task (apply shell {:dir "report-ui"} "npm run dev"
                               *command-line-args*)}
 
+  large-files {:doc "Audit tracked files over a line limit. Usage: bb large-files [limit]"
+               :task (apply shell "bash" "scripts/large-file-audit.sh"
+                            *command-line-args*)}
+
   test {:doc "Run tests."
         :task (shell "clojure -M:test")}
 
