@@ -111,6 +111,84 @@
     (is (some #{"Indexer diagnostics are present; inspect source coverage before relying on missing facts."}
               warnings))))
 
+(deftest answerability-warns-when-source-plane-is-empty
+  (let [retrieval {:requested :lexical
+                   :effective :lexical
+                   :fallback? false}
+        no-files (#'context/answerability-warnings
+                  {:files 0
+                   :nodes 0
+                   :edges 0
+                   :search-docs 1
+                   :diagnostics 0
+                   :system-nodes 1
+                   :system-edges 0
+                   :activity-items 1
+                   :activity-events 0
+                   :validation-events 1
+                   :embeddings 1}
+                  retrieval
+                  [])
+        no-graph (#'context/answerability-warnings
+                  {:files 2
+                   :nodes 0
+                   :edges 0
+                   :search-docs 1
+                   :diagnostics 0
+                   :system-nodes 1
+                   :system-edges 0
+                   :activity-items 1
+                   :activity-events 0
+                   :validation-events 1
+                   :embeddings 1}
+                  retrieval
+                  [])]
+    (is (some #{"No source files are indexed for this project."} no-files))
+    (is (some #{"Source files are indexed, but no source graph rows are indexed."}
+              no-graph))))
+
+(deftest answerability-next-steps-distinguish-source-file-and-graph-gaps
+  (let [retrieval {:requested :lexical
+                   :effective :lexical
+                   :fallback? false}
+        no-files (#'context/next-steps
+                  {:files 0
+                   :nodes 0
+                   :edges 0
+                   :search-docs 1
+                   :external-packages 1
+                   :package-import-edges 1
+                   :unresolved-imports 0
+                   :package-evidence-gaps 0
+                   :package-conflicts 0
+                   :system-nodes 1
+                   :system-edges 0
+                   :activity-items 1
+                   :activity-events 0
+                   :diagnostics 0}
+                  retrieval
+                  "fixture")
+        no-graph (#'context/next-steps
+                  {:files 2
+                   :nodes 0
+                   :edges 0
+                   :search-docs 1
+                   :external-packages 1
+                   :package-import-edges 1
+                   :unresolved-imports 0
+                   :package-evidence-gaps 0
+                   :package-conflicts 0
+                   :system-nodes 1
+                   :system-edges 0
+                   :activity-items 1
+                   :activity-events 0
+                   :diagnostics 0}
+                  retrieval
+                  "fixture")]
+    (is (some #{"Run agraph sync <project.edn>"} no-files))
+    (is (not (some #{"Run agraph sync <project.edn> --check"} no-files)))
+    (is (some #{"Run agraph sync <project.edn> --check"} no-graph))))
+
 (deftest compact-answerability-keeps-bounded-actionable-detail
   (let [compact (#'context/compact-answerability
                  {:status :limited

@@ -986,6 +986,13 @@
     (and (= :auto (:requested retrieval)) (:fallback? retrieval))
     (conj "No embedding client was available; retrieval used lexical fallback.")
 
+    (zero? (:files counts 0))
+    (conj "No source files are indexed for this project.")
+
+    (and (pos? (:files counts 0))
+         (zero? (+ (:nodes counts) (:edges counts))))
+    (conj "Source files are indexed, but no source graph rows are indexed.")
+
     (zero? (:search-docs counts))
     (conj "No search docs are indexed; context retrieval is limited.")
 
@@ -1036,8 +1043,12 @@
 (defn- next-steps
   [counts retrieval project-id]
   (->> (cond-> []
-         (zero? (:files counts))
+         (zero? (:files counts 0))
          (conj "Run agraph sync <project.edn>")
+
+         (and (pos? (:files counts 0))
+              (zero? (+ (:nodes counts) (:edges counts))))
+         (conj "Run agraph sync <project.edn> --check")
 
          (zero? (:search-docs counts))
          (conj "Run agraph sync <project.edn> --query-index")

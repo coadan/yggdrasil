@@ -97,6 +97,10 @@ When unresolved imports are present, `next` also suggests
 through the review queue. When declared packages lack source import evidence or
 version conflicts are present, `next` includes the matching package-report
 filter command.
+If source files or source graph rows are missing, `warnings` names that source
+plane explicitly and `next` points at `agraph sync <project.edn>` or
+`agraph sync <project.edn> --check`. Agents should treat those as graph-basis
+problems before concluding that code evidence does not exist.
 
 Agents should treat `answerability` as a confidence boundary. Local queue
 activity and validation-shaped queue results are supported after
