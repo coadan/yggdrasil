@@ -412,7 +412,7 @@
         architecture-by-tag (into {} (map (juxt :tag identity)) architecture-signals)]
     (is (= {:sharedTagKeys ["architecture-dependency-flow" "problem-architecture"]
             :problemClassTags ["problem-architecture"]
-            :architectureClassTags ["architecture-dependency-flow" "problem-architecture"]
+            :architectureClassTags ["architecture-dependency-flow"]
             :problemClassSummaryAvailable true
             :sharedMeasuredProblemClassTags ["problem-architecture"]
             :sharedMeasuredArchitectureClassTags ["architecture-dependency-flow"]
@@ -437,11 +437,11 @@
                          :warnings])))
     (is (= {:problemClasses 1
             :measuredProblemClasses 1
-            :architectureClasses 2
+            :architectureClasses 1
             :measuredArchitectureClasses 1}
            class-summary))
     (is (= ["problem-architecture"] (mapv :tag problem-signals)))
-    (is (= ["architecture-dependency-flow" "problem-architecture"]
+    (is (= ["architecture-dependency-flow"]
            (mapv :tag architecture-signals)))
     (is (= {:shellOnly {:cases 2 :runs 2}
             :agraph {:cases 2 :runs 2}
@@ -457,9 +457,6 @@
     (is (= true
            (get-in architecture-by-tag
                    ["architecture-dependency-flow" :measured])))
-    (is (= false
-           (get-in architecture-by-tag
-                   ["problem-architecture" :measured])))
     (is (= {:status "supported"
             :broadEfficiencyClaimSupported true
             :sharedCases 2
@@ -799,7 +796,7 @@
     (is (.contains out "Category signals:"))
     (is (.contains out "observed metrics: 1"))
     (is (.contains out
-                   "Class signal summary: problem 1/1 measured, architecture 1/2 measured"))
+                   "Class signal summary: problem 1/1 measured, architecture 1/1 measured"))
     (is (.contains out
                    "- command-telemetry: agraph-improved (observed metrics: 1)"))
     (is (.contains out "Problem-class signals:"))

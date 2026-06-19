@@ -159,8 +159,7 @@
        vec))
 
 (def ^:private architecture-class-tags
-  #{"problem-architecture"
-    "architecture-boundary"
+  #{"architecture-boundary"
     "architecture-runtime-boundary"
     "architecture-dependency-flow"
     "architecture-data-ownership"
