@@ -346,6 +346,23 @@
                                           :path "c.clj"}]}}]}
            compact))))
 
+(deftest compact-relationships-keeps-bounded-targets
+  (let [packet {:relationships [{:relation "requires"
+                                 :source "node:caller"
+                                 :count 5
+                                 :targets (mapv (fn [idx]
+                                                  {:id (str "edge:" idx)
+                                                   :target (str "node:" idx)})
+                                                (range 5))}
+                                {:relation "imports"
+                                 :source "node:other"
+                                 :count 1
+                                 :targets [{:id "edge:other"
+                                            :target "node:dep"}]}]}
+        compact (#'context/compact-relationships-in-packet packet)]
+    (is (= 2 (count (:relationships compact))))
+    (is (= 4 (count (get-in compact [:relationships 0 :targets]))))))
+
 (deftest architecture-section-keeps-accepted-systems-auditable
   (let [section (#'context/architecture-section
                  {:overlay {:systems [{:id "system:billing"
@@ -1085,6 +1102,14 @@
                :confidence "medium"
                :score 1.0}]
              (:boundaryEvidence architecture)))
+      (is (= [{:relation "shares-config"
+               :source "system:billing"
+               :count 1
+               :targets [{:id "edge:billing-worker"
+                          :target "system:worker"
+                          :confidence "medium"
+                          :score 1.0}]}]
+             (:relationships packet)))
       (is (= [{:id "evidence:billing-env"
                :systemId "system:billing"
                :repo "app"

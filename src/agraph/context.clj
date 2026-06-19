@@ -701,6 +701,33 @@
     (:evidenceCounts edge) (assoc :evidenceCounts (:evidenceCounts edge))
     (:relations edge) (assoc :relations (:relations edge))))
 
+(defn- relationship-target-row
+  [edge]
+  (cond-> {:id (:id edge)
+           :target (:target edge)}
+    (:confidence edge) (assoc :confidence (:confidence edge))
+    (:salience edge) (assoc :salience (:salience edge))
+    (:visibility edge) (assoc :visibility (:visibility edge))
+    (:score edge) (assoc :score (:score edge))))
+
+(defn- relationship-group-row
+  [[[relation source] edges]]
+  {:relation (display-name relation)
+   :source source
+   :count (count edges)
+   :targets (mapv relationship-target-row
+                  (sort-by (juxt :target :id) edges))})
+
+(defn- relationship-groups
+  [edges]
+  (->> edges
+       (group-by (juxt :relation :source))
+       (sort-by (fn [[[relation source] grouped-edges]]
+                  [(- (count grouped-edges))
+                   (display-name relation)
+                   source]))
+       (mapv relationship-group-row)))
+
 (defn- system-evidence-score
   [query-tokens selected-system-ids selected-paths row]
   (let [path-score (if (contains? selected-paths (:path row)) 1.0 0.0)
@@ -903,7 +930,7 @@
 
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns answerability
-   search-instrumentation freshness source-coverage architecture candidate-files]
+   search-instrumentation freshness source-coverage architecture relationships candidate-files]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data)
@@ -919,6 +946,7 @@
     search-instrumentation (assoc :search search-instrumentation)
     freshness (assoc :freshness freshness)
     architecture (assoc :architecture architecture)
+    (seq relationships) (assoc :relationships relationships)
     source-coverage (assoc :sourceCoverage source-coverage)))
 
 (defn- add-warning-with-budget
@@ -1027,6 +1055,16 @@
     (update packet :architecture compact-architecture)
     packet))
 
+(defn- compact-relationship-group
+  [group]
+  (update group :targets #(vec (take 4 %))))
+
+(defn- compact-relationships-in-packet
+  [packet]
+  (if (contains? packet :relationships)
+    (update packet :relationships #(mapv compact-relationship-group (take 5 %)))
+    packet))
+
 (defn- trim-optional-context-metadata
   [packet budget]
   (let [trim-steps [#(update-in % [:search :instrumentation] dissoc :context-chunks)
@@ -1034,7 +1072,9 @@
                     compact-source-coverage-in-packet
                     #(dissoc % :sourceCoverage)
                     compact-architecture-in-packet
+                    compact-relationships-in-packet
                     #(update % :answerability compact-answerability)
+                    #(dissoc % :relationships)
                     #(dissoc % :architecture)
                     #(assoc % :warnings [])
                     #(assoc % :drilldowns [])]]
@@ -1070,7 +1110,9 @@
                compact-source-coverage-in-packet
                #(dissoc % :sourceCoverage)
                compact-architecture-in-packet
+               compact-relationships-in-packet
                #(update % :answerability compact-answerability)
+               #(dissoc % :relationships)
                #(dissoc % :architecture)
                #(assoc % :warnings [])
                #(assoc % :drilldowns [])
@@ -1654,6 +1696,7 @@
                              freshness
                              source-coverage
                              architecture
+                             (relationship-groups edges)
                              (candidate-files results))
                 docs
                 budget)))
