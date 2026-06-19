@@ -138,7 +138,18 @@
                                           :candidateFiles [{:repo "app"
                                                             :path "src/app.clj"}]
                                           :answerability {:status :usable}
-                                          :drilldowns ["agraph query \"where auth\" --project fixture"]})]
+                                          :drilldowns ["agraph query \"where auth\" --project fixture"]})
+                evidence/summarize (fn [xtdb project opts]
+                                     {:schema evidence/schema
+                                      :xtdb xtdb
+                                      :project-id (:id project)
+                                      :map-path (:map-path opts)
+                                      :freshness {:status :current
+                                                  :counts {:indexed 2
+                                                           :current 2
+                                                           :changed 0
+                                                           :missing 0
+                                                           :unindexed 0}}})]
     (let [response (mcp/handle-message
                     (mcp/server-context ["--config" "project.edn"])
                     (tool-call 8
@@ -153,6 +164,13 @@
                :path "src/app.clj"}]
              (:candidateFiles packet)))
       (is (= {:status :usable} (:answerability packet)))
+      (is (= {:status :current
+              :counts {:indexed 2
+                       :current 2
+                       :changed 0
+                       :missing 0
+                       :unindexed 0}}
+             (:freshness packet)))
       (is (= ["agraph query \"where auth\" --project fixture"]
              (:drilldowns packet))))))
 

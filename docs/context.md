@@ -221,8 +221,8 @@ The MCP server returns the same packet schemas as the CLI. Initial tools include
 `agraph_work_pull`, `agraph_work_heartbeat`, `agraph_work_complete`,
 `agraph_work_release`, and `agraph_work_reject`.
 Use `agraph_explore` as the primary one-shot MCP packet for structural
-questions; it returns answerability, candidate files, docs, graph facts, and
-drilldowns without creating a cursor.
+questions; it returns graph-basis freshness, answerability, candidate files,
+docs, graph facts, and drilldowns without creating a cursor.
 `agraph_work_complete` records an explicit result artifact; applying validated
 results to `agraph.map.json` stays a separate CLI step.
 

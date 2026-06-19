@@ -286,7 +286,8 @@
 (defn- context-query-packet
   [ctx args]
   (let [query (require-string! args :query "AGraph context query requires query.")
-        project (read-project! ctx args)]
+        project (read-project! ctx args)
+        overlay (map-overlay ctx args)]
     (with-xtdb
       ctx
       (fn [xtdb]
@@ -294,12 +295,37 @@
                                 query
                                 {:project-id (project-id project args)
                                  :retriever (keyword (or (:retriever args) "lexical"))
-                                 :map-overlay (map-overlay ctx args)
+                                 :map-overlay overlay
                                  :budget (or (:budget args) context/default-budget)})))))
 
 (defn- ask
   [ctx args]
   (context-query-packet ctx args))
+
+(defn- explore
+  [ctx args]
+  (let [project (read-project! ctx args)
+        overlay (map-overlay ctx args)
+        config-path (config-path ctx args)]
+    (with-xtdb
+      ctx
+      (fn [xtdb]
+        (assoc (context/context-packet xtdb
+                                       (require-string! args
+                                                        :query
+                                                        "agraph_explore requires query.")
+                                       {:project-id (project-id project args)
+                                        :retriever (keyword (or (:retriever args) "lexical"))
+                                        :map-overlay overlay
+                                        :budget (or (:budget args) context/default-budget)})
+               :freshness
+               (:freshness (evidence/summarize xtdb
+                                               project
+                                               {:map-overlay overlay
+                                                :config-path (or config-path
+                                                                 (:path project))
+                                                :map-path (or (:mapPath args)
+                                                              (:map-path ctx))})))))))
 
 (defn- explore-create
   [ctx args]
@@ -478,7 +504,7 @@
   "Call one MCP tool and return its raw AGraph value."
   [ctx name args]
   (case name
-    "agraph_explore" (context-query-packet ctx args)
+    "agraph_explore" (explore ctx args)
     "agraph_ask" (ask ctx args)
     "agraph_explore_create" (explore-create ctx args)
     "agraph_explore_open" (explore-open ctx args)

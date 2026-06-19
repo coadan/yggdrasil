@@ -303,6 +303,7 @@
       (is (str/includes? first-content "`agraph_work_release`"))
       (is (str/includes? first-content "`agraph_work_reject`"))
       (is (str/includes? first-content "Use `agraph_explore` as the primary one-shot orientation packet"))
+      (is (str/includes? first-content "with graph-basis freshness, answerability"))
       (is (str/includes? first-content "Use queued review packets"))
       (is (str/includes? first-content "Do not infer architecture from names")))))
 
