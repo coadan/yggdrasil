@@ -39,6 +39,7 @@
             [agraph.extract.source-native :as extract.source-native]
             [agraph.extract.source-python :as extract.source-python]
             [agraph.extract.source-scala :as extract.source-scala]
+            [agraph.extract.source-scripting :as extract.source-scripting]
             [agraph.extract.starlark :as extract.starlark]
             [agraph.extract.task-config :as extract.task-config]
             [agraph.extract.terraform :as extract.terraform]
@@ -81,9 +82,9 @@
      :scala (extract.source-scala/extract-scala run-id file)
      :elixir (extract.source-beam/extract-elixir run-id file)
      :erlang (extract.source-beam/extract-erlang run-id file)
-     :lua (extract.source-misc/extract-lua run-id file)
-     :r (extract.source-misc/extract-r run-id file)
-     :julia (extract.source-misc/extract-julia run-id file)
+     :lua (extract.source-scripting/extract-lua run-id file)
+     :r (extract.source-scripting/extract-r run-id file)
+     :julia (extract.source-scripting/extract-julia run-id file)
      :ocaml (extract.source-misc/extract-ocaml run-id file)
      :perl (extract.source-misc/extract-perl run-id file)
      :haskell (extract.source-misc/extract-haskell run-id file)
