@@ -408,7 +408,27 @@
                   store/all-rows (fn [_ _] [])
                   query/all-nodes (fn [_ _] [])
                   query/all-system-evidence (fn [_ _] [])
-                  query/all-edges (fn [_ _] [])]
+                  query/all-edges (fn [_ _] [])
+                  graph/system-graph (fn [xtdb project-id opts]
+                                       {:schema graph/schema
+                                        :xtdb xtdb
+                                        :project-id project-id
+                                        :basis {:detail (name (:detail opts))}
+                                        :nodes [{:id "system:billing"
+                                                 :label "Billing"
+                                                 :kind "domain"
+                                                 :repo "app"
+                                                 :pathPrefix "src/billing"}
+                                                {:id "system:database"
+                                                 :label "Database"
+                                                 :kind "service"
+                                                 :repo "app"
+                                                 :pathPrefix "src/db"}]
+                                        :edges [{:id "system-edge:billing-db"
+                                                 :source "system:billing"
+                                                 :target "system:database"
+                                                 :relation "uses"
+                                                 :confidence "1.0"}]})]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"])
                       (tool-call 15
@@ -432,7 +452,11 @@
                (mapv #(get-in % [:source :path])
                      (get-in packet [:map :docs]))))
         (is (= ["map-edge:billing-db"]
-               (mapv :id (get-in packet [:map :edges]))))))))
+               (mapv :id (get-in packet [:map :edges]))))
+        (is (= ["system:billing" "system:database"]
+               (mapv :id (get-in packet [:systemRelationships :nodes]))))
+        (is (= ["system-edge:billing-db"]
+               (mapv :id (get-in packet [:systemRelationships :edges]))))))))
 
 (deftest node-tool-returns-choices-for-system-and-node-label-collision
   (let [root (temp-dir "agraph-mcp-map-ambiguous")

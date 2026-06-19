@@ -739,6 +739,41 @@
                  (mapv compact-node-row))
      :edges (mapv #(edge-ref nodes-by-id %) selected-edges)}))
 
+(defn- compact-system-node
+  [node]
+  (select-keys node [:id :label :kind :repo :repoRole :path :pathPrefix
+                     :clusterId :clusterLabel :degree :score :source :reason
+                     :tags :metrics]))
+
+(defn- compact-system-edge
+  [edge]
+  (select-keys edge [:id :source :target :relation :confidence :salience
+                     :visibility :rules :evidence :evidenceCounts :relations
+                     :salienceReasons]))
+
+(defn- system-relationships
+  [xtdb project-id overlay system-id limit]
+  (let [data (graph/system-graph xtdb
+                                 project-id
+                                 {:detail :expanded
+                                  :limit graph/default-node-limit
+                                  :map-overlay overlay})
+        nodes-by-id (into {} (map (juxt :id identity)) (:nodes data))
+        incident-edges (->> (:edges data)
+                            (filter #(or (= system-id (:source %))
+                                         (= system-id (:target %))))
+                            (sort-by (juxt :relation :source :target :id))
+                            (take limit)
+                            vec)
+        related-ids (set (concat [system-id]
+                                 (mapcat (juxt :source :target) incident-edges)))]
+    {:nodes (->> related-ids
+                 (keep nodes-by-id)
+                 (sort-by (juxt :repo :pathPrefix :label :id))
+                 (take limit)
+                 (mapv compact-system-node))
+     :edges (mapv compact-system-edge incident-edges)}))
+
 (defn- include-matches-file?
   [file include]
   (and (= (some-> (:repo include) str) (some-> (:repo-id file) str))
@@ -848,6 +883,12 @@
                        :status :found
                        :match (target-choice target-kind match row)
                        :relationships (incident-graph selected nodes edges limit)}
+                (= :system target-kind) (assoc :systemRelationships
+                                               (system-relationships xtdb
+                                                                     project-id
+                                                                     overlay
+                                                                     (:id row)
+                                                                     limit))
                 (= :file target-kind) (assoc :file (compact-file-row row))
                 (= :evidence target-kind) (assoc :evidence (compact-evidence-row row))
                 (= :system target-kind) (assoc :system (compact-system-row row))
