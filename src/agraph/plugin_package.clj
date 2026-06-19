@@ -39,6 +39,9 @@
 (def input-sample-schema
   "agraph.plugin.input-sample/v1")
 
+(def extractor-gap-schema
+  "agraph.plugin.extractor-gap/v1")
+
 (def diagnose-schema
   "agraph.plugin.diagnose/v1")
 
@@ -1457,6 +1460,92 @@
          :counts {:inputs (count inputs)}
          :diagnostics diagnostics
          :inputs inputs}))))
+
+(defn- gap-shell-token
+  [value]
+  (pr-str (str value)))
+
+(defn- plugin-option
+  [plugin-id]
+  (when (present? plugin-id)
+    (str " --plugin " (gap-shell-token plugin-id))))
+
+(defn- extractor-gap-proof
+  [package-dir root file plugin-id]
+  {:local-checks [{:id :validate
+                   :command (str "bb plugin validate " (gap-shell-token package-dir))}
+                  {:id :diagnose
+                   :command (str "bb plugin diagnose " (gap-shell-token package-dir))}
+                  {:id :input
+                   :command (str "bb plugin input extractor "
+                                 (gap-shell-token package-dir)
+                                 " "
+                                 (gap-shell-token root)
+                                 " "
+                                 (gap-shell-token file)
+                                 (plugin-option plugin-id)
+                                 " --json")}
+                  {:id :dry-run
+                   :command (str "bb plugin dry-run extractor "
+                                 (gap-shell-token package-dir)
+                                 " "
+                                 (gap-shell-token root)
+                                 " "
+                                 (gap-shell-token file)
+                                 (plugin-option plugin-id)
+                                 " --json")}]
+   :public-claim-requirements ["Keep output non-authoritative until benchmark artifacts exist."
+                               "Benchmark claims against replayable architecture-understanding cases."
+                               "Compare shell-only, core AGraph, and plugin-enhanced AGraph when claiming agent improvement."]
+   :core-promotion-requirements ["Remove project-specific helper names, path semantics, host names, and product vocabulary."
+                                 "Add project-agnostic fixtures and extractor tests."
+                                 "Add benchmark artifacts showing material improvement."
+                                 "Pass `bb plugin core-check <dir>` before proposing core promotion."]})
+
+(defn- extractor-output-contract
+  []
+  {:schema extractor-plugin/result-schema
+   :buckets [{:name :nodes
+              :purpose "Concrete source-local entities the plugin can prove."}
+             {:name :edges
+              :purpose "Mechanical relationships between existing or emitted nodes."}
+             {:name :fileFacts
+              :purpose "Bounded facts tied to one file and source line."}
+             {:name :chunks
+              :purpose "Bounded text summaries for query when the plugin opts into search."}
+             {:name :diagnostics
+              :purpose "Structured warnings or extraction failures."}]
+   :overlay-kinds [:supersedes :refines :hides :links]
+   :row-requirements ["Emit source path and source line when available."
+                      "Prefer stable ids only when the plugin can make them deterministic."
+                      "Keep facts concrete; do not emit accepted architecture meaning directly."
+                      "Use diagnostics for uncertainty instead of silent absence."]
+   :non-goals ["No ownership, system-boundary, or runtime-criticality claims without map/metadata acceptance."
+               "No project-specific logic belongs in AGraph core without benchmarks and review."]})
+
+(defn extractor-gap-packet
+  "Build an agent-facing extractor authoring packet for one package/file.
+
+  The packet is mechanical: it includes selected plugin inputs, core evidence,
+  output contract, and proof commands, but it does not infer architecture
+  meaning from paths, names, prose, or project vocabulary."
+  [package-dir root file {:keys [plugin-id] :as opts}]
+  (let [input-sample (sample-extractor-inputs package-dir root file opts)]
+    {:schema extractor-gap-schema
+     :kind :extractor
+     :status (:status input-sample)
+     :package (:package input-sample)
+     :plugins (:plugins input-sample)
+     :selection (:selection input-sample)
+     :file (:file input-sample)
+     :core-counts (:core-counts input-sample)
+     :diagnostics (:diagnostics input-sample)
+     :inputs (:inputs input-sample)
+     :output-contract (extractor-output-contract)
+     :proof (extractor-gap-proof package-dir root file plugin-id)
+     :caveats {:benchmark-status (get-in input-sample [:package :benchmark-status])
+               :claim-authority (get-in input-sample [:package :claim-authority])
+               :scope (get-in input-sample [:package :scope])}}))
 
 (defn dry-run-extractor
   "Run package extractor plugins against one file without writing graph state."

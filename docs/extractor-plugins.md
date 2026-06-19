@@ -42,6 +42,9 @@ not through shell interpolation.
 Use `bb plugin input extractor <package-dir> <repo-root> <file> --json` to
 inspect the exact input packet AGraph will send for one selected package
 extractor without executing the plugin command.
+Use `bb plugin gap extractor <package-dir> <repo-root> <file> --json` when an
+agent needs the full authoring packet: input sample, core counts, output
+contract, proof commands, and benchmark/core-promotion caveats.
 
 For git-shared packages, install a package with `bb plugin install` and let
 `project.edn` reference its pinned local manifest. See

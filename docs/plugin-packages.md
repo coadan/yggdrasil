@@ -75,6 +75,7 @@ bb plugin diagnose .dev/agraph/plugins/datastar-hiccup
 bb plugin core-check .dev/agraph/plugins/datastar-hiccup
 bb plugin input extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
 bb plugin input report .dev/agraph/plugins/datastar-hiccup --json
+bb plugin gap extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
 bb plugin dry-run extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
 bb plugin dry-run report .dev/agraph/plugins/datastar-hiccup --json
 bb plugin registry validate .dev/agraph/plugins/registry.edn
@@ -147,6 +148,13 @@ applicable selected extractor. Report input samples include one
 synthetic report context used by report dry-runs. Use these before writing or
 debugging agent-authored plugins so the plugin can target the real contract
 instead of guessing what AGraph sends.
+
+`plugin gap extractor` builds an agent-facing extractor authoring packet for
+one package and file. It includes the selected input packets, core extraction
+counts, package caveats, supported output buckets, row requirements, local proof
+commands, public-claim requirements, and core-promotion requirements. The packet
+is mechanical and does not infer architecture meaning from names, paths, prose,
+or project vocabulary.
 
 `plugin dry-run extractor` runs the package extractor against one file without
 writing graph state. It uses core extraction first, applies the selected plugin

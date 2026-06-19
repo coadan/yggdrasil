@@ -75,6 +75,7 @@
     (is (str/includes? usage "plugin dry-run report <dir>"))
     (is (str/includes? usage "plugin input extractor <dir>"))
     (is (str/includes? usage "plugin input report <dir>"))
+    (is (str/includes? usage "plugin gap extractor <dir>"))
     (is (str/includes? usage "plugin install <project.edn>"))
     (is (str/includes? usage "plugin update <project.edn> <package-id>"))
     (is (str/includes? usage "plugin list <project.edn>"))
@@ -396,6 +397,46 @@
                      :diagnostics []
                      :inputs [{:schema "agraph.report-plugin.input/v1"
                                :plugin {:id "demo-report"}}]})
+                  plugin-package/extractor-gap-packet
+                  (fn [dir root file opts]
+                    (swap! calls conj [:gap dir root file opts])
+                    {:schema plugin-package/extractor-gap-schema
+                     :kind :extractor
+                     :status :passed
+                     :package {:id "demo"
+                               :version "0.1.0"
+                               :benchmark-status :unbenchmarked
+                               :claim-authority claim-authority
+                               :scope {:kind :project-local}}
+                     :plugins [{:id "demo-extractor"}]
+                     :selection {:kind :extractor
+                                 :requested-plugin-id "demo-extractor"
+                                 :available ["demo-extractor" "other-extractor"]
+                                 :selected ["demo-extractor"]
+                                 :skipped ["other-extractor"]
+                                 :counts {:available 2
+                                          :selected 1
+                                          :skipped 1}}
+                     :file {:path file
+                            :kind :code}
+                     :core-counts {:nodes 1
+                                   :edges 0
+                                   :chunks 1
+                                   :file-facts 0
+                                   :diagnostics 0}
+                     :diagnostics []
+                     :inputs [{:schema "agraph.extractor-plugin.input/v1"
+                               :plugin {:id "demo-extractor"}}]
+                     :output-contract {:schema "agraph.extractor-plugin.result/v1"
+                                       :buckets [{:name :nodes}
+                                                 {:name :edges}
+                                                 {:name :fileFacts}
+                                                 {:name :chunks}
+                                                 {:name :diagnostics}]}
+                     :proof {:local-checks [{:id :validate
+                                             :command "bb plugin validate .dev/plugins/demo"}
+                                            {:id :dry-run
+                                             :command "bb plugin dry-run extractor .dev/plugins/demo . src/page.clj --plugin demo-extractor --json"}]}})
                   plugin-package/remove! (fn [config-path package-id]
                                            (swap! calls conj [:remove config-path package-id])
                                            {:schema plugin-package/remove-schema
@@ -460,6 +501,15 @@
                                        "src/page.clj"
                                        "--plugin"
                                        "demo-extractor"]))
+            gap-out (with-out-str
+                      (cli/dispatch "plugin"
+                                    ["gap"
+                                     "extractor"
+                                     ".dev/plugins/demo"
+                                     "."
+                                     "src/page.clj"
+                                     "--plugin"
+                                     "demo-extractor"]))
             report-out (with-out-str
                          (cli/dispatch "plugin"
                                        ["dry-run"
@@ -491,6 +541,10 @@
         (is (str/includes?
              input-out
              "- selection available=demo-extractor,other-extractor selected=demo-extractor skipped=other-extractor"))
+        (is (str/includes? gap-out "# Plugin Extractor Gap"))
+        (is (str/includes? gap-out "- output-schema agraph.extractor-plugin.result/v1"))
+        (is (str/includes? gap-out "- output-buckets nodes,edges,fileFacts,chunks,diagnostics"))
+        (is (str/includes? gap-out "- dry-run bb plugin dry-run extractor"))
         (is (str/includes? report-out "benchmark=unbenchmarked"))
         (is (str/includes? report-out "scope=project-local"))
         (is (str/includes? report-out "claim-authority status=non-authoritative public-claims=false"))
@@ -536,6 +590,7 @@
               [:diagnose ".dev/plugins/demo"]
               [:dry-run ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]
               [:input ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]
+              [:gap ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]
               [:dry-run-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
               [:input-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
               [:remove "project.edn" "demo"]
@@ -1375,8 +1430,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
-
 
 
 

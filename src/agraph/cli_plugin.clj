@@ -245,6 +245,55 @@
                (or (some-> code name) "")
                "-"
                message))))
+(defn- print-plugin-gap
+  [{:keys [kind
+           status
+           package
+           plugins
+           selection
+           file
+           core-counts
+           diagnostics
+           inputs
+           output-contract
+           proof]}]
+  (println "# Plugin Extractor Gap")
+  (println "- status" (name status))
+  (println "- kind" (name (or kind :extractor)))
+  (println "- package"
+           (str/join " "
+                     (cond-> [(:id package)
+                              (str "version=" (:version package))
+                              (str "benchmark=" (name (or (:benchmark-status package)
+                                                          :unbenchmarked)))]
+                       (get-in package [:scope :kind])
+                       (conj (str "scope=" (name (get-in package [:scope :kind])))))))
+  (when file
+    (println "- file"
+             (:path file)
+             (if-let [kind (:kind file)]
+               (str "kind=" (name kind))
+               "")))
+  (println "- plugins" (id-list (map :id plugins)))
+  (print-plugin-selection selection)
+  (when core-counts
+    (println "- core" core-counts))
+  (println "- inputs" (count inputs))
+  (println "- output-schema" (:schema output-contract))
+  (println "- output-buckets" (id-list (map (comp name :name)
+                                            (:buckets output-contract))))
+  (when (seq (:local-checks proof))
+    (println "## Proof Commands")
+    (doseq [{:keys [id command]} (:local-checks proof)]
+      (println "-" (name id) command)))
+  (when (seq diagnostics)
+    (println "## Diagnostics")
+    (doseq [{:keys [severity code message]} diagnostics]
+      (println "-"
+               (or (some-> severity name) "diagnostic")
+               (or (some-> code name) "")
+               "-"
+               message))))
 (defn- print-plugin-registry-validation
   [{:keys [status path counts errors packages]}]
   (println "# Plugin Registry Validation")
@@ -393,6 +442,33 @@
                         {:kind kind
                          :status (:status result)
                          :diagnostics (:diagnostics result)}))))))
+(defn- plugin-gap!
+  [args]
+  (let [[kind package-dir root file] (positional-args args)]
+    (when-not (= "extractor" kind)
+      (throw (ex-info "Unsupported plugin gap kind."
+                      {:kind kind
+                       :supported ["extractor"]
+                       :usage (usage)})))
+    (when-not package-dir
+      (throw (ex-info "Missing plugin gap package directory."
+                      {:usage (usage)})))
+    (when-not (and root file)
+      (throw (ex-info "Missing plugin gap repo root or file."
+                      {:usage (usage)})))
+    (let [result (plugin-package/extractor-gap-packet
+                  package-dir
+                  root
+                  file
+                  {:plugin-id (option-value args "--plugin")})]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-gap result))
+      (when (= :failed (:status result))
+        (throw (ex-info "Plugin gap packet failed."
+                        {:kind kind
+                         :status (:status result)
+                         :diagnostics (:diagnostics result)}))))))
 (defn- plugin-install!
   [args]
   (let [[config-path source] (positional-args args)]
@@ -487,6 +563,9 @@
 
         "input"
         (plugin-input! action-args)
+
+        "gap"
+        (plugin-gap! action-args)
 
         "install"
         (plugin-install! action-args)

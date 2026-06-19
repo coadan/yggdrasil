@@ -271,6 +271,11 @@
                         (.getPath repo-root)
                         "src/page.clj"
                         {})
+          gap-packet (plugin-package/extractor-gap-packet
+                      (.getPath package-dir)
+                      (.getPath repo-root)
+                      "src/page.clj"
+                      {})
           report-dry-run (plugin-package/dry-run-report
                           (.getPath package-dir)
                           {})
@@ -307,6 +312,8 @@
                          "bb plugin input extractor . /path/to/repo src/example.clj --json"))
       (is (str/includes? (slurp (io/file package-dir "README.md"))
                          "bb plugin input report . --json"))
+      (is (str/includes? (slurp (io/file package-dir "README.md"))
+                         "bb plugin gap extractor . /path/to/repo src/example.clj --json"))
       (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
                          ":benchmark"))
       (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
@@ -407,6 +414,22 @@
       (is (contains? (get-in input-sample [:inputs 0 :core]) :nodes))
       (is (= (get-in dry-run [:core-counts :nodes])
              (get-in input-sample [:core-counts :nodes])))
+      (is (= plugin-package/extractor-gap-schema (:schema gap-packet)))
+      (is (= :passed (:status gap-packet)))
+      (is (= (:selection input-sample) (:selection gap-packet)))
+      (is (= (:inputs input-sample) (:inputs gap-packet)))
+      (is (= "agraph.extractor-plugin.result/v1"
+             (get-in gap-packet [:output-contract :schema])))
+      (is (= [:nodes :edges :fileFacts :chunks :diagnostics]
+             (mapv :name (get-in gap-packet [:output-contract :buckets]))))
+      (is (some #(= :dry-run (:id %))
+                (get-in gap-packet [:proof :local-checks])))
+      (is (some #(str/includes? % "benchmark")
+                (get-in gap-packet [:proof :public-claim-requirements])))
+      (is (some #(str/includes? % "project-specific")
+                (get-in gap-packet [:proof :core-promotion-requirements])))
+      (is (= :unbenchmarked (get-in gap-packet [:caveats :benchmark-status])))
+      (is (= claim-authority (get-in gap-packet [:caveats :claim-authority])))
       (is (= plugin-package/dry-run-schema (:schema report-dry-run)))
       (is (= :report (:kind report-dry-run)))
       (is (= :passed (:status report-dry-run)))
