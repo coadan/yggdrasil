@@ -47,6 +47,8 @@
           (is (= 1 (get-in result [:counts :items])))
           (is (= 3 (get-in result [:counts :events])))
           (is (= 1 (get-in result [:counts :validation-events])))
+          (is (= {:matching 1}
+                 (get-in result [:counts :result-schema-statuses])))
           (is (= [:done] (mapv :status items)))
           (is (= #{:completed :created :validation}
                  (set (map :event-kind events))))
@@ -93,6 +95,8 @@
                                       events))
               sample (first (:result-schema-mismatches result))]
           (is (= 1 (get-in result [:counts :result-schema-mismatch-events])))
+          (is (= {:mismatch 1}
+                 (get-in result [:counts :result-schema-statuses])))
           (is (= (get-in enqueued [:item :id]) (:sourceId sample)))
           (is (= "test-work" (:kind sample)))
           (is (= "done" (:status sample)))

@@ -113,6 +113,17 @@
          (present? actual)
          (not= expected actual))))
 
+(defn- result-schema-status
+  [item]
+  (let [expected (expected-result-schema item)
+        actual (result-schema item)]
+    (cond
+      (and (present? expected) (present? actual) (= expected actual)) :matching
+      (and (present? expected) (present? actual)) :mismatch
+      (present? expected) :missing-result
+      (present? actual) :unexpected-result
+      :else :none)))
+
 (defn- summary-text
   [item target-ids]
   (compact (:kind item)
@@ -323,6 +334,10 @@
         founds (queue/list-items queue-root {:project-id (:id project)})
         items (mapv #(queue-item->row run-id %) founds)
         events (into [] (mapcat #(queue-item->events run-id %)) founds)
+        schema-statuses (->> founds
+                             (map (comp result-schema-status :item))
+                             frequencies
+                             (into (sorted-map)))
         mismatches (->> items
                         (filter #(and (present? (:expected-result-schema %))
                                       (present? (:result-schema %))
@@ -351,7 +366,8 @@
                                                       events))
                     :result-schema-mismatch-events
                     (count (filter #(= :result-schema-mismatch (:event-kind %))
-                                   events)))
+                                   events))
+                    :result-schema-statuses schema-statuses)
      :result-schema-mismatches mismatches}))
 
 (defn- event-summary
