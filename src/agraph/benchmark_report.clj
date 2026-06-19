@@ -440,24 +440,27 @@
      :notRunRuns (count (get by-status "not-run"))
      :notRunCaseIds (case-ids "not-run")}))
 
-(declare aggregate-localization-diagnostics aggregate-coverage-diagnostics)
+(declare aggregate-localization-diagnostics
+         aggregate-coverage-diagnostics
+         report-improvement-summary)
 
 (defn- group-agent-scores
   [expected-fingerprints results key-path]
   (->> results
        (group-by #(or (get-in % key-path) "unknown"))
        (map (fn [[k rows]]
-              {:key k
-               :runs (count rows)
-               :scores (aggregate-agent-scores rows)
-               :inputHints (input-hint-summary rows)
-               :agentDiagnostics (aggregate-agent-diagnostics rows)
-               :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
-               :localizationDiagnostics (aggregate-localization-diagnostics rows)
-               :coverageDiagnostics (aggregate-coverage-diagnostics rows)
-               :artifactDiagnostics (aggregate-artifact-diagnostics
-                                     expected-fingerprints
-                                     rows)}))
+              (let [row {:key k
+                         :runs (count rows)
+                         :scores (aggregate-agent-scores rows)
+                         :inputHints (input-hint-summary rows)
+                         :agentDiagnostics (aggregate-agent-diagnostics rows)
+                         :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
+                         :localizationDiagnostics (aggregate-localization-diagnostics rows)
+                         :coverageDiagnostics (aggregate-coverage-diagnostics rows)
+                         :artifactDiagnostics (aggregate-artifact-diagnostics
+                                               expected-fingerprints
+                                               rows)}]
+                (assoc row :improvementSummary (report-improvement-summary row)))))
        (sort-by :key)
        vec))
 (defn- result-tags
@@ -475,19 +478,20 @@
                       (filter include-tag? (result-tags result)))))
        (group-by first)
        (map (fn [[tag pairs]]
-              (let [rows (mapv second pairs)]
-                {:key tag
-                 :cases (count (set (map :case-id rows)))
-                 :runs (count rows)
-                 :scores (aggregate-agent-scores rows)
-                 :inputHints (input-hint-summary rows)
-                 :agentDiagnostics (aggregate-agent-diagnostics rows)
-                 :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
-                 :localizationDiagnostics (aggregate-localization-diagnostics rows)
-                 :coverageDiagnostics (aggregate-coverage-diagnostics rows)
-                 :artifactDiagnostics (aggregate-artifact-diagnostics
-                                       expected-fingerprints
-                                       rows)})))
+              (let [rows (mapv second pairs)
+                    row {:key tag
+                         :cases (count (set (map :case-id rows)))
+                         :runs (count rows)
+                         :scores (aggregate-agent-scores rows)
+                         :inputHints (input-hint-summary rows)
+                         :agentDiagnostics (aggregate-agent-diagnostics rows)
+                         :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
+                         :localizationDiagnostics (aggregate-localization-diagnostics rows)
+                         :coverageDiagnostics (aggregate-coverage-diagnostics rows)
+                         :artifactDiagnostics (aggregate-artifact-diagnostics
+                                               expected-fingerprints
+                                               rows)}]
+                (assoc row :improvementSummary (report-improvement-summary row)))))
        (sort-by :key)
        vec))
 (defn- group-agent-scores-by-tag
@@ -675,21 +679,22 @@
   (->> results
        (group-by (comp parser-worker-profile-key parser-worker-result-profile))
        (map (fn [[[_mode _source] rows]]
-              (let [profile (parser-worker-result-profile (first rows))]
-                (assoc profile
-                       :key (str (:mode profile) "/" (:source profile))
-                       :runs (count rows)
-                       :cases (count (set (map :case-id rows)))
-                       :scores (aggregate-agent-scores rows)
-                       :inputHints (input-hint-summary rows)
-                       :agentDiagnostics (aggregate-agent-diagnostics rows)
-                       :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
-                                                     rows)
-                       :localizationDiagnostics (aggregate-localization-diagnostics rows)
-                       :coverageDiagnostics (aggregate-coverage-diagnostics rows)
-                       :artifactDiagnostics (aggregate-artifact-diagnostics
-                                             expected-fingerprints
-                                             rows)))))
+              (let [profile (parser-worker-result-profile (first rows))
+                    row (assoc profile
+                               :key (str (:mode profile) "/" (:source profile))
+                               :runs (count rows)
+                               :cases (count (set (map :case-id rows)))
+                               :scores (aggregate-agent-scores rows)
+                               :inputHints (input-hint-summary rows)
+                               :agentDiagnostics (aggregate-agent-diagnostics rows)
+                               :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
+                                                             rows)
+                               :localizationDiagnostics (aggregate-localization-diagnostics rows)
+                               :coverageDiagnostics (aggregate-coverage-diagnostics rows)
+                               :artifactDiagnostics (aggregate-artifact-diagnostics
+                                                     expected-fingerprints
+                                                     rows))]
+                (assoc row :improvementSummary (report-improvement-summary row)))))
        (sort-by (juxt :mode :source))
        vec))
 (defn- aggregate-case-tags

@@ -452,6 +452,18 @@
               :unsupportedGroundTruthCaseIds []
               :unsupportedGroundTruthFiles 0}
              (get-in (first (:byMode report)) [:coverageDiagnostics])))
+      (is (= ["missed-files-present-in-context"
+              "ranked-outside-top5"
+              "path-citation-gaps"
+              "missing-declared-source-kinds"
+              "coverage-excluded-ground-truth"
+              "hint-diagnostics"
+              "coverage-filtered-candidates"
+              "graph-expectation-failures"
+              "warning-runs"
+              "unverified-score-artifacts"]
+             (mapv :kind
+                   (get-in (first (:byMode report)) [:improvementSummary]))))
       (is (= #{"agraph" "shell-only"} (set (map :key (:byMode report)))))
       (is (= ["baseline" "codex"] (mapv :key (:byAgent report))))
       (is (= ["all/option" "unknown/missing"]
