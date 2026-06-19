@@ -3038,6 +3038,13 @@
            :systemSummary (project/infer-project! xtdb bench-project)
            :graphExpectations (evaluate-graph-expectations xtdb prepared)})))))
 
+(defn- read-agent-hints-diagnostics
+  [hints-path]
+  (when (and (not (blankish? hints-path))
+             (.isFile (io/file hints-path)))
+    (let [hints (read-json-file hints-path)]
+      (not-empty (vec (:diagnostics hints))))))
+
 (defn agent-run!
   "Run one external agent command against a benchmark packet, then score it."
   [suite case opts]
@@ -3083,11 +3090,15 @@
         context-ranks (context-ground-truth-ranks-from-path
                        prepared
                        (get-in packet [:artifacts :agraphContextPath]))
+        hint-diagnostics (read-agent-hints-diagnostics
+                          (get-in packet [:artifacts :agraphHintsPath]))
         scored (cond-> (assoc (score-agent-result prepared agent-result)
                               :agentResultPath (fs/canonical-path result-path)
                               :parserWorker (parser-worker-profile opts))
                  context-ranks
                  (assoc :contextGroundTruthRanks context-ranks)
+                 hint-diagnostics
+                 (assoc :agraphHints {:diagnostics hint-diagnostics})
                  (:graphExpectations agraph-summary)
                  (assoc :graphExpectations (:graphExpectations agraph-summary)))
         status (if (:artifact-ok? read-result)
@@ -3663,6 +3674,7 @@
   [result]
   (let [top-files (get-in result [:agent :topFiles])
         warnings (vec (get-in result [:agent :warnings]))
+        hint-diagnostics (vec (get-in result [:agraphHints :diagnostics]))
         identity-warnings (filterv #(or (str/starts-with? % "agent result schema ")
                                         (str/starts-with? % "agent result caseId ")
                                         (str/starts-with? % "agent result caseFingerprint "))
@@ -3683,6 +3695,9 @@
              :warnings warnings
              :warningCount (count warnings)
              :hasWarnings (boolean (seq warnings))
+             :hintDiagnostics hint-diagnostics
+             :hintDiagnosticCount (count hint-diagnostics)
+             :hasHintDiagnostics (boolean (seq hint-diagnostics))
              :identityWarnings identity-warnings
              :hasIdentityMismatch (boolean (seq identity-warnings))
              :emptyResult (zero? ranked-count)
@@ -3696,6 +3711,36 @@
 
       (pos? filtered-count)
       (assoc :coverageFilteredCandidateFiles filtered-count))))
+
+(defn- aggregate-hint-diagnostics
+  [result-pairs]
+  (let [rows (->> result-pairs
+                  (mapcat (fn [[result diagnostic]]
+                            (map #(assoc % :case-id (:case-id result))
+                                 (:hintDiagnostics diagnostic)))))]
+    {:hintDiagnosticRows (count rows)
+     :hintDiagnosticRuns (count (filter (comp :hasHintDiagnostics second)
+                                        result-pairs))
+     :hintDiagnosticCaseIds (->> result-pairs
+                                 (filter (comp :hasHintDiagnostics second))
+                                 (map (comp :case-id first))
+                                 distinct
+                                 sort
+                                 vec)
+     :hintDiagnosticsByKind (->> rows
+                                 (group-by :kind)
+                                 (map (fn [[kind kind-rows]]
+                                        {:kind kind
+                                         :runs (count kind-rows)
+                                         :cases (count (set (map :case-id
+                                                                 kind-rows)))
+                                         :caseIds (->> kind-rows
+                                                       (map :case-id)
+                                                       distinct
+                                                       sort
+                                                       vec)}))
+                                 (sort-by :kind)
+                                 vec)}))
 
 (defn- aggregate-agent-diagnostics
   [results]
@@ -3723,64 +3768,66 @@
         identity-mismatch-results (filter (fn [[_ diagnostic]]
                                             (:hasIdentityMismatch diagnostic))
                                           result-pairs)]
-    {:emptyResultRuns (count empty-results)
-     :emptyResultCaseIds (->> empty-results
-                              (map (comp :case-id first))
-                              distinct
-                              sort
-                              vec)
-     :zeroCandidateRuns (count zero-candidates)
-     :zeroCandidateCaseIds (->> zero-candidates
-                                (map (comp :case-id first))
-                                distinct
-                                sort
-                                vec)
-     :coverageFilteredRuns (count coverage-filtered)
-     :coverageFilteredCaseIds (->> coverage-filtered
-                                   (map (comp :case-id first))
-                                   distinct
-                                   sort
-                                   vec)
-     :coverageFilteredCandidateFiles (reduce + 0
-                                             (map (comp #(long (or % 0))
-                                                        :coverageFilteredCandidateFiles
-                                                        second)
-                                                  coverage-filtered))
-     :missingPredictedFileRuns (count missing-predicted)
-     :missingPredictedFileCaseIds (->> missing-predicted
-                                       (map (comp :case-id first))
-                                       distinct
-                                       sort
-                                       vec)
-     :missingPredictedFiles (reduce + 0
-                                    (map (comp count
-                                               :missingPredictedFiles
-                                               second)
-                                         missing-predicted))
-     :commandlessRuns (count commandless-results)
-     :commandlessCaseIds (->> commandless-results
-                              (map (comp :case-id first))
-                              distinct
-                              sort
-                              vec)
-     :warningRuns (count warning-results)
-     :warningCaseIds (->> warning-results
-                          (map (comp :case-id first))
-                          distinct
-                          sort
-                          vec)
-     :identityMismatchRuns (count identity-mismatch-results)
-     :identityMismatchCaseIds (->> identity-mismatch-results
-                                   (map (comp :case-id first))
-                                   distinct
-                                   sort
-                                   vec)
-     :identityMismatches (reduce + 0
-                                 (map (comp count :identityWarnings second)
-                                      identity-mismatch-results))
-     :warnings (reduce + 0
-                       (map (comp count :warnings second)
-                            warning-results))}))
+    (merge
+     {:emptyResultRuns (count empty-results)
+      :emptyResultCaseIds (->> empty-results
+                               (map (comp :case-id first))
+                               distinct
+                               sort
+                               vec)
+      :zeroCandidateRuns (count zero-candidates)
+      :zeroCandidateCaseIds (->> zero-candidates
+                                 (map (comp :case-id first))
+                                 distinct
+                                 sort
+                                 vec)
+      :coverageFilteredRuns (count coverage-filtered)
+      :coverageFilteredCaseIds (->> coverage-filtered
+                                    (map (comp :case-id first))
+                                    distinct
+                                    sort
+                                    vec)
+      :coverageFilteredCandidateFiles (reduce + 0
+                                              (map (comp #(long (or % 0))
+                                                         :coverageFilteredCandidateFiles
+                                                         second)
+                                                   coverage-filtered))
+      :missingPredictedFileRuns (count missing-predicted)
+      :missingPredictedFileCaseIds (->> missing-predicted
+                                        (map (comp :case-id first))
+                                        distinct
+                                        sort
+                                        vec)
+      :missingPredictedFiles (reduce + 0
+                                     (map (comp count
+                                                :missingPredictedFiles
+                                                second)
+                                          missing-predicted))
+      :commandlessRuns (count commandless-results)
+      :commandlessCaseIds (->> commandless-results
+                               (map (comp :case-id first))
+                               distinct
+                               sort
+                               vec)
+      :warningRuns (count warning-results)
+      :warningCaseIds (->> warning-results
+                           (map (comp :case-id first))
+                           distinct
+                           sort
+                           vec)
+      :identityMismatchRuns (count identity-mismatch-results)
+      :identityMismatchCaseIds (->> identity-mismatch-results
+                                    (map (comp :case-id first))
+                                    distinct
+                                    sort
+                                    vec)
+      :identityMismatches (reduce + 0
+                                  (map (comp count :identityWarnings second)
+                                       identity-mismatch-results))
+      :warnings (reduce + 0
+                        (map (comp count :warnings second)
+                             warning-results))}
+     (aggregate-hint-diagnostics result-pairs))))
 
 (defn- parser-worker-result-profile
   [result]

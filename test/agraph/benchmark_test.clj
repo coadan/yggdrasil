@@ -344,6 +344,10 @@
                                      :coverageFilteredCandidateFiles 1
                                      :limit 20
                                      :coverageSourceKinds ["code"]}}
+                 :agraphHints {:diagnostics [{:kind "coverage-filtered-candidate-files"
+                                              :severity "info"
+                                              :message "Declared source coverage filtered candidate files out of the agent shortlist."
+                                              :filteredCandidateFiles 1}]}
                  :coverage {:declaredSourceKinds ["code" "python"]
                             :scoreableSourceKinds ["code"]
                             :scoreableFilesByKind [{:kind "code"
@@ -485,6 +489,13 @@
               :identityMismatchRuns 0
               :identityMismatchCaseIds []
               :identityMismatches 0
+              :hintDiagnosticRows 1
+              :hintDiagnosticRuns 1
+              :hintDiagnosticCaseIds ["case-1"]
+              :hintDiagnosticsByKind [{:kind "coverage-filtered-candidate-files"
+                                       :runs 1
+                                       :cases 1
+                                       :caseIds ["case-1"]}]
               :warnings 1}
              (:agentDiagnostics report)))
       (is (= {:configuredRuns 1
@@ -639,6 +650,12 @@
               :warnings ["agent result suspectedFiles row 1 missing evidence"]
               :warningCount 1
               :hasWarnings true
+              :hintDiagnostics [{:kind "coverage-filtered-candidate-files"
+                                 :severity "info"
+                                 :message "Declared source coverage filtered candidate files out of the agent shortlist."
+                                 :filteredCandidateFiles 1}]
+              :hintDiagnosticCount 1
+              :hasHintDiagnostics true
               :identityWarnings []
               :hasIdentityMismatch false
               :emptyResult false

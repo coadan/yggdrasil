@@ -152,7 +152,8 @@ generated output root.
   empty rankable outputs, zero-candidate AGraph packets, coverage-filtered
   runs and candidate files, warning-bearing runs, and missing predicted paths so
   benchmark failures point to the next mechanical fix instead of only reporting
-  a score.
+  a score. When AGraph-mode runs generated hint diagnostics, reports count
+  those rows by kind so help-quality issues are visible in aggregate.
   Reports also include `artifactDiagnostics`, which classifies score artifacts
   as current, legacy, or stale against the suite case fingerprint so old scores
   cannot silently stand in for changed issue text, commits, coverage, or curated
