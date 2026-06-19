@@ -1,7 +1,10 @@
 (ns agraph.benchmark
   "Issue replay benchmarks for AGraph retrieval quality."
   (:require [agraph.benchmark-classes :as benchmark-classes]
+            [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
+            [agraph.benchmark-progress :as benchmark-progress]
+            [agraph.benchmark-score :as benchmark-score]
             [agraph.context :as context]
             [agraph.extract :as extract]
             [agraph.fs :as fs]
@@ -15,11 +18,8 @@
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.set :as set]
-            [agraph.benchmark-io :as benchmark-io]
-            [agraph.benchmark-progress :as benchmark-progress]
             [clojure.string :as str])
-  (:import [java.time Duration Instant]
-           [java.util.concurrent TimeUnit]))
+  (:import [java.util.concurrent TimeUnit]))
 
 (def suite-schema
   "agraph.benchmark.suite/v1")
@@ -164,9 +164,6 @@
 
 (def supported-agent-prompt-profiles
   ["standard" "fast"])
-
-(def recall-limits
-  [5 10 20])
 
 (declare agent-baseline-suspect-limit agent-prompt-profile)
 
@@ -385,12 +382,6 @@
   [suite case opts result-file]
   (benchmark-paths/agent-score-path suite case opts result-file))
 
-(defn- progress-stage!
-  ([suite case opts stage f]
-   (benchmark-progress/progress-stage! suite case opts stage f))
-  ([suite case opts stage f summarize]
-   (benchmark-progress/progress-stage! suite case opts stage f summarize)))
-
 (defn- run-git!
   [repo-root args]
   (let [{:keys [exit out err]} (apply shell/sh "git" "-C" repo-root args)]
@@ -497,10 +488,6 @@
        sort
        vec))
 
-(defn- target-ground-truth-files
-  [truth]
-  (or (:localizationFiles truth) (:changedFiles truth)))
-
 (defn- path-source-kind
   ([path]
    (some-> path fs/file-kind normalize-source-kind))
@@ -518,7 +505,7 @@
 (defn- coverage-filtered-ground-truth
   [case root truth]
   (let [unsupported (set (map :path (:unsupportedGroundTruthFiles truth)))
-        targets (->> (target-ground-truth-files truth)
+        targets (->> (benchmark-score/target-ground-truth-files truth)
                      (remove unsupported)
                      vec)
         declared (set (declared-source-kinds case))]
@@ -541,7 +528,7 @@
 (defn- scoreable-files-by-kind
   [root truth]
   (let [unsupported (set (map :path (:unsupportedGroundTruthFiles truth)))
-        scoreable (->> (target-ground-truth-files truth)
+        scoreable (->> (benchmark-score/target-ground-truth-files truth)
                        (remove unsupported)
                        set)]
     (->> (:files (fs/scan-file-coverage root))
@@ -725,169 +712,10 @@
    :cases (mapv #(prepare-case! suite % opts)
                 (selected-cases suite (case-selector opts)))})
 
-(defn- file-row
-  [rank result]
-  (when (and (#{:node :chunk} (:target-kind result))
-             (not (blankish? (:path result))))
-    {:path (:path result)
-     :rank rank
-     :score (:score result)
-     :target-id (:target-id result)
-     :target-kind (name (:target-kind result))
-     :label (:label result)
-     :source-line (:source-line result)}))
-
-(defn- top-files
-  [ranked]
-  (->> ranked
-       (map-indexed (fn [idx result] (file-row (inc idx) result)))
-       (keep identity)
-       (reduce (fn [best row]
-                 (let [existing (get best (:path row))]
-                   (if (or (nil? existing)
-                           (< (:rank row) (:rank existing)))
-                     (assoc best (:path row) row)
-                     best)))
-               {})
-       vals
-       (sort-by (juxt :rank :path))
-       vec))
-
-(defn- top-nodes
-  [ranked]
-  (->> ranked
-       (map-indexed vector)
-       (keep (fn [[idx result]]
-               (when (= :node (:target-kind result))
-                 {:id (:target-id result)
-                  :rank (inc idx)
-                  :score (:score result)
-                  :path (:path result)
-                  :label (:label result)
-                  :kind (some-> (:kind result) name)
-                  :source-line (:source-line result)})))
-       vec))
-
-(defn- top-systems
-  [ranked]
-  (->> ranked
-       (map-indexed vector)
-       (keep (fn [[idx result]]
-               (when (= :system-node (:target-kind result))
-                 {:id (:target-id result)
-                  :rank (inc idx)
-                  :score (:score result)
-                  :label (:label result)
-                  :kind (some-> (:kind result) name)})))
-       vec))
-
-(defn- ground-truth-file-ranks
-  [changed-files top-files]
-  (let [file-by-path (into {} (map (juxt :path identity)) top-files)]
-    (mapv (fn [path]
-            (if-let [row (get file-by-path path)]
-              (assoc (select-keys row [:path
-                                       :rank
-                                       :score
-                                       :target-id
-                                       :target-kind
-                                       :label
-                                       :source-line])
-                     :found? true)
-              {:path path
-               :found? false}))
-          changed-files)))
-
-(defn- unsupported-ground-truth-paths
-  [ground-truth]
-  (set (map :path (:unsupportedGroundTruthFiles ground-truth))))
-
-(defn- scoreable-changed-files
-  [ground-truth]
-  (or (:scoreableFiles ground-truth)
-      (let [unsupported (unsupported-ground-truth-paths ground-truth)]
-        (->> (target-ground-truth-files ground-truth)
-             (remove unsupported)
-             vec))))
-
-(defn- recall-at
-  [truth paths k]
-  (let [truth (set truth)
-        predicted (set (take k paths))]
-    (if (seq truth)
-      (/ (double (count (set/intersection truth predicted)))
-         (double (count truth)))
-      0.0)))
-
-(defn- mean-reciprocal-rank-file
-  [truth top-files]
-  (let [truth (set truth)]
-    (or (some (fn [{:keys [path rank]}]
-                (when (contains? truth path)
-                  (/ 1.0 (double rank))))
-              top-files)
-        0.0)))
-
-(defn- noise-ratio-at
-  [truth paths k]
-  (let [truth (set truth)
-        predicted (take k paths)]
-    (if (seq predicted)
-      (/ (double (count (remove truth predicted)))
-         (double (count predicted)))
-      0.0)))
-
-(defn- evidence-cited?
-  [row]
-  (->> (:evidence row)
-       (some #(not (blankish? %)))
-       boolean))
-
-(defn- evidence-citation-rate
-  [top-files]
-  (if (seq top-files)
-    (/ (double (count (filter evidence-cited? top-files)))
-       (double (count top-files)))
-    0.0))
-
-(defn- path-evidence-cited?
-  [row]
-  (let [path (not-empty (str (:path row)))]
-    (boolean
-     (and path
-          (some #(str/includes? (str %) path)
-                (:evidence row))))))
-
-(defn- path-evidence-citation-rate
-  [top-files]
-  (if (seq top-files)
-    (/ (double (count (filter path-evidence-cited? top-files)))
-       (double (count top-files)))
-    0.0))
-
 (defn score-result
   "Return mechanical localization scores for a benchmark result shape."
-  [{:keys [groundTruth agraph]}]
-  (let [changed-files (:changedFiles groundTruth)
-        scoreable-files (scoreable-changed-files groundTruth)
-        paths (mapv :path (:topFiles agraph))]
-    (merge
-     (into {}
-           (map (fn [k]
-                  [(keyword (str "fileRecallAt" k))
-                   (recall-at scoreable-files paths k)]))
-           recall-limits)
-     {:meanReciprocalRankFile (mean-reciprocal-rank-file scoreable-files
-                                                         (:topFiles agraph))
-      :noiseRatioAt20 (noise-ratio-at scoreable-files paths 20)
-      :evidenceCitationRate (evidence-citation-rate (:topFiles agraph))
-      :pathEvidenceCitationRate (path-evidence-citation-rate (:topFiles agraph))
-      :changedFiles (count changed-files)
-      :localizationFiles (count (or (:localizationFiles groundTruth)
-                                    changed-files))
-      :scoreableChangedFiles (count scoreable-files)
-      :unsupportedGroundTruthFiles (count (:unsupportedGroundTruthFiles groundTruth))
-      :coverageExcludedGroundTruthFiles (count (:coverageExcludedFiles groundTruth))})))
+  [result]
+  (benchmark-score/score-result result))
 
 (def ^:private expectation-match-keys
   #{:xt/id
@@ -1201,20 +1029,20 @@
                         :limit (long (or (:limit opts) default-limit))
                         :indexSummary index-summary
                         :systemSummary system-summary
-                        :topFiles (top-files ranked)
-                        :topNodes (top-nodes ranked)
-                        :topSystems (top-systems ranked)
+                        :topFiles (benchmark-score/top-files ranked)
+                        :topNodes (benchmark-score/top-nodes ranked)
+                        :topSystems (benchmark-score/top-systems ranked)
                         :warnings []}
                :graphExpectations graph-expectations}
               result-without-scores
               (assoc result-base
                      :groundTruthRanks
-                     {:files (ground-truth-file-ranks
-                              (scoreable-changed-files
+                     {:files (benchmark-score/ground-truth-file-ranks
+                              (benchmark-score/scoreable-changed-files
                                (get-in result-base [:groundTruth]))
                               (get-in result-base [:agraph :topFiles]))})
               result (assoc result-without-scores
-                            :scores (score-result result-without-scores))]
+                            :scores (benchmark-score/score-result result-without-scores))]
           (benchmark-io/write-json-file! (benchmark-paths/result-path suite case opts) result)
           result)))))
 
@@ -2188,8 +2016,8 @@
                         packet
                         {:root (:worktreeRoot prepared)
                          :coverage (:coverage prepared)})]
-    {:files (ground-truth-file-ranks
-             (scoreable-changed-files (:groundTruth prepared))
+    {:files (benchmark-score/ground-truth-file-ranks
+             (benchmark-score/scoreable-changed-files (:groundTruth prepared))
              (:suspectedFiles context-result))
      :selection (:selection context-result)}))
 
@@ -2975,10 +2803,10 @@
   [suite case packet result-path output-schema-path opts]
   (let [prompt-path (benchmark-paths/agent-run-prompt-path suite case opts)]
     (benchmark-io/write-text-file! prompt-path
-                      (agent-run-prompt packet
-                                        result-path
-                                        output-schema-path
-                                        opts))
+                                   (agent-run-prompt packet
+                                                     result-path
+                                                     output-schema-path
+                                                     opts))
     (fs/canonical-path prompt-path)))
 
 (defn- normalize-agent-run-result
@@ -3591,8 +3419,8 @@
                    (conj "agent result referenced files missing from the base checkout"))
         result-with-ranks (assoc result-shape
                                  :groundTruthRanks
-                                 {:files (ground-truth-file-ranks
-                                          (scoreable-changed-files
+                                 {:files (benchmark-score/ground-truth-file-ranks
+                                          (benchmark-score/scoreable-changed-files
                                            (get-in result-shape [:groundTruth]))
                                           top-files)})]
     {:schema agent-score-schema
@@ -3623,7 +3451,7 @@
              :missingPredictedFiles (missing-predicted-files (:worktreeRoot prepared)
                                                              top-files)}
      :groundTruthRanks (:groundTruthRanks result-with-ranks)
-     :scores (score-result result-with-ranks)}))
+     :scores (benchmark-score/score-result result-with-ranks)}))
 
 (defn score-agent-result!
   "Read, score, and write one agent localization result artifact."
@@ -3683,7 +3511,7 @@
             running? (= "started" (:status last-event))
             active-elapsed-ms (when running?
                                 (benchmark-progress/elapsed-between-ms (:at last-event)
-                                                    (:now opts)))
+                                                                       (:now opts)))
             stage-rows (cond-> (->> events
                                     (keep (fn [{:keys [stage status elapsedMs]}]
                                             (when elapsedMs
@@ -4549,12 +4377,12 @@
         context-ranks (get-in result [:contextGroundTruthRanks :files])
         context-rank-by-path (into {} (map (juxt :path identity)) context-ranks)
         top-files (get-in result [:agent :topFiles])
-        scoreable-file-set (set (scoreable-changed-files ground-truth))
+        scoreable-file-set (set (benchmark-score/scoreable-changed-files ground-truth))
         uncited-ranked-files (->> top-files
-                                  (remove evidence-cited?)
+                                  (remove benchmark-score/evidence-cited?)
                                   (mapv #(select-keys % [:path :rank])))
         path-uncited-ranked-files (->> top-files
-                                       (remove path-evidence-cited?)
+                                       (remove benchmark-score/path-evidence-cited?)
                                        (mapv #(select-keys % [:path :rank])))
         missed (->> ranks
                     (remove :found?)
@@ -4589,7 +4417,7 @@
                               (filter #(and (:found? %)
                                             (> (long (:rank %)) n)))
                               (mapv #(select-keys % [:path :rank]))))
-        diagnostic {:scoreableFiles (scoreable-changed-files ground-truth)
+        diagnostic {:scoreableFiles (benchmark-score/scoreable-changed-files ground-truth)
                     :coverageExcludedFiles (vec (:coverageExcludedFiles ground-truth))
                     :unsupportedGroundTruthFiles (vec (:unsupportedGroundTruthFiles ground-truth))
                     :ranks ranks
