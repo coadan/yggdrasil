@@ -286,6 +286,7 @@
       (is (str/includes? first-content "agraph explore search <cursor-id> \"<follow-up query>\""))
       (is (str/includes? first-content "agraph sync check <project.edn> --map agraph.map.json --enqueue"))
       (is (str/includes? first-content "agraph sync work list --project <project-id> --status ready"))
+      (is (str/includes? first-content "agraph sync work show <work-id>"))
       (is (str/includes? first-content "agraph sync work heartbeat <work-id> --agent codex --lease-minutes 30"))
       (is (str/includes? first-content "agraph-mcp --config project.edn --map agraph.map.json"))
       (is (str/includes? first-content "`agraph_explore_search`"))

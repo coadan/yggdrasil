@@ -107,6 +107,7 @@
        "agraph sync check <project.edn> --map agraph.map.json --enqueue\n"
        "agraph sync work list --project <project-id> --status ready\n"
        "agraph sync work pull --project <project-id> --agent codex\n"
+       "agraph sync work show <work-id>\n"
        "agraph sync work heartbeat <work-id> --agent codex --lease-minutes 30\n"
        "agraph sync work complete <work-id> --result result.json\n"
        "agraph sync activity <project.edn>\n"
