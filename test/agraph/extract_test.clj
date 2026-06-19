@@ -3100,6 +3100,43 @@
     (is (= [:tool-config-file] (mapv :kind (:chunks tsconfig-result))))
     (is (= [:tool-config-file] (mapv :kind (:chunks prettier-result))))))
 
+(deftest extracts-typescript-module-test-and-tool-configs
+  (let [root (doto (java.io.File/createTempFile "agraph-module-configs" "")
+               (.delete)
+               (.mkdirs)
+               (.deleteOnExit))
+        jest-source (io/file root "jest.config.mts")
+        playwright-source (io/file root "playwright.config.cts")
+        eslint-source (io/file root "eslint.config.mts")
+        tailwind-source (io/file root "tailwind.config.cts")
+        _ (spit jest-source "import base from 'jest-config';\nexport default {\n  testEnvironment: 'node',\n  reporters: ['default'],\n};\n")
+        _ (spit playwright-source "import { defineConfig } from '@playwright/test';\nexport default defineConfig({\n  testDir: './e2e',\n});\n")
+        _ (spit eslint-source "import js from '@eslint/js';\nexport default [\n  { rules: { semi: 'error' } },\n];\n")
+        _ (spit tailwind-source "export default {\n  content: ['./src/**/*.tsx'],\n  theme: {},\n};\n")
+        result-for (fn [source]
+                     (extract/extract-file "run/test"
+                                           (fs/file-record (.getPath root)
+                                                           (.getPath source))))
+        kind-for (fn [source]
+                   (:kind (fs/file-record (.getPath root)
+                                          (.getPath source))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        jest-labels (labels (result-for jest-source))
+        playwright-labels (labels (result-for playwright-source))
+        eslint-labels (labels (result-for eslint-source))
+        tailwind-labels (labels (result-for tailwind-source))]
+    (is (= :test-config (kind-for jest-source)))
+    (is (= :test-config (kind-for playwright-source)))
+    (is (= :tool-config (kind-for eslint-source)))
+    (is (= :tool-config (kind-for tailwind-source)))
+    (is (contains? jest-labels "jest-config"))
+    (is (contains? jest-labels "testEnvironment=node"))
+    (is (contains? playwright-labels "@playwright/test"))
+    (is (contains? playwright-labels "testDir=./e2e"))
+    (is (contains? eslint-labels "@eslint/js"))
+    (is (contains? tailwind-labels "content"))
+    (is (contains? tailwind-labels "theme"))))
+
 (deftest extracts-editor-dev-environment-facts
   (let [editorconfig-result (extract/extract-file
                              "run/test"
