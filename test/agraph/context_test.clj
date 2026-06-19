@@ -2,6 +2,7 @@
   (:require [agraph.context :as context]
             [agraph.activity :as activity]
             [agraph.coverage :as coverage]
+            [agraph.dependency :as dependency]
             [agraph.graph :as graph]
             [agraph.query :as query]
             [agraph.xtdb :as store]
@@ -136,6 +137,12 @@
                 query/all-system-nodes (fn [& _] [])
                 query/all-system-edges (fn [& _] [])
                 query/all-diagnostics (fn [& _] [])
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 1
+                                                      :imports-package 1
+                                                      :unresolved-imports 0
+                                                      :declared-without-import-evidence 0
+                                                      :version-conflicts 0}})
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
     (let [answerability (#'context/answerability
@@ -176,6 +183,12 @@
                                          [{:xt/id "system:app"}])
                 query/all-system-edges (fn [& _] [])
                 query/all-diagnostics (fn [& _] [])
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :imports-package 0
+                                                      :unresolved-imports 0
+                                                      :declared-without-import-evidence 0
+                                                      :version-conflicts 0}})
                 activity/all-items (fn [& _]
                                      [{:xt/id "work:app"}])
                 activity/all-events (fn [& _]
@@ -196,6 +209,56 @@
       (is (some #{"No dependency graph rows are indexed; dependency questions are limited."}
                 (:warnings answerability)))
       (is (some #{"Run agraph packages --project fixture --json"}
+                (:next answerability))))))
+
+(deftest answerability-surfaces-unresolved-dependency-review-next-step
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :active? true}]
+                                   :agraph/index-diagnostics []
+                                   []))
+                query/all-nodes (fn [& _]
+                                  [{:xt/id "node:src.app"
+                                    :kind :namespace
+                                    :active? true}])
+                query/all-edges (fn [& _]
+                                  [{:xt/id "edge:src.app-left-pad"
+                                    :relation :imports
+                                    :active? true}])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                query/all-diagnostics (fn [& _] [])
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :imports-package 0
+                                                      :unresolved-imports 1
+                                                      :declared-without-import-evidence 0
+                                                      :version-conflicts 0}})
+                activity/all-items (fn [& _] [])
+                activity/all-events (fn [& _] [])]
+    (let [answerability (#'context/answerability
+                         :xtdb
+                         {}
+                         {:project-id "fixture"
+                          :repo-id "app"
+                          :retriever :lexical}
+                         {:entity-count 1
+                          :doc-count 0
+                          :activity-count 0
+                          :validation-count 0})]
+      (is (contains? (set (:available answerability)) :dependencies))
+      (is (contains? (set (:weak answerability)) :dependencies))
+      (is (not (contains? (set (:missing answerability)) :dependencies)))
+      (is (= 1 (get-in answerability [:counts :unresolved-imports])))
+      (is (some #{"Dependency graph has unresolved imports; dependency answers may need package review."}
+                (:warnings answerability)))
+      (is (some #{"Run agraph packages --project fixture --json"}
+                (:next answerability)))
+      (is (some #{"Run agraph sync <project.edn> --check --enqueue"}
                 (:next answerability))))))
 
 (deftest context-packet-includes-search-instrumentation

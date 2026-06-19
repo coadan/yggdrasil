@@ -2,6 +2,7 @@
   "Token-bounded, graph-grounded context packets for agents."
   (:require [agraph.activity :as activity]
             [agraph.coverage :as coverage]
+            [agraph.dependency :as dependency]
             [agraph.graph :as graph]
             [agraph.map :as graph-map]
             [agraph.query :as query]
@@ -833,6 +834,12 @@
                       (query/all-edges xtdb {:project-id project-id
                                              :repo-id repo-id
                                              :read-context read-context}))
+        package-report (dependency/package-report xtdb
+                                                  {:project-id project-id
+                                                   :repo-id repo-id}
+                                                  {:limit 0
+                                                   :map-overlay overlay})
+        package-counts (:counts package-report)
         activity-events (activity/all-events xtdb {:project-id project-id
                                                    :read-context read-context})]
     (merge
@@ -844,6 +851,10 @@
       :edges (count edges)
       :external-packages (count (filter #(= :external-package (:kind %)) nodes))
       :package-import-edges (count (filter #(= :imports-package (:relation %)) edges))
+      :declared-packages (get package-counts :packages 0)
+      :unresolved-imports (get package-counts :unresolved-imports 0)
+      :package-evidence-gaps (get package-counts :declared-without-import-evidence 0)
+      :package-conflicts (get package-counts :version-conflicts 0)
       :chunks (count (filter active-row?
                              (query/all-chunks xtdb {:project-id project-id
                                                      :repo-id repo-id
@@ -885,7 +896,9 @@
   [counts]
   (cond-> []
     (pos? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
-    (pos? (+ (:external-packages counts 0) (:package-import-edges counts 0))) (conj :dependencies)
+    (pos? (+ (:external-packages counts 0)
+             (:package-import-edges counts 0)
+             (:unresolved-imports counts 0))) (conj :dependencies)
     (pos? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
     (pos? (:embeddings counts)) (conj :embeddings)
     (pos? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
@@ -901,7 +914,9 @@
   (cond-> []
     (zero? (:files counts)) (conj :source-files)
     (zero? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
-    (zero? (+ (:external-packages counts 0) (:package-import-edges counts 0))) (conj :dependencies)
+    (zero? (+ (:external-packages counts 0)
+              (:package-import-edges counts 0)
+              (:unresolved-imports counts 0))) (conj :dependencies)
     (zero? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
     (zero? (:embeddings counts)) (conj :embeddings)
     (zero? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
@@ -911,6 +926,9 @@
 (defn- weak-planes
   [counts {:keys [entity-count doc-count activity-count validation-count]}]
   (cond-> []
+    (pos? (:unresolved-imports counts 0))
+    (conj :dependencies)
+
     (and (pos? (+ (:system-nodes counts) (:system-edges counts)))
          (zero? entity-count))
     (conj :system-graph)
@@ -939,8 +957,13 @@
     (pos? (:diagnostics counts))
     (conj "Indexer diagnostics are present; inspect source coverage before relying on missing facts.")
 
-    (zero? (+ (:external-packages counts 0) (:package-import-edges counts 0)))
+    (zero? (+ (:external-packages counts 0)
+              (:package-import-edges counts 0)
+              (:unresolved-imports counts 0)))
     (conj "No dependency graph rows are indexed; dependency questions are limited.")
+
+    (pos? (:unresolved-imports counts 0))
+    (conj "Dependency graph has unresolved imports; dependency answers may need package review.")
 
     (zero? (+ (:system-nodes counts) (:system-edges counts)))
     (conj "No system graph rows are indexed for this project.")
@@ -981,8 +1004,14 @@
          (and (= :auto (:requested retrieval)) (:fallback? retrieval))
          (conj "Run agraph embed --provider openrouter")
 
-         (zero? (+ (:external-packages counts 0) (:package-import-edges counts 0)))
+         (or (zero? (+ (:external-packages counts 0)
+                       (:package-import-edges counts 0)
+                       (:unresolved-imports counts 0)))
+             (pos? (:unresolved-imports counts 0)))
          (conj (str "Run agraph packages --project " (or project-id "<project-id>") " --json"))
+
+         (pos? (:unresolved-imports counts 0))
+         (conj "Run agraph sync <project.edn> --check --enqueue")
 
          (zero? (+ (:system-nodes counts) (:system-edges counts)))
          (conj "Run agraph sync <project.edn>")
