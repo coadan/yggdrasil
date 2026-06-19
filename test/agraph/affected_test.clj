@@ -83,6 +83,8 @@
     (is (= [["outgoing-dependency"] ["incoming-dependent"]]
            (mapv :directions affected-files)))
     (is (= {:count 1
+            :byRelation [{:relation "defines"
+                          :count 1}]
             :samples [{:edgeId "edge:core-defines"
                        :relation "defines"
                        :sourceNode "node:core"

@@ -643,6 +643,12 @@
   (println "- changed-nodes" (count changedNodes))
   (println "- affected-files" (count affectedFiles))
   (println "- unsupported-incident-edges" (:count unsupportedIncidentEdges 0))
+  (when (seq (:byRelation unsupportedIncidentEdges))
+    (println "- unsupported-incident-relations"
+             (str/join ", "
+                       (map (fn [{:keys [relation count]}]
+                              (str relation ":" count))
+                            (:byRelation unsupportedIncidentEdges)))))
   (when (:testsOnly basis)
     (println "- tests-only true"))
   (when (seq affectedFiles)

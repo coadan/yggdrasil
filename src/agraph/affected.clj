@@ -276,6 +276,17 @@
     (:path edge) (assoc :path (:path edge))
     (:source-line edge) (assoc :sourceLine (:source-line edge))))
 
+(defn- relation-count-rows
+  [rows]
+  (->> rows
+       (map :relation)
+       frequencies
+       (map (fn [[relation count]]
+              {:relation relation
+               :count count}))
+       (sort-by :relation)
+       vec))
+
 (defn- affected-file-row
   [nodes-by-file chunks-by-file tests-only? [file-id rows]]
   (let [file (:file (first rows))
@@ -433,6 +444,7 @@
                          (sort-by (juxt :path :source-line :label) changed-nodes))
      :affectedFiles affected-files
      :unsupportedIncidentEdges {:count (count unsupported-edges)
+                                :byRelation (relation-count-rows unsupported-edges)
                                 :samples (vec (take 8 unsupported-edges))}
      :warnings warnings
      :nextActions next-actions}))

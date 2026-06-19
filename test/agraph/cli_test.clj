@@ -581,6 +581,7 @@
                                       :changedNodes []
                                       :affectedFiles []
                                       :unsupportedIncidentEdges {:count 0
+                                                                 :byRelation []
                                                                  :samples []}
                                       :warnings []
                                       :nextActions []})]
