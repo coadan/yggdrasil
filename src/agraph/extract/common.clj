@@ -171,6 +171,14 @@
   [path]
   (str/lower-case (last (str/split path #"/"))))
 
+(defn toml-array-strings
+  [value]
+  (->> (re-seq #"\"([^\"]+)\"" (str value))
+       (map second)
+       (remove str/blank?)
+       distinct
+       vec))
+
 (defn leading-spaces
   [line]
   (count (take-while #(= \space %) line)))
