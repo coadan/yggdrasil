@@ -144,6 +144,48 @@
                                      :kind :java
                                      :active? false}]
 
+                                   :agraph/nodes
+                                   [{:xt/id "node:app"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :file-id "file:app"
+                                     :active? true}
+                                    {:xt/id "node:service"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :file-id "file:service"
+                                     :active? true}
+                                    {:xt/id "node:other"
+                                     :project-id "other"
+                                     :repo-id "app"
+                                     :file-id "file:other"
+                                     :active? true}
+                                    {:xt/id "node:inactive"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :file-id "file:inactive"
+                                     :active? false}]
+
+                                   :agraph/edges
+                                   [{:xt/id "edge:app-service"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :source-id "node:app"
+                                     :target-id "node:service"
+                                     :active? true}
+                                    {:xt/id "edge:other"
+                                     :project-id "other"
+                                     :repo-id "app"
+                                     :source-id "node:other"
+                                     :target-id "node:app"
+                                     :active? true}
+                                    {:xt/id "edge:inactive"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :source-id "node:app"
+                                     :target-id "node:inactive"
+                                     :active? false}]
+
                                    :agraph/index-diagnostics
                                    [{:file-id "file:service"
                                      :project-id "fixture"
@@ -180,6 +222,24 @@
               :diagnostics 2
               :fileKinds 2}
              (:totals summary)))
+      (is (= {:indexedFiles 2
+              :nodes 2
+              :edges 1
+              :connectedFiles 2
+              :crossFileConnectedFiles 2
+              :isolatedFiles 0}
+             (dissoc (:indexedConnectivity summary) :byKind)))
+      (is (= [{:kind "code"
+               :indexedFiles 1
+               :connectedFiles 1
+               :crossFileConnectedFiles 1
+               :isolatedFiles 0}
+              {:kind "java"
+               :indexedFiles 1
+               :connectedFiles 1
+               :crossFileConnectedFiles 1
+               :isolatedFiles 0}]
+             (get-in summary [:indexedConnectivity :byKind])))
       (is (= [{:kind "code" :count 1}
               {:kind "java" :count 1}]
              (:topFileKinds summary)))
@@ -224,6 +284,39 @@
       (is (= [{:kind :coverage
                :label "Inspect extractor diagnostics"
                :count 2
+               :command "agraph sync coverage <project.edn> --json"}]
+             (:nextActions summary))))))
+
+(deftest context-summary-actions-isolated-indexed-files
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files
+                                   [{:xt/id "file:app"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :path "src/app.clj"
+                                     :kind :code
+                                     :active? true}]
+
+                                   :agraph/nodes []
+                                   :agraph/edges []
+                                   :agraph/index-diagnostics []
+
+                                   []))]
+    (let [summary (coverage/context-summary
+                   :xtdb
+                   {:project-id "fixture"
+                    :repo-id "app"})]
+      (is (= {:indexedFiles 1
+              :nodes 0
+              :edges 0
+              :connectedFiles 0
+              :crossFileConnectedFiles 0
+              :isolatedFiles 1}
+             (dissoc (:indexedConnectivity summary) :byKind)))
+      (is (= [{:kind :coverage
+               :label "Inspect isolated indexed files"
+               :count 1
                :command "agraph sync coverage <project.edn> --json"}]
              (:nextActions summary))))))
 

@@ -290,71 +290,6 @@
                      (:path file) (assoc :path (:path file))
                      (:kind file) (assoc :kind (display-value (:kind file))))))))))
 
-(defn- context-next-actions
-  [diagnostics]
-  (let [diagnostic-count (count diagnostics)]
-    (cond-> []
-      (pos? diagnostic-count)
-      (conj {:kind :coverage
-             :label "Inspect extractor diagnostics"
-             :count diagnostic-count
-             :command (coverage-command nil)}))))
-
-(defn context-summary
-  "Return compact indexed source coverage for context packets.
-
-  This summarizes the graph rows currently available to the selected
-  project/repo/read context. It does not scan the filesystem for skipped or
-  unsupported source candidates; use `project-coverage` for full repo coverage."
-  [xtdb opts]
-  (let [files (scoped-active-index-rows xtdb (:files store/tables) opts)
-        diagnostics (scoped-active-index-rows xtdb (:diagnostics store/tables) opts)
-        summary {:schema context-schema
-                 :basis "indexed-graph"
-                 :totals {:indexedFiles (count files)
-                          :diagnostics (count diagnostics)
-                          :fileKinds (count (set (keep :kind files)))}
-                 :topFileKinds (vec (take 8 (count-rows :kind :kind files)))
-                 :extractors (vec (take 12 (context-extractor-rows files)))
-                 :extractorFingerprints (vec (take 12 (context-extractor-fingerprint-rows
-                                                       files)))
-                 :diagnostics {:byStage (vec (take 8 (count-rows :stage
-                                                                 :stage
-                                                                 diagnostics)))
-                               :byExtractor (vec (take 8
-                                                       (context-diagnostic-extractor-rows
-                                                        files
-                                                        diagnostics)))
-                               :samples (context-diagnostic-samples files
-                                                                    diagnostics)}}
-        actions (context-next-actions diagnostics)]
-    (cond-> summary
-      (seq actions) (assoc :nextActions actions))))
-
-(defn- indexed-extractor-fingerprint-summary
-  [xtdb project-id]
-  (if-not xtdb
-    []
-    (->> (store/rows-by-field xtdb
-                              (:files store/tables)
-                              :project-id
-                              project-id)
-         (filter active-index-row?)
-         (group-by (juxt :kind extractor-fingerprint-value))
-         (map (fn [[[kind fingerprint] files]]
-                {:kind (display-value kind)
-                 :extractor-version (get extract/extractor-versions kind "none/v1")
-                 :extractor-fingerprint fingerprint
-                 :files (count files)}))
-         (sort-by (juxt :kind :extractor-version :extractor-fingerprint))
-         vec)))
-
-(defn- active-project-rows
-  [xtdb table project-id]
-  (->> (store/rows-by-field xtdb table :project-id project-id)
-       (filter active-index-row?)
-       vec))
-
 (defn- edge-file-pairs
   [node-file-by-id edge]
   (let [source-file-id (get node-file-by-id (:source-id edge))
@@ -395,26 +330,106 @@
        (sort-by (juxt :kind))
        vec))
 
+(defn- indexed-connectivity-from-rows
+  [files nodes edges]
+  (let [file-ids (set (map :xt/id files))
+        node-file-by-id (into {} (keep (fn [node]
+                                         (when (contains? file-ids (:file-id node))
+                                           [(:xt/id node) (:file-id node)])))
+                              nodes)
+        connected-ids (connected-file-ids node-file-by-id edges)
+        cross-file-ids (cross-file-connected-file-ids node-file-by-id edges)]
+    {:indexedFiles (count files)
+     :nodes (count nodes)
+     :edges (count edges)
+     :connectedFiles (count connected-ids)
+     :crossFileConnectedFiles (count cross-file-ids)
+     :isolatedFiles (count (remove connected-ids file-ids))
+     :byKind (connectivity-kind-rows files connected-ids cross-file-ids)}))
+
+(defn- context-next-actions
+  [diagnostics indexed-connectivity]
+  (let [diagnostic-count (count diagnostics)
+        isolated-count (long (or (:isolatedFiles indexed-connectivity) 0))]
+    (cond-> []
+      (pos? diagnostic-count)
+      (conj {:kind :coverage
+             :label "Inspect extractor diagnostics"
+             :count diagnostic-count
+             :command (coverage-command nil)})
+
+      (pos? isolated-count)
+      (conj {:kind :coverage
+             :label "Inspect isolated indexed files"
+             :count isolated-count
+             :command (coverage-command nil)}))))
+
+(defn context-summary
+  "Return compact indexed source coverage for context packets.
+
+  This summarizes the graph rows currently available to the selected
+  project/repo/read context. It does not scan the filesystem for skipped or
+  unsupported source candidates; use `project-coverage` for full repo coverage."
+  [xtdb opts]
+  (let [files (scoped-active-index-rows xtdb (:files store/tables) opts)
+        nodes (scoped-active-index-rows xtdb (:nodes store/tables) opts)
+        edges (scoped-active-index-rows xtdb (:edges store/tables) opts)
+        diagnostics (scoped-active-index-rows xtdb (:diagnostics store/tables) opts)
+        indexed-connectivity (indexed-connectivity-from-rows files nodes edges)
+        summary {:schema context-schema
+                 :basis "indexed-graph"
+                 :totals {:indexedFiles (count files)
+                          :diagnostics (count diagnostics)
+                          :fileKinds (count (set (keep :kind files)))}
+                 :indexedConnectivity indexed-connectivity
+                 :topFileKinds (vec (take 8 (count-rows :kind :kind files)))
+                 :extractors (vec (take 12 (context-extractor-rows files)))
+                 :extractorFingerprints (vec (take 12 (context-extractor-fingerprint-rows
+                                                       files)))
+                 :diagnostics {:byStage (vec (take 8 (count-rows :stage
+                                                                 :stage
+                                                                 diagnostics)))
+                               :byExtractor (vec (take 8
+                                                       (context-diagnostic-extractor-rows
+                                                        files
+                                                        diagnostics)))
+                               :samples (context-diagnostic-samples files
+                                                                    diagnostics)}}
+        actions (context-next-actions diagnostics indexed-connectivity)]
+    (cond-> summary
+      (seq actions) (assoc :nextActions actions))))
+
+(defn- indexed-extractor-fingerprint-summary
+  [xtdb project-id]
+  (if-not xtdb
+    []
+    (->> (store/rows-by-field xtdb
+                              (:files store/tables)
+                              :project-id
+                              project-id)
+         (filter active-index-row?)
+         (group-by (juxt :kind extractor-fingerprint-value))
+         (map (fn [[[kind fingerprint] files]]
+                {:kind (display-value kind)
+                 :extractor-version (get extract/extractor-versions kind "none/v1")
+                 :extractor-fingerprint fingerprint
+                 :files (count files)}))
+         (sort-by (juxt :kind :extractor-version :extractor-fingerprint))
+         vec)))
+
+(defn- active-project-rows
+  [xtdb table project-id]
+  (->> (store/rows-by-field xtdb table :project-id project-id)
+       (filter active-index-row?)
+       vec))
+
 (defn- indexed-connectivity-summary
   [xtdb project-id]
   (when xtdb
     (let [files (active-project-rows xtdb (:files store/tables) project-id)
           nodes (active-project-rows xtdb (:nodes store/tables) project-id)
-          edges (active-project-rows xtdb (:edges store/tables) project-id)
-          file-ids (set (map :xt/id files))
-          node-file-by-id (into {} (keep (fn [node]
-                                           (when (contains? file-ids (:file-id node))
-                                             [(:xt/id node) (:file-id node)])))
-                                nodes)
-          connected-ids (connected-file-ids node-file-by-id edges)
-          cross-file-ids (cross-file-connected-file-ids node-file-by-id edges)]
-      {:indexedFiles (count files)
-       :nodes (count nodes)
-       :edges (count edges)
-       :connectedFiles (count connected-ids)
-       :crossFileConnectedFiles (count cross-file-ids)
-       :isolatedFiles (count (remove connected-ids file-ids))
-       :byKind (connectivity-kind-rows files connected-ids cross-file-ids)})))
+          edges (active-project-rows xtdb (:edges store/tables) project-id)]
+      (indexed-connectivity-from-rows files nodes edges))))
 
 (defn- diagnostics-summary
   [xtdb project-id]

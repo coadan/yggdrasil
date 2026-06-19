@@ -86,6 +86,21 @@
   [source-coverage]
   (when source-coverage
     (cond-> (select-keys source-coverage [:schema :basis :totals])
+      (:indexedConnectivity source-coverage)
+      (assoc :indexedConnectivity
+             (cond-> (select-keys (:indexedConnectivity source-coverage)
+                                  [:indexedFiles
+                                   :nodes
+                                   :edges
+                                   :connectedFiles
+                                   :crossFileConnectedFiles
+                                   :isolatedFiles])
+               (seq (get-in source-coverage [:indexedConnectivity :byKind]))
+               (assoc :byKind
+                      (vec (take 5
+                                 (get-in source-coverage
+                                         [:indexedConnectivity :byKind]))))))
+
       (seq (:topFileKinds source-coverage))
       (assoc :topFileKinds (vec (take 5 (:topFileKinds source-coverage))))
 

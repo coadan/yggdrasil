@@ -1,11 +1,5 @@
 (ns agraph.context-budget-test
   (:require [agraph.context :as context]
-            [agraph.activity :as activity]
-            [agraph.coverage :as coverage]
-            [agraph.dependency :as dependency]
-            [agraph.graph :as graph]
-            [agraph.query :as query]
-            [agraph.xtdb :as store]
             [clojure.test :refer [deftest is]]))
 
 (deftest compact-answerability-keeps-bounded-actionable-detail
@@ -929,6 +923,19 @@
                          :totals {:indexedFiles 200
                                   :diagnostics 20
                                   :fileKinds 4}
+                         :indexedConnectivity {:indexedFiles 200
+                                               :nodes 300
+                                               :edges 150
+                                               :connectedFiles 120
+                                               :crossFileConnectedFiles 80
+                                               :isolatedFiles 80
+                                               :byKind (mapv (fn [idx]
+                                                               {:kind (str "kind-" idx)
+                                                                :indexedFiles idx
+                                                                :connectedFiles idx
+                                                                :crossFileConnectedFiles idx
+                                                                :isolatedFiles idx})
+                                                             (range 10))}
                          :topFileKinds (mapv (fn [idx]
                                                {:kind (str "kind-" idx)
                                                 :count idx})
@@ -989,6 +996,16 @@
                       (update :sourceCoverage @#'context/compact-source-coverage))
         trimmed (trim packet (context/estimate-tokens compacted))]
     (is (contains? trimmed :sourceCoverage))
+    (is (= {:indexedFiles 200
+            :nodes 300
+            :edges 150
+            :connectedFiles 120
+            :crossFileConnectedFiles 80
+            :isolatedFiles 80}
+           (dissoc (get-in trimmed [:sourceCoverage :indexedConnectivity])
+                   :byKind)))
+    (is (= 5 (count (get-in trimmed
+                            [:sourceCoverage :indexedConnectivity :byKind]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :topFileKinds]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :extractors]))))
     (is (= 5 (count (get-in trimmed [:sourceCoverage :extractorFingerprints]))))
