@@ -293,6 +293,7 @@
                         :claim-authority
                         :benchmark-artifacts
                         :manifest-fingerprint
+                        :expected-package-id
                         :expected-manifest-fingerprint
                         :extractor-plugins
                         :report-plugins

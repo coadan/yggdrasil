@@ -107,6 +107,8 @@
       (is (= manifest-fingerprint (get-in listed [:packages 0 :manifest-fingerprint])))
       (is (= manifest-fingerprint
              (get-in listed [:packages 0 :expected-manifest-fingerprint])))
+      (is (= "sample-plugin-pack"
+             (get-in listed [:packages 0 :expected-package-id])))
       (is (= 1 (get-in listed [:packages 0 :extractor-plugins])))
       (is (= 1 (get-in listed [:packages 0 :report-plugins])))
       (is (some #(str/includes? % "unbenchmarked")
@@ -129,7 +131,22 @@
                            [(assoc entry :manifest-fingerprint "sha256:stale")])))
       (is (some #(str/includes? % "manifest fingerprint")
                 (get-in (plugin-package/list-installed (.getPath project-edn))
-                        [:packages 0 :warnings]))))))
+                        [:packages 0 :warnings])))
+      (spit project-edn
+            (pr-str (assoc data
+                           :plugin-packages
+                           [(assoc entry :id "different-plugin")])))
+      (let [mismatched (plugin-package/list-installed (.getPath project-edn))]
+        (is (= "different-plugin"
+               (get-in mismatched [:packages 0 :expected-package-id])))
+        (is (= #{:package-id-mismatch :project-local-scope :unbenchmarked}
+               (set (map :code (get-in mismatched [:packages 0 :diagnostics])))))
+        (is (= {:total 3
+                :errors 1
+                :warnings 2}
+               (get-in mismatched [:packages 0 :diagnostic-counts])))
+        (is (some #(str/includes? % "package id")
+                  (get-in mismatched [:packages 0 :warnings])))))))
 
 (deftest removes-installed-plugin-package-entry
   (let [workspace (temp-dir "agraph-plugin-remove")

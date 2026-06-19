@@ -375,10 +375,20 @@
     []))
 
 (defn- package-diagnostics
-  [{:keys [id visibility license benchmark-status manifest-fingerprint expected-manifest-fingerprint]
+  [{:keys [id expected-package-id visibility license benchmark-status manifest-fingerprint
+           expected-manifest-fingerprint]
     :as package}]
   (vec
    (concat
+    (when (and (present? expected-package-id)
+               (not= expected-package-id id))
+      [{:code :package-id-mismatch
+        :severity :error
+        :applies-to [:local-use :public-sharing :claims :core-promotion]
+        :message (str id " package id does not match the installed project entry.")
+        :evidence {:expected expected-package-id
+                   :actual id
+                   :manifest (:manifest package)}}])
     (when (and (present? expected-manifest-fingerprint)
                (not= expected-manifest-fingerprint manifest-fingerprint))
       [{:code :manifest-fingerprint-mismatch
@@ -495,6 +505,7 @@
                            :path package-path
                            :manifest (.getPath manifest-path)
                            :manifest-fingerprint fingerprint
+                           :expected-package-id (some-> (:id entry) str)
                            :expected-manifest-fingerprint (:manifest-fingerprint entry)
                            :source (:source entry)
                            :visibility (normalize-visibility manifest)
@@ -521,6 +532,7 @@
      :source (:source package)
      :path (:path package)
      :manifest-fingerprint (:manifest-fingerprint package)
+     :expected-package-id (:expected-package-id package)
      :expected-manifest-fingerprint (:expected-manifest-fingerprint package)
      :visibility (:visibility package)
      :license (:license package)

@@ -55,7 +55,8 @@ installing again.
 
 AGraph recomputes the manifest fingerprint when a package is read. If the
 installed package path no longer matches the fingerprint recorded in
-`project.edn`, package diagnostics report the mismatch.
+`project.edn`, package diagnostics report the mismatch. Diagnostics also report
+when an installed entry id no longer matches the package manifest id.
 
 ## Authoring Loop
 
@@ -156,6 +157,8 @@ in [extractor-plugins.md](extractor-plugins.md) and
 
 - `:authority :git-plugin`
 - package id, version, source, pinned git revision, and manifest fingerprint
+- expected package id and expected manifest fingerprint from the installed
+  project entry
 - `:benchmark-status`, defaulting to `:unbenchmarked`
 - `:claim-authority`, where unbenchmarked or project-local packages are
   explicitly `:non-authoritative`

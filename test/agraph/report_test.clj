@@ -50,6 +50,7 @@
                                                :blockers [{:code :unbenchmarked
                                                            :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
                              :manifest-fingerprint "sha256:manifest"
+                             :expected-package-id "datastar-hiccup"
                              :expected-manifest-fingerprint "sha256:manifest"
                              :extractor-plugins 1
                              :report-plugins 1
@@ -149,6 +150,7 @@
                                :blockers [{:code :unbenchmarked
                                            :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
              :manifest-fingerprint "sha256:manifest"
+             :expected-package-id "datastar-hiccup"
              :expected-manifest-fingerprint "sha256:manifest"
              :extractor-plugins 1
              :report-plugins 1
