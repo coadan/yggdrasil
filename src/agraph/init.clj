@@ -1,6 +1,7 @@
 (ns agraph.init
   "Project config initialization for AGraph onboarding."
-  (:require [agraph.fs :as fs]
+  (:require [agraph.command :as command]
+            [agraph.fs :as fs]
             [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -55,29 +56,21 @@
     (when (.exists file)
       (count (:repos (json/read-json (slurp file) :key-fn keyword))))))
 
-(defn- shell-token
-  [value]
-  (let [value (str value)]
-    (if (or (re-matches #"<[^>]+>" value)
-            (re-matches #"[A-Za-z0-9_./:=+@%-]+" value))
-      value
-      (str "'" (str/replace value #"'" "'\"'\"'") "'"))))
-
 (defn- sync-command
   [config-path & args]
-  (str "agraph sync " (shell-token config-path)
+  (str "agraph sync " (command/shell-token config-path)
        (when (seq args)
-         (str " " (str/join " " (map shell-token args))))))
+         (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- ask-command
   [project-id]
   (str "agraph ask \"where is this handled?\" --project "
-       (shell-token project-id)
+       (command/shell-token project-id)
        " --json"))
 
 (defn- view-systems-command
   [project-id]
-  (str "agraph view systems --project " (shell-token project-id)))
+  (str "agraph view systems --project " (command/shell-token project-id)))
 
 (defn- next-actions
   [project-id config-path map-path]
@@ -85,7 +78,7 @@
             :label "Index and validate project graph"
             :command (str (sync-command config-path "--check")
                           (when map-path
-                            (str " --map " (shell-token map-path))))}
+                            (str " --map " (command/shell-token map-path))))}
            {:kind :ask
             :label "Ask a graph-grounded implementation question"
             :command (ask-command project-id)}

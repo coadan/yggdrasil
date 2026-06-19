@@ -1,6 +1,7 @@
 (ns agraph.queue
   "Filesystem-backed queue for provider-agnostic agent work handoff."
-  (:require [agraph.hash :as hash]
+  (:require [agraph.command :as command]
+            [agraph.hash :as hash]
             [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -108,13 +109,6 @@
       (get-in payload [:decision :project-id])
       (get-in payload [:decision :projectId])))
 
-(defn- shell-token
-  [value]
-  (let [value (str value)]
-    (if (re-matches #"[A-Za-z0-9_./:=+@%-]+" value)
-      value
-      (str "'" (str/replace value #"'" "'\"'\"'") "'"))))
-
 (defn- queue-root-from-path
   [path]
   (when path
@@ -127,23 +121,23 @@
 (defn- queue-option
   [path]
   (when-let [root (queue-root-from-path path)]
-    (str " --queue-dir " (shell-token root))))
+    (str " --queue-dir " (command/shell-token root))))
 
 (defn- project-option
   [project-id]
   (when-not (str/blank? (str project-id))
-    (str " --project " (shell-token project-id))))
+    (str " --project " (command/shell-token project-id))))
 
 (defn- kind-option
   [kind]
   (when-not (str/blank? (str kind))
-    (str " --kind " (shell-token kind))))
+    (str " --kind " (command/shell-token kind))))
 
 (defn- work-command
   [{:keys [path]} action & args]
   (str "agraph sync work " action
        (when (seq args)
-         (str " " (str/join " " (map shell-token args))))
+         (str " " (str/join " " (map command/shell-token args))))
        (queue-option path)))
 
 (defn- item-actions

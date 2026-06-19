@@ -1,6 +1,7 @@
 (ns agraph.evidence
   "Mechanical evidence-surface summaries for agents and reports."
   (:require [agraph.activity :as activity]
+            [agraph.command :as command]
             [agraph.coverage :as coverage]
             [agraph.dependency :as dependency]
             [agraph.query :as query]
@@ -87,40 +88,32 @@
           (recur (next remaining) (conj seen k) (conj out item))))
       out)))
 
-(defn- shell-token
-  [value]
-  (let [value (str value)]
-    (if (or (re-matches #"<[^>]+>" value)
-            (re-matches #"[A-Za-z0-9_./:=+@%-]+" value))
-      value
-      (str "'" (str/replace value #"'" "'\"'\"'") "'"))))
-
 (defn- package-command
   [project-id & args]
-  (str "agraph packages --project " (shell-token (or project-id "<project-id>"))
+  (str "agraph packages --project " (command/shell-token (or project-id "<project-id>"))
        (when (seq args)
-         (str " " (str/join " " (map shell-token args))))))
+         (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- sync-command
   [config-path & args]
-  (str "agraph sync " (shell-token (or config-path "<project.edn>"))
+  (str "agraph sync " (command/shell-token (or config-path "<project.edn>"))
        (when (seq args)
-         (str " " (str/join " " (map shell-token args))))))
+         (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- sync-subcommand
   [subcommand config-path & args]
-  (str "agraph sync " subcommand " " (shell-token (or config-path "<project.edn>"))
+  (str "agraph sync " subcommand " " (command/shell-token (or config-path "<project.edn>"))
        (when (seq args)
-         (str " " (str/join " " (map shell-token args))))))
+         (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- view-systems-command
   [project-id]
-  (str "agraph view systems --project " (shell-token (or project-id "<project-id>"))))
+  (str "agraph view systems --project " (command/shell-token (or project-id "<project-id>"))))
 
 (defn- ask-command
   [project-id]
   (str "agraph ask \"where is this handled?\" --project "
-       (shell-token (or project-id "<project-id>"))
+       (command/shell-token (or project-id "<project-id>"))
        " --json"))
 
 (defn- package-next-actions
@@ -128,7 +121,7 @@
    {:keys [config-path map-path]}]
   (let [check-command (str (sync-subcommand "check" config-path)
                            (when map-path
-                             (str " --map " (shell-token map-path))))]
+                             (str " --map " (command/shell-token map-path))))]
     (cond-> []
       (zero? (long (or packages 0)))
       (conj {:kind :dependencies
@@ -170,7 +163,7 @@
                   :label "Index and validate project source files"
                   :command (str (sync-command config-path "--check")
                                 (when map-path
-                                  (str " --map " (shell-token map-path))))})
+                                  (str " --map " (command/shell-token map-path))))})
 
            (zero? search-docs)
            (conj {:kind :docs

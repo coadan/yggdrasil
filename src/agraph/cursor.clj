@@ -1,6 +1,7 @@
 (ns agraph.cursor
   "Stable, revisioned graph cursors for progressive agent graph exploration."
-  (:require [agraph.context :as context]
+  (:require [agraph.command :as command]
+            [agraph.context :as context]
             [agraph.graph :as graph]
             [agraph.hash :as hash]
             [agraph.map :as graph-map]
@@ -337,19 +338,11 @@
             :clusters (count (:clusters graph-data))}
    :detail "expanded"})
 
-(defn- shell-token
-  [value]
-  (let [value (str value)]
-    (if (or (= "<text>" value)
-            (re-matches #"[A-Za-z0-9_./:=+@%-]+" value))
-      value
-      (str "'" (str/replace value #"'" "'\"'\"'") "'"))))
-
 (defn- explore-command
   [action & args]
   (str "agraph explore " action
        (when (seq args)
-         (str " " (str/join " " (map shell-token args))))))
+         (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- next-action-rows
   [cursor focus]
