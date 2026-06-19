@@ -246,6 +246,7 @@
                            :sameCases true
                            :enoughSharedCases true
                            :agraphImprovedWithoutRegressions true
+                           :directionalMetrics true
                            :problemClassCoverage false
                            :architectureClassCoverage false
                            :evidenceMetrics true
@@ -438,6 +439,7 @@
                            :sameCases true
                            :enoughSharedCases true
                            :agraphImprovedWithoutRegressions true
+                           :directionalMetrics true
                            :problemClassCoverage true
                            :architectureClassCoverage true
                            :evidenceMetrics true
@@ -709,7 +711,14 @@
             :effect 0.0
             :result "observed"}
            (select-keys (:agraphCommandCount deltas-by-key)
-                        [:shellOnly :agraph :delta :effect :result])))))
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:directionalMetrics false
+            :commandTelemetry false}
+           (select-keys (get-in comparison [:claimReadiness :requirements])
+                        [:directionalMetrics :commandTelemetry])))
+    (is (some #(= "Directional efficiency metrics are unavailable; observed telemetry alone cannot support an improvement claim."
+                  %)
+              (get-in comparison [:claimReadiness :warnings])))))
 
 (deftest writes-comparison-from-agent-report-files
   (let [root (temp-dir "agraph-agent-efficiency")

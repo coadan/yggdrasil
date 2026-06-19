@@ -517,6 +517,13 @@
   (pos? (long (or (:availableMetrics (category-summary by-category category))
                   0))))
 
+(defn- category-has-directional-metrics?
+  [by-category category]
+  (let [summary (category-summary by-category category)]
+    (pos? (long (+ (or (:improvedMetrics summary) 0)
+                   (or (:regressedMetrics summary) 0)
+                   (or (:unchangedMetrics summary) 0))))))
+
 (defn- lane-claim-ready?
   [report]
   (let [claim-readiness (:claimReadiness report)]
@@ -537,12 +544,16 @@
         improved-without-regressions? (and (= "agraph-improved"
                                               (:signal summary))
                                            (zero? (:regressedMetrics summary)))
+        directional-metrics? (pos? (long (+ (:improvedMetrics summary)
+                                            (:regressedMetrics summary)
+                                            (:unchangedMetrics summary))))
         problem-classes? (true? (:hasMeasuredProblemClasses problem-coverage))
         architecture-classes? (true? (:hasMeasuredArchitectureClasses
                                       problem-coverage))
         evidence-metrics? (category-has-metrics? by-category "evidence")
-        command-telemetry? (category-has-metrics? by-category
-                                                  "command-telemetry")
+        command-telemetry? (category-has-directional-metrics?
+                            by-category
+                            "command-telemetry")
         token-cost-metrics? (category-has-metrics? by-category "token-cost")
         shell-lane-ready? (lane-claim-ready? shell-report)
         agraph-lane-ready? (lane-claim-ready? agraph-report)
@@ -553,6 +564,7 @@
                       :enoughSharedCases enough-cases?
                       :agraphImprovedWithoutRegressions
                       improved-without-regressions?
+                      :directionalMetrics directional-metrics?
                       :problemClassCoverage problem-classes?
                       :architectureClassCoverage architecture-classes?
                       :evidenceMetrics evidence-metrics?
@@ -583,6 +595,9 @@
 
                  (not improved-without-regressions?)
                  (conj "Aggregate metrics do not show an unregressed AGraph improvement; report class-level tradeoffs instead of a broad win.")
+
+                 (not directional-metrics?)
+                 (conj "Directional efficiency metrics are unavailable; observed telemetry alone cannot support an improvement claim.")
 
                  (not evidence-metrics?)
                  (conj "Evidence citation metrics are unavailable; answer quality and citation quality are unproven.")
