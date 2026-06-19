@@ -908,7 +908,9 @@
         result (benchmark/context-packet->agent-result packet {:root root})
         files (:suspectedFiles result)]
     (is (= ["candidate-file:src/adjacent.clj rank=3 lines 2-4 targetKind=chunk label=\"open root\" score=0.7"]
-           (get-in files [0 :evidence])))))
+           (get-in files [0 :evidence])))
+    (is (= "AGraph retrieved candidate file src/adjacent.clj lines 2-4 from result rank 3."
+           (get-in files [0 :reason])))))
 
 (deftest file-ranking-caps-repeated-file-support-bonus
   (let [root (temp-dir "agraph-bench-repeated-file-support")

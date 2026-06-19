@@ -197,21 +197,25 @@
                         (sort-by first)
                         (map (fn [[k v]]
                                (str k ":" v))))))))
+(defn- candidate-line-label
+  [candidate]
+  (let [source-line (or (:sourceLine candidate)
+                        (:source-line candidate))
+        end-line (or (:endLine candidate)
+                     (:end-line candidate))]
+    (when source-line
+      (str " lines "
+           source-line
+           (when end-line
+             (str "-" end-line))))))
+
 (defn- candidate-file-evidence
   [candidate score-components path]
   (str "candidate-file:"
        path
        " rank="
        (:rank candidate)
-       (let [source-line (or (:sourceLine candidate)
-                             (:source-line candidate))
-             end-line (or (:endLine candidate)
-                          (:end-line candidate))]
-         (when source-line
-           (str " lines "
-                source-line
-                (when end-line
-                  (str "-" end-line)))))
+       (candidate-line-label candidate)
        (when-let [target-kind (some-> (:targetKind candidate) name)]
          (str " targetKind=" target-kind))
        (when-let [label (not-empty (str (:label candidate)))]
@@ -265,6 +269,7 @@
                                                      path)]
                  :reason (str "AGraph retrieved candidate file "
                               path
+                              (candidate-line-label candidate)
                               " from result rank "
                               (:rank candidate)
                               ".")}
