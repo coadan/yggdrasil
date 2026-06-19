@@ -215,18 +215,28 @@
     (assoc file :extractor-fingerprint
            (extractor-fingerprint file index-profile extractor-plugins))))
 
+(defn- plugin-search-chunk?
+  [search-plugin-ids chunk]
+  (and (= :plugin (:provenance chunk))
+       (contains? search-plugin-ids (:plugin-id chunk))))
+
 (defn- profile-extraction
-  [extraction index-profile]
+  [extraction index-profile extractor-plugins]
   (case (normalize-index-profile index-profile)
     :query extraction
-    :graph (assoc extraction :chunks [])))
+    :graph (let [search-plugin-ids (extractor-plugin/search-chunk-plugin-ids
+                                    extractor-plugins)]
+             (update extraction
+                     :chunks
+                     #(filterv (partial plugin-search-chunk? search-plugin-ids)
+                               %)))))
 
 (defn- indexable-extraction
-  [run-id project-id repo-id index-profile file extraction]
+  [run-id project-id repo-id index-profile extractor-plugins file extraction]
   (let [annotate #(assoc % :project-id project-id :repo-id repo-id)
         plugin-edge? #(= :plugin (:provenance %))
         filtered (-> extraction
-                     (profile-extraction index-profile)
+                     (profile-extraction index-profile extractor-plugins)
                      (update :nodes #(mapv annotate %))
                      (update :edges #(mapv annotate %))
                      (update :chunks #(mapv annotate %))
@@ -238,7 +248,11 @@
                                               %)))
         search-docs (case (normalize-index-profile index-profile)
                       :query (search-doc/build-search-docs run-id filtered)
-                      :graph [])]
+                      :graph (if (seq (:chunks filtered))
+                               (search-doc/build-search-docs
+                                run-id
+                                (assoc filtered :nodes [] :edges []))
+                               []))]
     (assoc filtered
            :file-facts (vec (concat (file-facts/facts-for-file run-id
                                                                project-id
@@ -449,6 +463,7 @@
                                                                project-id
                                                                repo-id
                                                                index-profile
+                                                               extractor-plugins
                                                                file
                                                                extraction)
                                                   :existing? existing?

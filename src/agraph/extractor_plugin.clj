@@ -108,6 +108,20 @@
       {:path-globs path-globs
        :file-kind (keyword (or (:file-kind scan) :plugin-source))})))
 
+(defn- normalize-search
+  "Normalize plugin-provided query surface options.
+
+  Search options are opt-in because graph-profile sync intentionally suppresses
+  ordinary chunks and search docs. `:chunks? true` keeps plugin chunks searchable
+  under graph profile without enabling the full query profile."
+  [plugin]
+  (let [search (:search plugin)
+        chunks? (or (true? (:search-docs? plugin))
+                    (true? (:chunks? search))
+                    (true? (:chunks search)))]
+    (cond-> {}
+      chunks? (assoc :chunks? true))))
+
 (defn normalize-plugin
   "Normalize one extractor plugin config entry.
 
@@ -137,6 +151,7 @@
                :timeout-ms (long (or (:timeout-ms plugin) default-timeout-ms))
                :authority (keyword (or (:authority plugin) :project-plugin))
                :benchmark-status benchmark-status
+               :search (normalize-search plugin)
                :emits (mapv keyword (:emits plugin))
                :fingerprint-seed (:fingerprint plugin)}
         scan (assoc :scan scan)))))
@@ -159,8 +174,18 @@
                          (:applies-to plugin)
                          (:scan plugin)
                          (:benchmark-status plugin)
+                         (:search plugin)
                          (:emits plugin)
                          (:fingerprint-seed plugin)])))
+
+(defn search-chunk-plugin-ids
+  "Return plugin ids whose chunks are explicit query surface material."
+  [plugins]
+  (->> plugins
+       (keep (fn [{:keys [id search]}]
+               (when (:chunks? search)
+                 id)))
+       set))
 
 (defn scan-specs
   "Return plugin scan specs consumable by `agraph.fs/scan-plugin-files`."

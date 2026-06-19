@@ -64,7 +64,11 @@
               file-facts (store/rows-by-field xtdb
                                               (:file-facts store/tables)
                                               :project-id
-                                              "plugin-project")]
+                                              "plugin-project")
+              chunks (store/rows-by-field xtdb
+                                          (:chunks store/tables)
+                                          :project-id
+                                          "plugin-project")]
           (is (= :completed (:status summary)))
           (is (some #(and (= "flows/home.panel" (:path %))
                           (= :panel (:kind %))
@@ -84,7 +88,67 @@
           (is (some #(and (= :plugin-fact (:kind %))
                           (= "flows/home.panel" (:path %))
                           (= "panel-plugin" (:plugin-id %)))
-                    file-facts)))))))
+                    file-facts))
+          (is (some #(and (= :plugin-summary (:kind %))
+                          (= "flows/home.panel" (:path %))
+                          (= "panel-plugin" (:plugin-id %)))
+                    chunks)))))))
+
+(deftest graph-profile-keeps-only-opted-in-plugin-search-chunks
+  (let [repo (temp-dir "agraph-plugin-search-repo")
+        xtdb-path (temp-dir "agraph-plugin-search-xtdb")]
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn value [] 1)\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [summary (index/index-repo!
+                       xtdb
+                       repo
+                       {:project-id "plugin-search-project"
+                        :repo-id "app"
+                        :index-profile :graph
+                        :extractor-plugins [(assoc (plugin-config)
+                                                   :search {:chunks? true})]})
+              chunks (store/rows-by-field xtdb
+                                          (:chunks store/tables)
+                                          :project-id
+                                          "plugin-search-project")
+              search-docs (store/rows-by-field xtdb
+                                               (:search-docs store/tables)
+                                               :project-id
+                                               "plugin-search-project")]
+          (is (= :completed (:status summary)))
+          (is (= 1 (get-in summary [:stats :chunks])))
+          (is (= 1 (get-in summary [:stats :search-docs])))
+          (is (= [:plugin-summary] (mapv :kind chunks)))
+          (is (= [:chunk] (mapv :target-kind search-docs)))
+          (is (every? #(= "panel-plugin" (:plugin-id %)) chunks)))))))
+
+(deftest graph-profile-suppresses-plugin-chunks-without-search-opt-in
+  (let [repo (temp-dir "agraph-plugin-no-search-repo")
+        xtdb-path (temp-dir "agraph-plugin-no-search-xtdb")]
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn value [] 1)\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [summary (index/index-repo!
+                       xtdb
+                       repo
+                       {:project-id "plugin-no-search-project"
+                        :repo-id "app"
+                        :index-profile :graph
+                        :extractor-plugins [(plugin-config)]})
+              chunks (store/rows-by-field xtdb
+                                          (:chunks store/tables)
+                                          :project-id
+                                          "plugin-no-search-project")
+              search-docs (store/rows-by-field xtdb
+                                               (:search-docs store/tables)
+                                               :project-id
+                                               "plugin-no-search-project")]
+          (is (= :completed (:status summary)))
+          (is (zero? (get-in summary [:stats :chunks])))
+          (is (zero? (get-in summary [:stats :search-docs])))
+          (is (empty? chunks))
+          (is (empty? search-docs)))))))
 
 (deftest plugin-command-failure-becomes-diagnostic
   (let [repo (temp-dir "agraph-plugin-failure-repo")
@@ -131,4 +195,5 @@
       (is (= #{:enhance :scan} (:modes plugin)))
       (is (= :panel (get-in plugin [:scan :file-kind])))
       (is (= :unbenchmarked (:benchmark-status plugin)))
+      (is (= {} (:search plugin)))
       (is (seq (extractor-plugin/scan-specs [plugin]))))))

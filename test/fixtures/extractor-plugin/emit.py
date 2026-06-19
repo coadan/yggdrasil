@@ -34,6 +34,14 @@ json.dump(
                 "confidence": 0.75,
             }
         ],
+        "chunks": [
+            {
+                "kind": "plugin-summary",
+                "label": f"plugin summary {path}",
+                "text": f"searchable plugin summary for {path}",
+                "sourceLine": 1,
+            }
+        ],
     },
     sys.stdout,
 )

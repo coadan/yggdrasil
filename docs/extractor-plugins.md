@@ -30,6 +30,7 @@ Add plugins to `project.edn`:
                 :path-globs ["src/**/*.clj"]}
    :scan {:path-globs ["ui/**/*.panel"]
           :file-kind :panel}
+   :search {:chunks? true}
    :emits [:hypermedia]
    :timeout-ms 10000}]}
 ```
@@ -67,6 +68,22 @@ facts from local helper APIs, DSLs, templates, or generated conventions.
 The plugin receives the file record and the core rows for that file. It can add
 rows, emit edges that core would not know about, or emit a row with the same
 `:xt/id` to replace a weaker core row in the persisted extraction.
+
+## Search Opt-In
+
+Graph-profile sync suppresses ordinary chunks and search docs so architecture
+maintenance stays lean. A plugin can explicitly opt its own chunks into the
+query surface:
+
+```clojure
+:search {:chunks? true}
+```
+
+With this option, plugin-generated chunks are persisted and search docs are
+built for those chunks even under `:graph` profile. Core chunks and node search
+docs remain suppressed under `:graph`. Use this only when the plugin emits
+bounded, useful query text, such as DSL summaries or framework-specific
+architecture facts.
 
 ## Input Contract
 
@@ -127,6 +144,14 @@ Output schema: `agraph.extractor-plugin.result/v1`
       "normalizedValue": "/profile",
       "sourceLine": 42,
       "confidence": 0.8
+    }
+  ],
+  "chunks": [
+    {
+      "kind": "hypermedia-summary",
+      "label": "save profile request",
+      "text": "Datastar click handler sends POST /profile and patches profile form state.",
+      "sourceLine": 42
     }
   ],
   "diagnostics": []
