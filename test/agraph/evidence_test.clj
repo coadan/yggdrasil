@@ -6,7 +6,16 @@
             [agraph.fs :as fs]
             [agraph.query :as query]
             [agraph.xtdb :as store]
+            [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]))
+
+(defn- temp-dir
+  [prefix]
+  (let [dir (.toFile (java.nio.file.Files/createTempDirectory
+                      prefix
+                      (make-array java.nio.file.attribute.FileAttribute 0)))]
+    (.deleteOnExit dir)
+    (.getPath dir)))
 
 (deftest packet-freshness-keeps-basis-repair-actions
   (is (= {:status :stale
@@ -290,3 +299,62 @@
                      :command "agraph sync project.edn --check --map agraph.map.json"}
                     %)
                 (:nextActions summary))))))
+
+(deftest summarize-marks-current-graph-without-query-index-partial
+  (let [root (temp-dir "agraph-freshness-query-index")
+        map-path (.getPath (io/file root "agraph.map.json"))]
+    (spit map-path "{}\n")
+    (with-redefs [coverage/project-coverage (fn [& _]
+                                              {:totals {:skipped 0}
+                                               :files-by-kind []
+                                               :extractors []
+                                               :skipped-by-extension []
+                                               :skipped-by-reason []
+                                               :diagnostics {:total 0}})
+                  dependency/package-report (fn [& _]
+                                              {:counts {:packages 0
+                                                        :versions 0
+                                                        :imports-package 0
+                                                        :version-conflicts 0
+                                                        :declared-without-import-evidence 0
+                                                        :unresolved-imports 0}
+                                               :ecosystems []})
+                  fs/scan-files (fn [scan-root]
+                                  (is (= root scan-root))
+                                  [{:path "src/app.clj"
+                                    :content-sha "sha256:app"}])
+                  store/all-rows (fn [_ table _]
+                                   (case table
+                                     :agraph/files [{:xt/id "file:app"
+                                                     :project-id "fixture"
+                                                     :repo-id "app"
+                                                     :path "src/app.clj"
+                                                     :content-sha "sha256:app"
+                                                     :active? true}]
+                                     []))
+                  query/all-nodes (fn [& _] [])
+                  query/all-edges (fn [& _] [])
+                  query/all-chunks (fn [& _] [])
+                  query/all-search-docs (fn [& _] [])
+                  query/all-embeddings (fn [& _] [])
+                  query/all-system-nodes (fn [& _] [])
+                  query/all-system-edges (fn [& _] [])
+                  activity/all-items (fn [& _] [])
+                  activity/all-events (fn [& _] [])]
+      (let [summary (evidence/summarize :xtdb
+                                        {:id "fixture"
+                                         :repos [{:id "app"
+                                                  :root root}]}
+                                        {:config-path "project.edn"
+                                         :map-path map-path})]
+        (is (= :partial (get-in summary [:freshness :status])))
+        (is (= "indexed-graph" (get-in summary [:freshness :basis])))
+        (is (= true (get-in summary [:freshness :missingQueryIndex])))
+        (is (= "project.edn" (get-in summary [:freshness :projectConfig])))
+        (is (= map-path (get-in summary [:freshness :map])))
+        (is (= true (get-in summary [:freshness :mapExists])))
+        (is (some #(= {:kind :docs
+                       :label "Build query index"
+                       :command "agraph sync project.edn --query-index"}
+                      %)
+                  (:nextActions summary)))))))

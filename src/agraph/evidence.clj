@@ -7,6 +7,7 @@
             [agraph.fs :as fs]
             [agraph.query :as query]
             [agraph.xtdb :as store]
+            [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]))
 
@@ -422,6 +423,39 @@
      :counts counts
      :repos repo-statuses}))
 
+(defn- query-index-missing?
+  [counts]
+  (zero? (long (or (:search-docs counts) 0))))
+
+(defn- freshness-basis
+  [counts]
+  (if (pos? (long (or (:files counts) 0)))
+    "indexed-graph"
+    "none"))
+
+(defn- freshness-readiness-status
+  [status counts]
+  (if (and (= :current status)
+           (pos? (long (or (:files counts) 0)))
+           (query-index-missing? counts))
+    :partial
+    status))
+
+(defn- map-exists?
+  [map-path]
+  (when (seq (str map-path))
+    (.exists (io/file map-path))))
+
+(defn- annotate-freshness
+  [freshness counts {:keys [config-path map-path]}]
+  (cond-> (assoc freshness
+                 :status (freshness-readiness-status (:status freshness) counts)
+                 :basis (freshness-basis counts)
+                 :missingQueryIndex (query-index-missing? counts))
+    (seq (str config-path)) (assoc :projectConfig config-path)
+    (seq (str map-path)) (assoc :map map-path
+                                :mapExists (boolean (map-exists? map-path)))))
+
 (defn summarize
   "Return a project-level mechanical evidence summary.
 
@@ -478,6 +512,7 @@
                 :diagnostics (get-in coverage-report [:diagnostics :total] 0)
                 :skipped-files (get-in coverage-report [:totals :skipped] 0)
                 :map-overlay (overlay-counts map-overlay)}
+        freshness (annotate-freshness freshness counts opts)
         available-planes (available counts)
         planes (evidence-planes counts available-planes)
         actions (next-actions {:project project
