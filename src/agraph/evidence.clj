@@ -410,13 +410,30 @@
     (cond-> (:freshness summary)
       (seq actions) (assoc :nextActions actions))))
 
+(defn- compact-connectivity
+  [connectivity]
+  (when (seq connectivity)
+    (cond-> (select-keys connectivity
+                         [:indexedFiles
+                          :nodes
+                          :edges
+                          :connectedFiles
+                          :crossFileConnectedFiles
+                          :isolatedFiles])
+      (seq (:byKind connectivity))
+      (assoc :byKind (vec (take 5 (:byKind connectivity)))))))
+
 (defn status-coverage
   "Return compact coverage fields for agent-facing project status packets."
   [summary]
-  (let [counts (:counts summary)]
+  (let [counts (:counts summary)
+        connectivity (compact-connectivity (:indexedConnectivity summary))]
     (cond-> {:counts {:files (:files counts 0)
                       :skippedFiles (:skipped-files counts 0)
                       :diagnostics (:diagnostics counts 0)}}
+      connectivity
+      (assoc :connectivity connectivity)
+
       (seq (:top-file-kinds summary))
       (assoc :topFileKinds (vec (take 5 (:top-file-kinds summary))))
 
@@ -638,6 +655,7 @@
      :top-node-kinds (top-counts nodes :kind)
      :top-edge-relations (top-counts edges :relation)
      :extractors (vec (take 20 (:extractors coverage-report)))
+     :indexedConnectivity (:indexedConnectivity coverage-report)
      :skipped-by-extension (vec (take 8 (:skipped-by-extension coverage-report)))
      :skipped-by-reason (vec (take 8 (:skipped-by-reason coverage-report)))
      :diagnostics diagnostics

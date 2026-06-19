@@ -40,11 +40,65 @@
                          {:kind :ask
                           :command "agraph ask \"where is this handled?\" --project fixture --json"}]}))))
 
+(deftest status-coverage-includes-compact-indexed-connectivity
+  (is (= {:counts {:files 4
+                   :skippedFiles 1
+                   :diagnostics 0}
+          :connectivity {:indexedFiles 4
+                         :nodes 6
+                         :edges 3
+                         :connectedFiles 3
+                         :crossFileConnectedFiles 2
+                         :isolatedFiles 1
+                         :byKind [{:kind "code"
+                                   :indexedFiles 2}
+                                  {:kind "doc"
+                                   :indexedFiles 1}
+                                  {:kind "java"
+                                   :indexedFiles 1}
+                                  {:kind "python"
+                                   :indexedFiles 1}
+                                  {:kind "ruby"
+                                   :indexedFiles 1}]}}
+         (evidence/status-coverage
+          {:counts {:files 4
+                    :skipped-files 1
+                    :diagnostics 0}
+           :indexedConnectivity {:indexedFiles 4
+                                 :nodes 6
+                                 :edges 3
+                                 :connectedFiles 3
+                                 :crossFileConnectedFiles 2
+                                 :isolatedFiles 1
+                                 :byKind [{:kind "code"
+                                           :indexedFiles 2}
+                                          {:kind "doc"
+                                           :indexedFiles 1}
+                                          {:kind "java"
+                                           :indexedFiles 1}
+                                          {:kind "python"
+                                           :indexedFiles 1}
+                                          {:kind "ruby"
+                                           :indexedFiles 1}
+                                          {:kind "typescript"
+                                           :indexedFiles 1}]}}))))
+
 (deftest summarize-exposes-dependency-evidence-plane
   (with-redefs [coverage/project-coverage (fn [& _]
                                             {:totals {:skipped 2}
                                              :files-by-kind []
                                              :extractors []
+                                             :indexedConnectivity {:indexedFiles 1
+                                                                   :nodes 0
+                                                                   :edges 0
+                                                                   :connectedFiles 0
+                                                                   :crossFileConnectedFiles 0
+                                                                   :isolatedFiles 1
+                                                                   :byKind [{:kind "code"
+                                                                             :indexedFiles 1
+                                                                             :connectedFiles 0
+                                                                             :crossFileConnectedFiles 0
+                                                                             :isolatedFiles 1}]}
                                              :skipped-by-extension [{:ext ".wasm"
                                                                      :count 2
                                                                      :samples [{:repo-id "app"
@@ -103,6 +157,18 @@
                    (:families summary))))
       (is (= 2 (get-in summary [:counts :packages])))
       (is (= 1 (get-in summary [:counts :package-imports])))
+      (is (= {:indexedFiles 1
+              :nodes 0
+              :edges 0
+              :connectedFiles 0
+              :crossFileConnectedFiles 0
+              :isolatedFiles 1
+              :byKind [{:kind "code"
+                        :indexedFiles 1
+                        :connectedFiles 0
+                        :crossFileConnectedFiles 0
+                        :isolatedFiles 1}]}
+             (:indexedConnectivity summary)))
       (is (= {:packages 2
               :versions 3
               :imports-package 1
