@@ -140,6 +140,14 @@
      :value (str/trim (or value ""))
      :source-line (inc idx)}))
 
+(defn yaml-top-level-value
+  [content key-name]
+  (some-> (re-find (re-pattern (str "(?m)^" key-name ":\\s*([^#\\n]+)\\s*$"))
+                   content)
+          second
+          str/trim
+          (str/replace #"^['\"]|['\"]$" "")))
+
 (defn yaml-scalar-list-values
   [value]
   (let [value (str/trim (or value ""))]

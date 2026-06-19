@@ -9,7 +9,9 @@ of copying large source blocks through chat.
 from __future__ import annotations
 
 import argparse
+import json
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -134,13 +136,32 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 
 def cmd_move(args: argparse.Namespace) -> None:
-    source_text, forms = read_forms(args.source)
+    move_forms(
+        source=args.source,
+        target=args.target,
+        ns=args.ns,
+        requires=args.require,
+        replacements=args.replace,
+        form_names=args.forms,
+    )
+
+
+def move_forms(
+    *,
+    source: Path,
+    target: Path,
+    ns: str | None,
+    requires: list[str],
+    replacements: list[tuple[str, str]],
+    form_names: list[str],
+) -> None:
+    source_text, forms = read_forms(source)
     by_name = {form.name: form for form in forms}
-    missing = [name for name in args.forms if name not in by_name]
+    missing = [name for name in form_names if name not in by_name]
     if missing:
         raise SystemExit(f"missing top-level forms: {', '.join(missing)}")
 
-    moving = [by_name[name] for name in args.forms]
+    moving = [by_name[name] for name in form_names]
     moving_ranges = sorted((form.start, form.end) for form in moving)
     out_parts: list[str] = []
     cursor = 0
@@ -148,17 +169,101 @@ def cmd_move(args: argparse.Namespace) -> None:
         out_parts.append(source_text[cursor:start])
         cursor = end
     out_parts.append(source_text[cursor:])
-    args.source.write_text("".join(out_parts))
+    source.write_text("".join(out_parts))
 
     moved_text = "\n".join(form.text.rstrip() for form in moving) + "\n"
-    moved_text = apply_replacements(moved_text, args.replace)
-    if args.target.exists():
-        target_text = args.target.read_text().rstrip() + "\n\n" + moved_text
+    moved_text = apply_replacements(moved_text, replacements)
+    if target.exists():
+        target_text = target.read_text().rstrip() + "\n\n" + moved_text
     else:
-        if not args.ns:
+        if not ns:
             raise SystemExit("--ns is required when target does not exist")
-        target_text = target_template(args.ns, args.require) + moved_text
-    args.target.write_text(target_text)
+        target_text = target_template(ns, requires) + moved_text
+    target.write_text(target_text)
+
+
+def add_ns_require(source: Path, require: str) -> None:
+    text = source.read_text()
+    if require in text:
+        return
+    lines = text.splitlines(keepends=True)
+    insert_idx = None
+    in_require = False
+    for idx, line in enumerate(lines):
+        if "(:require" in line:
+            in_require = True
+            insert_idx = idx
+            continue
+        if in_require and line.startswith("            ["):
+            insert_idx = idx
+        elif in_require and insert_idx is not None:
+            break
+    if insert_idx is None:
+        raise SystemExit(f"could not locate require block in {source}")
+    lines.insert(insert_idx + 1, f"            {require}\n")
+    source.write_text("".join(lines))
+
+
+def patch_routes(source: Path, routes: dict[str, str]) -> None:
+    text = source.read_text()
+    for kind, function in routes.items():
+        pattern = re.compile(rf"({re.escape(kind)}\s+)\([^()\n]+\s+run-id\s+file\)")
+        text, count = pattern.subn(rf"\1({function} run-id file)", text, count=1)
+        if count != 1:
+            raise SystemExit(f"could not patch route for {kind}")
+    source.write_text(text)
+
+
+def apply_file_replacements(path: Path, replacements: list[tuple[str, str]]) -> None:
+    path.write_text(apply_replacements(path.read_text(), replacements))
+
+
+def apply_literal_file_replacements(path: Path, replacements: dict[str, str]) -> None:
+    text = path.read_text()
+    for old, new in replacements.items():
+        if old not in text:
+            raise SystemExit(f"could not find literal replacement text in {path}: {old}")
+        text = text.replace(old, new)
+    path.write_text(text)
+
+
+def run_command(command: list[str], *, cwd: Path) -> None:
+    print("+ " + " ".join(command))
+    subprocess.run(command, cwd=cwd, check=True)
+
+
+def cmd_batch(args: argparse.Namespace) -> None:
+    repo = args.repo
+    batch = json.loads(args.manifest.read_text())
+    source = repo / batch.get("source", str(DEFAULT_SOURCE))
+    target = repo / batch["target"]
+    replacements = [parse_replacement(value) for value in batch.get("replace", [])]
+    move_forms(
+        source=source,
+        target=target,
+        ns=batch.get("ns"),
+        requires=batch.get("require", []),
+        replacements=replacements,
+        form_names=batch["forms"],
+    )
+    if batch.get("sourceRequire"):
+        add_ns_require(source, batch["sourceRequire"])
+    if batch.get("sourceReplace"):
+        apply_file_replacements(source, [parse_replacement(value) for value in batch["sourceReplace"]])
+    if batch.get("targetTextReplace"):
+        apply_literal_file_replacements(target, batch["targetTextReplace"])
+    if batch.get("sourceTextReplace"):
+        apply_literal_file_replacements(source, batch["sourceTextReplace"])
+    if batch.get("routes"):
+        patch_routes(source, batch["routes"])
+    for command in batch.get("tests", []):
+        run_command(command, cwd=repo)
+    if args.commit:
+        paths = [str(source.relative_to(repo)), batch["target"]]
+        for extra in batch.get("stage", []):
+            paths.append(extra)
+        run_command(["git", "add", *paths], cwd=repo)
+        run_command(["git", "commit", "-m", batch["commit"]], cwd=repo)
 
 
 def main() -> None:
@@ -178,6 +283,12 @@ def main() -> None:
     move_parser.add_argument("--replace", type=parse_replacement, action="append", default=[])
     move_parser.add_argument("forms", nargs="+")
     move_parser.set_defaults(func=cmd_move)
+
+    batch_parser = subparsers.add_parser("batch")
+    batch_parser.add_argument("manifest", type=Path)
+    batch_parser.add_argument("--repo", type=Path, default=Path("."))
+    batch_parser.add_argument("--commit", action="store_true")
+    batch_parser.set_defaults(func=cmd_batch)
 
     args = parser.parse_args()
     args.func(args)
