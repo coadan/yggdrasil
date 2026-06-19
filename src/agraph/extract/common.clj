@@ -7,6 +7,9 @@
 
 (def ^:private source-definition-chunk-lines 120)
 
+(def source-file-chunk-lines 100)
+(def source-family-definition-chunk-lines 120)
+
 (defn node-id
   "Return stable node id for kind/name."
   ([kind value] (node-id nil kind value))
@@ -614,6 +617,12 @@
   [line]
   (- (count (re-seq #"\{" line))
      (count (re-seq #"\}" line))))
+
+(defn pop-closed-type-scopes
+  [type-stack depth]
+  (->> type-stack
+       (remove #(> (:end-depth %) depth))
+       vec))
 
 (defn curly-balance-diagnostics
   [run-id file-id path content language]
