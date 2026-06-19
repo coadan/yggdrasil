@@ -40,6 +40,7 @@
         (select-keys [:basis
                       :acceptedSystems
                       :candidateSystems
+                      :rejectedCorrections
                       :boundaryEvidence
                       :runtimeEvidence
                       :dependencyEvidence
@@ -50,6 +51,7 @@
                       :nextActions])
         (update :acceptedSystems #(takev 5 %))
         (update :candidateSystems #(takev 5 %))
+        (update :rejectedCorrections #(takev 5 %))
         (update :boundaryEvidence #(takev 5 %))
         (update :runtimeEvidence #(takev 5 %))
         (update :dependencyEvidence #(takev 5 %))

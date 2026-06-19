@@ -136,6 +136,7 @@
     (-> architecture
         (update :acceptedSystems #(vec (take 5 %)))
         (update :candidateSystems #(vec (take 5 %)))
+        (update :rejectedCorrections #(vec (take 5 %)))
         (update :boundaryEvidence #(vec (take 8 %)))
         (update :dependencyEvidence #(vec (take 5 %)))
         (update :deployEvidence #(vec (take 5 %)))

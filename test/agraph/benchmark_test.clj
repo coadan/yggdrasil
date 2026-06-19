@@ -587,6 +587,12 @@
                                :acceptedSystems [{:id "system:repo:path/src"
                                                   :label "src"
                                                   :status "accepted"}]
+                               :rejectedCorrections [{:kind "map-reject"
+                                                      :id "map-reject:1"
+                                                      :status "rejected"
+                                                      :provenance "map-overlay"
+                                                      :match {:path "old/src"}
+                                                      :reason "old boundary was rejected"}]
                                :boundaryEvidence [{:id "edge:src-db"
                                                    :source "system:repo:path/src"
                                                    :target "system:repo:path/db"
@@ -722,6 +728,12 @@
                                :label "src"
                                :status "accepted"}]
             :candidateSystems []
+            :rejectedCorrections [{:kind "map-reject"
+                                   :id "map-reject:1"
+                                   :status "rejected"
+                                   :provenance "map-overlay"
+                                   :match {:path "old/src"}
+                                   :reason "old boundary was rejected"}]
             :boundaryEvidence [{:id "edge:src-db"
                                 :source "system:repo:path/src"
                                 :target "system:repo:path/db"

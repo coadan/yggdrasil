@@ -333,6 +333,10 @@
                                                    :path "src/billing"}]
                                        :reason "accepted by review"
                                        :evidence ["work:billing"]}]
+                            :reject [{:match {:repo "app"
+                                              :path "src/candidate"
+                                              :kind "candidate-system"}
+                                      :reason "review rejected this boundary"}]
                             :edges [{:id "map-edge:billing-worker"
                                      :source "system:billing"
                                      :target "system:candidate"
@@ -457,6 +461,15 @@
                                   :host "api.example.test"}]
              :why "graph label match"}]
            (:candidateSystems section)))
+    (is (= [{:kind "map-reject"
+             :id "map-reject:1"
+             :status "rejected"
+             :provenance "map-overlay"
+             :match {:repo "app"
+                     :kind "candidate-system"
+                     :path "src/candidate"}
+             :reason "review rejected this boundary"}]
+           (:rejectedCorrections section)))
     (is (= [{:kind "map-edge"
              :id "map-edge:billing-worker"
              :source "system:billing"
@@ -550,6 +563,7 @@
                      :dependencyEvidence 1
                      :docs 1
                      :openDecisions 1
+                     :rejectedCorrections 1
                      :validationGaps 3
                      :warnings 1
                      :nextActions 6}
@@ -628,10 +642,12 @@
                        :status "weak"}]}
             {:family "map-corrections"
              :status "available"
-             :rowCount 2
+             :rowCount 3
              :sourceCounts [{:key "acceptedSystems"
                              :count 1}
                             {:key "mapEdges"
+                             :count 1}
+                            {:key "rejectedCorrections"
                              :count 1}]}
             {:family "maintenance"
              :status "available"

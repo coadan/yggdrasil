@@ -167,6 +167,122 @@
          (filter #(or (contains? selected-ids (s (:source %)))
                       (contains? selected-ids (s (:target %)))))
          (mapv map-edge-evidence-row))))
+
+(defn- reject-match-row
+  [match]
+  (let [kind (or (:kind match) (:type match))
+        path (or (:path match)
+                 (:pathPrefix match)
+                 (:path-prefix match))]
+    (cond-> {}
+      (:id match) (assoc :id (s (:id match)))
+      (:label match) (assoc :label (s (:label match)))
+      (:repo match) (assoc :repo (s (:repo match)))
+      kind (assoc :kind (display-name kind))
+      path (assoc :path (s path))
+      (:host match) (assoc :host (s (:host match))))))
+
+(defn- reject-correction-row
+  [idx reject]
+  (cond-> {:kind "map-reject"
+           :id (or (s (:id reject))
+                   (str "map-reject:" (inc idx)))
+           :status "rejected"
+           :provenance "map-overlay"
+           :match (reject-match-row (:match reject))}
+    (:reason reject) (assoc :reason (:reason reject))
+    (:evidence reject) (assoc :evidence (:evidence reject))))
+
+(defn- row-repo
+  [row]
+  (or (:repo row)
+      (:repo-id row)))
+
+(defn- row-kind
+  [row]
+  (or (:kind row)
+      (:target-kind row)
+      (:type row)))
+
+(defn- row-label
+  [row]
+  (or (:label row)
+      (:heading row)
+      (:target-id row)))
+
+(defn- row-paths
+  [row]
+  (->> (concat [(or (:path row)
+                    (:pathPrefix row)
+                    (:path-prefix row))]
+               (mapcat (fn [include]
+                         [(:path include)
+                          (:pathPrefix include)
+                          (:path-prefix include)])
+                       (:includes row)))
+       (remove #(str/blank? (str %)))
+       distinct
+       vec))
+
+(defn- reject-match-path
+  [match]
+  (or (:path match)
+      (:pathPrefix match)
+      (:path-prefix match)))
+
+(defn- compatible-match-field?
+  [expected actual]
+  (or (nil? expected)
+      (nil? actual)
+      (= (s expected) (s actual))))
+
+(defn- path-overlaps?
+  [left right]
+  (and (seq left)
+       (seq right)
+       (or (path-under? left right)
+           (path-under? right left))))
+
+(defn- row-anchors-reject-match?
+  [row match]
+  (let [match-id (:id match)
+        match-label (:label match)
+        match-host (:host match)
+        match-path (reject-match-path match)
+        row-paths (row-paths row)]
+    (or (and match-id
+             (= (s match-id) (s (or (:id row) (:target-id row)))))
+        (and match-label
+             (= (s match-label) (s (row-label row))))
+        (and match-host
+             (= (s match-host) (s (row-label row))))
+        (and match-path
+             (some #(path-overlaps? (s %) (s match-path)) row-paths)))))
+
+(defn- compatible-reject-row?
+  [row match]
+  (and (compatible-match-field? (:repo match) (row-repo row))
+       (compatible-match-field? (or (:kind match) (:type match)) (row-kind row))))
+
+(defn- selected-reject-correction?
+  [selected-rows reject]
+  (let [match (:match reject)]
+    (and (seq match)
+         (some (fn [row]
+                 (and (row-anchors-reject-match? row match)
+                      (compatible-reject-row? row match)))
+               selected-rows))))
+
+(defn- selected-rejected-corrections
+  [overlay selected-rows]
+  (->> (:reject overlay)
+       (map-indexed vector)
+       (filter (fn [[_idx reject]]
+                 (selected-reject-correction? selected-rows reject)))
+       (take 8)
+       (mapv (fn [[idx reject]]
+               (reject-correction-row idx reject)))))
+
 (defn- evidence-count
   [row]
   (+ (count (:evidence row))
@@ -652,7 +768,7 @@
     :source-keys [:docs]
     :planes [:docs]}
    {:family "map-corrections"
-    :source-keys [:acceptedSystems :mapEdges]
+    :source-keys [:acceptedSystems :mapEdges :rejectedCorrections]
     :planes [:map-overlay]}
    {:family "maintenance"
     :source-keys [:openDecisions]
@@ -755,7 +871,8 @@
               :deployEvidence
               :dependencyEvidence
               :docs
-              :openDecisions])))
+              :openDecisions
+              :rejectedCorrections])))
 (defn- inspect-action-label
   [prefix row]
   (str prefix " " (or (:label row) (:id row))))
@@ -874,6 +991,7 @@
             :dependencyEvidence (count (:dependencyEvidence section))
             :docs (count (:docs section))
             :openDecisions (count (:openDecisions section))
+            :rejectedCorrections (count (:rejectedCorrections section))
             :validationGaps (count (:validationGaps section))
             :warnings (count (:warnings section))
             :nextActions (count (:nextActions section))}
@@ -899,6 +1017,11 @@
   (let [accepted-systems (or accepted-systems
                              (selected-accepted-systems overlay entities results))
         candidate-systems (selected-candidate-systems accepted-systems entities)
+        selected-rows (concat entities
+                              accepted-systems
+                              candidate-systems
+                              results)
+        rejected-corrections (selected-rejected-corrections overlay selected-rows)
         selected-ids (set (concat (map :id entities)
                                   (map :id accepted-systems)))
         map-edges (selected-map-edges overlay entities accepted-systems)
@@ -939,6 +1062,7 @@
                  :dependencyEvidence dependency-evidence
                  :docs architecture-docs
                  :openDecisions open-decisions
+                 :rejectedCorrections rejected-corrections
                  :validationGaps (vec (take 12
                                             (validation-gaps answerability
                                                              freshness

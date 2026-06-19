@@ -238,6 +238,12 @@ accepted map corrections from neutral mechanical candidates. Accepted systems
 and map edges come from `agraph.map.json`; candidate systems, graph edges,
 runtime/config rows, dependency rows, docs, and open decisions remain concrete
 evidence rows, not inferred project meaning.
+`architecture.rejectedCorrections` carries bounded `reject[]` rows from
+`agraph.map.json` when their match criteria mechanically overlap the selected
+systems, candidate rows, or result paths. These rows are prior review
+corrections with `status: "rejected"` and `provenance: "map-overlay"`; agents
+should treat them as known false-positive evidence to avoid reopening the same
+mistake, not as a new architecture inference.
 Runtime/config rows may be selected by exact result path, query-token match, or
 existing `system-id` membership in a selected graph or accepted map system.
 Accepted map docs and work/activity lookups follow accepted systems selected
@@ -263,9 +269,10 @@ names or prose.
 
 `architecture.summary` is the smallest architecture signal agents should keep
 when token budgets force packet trimming. It includes row counts for accepted
-systems, candidate systems, boundary/runtime/deploy/dependency evidence, docs,
-open decisions, validation gaps, warnings, and next actions. It also includes
-status counts and keyed status maps for `evidenceFamilies` and
+systems, candidate systems, rejected corrections,
+boundary/runtime/deploy/dependency evidence, docs, open decisions, validation
+gaps, warnings, and next actions. It also includes status counts and keyed
+status maps for `evidenceFamilies` and
 `validationGaps`, plus bounded `validationGapSamples` and `nextActionSamples`.
 Those samples are copied from existing rows, not inferred, so a summary-only
 packet still tells the agent which evidence families or validation planes need

@@ -903,7 +903,11 @@
                                             :kind "service"
                                             :repo "app"
                                             :includes [{:repo "app"
-                                                        :path "src/billing"}]}]}})
+                                                        :path "src/billing"}]}]
+                                 :reject [{:match {:repo "app"
+                                                   :path "src/worker"
+                                                   :kind "candidate-system"}
+                                           :reason "worker boundary was rejected"}]}})
           architecture (:architecture packet)]
       (is (= "mechanical-plus-map" (:basis architecture)))
       (is (= {:basis "mechanical-plus-map"
@@ -950,6 +954,15 @@
                                     :candidateEvidence
                                     :why])
                    (:candidateSystems architecture))))
+      (is (= [{:kind "map-reject"
+               :id "map-reject:1"
+               :status "rejected"
+               :provenance "map-overlay"
+               :match {:repo "app"
+                       :kind "candidate-system"
+                       :path "src/worker"}
+               :reason "worker boundary was rejected"}]
+             (:rejectedCorrections architecture)))
       (is (= [{:kind "graph-edge"
                :id "edge:billing-worker"
                :source "system:billing"
