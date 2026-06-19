@@ -44,6 +44,9 @@
                              :license {:spdx "MIT"}
                              :scope {:kind :base}
                              :benchmark-status :unbenchmarked
+                             :benchmark-cases {:artifacts 1
+                                               :case-ids ["datastar-hiccup-architecture"]
+                                               :problem-classes ["architecture-understanding"]}
                              :claim-authority {:status :non-authoritative
                                                :public-claims? false
                                                :review-required? false
@@ -144,6 +147,9 @@
              :license {:spdx "MIT"}
              :scope {:kind :base}
              :benchmark-status :unbenchmarked
+             :benchmark-cases {:artifacts 1
+                               :case-ids ["datastar-hiccup-architecture"]
+                               :problem-classes ["architecture-understanding"]}
              :claim-authority {:status :non-authoritative
                                :public-claims? false
                                :review-required? false

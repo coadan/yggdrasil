@@ -290,6 +290,7 @@
                         :license
                         :scope
                         :benchmark-status
+                        :benchmark-cases
                         :claim-authority
                         :benchmark-artifacts
                         :manifest-fingerprint

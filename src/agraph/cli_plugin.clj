@@ -49,6 +49,19 @@
     (apply println prefix "claim-authority" (claim-authority-text claim-authority))
     (when (seq (:blockers claim-authority))
       (println prefix "claim-blockers" (claim-blocker-codes claim-authority)))))
+(defn- id-list
+  [ids]
+  (if (seq ids)
+    (str/join "," ids)
+    "none"))
+(defn- print-plugin-benchmark-cases
+  [prefix benchmark-cases]
+  (when (and benchmark-cases (pos? (long (or (:artifacts benchmark-cases) 0))))
+    (println prefix
+             "benchmark-cases"
+             (str "artifacts=" (:artifacts benchmark-cases))
+             (str "case-ids=" (id-list (:case-ids benchmark-cases)))
+             (str "problem-classes=" (id-list (:problem-classes benchmark-cases))))))
 (defn- print-plugin-package
   [package]
   (println "-"
@@ -58,6 +71,7 @@
            (str "reports=" (:report-plugins package))
            (str "benchmark=" (name (or (:benchmark-status package) :unbenchmarked))))
   (print-plugin-claim-authority " " (:claim-authority package))
+  (print-plugin-benchmark-cases " " (:benchmark-cases package))
   (when-let [source (:source package)]
     (println "  source" (:url source) (str "rev=" (:rev source))))
   (when-let [fingerprint (:manifest-fingerprint package)]
@@ -128,6 +142,7 @@
   (println "- status" (name status))
   (when package
     (println "- package" (:id package) (str "version=" (:version package)))
+    (print-plugin-benchmark-cases "-" (:benchmark-cases package))
     (print-plugin-claim-authority "-" (:claim-authority package)))
   (println "- extractors" (count extractor-plugins))
   (println "- reports" (count report-plugins))
@@ -141,6 +156,7 @@
   (println "- status" (name status))
   (when package
     (println "- package" (:id package) (str "version=" (:version package)))
+    (print-plugin-benchmark-cases "-" (:benchmark-cases package))
     (print-plugin-claim-authority "-" (:claim-authority package)))
   (println "## Readiness")
   (doseq [[k {:keys [status reason next-actions]}] readiness]
@@ -157,6 +173,7 @@
   (println "- status" (name status))
   (when package
     (println "- package" (:id package) (str "version=" (:version package)))
+    (print-plugin-benchmark-cases "-" (:benchmark-cases package))
     (print-plugin-claim-authority "-" (:claim-authority package)))
   (when core-promotion
     (println "- core-promotion"
@@ -169,11 +186,6 @@
     (println "## Diagnostics")
     (doseq [{:keys [severity code message]} diagnostics]
       (println "-" (name severity) (name code) "-" message))))
-(defn- id-list
-  [ids]
-  (if (seq ids)
-    (str/join "," ids)
-    "none"))
 (defn- maintainer-text
   [maintainer]
   (cond
@@ -211,6 +223,7 @@
     (when-let [license (or (get-in package-summary [:license :spdx])
                            (get-in package-summary [:license :id]))]
       (println prefix "license" license))
+    (print-plugin-benchmark-cases prefix (:benchmark-cases package-summary))
     (when-let [diagnostic-counts (:diagnostic-counts package-summary)]
       (println prefix "diagnostics" diagnostic-counts))))
 (defn- print-plugin-selection
@@ -246,6 +259,7 @@
                        (conj (str "scope=" (name (get-in package [:scope :kind])))))))
   (when-let [fingerprint (:manifest-fingerprint package)]
     (println "- manifest-fingerprint" fingerprint))
+  (print-plugin-benchmark-cases "-" (:benchmark-cases package))
   (print-plugin-claim-authority "-" (:claim-authority package))
   (doseq [warning (:warnings package)]
     (println "- warning" warning))
@@ -293,6 +307,7 @@
              (if-let [kind (:kind file)]
                (str "kind=" (name kind))
                "")))
+  (print-plugin-benchmark-cases "-" (:benchmark-cases package))
   (println "- plugins" (id-list (map :id plugins)))
   (print-plugin-selection selection)
   (when core-counts
@@ -336,6 +351,7 @@
              (if-let [kind (:kind file)]
                (str "kind=" (name kind))
                "")))
+  (print-plugin-benchmark-cases "-" (:benchmark-cases package))
   (println "- plugins" (id-list (map :id plugins)))
   (print-plugin-selection selection)
   (when core-counts

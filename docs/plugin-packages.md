@@ -165,9 +165,10 @@ from names, paths, prose, or project vocabulary.
 writing graph state. It uses core extraction first, applies the selected plugin
 or all extractor plugins in the package, and returns normalized rows,
 diagnostics, before/after counts, and the full package summary with benchmark,
-scope, claim authority, fingerprint, core-promotion evidence, and warning
-caveats. Each selected plugin summary includes package id, version, source,
-pinned revision, manifest fingerprint, benchmark status, and claim authority.
+scope, benchmark cases, claim authority, fingerprint, core-promotion evidence,
+and warning caveats. Each selected plugin summary includes package id, version,
+source, pinned revision, manifest fingerprint, benchmark status, and claim
+authority.
 Dry-run JSON and plain CLI output also include `selection`, listing available,
 selected, and skipped package plugins plus the requested plugin id when one was
 provided.
@@ -335,10 +336,10 @@ including a copyable `bb plugin install` command. It also includes a compact
 `:registry-entry` summary with public metadata: plugin kinds, maintainers,
 support status, trust review status, source, ref, and subdir. Each package also
 includes `:package-summary` with version, visibility, license, scope, benchmark
-status, claim authority, and diagnostic counts. Registry-level counts include
-`:claim-ready`, `:non-authoritative`, and `:error-counts` grouped by registry
-error code. A package can pass registry sharing checks while still being
-non-authoritative for public claims.
+status, benchmark cases, claim authority, and diagnostic counts. Registry-level
+counts include `:claim-ready`, `:non-authoritative`, and `:error-counts` grouped
+by registry error code. A package can pass registry sharing checks while still
+being non-authoritative for public claims.
 Text output prints public registry metadata, package readiness metadata, the
 install command, and claim authority under each installable registry package.
 Plain registry validation prints start/complete progress lines to stderr; use
@@ -422,6 +423,11 @@ that benchmarked packages identify each artifact with `:kind`, `:case-id`, and
 for public claims and core promotion. Diagnosis does not decide whether the
 benchmark proves enough material improvement; it verifies that reviewable,
 replayable evidence exists.
+
+Package summaries expose compact `:benchmark-cases` metadata with artifact
+count, case ids, and problem classes. Reports, registry validation, and plain
+CLI output surface the same summary so reviewers can see which claim classes a
+package attempts to support before opening benchmark artifacts.
 
 ## Core-Promotion Evidence
 

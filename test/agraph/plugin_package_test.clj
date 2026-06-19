@@ -1349,6 +1349,9 @@
               :scope {:kind :base
                       :reason "Reusable fixture."}
               :benchmark-status :unbenchmarked
+              :benchmark-cases {:artifacts 0
+                                :case-ids []
+                                :problem-classes []}
               :claim-authority {:status :non-authoritative
                                 :public-claims? false
                                 :review-required? false

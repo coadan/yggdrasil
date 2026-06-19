@@ -318,6 +318,28 @@
                                            :description]))
       (present? path) (assoc :resolved-path (resolve-path (:path package) path)))))
 
+(defn- summary-value
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (present? value) (str value)))
+
+(defn- sorted-summary-values
+  [values]
+  (->> values
+       (keep summary-value)
+       distinct
+       sort
+       vec))
+
+(defn- benchmark-case-summary
+  [package]
+  (let [artifacts (mapv #(artifact-summary package %)
+                        (benchmark-artifacts package))]
+    {:artifacts (count artifacts)
+     :case-ids (sorted-summary-values (map :case-id artifacts))
+     :problem-classes (sorted-summary-values (map :problem-class artifacts))}))
+
 (def ^:private benchmark-artifact-required-fields
   {:kind {:code :benchmark-artifact-kind-missing
           :label ":kind"}
@@ -654,6 +676,7 @@
      :claim-authority (claim-authority package)
      :benchmark-artifacts (mapv #(artifact-summary package %)
                                 (benchmark-artifacts package))
+     :benchmark-cases (benchmark-case-summary package)
      :core-promotion {:fixtures (mapv #(core-promotion-artifact-summary package
                                                                         :fixtures
                                                                         %)
@@ -1141,6 +1164,7 @@
                           :license
                           :scope
                           :benchmark-status
+                          :benchmark-cases
                           :claim-authority
                           :diagnostic-counts])))
 

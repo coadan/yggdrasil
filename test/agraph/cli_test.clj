@@ -244,6 +244,9 @@
                      :package-dir dir
                      :package {:id "core-ready"
                                :version "0.1.0"
+                               :benchmark-cases {:artifacts 1
+                                                 :case-ids ["core-ready-architecture"]
+                                                 :problem-classes ["architecture-understanding"]}
                                :claim-authority claim-authority}
                      :core-promotion {:status :review-required
                                       :reason "Benchmark metadata is present; project-agnostic core suitability still needs review."
@@ -254,6 +257,9 @@
         (is (str/includes? out "# Plugin Core Promotion Check"))
         (is (str/includes? out "- status passed"))
         (is (str/includes? out "- core-promotion review-required"))
+        (is (str/includes?
+             out
+             "- benchmark-cases artifacts=1 case-ids=core-ready-architecture problem-classes=architecture-understanding"))
         (is (str/includes? out "claim-authority status=benchmark-backed public-claims=true"))
         (is (= [".dev/plugins/core-ready"] @calls))))))
 
@@ -512,6 +518,9 @@
                                                                                     :license {:spdx "MIT"}
                                                                                     :scope {:kind :base}
                                                                                     :benchmark-status :unbenchmarked
+                                                                                    :benchmark-cases {:artifacts 1
+                                                                                                      :case-ids ["demo-architecture"]
+                                                                                                      :problem-classes ["architecture-understanding"]}
                                                                                     :diagnostic-counts {:total 1
                                                                                                         :errors 0
                                                                                                         :warnings 1}}
@@ -658,6 +667,9 @@
         (is (str/includes? registry-out "maintainers Demo Maintainer"))
         (is (str/includes? registry-out "package version=0.1.0 visibility=public benchmark=unbenchmarked scope=base"))
         (is (str/includes? registry-out "license MIT"))
+        (is (str/includes?
+             registry-out
+             "benchmark-cases artifacts=1 case-ids=demo-architecture problem-classes=architecture-understanding"))
         (is (str/includes? registry-out "diagnostics {:total 1, :errors 0, :warnings 1}"))
         (is (str/includes? registry-out "- non-authoritative 1"))
         (is (str/includes? registry-out
@@ -1523,9 +1535,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
-
-
 
 
 
