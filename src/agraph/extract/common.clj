@@ -255,6 +255,15 @@
           (recur (rest remaining) in-section? section-indent current out)))
       (cond-> out current (conj current)))))
 
+(defn block-key-values
+  [block]
+  (->> (:lines block)
+       (keep (fn [[_idx line]]
+               (when-let [{:keys [key value]} (yaml-key-line 0 line)]
+                 (when (seq value)
+                   [key (strip-yaml-scalar value)]))))
+       (into {})))
+
 (defn bounded-lines
   [text line-limit]
   (str/join "\n" (take line-limit (str/split-lines (or text "")))))
