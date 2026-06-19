@@ -259,8 +259,10 @@ sections.
 
 Use `agraph-mcp --config project.edn --map agraph.map.json` when an MCP client
 should call AGraph tools directly. The server exposes compact packet tools such
-as `agraph_ask`, `agraph_explore_create`, `agraph_view_systems`, and
-`agraph_work_pull`; it does not expose arbitrary SQL or implicit map mutation.
+as `agraph_ask`, `agraph_explore_create`, `agraph_explore_search`,
+`agraph_view_systems`, `agraph_sync_check`, `agraph_work_show`, and the queue
+claim/heartbeat/complete/release/reject lifecycle tools. It does not expose
+arbitrary SQL or implicit map mutation.
 
 ## Queue Handoff
 
