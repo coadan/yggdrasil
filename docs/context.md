@@ -199,12 +199,14 @@ unsupported source candidates. When active indexed diagnostics or isolated
 indexed files exist, `sourceCoverage.nextActions` points at the same coverage
 inspection command. Project evidence and report packets include compact
 `skipped-by-extension` and `skipped-by-reason` rows with bounded samples for
-first-pass triage. `agraph status --json` and `agraph sync inspect --json`
-also include bounded diagnostic samples under `coverage.diagnostics.samples`
-when extractor diagnostics are active, so agents can jump to concrete files
-before opening the full coverage report. Full coverage reports include the same
-connectivity signal plus `nextActions` rows when skipped files, extractor
-diagnostics, or isolated indexed files need a follow-up coverage inspection.
+first-pass triage. `agraph status --json` and `agraph sync inspect --json` also
+include bounded persisted extractor fingerprint groups under
+`coverage.extractorFingerprints` and diagnostic samples under
+`coverage.diagnostics.samples` when those rows are active, so agents can audit
+the indexed basis and jump to concrete files before opening the full coverage
+report. Full coverage reports include the same connectivity signal plus
+`nextActions` rows when skipped files, extractor diagnostics, or isolated
+indexed files need a follow-up coverage inspection.
 
 ## Audit Scopes
 

@@ -440,6 +440,9 @@
       (seq (:extractors summary))
       (assoc :extractors (vec (take 5 (:extractors summary))))
 
+      (seq (:extractor-fingerprints summary))
+      (assoc :extractorFingerprints (vec (take 5 (:extractor-fingerprints summary))))
+
       (seq (:diagnostics summary))
       (assoc :diagnostics (cond-> (select-keys (:diagnostics summary)
                                                [:total :by-stage :by-extractor])

@@ -103,6 +103,21 @@
             :samples (vec (take 5 samples))}
            (:diagnostics coverage)))))
 
+(deftest status-coverage-keeps-bounded-extractor-fingerprints
+  (let [fingerprints (mapv (fn [idx]
+                             {:kind "clojure"
+                              :extractor-version "clojure/v1"
+                              :extractor-fingerprint (str "extractor:" idx)
+                              :files (inc idx)})
+                           (range 7))
+        coverage (evidence/status-coverage
+                  {:counts {:files 7
+                            :skipped-files 0
+                            :diagnostics 0}
+                   :extractor-fingerprints fingerprints})]
+    (is (= (vec (take 5 fingerprints))
+           (:extractorFingerprints coverage)))))
+
 (deftest summarize-exposes-dependency-evidence-plane
   (with-redefs [coverage/project-coverage (fn [& _]
                                             {:totals {:skipped 2}

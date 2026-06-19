@@ -610,6 +610,10 @@
                                                         :count 2}]
                                       :extractors [{:kind "clojure"
                                                     :files 2}]
+                                      :extractor-fingerprints [{:kind "clojure"
+                                                                :extractor-version "clojure/v1"
+                                                                :extractor-fingerprint "extractor:clj-a"
+                                                                :files 2}]
                                       :diagnostics {:total 2
                                                     :by-stage [{:stage "parse"
                                                                 :count 2}]
@@ -640,6 +644,10 @@
                               :count 2}]
               :extractors [{:kind "clojure"
                             :files 2}]
+              :extractorFingerprints [{:kind "clojure"
+                                       :extractor-version "clojure/v1"
+                                       :extractor-fingerprint "extractor:clj-a"
+                                       :files 2}]
               :diagnostics {:total 2
                             :by-stage [{:stage "parse"
                                         :count 2}]
