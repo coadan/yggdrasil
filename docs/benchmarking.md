@@ -177,7 +177,10 @@ generated output root.
   `--max-graph-expectation-failures` to fail when graph/evidence expectations
   do not match the indexed facts,
   `--max-missing-declared-source-kind-runs` to fail when selected cases declare
-  source kinds that produce no scoreable coverage, plus
+  source kinds that produce no scoreable coverage, `--max-missed-runs`,
+  `--max-missed-but-present-in-context-runs`, and
+  `--max-missed-and-absent-from-context-runs` to separate agent selection misses
+  from AGraph retrieval or extraction misses, plus
   `--max-active-stage-ms` for partial or interrupted runs with a stuck active
   stage. Use
   `--agent <agent-id>` to avoid mixing baseline, shell-only, and ad hoc agent
@@ -447,6 +450,14 @@ given.
   higher aggregate `warningRuns` and `commandlessRuns` as lower-is-better
   regressions when the report case set and parser-worker profiles are
   comparable.
+- `localizationDiagnostics.missedButPresentInContextRuns`: missed scoreable files
+  that were present in the AGraph context packet. Gate with
+  `--max-missed-but-present-in-context-runs` when prompt or agent selection
+  quality should not regress.
+- `localizationDiagnostics.missedAndAbsentFromContextRuns`: missed scoreable
+  files that were absent from the AGraph context packet. Gate with
+  `--max-missed-and-absent-from-context-runs` when graph extraction, indexing, or
+  retrieval coverage should not regress.
 - `coverageDiagnostics`: aggregate source-support counters. `agent-compare`
   treats increases in missing declared source-kind runs, coverage-excluded
   ground-truth files, and unsupported ground-truth files as lower-is-better

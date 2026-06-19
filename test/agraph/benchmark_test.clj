@@ -739,6 +739,10 @@
                                               :notRunCaseIds []}
                 :localizationDiagnostics {:missedRuns 1
                                           :missedCaseIds ["case-1"]
+                                          :missedButPresentInContextRuns 1
+                                          :missedButPresentInContextCaseIds ["case-1"]
+                                          :missedAndAbsentFromContextRuns 1
+                                          :missedAndAbsentFromContextCaseIds ["case-1"]
                                           :rankedOutsideTop5Runs 1
                                           :rankedOutsideTop5CaseIds ["case-1"]
                                           :rankedOutsideTop10Runs 1
@@ -785,6 +789,8 @@
                  :max-graph-expectation-failures 0
                  :max-missing-declared-source-kind-runs 0
                  :max-missed-runs 0
+                 :max-missed-but-present-in-context-runs 0
+                 :max-missed-and-absent-from-context-runs 0
                  :max-ranked-outside-top-5-runs 0
                  :max-ranked-outside-top-10-runs 0
                  :max-ranked-outside-top-20-runs 0
@@ -800,6 +806,10 @@
                                         :runs 1}]
                        :localizationDiagnostics {:missedRuns 1
                                                  :missedCaseIds ["case-1"]
+                                                 :missedButPresentInContextRuns 1
+                                                 :missedButPresentInContextCaseIds ["case-1"]
+                                                 :missedAndAbsentFromContextRuns 0
+                                                 :missedAndAbsentFromContextCaseIds []
                                                  :rankedOutsideTop5Runs 1
                                                  :rankedOutsideTop5CaseIds ["case-1"]
                                                  :rankedOutsideTop10Runs 1
@@ -826,6 +836,8 @@
                  :max-graph-expectation-failures 1
                  :max-missing-declared-source-kind-runs 1
                  :max-missed-runs 1
+                 :max-missed-but-present-in-context-runs 1
+                 :max-missed-and-absent-from-context-runs 0
                  :max-ranked-outside-top-5-runs 1
                  :max-ranked-outside-top-10-runs 1
                  :max-ranked-outside-top-20-runs 1
@@ -855,6 +867,8 @@
              "missingDeclaredSourceKindRuns"
              "case.graphExpectations"
              "missedRuns"
+             "missedButPresentInContextRuns"
+             "missedAndAbsentFromContextRuns"
              "rankedOutsideTop5Runs"
              "rankedOutsideTop10Runs"
              "rankedOutsideTop20Runs"
@@ -914,6 +928,8 @@
             :maxGraphExpectationFailures 0.0
             :maxMissingDeclaredSourceKindRuns 0.0
             :maxMissedRuns 0.0
+            :maxMissedButPresentInContextRuns 0.0
+            :maxMissedAndAbsentFromContextRuns 0.0
             :maxRankedOutsideTop5Runs 0.0
             :maxRankedOutsideTop10Runs 0.0
             :maxRankedOutsideTop20Runs 0.0

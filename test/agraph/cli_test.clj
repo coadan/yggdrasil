@@ -78,6 +78,8 @@
     (is (str/includes? usage "--min-case-evidence-citation-rate N"))
     (is (str/includes? usage "--max-commandless-runs N"))
     (is (str/includes? usage "--max-warning-runs N"))
+    (is (str/includes? usage "--max-missed-but-present-in-context-runs N"))
+    (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|all"))
     (is (not (str/includes? usage "overlay")))))
 
@@ -537,6 +539,8 @@
                                  "--max-warning-runs" "0"
                                  "--max-missing-declared-source-kind-runs" "0"
                                  "--max-missed-runs" "0"
+                                 "--max-missed-but-present-in-context-runs" "0"
+                                 "--max-missed-and-absent-from-context-runs" "0"
                                  "--max-ranked-outside-top-5-runs" "0"
                                  "--max-ranked-outside-top-10-runs" "0"
                                  "--max-ranked-outside-top-20-runs" "0"
@@ -574,6 +578,8 @@
                   :max-warning-runs 0.0
                   :max-missing-declared-source-kind-runs 0.0
                   :max-missed-runs 0.0
+                  :max-missed-but-present-in-context-runs 0.0
+                  :max-missed-and-absent-from-context-runs 0.0
                   :max-ranked-outside-top-5-runs 0.0
                   :max-ranked-outside-top-10-runs 0.0
                   :max-ranked-outside-top-20-runs 0.0

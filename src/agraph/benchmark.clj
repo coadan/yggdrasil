@@ -4163,6 +4163,10 @@
                  [:max-graph-expectation-failures :maxGraphExpectationFailures]
                  [:max-missing-declared-source-kind-runs :maxMissingDeclaredSourceKindRuns]
                  [:max-missed-runs :maxMissedRuns]
+                 [:max-missed-but-present-in-context-runs
+                  :maxMissedButPresentInContextRuns]
+                 [:max-missed-and-absent-from-context-runs
+                  :maxMissedAndAbsentFromContextRuns]
                  [:max-ranked-outside-top-5-runs :maxRankedOutsideTop5Runs]
                  [:max-ranked-outside-top-10-runs :maxRankedOutsideTop10Runs]
                  [:max-ranked-outside-top-20-runs :maxRankedOutsideTop20Runs]
@@ -4373,6 +4377,16 @@
          :missedCaseIds
          "missedRuns"
          "Some runs missed at least one scoreable localization file."]
+        [:maxMissedButPresentInContextRuns
+         :missedButPresentInContextRuns
+         :missedButPresentInContextCaseIds
+         "missedButPresentInContextRuns"
+         "Some runs missed scoreable localization files that were present in the AGraph context packet."]
+        [:maxMissedAndAbsentFromContextRuns
+         :missedAndAbsentFromContextRuns
+         :missedAndAbsentFromContextCaseIds
+         "missedAndAbsentFromContextRuns"
+         "Some runs missed scoreable localization files that were absent from the AGraph context packet."]
         [:maxRankedOutsideTop5Runs
          :rankedOutsideTop5Runs
          :rankedOutsideTop5CaseIds
