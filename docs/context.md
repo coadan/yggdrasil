@@ -321,7 +321,8 @@ agraph-mcp --config project.edn --map agraph.map.json
 The MCP server returns the same packet schemas as the CLI. By default,
 `tools/list` exposes only `agraph_explore`, `agraph_node`, `agraph_status`, and
 `agraph_systems`. Use `--tools default,cursor,sync,work,ask` or
-`AGRAPH_MCP_TOOLS=all` to list advanced cursor, sync, and queue handoff tools.
+`AGRAPH_MCP_TOOLS=all` to enable and list advanced cursor, sync, and queue
+handoff tools; hidden advanced tools are rejected by default.
 Use `agraph_explore` as the primary one-shot MCP packet for structural
 questions; it returns graph-basis freshness, answerability, candidate files,
 docs, graph facts, and drilldowns without creating a cursor. MCP agents should
