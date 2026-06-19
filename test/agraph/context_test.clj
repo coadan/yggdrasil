@@ -321,6 +321,17 @@
                            :relation "imports-package"
                            :confidence "high"
                            :score 1.0}]
+                  :runtime-evidence [{:id "evidence:database-url"
+                                      :systemId "system:billing"
+                                      :repo "app"
+                                      :path "config/runtime.env"
+                                      :fileKind "env"
+                                      :kind "env-var"
+                                      :label "DATABASE_URL"
+                                      :normalizedValue "database-url"
+                                      :sourceLine 2
+                                      :confidence 1.0
+                                      :score 1.25}]
                   :docs [{:target "system:billing"
                           :role "overview"
                           :status "accepted"
@@ -383,6 +394,18 @@
              :confidence "high"
              :score 1.0}]
            (:dependencyEvidence section)))
+    (is (= [{:id "evidence:database-url"
+             :systemId "system:billing"
+             :repo "app"
+             :path "config/runtime.env"
+             :fileKind "env"
+             :kind "env-var"
+             :label "DATABASE_URL"
+             :normalizedValue "database-url"
+             :sourceLine 2
+             :confidence 1.0
+             :score 1.25}]
+           (:runtimeEvidence section)))
     (is (= [{:target "system:billing"
              :role "overview"
              :status "accepted"
@@ -841,6 +864,7 @@
                                    (throw (ex-info "unexpected broad chunk scan" {})))
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
                 activity/select-activity (fn [& _] [])
                 context/answerability (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _]
@@ -907,6 +931,18 @@
                 query/all-chunks (fn [& _] [])
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _]
+                                            [{:xt/id "evidence:billing-env"
+                                              :system-id "system:billing"
+                                              :repo-id "app"
+                                              :path "src/billing/api.clj"
+                                              :file-kind :clojure
+                                              :kind :env-var
+                                              :label "DATABASE_URL"
+                                              :normalized-value "database-url"
+                                              :source-line 4
+                                              :confidence 1.0
+                                              :active? true}])
                 activity/select-activity (fn [& _]
                                            [{:id "activity:boundary"
                                              :kind "maintenance-decision"
@@ -964,6 +1000,18 @@
                :confidence "medium"
                :score 1.0}]
              (:boundaryEvidence architecture)))
+      (is (= [{:id "evidence:billing-env"
+               :systemId "system:billing"
+               :repo "app"
+               :path "src/billing/api.clj"
+               :kind "env-var"
+               :label "DATABASE_URL"
+               :normalizedValue "database-url"
+               :sourceLine 4
+               :confidence 1.0
+               :fileKind "clojure"}]
+             (mapv #(dissoc % :score) (:runtimeEvidence architecture))))
+      (is (< 1.0 (get-in architecture [:runtimeEvidence 0 :score]) 2.0))
       (is (= [{:plane "dependencies"
                :status "missing"}
               {:plane "docs"
@@ -1002,6 +1050,7 @@
                 query/all-chunks (fn [& _] [])
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
                 activity/select-activity (fn [& _] [])
                 context/answerability (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
@@ -1051,6 +1100,7 @@
                 query/all-chunks (fn [& _] [])
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
                 activity/select-activity (fn [& _] [])
                 context/answerability (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
@@ -1102,6 +1152,7 @@
                   query/all-chunks (fn [& _] [])
                   query/chunks-by-ids (fn [& _] [])
                   query/chunks-by-paths (fn [& _] [])
+                  query/all-system-evidence (fn [& _] [])
                   activity/select-activity (fn [& _] [])
                   context/answerability (fn [& _] {:status :ready})
                   coverage/context-summary (fn [& _] nil)]

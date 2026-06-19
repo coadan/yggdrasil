@@ -55,6 +55,13 @@
   [value]
   (some-> value str))
 
+(defn- display-name
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (nil? value) nil
+    :else (str value)))
+
 (defn- path-under?
   [path prefix]
   (and (seq path)
@@ -615,7 +622,7 @@
                        :label (:label result)}
                 (:repo-id result) (assoc :repo (:repo-id result))
                 (:repo result) (assoc :repo (:repo result))
-                (:kind result) (assoc :kind (s (:kind result)))
+                (:kind result) (assoc :kind (display-name (:kind result)))
                 (:source-line result) (assoc :sourceLine (:source-line result))
                 (:result-kind result) (assoc :resultKind (name (:result-kind result)))
                 (:reason result) (assoc :reason (:reason result))
@@ -639,7 +646,7 @@
     (cond-> {:id (s (:id system))
              :label (or (s (:label system)) (s (:id system)))
              :status "accepted"}
-      (:kind system) (assoc :kind (s (:kind system)))
+      (:kind system) (assoc :kind (display-name (:kind system)))
       (:repo system) (assoc :repo (s (:repo system)))
       path-prefix (assoc :pathPrefix (s path-prefix))
       (seq (:includes system)) (assoc :includes (mapv #(select-keys % [:id
@@ -694,12 +701,88 @@
     (:evidenceCounts edge) (assoc :evidenceCounts (:evidenceCounts edge))
     (:relations edge) (assoc :relations (:relations edge))))
 
+(defn- system-evidence-score
+  [query-tokens selected-system-ids selected-paths row]
+  (let [path-score (if (contains? selected-paths (:path row)) 1.0 0.0)
+        token-score (capped-token-score query-tokens
+                                        (compact (:kind row)
+                                                 (:file-kind row)
+                                                 (:label row)
+                                                 (:normalized-value row)
+                                                 (:path row)))
+        system-bonus (if (contains? selected-system-ids (:system-id row)) 0.25 0.0)]
+    (if (or (pos? path-score) (pos? token-score))
+      (+ path-score system-bonus (* 0.5 token-score))
+      0.0)))
+
+(defn- system-evidence-row
+  [score row]
+  (cond-> {:id (:xt/id row)
+           :systemId (:system-id row)
+           :repo (:repo-id row)
+           :path (:path row)
+           :kind (display-name (:kind row))
+           :label (:label row)
+           :normalizedValue (:normalized-value row)
+           :sourceLine (:source-line row)
+           :confidence (:confidence row)
+           :score score}
+    (:file-kind row) (assoc :fileKind (display-name (:file-kind row)))
+    (:url-context row) (assoc :urlContext (display-name (:url-context row)))
+    (:auth-context row) (assoc :authContext (display-name (:auth-context row)))))
+
+(def ^:private runtime-evidence-path-limit
+  2)
+
+(def ^:private runtime-evidence-result-path-limit
+  20)
+
+(defn- take-diverse-system-evidence
+  [rows limit]
+  (loop [remaining rows
+         path-counts {}
+         out []]
+    (if (or (empty? remaining)
+            (>= (count out) limit))
+      out
+      (let [row (first remaining)
+            path-key [(:repo row) (:path row)]
+            path-count (long (get path-counts path-key 0))]
+        (if (< path-count runtime-evidence-path-limit)
+          (recur (next remaining)
+                 (update path-counts path-key (fnil inc 0))
+                 (conj out row))
+          (recur (next remaining) path-counts out))))))
+
+(defn- select-system-evidence
+  [query-tokens entities results evidence limit]
+  (let [selected-system-ids (set (map :id entities))
+        selected-paths (set (ranked-result-paths results runtime-evidence-result-path-limit))]
+    (->> evidence
+         (map (fn [row]
+                (let [score (system-evidence-score query-tokens
+                                                   selected-system-ids
+                                                   selected-paths
+                                                   row)]
+                  (when (pos? score)
+                    (system-evidence-row score row)))))
+         (keep identity)
+         (sort-by (juxt (comp - :score)
+                        (comp - #(double (or (:confidence %) 0.0)))
+                        :repo
+                        :path
+                        :sourceLine
+                        :kind
+                        :label))
+         (#(take-diverse-system-evidence % limit))
+         vec)))
+
 (def dependency-relations
   #{"imports-package" "requires" "version-of" "resolves"})
 
 (defn- dependency-evidence?
   [edge]
-  (contains? dependency-relations (s (:relation edge))))
+  (contains? dependency-relations (display-name (:relation edge))))
 
 (defn- architecture-doc-row
   [doc]
@@ -709,7 +792,7 @@
 (defn- accepted-architecture-doc?
   [doc]
   (or (= "map-attachment" (:provenance doc))
-      (= "accepted" (s (:status doc)))))
+      (= "accepted" (display-name (:status doc)))))
 
 (defn- open-decision-row
   [item]
@@ -753,12 +836,13 @@
              [:acceptedSystems
               :candidateSystems
               :boundaryEvidence
+              :runtimeEvidence
               :dependencyEvidence
               :docs
               :openDecisions])))
 
 (defn- architecture-section
-  [{:keys [overlay entities edges docs activity answerability]}]
+  [{:keys [overlay entities edges runtime-evidence docs activity answerability]}]
   (let [accepted-systems (selected-accepted-systems overlay entities)
         candidate-systems (selected-candidate-systems accepted-systems entities)
         boundary-evidence (mapv graph-edge-evidence-row (take 12 edges))
@@ -768,7 +852,7 @@
                  :acceptedSystems accepted-systems
                  :candidateSystems candidate-systems
                  :boundaryEvidence boundary-evidence
-                 :runtimeEvidence []
+                 :runtimeEvidence runtime-evidence
                  :dependencyEvidence dependency-evidence
                  :docs (mapv architecture-doc-row
                              (take 8 (filter accepted-architecture-doc? docs)))
@@ -1435,6 +1519,15 @@
                                            {:project-id project-id
                                             :read-context read-context
                                             :target-ids targets})
+        system-evidence (query/all-system-evidence xtdb
+                                                   {:project-id project-id
+                                                    :repo-id repo-id
+                                                    :read-context read-context})
+        runtime-evidence (select-system-evidence query-tokens
+                                                 entities
+                                                 results
+                                                 system-evidence
+                                                 12)
         warnings (cond-> []
                    (empty? entities)
                    (conj "no graph entities matched the query"))
@@ -1474,6 +1567,7 @@
         architecture (architecture-section {:overlay overlay
                                             :entities entities
                                             :edges edges
+                                            :runtime-evidence runtime-evidence
                                             :docs docs
                                             :activity activity
                                             :answerability answerability})]

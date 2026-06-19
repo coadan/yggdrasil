@@ -83,7 +83,7 @@ bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$AGRAPH_BENCH_RESULT" - < "$AGRAPH_BENCH_PROMPT"' \
   --mode shell-only \
   --prompt-profile fast \
-  --timeout-ms 300000 \
+  --timeout-ms 600000 \
   --out .dev/agraph/agent-efficiency/shell-only
 
 bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
@@ -91,7 +91,7 @@ bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$AGRAPH_BENCH_RESULT" - < "$AGRAPH_BENCH_PROMPT"' \
   --mode agraph \
   --prompt-profile fast \
-  --timeout-ms 300000 \
+  --timeout-ms 600000 \
   --out .dev/agraph/agent-efficiency/agraph
 ```
 

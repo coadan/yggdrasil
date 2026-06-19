@@ -135,6 +135,14 @@
                                                   (read-context opts)))
                  opts)))
 
+(defn all-system-evidence
+  ([xtdb] (all-system-evidence xtdb {}))
+  ([xtdb opts]
+   (filter-scope (filter :active? (store/all-rows xtdb
+                                                  (:system-evidence store/tables)
+                                                  (read-context opts)))
+                 opts)))
+
 (defn find-node
   "Find node by exact id, label, namespace, name, or substring."
   ([xtdb value] (find-node xtdb value {}))
