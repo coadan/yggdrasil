@@ -180,10 +180,10 @@ and plugin diagnostics.
 - `index.html`, which renders the report UI
 
 `report.json` also includes `plugin-packages`: compact package summaries with
-structured diagnostics, warnings, benchmark status, claim authority, source pins,
-manifest fingerprints, and diagnose commands. Report plugins receive the same
-data directly as `pluginPackages` and inside the full report packet as
-`report.plugin-packages`.
+diagnostic counts, structured diagnostics, warnings, benchmark status, claim
+authority, source pins, manifest fingerprints, and diagnose commands. Report
+plugins receive the same data directly as `pluginPackages` and inside the full
+report packet as `report.plugin-packages`.
 
 The report UI renders plugin artifacts on the Plugins tab. Artifact rows are
 treated as review inventory: common explicit reference fields such as `path`,

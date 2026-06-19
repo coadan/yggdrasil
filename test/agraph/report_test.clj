@@ -57,6 +57,9 @@
                                             :severity :warning
                                             :applies-to [:claims :core-promotion]
                                             :message "datastar-hiccup is unbenchmarked"}]
+                             :diagnostic-counts {:total 1
+                                                 :errors 0
+                                                 :warnings 1}
                              :warnings ["datastar-hiccup is unbenchmarked"]}]}
                  :detail :primary
                  :generated-at-ms 1
@@ -153,6 +156,9 @@
                             :severity :warning
                             :applies-to [:claims :core-promotion]
                             :message "datastar-hiccup is unbenchmarked"}]
+             :diagnostic-counts {:total 1
+                                 :errors 0
+                                 :warnings 1}
              :warnings ["datastar-hiccup is unbenchmarked"]
              :source {:type :git
                       :url "https://example.test/datastar.git"

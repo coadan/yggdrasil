@@ -297,6 +297,7 @@
                         :extractor-plugins
                         :report-plugins
                         :diagnostics
+                        :diagnostic-counts
                         :warnings])
     (:source package) (assoc :source (plugin-package-source (:source package)))
     (:path package) (assoc :diagnose-command (plugin-package-diagnose-command package))))

@@ -217,6 +217,10 @@
       (is (some #(str/includes? % "unbenchmarked") (:warnings validation)))
       (is (= #{:project-local-scope :unbenchmarked}
              (set (map :code (get-in validation [:package :diagnostics])))))
+      (is (= {:total 2
+              :errors 0
+              :warnings 2}
+             (get-in validation [:package :diagnostic-counts])))
       (is (= plugin-package/diagnose-schema (:schema diagnosis)))
       (is (= :warning (:status diagnosis)))
       (is (= :ready (get-in diagnosis [:readiness :local-use :status])))
@@ -234,6 +238,10 @@
                 (get-in dry-run [:package :warnings])))
       (is (= #{:project-local-scope :unbenchmarked}
              (set (map :code (get-in dry-run [:package :diagnostics])))))
+      (is (= {:total 2
+              :errors 0
+              :warnings 2}
+             (get-in dry-run [:package :diagnostic-counts])))
       (is (= "src/page.clj" (get-in dry-run [:file :path])))
       (is (pos? (get-in dry-run [:enhanced-counts :file-facts])))
       (is (pos? (get-in dry-run [:enhanced-counts :chunks])))
@@ -259,6 +267,10 @@
                 (get-in report-dry-run [:package :warnings])))
       (is (= #{:project-local-scope :unbenchmarked}
              (set (map :code (get-in report-dry-run [:package :diagnostics])))))
+      (is (= {:total 2
+              :errors 0
+              :warnings 2}
+             (get-in report-dry-run [:package :diagnostic-counts])))
       (is (= 1 (get-in report-dry-run [:counts :panels])))
       (is (= "demo-plugin-report" (get-in report-dry-run [:plugins 0 :id])))
       (is (= :unbenchmarked (get-in report-dry-run [:plugins 0 :benchmark-status])))

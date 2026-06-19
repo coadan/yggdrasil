@@ -410,6 +410,13 @@
   [package]
   (mapv :message (package-diagnostics package)))
 
+(defn- diagnostic-counts
+  [diagnostics]
+  (let [by-severity (frequencies (map :severity diagnostics))]
+    {:total (count diagnostics)
+     :errors (get by-severity :error 0)
+     :warnings (get by-severity :warning 0)}))
+
 (defn- claim-authority
   [{:keys [benchmark-status scope] :as package}]
   (let [scope-kind (:kind scope)
@@ -499,32 +506,34 @@
 
 (defn package-summary
   [package]
-  {:id (:id package)
-   :name (:name package)
-   :version (:version package)
-   :source (:source package)
-   :path (:path package)
-   :manifest-fingerprint (:manifest-fingerprint package)
-   :expected-manifest-fingerprint (:expected-manifest-fingerprint package)
-   :visibility (:visibility package)
-   :license (:license package)
-   :scope (:scope package)
-   :benchmark-status (:benchmark-status package)
-   :claim-authority (claim-authority package)
-   :benchmark-artifacts (mapv #(artifact-summary package %)
-                              (benchmark-artifacts package))
-   :core-promotion {:fixtures (mapv #(core-promotion-artifact-summary package
-                                                                      :fixtures
-                                                                      %)
-                                    (core-promotion-artifacts package :fixtures))
-                    :tests (mapv #(core-promotion-artifact-summary package
-                                                                   :tests
-                                                                   %)
-                                 (core-promotion-artifacts package :tests))}
-   :extractor-plugins (count (:resolved-extractor-plugins package))
-   :report-plugins (count (:resolved-report-plugins package))
-   :diagnostics (package-diagnostics package)
-   :warnings (:warnings package)})
+  (let [diagnostics (package-diagnostics package)]
+    {:id (:id package)
+     :name (:name package)
+     :version (:version package)
+     :source (:source package)
+     :path (:path package)
+     :manifest-fingerprint (:manifest-fingerprint package)
+     :expected-manifest-fingerprint (:expected-manifest-fingerprint package)
+     :visibility (:visibility package)
+     :license (:license package)
+     :scope (:scope package)
+     :benchmark-status (:benchmark-status package)
+     :claim-authority (claim-authority package)
+     :benchmark-artifacts (mapv #(artifact-summary package %)
+                                (benchmark-artifacts package))
+     :core-promotion {:fixtures (mapv #(core-promotion-artifact-summary package
+                                                                        :fixtures
+                                                                        %)
+                                      (core-promotion-artifacts package :fixtures))
+                      :tests (mapv #(core-promotion-artifact-summary package
+                                                                     :tests
+                                                                     %)
+                                   (core-promotion-artifacts package :tests))}
+     :extractor-plugins (count (:resolved-extractor-plugins package))
+     :report-plugins (count (:resolved-report-plugins package))
+     :diagnostics diagnostics
+     :diagnostic-counts (diagnostic-counts diagnostics)
+     :warnings (:warnings package)}))
 
 (defn read-installed-packages
   [config-path]

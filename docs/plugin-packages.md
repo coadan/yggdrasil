@@ -158,9 +158,9 @@ loaded after packaged plugins, so local config can intentionally override or
 augment a package during development.
 
 Generated reports include a `plugin-packages` section in `report.json`. It keeps
-package counts, benchmark status, claim authority, structured diagnostics,
-warnings, source pins, manifest fingerprints, and diagnose commands with the
-report artifact, even when no report plugin renders those caveats.
+package counts, benchmark status, claim authority, diagnostic counts, structured
+diagnostics, warnings, source pins, manifest fingerprints, and diagnose commands
+with the report artifact, even when no report plugin renders those caveats.
 
 ## Ecosystem Policy
 
