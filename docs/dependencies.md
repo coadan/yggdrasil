@@ -78,6 +78,8 @@ correction to `agraph.map.json`; the result must cite packet evidence and choose
 one package from the packet. Packets include `facts.packageSelection` with the
 total package rows, included rows, packet limit, and truncation flag so reviewers
 can distinguish insufficient packet evidence from a true no-change result.
+Package candidates preserve manifest facts such as `version-range` and
+`dependency-scope` when those rows are indexed.
 
 Use `agraph view deps <package-label>` for a package evidence graph. For package
 nodes, `deps` includes the declaring manifests, resolved lockfile versions,

@@ -85,6 +85,8 @@
                 :label
                 :ecosystem
                 :package-name
+                :version-range
+                :dependency-scope
                 :declared-by
                 :resolved-versions
                 :imported-by]))

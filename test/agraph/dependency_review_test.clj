@@ -19,6 +19,8 @@
                             :label "maven:org.slf4j:slf4j-api"
                             :ecosystem "maven"
                             :package-name "org.slf4j:slf4j-api"
+                            :version-range "2.0.0"
+                            :dependency-scope :compile
                             :declared-by [{:path "pom.xml"}]}]
                 :unresolved-imports [{:repo-id "app"
                                       :source-id "node:demo"
@@ -46,6 +48,14 @@
             :packageLimit 40
             :truncated false}
            (get-in packet [:facts :packageSelection])))
+    (is (= {:id "package:maven:org.slf4j:slf4j-api"
+            :label "maven:org.slf4j:slf4j-api"
+            :ecosystem "maven"
+            :package-name "org.slf4j:slf4j-api"
+            :version-range "2.0.0"
+            :dependency-scope :compile
+            :declared-by [{:path "pom.xml"}]}
+           (get-in packet [:facts :packages 0])))
     (is (= ["add-package-import" "none"] (:allowedActions packet)))
     (queue/claim-next! root {:agent-id "codex"
                              :project-id "fixture"})
