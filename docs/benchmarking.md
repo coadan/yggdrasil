@@ -351,7 +351,8 @@ Agents should return JSON shaped like this:
       "rank": 1,
       "confidence": 0.84,
       "reason": "Short evidence-based reason.",
-      "evidence": ["command, snippet, or AGraph context row used"]
+      "evidence": ["command, snippet, or AGraph context row used"],
+      "metrics": {"rankScore": 1.2}
     }
   ],
   "suspectedSymbols": [],
@@ -367,9 +368,10 @@ local semantic-vector baseline lane.
 
 Recall, MRR, and noise use `suspectedFiles.path` and rank. The citation score
 uses the presence of non-empty `suspectedFiles[].evidence` rows. Reasons,
-commands, warnings, and symbols are still part of the artifact because they make
-failures auditable. AGraph-generated baseline evidence uses compact mechanical
-rows such as `context-doc:<path>`, `graph-entity:<label>`, and
+commands, warnings, symbols, and optional bounded `suspectedFiles[].metrics`
+are still part of the artifact because they make failures auditable.
+AGraph-generated baseline evidence uses compact mechanical rows such as
+`context-doc:<path>`, `graph-entity:<label>`, and
 `candidate-file:<path> rank=<n> ... components=<score-components>` so candidate
 files remain traceable even when snippets are trimmed from the context packet.
 Scoring warns when an agent result has the wrong schema, case id, or

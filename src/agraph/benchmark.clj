@@ -2778,6 +2778,44 @@
   [value]
   (json/write-json-str value {:indent-str "  "}))
 
+(defn- agent-result-file-metrics-json-schema
+  []
+  {"type" "object"
+   "additionalProperties" false
+   "properties" {"firstSourceRank" {"type" "integer"
+                                    "minimum" 1}
+                 "supportCount" {"type" "integer"
+                                 "minimum" 0}
+                 "docCount" {"type" "integer"
+                             "minimum" 0}
+                 "entityCount" {"type" "integer"
+                                "minimum" 0}
+                 "candidateFileCount" {"type" "integer"
+                                       "minimum" 0}
+                 "retrievedSourceCount" {"type" "integer"
+                                         "minimum" 0}
+                 "exactPathSourceCount" {"type" "integer"
+                                         "minimum" 0}
+                 "maxConfidence" {"type" "number"
+                                  "minimum" 0
+                                  "maximum" 1}
+                 "rankScore" {"type" "number"}
+                 "matchedTokenCount" {"type" "integer"
+                                      "minimum" 0}
+                 "matchedTokenPairCount" {"type" "integer"
+                                          "minimum" 0}
+                 "matchedCompoundTokenPairCount" {"type" "integer"
+                                                  "minimum" 0}
+                 "definitionKinds" {"type" "array"
+                                    "items" {"type" "string"}}
+                 "sourceRankScore" {"type" "number"}
+                 "graphNeighborScore" {"type" "number"}
+                 "graphNeighborBoost" {"type" "number"}
+                 "cosine" {"type" "number"
+                           "minimum" -1
+                           "maximum" 1}
+                 "model" {"type" "string"}}})
+
 (defn- agent-result-json-schema
   []
   {"$schema" "https://json-schema.org/draft/2020-12/schema"
@@ -2821,7 +2859,8 @@
                                                                         "maximum" 1}
                                                           "reason" {"type" "string"}
                                                           "evidence" {"type" "array"
-                                                                      "items" {"type" "string"}}}}}
+                                                                      "items" {"type" "string"}}
+                                                          "metrics" (agent-result-file-metrics-json-schema)}}}
                  "suspectedSymbols" {"type" "array"
                                      "items" {"type" "object"
                                               "additionalProperties" false

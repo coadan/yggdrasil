@@ -1762,6 +1762,21 @@
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
                           :key-fn keyword)
                          [:properties :parserWorker])))
+          (let [metrics-schema (get-in (json/read-json
+                                        (slurp (get-in run [:artifacts :outputSchemaPath]))
+                                        :key-fn keyword)
+                                       [:properties
+                                        :suspectedFiles
+                                        :items
+                                        :properties
+                                        :metrics])]
+            (is (= false (:additionalProperties metrics-schema)))
+            (is (= {:type "number"
+                    :minimum -1
+                    :maximum 1}
+                   (get-in metrics-schema [:properties :cosine])))
+            (is (= {:type "number"}
+                   (get-in metrics-schema [:properties :rankScore]))))
           (is (not (str/includes? (slurp (get-in run [:artifacts :promptPath]))
                                   "changedFiles")))
           (is (str/includes? (slurp (get-in run [:artifacts :stdoutPath]))
