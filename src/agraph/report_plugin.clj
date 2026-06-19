@@ -99,10 +99,12 @@
 
 (defn- canonical-map
   [aliases value]
-  (reduce-kv (fn [m k v]
-               (assoc m (canonical-key aliases k) v))
-             {}
-             value))
+  (if (map? value)
+    (reduce-kv (fn [m k v]
+                 (assoc m (canonical-key aliases k) v))
+               {}
+               value)
+    {}))
 
 (defn- safe-slot
   [value]
@@ -137,27 +139,77 @@
 (defn- diagnostic
   [plugin stage message]
   {:plugin (plugin-summary plugin)
-   :stage (name stage)
+   :stage (if (keyword? stage) (name stage) (str stage))
    :message (str message)})
 
 (defn- normalize-diagnostic
   [plugin diagnostic]
-  (let [diagnostic (canonical-map diagnostic-key-aliases diagnostic)]
+  (let [diagnostic (if (map? diagnostic)
+                     (canonical-map diagnostic-key-aliases diagnostic)
+                     {:message diagnostic})]
     (merge {:plugin (plugin-summary plugin)
             :stage (str (or (:stage diagnostic) "plugin"))
             :message (str (or (:message diagnostic) "Report plugin diagnostic."))}
            (select-keys diagnostic [:path :details]))))
 
+(defn- sequence-field
+  [plugin field value]
+  (cond
+    (nil? value)
+    {:rows []
+     :diagnostics []}
+
+    (sequential? value)
+    {:rows (vec value)
+     :diagnostics []}
+
+    :else
+    {:rows []
+     :diagnostics [(diagnostic plugin
+                               (str "invalid-" (name field))
+                               (str "expected " (name field) " to be an array"))]}))
+
+(defn- normalize-panel-row
+  [plugin idx panel]
+  (if (map? panel)
+    {:panel (normalize-panel plugin idx panel)}
+    {:diagnostic (diagnostic plugin
+                             :invalid-panel
+                             (str "expected panel at index " idx " to be an object"))}))
+
+(defn- normalize-artifact-row
+  [plugin idx artifact]
+  (if (map? artifact)
+    {:artifact (assoc artifact :plugin (plugin-summary plugin))}
+    {:diagnostic (diagnostic plugin
+                             :invalid-artifact
+                             (str "expected artifact at index " idx " to be an object"))}))
+
 (defn normalize-result
   [plugin result]
-  (if (= result-schema (:schema result))
-    {:panels (mapv #(normalize-panel plugin %1 %2)
-                   (range)
-                   (or (:panels result) []))
-     :diagnostics (mapv #(normalize-diagnostic plugin %)
-                        (or (:diagnostics result) []))
-     :artifacts (mapv #(assoc % :plugin (plugin-summary plugin))
-                      (or (:artifacts result) []))}
+  (if (and (map? result) (= result-schema (:schema result)))
+    (let [{panel-rows :rows panel-field-diagnostics :diagnostics}
+          (sequence-field plugin :panels (:panels result))
+          {diagnostic-rows :rows diagnostic-field-diagnostics :diagnostics}
+          (sequence-field plugin :diagnostics (:diagnostics result))
+          {artifact-rows :rows artifact-field-diagnostics :diagnostics}
+          (sequence-field plugin :artifacts (:artifacts result))
+          panels-and-diagnostics (map-indexed #(normalize-panel-row plugin %1 %2)
+                                              panel-rows)
+          artifacts-and-diagnostics (map-indexed #(normalize-artifact-row plugin %1 %2)
+                                                 artifact-rows)]
+      {:panels (->> panels-and-diagnostics
+                    (keep :panel)
+                    vec)
+       :diagnostics (vec (concat panel-field-diagnostics
+                                 diagnostic-field-diagnostics
+                                 artifact-field-diagnostics
+                                 (keep :diagnostic panels-and-diagnostics)
+                                 (map #(normalize-diagnostic plugin %) diagnostic-rows)
+                                 (keep :diagnostic artifacts-and-diagnostics)))
+       :artifacts (->> artifacts-and-diagnostics
+                       (keep :artifact)
+                       vec)})
     {:panels []
      :diagnostics [(diagnostic plugin
                                :schema

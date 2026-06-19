@@ -103,3 +103,27 @@
     (is (= "app.core"
            (get-in graph-panel [:data :rows :rows 0 :value])))
     (is (empty? (:diagnostics bundle)))))
+
+(deftest malformed-plugin-output-becomes-row-diagnostics
+  (let [plugin (report-plugin/normalize-plugin (plugin-config))
+        normalized (report-plugin/normalize-result
+                    plugin
+                    {:schema report-plugin/result-schema
+                     :panels ["bad-panel"
+                              {:id "valid-panel"
+                               :label "Valid Panel"
+                               :mdx "## Valid"}]
+                     :diagnostics "bad-diagnostics"
+                     :artifacts ["bad-artifact"]})
+        diagnostics (set (map (juxt :stage :message) (:diagnostics normalized)))]
+    (is (= ["valid-panel"] (mapv :id (:panels normalized))))
+    (is (empty? (:artifacts normalized)))
+    (is (contains? diagnostics
+                   ["invalid-diagnostics"
+                    "expected diagnostics to be an array"]))
+    (is (contains? diagnostics
+                   ["invalid-panel"
+                    "expected panel at index 0 to be an object"]))
+    (is (contains? diagnostics
+                   ["invalid-artifact"
+                    "expected artifact at index 0 to be an object"]))))

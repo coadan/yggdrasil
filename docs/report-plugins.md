@@ -85,6 +85,11 @@ The browser does not execute plugin JavaScript. Unsupported expressions are
 shown as skipped content so report plugins can fail visibly without taking over
 the dashboard runtime.
 
+AGraph normalizes plugin results before they reach the UI. `panels`,
+`diagnostics`, and `artifacts` must be arrays. Malformed arrays or malformed
+rows are converted into plugin diagnostics while valid sibling rows are still
+kept in the bundle.
+
 ## Slots
 
 Known slots are `atlas`, `systems`, `dependencies`, `evidence`, `maintenance`,
