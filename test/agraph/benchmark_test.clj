@@ -1195,6 +1195,9 @@
                                      :missingPredictedFileRuns 0
                                      :hintDiagnosticRuns 0
                                      :identityMismatchRuns 0}
+                  :artifactDiagnostics {:unverifiedScoreRuns 0
+                                        :obsoleteScoreSchemaRuns 0
+                                        :staleScoreRuns 0}
                   :coverageDiagnostics {:missingDeclaredSourceKindRuns 0
                                         :coverageExcludedGroundTruthFiles 0
                                         :unsupportedGroundTruthFiles 1}
@@ -1227,6 +1230,9 @@
                                       :missingPredictedFileRuns 1
                                       :hintDiagnosticRuns 1
                                       :identityMismatchRuns 1}
+                   :artifactDiagnostics {:unverifiedScoreRuns 2
+                                         :obsoleteScoreSchemaRuns 1
+                                         :staleScoreRuns 1}
                    :coverageDiagnostics {:missingDeclaredSourceKindRuns 1
                                          :coverageExcludedGroundTruthFiles 1
                                          :unsupportedGroundTruthFiles 2}
@@ -1252,6 +1258,8 @@
                                                 (assoc candidate
                                                        :agentDiagnostics
                                                        (:agentDiagnostics baseline)
+                                                       :artifactDiagnostics
+                                                       (:artifactDiagnostics baseline)
                                                        :coverageDiagnostics
                                                        (:coverageDiagnostics baseline)
                                                        :scores (assoc (:scores baseline)
@@ -1293,6 +1301,9 @@
              "missingPredictedFileRuns"
              "hintDiagnosticRuns"
              "identityMismatchRuns"
+             "unverifiedScoreRuns"
+             "obsoleteScoreSchemaRuns"
+             "staleScoreRuns"
              "missingDeclaredSourceKindRuns"
              "coverageExcludedGroundTruthFiles"
              "unsupportedGroundTruthFiles"

@@ -215,7 +215,8 @@ generated output root.
   prove it did not trade one benchmark case for another:
   `bb bench agent-compare benchmark.edn --baseline-report before/agent-report.json
   --candidate-report after/agent-report.json`. It also treats higher aggregate
-  warning runs, hint diagnostic runs, missing declared source-kind runs,
+  warning runs, hint diagnostic runs, unverified score artifacts, obsolete score
+  schemas, stale score artifacts, missing declared source-kind runs,
   coverage-excluded ground-truth files, and unsupported ground-truth files as
   lower-is-better regressions when the compared report case set and
   parser-worker profiles are unchanged.
@@ -502,6 +503,10 @@ given.
   treats increases in missing declared source-kind runs, coverage-excluded
   ground-truth files, and unsupported ground-truth files as lower-is-better
   regressions when reports are comparable.
+- `artifactDiagnostics`: aggregate score-artifact freshness counters.
+  `agent-compare` treats increases in unverified score runs, obsolete score
+  schema runs, and stale score runs as lower-is-better regressions when reports
+  are comparable.
 
 Each result also records `groundTruthRanks.files`, which lists every scoreable
 localization file and the rank where AGraph found it, or `found? false` when it

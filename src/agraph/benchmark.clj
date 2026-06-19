@@ -5068,6 +5068,15 @@
    {:path [:agentDiagnostics :identityMismatchRuns]
     :label "identityMismatchRuns"
     :direction :lower}
+   {:path [:artifactDiagnostics :unverifiedScoreRuns]
+    :label "unverifiedScoreRuns"
+    :direction :lower}
+   {:path [:artifactDiagnostics :obsoleteScoreSchemaRuns]
+    :label "obsoleteScoreSchemaRuns"
+    :direction :lower}
+   {:path [:artifactDiagnostics :staleScoreRuns]
+    :label "staleScoreRuns"
+    :direction :lower}
    {:path [:coverageDiagnostics :missingDeclaredSourceKindRuns]
     :label "missingDeclaredSourceKindRuns"
     :direction :lower}
