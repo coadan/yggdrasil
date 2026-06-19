@@ -317,6 +317,38 @@
                            :command "agraph packages --project fixture --json"}]}
            compact))))
 
+(deftest minimal-answerability-keeps-result-schema-status-summary
+  (let [minimal (#'context/minimal-answerability
+                 {:status :limited
+                  :available [:activity :validation-history]
+                  :missing [:docs]
+                  :weak [:validation-history]
+                  :unsupported [:remote-work]
+                  :counts {:files 99
+                           :nodes 88
+                           :result-schema-statuses {:matching 3
+                                                    :missing-result 1}
+                           :result-schema-status-items 4
+                           :result-schema-matching-items 3
+                           :result-schema-mismatch-items 0
+                           :result-schema-missing-result-items 1
+                           :result-schema-unexpected-result-items 0
+                           :result-schema-mismatch-events 0}})]
+    (is (= {:status :limited
+            :available [:activity :validation-history]
+            :missing [:docs]
+            :weak [:validation-history]
+            :unsupported [:remote-work]
+            :counts {:result-schema-statuses {:matching 3
+                                              :missing-result 1}
+                     :result-schema-status-items 4
+                     :result-schema-matching-items 3
+                     :result-schema-mismatch-items 0
+                     :result-schema-missing-result-items 1
+                     :result-schema-unexpected-result-items 0
+                     :result-schema-mismatch-events 0}}
+           minimal))))
+
 (deftest compact-freshness-keeps-bounded-mechanical-detail
   (let [compact (#'context/compact-freshness
                  {:status :stale

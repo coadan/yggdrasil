@@ -1571,14 +1571,34 @@
       (seq (:warnings answerability))
       (assoc :warnings (vec (take 3 (:warnings answerability)))))))
 
+(def ^:private result-schema-count-keys
+  [:result-schema-statuses
+   :result-schema-status-items
+   :result-schema-matching-items
+   :result-schema-mismatch-items
+   :result-schema-missing-result-items
+   :result-schema-unexpected-result-items
+   :result-schema-mismatch-events])
+
+(defn- compact-result-schema-counts
+  [counts]
+  (let [schema-counts (select-keys counts result-schema-count-keys)]
+    (when (or (seq (:result-schema-statuses schema-counts))
+              (some pos? (map #(long (or (get schema-counts %) 0))
+                              (remove #{:result-schema-statuses}
+                                      result-schema-count-keys))))
+      schema-counts)))
+
 (defn- minimal-answerability
   [answerability]
   (when answerability
-    (select-keys answerability [:status
-                                :available
-                                :missing
-                                :weak
-                                :unsupported])))
+    (let [schema-counts (compact-result-schema-counts (:counts answerability))]
+      (cond-> (select-keys answerability [:status
+                                          :available
+                                          :missing
+                                          :weak
+                                          :unsupported])
+        schema-counts (assoc :counts schema-counts)))))
 
 (defn- compact-freshness-samples
   [samples]
