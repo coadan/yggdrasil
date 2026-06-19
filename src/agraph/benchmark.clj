@@ -4564,15 +4564,20 @@
 (defn- result-case-diagnostic
   [failures result]
   (let [result-failures (filterv #(failure-matches-result? % result) failures)]
-    {:case-id (:case-id result)
-     :agentId (get-in result [:agent :agentId])
-     :mode (get-in result [:agent :mode])
-     :parserWorker (:parserWorker result)
-     :agentResultPath (:agentResultPath result)
-     :status (if (seq result-failures) "failed" "passed")
-     :scores (select-keys (:scores result) case-diagnostic-score-keys)
-     :localization (:localization result)
-     :failures result-failures}))
+    (cond-> {:case-id (:case-id result)
+             :agentId (get-in result [:agent :agentId])
+             :mode (get-in result [:agent :mode])
+             :parserWorker (:parserWorker result)
+             :agentResultPath (:agentResultPath result)
+             :status (if (seq result-failures) "failed" "passed")
+             :scores (select-keys (:scores result) case-diagnostic-score-keys)
+             :localization (:localization result)
+             :failures result-failures}
+      (:agentOutput result)
+      (assoc :agentOutput (:agentOutput result))
+
+      (:artifact result)
+      (assoc :artifact (:artifact result)))))
 
 (defn- missing-case-diagnostic
   [failures case-id]

@@ -763,6 +763,13 @@
                                           :source "option"}
                            :agent {:agentId "codex"
                                    :mode "agraph"}
+                           :agentOutput {:missingPredictedFiles ["src/ghost.clj"
+                                                                 "src/gone.clj"]
+                                         :commandless true
+                                         :warnings ["shape warning"]}
+                           :artifact {:fingerprintStatus "stale"
+                                      :caseFingerprint "sha256:old"
+                                      :expectedCaseFingerprint "sha256:new"}
                            :graphExpectations {:status "failed"
                                                :summary {:expectedEvidence 1
                                                          :foundEvidence 0}}
@@ -912,6 +919,14 @@
     (is (= {:mode "all"
             :source "option"}
            (get-in failed [:caseDiagnostics 0 :parserWorker])))
+    (is (= {:missingPredictedFiles ["src/ghost.clj" "src/gone.clj"]
+            :commandless true
+            :warnings ["shape warning"]}
+           (get-in failed [:caseDiagnostics 0 :agentOutput])))
+    (is (= {:fingerprintStatus "stale"
+            :caseFingerprint "sha256:old"
+            :expectedCaseFingerprint "sha256:new"}
+           (get-in failed [:caseDiagnostics 0 :artifact])))
     (is (= {:missedFiles [{:path "src/missing.clj"}]
             :missedFilesPresentInContext [{:path "src/missing.clj"
                                            :rank 12}]
