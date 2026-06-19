@@ -414,6 +414,100 @@
         (is (= [:system :node] (mapv :targetKind (:choices packet))))
         (is (= ["system:handler" "node:handler"] (mapv :id (:choices packet))))))))
 
+(deftest node-tool-inspects-exact-package-target
+  (let [package-row {:xt/id "node:pkg:npm:react"
+                     :project-id "fixture"
+                     :repo-id "app"
+                     :label "npm:react"
+                     :kind :external-package
+                     :file-id "file:package-lock"
+                     :path "package-lock.json"
+                     :ecosystem :npm
+                     :package-name "react"
+                     :version-range "^19.0.0"
+                     :dependency-scope :dependencies
+                     :source-line 12
+                     :active? true
+                     :run-id "run"}
+        source-row {:xt/id "node:src:app"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :label "src.app"
+                    :kind :namespace
+                    :file-id "file:src"
+                    :path "src/app.ts"
+                    :source-line 1
+                    :active? true
+                    :run-id "run"}
+        edge-row {:xt/id "edge:src:react"
+                  :project-id "fixture"
+                  :repo-id "app"
+                  :source-id (:xt/id source-row)
+                  :target-id (:xt/id package-row)
+                  :relation :imports-package
+                  :confidence :high
+                  :file-id "file:src"
+                  :path "src/app.ts"
+                  :source-line 2
+                  :active? true
+                  :run-id "run"}]
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  store/all-rows (fn [_ _] [])
+                  query/all-nodes (fn [_ _] [package-row source-row])
+                  query/all-edges (fn [_ _] [edge-row])]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 17
+                                 "agraph_node"
+                                 {:target "npm:react"}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= :found (:status packet)))
+        (is (= :package (get-in packet [:match :targetKind])))
+        (is (= "react" (get-in packet [:package :package-name])))
+        (is (= :npm (get-in packet [:package :ecosystem])))
+        (is (= ["edge:src:react"]
+               (mapv :xt/id (get-in packet [:relationships :edges]))))))))
+
+(deftest node-tool-returns-choices-for-ambiguous-package-name
+  (let [nodes [{:xt/id "node:pkg:npm:router"
+                :project-id "fixture"
+                :repo-id "app"
+                :label "npm:router"
+                :kind :external-package
+                :file-id "file:npm"
+                :path "package-lock.json"
+                :ecosystem :npm
+                :package-name "router"
+                :active? true
+                :run-id "run"}
+               {:xt/id "node:pkg:pypi:router"
+                :project-id "fixture"
+                :repo-id "app"
+                :label "pypi:router"
+                :kind :external-package
+                :file-id "file:pypi"
+                :path "requirements.txt"
+                :ecosystem :pypi
+                :package-name "router"
+                :active? true
+                :run-id "run"}]]
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  store/all-rows (fn [_ _] [])
+                  query/all-nodes (fn [_ _] nodes)
+                  query/all-edges (fn [_ _] [])]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 18
+                                 "agraph_node"
+                                 {:target "router"}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= :ambiguous (:status packet)))
+        (is (= [:package :package] (mapv :targetKind (:choices packet))))
+        (is (= ["node:pkg:npm:router" "node:pkg:pypi:router"]
+               (mapv :id (:choices packet))))))))
+
 (deftest systems-tool-returns-canonical-graph
   (with-redefs [project/read-project (constantly project-fixture)
                 store/with-node (fn [_ f] (f :xtdb))

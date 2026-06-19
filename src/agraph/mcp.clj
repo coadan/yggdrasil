@@ -441,6 +441,12 @@
                      :dependency-scope :import-names :namespace :name :public?
                      :source-line :run-id]))
 
+(defn- compact-package-row
+  [node]
+  (select-keys node [:xt/id :project-id :repo-id :label :kind :file-id :path
+                     :ecosystem :package-name :version-range :resolved-version
+                     :dependency-scope :import-names :source-line :run-id]))
+
 (defn- compact-system-row
   [system]
   (select-keys system [:id :label :kind :status :includes :aliases :tags
@@ -475,7 +481,14 @@
     (:label row) (assoc :label (:label row))
     (:kind row) (assoc :kind (:kind row))
     (:path row) (assoc :path (:path row))
+    (:ecosystem row) (assoc :ecosystem (:ecosystem row))
+    (:package-name row) (assoc :packageName (:package-name row))
     (:source-line row) (assoc :sourceLine (:source-line row))))
+
+(defn- package-node?
+  [node]
+  (and (seq (:package-name node))
+       (:ecosystem node)))
 
 (defn- exact-file-matches
   [target files]
@@ -495,6 +508,7 @@
 (defn- exact-node-matches
   [target nodes]
   (->> nodes
+       (remove package-node?)
        (keep (fn [node]
                (cond
                  (= target (:xt/id node)) [:id node]
@@ -505,6 +519,35 @@
        (distinct-by (comp :xt/id second))
        (mapv (fn [[match node]]
                {:target-kind :node
+                :match match
+                :row node}))))
+
+(defn- package-targets
+  [node]
+  (let [ecosystem (some-> (:ecosystem node) name)
+        package-name (:package-name node)]
+    (remove nil?
+            [(:xt/id node)
+             (:label node)
+             package-name
+             (when (and ecosystem package-name)
+               (str ecosystem ":" package-name))])))
+
+(defn- exact-package-matches
+  [target nodes]
+  (->> nodes
+       (filter package-node?)
+       (keep (fn [node]
+               (when-let [matched (some #(when (= target %) %) (package-targets node))]
+                 [(cond
+                    (= matched (:xt/id node)) :id
+                    (= matched (:label node)) :label
+                    (= matched (:package-name node)) :package-name
+                    :else :ecosystem-package)
+                  node])))
+       (distinct-by (comp :xt/id second))
+       (mapv (fn [[match node]]
+               {:target-kind :package
                 :match match
                 :row node}))))
 
@@ -534,10 +577,18 @@
   [target files nodes overlay]
   (->> (concat (exact-file-matches target files)
                (exact-system-matches target overlay)
+               (exact-package-matches target nodes)
                (exact-node-matches target nodes))
        (sort-by (fn [{:keys [target-kind match row]}]
-                  [(case target-kind :file 0 :system 1 :node 2 3)
-                   (case match :id 0 :repo-path 1 :path 2 :label 3 4)
+                  [(case target-kind :file 0 :system 1 :package 2 :node 3 4)
+                   (case match
+                     :id 0
+                     :repo-path 1
+                     :ecosystem-package 2
+                     :path 3
+                     :label 4
+                     :package-name 5
+                     6)
                    (:repo-id row)
                    (:path row)
                    (:label row)
@@ -598,9 +649,11 @@
   (let [nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
         file-id (case (:target-kind match)
                   :file (get-in match [:row :xt/id])
+                  :package (get-in match [:row :file-id])
                   :node (get-in match [:row :file-id])
                   nil)
         focus-node-ids (case (:target-kind match)
+                         :package #{(get-in match [:row :xt/id])}
                          :node #{(get-in match [:row :xt/id])}
                          :file (->> nodes
                                     (filter #(= file-id (:file-id %)))
@@ -723,6 +776,7 @@
             (let [{:keys [target-kind match row] :as selected} (first matches)
                   file (case target-kind
                          :file row
+                         :package (file-for-node files row)
                          :node (file-for-node files row)
                          nil)]
               (cond-> {:schema node-inspect-schema
@@ -733,6 +787,7 @@
                        :relationships (incident-graph selected nodes edges limit)}
                 (= :file target-kind) (assoc :file (compact-file-row row))
                 (= :system target-kind) (assoc :system (compact-system-row row))
+                (= :package target-kind) (assoc :package (compact-package-row row))
                 (= :node target-kind) (assoc :node (compact-node-row row))
                 file (assoc :sourceLocation (compact-file-row file))
                 (= :file target-kind) (assoc :source
