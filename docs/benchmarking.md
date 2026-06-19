@@ -122,7 +122,10 @@ generated output root.
   same scope that scoring uses. Hints also include `selection` counters for raw
   candidates, coverage-filtered candidates, applied limits, and coverage source
   kinds so benchmark misses can be debugged from the same artifact the agent
-  saw. Hints flatten context drilldowns and `answerability.next` into
+  saw. When those counters point at help-quality problems, hints include
+  `diagnostics` rows for zero candidate files, coverage-filtered candidate
+  files, missing declared source kinds, and indexed source extraction
+  diagnostics. Hints flatten context drilldowns and `answerability.next` into
   `commands` so agents see bounded follow-up checks without inspecting nested
   context JSON. `sourceCoverage.diagnostics.samples` carries a bounded set of
   file/stage/message rows for indexed extraction diagnostics so agents can jump

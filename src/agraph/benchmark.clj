@@ -2604,6 +2604,47 @@
        distinct
        vec))
 
+(defn- hint-diagnostics
+  [prepared packet selection]
+  (let [raw-candidates (long (or (:rawCandidateFiles selection) 0))
+        candidate-files (long (or (:candidateFiles selection) 0))
+        filtered-files (long (or (:coverageFilteredCandidateFiles selection) 0))
+        coverage-kinds (vec (:coverageSourceKinds selection))
+        missing-kinds (->> (get-in prepared [:coverage :missingDeclaredSourceKinds])
+                           (map str)
+                           sort
+                           vec)
+        source-diagnostics (long (or (get-in packet [:sourceCoverage
+                                                     :totals
+                                                     :diagnostics])
+                                     0))]
+    (cond-> []
+      (zero? raw-candidates)
+      (conj {:kind "zero-candidate-files"
+             :severity "warning"
+             :message "AGraph context produced no candidate files for this query."})
+
+      (pos? filtered-files)
+      (conj {:kind "coverage-filtered-candidate-files"
+             :severity "info"
+             :message "Declared source coverage filtered candidate files out of the agent shortlist."
+             :coverageSourceKinds coverage-kinds
+             :rawCandidateFiles raw-candidates
+             :candidateFiles candidate-files
+             :filteredCandidateFiles filtered-files})
+
+      (seq missing-kinds)
+      (conj {:kind "missing-declared-source-kinds"
+             :severity "warning"
+             :message "The benchmark case declares source kinds with no scoreable indexed files."
+             :sourceKinds missing-kinds})
+
+      (pos? source-diagnostics)
+      (conj {:kind "source-extraction-diagnostics"
+             :severity "warning"
+             :message "Indexed source coverage contains extraction diagnostics; inspect sourceCoverage.diagnostics.samples."
+             :diagnostics source-diagnostics}))))
+
 (defn context-packet->agent-hints
   "Return a compact agent-facing summary of one AGraph context packet.
 
@@ -2619,22 +2660,25 @@
                        :caseFingerprint (:caseFingerprint prepared)
                        :root (:worktreeRoot prepared)
                        :limit limit
-                       :coverage (:coverage prepared)})]
-    {:schema agent-hints-schema
-     :suite-id (:suite-id prepared)
-     :case-id (:case-id prepared)
-     :repo-id (:repo-id prepared)
-     :project-id (:project-id prepared)
-     :query (:query packet)
-     :topFiles (:suspectedFiles agent-result)
-     :topSymbols (vec (take 10 (:suspectedSymbols agent-result)))
-     :topDocs (mapv hint-doc (range) (take 10 (:docs packet)))
-     :candidateSystems (mapv hint-system (range) (take 10 (:entities packet)))
-     :commands (hint-commands packet)
-     :selection (:selection agent-result)
-     :answerability (:answerability packet)
-     :sourceCoverage (:sourceCoverage packet)
-     :warnings (:warnings packet)}))
+                       :coverage (:coverage prepared)})
+        diagnostics (hint-diagnostics prepared packet (:selection agent-result))]
+    (cond-> {:schema agent-hints-schema
+             :suite-id (:suite-id prepared)
+             :case-id (:case-id prepared)
+             :repo-id (:repo-id prepared)
+             :project-id (:project-id prepared)
+             :query (:query packet)
+             :topFiles (:suspectedFiles agent-result)
+             :topSymbols (vec (take 10 (:suspectedSymbols agent-result)))
+             :topDocs (mapv hint-doc (range) (take 10 (:docs packet)))
+             :candidateSystems (mapv hint-system (range) (take 10 (:entities packet)))
+             :commands (hint-commands packet)
+             :selection (:selection agent-result)
+             :answerability (:answerability packet)
+             :sourceCoverage (:sourceCoverage packet)
+             :warnings (:warnings packet)}
+      (seq diagnostics)
+      (assoc :diagnostics diagnostics))))
 
 (defn- write-agent-agraph-artifacts!
   [suite case prepared opts]

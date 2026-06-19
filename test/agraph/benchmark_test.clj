@@ -1912,8 +1912,12 @@
                   :repo-id "repo"
                   :project-id "project"
                   :worktreeRoot root
-                  :coverage {:declaredSourceKinds ["code"]}}
+                  :coverage {:declaredSourceKinds ["code" "python"]
+                             :missingDeclaredSourceKinds ["python"]}}
         packet {:query "bug report app"
+                :sourceCoverage {:schema "agraph.source-coverage.context/v1"
+                                 :totals {:indexedFiles 2
+                                          :diagnostics 2}}
                 :docs [{:source {:path ".github/ISSUE_TEMPLATE/bug_report.md"
                                  :heading "bug report"}
                         :score 10.0
@@ -1933,8 +1937,26 @@
             :candidateFiles 1
             :coverageFilteredCandidateFiles 1
             :limit 20
-            :coverageSourceKinds ["code"]}
-           (:selection hints)))))
+            :coverageSourceKinds ["code" "python"]}
+           (:selection hints)))
+    (is (= [{:kind "coverage-filtered-candidate-files"
+             :severity "info"
+             :message "Declared source coverage filtered candidate files out of the agent shortlist."
+             :coverageSourceKinds ["code" "python"]
+             :rawCandidateFiles 2
+             :candidateFiles 1
+             :filteredCandidateFiles 1}
+            {:kind "missing-declared-source-kinds"
+             :severity "warning"
+             :message "The benchmark case declares source kinds with no scoreable indexed files."
+             :sourceKinds ["python"]}
+            {:kind "source-extraction-diagnostics"
+             :severity "warning"
+             :message "Indexed source coverage contains extraction diagnostics; inspect sourceCoverage.diagnostics.samples."
+             :diagnostics 2}]
+           (:diagnostics hints)))
+    (is (not (contains? hints :groundTruth)))
+    (is (not (contains? hints :inputHints)))))
 
 (deftest context-packet-agent-result-uses-scanned-kind-for-extensionless-files
   (let [root (temp-dir "agraph-bench-extensionless-coverage")
