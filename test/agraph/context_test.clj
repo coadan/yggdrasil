@@ -1146,6 +1146,69 @@
       (is (= ["agraph_node" "agraph_node" "agraph_node"]
              (mapv :mcpTool (take 3 (:nextActions architecture))))))))
 
+(deftest runtime-evidence-keeps-selected-system-diversity
+  (let [runtime-evidence (#'context/select-system-evidence
+                          ["container"]
+                          [{:id "system:tests"}
+                           {:id "system:stack"}]
+                          [{:repo-id "app"
+                            :path "tests/Alpha.cs"
+                            :score 2.0}
+                           {:repo-id "app"
+                            :path "tests/Beta.cs"
+                            :score 1.9}
+                           {:repo-id "app"
+                            :path "tests/Gamma.cs"
+                            :score 1.8}]
+                          [{:xt/id "evidence:tests-alpha"
+                            :system-id "system:tests"
+                            :repo-id "app"
+                            :path "tests/Alpha.cs"
+                            :file-kind :dotnet
+                            :kind :url
+                            :label "container setup note"
+                            :normalized-value "container-setup-note"
+                            :source-line 10
+                            :confidence 0.7}
+                           {:xt/id "evidence:tests-beta"
+                            :system-id "system:tests"
+                            :repo-id "app"
+                            :path "tests/Beta.cs"
+                            :file-kind :dotnet
+                            :kind :url
+                            :label "container troubleshooting note"
+                            :normalized-value "container-troubleshooting-note"
+                            :source-line 11
+                            :confidence 0.7}
+                           {:xt/id "evidence:tests-gamma"
+                            :system-id "system:tests"
+                            :repo-id "app"
+                            :path "tests/Gamma.cs"
+                            :file-kind :dotnet
+                            :kind :url
+                            :label "container reference note"
+                            :normalized-value "container-reference-note"
+                            :source-line 12
+                            :confidence 0.7}
+                           {:xt/id "evidence:stack-postgres"
+                            :system-id "system:stack"
+                            :repo-id "app"
+                            :path "tests/docker-compose.yml"
+                            :file-kind :compose
+                            :kind :container-image-consumer
+                            :label "postgres:alpine"
+                            :normalized-value "container-image:postgres"
+                            :source-line 20
+                            :confidence 0.74}]
+                          4)]
+    (is (= ["evidence:tests-alpha"
+            "evidence:tests-beta"
+            "evidence:stack-postgres"
+            "evidence:tests-gamma"]
+           (mapv :id runtime-evidence)))
+    (is (> (:score (last runtime-evidence))
+           (:score (nth runtime-evidence 2))))))
+
 (deftest candidate-files-preserve-query-score-components
   (with-redefs [query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema

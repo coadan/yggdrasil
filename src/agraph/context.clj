@@ -761,25 +761,64 @@
 (def ^:private runtime-evidence-path-limit
   2)
 
+(def ^:private runtime-evidence-system-limit
+  2)
+
 (def ^:private runtime-evidence-result-path-limit
   20)
 
+(defn- runtime-evidence-path-key
+  [row]
+  [(:repo row) (:path row)])
+
+(defn- runtime-evidence-selectable?
+  [path-counts system-counts enforce-system-limit? row]
+  (let [path-count (long (get path-counts (runtime-evidence-path-key row) 0))
+        system-count (long (get system-counts (:systemId row) 0))]
+    (and (< path-count runtime-evidence-path-limit)
+         (or (not enforce-system-limit?)
+             (< system-count runtime-evidence-system-limit)))))
+
+(defn- add-runtime-evidence-row
+  [state row]
+  (-> state
+      (update :seen-ids conj (:id row))
+      (update :path-counts update (runtime-evidence-path-key row) (fnil inc 0))
+      (update :system-counts update (:systemId row) (fnil inc 0))
+      (update :out conj row)))
+
+(defn- take-system-evidence-pass
+  [rows limit state enforce-system-limit?]
+  (reduce (fn [state row]
+            (cond
+              (>= (count (:out state)) limit)
+              (reduced state)
+
+              (contains? (:seen-ids state) (:id row))
+              state
+
+              (runtime-evidence-selectable? (:path-counts state)
+                                            (:system-counts state)
+                                            enforce-system-limit?
+                                            row)
+              (add-runtime-evidence-row state row)
+
+              :else
+              state))
+          state
+          rows))
+
 (defn- take-diverse-system-evidence
   [rows limit]
-  (loop [remaining rows
-         path-counts {}
-         out []]
-    (if (or (empty? remaining)
-            (>= (count out) limit))
-      out
-      (let [row (first remaining)
-            path-key [(:repo row) (:path row)]
-            path-count (long (get path-counts path-key 0))]
-        (if (< path-count runtime-evidence-path-limit)
-          (recur (next remaining)
-                 (update path-counts path-key (fnil inc 0))
-                 (conj out row))
-          (recur (next remaining) path-counts out))))))
+  (let [initial-state {:seen-ids #{}
+                       :path-counts {}
+                       :system-counts {}
+                       :out []}
+        diverse-state (take-system-evidence-pass rows limit initial-state true)
+        filled-state (if (< (count (:out diverse-state)) limit)
+                       (take-system-evidence-pass rows limit diverse-state false)
+                       diverse-state)]
+    (:out filled-state)))
 
 (defn- select-system-evidence
   [query-tokens entities results evidence limit]
