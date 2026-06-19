@@ -1,6 +1,8 @@
 (ns agraph.extract
   "Deterministic extraction from supported source, config, and document files."
   (:require [agraph.extract.assets :as extract.assets]
+            [agraph.extract.assets-text :as extract.assets-text]
+            [agraph.extract.common :as extract.common]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
             [agraph.text :as text]
@@ -867,21 +869,8 @@
 
 (defn extract-text-source
   "Extract a supported text source file as one searchable chunk."
-  [run-id {:keys [id-scope file-id path content kind]} chunk-kind]
-  {:nodes []
-   :edges []
-   :chunks [{:xt/id (chunk-id id-scope path path 1)
-             :file-id file-id
-             :path path
-             :kind chunk-kind
-             :file-kind kind
-             :label path
-             :text content
-             :tokens (text/tokenize content)
-             :source-line 1
-             :active? true
-             :run-id run-id}]
-   :diagnostics []})
+  [run-id file chunk-kind]
+  (extract.common/extract-text-source run-id file chunk-kind))
 
 (def ^:private shell-function-name-pattern
   "[A-Za-z_][A-Za-z0-9_:-]*")
@@ -14214,75 +14203,6 @@
      :chunks (vec (concat (:chunks chunk-result) definition-chunks))
      :diagnostics diagnostics}))
 
-(defn- gettext-messages
-  [content]
-  (let [lines (vec (str/split-lines content))]
-    (->> lines
-         (map-indexed vector)
-         (keep (fn [[idx line]]
-                 (when-let [[_ msgid]
-                            (re-matches #"^\s*msgid\s+\"(.*)\"\s*$" line)]
-                   (when (seq msgid)
-                     {:label msgid
-                      :source-line (inc idx)}))))
-         distinct
-         vec)))
-
-(defn extract-gettext
-  "Extract gettext message ids as searchable translation facts."
-  [run-id {:keys [id-scope file-id path content] :as file}]
-  (let [catalog-node (generic-node run-id id-scope file-id path :gettext-catalog path 1)
-        messages (gettext-messages content)
-        message-nodes (mapv (fn [{:keys [label source-line]}]
-                              (generic-node run-id
-                                            id-scope
-                                            file-id
-                                            path
-                                            :gettext-message
-                                            label
-                                            source-line))
-                            messages)
-        define-edges (mapv #(edge-row run-id file-id path
-                                      (:xt/id catalog-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
-                           message-nodes)
-        chunk-result (extract-text-source run-id file :gettext-file)]
-    {:nodes (into [catalog-node] message-nodes)
-     :edges define-edges
-     :chunks (:chunks chunk-result)
-     :diagnostics []}))
-
-(defn extract-svg
-  "Extract SVG id-bearing elements as concrete asset facts."
-  [run-id {:keys [id-scope file-id path content] :as file}]
-  (let [asset-node (generic-node run-id id-scope file-id path :svg-file path 1)
-        elements (->> (re-seq #"(?is)<([A-Za-z][A-Za-z0-9:_-]*)\b[^>]*\bid=[\"']([^\"']+)[\"'][^>]*>"
-                              content)
-                      (map-indexed (fn [idx [_ tag id]]
-                                     {:kind :svg-element
-                                      :label (str tag "#" id)
-                                      :source-line (inc idx)}))
-                      distinct
-                      vec)
-        element-nodes (mapv (fn [{:keys [kind label source-line]}]
-                              (generic-node run-id id-scope file-id path kind label source-line))
-                            elements)
-        define-edges (mapv #(edge-row run-id file-id path
-                                      (:xt/id asset-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
-                           element-nodes)
-        chunk-result (extract-text-source run-id file :svg-file)]
-    {:nodes (into [asset-node] element-nodes)
-     :edges define-edges
-     :chunks (:chunks chunk-result)
-     :diagnostics []}))
-
 (defn- leading-spaces
   [line]
   (count (take-while #(= \space %) line)))
@@ -20568,8 +20488,8 @@
      :procfile (extract-procfile run-id file)
      :compose (extract-compose run-id file)
      :helm (extract-helm run-id file)
-     :gettext (extract-gettext run-id file)
-     :svg (extract-svg run-id file)
+     :gettext (extract.assets-text/extract-gettext run-id file)
+     :svg (extract.assets-text/extract-svg run-id file)
      :xml (extract-xml run-id file)
      :html (extract-text-source run-id file :html-file)
      :env (extract-env run-id file)
