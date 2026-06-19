@@ -116,6 +116,13 @@
     (catch Exception _
       nil)))
 
+(defn read-json-value
+  [content]
+  (try
+    (json/read-json content :key-fn keyword)
+    (catch Exception _
+      nil)))
+
 (defn json-key-label
   [k]
   (cond
