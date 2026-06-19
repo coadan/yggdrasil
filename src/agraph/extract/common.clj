@@ -2,6 +2,7 @@
   "Shared mechanical row helpers for extractor implementation namespaces."
   (:require [agraph.hash :as hash]
             [agraph.text :as text]
+            [charred.api :as json]
             [clojure.string :as str]))
 
 (def ^:private source-definition-chunk-lines 120)
@@ -67,6 +68,54 @@
              :active? true
              :run-id run-id}]
    :diagnostics []})
+
+(defn extract-format-facts
+  [run-id {:keys [id-scope file-id path] :as file} root-kind chunk-kind facts]
+  (let [root-node (generic-node run-id id-scope file-id path root-kind path 1)
+        facts (vec (distinct facts))
+        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
+                           (generic-node run-id id-scope file-id path kind label source-line))
+                         facts)
+        fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
+                           (edge-row run-id
+                                     file-id
+                                     path
+                                     (:xt/id root-node)
+                                     (node-id id-scope kind label)
+                                     (or relation :defines)
+                                     :extracted
+                                     source-line))
+                         facts)
+        chunk-result (extract-text-source run-id file chunk-kind)]
+    {:nodes (into [root-node] fact-nodes)
+     :edges fact-edges
+     :chunks (:chunks chunk-result)
+     :diagnostics []}))
+
+(defn read-json-map
+  [content]
+  (try
+    (let [parsed (json/read-json content :key-fn keyword)]
+      (when (map? parsed)
+        parsed))
+    (catch Exception _
+      nil)))
+
+(defn json-key-label
+  [k]
+  (cond
+    (keyword? k) (if-let [ns (namespace k)]
+                   (str ns "/" (name k))
+                   (name k))
+    (string? k) k
+    :else (str k)))
+
+(defn json-label
+  [value]
+  (cond
+    (keyword? value) (json-key-label value)
+    (string? value) value
+    :else (str value)))
 
 (defn bounded-lines
   [text line-limit]
