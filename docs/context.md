@@ -228,10 +228,13 @@ names or prose.
 `architecture.validationGaps` also reports graph-basis freshness when the
 packet freshness status is `stale`, `partial`, `unknown`, or `unsynced`. These
 rows use `plane: "graph-basis"` and include bounded freshness counts and
-warnings when available. Matching freshness repair commands are included in
-`architecture.nextActions`, and freshness warnings are surfaced in
-`architecture.warnings` before answerability warnings so agents see basis
-problems before trusting missing architecture evidence.
+warnings when available. Gap rows may include bounded `nextActions` copied from
+matching freshness or answerability actions, so the packet shows the exact
+repair or inspection command beside the missing or weak evidence plane.
+Matching actions are still included in `architecture.nextActions`, and
+freshness warnings are surfaced in `architecture.warnings` before
+answerability warnings so agents see basis problems before trusting missing
+architecture evidence.
 
 ## Doc Attachments
 

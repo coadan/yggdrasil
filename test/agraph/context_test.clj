@@ -702,7 +702,9 @@
                              :count 1}]}]
            (:evidenceFamilies section)))
     (is (= [{:plane "dependencies"
-             :status "missing"}
+             :status "missing"
+             :nextActions [{:kind :dependencies
+                            :command "agraph packages --json"}]}
             {:plane "docs"
              :status "weak"}
             {:plane "remote-work"
@@ -814,6 +816,47 @@
                  (map (juxt :family :status))
                  (:evidenceFamilies section))))))
 
+(deftest architecture-validation-gaps-include-bounded-plane-actions
+  (let [section (#'context/architecture-section
+                 {:overlay {:systems [{:id "system:billing"
+                                       :label "Billing"}]}
+                  :entities [{:id "system:billing"
+                              :label "Billing"
+                              :kind "system"}]
+                  :edges []
+                  :runtime-evidence []
+                  :docs []
+                  :activity []
+                  :answerability {:missing [:dependencies]
+                                  :weak [:docs]
+                                  :unsupported []
+                                  :nextActions [{:kind :dependencies
+                                                 :label "Inspect package graph facts"
+                                                 :command "agraph packages --json"}
+                                                {:kind :dependency-review
+                                                 :label "Queue unresolved import review work"
+                                                 :command "agraph sync <project.edn> --check --enqueue"}
+                                                {:kind :dependencies
+                                                 :label "Inspect package version conflicts"
+                                                 :command "agraph packages --with-conflicts --json"}
+                                                {:kind :docs
+                                                 :label "Build query index"
+                                                 :command "agraph sync <project.edn> --query-index"}]}})]
+    (is (= [{:plane "dependencies"
+             :status "missing"
+             :nextActions [{:kind :dependencies
+                            :label "Inspect package graph facts"
+                            :command "agraph packages --json"}
+                           {:kind :dependency-review
+                            :label "Queue unresolved import review work"
+                            :command "agraph sync <project.edn> --check --enqueue"}]}
+            {:plane "docs"
+             :status "weak"
+             :nextActions [{:kind :docs
+                            :label "Build query index"
+                            :command "agraph sync <project.edn> --query-index"}]}]
+           (:validationGaps section)))))
+
 (deftest architecture-section-reports-stale-graph-basis-validation-gap
   (let [section (#'context/architecture-section
                  {:overlay {:systems [{:id "system:billing"
@@ -847,7 +890,13 @@
                       :missing 1}
              :warnings ["Graph basis is stale."
                         "Another warning."
-                        "Third warning."]}
+                        "Third warning."]
+             :nextActions [{:kind :freshness
+                            :label "Refresh indexed graph basis"
+                            :command "agraph sync project.edn --check"}
+                           {:kind :coverage
+                            :label "Inspect extractor diagnostics"
+                            :command "agraph sync coverage project.edn --json"}]}
             {:plane "dependencies"
              :status "missing"}]
            (:validationGaps section)))
@@ -1647,7 +1696,9 @@
                    (get-in packet [:auditScopes 1 :samples]))))
       (is (< 1.0 (get-in architecture [:runtimeEvidence 0 :score]) 2.0))
       (is (= [{:plane "dependencies"
-               :status "missing"}
+               :status "missing"
+               :nextActions [{:kind :dependencies
+                              :command "agraph packages --json"}]}
               {:plane "docs"
                :status "weak"}
               {:plane "remote-work"

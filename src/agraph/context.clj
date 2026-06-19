@@ -1084,21 +1084,53 @@
         (seq (:counts freshness)) (assoc :counts (:counts freshness))
         (seq (:warnings freshness)) (assoc :warnings (vec (take 3 (:warnings freshness))))))))
 
+(def ^:private action-kinds-by-plane
+  {:source-files #{:source-files :coverage}
+   :source-graph #{:source-graph :coverage}
+   :dependencies #{:dependencies :dependency-review}
+   :runtime-config #{:runtime-config}
+   :docs #{:docs}
+   :embeddings #{:embeddings}
+   :system-graph #{:system-graph}
+   :activity #{:activity}
+   :validation-history #{:activity}
+   :map-overlay #{:map-overlay}})
+
+(defn- action-kind
+  [action]
+  (keyword (:kind action)))
+
+(defn- matching-plane-actions
+  [actions plane]
+  (let [kinds (get action-kinds-by-plane plane)]
+    (->> actions
+         (filter #(contains? kinds (action-kind %)))
+         (take 2)
+         vec)))
+
+(defn- validation-gap-row
+  [answerability plane status]
+  (let [actions (matching-plane-actions (:nextActions answerability) plane)]
+    (cond-> {:plane (name plane)
+             :status status}
+      (seq actions) (assoc :nextActions actions))))
+
+(defn- freshness-validation-gap-row
+  [freshness]
+  (when-let [gap (freshness-validation-gap freshness)]
+    (cond-> gap
+      (seq (:nextActions freshness))
+      (assoc :nextActions (vec (take 2 (:nextActions freshness)))))))
+
 (defn- validation-gaps
   [answerability freshness]
-  (vec (concat (when-let [gap (freshness-validation-gap freshness)]
+  (vec (concat (when-let [gap (freshness-validation-gap-row freshness)]
                  [gap])
-               (map (fn [plane]
-                      {:plane (name plane)
-                       :status "missing"})
+               (map (fn [plane] (validation-gap-row answerability plane "missing"))
                     (:missing answerability))
-               (map (fn [plane]
-                      {:plane (name plane)
-                       :status "weak"})
+               (map (fn [plane] (validation-gap-row answerability plane "weak"))
                     (:weak answerability))
-               (map (fn [plane]
-                      {:plane (name plane)
-                       :status "unsupported"})
+               (map (fn [plane] (validation-gap-row answerability plane "unsupported"))
                     (:unsupported answerability)))))
 
 (def ^:private architecture-family-specs
