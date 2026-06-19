@@ -100,6 +100,12 @@
                                         [java.nio.file.StandardCopyOption/REPLACE_EXISTING]))
   (.getPath target))
 
+(defn- delete-tree!
+  [file]
+  (when (.exists file)
+    (doseq [target (reverse (file-seq file))]
+      (java.nio.file.Files/deleteIfExists (.toPath target)))))
+
 (defn- copy-tree!
   [source-dir target-dir]
   (doseq [source (file-seq source-dir)
@@ -154,6 +160,7 @@
 
 (defn- copy-report-ui!
   [out-dir]
+  (delete-tree! (io/file out-dir "assets"))
   (copy-tree! (require-report-ui-source-dir!) (io/file out-dir))
   true)
 
@@ -173,6 +180,7 @@
         asset-dir-name (str stem ".assets")
         asset-dir (io/file parent asset-dir-name)
         graph-json-file (io/file parent (str stem ".graph.json"))]
+    (delete-tree! asset-dir)
     (copy-tree! (require-report-ui-source-dir!) asset-dir)
     (write-json! graph-json-file data)
     (write-ui-index! file

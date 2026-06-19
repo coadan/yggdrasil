@@ -188,7 +188,10 @@
 (deftest writes-report-bundle-from-project-fixture
   (let [xtdb-path (temp-dir "agraph-report-xtdb")
         out-dir (io/file (temp-dir "agraph-report-out") "bundle")
+        stale-asset (io/file out-dir "assets" "stale.js")
         project (fixture-project)]
+    (.mkdirs (.getParentFile stale-asset))
+    (spit stale-asset "stale")
     (store/with-node xtdb-path
       (fn [xtdb]
         (project/index-project! xtdb project {})
@@ -213,6 +216,7 @@
           (is (= report/schema (:schema report-json)))
           (is (= report-plugin/bundle-schema (:schema plugins-json)))
           (is (= report-plugin/bundle-schema (get-in report-json [:plugins :schema])))
+          (is (not (.exists stale-asset)))
           (is (some #(= report-plugin/core-plugin-id (get-in % [:plugin :id]))
                     (:panels plugins-json)))
           (is (= "fixture" (get-in report-json [:project :id])))
@@ -257,12 +261,15 @@
 (deftest writes-shared-graph-viewer
   (let [out-dir (temp-dir "agraph-graph-viewer")
         html-file (io/file out-dir "systems.html")
+        stale-asset (io/file out-dir "systems.assets" "assets" "stale.js")
         graph-data {:schema graph/schema
                     :title "Systems"
                     :nodes [{:id "system:app"
                              :label "App"
                              :kind "system"}]
                     :edges []}
+        _ (.mkdirs (.getParentFile stale-asset))
+        _ (spit stale-asset "stale")
         html-path (report/write-graph-viewer! (.getPath html-file) graph-data)
         graph-json (io/file out-dir "systems.graph.json")
         assets-dir (io/file out-dir "systems.assets")]
@@ -271,6 +278,7 @@
     (is (.exists graph-json))
     (is (.isDirectory assets-dir))
     (is (.isDirectory (io/file assets-dir "assets")))
+    (is (not (.exists stale-asset)))
     (let [html (slurp html-file)
           exported (json/read-json (slurp graph-json) :key-fn keyword)]
       (is (str/includes? html "__AGRAPH_BOOT__"))
