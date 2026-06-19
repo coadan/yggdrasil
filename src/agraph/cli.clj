@@ -5,6 +5,21 @@
             [agraph.activity :as activity]
             [agraph.audit-scope :as audit-scope]
             [agraph.benchmark :as benchmark]
+            [agraph.cli-options :refer [append-option
+                                        dry-run?
+                                        json-output?
+                                        option-value
+                                        parse-case-ids
+                                        parse-depth
+                                        parse-double-option
+                                        parse-limit
+                                        parse-long-option
+                                        parse-optional-double
+                                        parse-optional-long
+                                        positional-args
+                                        project-scope
+                                        remove-option
+                                        system-path?]]
             [agraph.command :as command]
             [agraph.context :as context]
             [agraph.coverage :as coverage]
@@ -40,130 +55,11 @@
             [clojure.string :as str])
   (:import [java.util.logging LogManager]))
 
-(declare usage dispatch print-json json-output?)
+(declare usage dispatch print-json)
 
 (defn- silence-jul!
   []
   (.reset (LogManager/getLogManager)))
-
-(defn- parse-limit
-  [args]
-  (let [idx (.indexOf args "--limit")]
-    (when-not (neg? idx)
-      (Long/parseLong (nth args (inc idx))))))
-
-(defn- option-value
-  [args flag]
-  (let [idx (.indexOf args flag)]
-    (when-not (neg? idx)
-      (nth args (inc idx)))))
-
-(defn- parse-case-ids
-  [args]
-  (some->> (option-value args "--cases")
-           (#(str/split % #","))
-           (map str/trim)
-           (remove str/blank?)
-           vec
-           not-empty))
-
-(defn- parse-long-option
-  [args flag default]
-  (if-let [value (option-value args flag)]
-    (Long/parseLong value)
-    default))
-
-(defn- parse-optional-long
-  [args flag]
-  (some-> (option-value args flag) Long/parseLong))
-
-(defn- parse-depth
-  [args]
-  (parse-long-option args "--depth" graph/default-depth))
-
-(defn- parse-double-option
-  [args flag default]
-  (if-let [value (option-value args flag)]
-    (Double/parseDouble value)
-    default))
-
-(defn- parse-optional-double
-  [args flag]
-  (some-> (option-value args flag) Double/parseDouble))
-
-(def value-options
-  #{"--limit" "--retriever" "--model" "--batch-size" "--provider" "--depth" "--out"
-    "--project" "--repo" "--config" "--min-confidence" "--map" "--reason" "--budget"
-    "--entity-limit" "--edge-limit" "--doc-limit" "--snippet-chars" "--role"
-    "--heading" "--start-line" "--end-line" "--valid-at" "--known-at"
-    "--snapshot-token" "--type" "--source" "--confidence" "--view" "--query"
-    "--relation" "--base-url" "--detail" "--queue-dir" "--status" "--agent"
-    "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
-    "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode" "--tools"
-    "--files" "--since"
-    "--id" "--plugin" "--file-kind" "--path-glob" "--scan-glob" "--fixture"
-    "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
-    "--vector-command" "--vector-model" "--parser-worker"
-    "--ref" "--subdir" "--cache-dir"
-    "--timeout-ms" "--index-timeout-ms" "--min-cases" "--min-runs"
-    "--retrieval-limit"
-    "--min-file-recall-at-5" "--min-file-recall-at-10"
-    "--min-file-recall-at-20" "--min-mrr" "--max-noise-at-20"
-    "--min-evidence-citation-rate"
-    "--min-path-evidence-citation-rate"
-    "--min-case-file-recall-at-5" "--min-case-file-recall-at-10"
-    "--min-case-file-recall-at-20" "--min-case-mrr"
-    "--min-case-evidence-citation-rate"
-    "--min-case-path-evidence-citation-rate"
-    "--max-case-noise-at-20"
-    "--max-input-hinted-cases" "--max-unsupported-ground-truth-files"
-    "--max-empty-result-runs" "--max-missing-predicted-file-runs"
-    "--max-commandless-runs" "--max-warning-runs"
-    "--max-hint-diagnostic-runs"
-    "--max-identity-mismatch-runs"
-    "--max-unverified-score-runs"
-    "--max-graph-expectation-failures" "--max-missing-declared-source-kind-runs"
-    "--max-missed-runs"
-    "--max-missed-but-present-in-context-runs"
-    "--max-missed-and-absent-from-context-runs"
-    "--max-ranked-outside-top-5-runs"
-    "--max-ranked-outside-top-10-runs"
-    "--max-ranked-outside-top-20-runs"
-    "--max-active-stage-ms" "--max-parser-worker-profiles"
-    "--min-measured-problem-classes" "--min-measured-architecture-classes"
-    "--require-parser-worker" "--regression-tolerance" "--skip-existing"})
-
-(def boolean-options
-  #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer" "--enqueue"
-    "--check" "--query-index" "--force" "--hooks" "--sync" "--allow-missing"
-    "--allow-duplicate-runs" "--allow-unverified-scores"
-    "--skip-existing" "--with-conflicts" "--without-import-evidence"
-    "--no-progress" "--extractor" "--report" "--tests"})
-
-(defn- positional-args
-  [args]
-  (loop [remaining args
-         out []]
-    (if-let [arg (first remaining)]
-      (if (contains? value-options arg)
-        (recur (nnext remaining) out)
-        (if (contains? boolean-options arg)
-          (recur (next remaining) out)
-          (recur (next remaining) (conj out arg))))
-      out)))
-
-(defn- dry-run?
-  [args]
-  (boolean (some #{"--dry-run"} args)))
-
-(defn- system-path?
-  [args]
-  (some #{"--systems"} args))
-
-(defn- project-scope
-  [args]
-  {:project-id (option-value args "--project")
-   :repo-id (option-value args "--repo")})
 
 (defn- temporal-options
   [args]
@@ -289,21 +185,6 @@
                  :error "No apply handler for work item payload schema."
                  :value payload-schema}]
        :item (queue/item-summary found)})))
-
-(defn- remove-option
-  [args flag]
-  (loop [remaining args
-         out []]
-    (if-let [arg (first remaining)]
-      (if (= flag arg)
-        (recur (nnext remaining) out)
-        (recur (next remaining) (conj out arg)))
-      out)))
-
-(defn- append-option
-  [args flag value]
-  (cond-> args
-    value (conj flag value)))
 
 (defn- print-query-result
   [result]
@@ -931,10 +812,6 @@
 (defn- print-edge-finding
   [{:keys [relation confidence source-id target-id]}]
   (println "-" (name relation) (format "%.2f" (double confidence)) source-id "->" target-id))
-
-(defn- json-output?
-  [args]
-  (some #{"--json"} args))
 
 (defn- print-maintenance-report
   [{:keys [project-id graph-basis map counts scale graph-health fold-in orphaned-systems
