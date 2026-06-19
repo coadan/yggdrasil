@@ -51,6 +51,9 @@ agraph watch project.edn --map agraph.map.json
 agraph hook install project.edn --map agraph.map.json
 ```
 
+`agraph init` returns `nextActions` in JSON output so agents can follow the
+first sync, ask, systems, and install-agent steps without parsing prose.
+
 Default XTDB storage lives at `.dev/agraph/xtdb`. Override with:
 
 ```sh

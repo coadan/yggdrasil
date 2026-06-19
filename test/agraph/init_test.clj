@@ -92,4 +92,22 @@
                                  :map-path "agraph.map.json"})]
     (is (some #(= (str "agraph sync " out " --check --map agraph.map.json") %)
               (:next result)))
+    (is (some #(= {:kind :sync
+                   :label "Index and validate project graph"
+                   :command (str "agraph sync " out " --check --map agraph.map.json")}
+                  %)
+              (:nextActions result)))
     (is (not (graph-map/file-exists? (io/file root "agraph.map.json"))))))
+
+(deftest next-actions-quote-shell-sensitive-paths
+  (let [root (temp-dir "agraph-init next")
+        out (.getPath (io/file root "Project Files" "project.edn"))
+        result (init/init! root {:out out
+                                 :project-id "demo project"
+                                 :map-path "Maps/agraph map.json"})]
+    (is (some #(= (str "agraph sync '" out "' --check --map 'Maps/agraph map.json'")
+                  (:command %))
+              (:nextActions result)))
+    (is (some #(= "agraph ask \"where is this handled?\" --project 'demo project' --json"
+                  (:command %))
+              (:nextActions result)))))

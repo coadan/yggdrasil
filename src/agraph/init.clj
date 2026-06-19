@@ -55,15 +55,51 @@
     (when (.exists file)
       (count (:repos (json/read-json (slurp file) :key-fn keyword))))))
 
-(defn- next-commands
+(defn- shell-token
+  [value]
+  (let [value (str value)]
+    (if (or (re-matches #"<[^>]+>" value)
+            (re-matches #"[A-Za-z0-9_./:=+@%-]+" value))
+      value
+      (str "'" (str/replace value #"'" "'\"'\"'") "'"))))
+
+(defn- sync-command
+  [config-path & args]
+  (str "agraph sync " (shell-token config-path)
+       (when (seq args)
+         (str " " (str/join " " (map shell-token args))))))
+
+(defn- ask-command
+  [project-id]
+  (str "agraph ask \"where is this handled?\" --project "
+       (shell-token project-id)
+       " --json"))
+
+(defn- view-systems-command
+  [project-id]
+  (str "agraph view systems --project " (shell-token project-id)))
+
+(defn- next-actions
   [project-id config-path map-path]
-  (cond-> [(str "agraph sync " config-path " --check"
-                (when map-path
-                  (str " --map " map-path)))
-           (str "agraph ask \"where is this handled?\" --project " project-id " --json")
-           (str "agraph view systems --project " project-id)
-           "agraph install-agent --platform codex --project"]
+  (cond-> [{:kind :sync
+            :label "Index and validate project graph"
+            :command (str (sync-command config-path "--check")
+                          (when map-path
+                            (str " --map " (shell-token map-path))))}
+           {:kind :ask
+            :label "Ask a graph-grounded implementation question"
+            :command (ask-command project-id)}
+           {:kind :systems
+            :label "Inspect system graph"
+            :command (view-systems-command project-id)}
+           {:kind :install-agent
+            :label "Install project-local agent guidance"
+            :command "agraph install-agent --platform codex --project"}]
     true vec))
+
+(defn- next-commands
+  [actions]
+  (mapv :command actions))
 
 (defn plain-config
   "Return project config data for a normal repo root."
@@ -96,7 +132,8 @@
         project-id (:id config)
         repo-count (if workbench?
                      (or (repos-json-count (:workbench-root config)) 0)
-                     (count (:repos config)))]
+                     (count (:repos config)))
+        actions (next-actions project-id config-path map-path)]
     {:schema schema
      :project-id project-id
      :name (:name config)
@@ -104,5 +141,5 @@
      :mode (if workbench? "workbench" "repo")
      :root (or (:workbench-root config) (get-in config [:repos 0 :root]))
      :repos repo-count
-     :next (next-commands project-id config-path map-path)}))
-
+     :next (next-commands actions)
+     :nextActions actions}))
