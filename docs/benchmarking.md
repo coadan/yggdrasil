@@ -126,9 +126,11 @@ generated output root.
   saw. When those counters point at help-quality problems, hints include
   `diagnostics` rows for zero candidate files, coverage-filtered candidate
   files, missing declared source kinds, and indexed source extraction
-  diagnostics. Hints flatten context drilldowns and `answerability.next` into
-  `commands` so agents see bounded follow-up checks without inspecting nested
-  context JSON. `sourceCoverage.diagnostics.samples` carries a bounded set of
+  diagnostics. Hints and deterministic AGraph baseline results flatten context
+  drilldowns, legacy `answerability.next`, structured packet `nextActions`, and
+  `architecture.validationGaps.nextActions` into `commands` so agents see
+  bounded follow-up checks without inspecting nested context JSON.
+  `sourceCoverage.diagnostics.samples` carries a bounded set of
   file/stage/message rows for indexed extraction diagnostics so agents can jump
   straight to concrete parser or extractor failures; tight context budgets
   compact this coverage payload before dropping it. Use `--timeout-ms <n>` to
@@ -430,7 +432,10 @@ Recall, MRR, and noise use `suspectedFiles.path` and rank. The citation score
 uses the presence of non-empty `suspectedFiles[].evidence` rows. Reasons,
 commands, warnings, symbols, optional bounded `selection`, and optional bounded
 `suspectedFiles[].metrics` are still part of the artifact because they make
-failures auditable.
+failures auditable. For AGraph-generated artifacts, `commands` may include
+repair or inspection commands copied from structured `nextActions`; treat them
+as evidence of the graph checks available to the agent, not proof that the agent
+ran every command.
 AGraph-generated baseline evidence uses compact mechanical rows such as
 `context-doc:<path>`, `graph-entity:<label>`, and
 `candidate-file:<path> rank=<n> ... components=<score-components>` so candidate
