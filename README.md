@@ -285,9 +285,10 @@ Queue item schema is `agraph.queue.item/v1`. The embedded `payload` is left
 unchanged so the consumer can be Codex, another LLM, a script, CI, or a human
 review tool. Semantic results should come back as explicit JSON patches or
 findings. `sync work complete` records that result on the queue item. `sync work
-apply` is the explicit mutation step for result schemas AGraph can validate; the
-first supported apply path is `agraph.infra.review-result/v1`, which can add or
-override reviewed system-map edges in `agraph.map.json`.
+apply` is the explicit mutation step for result schemas AGraph can validate.
+Supported apply paths include infrastructure review results, dependency review
+results, and maintenance decision classifications. These can add or override
+reviewed map corrections in `agraph.map.json` after validation.
 
 ## Development
 
