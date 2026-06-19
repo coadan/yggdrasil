@@ -197,3 +197,174 @@
      :edges (vec (concat function-edges call-edges))
      :chunks (vec (concat (:chunks file-chunk-result) function-chunks))
      :diagnostics []}))
+
+(def ^:private style-section-chunk-lines
+  120)
+(defn- style-variable-facts
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (when-let [[_ name]
+                          (re-matches #"^\s*(\$[A-Za-z0-9_-]+)\s*:.*"
+                                      line)]
+                 {:kind :style-variable
+                  :label name
+                  :source-line (inc idx)
+                  :line line})))
+       vec))
+(defn- style-section-ranges
+  [lines]
+  (let [close-section (fn [out current end-line]
+                        (if current
+                          (conj out (assoc current :end-line end-line))
+                          out))]
+    (loop [remaining (map-indexed vector lines)
+           current nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (if-let [[_ label]
+                 (re-matches #"^\s*//\s*scss-docs-start\s+(\S+)\s*$"
+                             line)]
+          (recur (rest remaining)
+                 {:kind :style-section
+                  :label label
+                  :source-line (inc idx)}
+                 (close-section out current idx))
+          (if (and current
+                   (re-matches #"^\s*//\s*scss-docs-end\s+\S+\s*$" line))
+            (recur (rest remaining)
+                   nil
+                   (close-section out current (inc idx)))
+            (recur (rest remaining) current out)))
+        (close-section out current (count lines))))))
+(defn- style-selector-line
+  [idx line]
+  (let [trimmed (str/trim line)]
+    (when (and (str/includes? trimmed "{")
+               (not (str/starts-with? trimmed "@"))
+               (not (str/starts-with? trimmed "}"))
+               (not (str/starts-with? trimmed "//")))
+      (let [selector (-> trimmed
+                         (str/split #"\{" 2)
+                         first
+                         str/trim)]
+        (when-not (str/blank? selector)
+          {:kind :style-rule
+           :label selector
+           :source-line (inc idx)})))))
+(defn- style-brace-delta
+  [line]
+  (- (count (filter #(= \{ %) line))
+     (count (filter #(= \} %) line))))
+(defn- style-rule-ranges
+  [lines]
+  (loop [remaining (map-indexed vector lines)
+         current nil
+         depth 0
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (if current
+        (let [next-depth (+ depth (style-brace-delta line))]
+          (if (not (pos? next-depth))
+            (recur (rest remaining)
+                   nil
+                   0
+                   (conj out (assoc current :end-line (inc idx))))
+            (recur (rest remaining) current next-depth out)))
+        (if-let [rule (style-selector-line idx line)]
+          (let [next-depth (style-brace-delta line)]
+            (if (pos? next-depth)
+              (recur (rest remaining) rule next-depth out)
+              (recur (rest remaining) nil 0 (conj out (assoc rule :end-line (inc idx))))))
+          (recur (rest remaining) nil 0 out)))
+      out)))
+(defn- style-section-chunk
+  [kind run-id id-scope file-id path lines {:keys [label source-line end-line]}]
+  (let [line-count (max 0 (inc (- (long end-line) (long source-line))))
+        text-lines (->> lines
+                        (drop (dec (long source-line)))
+                        (take (min line-count style-section-chunk-lines)))
+        chunk-text (str/join "\n" text-lines)
+        actual-end-line (+ (long source-line) (count text-lines) -1)]
+    (cond-> {:xt/id (common/chunk-id id-scope path label source-line)
+             :file-id file-id
+             :path path
+             :kind kind
+             :definition-kind kind
+             :label label
+             :text chunk-text
+             :tokens (text/tokenize (str label "\n" chunk-text))
+             :source-line source-line
+             :active? true
+             :run-id run-id}
+      (seq text-lines) (assoc :end-line actual-end-line)
+      (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
+(defn- style-variable-chunk
+  [run-id id-scope file-id path {:keys [label source-line line]}]
+  (let [chunk-text (str line)]
+    (cond-> {:xt/id (common/chunk-id id-scope path label source-line)
+             :file-id file-id
+             :path path
+             :kind :style-variable
+             :definition-kind :style-variable
+             :label label
+             :text chunk-text
+             :tokens (text/tokenize (str label "\n" chunk-text))
+             :source-line source-line
+             :end-line source-line
+             :active? true
+             :run-id run-id}
+      (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
+(defn extract-style
+  "Extract CSS/SCSS as searchable style chunks plus mechanical SCSS structure."
+  [run-id {:keys [id-scope file-id path content] :as file}]
+  (let [base-result (extract-text-source run-id file :style-file)
+        lines (str/split-lines content)
+        root-node (common/generic-node run-id id-scope file-id path :style-file path 1)
+        variable-facts (style-variable-facts lines)
+        section-ranges (style-section-ranges lines)
+        rule-ranges (style-rule-ranges lines)
+        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
+                           (common/generic-node run-id id-scope file-id path
+                                         kind label source-line))
+                         (concat section-ranges rule-ranges variable-facts))
+        fact-edges (mapv (fn [{:keys [kind label source-line]}]
+                           (common/edge-row run-id
+                                     file-id
+                                     path
+                                     (:xt/id root-node)
+                                     (common/node-id id-scope kind label)
+                                     :defines
+                                     :extracted
+                                     source-line))
+                         (concat section-ranges rule-ranges variable-facts))
+        section-chunks (mapv #(style-section-chunk :style-section
+                                                   run-id
+                                                   id-scope
+                                                   file-id
+                                                   path
+                                                   lines
+                                                   %)
+                             section-ranges)
+        rule-chunks (mapv #(style-section-chunk :style-rule
+                                                run-id
+                                                id-scope
+                                                file-id
+                                                path
+                                                lines
+                                                %)
+                          rule-ranges)
+        variable-chunks (mapv #(style-variable-chunk run-id
+                                                     id-scope
+                                                     file-id
+                                                     path
+                                                     %)
+                              variable-facts)]
+    {:nodes (into [root-node] fact-nodes)
+     :edges fact-edges
+     :chunks (vec (concat (:chunks base-result)
+                          section-chunks
+                          rule-chunks
+                          variable-chunks))
+     :diagnostics []}))
