@@ -841,7 +841,8 @@
                                           :queue-root (:queue-root opts)
                                           :counts {:items 0
                                                    :events 0
-                                                   :validation-events 0}})
+                                                   :validation-events 0
+                                                   :result-schema-mismatch-events 0}})
                   report/bundle! (fn [xtdb project opts]
                                    (swap! calls conj [:report xtdb (:id project) opts])
                                    {:schema report/schema
@@ -891,7 +892,8 @@
                (get-in parsed [:counts :systems])))
         (is (= {:items 0
                 :events 0
-                :validation-events 0}
+                :validation-events 0
+                :result-schema-mismatch-events 0}
                (get-in parsed [:counts :activity])))
         (is (graph-map/file-exists? map-path))
         (is (some #(str/includes? % "agraph ask")
@@ -1219,7 +1221,8 @@
                                           :queue-root (:queue-root opts)
                                           :counts {:items 1
                                                    :events 2
-                                                   :validation-events 1}})]
+                                                   :validation-events 1
+                                                   :result-schema-mismatch-events 1}})]
       (let [out (with-out-str
                   (cli/dispatch "sync"
                                 ["activity" "project.edn"
@@ -1228,6 +1231,7 @@
             parsed (read-json-output out)]
         (is (= activity/sync-schema (:schema parsed)))
         (is (= "fixture" (:project-id parsed)))
+        (is (= 1 (get-in parsed [:counts :result-schema-mismatch-events])))
         (is (= [[:read "project.edn"]
                 [:activity :xtdb "fixture" {:queue-root ".dev/test-queue"}]]
                @calls))))))

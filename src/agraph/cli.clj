@@ -928,6 +928,7 @@
   (println "- items" (:items counts 0))
   (println "- events" (:events counts 0))
   (println "- validation-events" (:validation-events counts 0))
+  (println "- result-schema-mismatch-events" (:result-schema-mismatch-events counts 0))
   (println "- ready" (:ready counts 0))
   (println "- claimed" (:claimed counts 0))
   (println "- done" (:done counts 0))
@@ -1822,7 +1823,10 @@
                :orphaned-candidates (:orphaned-systems maintenance-counts 0)}
      :activity {:items (:items activity-counts 0)
                 :events (:events activity-counts 0)
-                :validation-events (:validation-events activity-counts 0)}}))
+                :validation-events (:validation-events activity-counts 0)
+                :result-schema-mismatch-events (:result-schema-mismatch-events
+                                                activity-counts
+                                                0)}}))
 
 (defn- compact-report
   [report-result]

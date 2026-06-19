@@ -327,7 +327,10 @@
                     :rejected (count (filter #(= :rejected (:status %)) items))
                     :failed (count (filter #(= :failed (:status %)) items))
                     :validation-events (count (filter #(= :validation (:event-kind %))
-                                                      events)))}))
+                                                      events))
+                    :result-schema-mismatch-events
+                    (count (filter #(= :result-schema-mismatch (:event-kind %))
+                                   events)))}))
 
 (defn- event-summary
   [event]

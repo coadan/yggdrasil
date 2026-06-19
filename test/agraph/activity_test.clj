@@ -87,8 +87,10 @@
               selected (activity/select-activity xtdb
                                                  "result schema mismatch"
                                                  {:project-id "demo"})
+              result (activity/sync-queue! xtdb project {:queue-root root :now 3000})
               mismatch (first (filter #(= :result-schema-mismatch (:event-kind %))
                                       events))]
+          (is (= 1 (get-in result [:counts :result-schema-mismatch-events])))
           (is (= #{:completed :created :result-schema-mismatch}
                  (set (map :event-kind events))))
           (is (some? mismatch))
