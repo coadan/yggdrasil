@@ -1065,6 +1065,16 @@
     (update packet :relationships #(mapv compact-relationship-group (take 5 %)))
     packet))
 
+(defn- compact-snippet-file
+  [file]
+  (update file :items #(vec (take 2 %))))
+
+(defn- compact-snippets-in-packet
+  [packet]
+  (if (contains? packet :snippets)
+    (update packet :snippets #(mapv compact-snippet-file (take 4 %)))
+    packet))
+
 (defn- trim-optional-context-metadata
   [packet budget]
   (let [trim-steps [#(update-in % [:search :instrumentation] dissoc :context-chunks)
@@ -1073,7 +1083,9 @@
                     #(dissoc % :sourceCoverage)
                     compact-architecture-in-packet
                     compact-relationships-in-packet
+                    compact-snippets-in-packet
                     #(update % :answerability compact-answerability)
+                    #(dissoc % :snippets)
                     #(dissoc % :relationships)
                     #(dissoc % :architecture)
                     #(assoc % :warnings [])
@@ -1111,7 +1123,9 @@
                #(dissoc % :sourceCoverage)
                compact-architecture-in-packet
                compact-relationships-in-packet
+               compact-snippets-in-packet
                #(update % :answerability compact-answerability)
+               #(dissoc % :snippets)
                #(dissoc % :relationships)
                #(dissoc % :architecture)
                #(assoc % :warnings [])
@@ -1147,6 +1161,39 @@
           (add-warning-with-budget packet
                                    "doc omitted to fit context budget"
                                    budget))))))
+
+(defn- snippet-item
+  [doc]
+  (when-let [snippet (:snippet doc)]
+    (cond-> {:target (:target doc)
+             :text snippet}
+      (:role doc) (assoc :role (:role doc))
+      (:status doc) (assoc :status (:status doc))
+      (:score doc) (assoc :score (:score doc))
+      (:provenance doc) (assoc :provenance (:provenance doc))
+      (get-in doc [:source :lines]) (assoc :lines (get-in doc [:source :lines]))
+      (get-in doc [:source :heading]) (assoc :heading (get-in doc [:source :heading]))
+      (get-in doc [:source :headingPath]) (assoc :headingPath
+                                                 (get-in doc [:source :headingPath])))))
+
+(defn- snippet-file-key
+  [doc]
+  [(get-in doc [:source :repo]) (get-in doc [:source :path])])
+
+(defn- snippet-file-row
+  [[[repo path] docs]]
+  (cond-> {:path path
+           :items (mapv snippet-item docs)}
+    repo (assoc :repo repo)))
+
+(defn- packet-snippets
+  [docs]
+  (->> docs
+       (filter #(and (:snippet %)
+                     (not (str/blank? (str (get-in % [:source :path]))))))
+       (group-by snippet-file-key)
+       (sort-by (fn [[[repo path] _]] [(or repo "") path]))
+       (mapv snippet-file-row)))
 
 (defn- compact-candidate-file
   [candidate]
@@ -1213,6 +1260,9 @@
         packet (reduce #(add-doc-with-budget %1 %2 budget) packet docs)
         packet (fit-candidate-files (assoc packet :candidateFiles candidate-files)
                                     budget)
+        packet (cond-> packet
+                 (seq (packet-snippets (:docs packet)))
+                 (assoc :snippets (packet-snippets (:docs packet))))
         truncated? (< (count (:docs packet)) (count docs))]
     (finalize-budget packet budget truncated?)))
 

@@ -363,6 +363,18 @@
     (is (= 2 (count (:relationships compact))))
     (is (= 4 (count (get-in compact [:relationships 0 :targets]))))))
 
+(deftest compact-snippets-keeps-bounded-files-and-items
+  (let [packet {:snippets (mapv (fn [file-idx]
+                                  {:path (str "src/file_" file-idx ".clj")
+                                   :items (mapv (fn [item-idx]
+                                                  {:target (str "chunk:" file-idx ":" item-idx)
+                                                   :text "snippet"})
+                                                (range 4))})
+                                (range 6))}
+        compact (#'context/compact-snippets-in-packet packet)]
+    (is (= 4 (count (:snippets compact))))
+    (is (every? #(= 2 (count (:items %))) (:snippets compact)))))
+
 (deftest architecture-section-keeps-accepted-systems-auditable
   (let [section (#'context/architecture-section
                  {:overlay {:systems [{:id "system:billing"
@@ -1327,3 +1339,66 @@
     (is (seq (:candidateFiles fitted)))
     (is (< (count (:candidateFiles fitted)) 25))
     (is (<= (context/estimate-tokens fitted) 900))))
+
+(deftest fit-budget-groups-retained-doc-snippets-by-file
+  (let [fit-budget @#'context/fit-budget
+        packet {:schema context/schema
+                :query "source docs"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 3000}
+                :entities []
+                :edges []
+                :activity []
+                :warnings []
+                :drilldowns []
+                :candidateFiles []
+                :docs []}
+        docs [{:target "chunk:a"
+               :role "reference"
+               :status "candidate"
+               :source {:repo "app"
+                        :path "src/a.clj"
+                        :lines [10 14]
+                        :heading "a"}
+               :score 1.0
+               :snippet "alpha"
+               :provenance "retrieved-doc"}
+              {:target "chunk:b"
+               :role "reference"
+               :status "candidate"
+               :source {:repo "app"
+                        :path "src/a.clj"
+                        :lines [20 21]}
+               :score 0.8
+               :snippet "beta"
+               :provenance "retrieved-doc"}
+              {:target "chunk:no-snippet"
+               :role "reference"
+               :status "candidate"
+               :source {:repo "app"
+                        :path "src/b.clj"}
+               :score 0.2
+               :snippetOmitted true
+               :provenance "retrieved-doc"}]
+        fitted (fit-budget packet docs 3000)]
+    (is (= [{:path "src/a.clj"
+             :repo "app"
+             :items [{:target "chunk:a"
+                      :text "alpha"
+                      :role "reference"
+                      :status "candidate"
+                      :score 1.0
+                      :provenance "retrieved-doc"
+                      :lines [10 14]
+                      :heading "a"}
+                     {:target "chunk:b"
+                      :text "beta"
+                      :role "reference"
+                      :status "candidate"
+                      :score 0.8
+                      :provenance "retrieved-doc"
+                      :lines [20 21]}]}]
+           (:snippets fitted)))))
