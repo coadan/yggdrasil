@@ -340,6 +340,15 @@ def run_command(command: list[str], *, cwd: Path) -> None:
     subprocess.run(command, cwd=cwd, check=True)
 
 
+def git_ignored(path: str, *, cwd: Path) -> bool:
+    result = subprocess.run(
+        ["git", "check-ignore", "--quiet", path],
+        cwd=cwd,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def cmd_batch(args: argparse.Namespace) -> None:
     repo = args.repo
     batch = json.loads(args.manifest.read_text())
@@ -370,8 +379,13 @@ def cmd_batch(args: argparse.Namespace) -> None:
         paths = [str(source.relative_to(repo)), batch["target"]]
         for extra in batch.get("stage", []):
             paths.append(extra)
+        ignored_paths = [path for path in paths if git_ignored(path, cwd=repo)]
+        paths = [path for path in paths if path not in ignored_paths]
+        for path in ignored_paths:
+            print(f"skipping ignored stage path: {path}")
         run_command(["git", "restore", "--staged", ":/"], cwd=repo)
-        run_command(["git", "add", *paths], cwd=repo)
+        if paths:
+            run_command(["git", "add", *paths], cwd=repo)
         run_command(["git", "commit", "-m", batch["commit"]], cwd=repo)
 
 
