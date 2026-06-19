@@ -55,6 +55,8 @@
             :version "0.1.0"}
            (get-in init [:result :serverInfo])))
     (is (str/includes? instructions "Use agraph_explore first"))
+    (is (str/includes? instructions "Treat returned snippets as already-read"))
+    (is (str/includes? instructions "use relationships for nearby mechanical edges"))
     (is (str/includes? instructions "Use agraph_node for one exact"))
     (is (str/includes? instructions "Use agraph_status"))
     (is (str/includes? instructions "Use agraph_systems"))

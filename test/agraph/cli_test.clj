@@ -301,6 +301,9 @@
       (is (str/includes? first-content "AGRAPH_MCP_TOOLS=all"))
       (is (str/includes? first-content "Use `agraph_explore` as the primary one-shot orientation packet"))
       (is (str/includes? first-content "with graph-basis freshness, answerability"))
+      (is (str/includes? first-content "relationships, graph facts, and drilldowns"))
+      (is (str/includes? first-content "Treat returned snippets as already-read source context"))
+      (is (str/includes? first-content "nearby mechanical edges before broad grep/read loops"))
       (is (str/includes? first-content "Use queued review packets"))
       (is (str/includes? first-content "Do not infer architecture from names")))))
 
