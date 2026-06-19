@@ -173,6 +173,19 @@
    :totalTokens
    :costUsd])
 
+(def ^:private claim-requirement-keys
+  [:sameSuite
+   :sameCases
+   :enoughSharedCases
+   :agraphImprovedWithoutRegressions
+   :directionalMetrics
+   :problemClassCoverage
+   :architectureClassCoverage
+   :evidenceMetrics
+   :commandTelemetry
+   :shellLaneClaimReady
+   :agraphLaneClaimReady])
+
 (defn- read-json-file
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
@@ -805,6 +818,12 @@
        ", agraph: " (format-metric-value agraph)
        ", delta: " (format-metric-value delta) ")"))
 
+(defn- claim-requirement-line
+  [requirements key]
+  (str "- " (name key) ": " (if (true? (get requirements key))
+                              "pass"
+                              "fail")))
+
 (defn- class-tag-groups
   [comparison pred]
   (->> (get-in comparison [:byTag :groups])
@@ -823,6 +842,7 @@
   [comparison]
   (let [class-summary (get-in comparison [:classSignals :summary])
         inputs (:inputs comparison)
+        requirements (get-in comparison [:claimReadiness :requirements])
         warnings (get-in comparison [:claimReadiness :warnings])
         notes (get-in comparison [:claimReadiness :notes])
         key-deltas (headline-metric-deltas comparison)
@@ -874,6 +894,10 @@
               (when (seq key-deltas)
                 (concat ["" "## Key Metric Deltas" ""]
                         (map metric-delta-line key-deltas)))
+              (when (seq requirements)
+                (concat ["" "## Claim Readiness Requirements" ""]
+                        (map #(claim-requirement-line requirements %)
+                             claim-requirement-keys)))
               (when (seq categories)
                 (concat ["" "## Category Signals" ""]
                         (map category-line categories)))
