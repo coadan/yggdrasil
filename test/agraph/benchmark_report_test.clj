@@ -53,7 +53,15 @@
                  :agraphHints {:diagnostics [{:kind "coverage-filtered-candidate-files"
                                               :severity "info"
                                               :message "Declared source coverage filtered candidate files out of the agent shortlist."
-                                              :filteredCandidateFiles 1}]}
+                                              :filteredCandidateFiles 1}
+                                             {:kind "audit-scope-trust-boundary"
+                                              :severity "warning"
+                                              :message "Audit scope contains skipped files, extractor diagnostics, or unclassified extractor rows."
+                                              :scope "unclassified-extractor"
+                                              :supportedFiles 1
+                                              :skippedFiles 1
+                                              :diagnostics 1
+                                              :facts 2}]}
                  :coverage {:declaredSourceKinds ["code" "python"]
                             :scoreableSourceKinds ["code"]
                             :scoreableFilesByKind [{:kind "code"
@@ -200,10 +208,14 @@
                                  :searchCommandCount 1
                                  :fileReadCommandCount 1
                                  :shellCommandCount 1}
-              :hintDiagnosticRows 1
+              :hintDiagnosticRows 2
               :hintDiagnosticRuns 1
               :hintDiagnosticCaseIds ["case-1"]
-              :hintDiagnosticsByKind [{:kind "coverage-filtered-candidate-files"
+              :hintDiagnosticsByKind [{:kind "audit-scope-trust-boundary"
+                                       :runs 1
+                                       :cases 1
+                                       :caseIds ["case-1"]}
+                                      {:kind "coverage-filtered-candidate-files"
                                        :runs 1
                                        :cases 1
                                        :caseIds ["case-1"]}]
@@ -215,18 +227,31 @@
               "missing-declared-source-kinds"
               "coverage-excluded-ground-truth"
               "hint-diagnostics"
+              "audit-scope-trust-boundary"
               "coverage-filtered-candidates"
               "graph-expectation-failures"
               "commandless-runs"
               "warning-runs"
               "unverified-score-artifacts"]
              (mapv :kind (:improvementSummary report))))
-      (is (= [{:kind "coverage-filtered-candidate-files"
+      (is (= [{:kind "audit-scope-trust-boundary"
+               :runs 1
+               :cases 1
+               :caseIds ["case-1"]}
+              {:kind "coverage-filtered-candidate-files"
                :runs 1
                :cases 1
                :caseIds ["case-1"]}]
              (->> (:improvementSummary report)
                   (filter #(= "hint-diagnostics" (:kind %)))
+                  first
+                  :details)))
+      (is (= [{:kind "audit-scope-trust-boundary"
+               :runs 1
+               :cases 1
+               :caseIds ["case-1"]}]
+             (->> (:improvementSummary report)
+                  (filter #(= "audit-scope-trust-boundary" (:kind %)))
                   first
                   :details)))
       (is (= {:configuredRuns 1
@@ -414,8 +439,16 @@
               :hintDiagnostics [{:kind "coverage-filtered-candidate-files"
                                  :severity "info"
                                  :message "Declared source coverage filtered candidate files out of the agent shortlist."
-                                 :filteredCandidateFiles 1}]
-              :hintDiagnosticCount 1
+                                 :filteredCandidateFiles 1}
+                                {:kind "audit-scope-trust-boundary"
+                                 :severity "warning"
+                                 :message "Audit scope contains skipped files, extractor diagnostics, or unclassified extractor rows."
+                                 :scope "unclassified-extractor"
+                                 :supportedFiles 1
+                                 :skippedFiles 1
+                                 :diagnostics 1
+                                 :facts 2}]
+              :hintDiagnosticCount 2
               :hasHintDiagnostics true
               :identityWarnings []
               :hasIdentityMismatch false
@@ -458,6 +491,7 @@
               "missing-declared-source-kinds"
               "coverage-excluded-ground-truth"
               "hint-diagnostics"
+              "audit-scope-trust-boundary"
               "coverage-filtered-candidates"
               "graph-expectation-failures"
               "warning-runs"

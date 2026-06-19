@@ -590,6 +590,9 @@
   [agent-diagnostics]
   (->> (:hintDiagnosticsByKind agent-diagnostics)
        (mapv #(select-keys % [:kind :runs :cases :caseIds]))))
+(defn- hint-diagnostic-detail
+  [hint-details kind]
+  (first (filter #(= kind (:kind %)) hint-details)))
 (defn- report-improvement-summary
   [report]
   (let [agent-diagnostics (:agentDiagnostics report)
@@ -597,7 +600,10 @@
         coverage (:coverageDiagnostics report)
         graph-expectations (:graphExpectationDiagnostics report)
         artifacts (:artifactDiagnostics report)
-        hint-details (hint-diagnostic-details agent-diagnostics)]
+        hint-details (hint-diagnostic-details agent-diagnostics)
+        audit-scope-trust-boundary (hint-diagnostic-detail
+                                    hint-details
+                                    "audit-scope-trust-boundary")]
     (vec
      (keep identity
            [(improvement-row
@@ -644,6 +650,14 @@
               :case-ids (:hintDiagnosticCaseIds agent-diagnostics)
               :message "AGraph hints contained diagnostics that should be inspected before trusting benchmark outcomes."
               :details hint-details})
+            (improvement-row
+             {:kind "audit-scope-trust-boundary"
+              :area "audit-scope-quality"
+              :runs (:runs audit-scope-trust-boundary)
+              :case-ids (:caseIds audit-scope-trust-boundary)
+              :message "Audit-scope hints reported skipped files, extractor diagnostics, or unclassified rows that weaken source-family claims."
+              :details (when audit-scope-trust-boundary
+                         [audit-scope-trust-boundary])})
             (improvement-row
              {:kind "coverage-filtered-candidates"
               :area "agent-context-quality"
