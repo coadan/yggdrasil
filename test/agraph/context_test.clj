@@ -134,6 +134,74 @@
             :next ["Run agraph packages --project fixture --json"]}
            compact))))
 
+(deftest context-budget-compacts-source-coverage-before-dropping-it
+  (let [trim @#'context/trim-optional-context-metadata
+        source-coverage {:schema "agraph.source-coverage.context/v1"
+                         :basis "indexed-graph"
+                         :totals {:indexedFiles 200
+                                  :diagnostics 20
+                                  :fileKinds 4}
+                         :topFileKinds (mapv (fn [idx]
+                                               {:kind (str "kind-" idx)
+                                                :count idx})
+                                             (range 10))
+                         :extractors (mapv (fn [idx]
+                                             {:kind (str "kind-" idx)
+                                              :extractorVersion (str "v" idx)
+                                              :files idx})
+                                           (range 10))
+                         :extractorFingerprints (mapv (fn [idx]
+                                                        {:kind "code"
+                                                         :extractorFingerprint (str "fp-" idx)
+                                                         :files idx})
+                                                      (range 10))
+                         :diagnostics {:byStage (mapv (fn [idx]
+                                                        {:stage (str "stage-" idx)
+                                                         :count idx})
+                                                      (range 10))
+                                       :byExtractor (mapv (fn [idx]
+                                                            {:kind "code"
+                                                             :extractorVersion "v"
+                                                             :stage (str "stage-" idx)
+                                                             :count idx})
+                                                          (range 10))
+                                       :samples (mapv (fn [idx]
+                                                        {:file-id (str "file:" idx)
+                                                         :path (str "src/file_" idx ".clj")
+                                                         :stage :parse
+                                                         :message (apply str
+                                                                         "diagnostic "
+                                                                         (repeat 20 "detail "))})
+                                                      (range 8))}}
+        packet {:schema context/schema
+                :query "broken parser"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 1}
+                :entities []
+                :edges []
+                :activity []
+                :candidateFiles []
+                :docs []
+                :warnings []
+                :drilldowns []
+                :search {:instrumentation {:search-docs 1
+                                           :context-chunks (vec (range 100))}}
+                :sourceCoverage source-coverage}
+        compacted (-> packet
+                      (update-in [:search :instrumentation] dissoc :context-chunks)
+                      (update :sourceCoverage @#'context/compact-source-coverage))
+        trimmed (trim packet (context/estimate-tokens compacted))]
+    (is (contains? trimmed :sourceCoverage))
+    (is (not (contains? (:sourceCoverage trimmed) :extractorFingerprints)))
+    (is (= 5 (count (get-in trimmed [:sourceCoverage :topFileKinds]))))
+    (is (= 5 (count (get-in trimmed [:sourceCoverage :extractors]))))
+    (is (= 5 (count (get-in trimmed [:sourceCoverage :diagnostics :byStage]))))
+    (is (= 5 (count (get-in trimmed [:sourceCoverage :diagnostics :byExtractor]))))
+    (is (= 3 (count (get-in trimmed [:sourceCoverage :diagnostics :samples]))))))
+
 (deftest answerability-exposes-indexed-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table

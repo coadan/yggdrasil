@@ -665,9 +665,32 @@
       (seq (:warnings answerability))
       (assoc :warnings (vec (take 3 (:warnings answerability)))))))
 
+(defn- compact-source-coverage
+  [source-coverage]
+  (when source-coverage
+    (cond-> (select-keys source-coverage [:schema :basis :totals])
+      (seq (:topFileKinds source-coverage))
+      (assoc :topFileKinds (vec (take 5 (:topFileKinds source-coverage))))
+
+      (seq (:extractors source-coverage))
+      (assoc :extractors (vec (take 5 (:extractors source-coverage))))
+
+      (seq (get-in source-coverage [:diagnostics :byStage]))
+      (assoc-in [:diagnostics :byStage]
+                (vec (take 5 (get-in source-coverage [:diagnostics :byStage]))))
+
+      (seq (get-in source-coverage [:diagnostics :byExtractor]))
+      (assoc-in [:diagnostics :byExtractor]
+                (vec (take 5 (get-in source-coverage [:diagnostics :byExtractor]))))
+
+      (seq (get-in source-coverage [:diagnostics :samples]))
+      (assoc-in [:diagnostics :samples]
+                (vec (take 3 (get-in source-coverage [:diagnostics :samples])))))))
+
 (defn- trim-optional-context-metadata
   [packet budget]
   (let [trim-steps [#(update-in % [:search :instrumentation] dissoc :context-chunks)
+                    #(update % :sourceCoverage compact-source-coverage)
                     #(dissoc % :sourceCoverage)
                     #(update % :answerability compact-answerability)
                     #(assoc % :warnings [])

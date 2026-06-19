@@ -126,7 +126,8 @@ generated output root.
   `commands` so agents see bounded follow-up checks without inspecting nested
   context JSON. `sourceCoverage.diagnostics.samples` carries a bounded set of
   file/stage/message rows for indexed extraction diagnostics so agents can jump
-  straight to concrete parser or extractor failures. Use `--timeout-ms <n>` to
+  straight to concrete parser or extractor failures; tight context budgets
+  compact this coverage payload before dropping it. Use `--timeout-ms <n>` to
   bound long-running agents. Use `--skip-existing` to resume interrupted agent
   runs with the same current-score matching rules as `agent-baseline`.
 - `bench agent-score <suite.edn> --case <case-id> --result result.json` scores
