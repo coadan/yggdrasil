@@ -102,7 +102,7 @@ export const externalApiHeavyGraph: AGraphGraph = {
 
 export const fixtureReport: AGraphReport = {
   schema: "agraph.report/v2",
-  project: { id: "fixture", name: "Fixture", detail: "primary" },
+  project: { id: "fixture", name: "Fixture", detail: "primary", mapPath: "agraph.map.json" },
   repos: [{ id: "app", root: "/tmp/app", role: "application" }],
   evidence: {
     schema: "agraph.evidence/v1",
@@ -289,7 +289,8 @@ export const fixtureReport: AGraphReport = {
   commands: [
     "agraph sync project.edn --check --map agraph.map.json",
     "agraph packages --project fixture --json",
-    "agraph ask \"where is this handled?\" --project fixture --json"
+    "agraph ask \"where is this handled?\" --project fixture --json",
+    "agraph sync work apply <work-id> --map agraph.map.json"
   ]
 };
 

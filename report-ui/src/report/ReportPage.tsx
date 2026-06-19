@@ -239,6 +239,14 @@ function CommandList({
   );
 }
 
+function projectMapPath(report: AGraphReport): string {
+  return displayValue(report.project.mapPath || report.project.map_path || "agraph.map.json");
+}
+
+function correctionApplyCommands(report: AGraphReport): string[] {
+  return report.commands.filter((command) => /\bsync\s+work\s+apply\b/.test(command));
+}
+
 function nextActionTarget(action: Record<string, unknown>): ActionTarget | null {
   const kind = String(action.kind || "");
   switch (kind) {
@@ -1409,6 +1417,79 @@ function EvidenceTab({
   );
 }
 
+function CorrectionWorkflow({
+  report,
+  copiedKey,
+  onAsk,
+  onCopyCommand
+}: {
+  report: AGraphReport;
+  copiedKey: string | null;
+  onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
+}) {
+  const mapPath = projectMapPath(report);
+  const applyCommands = correctionApplyCommands(report);
+  const evidenceRows = [
+    { field: "mapPath", value: mapPath },
+    ...applyCommands.map((command) => ({ field: "applyCommand", value: command }))
+  ];
+
+  return (
+    <section className="panel span-2">
+      <div className="panel-header">
+        <div>
+          <h2>Correction Workflow</h2>
+          <p className="muted">Validated path from review evidence to accepted `agraph.map.json` corrections.</p>
+        </div>
+        <div className="action-row-buttons">
+          <button
+            type="button"
+            onClick={() =>
+              onAsk({
+                label: "Correction Workflow",
+                source: "report.commands",
+                question: "What correction workflow should I use from this report?",
+                evidenceRows
+              })
+            }
+          >
+            Ask
+          </button>
+          {mapPath ? (
+            <button type="button" onClick={() => onCopyCommand("correction:map-path", mapPath)}>
+              {copiedKey === "correction:map-path" ? "Copied" : "Copy map path"}
+            </button>
+          ) : null}
+          {applyCommands[0] ? (
+            <button type="button" onClick={() => onCopyCommand("correction:apply-command", applyCommands[0])}>
+              {copiedKey === "correction:apply-command" ? "Copied" : "Copy apply command"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <table>
+        <tbody>
+          <tr>
+            <th>Map</th>
+            <td>
+              <code>{mapPath}</code>
+            </td>
+          </tr>
+          {applyCommands.map((command) => (
+            <tr key={command}>
+              <th>Apply</th>
+              <td>
+                <code>{command}</code>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 function MaintenanceTab({
   report,
   copiedActionKey,
@@ -1437,6 +1518,7 @@ function MaintenanceTab({
         onOpenTab={onOpenTab}
       />
       <CommandList commands={report.commands} copiedKey={copiedActionKey} onCopyCommand={onCopyCommand} />
+      <CorrectionWorkflow report={report} copiedKey={copiedActionKey} onAsk={onAsk} onCopyCommand={onCopyCommand} />
       <DataTable
         title="Maintenance Decisions"
         rows={asRows(maintenance["decision-queue"] || maintenance.decisionQueue)}

@@ -81,6 +81,21 @@ describe("ReportPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Maintenance" }));
 
     expect(screen.getAllByText(/agraph ask/).length).toBeGreaterThan(0);
+    const correctionWorkflow = screen.getByText("Correction Workflow").closest("section");
+    expect(correctionWorkflow).toBeTruthy();
+    expect(within(correctionWorkflow as HTMLElement).getByText("agraph.map.json")).toBeInTheDocument();
+    fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copy map path" }));
+    expect(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copy apply command" }));
+    expect(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Ask" }));
+    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.getByText("What correction workflow should I use from this report?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Maintenance" }));
 
     const commandItem = screen
       .getAllByText(/agraph ask/)
