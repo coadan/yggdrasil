@@ -42,6 +42,47 @@
    :active? true
    :run-id run-id})
 
+(defn package-label
+  [ecosystem package-name]
+  (str (name ecosystem) ":" package-name))
+
+(defn package-fact
+  [{:keys [ecosystem package-name version-range dependency-scope import-names
+           source-line relation]
+    :or {relation :requires}}]
+  (when (and ecosystem (seq package-name))
+    (cond-> {:kind :external-package
+             :label (package-label ecosystem package-name)
+             :ecosystem ecosystem
+             :package-name package-name
+             :source-line (or source-line 1)
+             :relation relation}
+      version-range (assoc :version-range version-range)
+      dependency-scope (assoc :dependency-scope dependency-scope)
+      (seq import-names) (assoc :import-names (vec import-names)))))
+
+(defn package-version-fact
+  [{:keys [ecosystem package-name resolved-version source-line relation]
+    :or {relation :resolves}}]
+  (when (and ecosystem (seq package-name) (seq resolved-version))
+    {:kind :external-package-version
+     :label (str (package-label ecosystem package-name) "@" resolved-version)
+     :ecosystem ecosystem
+     :package-name package-name
+     :resolved-version resolved-version
+     :source-line (or source-line 1)
+     :relation relation}))
+
+(defn fact-node
+  [run-id id-scope file-id path {:keys [kind label source-line] :as fact}]
+  (cond-> (generic-node run-id id-scope file-id path kind label source-line)
+    (:ecosystem fact) (assoc :ecosystem (:ecosystem fact))
+    (:package-name fact) (assoc :package-name (:package-name fact))
+    (:version-range fact) (assoc :version-range (:version-range fact))
+    (:resolved-version fact) (assoc :resolved-version (:resolved-version fact))
+    (:dependency-scope fact) (assoc :dependency-scope (:dependency-scope fact))
+    (seq (:import-names fact)) (assoc :import-names (vec (:import-names fact)))))
+
 (defn edge-id
   "Return stable edge id."
   [source-id target-id relation _path _source-line]
@@ -59,6 +100,23 @@
    :source-line (or source-line 1)
    :active? true
    :run-id run-id})
+
+(defn fact-edge-row
+  [run-id file-id path source-id id-scope {:keys [kind label source-line relation] :as fact}]
+  (cond-> (edge-row run-id
+                    file-id
+                    path
+                    source-id
+                    (node-id id-scope kind label)
+                    relation
+                    :extracted
+                    source-line)
+    (:ecosystem fact) (assoc :ecosystem (:ecosystem fact))
+    (:package-name fact) (assoc :package-name (:package-name fact))
+    (:version-range fact) (assoc :version-range (:version-range fact))
+    (:resolved-version fact) (assoc :resolved-version (:resolved-version fact))
+    (:dependency-scope fact) (assoc :dependency-scope (:dependency-scope fact))
+    (seq (:import-names fact)) (assoc :import-names (vec (:import-names fact)))))
 
 (defn chunk-id
   "Return stable chunk id."
