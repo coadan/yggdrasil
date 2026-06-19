@@ -1013,6 +1013,14 @@
                                    :count 1}]}]
              (mapv #(dissoc % :samples)
                    (:auditScopes packet))))
+      (is (= [{:id "activity:boundary"
+               :kind "maintenance-decision"
+               :status "ready"
+               :source "queue"
+               :sourceId "work:boundary"
+               :summary "review billing boundary"
+               :score 1.0}]
+             (:openDecisions architecture)))
       (is (= [{:id "edge:billing-worker"
                :kind "graph-edge"
                :relation "shares-config"
@@ -1063,7 +1071,13 @@
       (is (= ["agraph_node" "agraph_node" "agraph_node"]
              (mapv :mcpTool (take 3 (:nextActions architecture)))))
       (is (= ["node:namespace:jobs.queue" "node:pkg:stripe"]
-             (mapv :target (take 2 (drop 3 (:nextActions architecture)))))))))
+             (mapv :target (take 2 (drop 3 (:nextActions architecture))))))
+      (is (= {:kind :work-review
+              :target "work:boundary"
+              :mcpTool "agraph_work_show"
+              :mcpArgs {:workId "work:boundary"}}
+             (select-keys (nth (:nextActions architecture) 5)
+                          [:kind :target :mcpTool :mcpArgs]))))))
 
 (deftest context-packet-selects-accepted-system-from-result-path
   (with-redefs [query/search-report (fn [_ query-text opts]

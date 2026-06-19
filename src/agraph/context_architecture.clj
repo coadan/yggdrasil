@@ -775,6 +775,17 @@
                              "target"
                              target)
                     "Open dependency endpoint with incident graph evidence")))
+(defn- open-decision-inspect-action
+  [decision]
+  (let [work-id (or (:sourceId decision)
+                    (:id decision))]
+    (when-let [work-id (some-> work-id s str/trim not-empty)]
+      {:kind :work-review
+       :label (compact "Inspect open decision" work-id)
+       :target work-id
+       :mcpTool "agraph_work_show"
+       :mcpArgs {:workId work-id}
+       :reason "Open queued review packet before accepting or rejecting architecture evidence"})))
 (defn- architecture-doc-inspect-action
   [doc]
   (let [target (or (get-in doc [:source :path])
@@ -783,7 +794,7 @@
                     (compact "Inspect architecture doc" target)
                     "Open accepted architecture doc source and attached map evidence")))
 (defn- architecture-inspect-actions
-  [accepted-systems candidate-systems runtime-evidence dependency-evidence docs]
+  [accepted-systems candidate-systems runtime-evidence dependency-evidence open-decisions docs]
   (vec
    (concat
     (keep (fn [system]
@@ -803,6 +814,8 @@
           (take 2 runtime-evidence))
     (keep dependency-inspect-action
           (take 2 dependency-evidence))
+    (keep open-decision-inspect-action
+          (take 2 open-decisions))
     (keep architecture-doc-inspect-action
           (take 2 docs)))))
 (defn- status-counts
@@ -903,10 +916,13 @@
         deploy-evidence (deploy-evidence-rows runtime-evidence)
         architecture-docs (mapv architecture-doc-row
                                 (take 8 (filter accepted-architecture-doc? docs)))
+        open-decisions (mapv open-decision-row
+                             (take 6 (filter open-decision? activity)))
         inspect-actions (architecture-inspect-actions accepted-systems
                                                       candidate-systems
                                                       runtime-evidence
                                                       dependency-evidence
+                                                      open-decisions
                                                       architecture-docs)
         section {:basis "mechanical-plus-map"
                  :acceptedSystems accepted-systems
@@ -916,8 +932,7 @@
                  :deployEvidence deploy-evidence
                  :dependencyEvidence dependency-evidence
                  :docs architecture-docs
-                 :openDecisions (mapv open-decision-row
-                                      (take 6 (filter open-decision? activity)))
+                 :openDecisions open-decisions
                  :validationGaps (vec (take 12
                                             (validation-gaps answerability
                                                              freshness
