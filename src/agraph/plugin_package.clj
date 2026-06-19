@@ -1194,6 +1194,27 @@
          (concat schema-errors
                  (mapcat :errors results)))))
 
+(defn- duplicate-registry-id-counts
+  [results]
+  (->> results
+       (keep :id)
+       (map str)
+       (filter present?)
+       frequencies
+       (filter (fn [[_ count]] (< 1 count)))
+       (into {})))
+
+(defn- add-duplicate-registry-id-error
+  [duplicate-counts result]
+  (if-let [count (get duplicate-counts (some-> (:id result) str))]
+    (-> result
+        (assoc :status :failed)
+        (update :errors conj {:code :registry-duplicate-package-id
+                              :message "Registry package ids must be unique."
+                              :id (:id result)
+                              :count count}))
+    result))
+
 (defn validate-registry
   "Validate a local public plugin registry index."
   [registry-path]
@@ -1210,9 +1231,12 @@
                           (not (sequential? (:packages registry)))
                           (conj {:code :registry-packages
                                  :message "Registry must contain :packages vector."}))
-          results (if (seq schema-errors)
-                    []
-                    (mapv #(validate-registry-entry registry-path %) entries))
+          raw-results (if (seq schema-errors)
+                        []
+                        (mapv #(validate-registry-entry registry-path %) entries))
+          duplicate-counts (duplicate-registry-id-counts raw-results)
+          results (mapv #(add-duplicate-registry-id-error duplicate-counts %)
+                        raw-results)
           failed (count (filter #(= :failed (:status %)) results))
           claim-counts (registry-claim-counts results)
           error-counts (registry-error-counts schema-errors results)]

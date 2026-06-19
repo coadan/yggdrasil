@@ -778,3 +778,52 @@
       (is (= :failed (get-in by-id ["missing-source-plugin" :status])))
       (is (= [:registry-source-missing]
              (mapv :code (get-in by-id ["missing-source-plugin" :errors])))))))
+
+(deftest registry-validation-rejects-duplicate-package-ids
+  (let [workspace (temp-dir "agraph-plugin-registry-duplicate-id")
+        registry-path (io/file workspace "registry.edn")
+        package-dir (io/file workspace "package")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "base-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Reusable fixture."}
+                   :benchmark {:status :unbenchmarked}
+                   :extractor-plugins
+                   [{:id "base-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (spit registry-path
+          (pr-str {:schema plugin-package/registry-schema
+                   :id "official"
+                   :packages [{:id "base-plugin"
+                               :path "package"
+                               :source "https://github.com/org/agraph-plugins.git"
+                               :subdir "packages/base-plugin"}
+                              {:id "base-plugin"
+                               :path "package"
+                               :source "https://github.com/org/agraph-plugins.git"
+                               :subdir "packages/base-plugin-copy"}]}))
+    (let [result (plugin-package/validate-registry (.getPath registry-path))]
+      (is (= :failed (:status result)))
+      (is (= {:packages 2
+              :passed 0
+              :failed 2
+              :claim-ready 0
+              :non-authoritative 2}
+             (:counts result)))
+      (is (= {:registry-duplicate-package-id 2}
+             (:error-counts result)))
+      (is (= [[:registry-duplicate-package-id]
+              [:registry-duplicate-package-id]]
+             (mapv #(mapv :code (:errors %)) (:packages result)))))))
