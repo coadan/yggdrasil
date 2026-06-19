@@ -1,6 +1,7 @@
 (ns agraph.cli
   "Command line interface."
-  (:require [agraph.agent-install :as agent-install]
+  (:require [agraph.affected :as affected]
+            [agraph.agent-install :as agent-install]
             [agraph.activity :as activity]
             [agraph.audit-scope :as audit-scope]
             [agraph.benchmark :as benchmark]
@@ -99,6 +100,7 @@
     "--relation" "--base-url" "--detail" "--queue-dir" "--status" "--agent"
     "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
     "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode" "--tools"
+    "--files" "--since"
     "--id" "--plugin"
     "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
     "--vector-command" "--vector-model" "--parser-worker"
@@ -136,7 +138,7 @@
     "--check" "--query-index" "--force" "--hooks" "--sync" "--allow-missing"
     "--allow-duplicate-runs" "--allow-unverified-scores"
     "--skip-existing" "--with-conflicts" "--without-import-evidence"
-    "--no-progress" "--extractor" "--report"})
+    "--no-progress" "--extractor" "--report" "--tests"})
 
 (defn- positional-args
   [args]
@@ -613,6 +615,63 @@
     (println "## Next")
     (doseq [{:keys [command]} nextActions]
       (println "-" command))))
+
+(defn- print-affected-summary
+  [{:keys [project-id basis inputs changedFiles changedNodes affectedFiles
+           unsupportedIncidentEdges warnings]}]
+  (println "# Affected Files")
+  (println "- project" project-id)
+  (println "- mode" (:mode basis))
+  (when-let [repo-id (:repo-id basis)]
+    (println "- repo" repo-id))
+  (when-let [since (:since basis)]
+    (println "- since" since))
+  (println "- inputs" (count inputs))
+  (println "- changed-files" (count changedFiles))
+  (println "- changed-nodes" (count changedNodes))
+  (println "- affected-files" (count affectedFiles))
+  (println "- unsupported-incident-edges" (:count unsupportedIncidentEdges 0))
+  (when (:testsOnly basis)
+    (println "- tests-only true"))
+  (when (seq affectedFiles)
+    (println)
+    (println "## Files")
+    (doseq [{:keys [repo-id path edgeCount directions]} affectedFiles]
+      (println "-" (if repo-id (str repo-id ":" path) path)
+               "edges" edgeCount
+               "directions" (str/join "," directions))))
+  (when (seq warnings)
+    (println)
+    (println "## Boundaries")
+    (doseq [{:keys [kind message]} warnings]
+      (println "-" kind message))))
+
+(defn- affected-files-option
+  [args config-path]
+  (let [from-option (some-> (option-value args "--files") affected/split-files)
+        from-positionals (->> (positional-args args)
+                              rest
+                              (remove #(= % config-path)))]
+    (vec (concat from-option from-positionals))))
+
+(defn- affected!
+  [args]
+  (let [config-path (first (positional-args args))]
+    (when-not config-path
+      (throw (ex-info "Missing project config path." {:usage (usage)})))
+    (let [project (project/read-project config-path)
+          files (affected-files-option args config-path)
+          opts (cond-> {:repo-id (option-value args "--repo")
+                        :since (option-value args "--since")
+                        :tests-only? (boolean (some #{"--tests"} args))
+                        :read-context (temporal-options args)}
+                 (seq files) (assoc :files files))]
+      (store/with-node (store/storage-path)
+        (fn [xtdb]
+          (let [result (affected/analyze xtdb project opts)]
+            (if (json-output? args)
+              (print-json result)
+              (print-affected-summary result))))))))
 
 (defn- print-sync-summary
   [{:keys [project-id repo-id index-summary system-summary check-report enqueued]}]
@@ -3124,6 +3183,7 @@
     "  explore <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
     "  explore create [query text] --project ID [--budget N] [--limit N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--no-map] [--view ID] [--valid-at INSTANT] [--enqueue] [--queue-dir DIR]"
     "  explore show|open|expand|docs|search ..."
+    "  affected <project.edn> [--files PATH,PATH | --since REV] [--repo ID] [--tests] [--json]"
     ""
     "View and report:"
     "  view overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--format html|json] [--out PATH] [--valid-at INSTANT]"
@@ -3200,6 +3260,9 @@
               (if (json-output? args)
                 (print-json report)
                 (print-audit-scope-report report)))))))
+
+    "affected"
+    (affected! args)
 
     "ask"
     (ask! args)

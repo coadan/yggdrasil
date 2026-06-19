@@ -1,5 +1,6 @@
 (ns agraph.cli-test
-  (:require [agraph.agent-install :as agent-install]
+  (:require [agraph.affected :as affected]
+            [agraph.agent-install :as agent-install]
             [agraph.activity :as activity]
             [agraph.audit-scope :as audit-scope]
             [agraph.benchmark :as benchmark]
@@ -63,6 +64,7 @@
     (is (str/includes? usage "ask <text>"))
     (is (str/includes? usage "explore <text>"))
     (is (str/includes? usage "explore create"))
+    (is (str/includes? usage "affected <project.edn>"))
     (is (str/includes? usage "view overview|deps|query|systems"))
     (is (str/includes? usage "report <project.edn>"))
     (is (str/includes? usage "plugin new <dir>"))
@@ -558,6 +560,46 @@
                 :regressions []}))]
     (is (str/includes? out "- aggregate-comparable false"))
     (is (str/includes? out "- aggregate-comparable-reasons parser-worker-profile-changed"))))
+
+(deftest affected-command-routes-through-project-config
+  (let [calls (atom [])]
+    (with-redefs [project/read-project (fn [path]
+                                         (swap! calls conj [:project path])
+                                         project-fixture)
+                  store/with-node (fn [_ f]
+                                    (f :xtdb))
+                  affected/analyze (fn [xtdb project opts]
+                                     (swap! calls conj [:affected xtdb (:id project) opts])
+                                     {:schema affected/schema
+                                      :project-id (:id project)
+                                      :basis {:mode "explicit-files"
+                                              :repo-id (:repo-id opts)
+                                              :testsOnly (:tests-only? opts)}
+                                      :inputs []
+                                      :changedFiles []
+                                      :changedNodes []
+                                      :affectedFiles []
+                                      :unsupportedIncidentEdges {:count 0
+                                                                 :samples []}
+                                      :warnings []})]
+      (let [out (with-out-str
+                  (cli/dispatch "affected" ["project.edn"
+                                            "--repo" "app"
+                                            "--files" "src/a.clj,src/b.clj"
+                                            "--tests"
+                                            "--json"]))
+            parsed (read-json-output out)]
+        (is (= affected/schema (:schema parsed)))
+        (is (= [[:project "project.edn"]
+                [:affected
+                 :xtdb
+                 "fixture"
+                 {:repo-id "app"
+                  :since nil
+                  :tests-only? true
+                  :read-context {}
+                  :files ["src/a.clj" "src/b.clj"]}]]
+               @calls))))))
 
 (deftest agent-list-shows-supported-platforms
   (let [out (with-out-str
