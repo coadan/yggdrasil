@@ -1096,6 +1096,11 @@
                 :label "Validate indexed source graph rows"
                 :command (sync-command "--check")})
 
+         (pos? (:diagnostics counts))
+         (conj {:kind :coverage
+                :label "Inspect extractor diagnostics"
+                :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")})
+
          (zero? (:search-docs counts))
          (conj {:kind :docs
                 :label "Build query index"
@@ -1141,12 +1146,7 @@
          (zero? (+ (:activity-items counts) (:activity-events counts)))
          (conj {:kind :activity
                 :label "Import local activity and work rows"
-                :command (command/command "agraph" "sync" "activity" "<project.edn>")})
-
-         (pos? (:diagnostics counts))
-         (conj {:kind :coverage
-                :label "Inspect extractor diagnostics"
-                :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")}))
+                :command (command/command "agraph" "sync" "activity" "<project.edn>")}))
        (distinct-by :command)
        (take 5)
        vec))

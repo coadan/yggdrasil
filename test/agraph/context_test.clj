@@ -213,6 +213,33 @@
                   (:command %))
               actions))))
 
+(deftest answerability-next-actions-keep-coverage-when-capped
+  (let [actions (#'context/next-actions
+                 {:files 0
+                  :nodes 0
+                  :edges 0
+                  :search-docs 0
+                  :external-packages 0
+                  :package-import-edges 0
+                  :unresolved-imports 0
+                  :package-evidence-gaps 0
+                  :package-conflicts 0
+                  :system-nodes 0
+                  :system-edges 0
+                  :activity-items 0
+                  :activity-events 0
+                  :diagnostics 3}
+                 {:requested :auto
+                  :effective :lexical
+                  :fallback? true}
+                 "fixture")]
+    (is (= 5 (count actions)))
+    (is (some #(= {:kind :coverage
+                   :label "Inspect extractor diagnostics"
+                   :command "agraph sync coverage <project.edn> --json"}
+                  %)
+              actions))))
+
 (deftest compact-answerability-keeps-bounded-actionable-detail
   (let [compact (#'context/compact-answerability
                  {:status :limited
