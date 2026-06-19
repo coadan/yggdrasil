@@ -552,6 +552,13 @@ given.
 - `agentDiagnostics.commandlessRuns`: scored agent artifacts whose result did
   not cite any commands. Gate this with `--max-commandless-runs` when
   auditability should require a visible command trail.
+- `agentDiagnostics.commandTelemetry`: aggregate counts derived from cited
+  `commands`, including `commandCount`, `agraphCommandCount`,
+  `searchCommandCount`, `fileReadCommandCount`, and `shellCommandCount`.
+  Search counts cover command forms such as `rg`, `grep`, `git grep`, `fd`,
+  and `find`; file-read counts cover common local read commands such as `cat`,
+  `sed`, `head`, `tail`, `nl`, `awk`, and pagers. These are mechanical cited
+  command counts, not provider-side tool logs.
 - `agentDiagnostics.missingPredictedFileRuns`: scored agent artifacts whose
   ranked result included repo-relative paths that do not exist in the base
   checkout. Gate this with `--max-missing-predicted-file-runs` to catch

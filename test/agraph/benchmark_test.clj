@@ -342,7 +342,10 @@
                                     {:path "src/app.clj"
                                      :rank 7}]
                          :warnings ["agent result suspectedFiles row 1 missing evidence"]
-                         :commands ["rg broken src"]
+                         :commands ["rg broken src"
+                                    "sed -n '1,40p' src/app.clj"
+                                    "agraph ask broken --project fixture"
+                                    "npm test"]
                          :selection {:rawCandidateFiles 3
                                      :candidateFiles 2
                                      :coverageFilteredCandidateFiles 1
@@ -493,6 +496,11 @@
               :identityMismatchRuns 0
               :identityMismatchCaseIds []
               :identityMismatches 0
+              :commandTelemetry {:commandCount 4
+                                 :agraphCommandCount 1
+                                 :searchCommandCount 1
+                                 :fileReadCommandCount 1
+                                 :shellCommandCount 1}
               :hintDiagnosticRows 1
               :hintDiagnosticRuns 1
               :hintDiagnosticCaseIds ["case-1"]
@@ -673,7 +681,13 @@
              (get-in report [:results 0 :graphExpectations :status])))
       (is (= {:rawSuspectedFiles 2
               :rankedFiles 2
-              :commandCount 1
+              :commandCount 4
+              :commandTelemetry {:commandCount 4
+                                 :agraphCommandCount 1
+                                 :searchCommandCount 1
+                                 :fileReadCommandCount 1
+                                 :shellCommandCount 1
+                                 :commandless false}
               :missingPredictedFiles []
               :warnings ["agent result suspectedFiles row 1 missing evidence"]
               :warningCount 1
@@ -790,6 +804,22 @@
                :message "No current agent score artifacts matched the selected suite, case, and mode. Matching artifacts were excluded because their score schema, agent result schema, or case fingerprint is stale; regenerate the benchmark scores or pass --allow-unverified-scores for exploratory reporting."}]
              (:failures
               (benchmark/check-agent-report report {:allow-missing? true})))))))
+
+(deftest agent-output-diagnostic-normalizes-command-telemetry
+  (let [diagnostic (#'benchmark/agent-output-diagnostic
+                    {:agent {:commands ["rg broken src"
+                                        "git grep broken -- src"
+                                        "env FOO=bar sed -n '1,20p' src/app.clj"
+                                        "bb explore create 'broken app' --project fixture"
+                                        "npm test"]
+                             :topFiles [{:path "src/app.clj"}]}})]
+    (is (= {:commandCount 5
+            :agraphCommandCount 1
+            :searchCommandCount 2
+            :fileReadCommandCount 1
+            :shellCommandCount 1
+            :commandless false}
+           (:commandTelemetry diagnostic)))))
 
 (deftest reports-problem-class-summaries
   (let [out (temp-dir "agraph-agent-report-problem-classes")

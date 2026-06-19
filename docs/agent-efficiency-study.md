@@ -129,6 +129,8 @@ Use existing benchmark report fields first:
 - noise: noise at 20 and predicted files that do not exist
 - evidence: evidence citation rate and path evidence citation rate
 - result health: warning runs, empty result runs, commandless runs
+- command telemetry: `agentDiagnostics.commandTelemetry` command, search,
+  file-read, AGraph, and shell counts derived from cited benchmark commands
 - task fit: `bb efficiency` `byTag.groups`, especially problem-class tags
 - timing: stage timings and active-stage diagnostics from progress artifacts
 
