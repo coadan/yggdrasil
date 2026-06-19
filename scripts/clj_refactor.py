@@ -250,6 +250,10 @@ def cmd_manifest(args: argparse.Namespace) -> None:
         manifest["tests"] = [focused_test_command(args.test)]
     if args.stage:
         manifest["stage"] = args.stage
+    if args.public:
+        manifest["targetPublic"] = args.public
+    if args.compact:
+        manifest["compact"] = True
     manifest["commit"] = args.commit
 
     text = json.dumps(manifest, indent=2) + "\n"
@@ -376,6 +380,20 @@ def apply_literal_file_replacements(path: Path, replacements: dict[str, str]) ->
     path.write_text(text)
 
 
+def publicize_forms(path: Path, form_names: list[str]) -> None:
+    text = path.read_text()
+    for name in form_names:
+        text, count = re.subn(
+            rf"\(defn-\s+{re.escape(name)}(\s|\n)",
+            rf"(defn {name}\1",
+            text,
+            count=1,
+        )
+        if count != 1:
+            raise SystemExit(f"could not publicize target form in {path}: {name}")
+    path.write_text(text)
+
+
 def run_command(command: list[str], *, cwd: Path) -> None:
     print("+ " + " ".join(command))
     subprocess.run(command, cwd=cwd, check=True)
@@ -412,8 +430,13 @@ def cmd_batch(args: argparse.Namespace) -> None:
         apply_literal_file_replacements(target, batch["targetTextReplace"])
     if batch.get("sourceTextReplace"):
         apply_literal_file_replacements(source, batch["sourceTextReplace"])
+    if batch.get("targetPublic"):
+        publicize_forms(target, batch["targetPublic"])
     if batch.get("routes"):
         patch_routes(source, batch["routes"])
+    if batch.get("compact"):
+        compact_blank_runs(source=source, max_blank_lines=1)
+        compact_blank_runs(source=target, max_blank_lines=1)
     for command in batch.get("tests", []):
         run_command(command, cwd=repo)
     if args.commit:
@@ -468,6 +491,8 @@ def main() -> None:
     manifest_parser.add_argument("--route", type=parse_mapping, action="append", default=[])
     manifest_parser.add_argument("--test", action="append", default=[])
     manifest_parser.add_argument("--stage", action="append", default=[])
+    manifest_parser.add_argument("--public", action="append", default=[])
+    manifest_parser.add_argument("--compact", action="store_true")
     manifest_parser.add_argument("--commit", required=True)
     manifest_parser.add_argument("--prefix", action="append", default=[])
     manifest_parser.add_argument("--from-form")
