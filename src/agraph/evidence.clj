@@ -219,6 +219,12 @@
           (recur (next remaining) (conj seen k) (conj out item))))
       out)))
 
+(defn- action-distinct-key
+  [action]
+  (if (contains? #{:coverage :system-evidence} (:kind action))
+    [(:kind action) (:label action) (:command action)]
+    [(:command action)]))
+
 (defn- package-command
   [project-id & args]
   (str "agraph packages --project " (command/shell-token (or project-id "<project-id>"))
@@ -259,13 +265,22 @@
   []
   "bb plugin gap extractor <package-dir> <repo-root> <file> --json")
 
+(defn- status-mcp
+  [config-path map-path]
+  (let [args (cond-> {}
+               config-path (assoc :configPath config-path)
+               map-path (assoc :mapPath map-path))]
+    (cond-> {:mcpTool "agraph_status"}
+      (seq args) (assoc :mcpArgs args))))
+
 (defn- skipped-source-action
-  [skipped-files config-path]
-  {:kind :coverage
-   :label "Inspect skipped source candidates"
-   :count skipped-files
-   :command (sync-subcommand "coverage" config-path "--json")
-   :pluginGapCommand (extractor-plugin-gap-command)})
+  [skipped-files config-path map-path]
+  (merge {:kind :coverage
+          :label "Inspect skipped source candidates"
+          :count skipped-files
+          :command (sync-subcommand "coverage" config-path "--json")
+          :pluginGapCommand (extractor-plugin-gap-command)}
+         (status-mcp config-path map-path)))
 
 (defn- package-next-actions
   [project-id {:keys [packages package-evidence-gaps unresolved-imports package-conflicts]}
@@ -377,18 +392,20 @@
                           {:mcpArgs {:configPath config-path}})))
 
            (pos? skipped-files)
-           (conj (skipped-source-action skipped-files config-path))
+           (conj (skipped-source-action skipped-files config-path map-path))
 
            (pos? diagnostics)
-           (conj {:kind :coverage
-                  :label "Inspect extractor diagnostics"
-                  :count diagnostics
-                  :command (sync-subcommand "coverage" config-path "--json")})
+           (conj (merge {:kind :coverage
+                         :label "Inspect extractor diagnostics"
+                         :count diagnostics
+                         :command (sync-subcommand "coverage" config-path "--json")}
+                        (status-mcp config-path map-path)))
 
            (zero? system-evidence)
-           (conj {:kind :system-evidence
-                  :label "Inspect system evidence coverage"
-                  :command (sync-subcommand "coverage" config-path "--json")})
+           (conj (merge {:kind :system-evidence
+                         :label "Inspect system evidence coverage"
+                         :command (sync-subcommand "coverage" config-path "--json")}
+                        (status-mcp config-path map-path)))
 
            (pos? files)
            (conj {:kind :audit-scope
@@ -399,8 +416,8 @@
            (conj {:kind :ask
                   :label "Ask a graph-grounded implementation question"
                   :command (ask-command project-id)}))
-         (distinct-by :command)
-         (take 8)
+         (distinct-by action-distinct-key)
+         (take 10)
          vec)))
 
 (defn- next-commands

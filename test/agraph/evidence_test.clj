@@ -256,6 +256,7 @@
                      :label "Inspect skipped source candidates"
                      :count 2
                      :command "agraph sync coverage <project.edn> --json"
+                     :mcpTool "agraph_status"
                      :pluginGapCommand "bb plugin gap extractor <package-dir> <repo-root> <file> --json"}
                     %)
                 (:nextActions summary)))
@@ -356,7 +357,7 @@
                                              :extractors []
                                              :skipped-by-extension []
                                              :skipped-by-reason []
-                                             :diagnostics {:total 0}})
+                                             :diagnostics {:total 2}})
                 dependency/package-report (fn [& _]
                                             {:counts {:packages 0
                                                       :versions 0
@@ -392,7 +393,19 @@
                 (:nextActions summary)))
       (is (some #(= {:kind :system-evidence
                      :label "Inspect system evidence coverage"
-                     :command "agraph sync coverage 'Project Files/project.edn' --json"}
+                     :command "agraph sync coverage 'Project Files/project.edn' --json"
+                     :mcpTool "agraph_status"
+                     :mcpArgs {:configPath "Project Files/project.edn"
+                               :mapPath "Maps/agraph map.json"}}
+                    %)
+                (:nextActions summary)))
+      (is (some #(= {:kind :coverage
+                     :label "Inspect extractor diagnostics"
+                     :count 2
+                     :command "agraph sync coverage 'Project Files/project.edn' --json"
+                     :mcpTool "agraph_status"
+                     :mcpArgs {:configPath "Project Files/project.edn"
+                               :mapPath "Maps/agraph map.json"}}
                     %)
                 (:nextActions summary))))))
 
