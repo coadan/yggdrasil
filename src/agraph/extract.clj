@@ -22,7 +22,6 @@
             [agraph.text :as text]
             [charred.api :as json]
             [clojure.edn :as edn]
-            [clojure.java.shell :as shell]
             [agraph.extract.protobuf :as extract.protobuf]
             [agraph.extract.avro :as extract.avro]
             [agraph.extract.api-schema :as extract.api-schema]
@@ -51,6 +50,7 @@
             [agraph.extract.workflow :as extract.workflow]
             [agraph.extract.source-clojure :as extract.source-clojure]
             [agraph.extract.db-config :as extract.db-config]
+            [agraph.extract.parser-worker :as extract.parser-worker]
             [clojure.string :as str]))
 
 
@@ -195,26 +195,49 @@
             {}
             extraction-buckets)))
 
-(def ^:dynamic *parser-worker-mode*
-  nil)
+
+
+
+
 
 (defn normalize-parser-worker-mode
   [mode]
-  (some-> mode str str/lower-case str/trim not-empty))
+  (extract.parser-worker/normalize-parser-worker-mode mode))
 
 (defn parser-worker-mode
   []
-  (or (normalize-parser-worker-mode *parser-worker-mode*)
-      (normalize-parser-worker-mode (System/getenv "AGRAPH_PARSER_WORKER"))))
+  (extract.parser-worker/parser-worker-mode))
 
 (defmacro with-parser-worker-mode
   [mode & body]
-  `(binding [*parser-worker-mode* (normalize-parser-worker-mode ~mode)]
-     ~@body))
+  `(extract.parser-worker/with-parser-worker-mode ~mode ~@body))
 
 (defn- parser-worker-fingerprint
   []
-  (or (parser-worker-mode) "none"))
+  (extract.parser-worker/parser-worker-fingerprint))
+
+(defn parser-worker-enabled?
+  [kind]
+  (extract.parser-worker/parser-worker-enabled? kind))
+
+(defn parser-worker-python
+  []
+  (extract.parser-worker/parser-worker-python))
+
+(defn parser-worker-batch-facts
+  "Return parser-worker facts by file path for worker-enabled file records."
+  [files]
+  (extract.parser-worker/parser-worker-batch-facts
+   files
+   {:enabled? parser-worker-enabled?
+    :python parser-worker-python}))
+
+(defn- parser-worker-facts
+  [file]
+  (extract.parser-worker/parser-worker-facts
+   file
+   {:enabled? parser-worker-enabled?
+    :python parser-worker-python}))
 
 (defn extractor-fingerprint
   "Return the stable extractor fingerprint for a file record."
@@ -522,102 +545,12 @@
    :active? true
    :run-id run-id})
 
-(defn- parser-worker-enabled?
-  [kind]
-  (let [mode (parser-worker-mode)]
-    (and kind
-         (or (= "all" mode)
-             (= (name kind) mode)))))
 
-(defn- parser-worker-python
-  []
-  (or (not-empty (System/getenv "AGRAPH_PARSER_WORKER_PYTHON"))
-      "python3"))
 
-(defn- parser-worker-failure
-  [stage message]
-  {:definitions []
-   :imports []
-   :references []
-   :diagnostics [{:stage stage
-                  :line nil
-                  :message message}]})
 
-(defn- parser-worker-request
-  [{:keys [kind path absolute-path content]}]
-  (cond-> {:schema "agraph.parser.request/v1"
-           :id path
-           :kind (name kind)
-           :path (or absolute-path path)}
-    (nil? absolute-path) (assoc :content content)))
 
-(defn- parser-worker-response->facts
-  [response]
-  (or (:facts response)
-      (parser-worker-failure
-       "parser-worker"
-       "Parser worker response did not include facts.")))
 
-(defn parser-worker-batch-facts
-  "Return parser-worker facts by file path for worker-enabled file records."
-  [files]
-  (let [files (vec (filter #(parser-worker-enabled? (:kind %)) files))]
-    (if (empty? files)
-      {}
-      (try
-        (let [input (str (str/join "\n"
-                                   (map #(json/write-json-str
-                                          (parser-worker-request %)
-                                          {:escape-slash false})
-                                        files))
-                         "\n")
-              {:keys [exit out err]} (shell/sh (parser-worker-python)
-                                               "scripts/parser-worker.py"
-                                               :in input)]
-          (if (zero? exit)
-            (try
-              (let [responses (->> (str/split-lines out)
-                                   (remove str/blank?)
-                                   (map #(json/read-json % :key-fn keyword)))
-                    by-id (->> responses
-                               (map (fn [response]
-                                      [(:id response)
-                                       (parser-worker-response->facts response)]))
-                               (into {}))]
-                (->> files
-                     (map (fn [{:keys [path]}]
-                            [path
-                             (or (get by-id path)
-                                 (parser-worker-failure
-                                  "parser-worker"
-                                  "Parser worker did not return a response for this file."))]))
-                     (into {})))
-              (catch Exception e
-                (let [failure (parser-worker-failure
-                               "parser-worker"
-                               (str "Parser worker returned unreadable JSON: "
-                                    (ex-message e)))]
-                  (into {} (map (juxt :path (constantly failure)) files)))))
-            (let [failure (parser-worker-failure
-                           "parser-worker"
-                           (str "parser worker exited " exit ": "
-                                (or (not-empty err) out)))]
-              (into {} (map (juxt :path (constantly failure)) files)))))
-        (catch Exception e
-          (let [failure (parser-worker-failure
-                         "parser-worker"
-                         (str "Could not run parser worker: " (ex-message e)))]
-            (into {} (map (juxt :path (constantly failure)) files))))))))
 
-(defn- parser-worker-facts
-  [{:keys [path] :as file}]
-  (if (contains? file :parser-worker-facts)
-    (:parser-worker-facts file)
-    (get (parser-worker-batch-facts [file])
-         path
-         (parser-worker-failure
-          "parser-worker"
-          "Parser worker did not return facts for this file."))))
 
 
 
