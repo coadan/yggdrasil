@@ -288,6 +288,46 @@
                   %)
               actions))))
 
+(deftest answerability-surfaces-stale-freshness
+  (let [retrieval {:requested :lexical
+                   :effective :lexical
+                   :fallback? false}
+        freshness {:status :stale
+                   :nextActions [{:kind :freshness
+                                  :label "Refresh indexed graph basis"
+                                  :count 2
+                                  :command "agraph sync project.edn --check --map agraph.map.json"}]}
+        counts {:files 1
+                :nodes 1
+                :edges 1
+                :search-docs 1
+                :external-packages 1
+                :package-import-edges 1
+                :unresolved-imports 0
+                :package-evidence-gaps 0
+                :package-conflicts 0
+                :system-nodes 1
+                :system-edges 1
+                :activity-items 1
+                :activity-events 1
+                :diagnostics 0
+                :embeddings 1}
+        warnings (#'context/answerability-warnings counts retrieval [] freshness)
+        actions (#'context/next-actions counts retrieval "fixture" freshness)]
+    (is (= :limited
+           (#'context/answerability-status
+            []
+            []
+            retrieval
+            {:entity-count 1
+             :doc-count 1
+             :activity-count 1}
+            freshness)))
+    (is (some #{"Graph basis is stale; follow freshness next actions before trusting absence of evidence."}
+              warnings))
+    (is (= (:nextActions freshness)
+           (filterv #(= :freshness (:kind %)) actions)))))
+
 (deftest answerability-exposes-indexed-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table

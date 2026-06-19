@@ -956,80 +956,101 @@
                 (seq plane-counts) (assoc :counts plane-counts))))
           plane-order)))
 
+(defn- freshness-problem?
+  [freshness]
+  (contains? #{:partial :stale :unknown :unsynced}
+             (:status freshness)))
+
+(defn- freshness-warning
+  [freshness]
+  (when (freshness-problem? freshness)
+    (str "Graph basis is " (name (:status freshness))
+         "; follow freshness next actions before trusting absence of evidence.")))
+
+(defn- freshness-actions
+  [freshness]
+  (if (freshness-problem? freshness)
+    (vec (:nextActions freshness))
+    []))
+
 (defn- answerability-warnings
-  [counts retrieval weak]
-  (cond-> []
-    (and (= :auto (:requested retrieval)) (:fallback? retrieval))
-    (conj "No embedding client was available; retrieval used lexical fallback.")
+  ([counts retrieval weak] (answerability-warnings counts retrieval weak nil))
+  ([counts retrieval weak freshness]
+   (cond-> []
+     (freshness-warning freshness)
+     (conj (freshness-warning freshness))
 
-    (zero? (:files counts 0))
-    (conj "No source files are indexed for this project.")
+     (and (= :auto (:requested retrieval)) (:fallback? retrieval))
+     (conj "No embedding client was available; retrieval used lexical fallback.")
 
-    (and (pos? (:files counts 0))
-         (zero? (+ (:nodes counts) (:edges counts))))
-    (conj "Source files are indexed, but no source graph rows are indexed.")
+     (zero? (:files counts 0))
+     (conj "No source files are indexed for this project.")
 
-    (zero? (:search-docs counts))
-    (conj "No search docs are indexed; context retrieval is limited.")
+     (and (pos? (:files counts 0))
+          (zero? (+ (:nodes counts) (:edges counts))))
+     (conj "Source files are indexed, but no source graph rows are indexed.")
 
-    (pos? (:diagnostics counts))
-    (conj "Indexer diagnostics are present; inspect source coverage before relying on missing facts.")
+     (zero? (:search-docs counts))
+     (conj "No search docs are indexed; context retrieval is limited.")
 
-    (zero? (+ (:external-packages counts 0)
-              (:package-import-edges counts 0)
-              (:unresolved-imports counts 0)))
-    (conj "No dependency graph rows are indexed; dependency questions are limited.")
+     (pos? (:diagnostics counts))
+     (conj "Indexer diagnostics are present; inspect source coverage before relying on missing facts.")
 
-    (zero? (:system-evidence counts 0))
-    (conj "No runtime/config evidence rows are indexed; runtime/config questions are limited.")
+     (zero? (+ (:external-packages counts 0)
+               (:package-import-edges counts 0)
+               (:unresolved-imports counts 0)))
+     (conj "No dependency graph rows are indexed; dependency questions are limited.")
 
-    (some #{:system-evidence} weak)
-    (conj "Runtime/config evidence rows are indexed, but no runtime/config evidence matched this query.")
+     (zero? (:system-evidence counts 0))
+     (conj "No runtime/config evidence rows are indexed; runtime/config questions are limited.")
 
-    (pos? (:unresolved-imports counts 0))
-    (conj "Dependency graph has unresolved imports; dependency answers may need package review.")
+     (some #{:system-evidence} weak)
+     (conj "Runtime/config evidence rows are indexed, but no runtime/config evidence matched this query.")
 
-    (pos? (:package-evidence-gaps counts 0))
-    (conj "Some declared packages have no source import evidence.")
+     (pos? (:unresolved-imports counts 0))
+     (conj "Dependency graph has unresolved imports; dependency answers may need package review.")
 
-    (pos? (:package-conflicts counts 0))
-    (conj "Package version conflicts are present in dependency facts.")
+     (pos? (:package-evidence-gaps counts 0))
+     (conj "Some declared packages have no source import evidence.")
 
-    (zero? (+ (:system-nodes counts) (:system-edges counts)))
-    (conj "No system graph rows are indexed for this project.")
+     (pos? (:package-conflicts counts 0))
+     (conj "Package version conflicts are present in dependency facts.")
 
-    (some #{:system-graph} weak)
-    (conj "System graph rows are indexed, but no graph entities matched this query.")
+     (zero? (+ (:system-nodes counts) (:system-edges counts)))
+     (conj "No system graph rows are indexed for this project.")
 
-    (some #{:docs} weak)
-    (conj "Search docs are indexed, but no docs matched this query.")
+     (some #{:system-graph} weak)
+     (conj "System graph rows are indexed, but no graph entities matched this query.")
 
-    (zero? (+ (:activity-items counts) (:activity-events counts)))
-    (conj "No activity/work rows are indexed; prior work queries are limited.")
+     (some #{:docs} weak)
+     (conj "Search docs are indexed, but no docs matched this query.")
 
-    (some #{:activity} weak)
-    (conj "Activity/work rows are indexed, but no activity matched this query.")
+     (zero? (+ (:activity-items counts) (:activity-events counts)))
+     (conj "No activity/work rows are indexed; prior work queries are limited.")
 
-    (zero? (validation-history-count counts))
-    (conj "No validation history rows are indexed; validation-history queries are limited.")
+     (some #{:activity} weak)
+     (conj "Activity/work rows are indexed, but no activity matched this query.")
 
-    (some #{:validation-history} weak)
-    (conj "Validation history rows are indexed, but no validation events matched this query.")
+     (zero? (validation-history-count counts))
+     (conj "No validation history rows are indexed; validation-history queries are limited.")
 
-    (pos? (:result-schema-mismatch-events counts 0))
-    (conj "Completed work has result schema mismatches; inspect activity before trusting prior results.")
+     (some #{:validation-history} weak)
+     (conj "Validation history rows are indexed, but no validation events matched this query.")
 
-    (pos? (:result-schema-missing-result-items counts 0))
-    (conj "Some work declares expected result schemas but has no result schema yet; inspect activity before reusing prior work.")
+     (pos? (:result-schema-mismatch-events counts 0))
+     (conj "Completed work has result schema mismatches; inspect activity before trusting prior results.")
 
-    (pos? (:result-schema-unexpected-result-items counts 0))
-    (conj "Some completed work returned result schemas without expected schemas; inspect activity before treating schema validation as complete.")
+     (pos? (:result-schema-missing-result-items counts 0))
+     (conj "Some work declares expected result schemas but has no result schema yet; inspect activity before reusing prior work.")
 
-    (zero? (:embeddings counts))
-    (conj "No embeddings are indexed for this project.")
+     (pos? (:result-schema-unexpected-result-items counts 0))
+     (conj "Some completed work returned result schemas without expected schemas; inspect activity before treating schema validation as complete.")
 
-    true
-    (conj "Remote work items and session history are not modeled in the current graph.")))
+     (zero? (:embeddings counts))
+     (conj "No embeddings are indexed for this project.")
+
+     true
+     (conj "Remote work items and session history are not modeled in the current graph."))))
 
 (defn- distinct-by
   [f coll]
@@ -1084,113 +1105,115 @@
          (str " " (str/join " " (map command/shell-token args))))))
 
 (defn- next-actions
-  [counts retrieval project-id]
-  (->> (cond-> []
-         (zero? (:files counts 0))
-         (conj {:kind :source-files
-                :label "Index project source files"
-                :command (sync-command)})
+  ([counts retrieval project-id] (next-actions counts retrieval project-id nil))
+  ([counts retrieval project-id freshness]
+   (->> (cond-> (freshness-actions freshness)
+          (zero? (:files counts 0))
+          (conj {:kind :source-files
+                 :label "Index project source files"
+                 :command (sync-command)})
 
-         (and (pos? (:files counts 0))
-              (zero? (+ (:nodes counts) (:edges counts))))
-         (conj {:kind :source-graph
-                :label "Validate indexed source graph rows"
-                :command (sync-command "--check")})
+          (and (pos? (:files counts 0))
+               (zero? (+ (:nodes counts) (:edges counts))))
+          (conj {:kind :source-graph
+                 :label "Validate indexed source graph rows"
+                 :command (sync-command "--check")})
 
-         (pos? (:diagnostics counts))
-         (conj {:kind :coverage
-                :label "Inspect extractor diagnostics"
-                :count (:diagnostics counts)
-                :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")})
+          (pos? (:diagnostics counts))
+          (conj {:kind :coverage
+                 :label "Inspect extractor diagnostics"
+                 :count (:diagnostics counts)
+                 :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")})
 
-         (zero? (:search-docs counts))
-         (conj {:kind :docs
-                :label "Build query index"
-                :command (sync-command "--query-index")})
+          (zero? (:search-docs counts))
+          (conj {:kind :docs
+                 :label "Build query index"
+                 :command (sync-command "--query-index")})
 
-         (and (= :auto (:requested retrieval)) (:fallback? retrieval))
-         (conj {:kind :embeddings
-                :label "Index local graph embeddings"
-                :command "agraph embed --provider openrouter"})
+          (and (= :auto (:requested retrieval)) (:fallback? retrieval))
+          (conj {:kind :embeddings
+                 :label "Index local graph embeddings"
+                 :command "agraph embed --provider openrouter"})
 
-         (or (zero? (+ (:external-packages counts 0)
-                       (:package-import-edges counts 0)
-                       (:unresolved-imports counts 0)))
-             (pos? (:unresolved-imports counts 0))
-             (pos? (:package-evidence-gaps counts 0))
-             (pos? (:package-conflicts counts 0)))
-         (conj {:kind :dependencies
-                :label "Inspect package graph facts"
-                :command (package-command project-id "--json")})
+          (or (zero? (+ (:external-packages counts 0)
+                        (:package-import-edges counts 0)
+                        (:unresolved-imports counts 0)))
+              (pos? (:unresolved-imports counts 0))
+              (pos? (:package-evidence-gaps counts 0))
+              (pos? (:package-conflicts counts 0)))
+          (conj {:kind :dependencies
+                 :label "Inspect package graph facts"
+                 :command (package-command project-id "--json")})
 
-         (zero? (:system-evidence counts 0))
-         (conj {:kind :system-evidence
-                :label "Index system evidence rows"
-                :command (sync-command)})
+          (zero? (:system-evidence counts 0))
+          (conj {:kind :system-evidence
+                 :label "Index system evidence rows"
+                 :command (sync-command)})
 
-         (pos? (:package-evidence-gaps counts 0))
-         (conj {:kind :dependencies
-                :label "Inspect packages without source import evidence"
-                :count (:package-evidence-gaps counts 0)
-                :command (package-command project-id
-                                          "--without-import-evidence"
-                                          "--json")})
+          (pos? (:package-evidence-gaps counts 0))
+          (conj {:kind :dependencies
+                 :label "Inspect packages without source import evidence"
+                 :count (:package-evidence-gaps counts 0)
+                 :command (package-command project-id
+                                           "--without-import-evidence"
+                                           "--json")})
 
-         (pos? (:package-conflicts counts 0))
-         (conj {:kind :dependencies
-                :label "Inspect package version conflicts"
-                :count (:package-conflicts counts 0)
-                :command (package-command project-id "--with-conflicts" "--json")})
+          (pos? (:package-conflicts counts 0))
+          (conj {:kind :dependencies
+                 :label "Inspect package version conflicts"
+                 :count (:package-conflicts counts 0)
+                 :command (package-command project-id "--with-conflicts" "--json")})
 
-         (pos? (:unresolved-imports counts 0))
-         (conj {:kind :dependency-review
-                :label "Queue unresolved import review work"
-                :count (:unresolved-imports counts 0)
-                :command (sync-command "--check" "--enqueue")})
+          (pos? (:unresolved-imports counts 0))
+          (conj {:kind :dependency-review
+                 :label "Queue unresolved import review work"
+                 :count (:unresolved-imports counts 0)
+                 :command (sync-command "--check" "--enqueue")})
 
-         (pos? (:result-schema-mismatch-events counts 0))
-         (conj {:kind :activity
-                :label "Inspect result schema mismatch activity"
-                :count (:result-schema-mismatch-events counts 0)
-                :mcpTool "agraph_sync_activity"
-                :command (command/command "agraph" "sync" "activity" "<project.edn>" "--json")})
+          (pos? (:result-schema-mismatch-events counts 0))
+          (conj {:kind :activity
+                 :label "Inspect result schema mismatch activity"
+                 :count (:result-schema-mismatch-events counts 0)
+                 :mcpTool "agraph_sync_activity"
+                 :command (command/command "agraph" "sync" "activity" "<project.edn>" "--json")})
 
-         (pos? (+ (:result-schema-missing-result-items counts 0)
-                  (:result-schema-unexpected-result-items counts 0)))
-         (conj {:kind :activity
-                :label "Inspect result schema status activity"
-                :count (+ (:result-schema-missing-result-items counts 0)
-                          (:result-schema-unexpected-result-items counts 0))
-                :mcpTool "agraph_sync_activity"
-                :command (command/command "agraph" "sync" "activity" "<project.edn>" "--json")})
+          (pos? (+ (:result-schema-missing-result-items counts 0)
+                   (:result-schema-unexpected-result-items counts 0)))
+          (conj {:kind :activity
+                 :label "Inspect result schema status activity"
+                 :count (+ (:result-schema-missing-result-items counts 0)
+                           (:result-schema-unexpected-result-items counts 0))
+                 :mcpTool "agraph_sync_activity"
+                 :command (command/command "agraph" "sync" "activity" "<project.edn>" "--json")})
 
-         (zero? (+ (:system-nodes counts) (:system-edges counts)))
-         (conj {:kind :system-graph
-                :label "Index project graph systems"
-                :command (sync-command)})
+          (zero? (+ (:system-nodes counts) (:system-edges counts)))
+          (conj {:kind :system-graph
+                 :label "Index project graph systems"
+                 :command (sync-command)})
 
-         (zero? (+ (:activity-items counts) (:activity-events counts)))
-         (conj {:kind :activity
-                :label "Import local activity and work rows"
-                :mcpTool "agraph_sync_activity"
-                :command (command/command "agraph" "sync" "activity" "<project.edn>")}))
-       (distinct-by :command)
-       (take 5)
-       vec))
+          (zero? (+ (:activity-items counts) (:activity-events counts)))
+          (conj {:kind :activity
+                 :label "Import local activity and work rows"
+                 :mcpTool "agraph_sync_activity"
+                 :command (command/command "agraph" "sync" "activity" "<project.edn>")}))
+        (distinct-by :command)
+        (take 5)
+        vec)))
 
 (defn- next-steps
   [actions]
   (mapv #(str "Run " (:command %)) actions))
 
 (defn- answerability-status
-  [missing weak retrieval {:keys [entity-count doc-count activity-count]}]
+  [missing weak retrieval {:keys [entity-count doc-count activity-count]} freshness]
   (let [core-missing? (some #{:source-files :source-graph :docs :system-graph} missing)
         core-weak? (some #{:system-graph :docs} weak)]
     (cond
       (and (zero? entity-count) (zero? doc-count) (zero? activity-count)) :empty
       (or (:fallback? retrieval)
           core-weak?
-          core-missing?) :limited
+          core-missing?
+          (freshness-problem? freshness)) :limited
       :else :ready)))
 
 (defn- answerability
@@ -1205,8 +1228,9 @@
                                  :weak weak
                                  :unsupported unsupported-planes
                                  :counts counts})
-        actions (next-actions counts retrieval (:project-id opts))]
-    {:status (answerability-status missing weak retrieval match-counts)
+        freshness (:freshness opts)
+        actions (next-actions counts retrieval (:project-id opts) freshness)]
+    {:status (answerability-status missing weak retrieval match-counts freshness)
      :available available
      :missing missing
      :weak weak
@@ -1214,7 +1238,7 @@
      :planes planes
      :counts counts
      :retrieval retrieval
-     :warnings (answerability-warnings counts retrieval weak)
+     :warnings (answerability-warnings counts retrieval weak freshness)
      :next (next-steps actions)
      :nextActions actions}))
 
@@ -1308,7 +1332,8 @@
                                       :repo-id repo-id
                                       :read-context read-context
                                       :retriever retriever
-                                      :embedding-client embedding-client}
+                                      :embedding-client embedding-client
+                                      :freshness freshness}
                                      {:entity-count (count entities)
                                       :doc-count (count docs)
                                       :activity-count (count activity)
