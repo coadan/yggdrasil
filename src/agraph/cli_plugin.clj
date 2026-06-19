@@ -129,6 +129,24 @@
     (println "## Diagnostics")
     (doseq [{:keys [severity code message]} diagnostics]
       (println "-" (name severity) (name code) "-" message))))
+(defn- print-plugin-core-check
+  [{:keys [status package core-promotion diagnostics]}]
+  (println "# Plugin Core Promotion Check")
+  (println "- status" (name status))
+  (when package
+    (println "- package" (:id package) (str "version=" (:version package)))
+    (print-plugin-claim-authority "-" (:claim-authority package)))
+  (when core-promotion
+    (println "- core-promotion"
+             (name (:status core-promotion))
+             "-"
+             (:reason core-promotion))
+    (doseq [action (:next-actions core-promotion)]
+      (println "  next" action)))
+  (when (seq diagnostics)
+    (println "## Diagnostics")
+    (doseq [{:keys [severity code message]} diagnostics]
+      (println "-" (name severity) (name code) "-" message))))
 (defn- print-plugin-dry-run
   [{:keys [kind status package plugins file core-counts enhanced-counts counts diagnostics]}]
   (println "# Plugin Dry Run")
@@ -242,6 +260,20 @@
       (when (= :failed (:status result))
         (throw (ex-info "Plugin diagnosis failed."
                         {:diagnostics (:diagnostics result)}))))))
+(defn- plugin-core-check!
+  [args]
+  (let [dir (first (positional-args args))]
+    (when-not dir
+      (throw (ex-info "Missing plugin package directory."
+                      {:usage (usage)})))
+    (let [result (plugin-package/core-promotion-check dir)]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-core-check result))
+      (when (= :failed (:status result))
+        (throw (ex-info "Plugin core-promotion check failed."
+                        {:core-promotion (:core-promotion result)
+                         :diagnostics (:diagnostics result)}))))))
 (defn- plugin-dry-run!
   [args]
   (let [[kind package-dir root file] (positional-args args)]
@@ -357,6 +389,9 @@
 
         "diagnose"
         (plugin-diagnose! action-args)
+
+        "core-check"
+        (plugin-core-check! action-args)
 
         "dry-run"
         (plugin-dry-run! action-args)

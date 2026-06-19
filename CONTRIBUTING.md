@@ -62,5 +62,10 @@ Core promotion PRs that start from plugin work must include:
 - FOSS, non-commercial package metadata when the work was developed as a public
   plugin package.
 
+Run `bb plugin core-check <package-dir>` before proposing plugin behavior for
+core. The command verifies the minimum benchmark, fixture, test, scope, and
+policy evidence for review; reviewers still decide whether the behavior is
+project-agnostic enough for core.
+
 Unbenchmarked or project-local plugins can still be useful, but keep them
 external and non-authoritative for public claims until benchmark artifacts exist.

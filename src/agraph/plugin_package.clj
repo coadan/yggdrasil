@@ -39,6 +39,9 @@
 (def diagnose-schema
   "agraph.plugin.diagnose/v1")
 
+(def core-check-schema
+  "agraph.plugin.core-promotion-check/v1")
+
 (def registry-schema
   "agraph.plugin.registry/v1")
 
@@ -1013,6 +1016,20 @@
          :validation validation
          :diagnostics diagnostics
          :readiness (readiness package validation diagnostics)}))))
+
+(defn core-promotion-check
+  "Return a CI-friendly package gate for core-promotion PR review."
+  [package-dir]
+  (let [diagnosis (diagnose-local package-dir)
+        lane (get-in diagnosis [:readiness :core-promotion])
+        review-ready? (= :review-required (:status lane))]
+    {:schema core-check-schema
+     :status (if review-ready? :passed :failed)
+     :package-dir (fs/canonical-path package-dir)
+     :package (:package diagnosis)
+     :core-promotion lane
+     :diagnostics (:diagnostics diagnosis)
+     :validation (:validation diagnosis)}))
 
 (defn- registry-entry-path
   [registry-path entry]

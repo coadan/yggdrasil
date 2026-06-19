@@ -70,6 +70,7 @@
     (is (str/includes? usage "plugin new <dir>"))
     (is (str/includes? usage "plugin validate <dir>"))
     (is (str/includes? usage "plugin diagnose <dir>"))
+    (is (str/includes? usage "plugin core-check <dir>"))
     (is (str/includes? usage "plugin dry-run extractor <dir>"))
     (is (str/includes? usage "plugin dry-run report <dir>"))
     (is (str/includes? usage "plugin install <project.edn>"))
@@ -214,6 +215,33 @@
                   :subdir "packages/pkg"
                   :cache-root ".cache/plugins"}]]
                @calls))))))
+
+(deftest plugin-core-check-dispatches-to-package-gate
+  (let [calls (atom [])
+        claim-authority {:status :benchmark-backed
+                         :public-claims? true
+                         :review-required? true
+                         :blockers []}]
+    (with-redefs [plugin-package/core-promotion-check
+                  (fn [dir]
+                    (swap! calls conj dir)
+                    {:schema plugin-package/core-check-schema
+                     :status :passed
+                     :package-dir dir
+                     :package {:id "core-ready"
+                               :version "0.1.0"
+                               :claim-authority claim-authority}
+                     :core-promotion {:status :review-required
+                                      :reason "Benchmark metadata is present; project-agnostic core suitability still needs review."
+                                      :next-actions ["Verify there are no project-specific rules."]}
+                     :diagnostics []})]
+      (let [out (with-out-str
+                  (cli/dispatch "plugin" ["core-check" ".dev/plugins/core-ready"]))]
+        (is (str/includes? out "# Plugin Core Promotion Check"))
+        (is (str/includes? out "- status passed"))
+        (is (str/includes? out "- core-promotion review-required"))
+        (is (str/includes? out "claim-authority status=benchmark-backed public-claims=true"))
+        (is (= [".dev/plugins/core-ready"] @calls))))))
 
 (deftest plugin-authoring-dispatches-to-package-helpers
   (let [calls (atom [])
@@ -1237,8 +1265,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
-
 
 
 

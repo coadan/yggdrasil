@@ -593,6 +593,7 @@
     "  plugin new <dir> [--id ID] [--file-kind KIND] [--path-glob GLOB] [--scan-glob GLOB] [--fixture PATH] [--extractor] [--report] [--force] [--json]"
     "  plugin validate <dir> [--json]"
     "  plugin diagnose <dir> [--json]"
+    "  plugin core-check <dir> [--json]"
     "  plugin dry-run extractor <dir> <repo-root> <file> [--plugin ID] [--json]"
     "  plugin dry-run report <dir> [--plugin ID] [--json]"
     "  plugin install <project.edn> <git-url-or-path> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--force] [--json]"

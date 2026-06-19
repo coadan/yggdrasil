@@ -72,6 +72,7 @@ Start with a local scaffold:
 bb plugin new .dev/agraph/plugins/datastar-hiccup --id datastar-hiccup
 bb plugin validate .dev/agraph/plugins/datastar-hiccup
 bb plugin diagnose .dev/agraph/plugins/datastar-hiccup
+bb plugin core-check .dev/agraph/plugins/datastar-hiccup
 bb plugin dry-run extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
 bb plugin dry-run report .dev/agraph/plugins/datastar-hiccup --json
 bb plugin registry validate .dev/agraph/plugins/registry.edn
@@ -127,6 +128,13 @@ Diagnosis is manifest- and config-based. It does not judge architecture quality
 or project-specific usefulness. It surfaces the caveats that should travel with
 plugin output: scope, public/FOSS/non-commercial policy, benchmark status,
 claim authority, validation errors, and promotion blockers.
+
+`plugin core-check` is the CI-friendly gate for plugin-to-core PRs. It passes
+only when the core-promotion readiness lane reaches `:review-required`: the
+package is base-scoped, FOSS/non-commercial, benchmarked with existing benchmark
+artifacts, and declares package-local fixtures and tests. Passing this command
+does not merge the plugin into core; it only proves the package has the minimum
+review evidence for a project-agnostic core contribution.
 
 `plugin dry-run extractor` runs the package extractor against one file without
 writing graph state. It uses core extraction first, applies the selected plugin
@@ -372,6 +380,9 @@ core-promotion review until it declares package-local fixtures and tests:
 `bb plugin diagnose <dir>` checks that these paths exist. Missing fixtures or
 tests are warnings for ordinary package use, but they block the core-promotion
 readiness lane.
+
+Use `bb plugin core-check <dir>` in PR checks for plugin-to-core proposals. It
+fails until the core-promotion lane is ready for human review.
 
 ## Core Promotion
 

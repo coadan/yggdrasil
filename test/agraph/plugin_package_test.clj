@@ -855,10 +855,14 @@
     (write-file! (.getPath package-dir)
                  "extract.py"
                  "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
-    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))
+          core-check (plugin-package/core-promotion-check (.getPath package-dir))]
       (is (= :passed (:status diagnosis)))
       (is (= :ready (get-in diagnosis [:readiness :claims :status])))
       (is (= :review-required (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= plugin-package/core-check-schema (:schema core-check)))
+      (is (= :passed (:status core-check)))
+      (is (= :review-required (get-in core-check [:core-promotion :status])))
       (is (= ["fixtures/sample.clj"]
              (mapv :path (get-in diagnosis [:package :core-promotion :fixtures]))))
       (is (= ["test/sample_test.clj"]
@@ -945,11 +949,14 @@
     (write-file! (.getPath package-dir)
                  "extract.py"
                  "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
-    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))
+          core-check (plugin-package/core-promotion-check (.getPath package-dir))]
       (is (= :warning (:status diagnosis)))
       (is (= :blocked (get-in diagnosis [:readiness :public-sharing :status])))
       (is (= :blocked (get-in diagnosis [:readiness :claims :status])))
       (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= :failed (:status core-check)))
+      (is (= :blocked (get-in core-check [:core-promotion :status])))
       (is (= [:project-local-scope]
              (mapv :code (:diagnostics diagnosis)))))))
 
