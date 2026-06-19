@@ -2,6 +2,7 @@
   "Minimal MCP stdio server for AGraph packets."
   (:require [agraph.context :as context]
             [agraph.cursor :as cursor]
+            [agraph.evidence :as evidence]
             [agraph.graph :as graph]
             [agraph.map :as graph-map]
             [agraph.project :as project]
@@ -121,9 +122,10 @@
                            :minimum 1}}
                   [])}
    {:name "agraph_sync_inspect"
-    :description "Read and normalize a project config without syncing."
+    :description "Return project config plus the current mechanical evidence surface without syncing."
     :inputSchema (json-schema
-                  {:configPath {:type "string"}}
+                  {:configPath {:type "string"}
+                   :mapPath {:type "string"}}
                   [])}
    {:name "agraph_sync_check"
     :description "Return the read-only maintenance check report for a project."
@@ -335,7 +337,22 @@
 
 (defn- sync-inspect
   [ctx args]
-  (read-project! ctx args))
+  (let [project (read-project! ctx args)
+        config-path (config-path ctx args)]
+    (with-xtdb
+      ctx
+      (fn [xtdb]
+        {:schema "agraph.project.inspect/v1"
+         :project {:id (:id project)
+                   :name (:name project)
+                   :config-path (or config-path (:path project))}
+         :repos (mapv #(select-keys % [:id :root :role]) (:repos project))
+         :evidence (evidence/summarize xtdb
+                                       project
+                                       {:map-overlay (map-overlay ctx args)
+                                        :config-path (or config-path (:path project))
+                                        :map-path (or (:mapPath args)
+                                                      (:map-path ctx))})}))))
 
 (defn- sync-check
   [ctx args]

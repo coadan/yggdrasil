@@ -1,6 +1,7 @@
 (ns agraph.mcp-test
   (:require [agraph.context :as context]
             [agraph.cursor :as cursor]
+            [agraph.evidence :as evidence]
             [agraph.graph :as graph]
             [agraph.mcp :as mcp]
             [agraph.project :as project]
@@ -79,6 +80,8 @@
            (get-in schemas ["agraph_explore_docs" :required])))
     (is (= ["cursorId" "query"]
            (get-in schemas ["agraph_explore_search" :required])))
+    (is (contains? (set (keys (get-in schemas ["agraph_sync_inspect" :properties])))
+                   :mapPath))
     (is (= ["workId"]
            (get-in schemas ["agraph_work_show" :required])))
     (is (= ["workId"]
@@ -180,6 +183,46 @@
       (is (= "gateway routes" (:query packet)))
       (is (= :lexical (:retriever packet)))
       (is (= 7 (:limit packet))))))
+
+(deftest sync-inspect-tool-returns-project-evidence-surface
+  (with-redefs [project/read-project (constantly project-fixture)
+                store/with-node (fn [_ f] (f :xtdb))
+                evidence/summarize (fn [xtdb project opts]
+                                     {:schema evidence/schema
+                                      :xtdb xtdb
+                                      :project-id (:id project)
+                                      :config-path (:config-path opts)
+                                      :map-path (:map-path opts)
+                                      :available [:source-graph :docs]
+                                      :counts {:files 2
+                                               :nodes 3
+                                               :edges 4
+                                               :result-schema-mismatch-events 1}
+                                      :nextActions [{:kind :activity
+                                                     :label "Inspect result schema mismatch activity"
+                                                     :count 1
+                                                     :command "agraph sync activity project.edn --json"}]})]
+    (let [response (mcp/handle-message
+                    (mcp/server-context ["--config" "project.edn"])
+                    (tool-call 11
+                               "agraph_sync_inspect"
+                               {:mapPath "agraph.map.json"}))
+          packet (get-in response [:result :structuredContent])]
+      (is (= "agraph.project.inspect/v1" (:schema packet)))
+      (is (= "fixture" (get-in packet [:project :id])))
+      (is (= [{:id "app"
+               :root "/tmp/app"
+               :role :application}]
+             (:repos packet)))
+      (is (= evidence/schema (get-in packet [:evidence :schema])))
+      (is (= "project.edn" (get-in packet [:evidence :config-path])))
+      (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
+      (is (= 1 (get-in packet [:evidence :counts :result-schema-mismatch-events])))
+      (is (= [{:kind :activity
+               :label "Inspect result schema mismatch activity"
+               :count 1
+               :command "agraph sync activity project.edn --json"}]
+             (get-in packet [:evidence :nextActions]))))))
 
 (deftest missing-project-returns-structured-error
   (let [response (mcp/handle-message
