@@ -271,6 +271,14 @@
               :warnings 2}
              (get-in dry-run [:package :diagnostic-counts])))
       (is (= "src/page.clj" (get-in dry-run [:file :path])))
+      (is (= {:kind :extractor
+              :available ["demo-plugin-extractor"]
+              :selected ["demo-plugin-extractor"]
+              :skipped []
+              :counts {:available 1
+                       :selected 1
+                       :skipped 0}}
+             (:selection dry-run)))
       (is (pos? (get-in dry-run [:enhanced-counts :file-facts])))
       (is (pos? (get-in dry-run [:enhanced-counts :chunks])))
       (is (some #(= "demo-plugin-extractor" (:plugin-id %))
@@ -308,6 +316,14 @@
               :warnings 2}
              (get-in report-dry-run [:package :diagnostic-counts])))
       (is (= 1 (get-in report-dry-run [:counts :panels])))
+      (is (= {:kind :report
+              :available ["demo-plugin-report"]
+              :selected ["demo-plugin-report"]
+              :skipped []
+              :counts {:available 1
+                       :selected 1
+                       :skipped 0}}
+             (:selection report-dry-run)))
       (is (= "demo-plugin-report" (get-in report-dry-run [:plugins 0 :id])))
       (is (= :unbenchmarked (get-in report-dry-run [:plugins 0 :benchmark-status])))
       (is (= "demo-plugin"
@@ -423,6 +439,75 @@
              (:counts report-result)))
       (is (= [:no-report-plugins-selected]
              (mapv :code (:diagnostics report-result)))))))
+
+(deftest dry-run-reports-selected-and-skipped-plugins
+  (let [workspace (temp-dir "agraph-plugin-selection")
+        package-dir (io/file workspace "plugin")
+        repo-root (io/file workspace "repo")
+        src (io/file repo-root "src")]
+    (.mkdirs package-dir)
+    (.mkdirs src)
+    (spit (io/file src "page.clj") "(ns page)\n(defn render [] :ok)\n")
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (write-file! (.getPath package-dir)
+                 "report.py"
+                 "import json, sys\njson.dump({'schema':'agraph.report-plugin.result/v1','panels':[]}, sys.stdout)\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "selection-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :private
+                                  :commercial? false}
+                   :scope {:kind :project-local
+                           :reason "Selection test fixture."}
+                   :benchmark {:status :unbenchmarked}
+                   :extractor-plugins
+                   [{:id "first-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}
+                    {:id "second-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]
+                   :report-plugins
+                   [{:id "first-report"
+                     :command ["python3" "report.py"]
+                     :slots [:plugins]}
+                    {:id "second-report"
+                     :command ["python3" "report.py"]
+                     :slots [:plugins]}]}))
+    (let [extractor-result (plugin-package/dry-run-extractor
+                            (.getPath package-dir)
+                            (.getPath repo-root)
+                            "src/page.clj"
+                            {:plugin-id "first-extractor"})
+          report-result (plugin-package/dry-run-report
+                         (.getPath package-dir)
+                         {:plugin-id "second-report"})]
+      (is (= :passed (:status extractor-result)))
+      (is (= {:kind :extractor
+              :requested-plugin-id "first-extractor"
+              :available ["first-extractor" "second-extractor"]
+              :selected ["first-extractor"]
+              :skipped ["second-extractor"]
+              :counts {:available 2
+                       :selected 1
+                       :skipped 1}}
+             (:selection extractor-result)))
+      (is (= :passed (:status report-result)))
+      (is (= {:kind :report
+              :requested-plugin-id "second-report"
+              :available ["first-report" "second-report"]
+              :selected ["second-report"]
+              :skipped ["first-report"]
+              :counts {:available 2
+                       :selected 1
+                       :skipped 1}}
+             (:selection report-result))))))
 
 (deftest validate-rejects-unsupported-package-benchmark-status
   (let [workspace (temp-dir "agraph-plugin-benchmark-status")

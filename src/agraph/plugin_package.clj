@@ -1135,31 +1135,40 @@
                  :data (ex-data e)}]
        :packages []})))
 
-(defn- selected-extractor-plugins
-  [package plugin-id]
-  (let [plugins (extractor-plugin/normalize-plugins
-                 (:resolved-extractor-plugins package))]
-    (if (present? plugin-id)
-      (let [selected (filterv #(= plugin-id (:id %)) plugins)]
-        (when-not (seq selected)
-          (throw (ex-info "Extractor plugin not found in package."
-                          {:plugin-id plugin-id
-                           :available (mapv :id plugins)})))
-        selected)
-      plugins)))
+(defn- extractor-plugins
+  [package]
+  (extractor-plugin/normalize-plugins
+   (:resolved-extractor-plugins package)))
 
-(defn- selected-report-plugins
-  [package plugin-id]
-  (let [plugins (report-plugin/normalize-plugins
-                 (:resolved-report-plugins package))]
-    (if (present? plugin-id)
-      (let [selected (filterv #(= plugin-id (:id %)) plugins)]
-        (when-not (seq selected)
-          (throw (ex-info "Report plugin not found in package."
-                          {:plugin-id plugin-id
-                           :available (mapv :id plugins)})))
-        selected)
-      plugins)))
+(defn- report-plugins
+  [package]
+  (report-plugin/normalize-plugins
+   (:resolved-report-plugins package)))
+
+(defn- select-plugin-configs
+  [kind plugins plugin-id]
+  (if (present? plugin-id)
+    (let [selected (filterv #(= plugin-id (:id %)) plugins)]
+      (when-not (seq selected)
+        (throw (ex-info (str (str/capitalize (name kind))
+                             " plugin not found in package.")
+                        {:plugin-id plugin-id
+                         :available (mapv :id plugins)})))
+      selected)
+    plugins))
+
+(defn- plugin-selection-summary
+  [kind plugin-id plugins selected]
+  (let [selected-ids (set (map :id selected))
+        skipped (remove #(contains? selected-ids (:id %)) plugins)]
+    (cond-> {:kind kind
+             :available (mapv :id plugins)
+             :selected (mapv :id selected)
+             :skipped (mapv :id skipped)
+             :counts {:available (count plugins)
+                      :selected (count selected)
+                      :skipped (count skipped)}}
+      (present? plugin-id) (assoc :requested-plugin-id plugin-id))))
 
 (defn- file-record-for-dry-run
   [root file plugins]
@@ -1259,7 +1268,12 @@
       (package-error-extractor-dry-run package root-path file package-errors)
 
       :else
-      (let [plugins (selected-extractor-plugins package plugin-id)
+      (let [available-plugins (extractor-plugins package)
+            plugins (select-plugin-configs :extractor available-plugins plugin-id)
+            selection (plugin-selection-summary :extractor
+                                                plugin-id
+                                                available-plugins
+                                                plugins)
             plugin-summaries (mapv dry-run-plugin-summary plugins)]
         (if (empty? plugins)
           (let [rows (empty-extraction)
@@ -1271,6 +1285,7 @@
              :status :failed
              :package (package-summary package)
              :plugins plugin-summaries
+             :selection selection
              :file {:path (str file)
                     :root root-path}
              :core-counts (counts rows)
@@ -1294,6 +1309,7 @@
              :status (if (seq (:diagnostics enhanced)) :warning :passed)
              :package (package-summary package)
              :plugins plugin-summaries
+             :selection selection
              :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
              :core-counts (counts core)
              :enhanced-counts (counts enhanced)
@@ -1356,7 +1372,12 @@
       (package-error-report-dry-run package package-errors)
 
       :else
-      (let [plugins (selected-report-plugins package plugin-id)
+      (let [available-plugins (report-plugins package)
+            plugins (select-plugin-configs :report available-plugins plugin-id)
+            selection (plugin-selection-summary :report
+                                                plugin-id
+                                                available-plugins
+                                                plugins)
             plugin-summary dry-run-plugin-summary]
         (if (empty? plugins)
           (let [diagnostics [(no-selected-plugins-diagnostic :report
@@ -1367,6 +1388,7 @@
              :status :failed
              :package (package-summary package)
              :plugins []
+             :selection selection
              :counts {:panels 0
                       :diagnostics (count diagnostics)
                       :artifacts 0}
@@ -1387,6 +1409,7 @@
              :status (if (seq diagnostics) :warning :passed)
              :package (package-summary package)
              :plugins (mapv :plugin outputs)
+             :selection selection
              :counts {:panels (reduce + (map #(count (get-in % [:output :panels] [])) outputs))
                       :diagnostics (count diagnostics)
                       :artifacts (reduce + (map #(count (get-in % [:output :artifacts] [])) outputs))}
