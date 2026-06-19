@@ -1508,6 +1508,7 @@
                    "grep -q 'Fast Localization Profile' \"$AGRAPH_BENCH_PROMPT\"\n"
                    "grep -q 'suspectedFiles' \"$AGRAPH_BENCH_OUTPUT_SCHEMA\"\n"
                    "test \"$AGRAPH_BENCH_CASE_ID\" = case-1\n"
+                   "test -n \"$AGRAPH_BENCH_CASE_FINGERPRINT\"\n"
                    "cat > \"$AGRAPH_BENCH_RESULT\" <<'JSON'\n"
                    "{\"schema\":\"" benchmark/agent-result-schema "\","
                    "\"suspectedFiles\":[{\"path\":\"src/app.clj\","
@@ -1568,6 +1569,11 @@
                        (slurp (get-in run [:artifacts :outputSchemaPath]))
                        :key-fn keyword)
                       :required)))
+          (is (= {:type "string"}
+                 (get-in (json/read-json
+                          (slurp (get-in run [:artifacts :outputSchemaPath]))
+                          :key-fn keyword)
+                         [:properties :caseFingerprint])))
           (is (= {:type "object"
                   :additionalProperties false
                   :properties {:mode {:type "string"}

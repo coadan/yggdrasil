@@ -326,6 +326,7 @@ Agents should return JSON shaped like this:
 {
   "schema": "agraph.benchmark.agent-result/v1",
   "caseId": "penpot-example",
+  "caseFingerprint": "sha256:...",
   "agentId": "codex",
   "mode": "agraph",
   "suspectedFiles": [

@@ -1630,6 +1630,7 @@
   []
   {:schema agent-result-schema
    :caseId "case id from the packet"
+   :caseFingerprint "case fingerprint from the packet"
    :agentId "stable id for the agent run"
    :mode "agraph or shell-only"
    :parserWorker {:mode "none|java|dotnet|all"
@@ -1661,6 +1662,7 @@
         packet {:schema agent-packet-schema
                 :suite-id (:suite-id prepared)
                 :case-id (:case-id prepared)
+                :caseFingerprint (:caseFingerprint prepared)
                 :repo-id (:repo-id prepared)
                 :project-id (:project-id prepared)
                 :mode mode
@@ -2134,7 +2136,7 @@
   truth or fix artifacts."
   ([packet]
    (context-packet->agent-result packet {}))
-  ([packet {:keys [agent-id mode case-id root limit coverage]}]
+  ([packet {:keys [agent-id mode case-id caseFingerprint root limit coverage]}]
    (let [query-tokens (text/tokenize (:query packet))
          source-kinds (coverage-source-kinds coverage)
          kind-by-path (if (or (empty? source-kinds)
@@ -2166,20 +2168,21 @@
                      (assoc :candidateFileOnlyQuota (:candidateFileOnlyQuota selected-files)
                             :candidateFileOnlySelected (:candidateFileOnlySelected selected-files)))
          suspected-files (:files selected-files)]
-     {:schema agent-result-schema
-      :caseId case-id
-      :agentId (or agent-id "agraph-baseline")
-      :mode (or mode "agraph")
-      :suspectedFiles suspected-files
-      :suspectedSymbols (context-symbols packet)
-      :commands (:drilldowns packet)
-      :warnings (vec (or (:warnings packet) []))
-      :selection selection
-      :summary (str "Deterministic AGraph baseline ranked "
-                    (count suspected-files)
-                    " suspected files from "
-                    (count candidate-files)
-                    " context packet file candidates.")})))
+     (cond-> {:schema agent-result-schema
+              :caseId case-id
+              :agentId (or agent-id "agraph-baseline")
+              :mode (or mode "agraph")
+              :suspectedFiles suspected-files
+              :suspectedSymbols (context-symbols packet)
+              :commands (:drilldowns packet)
+              :warnings (vec (or (:warnings packet) []))
+              :selection selection
+              :summary (str "Deterministic AGraph baseline ranked "
+                            (count suspected-files)
+                            " suspected files from "
+                            (count candidate-files)
+                            " context packet file candidates.")}
+       caseFingerprint (assoc :caseFingerprint caseFingerprint)))))
 
 (defn- context-ground-truth-ranks
   [prepared packet]
@@ -2277,6 +2280,7 @@
                               {:agent-id agent-id
                                :mode "agraph"
                                :case-id (:case-id prepared)
+                               :caseFingerprint (:caseFingerprint prepared)
                                :root (:worktreeRoot prepared)
                                :coverage (:coverage prepared)
                                :limit (agent-baseline-suspect-limit opts)})
@@ -2393,6 +2397,7 @@
   (assoc agent-result
          :schema agent-result-schema
          :caseId (:case-id prepared)
+         :caseFingerprint (:caseFingerprint prepared)
          :agentId agent-id
          :mode "local-vector"))
 
@@ -2555,6 +2560,7 @@
                       {:agent-id (or (:agent-id opts) "agraph-hints")
                        :mode "agraph"
                        :case-id (:case-id prepared)
+                       :caseFingerprint (:caseFingerprint prepared)
                        :root (:worktreeRoot prepared)
                        :limit limit
                        :coverage (:coverage prepared)})]
@@ -2678,6 +2684,7 @@
    "properties" {"schema" {"type" "string"
                            "enum" [agent-result-schema]}
                  "caseId" {"type" "string"}
+                 "caseFingerprint" {"type" "string"}
                  "agentId" {"type" "string"}
                  "mode" {"type" "string"
                          "enum" ["agraph" "shell-only"]}
@@ -2837,6 +2844,7 @@
   (assoc agent-result
          :schema agent-result-schema
          :caseId (:case-id prepared)
+         :caseFingerprint (:caseFingerprint prepared)
          :agentId (:agent-id opts)
          :mode (agent-mode opts)
          :suspectedSymbols (vec (or (:suspectedSymbols agent-result)
@@ -2850,6 +2858,7 @@
   [prepared opts warning]
   {:schema agent-result-schema
    :caseId (:case-id prepared)
+   :caseFingerprint (:caseFingerprint prepared)
    :agentId (:agent-id opts)
    :mode (agent-mode opts)
    :suspectedFiles []
@@ -2894,6 +2903,7 @@
   [packet result-path prompt-path output-schema-path opts]
   (cond-> {"AGRAPH_BENCH_SUITE_ID" (:suite-id packet)
            "AGRAPH_BENCH_CASE_ID" (:case-id packet)
+           "AGRAPH_BENCH_CASE_FINGERPRINT" (:caseFingerprint packet)
            "AGRAPH_BENCH_REPO_ID" (:repo-id packet)
            "AGRAPH_BENCH_PROJECT_ID" (:project-id packet)
            "AGRAPH_BENCH_MODE" (:mode packet)
