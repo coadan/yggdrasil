@@ -94,6 +94,7 @@
        "        \"text\": content[:500],\n"
        "        \"sourceLine\": 1,\n"
        "    }] if content else [],\n"
+       "    \"overlays\": [],\n"
        "    \"diagnostics\": [],\n"
        "}, sys.stdout)\n"))
 
@@ -143,7 +144,10 @@
        "- replace `fixtures/sample.clj` with representative project-agnostic "
        "fixtures for that file family;\n"
        "- keep output concrete and auditable: file facts, nodes, edges, chunks, "
-       "and diagnostics should cite source paths and lines where possible.\n\n"
+       "overlays, and diagnostics should cite source paths and lines where "
+       "possible;\n"
+       "- use `overlays` to supersede or hide weaker core rows while preserving "
+       "raw evidence for audit.\n\n"
        "`registry.example.edn` is a sharing template. It will not pass public "
        "registry validation until this package is reviewed as base/public and "
        "declares a real git source.\n\n"

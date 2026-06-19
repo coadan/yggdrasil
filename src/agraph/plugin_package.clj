@@ -1623,6 +1623,10 @@
                       "Keep facts concrete; do not emit accepted architecture meaning directly."
                       "Use overlays to mark weaker rows as superseded or hidden instead of deleting evidence."
                       "Use diagnostics for uncertainty instead of silent absence."]
+   :overlay-requirements ["For :supersedes and :hides, emit targetId for the row being annotated."
+                          "For :supersedes, emit replacementId when a plugin row is the preferred replacement."
+                          "Emit a short reason so reviewers can audit why the overlay exists."
+                          "Do not use overlays to erase evidence or assert accepted system boundaries."]
    :non-goals ["No ownership, system-boundary, or runtime-criticality claims without map/metadata acceptance."
                "No project-specific logic belongs in AGraph core without benchmarks and review."]})
 
