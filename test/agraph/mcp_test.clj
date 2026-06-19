@@ -55,7 +55,7 @@
            (get-in init [:result :serverInfo])))
     (is (= ["agraph_explore"
             "agraph_node"
-            "agraph_view_systems"
+            "agraph_systems"
             "agraph_status"]
            tool-names))))
 
@@ -71,7 +71,7 @@
             "agraph_explore_expand"
             "agraph_explore_docs"
             "agraph_explore_search"
-            "agraph_view_systems"
+            "agraph_systems"
             "agraph_sync_inspect"
             "agraph_status"
             "agraph_sync_check"
@@ -91,7 +91,7 @@
         tool-names (mapv :name (get-in listed [:result :tools]))]
     (is (= ["agraph_explore"
             "agraph_node"
-            "agraph_view_systems"
+            "agraph_systems"
             "agraph_sync_inspect"
             "agraph_status"
             "agraph_sync_check"
@@ -311,7 +311,7 @@
         (is (= :ambiguous (:status packet)))
         (is (= ["node:one" "node:two"] (mapv :id (:choices packet))))))))
 
-(deftest view-systems-tool-returns-canonical-graph
+(deftest systems-tool-returns-canonical-graph
   (with-redefs [project/read-project (constantly project-fixture)
                 store/with-node (fn [_ f] (f :xtdb))
                 graph/system-graph (fn [xtdb project-id opts]
@@ -324,7 +324,7 @@
     (let [response (mcp/handle-message
                     (mcp/server-context ["--config" "project.edn"])
                     (tool-call 8
-                               "agraph_view_systems"
+                               "agraph_systems"
                                {:detail "expanded"}))
           packet (get-in response [:result :structuredContent])]
       (is (= graph/schema (:schema packet)))

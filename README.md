@@ -261,7 +261,7 @@ sections.
 
 Use `agraph-mcp --config project.edn --map agraph.map.json` when an MCP client
 should call AGraph tools directly. The default listed tools are
-`agraph_explore`, `agraph_node`, `agraph_status`, and `agraph_view_systems`. Use
+`agraph_explore`, `agraph_node`, `agraph_status`, and `agraph_systems`. Use
 `--tools default,cursor,sync,work,ask` or `AGRAPH_MCP_TOOLS=all` to list
 advanced cursor, sync, and queue lifecycle tools. MCP does not expose arbitrary
 SQL or implicit map mutation.

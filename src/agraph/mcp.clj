@@ -163,7 +163,7 @@
                    :budget {:type "integer"
                             :minimum 1000}}
                   ["cursorId" "query"])}
-   {:name "agraph_view_systems"
+   {:name "agraph_systems"
     :groups #{:default}
     :description "Return the canonical agraph.graph/v2 systems graph JSON."
     :inputSchema (json-schema
@@ -893,7 +893,7 @@
     "agraph_explore_expand" (explore-expand ctx args)
     "agraph_explore_docs" (explore-docs ctx args)
     "agraph_explore_search" (explore-search ctx args)
-    "agraph_view_systems" (view-systems ctx args)
+    "agraph_systems" (view-systems ctx args)
     "agraph_sync_inspect" (sync-inspect ctx args)
     "agraph_status" (sync-inspect ctx args)
     "agraph_sync_check" (sync-check ctx args)

@@ -118,7 +118,7 @@
        "```\n\n"
        "For MCP clients, run `agraph-mcp --config project.edn --map agraph.map.json` "
        "and start with the default typed tools: `agraph_explore`, "
-       "`agraph_status`, and `agraph_view_systems`. Opt into advanced listed "
+       "`agraph_node`, `agraph_status`, and `agraph_systems`. Opt into advanced listed "
        "tools with `--tools default,cursor,sync,work,ask` or "
        "`AGRAPH_MCP_TOOLS=all`; direct handlers remain bounded AGraph packet "
        "tools, not arbitrary shell or map mutation.\n\n"
