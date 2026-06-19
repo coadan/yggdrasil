@@ -667,7 +667,9 @@
         hint-details (hint-diagnostic-details agent-diagnostics)
         audit-scope-trust-boundary (hint-diagnostic-detail
                                     hint-details
-                                    "audit-scope-trust-boundary")]
+                                    "audit-scope-trust-boundary")
+        source-skipped-files (hint-diagnostic-detail hint-details
+                                                     "source-skipped-files")]
     (vec
      (keep identity
            [(improvement-row
@@ -736,6 +738,14 @@
               :message "Audit-scope hints reported skipped files, extractor diagnostics, or unclassified rows that weaken source-family claims."
               :details (when audit-scope-trust-boundary
                          [audit-scope-trust-boundary])})
+            (improvement-row
+             {:kind "source-skipped-files"
+              :area "source-coverage-quality"
+              :runs (:runs source-skipped-files)
+              :case-ids (:caseIds source-skipped-files)
+              :message "Source coverage hints reported skipped files that should be reviewed before treating missing facts as absent."
+              :details (when source-skipped-files
+                         [source-skipped-files])})
             (improvement-row
              {:kind "coverage-filtered-candidates"
               :area "agent-context-quality"
