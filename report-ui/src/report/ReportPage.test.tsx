@@ -32,6 +32,11 @@ describe("ReportPage", () => {
     expect(screen.getByText("flows-api / candidate-system, events-worker / candidate-system")).toBeInTheDocument();
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
 
+    const pluginCommand = screen.getByText("agraph ask \"what owns checkout?\" --project fixture --json").closest("li");
+    expect(pluginCommand).toBeTruthy();
+    fireEvent.click(within(pluginCommand as HTMLElement).getByRole("button", { name: "Copy command" }));
+    expect(within(pluginCommand as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Systems" }));
 
     expect(screen.getByText("External API Review")).toBeInTheDocument();

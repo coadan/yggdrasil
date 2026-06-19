@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { AGraphReport, ReportPluginDiagnostic, ReportPluginPanel } from "../data/types";
 import { displayValue } from "./valueFormat";
 
@@ -138,6 +138,7 @@ function InlineDataTable({ value }: { value: unknown }) {
 
 function InlineCommandList({ value }: { value: unknown }) {
   const commands = Array.isArray(value) ? value.map(displayValue).filter(Boolean) : [];
+  const [copied, setCopied] = useState<string | null>(null);
   return commands.length === 0 ? (
     <p className="muted">No commands.</p>
   ) : (
@@ -145,6 +146,15 @@ function InlineCommandList({ value }: { value: unknown }) {
       {commands.map((command) => (
         <li key={command}>
           <code>{command}</code>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard?.writeText(command);
+              setCopied(command);
+            }}
+          >
+            {copied === command ? "Copied" : "Copy command"}
+          </button>
         </li>
       ))}
     </ul>

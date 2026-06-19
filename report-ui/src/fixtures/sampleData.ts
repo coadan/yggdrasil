@@ -220,9 +220,10 @@ export const fixtureReport: AGraphReport = {
         label: "Fixture Graph Crawl",
         slot: "plugins",
         order: 10,
-        mdx: "## Fixture Graph Crawl\n\n<Callout dataKey=\"summary\" />\n\n<DataTable dataKey=\"rows\" />",
+        mdx: "## Fixture Graph Crawl\n\n<Callout dataKey=\"summary\" />\n\n<DataTable dataKey=\"rows\" />\n\n<CommandList dataKey=\"commands\" />",
         data: {
           summary: "Plugin output can be shaped from graph traversal evidence.",
+          commands: ["agraph ask \"what owns checkout?\" --project fixture --json"],
           rows: {
             columns: [
               { key: "source", label: "Source" },
