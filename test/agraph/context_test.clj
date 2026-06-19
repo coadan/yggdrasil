@@ -379,6 +379,59 @@
     (is (= 2 (count (:relationships compact))))
     (is (= 4 (count (get-in compact [:relationships 0 :targets]))))))
 
+(deftest blast-radius-keeps-only-crossing-mechanical-edges
+  (let [blast-radius (#'context/blast-radius
+                      [{:id "system:api"}]
+                      [{:id "edge:api-db"
+                        :source "system:api"
+                        :target "system:db"
+                        :relation "uses"
+                        :confidence "medium"
+                        :score 1.0}
+                       {:id "edge:client-api"
+                        :source "system:client"
+                        :target "system:api"
+                        :relation "calls"
+                        :score 0.8}
+                       {:id "edge:internal"
+                        :source "system:api"
+                        :target "system:api"
+                        :relation "self"
+                        :score 0.7}])]
+    (is (= {:basis "selected-mechanical-edges"
+            :downstream {:count 1
+                         :targets [{:id "edge:api-db"
+                                    :relation "uses"
+                                    :source "system:api"
+                                    :target "system:db"
+                                    :neighbor "system:db"
+                                    :confidence "medium"
+                                    :score 1.0}]}
+            :upstream {:count 1
+                       :targets [{:id "edge:client-api"
+                                  :relation "calls"
+                                  :source "system:client"
+                                  :target "system:api"
+                                  :neighbor "system:client"
+                                  :score 0.8}]}}
+           blast-radius))))
+
+(deftest compact-blast-radius-keeps-bounded-targets
+  (let [packet {:blastRadius {:basis "selected-mechanical-edges"
+                              :downstream {:count 5
+                                           :targets (mapv (fn [idx]
+                                                            {:id (str "edge:d" idx)
+                                                             :target (str "node:d" idx)})
+                                                          (range 5))}
+                              :upstream {:count 5
+                                         :targets (mapv (fn [idx]
+                                                          {:id (str "edge:u" idx)
+                                                           :source (str "node:u" idx)})
+                                                        (range 5))}}}
+        compact (#'context/compact-blast-radius-in-packet packet)]
+    (is (= 4 (count (get-in compact [:blastRadius :downstream :targets]))))
+    (is (= 4 (count (get-in compact [:blastRadius :upstream :targets]))))))
+
 (deftest compact-snippets-keeps-bounded-files-and-items
   (let [packet {:snippets (mapv (fn [file-idx]
                                   {:path (str "src/file_" file-idx ".clj")

@@ -17,6 +17,11 @@ The packet schema is `agraph.context/v1`:
   "budget": {"requested": 4000, "estimated": 900, "truncated": false},
   "entities": [],
   "edges": [],
+  "blastRadius": {
+    "basis": "selected-mechanical-edges",
+    "downstream": {"count": 0, "targets": []},
+    "upstream": {"count": 0, "targets": []}
+  },
   "activity": [],
   "docs": [],
   "sourceCoverage": {
@@ -175,6 +180,14 @@ and report packets include compact `skipped-by-extension` and
 `candidateFiles` lists ranked file candidates from retrieval. Rows include
 `repo` when the indexed search result is repo-scoped, so agents can distinguish
 same-path files across multi-repo projects without relying on path text alone.
+
+`blastRadius` is a conservative summary of selected mechanical graph edges that
+cross the selected work area. `downstream` contains edges from selected entities
+to unselected neighbors; `upstream` contains edges from unselected neighbors to
+selected entities. Edges whose source and target are both selected are omitted
+from `blastRadius` because they describe the selected work area itself. This is
+not semantic impact analysis; it is a bounded neighbor list for follow-up
+inspection.
 
 ## Architecture Evidence
 

@@ -879,6 +879,47 @@
                    source]))
        (mapv relationship-group-row)))
 
+(defn- blast-radius-target-row
+  [direction edge]
+  (cond-> {:id (:id edge)
+           :relation (display-name (:relation edge))
+           :source (:source edge)
+           :target (:target edge)
+           :neighbor (case direction
+                       :downstream (:target edge)
+                       :upstream (:source edge))}
+    (:confidence edge) (assoc :confidence (:confidence edge))
+    (:salience edge) (assoc :salience (:salience edge))
+    (:visibility edge) (assoc :visibility (:visibility edge))
+    (:score edge) (assoc :score (:score edge))))
+
+(defn- blast-radius-side
+  [direction selected-ids edges]
+  (let [rows (->> edges
+                  (filter (fn [edge]
+                            (case direction
+                              :downstream (and (contains? selected-ids (:source edge))
+                                               (not (contains? selected-ids
+                                                               (:target edge))))
+                              :upstream (and (contains? selected-ids (:target edge))
+                                             (not (contains? selected-ids
+                                                             (:source edge)))))))
+                  (sort-by (juxt :relation :neighbor :id))
+                  (mapv #(blast-radius-target-row direction %)))]
+    {:count (count rows)
+     :targets (vec (take 8 rows))}))
+
+(defn- blast-radius
+  [entities edges]
+  (let [selected-ids (set (map :id entities))
+        downstream (blast-radius-side :downstream selected-ids edges)
+        upstream (blast-radius-side :upstream selected-ids edges)]
+    (when (or (pos? (:count downstream))
+              (pos? (:count upstream)))
+      {:basis "selected-mechanical-edges"
+       :downstream downstream
+       :upstream upstream})))
+
 (defn- system-evidence-score
   [query-tokens selected-system-ids selected-paths row]
   (let [path-score (if (contains? selected-paths (:path row)) 1.0 0.0)
@@ -1286,7 +1327,7 @@
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns answerability
    search-instrumentation freshness source-coverage architecture audit-scopes relationships
-   candidate-files]
+   blast-radius candidate-files]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data)
@@ -1304,6 +1345,7 @@
     architecture (assoc :architecture architecture)
     (seq audit-scopes) (assoc :auditScopes audit-scopes)
     (seq relationships) (assoc :relationships relationships)
+    blast-radius (assoc :blastRadius blast-radius)
     source-coverage (assoc :sourceCoverage source-coverage)))
 
 (defn- add-warning-with-budget
@@ -1448,6 +1490,22 @@
     (update packet :relationships #(mapv compact-relationship-group (take 5 %)))
     packet))
 
+(defn- compact-blast-radius-side
+  [side]
+  (update side :targets #(vec (take 4 %))))
+
+(defn- compact-blast-radius
+  [blast-radius]
+  (-> blast-radius
+      (update :downstream compact-blast-radius-side)
+      (update :upstream compact-blast-radius-side)))
+
+(defn- compact-blast-radius-in-packet
+  [packet]
+  (if (contains? packet :blastRadius)
+    (update packet :blastRadius compact-blast-radius)
+    packet))
+
 (defn- compact-snippet-file
   [file]
   (update file :items #(vec (take 2 %))))
@@ -1467,10 +1525,12 @@
                     compact-architecture-in-packet
                     compact-audit-scopes-in-packet
                     compact-relationships-in-packet
+                    compact-blast-radius-in-packet
                     compact-snippets-in-packet
                     #(update % :answerability compact-answerability)
                     #(dissoc % :snippets)
                     #(dissoc % :relationships)
+                    #(dissoc % :blastRadius)
                     #(dissoc % :auditScopes)
                     #(dissoc % :architecture)
                     #(assoc % :warnings [])
@@ -1509,11 +1569,13 @@
                compact-architecture-in-packet
                compact-audit-scopes-in-packet
                compact-relationships-in-packet
+               compact-blast-radius-in-packet
                compact-snippets-in-packet
                #(update % :answerability compact-answerability)
                #(update % :answerability minimal-answerability)
                #(dissoc % :snippets)
                #(dissoc % :relationships)
+               #(dissoc % :blastRadius)
                #(dissoc % :auditScopes)
                #(dissoc % :architecture)
                #(assoc % :warnings [])
@@ -2188,7 +2250,8 @@
                       {:boundary-evidence (:boundaryEvidence architecture)
                        :runtime-evidence (:runtimeEvidence architecture)
                        :dependency-evidence (:dependencyEvidence architecture)
-                       :docs (:docs architecture)})]
+                       :docs (:docs architecture)})
+        blast-radius (blast-radius entities edges)]
     (fit-budget (base-packet query-text
                              budget
                              graph-data
@@ -2204,6 +2267,7 @@
                              architecture
                              audit-scopes
                              (relationship-groups edges)
+                             blast-radius
                              (candidate-files results))
                 docs
                 budget)))
