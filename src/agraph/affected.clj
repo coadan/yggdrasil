@@ -1,6 +1,7 @@
 (ns agraph.affected
   "Conservative mechanical affected-file analysis."
-  (:require [agraph.index :as index]
+  (:require [agraph.command :as command]
+            [agraph.index :as index]
             [agraph.xtdb :as store]
             [clojure.java.shell :as shell]
             [clojure.string :as str]))
@@ -313,6 +314,67 @@
       [{:kind "no-mechanical-test-impact"
         :message "No impacted files had indexed :test definitions."}]))))
 
+(defn- distinct-by
+  [f coll]
+  (loop [remaining (seq coll)
+         seen #{}
+         out []]
+    (if-let [item (first remaining)]
+      (let [k (f item)]
+        (if (contains? seen k)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen k) (conj out item))))
+      out)))
+
+(defn- sync-command
+  [config-path & args]
+  (apply command/command
+         (concat ["agraph" "sync" (or config-path "<project.edn>")]
+                 args)))
+
+(defn- sync-subcommand
+  [subcommand config-path & args]
+  (apply command/command
+         (concat ["agraph" "sync" subcommand (or config-path "<project.edn>")]
+                 args)))
+
+(defn- affected-command
+  [config-path {:keys [repo-id files since tests-only?]}]
+  (apply command/command
+         (concat ["agraph" "affected" (or config-path "<project.edn>")]
+                 (when repo-id ["--repo" repo-id])
+                 (when (seq files) ["--files" (str/join "," files)])
+                 (when since ["--since" since])
+                 (when tests-only? ["--tests"])
+                 ["--json"])))
+
+(defn- warning-next-actions
+  [warnings opts]
+  (let [warning-kinds (set (map :kind warnings))
+        config-path (:config-path opts)
+        input-files (vec (:files opts))]
+    (->> (cond-> []
+           (contains? warning-kinds "ambiguous-inputs")
+           (conj {:kind :affected
+                  :label "Re-run affected with an explicit repo"
+                  :command (affected-command config-path
+                                             (assoc opts
+                                                    :repo-id "<repo-id>"
+                                                    :files input-files))})
+
+           (or (contains? warning-kinds "unindexed-inputs")
+               (contains? warning-kinds "no-indexed-nodes"))
+           (conj {:kind :sync
+                  :label "Refresh the graph index before trusting absence of impact"
+                  :command (sync-command config-path "--check")})
+
+           (contains? warning-kinds "no-mechanical-test-impact")
+           (conj {:kind :coverage
+                  :label "Inspect source coverage and extractor diagnostics"
+                  :command (sync-subcommand "coverage" config-path "--json")}))
+         (distinct-by :command)
+         vec)))
+
 (defn analyze-rows
   "Return conservative affected-file analysis from already loaded graph rows."
   [project rows opts]
@@ -350,7 +412,12 @@
                             vec)
         unsupported-edges (->> (:edges rows)
                                (filter #(unsupported-incident-edge? changed-node-ids %))
-                               (mapv unsupported-edge-row))]
+                               (mapv unsupported-edge-row))
+        warnings (warning-rows resolved-inputs
+                               changed-nodes
+                               affected-files
+                               tests-only?)
+        next-actions (warning-next-actions warnings opts)]
     {:schema schema
      :project-id (:id project)
      :basis (cond-> {:mode (if (seq (:since opts)) "git-diff" "explicit-files")
@@ -367,10 +434,8 @@
      :affectedFiles affected-files
      :unsupportedIncidentEdges {:count (count unsupported-edges)
                                 :samples (vec (take 8 unsupported-edges))}
-     :warnings (warning-rows resolved-inputs
-                             changed-nodes
-                             affected-files
-                             tests-only?)}))
+     :warnings warnings
+     :nextActions next-actions}))
 
 (defn analyze
   "Load indexed graph rows and return conservative affected-file analysis."

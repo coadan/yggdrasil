@@ -630,7 +630,7 @@
 
 (defn- print-affected-summary
   [{:keys [project-id basis inputs changedFiles changedNodes affectedFiles
-           unsupportedIncidentEdges warnings]}]
+           unsupportedIncidentEdges warnings nextActions]}]
   (println "# Affected Files")
   (println "- project" project-id)
   (println "- mode" (:mode basis))
@@ -656,7 +656,12 @@
     (println)
     (println "## Boundaries")
     (doseq [{:keys [kind message]} warnings]
-      (println "-" kind message))))
+      (println "-" kind message)))
+  (when (seq nextActions)
+    (println)
+    (println "## Next")
+    (doseq [{:keys [command]} nextActions]
+      (println "-" command))))
 
 (defn- affected-files-option
   [args config-path]
@@ -675,6 +680,7 @@
           files (affected-files-option args config-path)
           opts (cond-> {:repo-id (option-value args "--repo")
                         :since (option-value args "--since")
+                        :config-path config-path
                         :tests-only? (boolean (some #{"--tests"} args))
                         :read-context (temporal-options args)}
                  (seq files) (assoc :files files))]

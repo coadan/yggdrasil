@@ -115,7 +115,40 @@
                                       {:files ["src/core.clj"]})]
     (is (= ["ambiguous"] (mapv :status (:inputs result))))
     (is (= [] (:changedFiles result)))
-    (is (some #(= "ambiguous-inputs" (:kind %)) (:warnings result)))))
+    (is (some #(= "ambiguous-inputs" (:kind %)) (:warnings result)))
+    (is (= [{:kind :affected
+             :label "Re-run affected with an explicit repo"
+             :command "agraph affected <project.edn> --repo <repo-id> --files src/core.clj --json"}]
+           (:nextActions result)))))
+
+(deftest incomplete-basis-produces-structured-next-actions
+  (let [result (affected/analyze-rows project
+                                      rows
+                                      {:repo-id "app"
+                                       :files ["src/missing.clj"]
+                                       :config-path "project.edn"})]
+    (is (= ["unindexed"] (mapv :status (:inputs result))))
+    (is (= [{:kind :sync
+             :label "Refresh the graph index before trusting absence of impact"
+             :command "agraph sync project.edn --check"}]
+           (:nextActions result)))))
+
+(deftest empty-tests-impact-points-at-coverage-inspection
+  (let [result (affected/analyze-rows project
+                                      rows
+                                      {:repo-id "app"
+                                       :files ["src/helper.clj"]
+                                       :tests-only? true
+                                       :config-path "project.edn"})]
+    (is (= ["no-mechanical-test-impact"]
+           (->> (:warnings result)
+                (map :kind)
+                (filter #{"no-mechanical-test-impact"})
+                vec)))
+    (is (= [{:kind :coverage
+             :label "Inspect source coverage and extractor diagnostics"
+             :command "agraph sync coverage project.edn --json"}]
+           (:nextActions result)))))
 
 (defn- temp-dir
   [prefix]

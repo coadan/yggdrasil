@@ -582,7 +582,8 @@
                                       :affectedFiles []
                                       :unsupportedIncidentEdges {:count 0
                                                                  :samples []}
-                                      :warnings []})]
+                                      :warnings []
+                                      :nextActions []})]
       (let [out (with-out-str
                   (cli/dispatch "affected" ["project.edn"
                                             "--repo" "app"
@@ -597,6 +598,7 @@
                  "fixture"
                  {:repo-id "app"
                   :since nil
+                  :config-path "project.edn"
                   :tests-only? true
                   :read-context {}
                   :files ["src/a.clj" "src/b.clj"]}]]
