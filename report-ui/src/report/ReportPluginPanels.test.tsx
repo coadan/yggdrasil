@@ -113,5 +113,12 @@ describe("PluginPanel", () => {
       "plugin-graph-crawl-sources:operator-crawl:crawl",
       expect.stringContaining("src/app/core.clj:12")
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy crawl JSON" }));
+
+    expect(onCopyCommand).toHaveBeenCalledWith(
+      "plugin-graph-crawl-json:operator-crawl:crawl",
+      expect.stringContaining("\"edges\"")
+    );
   });
 });

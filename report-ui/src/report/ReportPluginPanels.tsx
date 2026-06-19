@@ -347,6 +347,16 @@ function PluginGraphCrawl({ value, actions, actionKey }: { value: unknown; actio
           <button type="button" onClick={() => actions.onCopyCommand?.(`plugin-graph-crawl-sources:${actionKey}`, refs.join("\n"))}>
             {actions.copiedKey === `plugin-graph-crawl-sources:${actionKey}` ? "Copied" : "Copy source refs"}
           </button>
+          <button type="button" onClick={() => actions.onCopyCommand?.(`plugin-graph-crawl-json:${actionKey}`, JSON.stringify(value, null, 2))}>
+            {actions.copiedKey === `plugin-graph-crawl-json:${actionKey}` ? "Copied" : "Copy crawl JSON"}
+          </button>
+        </div>
+      ) : null}
+      {refs.length === 0 && actions?.onCopyCommand ? (
+        <div className="plugin-table-actions">
+          <button type="button" onClick={() => actions.onCopyCommand?.(`plugin-graph-crawl-json:${actionKey}`, JSON.stringify(value, null, 2))}>
+            {actions.copiedKey === `plugin-graph-crawl-json:${actionKey}` ? "Copied" : "Copy crawl JSON"}
+          </button>
         </div>
       ) : null}
       {seeds.length > 0 ? (
