@@ -181,14 +181,20 @@ public-sharing blockers while still keeping private local experiments possible.
 
 ## Registry Validation
 
-Public registry indexes are EDN files that point at local package directories for
-offline validation:
+Public registry indexes are EDN files that combine two roles:
+
+- `:path` points at a local package directory for offline validation.
+- `:source`, `:ref`, and `:subdir` describe how another project installs the
+  package from git.
 
 ```clojure
 {:schema "agraph.plugin.registry/v1"
  :id "official"
  :packages [{:id "datastar-hiccup"
-             :path "packages/datastar-hiccup"}]}
+             :path "packages/datastar-hiccup"
+             :source "https://github.com/org/agraph-plugins.git"
+             :ref "v0.1.0"
+             :subdir "packages/datastar-hiccup"}]}
 ```
 
 Run:
@@ -197,11 +203,14 @@ Run:
 bb plugin registry validate registry.edn --json
 ```
 
-Validation reads each package manifest and runs `plugin diagnose`. A registry
-entry passes when the package is ready or caution for public sharing. Project-
-local, commercial, non-FOSS, invalid, or missing packages fail the registry
-check. Unbenchmarked base packages may be listed as experimental, but public
-claims and core promotion remain blocked until benchmark artifacts exist.
+Validation reads each local package manifest and runs `plugin diagnose`; it does
+not fetch git sources. A registry entry passes when the package is ready or
+caution for public sharing. Project-local, commercial, non-FOSS, invalid, or
+missing packages fail the registry check. Unbenchmarked base packages may be
+listed as experimental, but public claims and core promotion remain blocked
+until benchmark artifacts exist. JSON validation output includes install
+metadata when `:source` is present, including a copyable `bb plugin install`
+command.
 
 ## Scope
 

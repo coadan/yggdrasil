@@ -968,6 +968,30 @@
   (when-let [path (:path entry)]
     (resolve-path (config-dir registry-path) path)))
 
+(defn- shell-token
+  [value]
+  (let [s (str value)]
+    (if (re-matches #"[A-Za-z0-9_./:@%+=,-]+" s)
+      s
+      (str "'" (str/replace s #"'" "'\"'\"'") "'"))))
+
+(defn- registry-install-args
+  [entry]
+  (when-let [source (:source entry)]
+    (cond-> ["plugin" "install" "<project.edn>" (str source)]
+      (present? (:ref entry)) (conj "--ref" (str (:ref entry)))
+      (present? (:subdir entry)) (conj "--subdir" (str (:subdir entry))))))
+
+(defn- registry-install
+  [entry]
+  (when-let [args (registry-install-args entry)]
+    (let [source (source-map {:source (:source entry)
+                              :ref (:ref entry)
+                              :subdir (:subdir entry)})]
+      {:source (dissoc source :rev)
+       :args args
+       :command (str "bb " (str/join " " (map shell-token args)))})))
+
 (defn- registry-entry-status
   [diagnosis]
   (let [public-status (get-in diagnosis [:readiness :public-sharing :status])]
@@ -995,24 +1019,27 @@
 
 (defn- validate-registry-entry
   [registry-path entry]
-  (if-let [package-path (registry-entry-path registry-path entry)]
-    (let [diagnosis (diagnose-local package-path)
-          errors (registry-entry-errors entry diagnosis)
-          status (if (and (= :passed (registry-entry-status diagnosis))
-                          (empty? errors))
-                   :passed
-                   :failed)]
-      {:id (or (some-> (:id entry) str)
-               (get-in diagnosis [:package :id]))
-       :path package-path
-       :status status
-       :errors errors
-       :diagnosis diagnosis})
-    {:id (some-> (:id entry) str)
-     :status :failed
-     :errors [{:code :registry-path-missing
-               :message "Registry entry is missing :path for offline validation."}]
-     :entry entry}))
+  (let [install (registry-install entry)]
+    (if-let [package-path (registry-entry-path registry-path entry)]
+      (let [diagnosis (diagnose-local package-path)
+            errors (registry-entry-errors entry diagnosis)
+            status (if (and (= :passed (registry-entry-status diagnosis))
+                            (empty? errors))
+                     :passed
+                     :failed)]
+        (cond-> {:id (or (some-> (:id entry) str)
+                         (get-in diagnosis [:package :id]))
+                 :path package-path
+                 :status status
+                 :errors errors
+                 :diagnosis diagnosis}
+          install (assoc :install install)))
+      (cond-> {:id (some-> (:id entry) str)
+               :status :failed
+               :errors [{:code :registry-path-missing
+                         :message "Registry entry is missing :path for offline validation."}]
+               :entry entry}
+        install (assoc :install install)))))
 
 (defn validate-registry
   "Validate a local public plugin registry index."

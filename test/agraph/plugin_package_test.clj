@@ -480,7 +480,10 @@
           (pr-str {:schema plugin-package/registry-schema
                    :id "official"
                    :packages [{:id "base-plugin"
-                               :path "base"}
+                               :path "base"
+                               :source "https://github.com/org/agraph-plugins.git"
+                               :ref "v0.1.0"
+                               :subdir "packages/base-plugin"}
                               {:id "local-plugin"
                                :path "local"}]}))
     (let [result (plugin-package/validate-registry (.getPath registry-path))
@@ -492,6 +495,16 @@
               :failed 1}
              (:counts result)))
       (is (= :passed (get-in by-id ["base-plugin" :status])))
+      (is (= {:type :git
+              :url "https://github.com/org/agraph-plugins.git"
+              :ref "v0.1.0"
+              :subdir "packages/base-plugin"}
+             (get-in by-id ["base-plugin" :install :source])))
+      (is (= ["plugin" "install" "<project.edn>" "https://github.com/org/agraph-plugins.git"
+              "--ref" "v0.1.0" "--subdir" "packages/base-plugin"]
+             (get-in by-id ["base-plugin" :install :args])))
+      (is (= "bb plugin install '<project.edn>' https://github.com/org/agraph-plugins.git --ref v0.1.0 --subdir packages/base-plugin"
+             (get-in by-id ["base-plugin" :install :command])))
       (is (= :failed (get-in by-id ["local-plugin" :status])))
       (is (= [:public-sharing-not-ready]
              (mapv :code (get-in by-id ["local-plugin" :errors])))))))
