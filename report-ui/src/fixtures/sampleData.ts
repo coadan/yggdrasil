@@ -296,6 +296,29 @@ export const fixtureReport: AGraphReport = {
       }
     ]
   },
+  "plugin-packages": {
+    counts: {
+      packages: 1,
+      warnings: 1,
+      errors: 0,
+      unbenchmarked: 1
+    },
+    packages: [
+      {
+        id: "datastar-hiccup",
+        version: "0.1.0",
+        scope: { kind: "project-local" },
+        "benchmark-status": "unbenchmarked",
+        "claim-authority": {
+          status: "non-authoritative",
+          "public-claims?": false,
+          blockers: [{ code: "unbenchmarked", message: "Unbenchmarked package output is useful for review but non-authoritative." }]
+        },
+        warnings: ["datastar-hiccup is unbenchmarked"],
+        "diagnose-command": "agraph plugin diagnose .dev/agraph/plugins/cache/datastar-hiccup --json"
+      }
+    ]
+  },
   plugins: {
     schema: "agraph.report.plugins/v1",
     panels: [

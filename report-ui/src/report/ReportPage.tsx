@@ -1060,6 +1060,91 @@ function PluginArtifacts({
   );
 }
 
+function claimAuthorityStatus(row: Record<string, unknown>): string {
+  const authority = asRecord(row["claim-authority"] || row.claimAuthority);
+  return String(authority.status || "");
+}
+
+function claimBlockers(row: Record<string, unknown>): string {
+  const authority = asRecord(row["claim-authority"] || row.claimAuthority);
+  return asRows(authority.blockers)
+    .map((blocker) => String(blocker.code || ""))
+    .filter(Boolean)
+    .join(",");
+}
+
+function PluginPackageCaveats({ report }: { report: AGraphReport }) {
+  const pluginPackages = report["plugin-packages"] || report.pluginPackages;
+  const counts = asRecord(pluginPackages?.counts);
+  const rows = asRows(pluginPackages?.packages).map((row) => ({
+    id: row.id,
+    version: row.version,
+    scope: displayValue(asRecord(row.scope).kind),
+    benchmark: displayValue(row["benchmark-status"] || row.benchmarkStatus),
+    authority: claimAuthorityStatus(row),
+    blockers: claimBlockers(row),
+    warnings: displayValue(row.warnings),
+    diagnose: row["diagnose-command"] || row.diagnoseCommand
+  }));
+
+  if (rows.length === 0 && Object.keys(counts).length === 0) return null;
+
+  return (
+    <section className="panel span-2">
+      <div className="panel-header">
+        <div>
+          <h2>Plugin Package Caveats</h2>
+          <p className="muted">Installed package provenance, benchmark status, and claim authority.</p>
+        </div>
+      </div>
+      <MetricStrip
+        items={[
+          { label: "Packages", value: countValue(counts, "packages") },
+          { label: "Warnings", value: countValue(counts, "warnings"), tone: countValue(counts, "warnings") > 0 ? "warn" : undefined },
+          { label: "Errors", value: countValue(counts, "errors"), tone: countValue(counts, "errors") > 0 ? "warn" : undefined },
+          {
+            label: "Unbenchmarked",
+            value: countValue(counts, "unbenchmarked"),
+            tone: countValue(counts, "unbenchmarked") > 0 ? "warn" : undefined
+          }
+        ]}
+      />
+      {rows.length === 0 ? (
+        <p className="muted">No package rows.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Package</th>
+              <th>Version</th>
+              <th>Scope</th>
+              <th>Benchmark</th>
+              <th>Authority</th>
+              <th>Blockers</th>
+              <th>Warnings</th>
+              <th>Diagnose</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={String(row.id || index)}>
+                <td>{displayValue(row.id)}</td>
+                <td>{displayValue(row.version)}</td>
+                <td>{displayValue(row.scope)}</td>
+                <td>{displayValue(row.benchmark)}</td>
+                <td>{displayValue(row.authority)}</td>
+                <td>{displayValue(row.blockers)}</td>
+                <td>{displayValue(row.warnings)}</td>
+                <td>{displayValue(row.diagnose)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
 function PluginsTab({
   report,
   copiedActionKey,
@@ -1082,6 +1167,7 @@ function PluginsTab({
 
   return (
     <div className="report-grid">
+      <PluginPackageCaveats report={report} />
       {panels.length === 0 ? (
         <section className="panel span-2">
           <h2>Report Plugins</h2>

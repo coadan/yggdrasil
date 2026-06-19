@@ -196,6 +196,12 @@ treated as review inventory: common explicit reference fields such as `path`,
 `file`, `url`, `artifact`, and `artifactPath` are copyable so operators can
 move from a plugin decision surface to generated evidence quickly.
 
+The Plugins tab also renders installed plugin package caveats from
+`report.plugin-packages`: package counts, benchmark status, claim authority,
+blockers, warnings, and diagnose commands. This makes unbenchmarked,
+project-local, or otherwise non-authoritative package output visible without
+opening raw report JSON.
+
 Report plugins are presentation and planning tools. They should emit panel data,
 diagnostics, or artifacts for review. They should not mutate graph facts or
 write accepted semantic corrections directly; accepted corrections still belong

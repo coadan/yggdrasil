@@ -90,6 +90,11 @@ describe("ReportPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Plugins" }));
 
+    expect(screen.getByText("Plugin Package Caveats")).toBeInTheDocument();
+    expect(screen.getByText("datastar-hiccup")).toBeInTheDocument();
+    expect(screen.getAllByText("unbenchmarked").length).toBeGreaterThan(0);
+    expect(screen.getByText("non-authoritative")).toBeInTheDocument();
+    expect(screen.getByText("agraph plugin diagnose .dev/agraph/plugins/cache/datastar-hiccup --json")).toBeInTheDocument();
     expect(screen.getByText("Fixture Graph Crawl")).toBeInTheDocument();
     expect(screen.getAllByText("fixture-report-plugin").length).toBeGreaterThan(0);
     expect(screen.getByText("Fixture diagnostic")).toBeInTheDocument();

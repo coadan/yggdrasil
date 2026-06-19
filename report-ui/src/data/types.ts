@@ -62,6 +62,11 @@ export type ReportPlugins = {
   artifacts?: Array<Record<string, unknown>>;
 };
 
+export type PluginPackages = {
+  counts?: Record<string, number>;
+  packages?: Array<Record<string, unknown>>;
+};
+
 export type AGraphReport = {
   schema: "agraph.report/v2";
   project: {
@@ -88,6 +93,8 @@ export type AGraphReport = {
     [key: string]: unknown;
   };
   maintenance?: Record<string, unknown>;
+  "plugin-packages"?: PluginPackages;
+  pluginPackages?: PluginPackages;
   plugins?: ReportPlugins;
   commands: string[];
 };
