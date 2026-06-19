@@ -67,6 +67,12 @@ Starter architecture-class OSS cases:
   Tags: `:synthetic`, `:problem-architecture`,
   `:architecture-dependency-flow`, `:database`.
 
+The tracked starter suite is `benchmarks/oss-architecture-synthetic.edn`. It
+expects local OSS checkouts under `.dev/oss-test-cases/repos/` and keeps all
+prepared cases, worktrees, graph stores, and reports under `.dev/` via `--out`.
+Use it as the architecture-class slice alongside historical issue replay; do
+not treat a simple localization-only suite as representative proof for AGraph.
+
 ## Commands
 
 Use separate generated output roots so artifacts cannot overwrite each other:

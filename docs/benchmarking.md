@@ -371,6 +371,11 @@ handling in Axios, and Dapper's PostgreSQL JSONB test stack. Give each one
 manual architecture problem tags and curated expectations; do not teach AGraph
 core to infer those classes from names or paths.
 
+The tracked starter file `benchmarks/oss-architecture-synthetic.edn` contains
+the runnable Bootstrap, Supabase Postgres, and Axios cases. It expects the OSS
+corpus checkouts in `.dev/oss-test-cases/repos/`; keep generated benchmark
+outputs under `.dev/agraph/...` with `--out`.
+
 Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
 agents through the filesystem queue:
 
