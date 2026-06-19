@@ -3,13 +3,9 @@
             [agraph.benchmark-progress :as benchmark-progress]
             [agraph.benchmark-test-support :refer [commit!
                                                    git!
-                                                   sh!
                                                    spit-file!
                                                    spit-json!
                                                    temp-dir]]
-            [agraph.context :as context]
-            [agraph.extract :as extract]
-            [agraph.project :as project]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -177,6 +173,26 @@
     (is (= 1.0 (:fileRecallAt5 scores)))
     (is (= (/ 2.0 3.0) (:evidenceCitationRate scores)))
     (is (= (/ 1.0 3.0) (:pathEvidenceCitationRate scores)))))
+
+(deftest scores-expected-evidence-citation-rate
+  (let [result {:groundTruth {:changedFiles ["src/app.clj"]
+                              :unsupportedGroundTruthFiles []}
+                :expectations {:evidence [{:kind :env-var
+                                           :path "config/runtime.env"
+                                           :label "DATABASE_URL"}
+                                          {:kind :env-var
+                                           :path "config/secrets.env"
+                                           :label "SECRET_KEY"}
+                                          {:kind :env-var
+                                           :label "CACHE_URL"}]}
+                :agraph {:topFiles [{:path "src/app.clj"
+                                     :rank 1
+                                     :evidence ["context-doc:config/runtime.env DATABASE_URL"
+                                                "rg CACHE_URL"]}]}}
+        scores (benchmark/score-result result)]
+    (is (= (/ 2.0 3.0) (:expectedEvidenceCitationRate scores)))
+    (is (= 2 (:expectedEvidenceCitations scores)))
+    (is (= 3 (:expectedEvidenceCitationTargets scores)))))
 
 (deftest scores-only-base-visible-ground-truth-files
   (let [result {:groundTruth {:changedFiles [".chloggen/fix.yaml"
@@ -354,7 +370,6 @@
                  :end-line 18}]
                (get-in result [:expectedChunks 0 :matches])))))))
 
-
 (deftest prepares-issue-replay-case-from-git-diff
   (let [root (temp-dir "agraph-bench-repo")
         out (temp-dir "agraph-bench-out")
@@ -502,7 +517,6 @@
               :files-changed 12
               :path "src/app.clj"}
              (get-in failed [:error :data]))))))
-
 
 (deftest context-packet-can-be-written-as-agent-hints
   (let [root (temp-dir "agraph-bench-context-hints")
@@ -760,6 +774,12 @@
                                :mentionedChangedFiles ["src/app.clj"]
                                :mentionedChangedFileCount 1
                                :changedFileCount 2}
+                  :expectations {:evidence [{:kind :env-var
+                                             :path "config/runtime.env"
+                                             :label "DATABASE_URL"}
+                                            {:kind :env-var
+                                             :path "config/secrets.env"
+                                             :label "SECRET_KEY"}]}
                   :groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]
                                 :unsupportedGroundTruthFiles []}}
         agent-result {:schema benchmark/agent-result-schema
@@ -771,6 +791,7 @@
                                        {:path "src/app.clj"
                                         :rank 2
                                         :confidence 0.8
+                                        :evidence ["context-doc:config/runtime.env DATABASE_URL"]
                                         :metrics {:supportCount 2
                                                   :retrievedSourceCount 1}}
                                        {:path "src/db.clj"
@@ -781,6 +802,7 @@
     (is (= "sha256:test-case" (:caseFingerprint scored)))
     (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
     (is (= 0.5 (get-in scored [:scores :meanReciprocalRankFile])))
+    (is (= 0.5 (get-in scored [:scores :expectedEvidenceCitationRate])))
     (is (= (:inputHints prepared) (:inputHints scored)))
     (is (= ["src/other.clj"] (get-in scored [:agent :missingPredictedFiles])))
     (is (= {:supportCount 2

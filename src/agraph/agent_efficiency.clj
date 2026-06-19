@@ -69,6 +69,11 @@
     :category :evidence
     :path [:scores :pathEvidenceCitationRate]
     :direction :higher}
+   {:key :expectedEvidenceCitationRate
+    :label "expectedEvidenceCitationRate"
+    :category :evidence
+    :path [:scores :expectedEvidenceCitationRate]
+    :direction :higher}
    {:key :emptyResultRuns
     :label "emptyResultRuns"
     :category :result-health
@@ -244,10 +249,12 @@
       default)))
 (defn- efficiency-report
   [report]
-  (assoc report :efficiency {:improvementTargetRuns
-                             (benchmark-targets/target-runs report)
-                             :improvementTargetRunsByKind
-                             (benchmark-targets/target-runs-by-kind report)}))
+  (if (contains? report :improvementSummary)
+    (assoc report :efficiency {:improvementTargetRuns
+                               (benchmark-targets/target-runs report)
+                               :improvementTargetRunsByKind
+                               (benchmark-targets/target-runs-by-kind report)})
+    report))
 
 (defn- improvement-target-metric-specs
   [shell-report agraph-report]

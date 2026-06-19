@@ -208,7 +208,7 @@
             :regressedMetrics 0
             :unchangedMetrics 2
             :observedMetrics 1
-            :unavailableMetrics 4}
+            :unavailableMetrics 5}
            (:summary comparison)))
     (is (= {:sameSuite true
             :sameCases true
@@ -850,12 +850,12 @@
         deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
-            :availableMetrics 20
             :improvedMetrics 18
             :regressedMetrics 0
-            :unchangedMetrics 1
+            :unchangedMetrics 2
             :observedMetrics 1
-            :unavailableMetrics 6}
+            :availableMetrics 21
+            :unavailableMetrics 7}
            (:summary comparison)))
     (is (= {:shellOnly nil
             :agraph 0.5
@@ -878,7 +878,8 @@
                             (dissoc :scores
                                     :localizationDiagnostics
                                     :agentDiagnostics
-                                    :timings)
+                                    :timings
+                                    :improvementSummary)
                             (assoc :results (mapv #(dissoc % :scores)
                                                   (:results report)))))
         comparison (agent-efficiency/compare-reports
@@ -891,7 +892,7 @@
             :improvedMetrics 0
             :regressedMetrics 0
             :unchangedMetrics 0
-            :unavailableMetrics 26}
+            :unavailableMetrics 28}
            (:summary comparison)))
     (is (every? #(= "unavailable" (:result %))
                 (:deltas comparison)))))
@@ -902,7 +903,8 @@
                                 (dissoc :scores
                                         :localizationDiagnostics
                                         :agentDiagnostics
-                                        :timings)
+                                        :timings
+                                        :improvementSummary)
                                 (assoc :agentDiagnostics
                                        {:commandTelemetry
                                         {:agraphCommandCount observed-count}})
@@ -919,7 +921,7 @@
             :improvedMetrics 0
             :regressedMetrics 0
             :unchangedMetrics 0
-            :unavailableMetrics 25
+            :unavailableMetrics 27
             :observedMetrics 1}
            (:summary comparison)))
     (is (= {:shellOnly 0.0

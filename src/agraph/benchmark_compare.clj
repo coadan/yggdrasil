@@ -28,6 +28,9 @@
     :direction :higher}
    {:key :pathEvidenceCitationRate
     :label "pathEvidenceCitationRate"
+    :direction :higher}
+   {:key :expectedEvidenceCitationRate
+    :label "expectedEvidenceCitationRate"
     :direction :higher}])
 (def ^:private comparison-report-specs
   [{:path [:agentDiagnostics :warningRuns]

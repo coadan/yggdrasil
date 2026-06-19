@@ -138,9 +138,36 @@
     (/ (double (count (filter path-evidence-cited? top-files)))
        (double (count top-files)))
     0.0))
+(defn- evidence-strings
+  [top-files]
+  (->> top-files
+       (mapcat :evidence)
+       (remove blankish?)
+       (map str)
+       vec))
+(defn- expected-evidence-cited?
+  [evidence expected]
+  (let [path (some-> (:path expected) str not-empty)
+        label (some-> (:label expected) str not-empty)]
+    (boolean
+     (or (and path
+              (some #(str/includes? % path) evidence))
+         (and (nil? path)
+              label
+              (some #(str/includes? % label) evidence))))))
+(defn- expected-evidence-citation-metrics
+  [expectations top-files]
+  (let [expected (vec (:evidence expectations))]
+    (when (seq expected)
+      (let [evidence (evidence-strings top-files)
+            cited (count (filter #(expected-evidence-cited? evidence %) expected))
+            total (count expected)]
+        {:expectedEvidenceCitationRate (/ (double cited) (double total))
+         :expectedEvidenceCitations cited
+         :expectedEvidenceCitationTargets total}))))
 (defn score-result
   "Return mechanical localization scores for a benchmark result shape."
-  [{:keys [groundTruth agraph]}]
+  [{:keys [groundTruth agraph expectations]}]
   (let [changed-files (:changedFiles groundTruth)
         scoreable-files (scoreable-changed-files groundTruth)
         paths (mapv :path (:topFiles agraph))]
@@ -160,4 +187,5 @@
                                     changed-files))
       :scoreableChangedFiles (count scoreable-files)
       :unsupportedGroundTruthFiles (count (:unsupportedGroundTruthFiles groundTruth))
-      :coverageExcludedGroundTruthFiles (count (:coverageExcludedFiles groundTruth))})))
+      :coverageExcludedGroundTruthFiles (count (:coverageExcludedFiles groundTruth))}
+     (expected-evidence-citation-metrics expectations (:topFiles agraph)))))

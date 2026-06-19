@@ -651,6 +651,10 @@ given.
   Report diagnostics include `pathUncitedRankedFiles` per case and aggregate
   `pathUncitedRuns`, `pathUncitedCaseIds`, and `pathUncitedRankedFiles` so a
   failed gate points at the ranked files whose evidence did not cite their path.
+- `expectedEvidenceCitationRate`: fraction of declared expectation evidence rows
+  cited by the agent result evidence strings. Path-bearing expectation rows
+  require a matching path citation; rows without a path fall back to the declared
+  label. The metric is emitted only for cases that declare expectation evidence.
 - `changedFiles`: files changed by the fixing diff.
 - `localizationFiles`: localization target files, or changed files when no
   explicit localization set was provided.

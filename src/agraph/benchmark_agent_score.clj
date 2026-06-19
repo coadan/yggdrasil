@@ -471,6 +471,7 @@
   [prepared agent-result]
   (let [top-files (agent-file-predictions prepared agent-result)
         result-shape {:groundTruth (:groundTruth prepared)
+                      :expectations (:expectations prepared)
                       :agraph {:topFiles top-files}}
         warnings (cond-> (vec (distinct (concat (or (:warnings agent-result) [])
                                                 (agent-result-shape-warnings agent-result)

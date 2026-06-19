@@ -50,7 +50,8 @@
                     :meanReciprocalRankFile
                     :noiseRatioAt20
                     :evidenceCitationRate
-                    :pathEvidenceCitationRate]]
+                    :pathEvidenceCitationRate
+                    :expectedEvidenceCitationRate]]
     (into {}
           (map (fn [k]
                  [k (average (keep #(get-in % [:scores k]) results))]))
