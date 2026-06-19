@@ -108,6 +108,74 @@
       (get-in payload [:decision :project-id])
       (get-in payload [:decision :projectId])))
 
+(defn- shell-token
+  [value]
+  (let [value (str value)]
+    (if (re-matches #"[A-Za-z0-9_./:=+@%-]+" value)
+      value
+      (str "'" (str/replace value #"'" "'\"'\"'") "'"))))
+
+(defn- queue-root-from-path
+  [path]
+  (when path
+    (some-> path
+            io/file
+            .getParentFile
+            .getParentFile
+            .getPath)))
+
+(defn- queue-option
+  [path]
+  (when-let [root (queue-root-from-path path)]
+    (str " --queue-dir " (shell-token root))))
+
+(defn- project-option
+  [project-id]
+  (when-not (str/blank? (str project-id))
+    (str " --project " (shell-token project-id))))
+
+(defn- kind-option
+  [kind]
+  (when-not (str/blank? (str kind))
+    (str " --kind " (shell-token kind))))
+
+(defn- work-command
+  [{:keys [path]} action & args]
+  (str "agraph sync work " action
+       (when (seq args)
+         (str " " (str/join " " (map shell-token args))))
+       (queue-option path)))
+
+(defn- item-actions
+  [{:keys [path item] :as found}]
+  (let [status (status-name (:status item))
+        id (:id item)]
+    (cond-> []
+      (= "ready" status)
+      (conj {:kind :claim
+             :label "Claim next matching work item"
+             :command (str "agraph sync work pull"
+                           (project-option (:project-id item))
+                           (kind-option (:kind item))
+                           " --agent <agent-id>"
+                           (queue-option path))})
+
+      (= "claimed" status)
+      (conj {:kind :complete
+             :label "Complete claimed work item with result JSON"
+             :command (work-command found "complete" id "--result" "result.json")}
+            {:kind :release
+             :label "Release claimed work item"
+             :command (work-command found "release" id "--reason" "needs more context")}
+            {:kind :reject
+             :label "Reject work item with reason"
+             :command (work-command found "reject" id "--reason" "not applicable")})
+
+      (= "done" status)
+      (conj {:kind :apply
+             :label "Apply completed work result to map"
+             :command (work-command found "apply" id "--map" "agraph.map.json")}))))
+
 (defn- new-id
   [kind created-at-ms payload]
   (str "queue:" (hash/short-hash [kind created-at-ms payload])))
@@ -256,9 +324,10 @@
 
 (defn item-summary
   "Return a compact queue item summary for CLI listing and enqueue results."
-  [{:keys [path item]}]
+  [{:keys [path item] :as found}]
   (let [payload (:payload item)
         decision (:decision payload)
+        actions (item-actions found)
         payload-summary (case (:schema payload)
                           "agraph.infra.review-packet/v1"
                           {:id (:reviewId payload)
@@ -295,6 +364,7 @@
              :created-at-ms (:created-at-ms item)
              :updated-at-ms (:updated-at-ms item)}
       path (assoc :path path)
+      (seq actions) (assoc :actions actions)
       payload-summary (assoc :payload-summary payload-summary)
       (:lease item) (assoc :lease (:lease item)))))
 

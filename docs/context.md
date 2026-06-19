@@ -219,6 +219,10 @@ results to `agraph.map.json` stays a separate CLI step.
 Use `--enqueue` when a packet should be picked up by another agent, model, tool,
 or human process. AGraph writes an `agraph.queue.item/v1` JSON file to
 `.dev/agraph/queue/ready` and prints a compact receipt.
+Queue listings and claimed work summaries use `agraph.queue.summary/v1` and
+include state-specific `actions` rows with executable commands for claiming,
+completing, releasing, rejecting, or applying work results. Agents should use
+those commands instead of reconstructing queue paths or item ids from payloads.
 
 ```sh
 agraph sync check project.edn --map agraph.map.json --enqueue

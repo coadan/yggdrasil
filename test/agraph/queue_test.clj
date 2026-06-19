@@ -116,6 +116,46 @@
             :allowedActions ["accept-system" "none"]}
            (:payload-summary (get by-id decision-id))))))
 
+(deftest queue-summary-includes-state-specific-actions
+  (let [root (str (temp-dir "agraph-queue actions") "/queue root")
+        ready-id (get-in (queue/enqueue! {:schema "custom.packet/v1"
+                                          :project-id "demo"}
+                                         {:root root
+                                          :kind "custom"
+                                          :project-id "demo"})
+                         [:item :id])
+        ready-summary (queue/item-summary (queue/find-item root ready-id))
+        claimed (queue/claim-next! root {:agent-id "codex"
+                                         :project-id "demo"
+                                         :kind "custom"})
+        claimed-summary (queue/item-summary claimed)
+        done-summary (queue/item-summary
+                      (queue/complete! root
+                                       ready-id
+                                       {:schema "custom.result/v1"
+                                        :ok true}))]
+    (is (= [{:kind :claim
+             :label "Claim next matching work item"
+             :command (str "agraph sync work pull --project demo --kind custom "
+                           "--agent <agent-id> --queue-dir "
+                           "'" root "'")}]
+           (:actions ready-summary)))
+    (is (= #{:complete :release :reject}
+           (set (map :kind (:actions claimed-summary)))))
+    (is (some #(= (str "agraph sync work complete "
+                       ready-id
+                       " --result result.json --queue-dir "
+                       "'" root "'")
+                  (:command %))
+              (:actions claimed-summary)))
+    (is (= [{:kind :apply
+             :label "Apply completed work result to map"
+             :command (str "agraph sync work apply "
+                           ready-id
+                           " --map agraph.map.json --queue-dir "
+                           "'" root "'")}]
+           (:actions done-summary)))))
+
 (deftest queue-list-and-claim-can-filter-by-kind
   (let [root (temp-dir "agraph-queue-kind-filter")
         infra-id (get-in (queue/enqueue! {:schema "agraph.infra.review-packet/v1"
