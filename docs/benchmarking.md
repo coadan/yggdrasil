@@ -170,7 +170,9 @@ generated output root.
   `--min-case-evidence-citation-rate`, `--max-noise-at-20`, `--max-case-noise-at-20`,
   `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`,
   `--max-empty-result-runs` to fail when agents produce no rankable suspected
-  files, `--max-commandless-runs` to fail when agents do not cite commands,
+  files, `--max-missing-predicted-file-runs` to fail when agents predict paths
+  that do not exist in the base checkout, `--max-commandless-runs` to fail when
+  agents do not cite commands,
   `--max-warning-runs` to fail when scorer or agent warnings are present beyond
   the configured budget, `--max-unverified-score-runs` to fail when
   matching score artifacts are legacy or stale relative to the current suite file,
@@ -446,6 +448,10 @@ given.
 - `agentDiagnostics.commandlessRuns`: scored agent artifacts whose result did
   not cite any commands. Gate this with `--max-commandless-runs` when
   auditability should require a visible command trail.
+- `agentDiagnostics.missingPredictedFileRuns`: scored agent artifacts whose
+  ranked result included repo-relative paths that do not exist in the base
+  checkout. Gate this with `--max-missing-predicted-file-runs` to catch
+  path-shape drift, hallucinated paths, and stale result artifacts.
 - `agentDiagnostics.warningRuns`: scored agent artifacts that carried scorer or
   agent warnings. Gate this with `--max-warning-runs` when benchmark result
   shape quality should be part of the ratchet. `agent-compare` also treats

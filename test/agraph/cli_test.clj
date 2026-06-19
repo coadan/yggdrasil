@@ -77,6 +77,7 @@
     (is (str/includes? usage "--min-evidence-citation-rate N"))
     (is (str/includes? usage "--min-case-evidence-citation-rate N"))
     (is (str/includes? usage "--max-commandless-runs N"))
+    (is (str/includes? usage "--max-missing-predicted-file-runs N"))
     (is (str/includes? usage "--max-warning-runs N"))
     (is (str/includes? usage "--max-missed-but-present-in-context-runs N"))
     (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
@@ -536,6 +537,7 @@
                                  "--max-input-hinted-cases" "0"
                                  "--max-unsupported-ground-truth-files" "0"
                                  "--max-commandless-runs" "0"
+                                 "--max-missing-predicted-file-runs" "0"
                                  "--max-warning-runs" "0"
                                  "--max-missing-declared-source-kind-runs" "0"
                                  "--max-missed-runs" "0"
@@ -575,6 +577,7 @@
                   :max-input-hinted-cases 0.0
                   :max-unsupported-ground-truth-files 0.0
                   :max-commandless-runs 0.0
+                  :max-missing-predicted-file-runs 0.0
                   :max-warning-runs 0.0
                   :max-missing-declared-source-kind-runs 0.0
                   :max-missed-runs 0.0

@@ -3517,6 +3517,11 @@
                                                         second)
                                                   coverage-filtered))
      :missingPredictedFileRuns (count missing-predicted)
+     :missingPredictedFileCaseIds (->> missing-predicted
+                                       (map (comp :case-id first))
+                                       distinct
+                                       sort
+                                       vec)
      :missingPredictedFiles (reduce + 0
                                     (map (comp count
                                                :missingPredictedFiles
@@ -4157,6 +4162,8 @@
                  [:max-input-hinted-cases :maxInputHintedCases]
                  [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
                  [:max-empty-result-runs :maxEmptyResultRuns]
+                 [:max-missing-predicted-file-runs
+                  :maxMissingPredictedFileRuns]
                  [:max-commandless-runs :maxCommandlessRuns]
                  [:max-warning-runs :maxWarningRuns]
                  [:max-unverified-score-runs :maxUnverifiedScoreRuns]
@@ -4339,6 +4346,26 @@
                                     :agentDiagnostics
                                     :warningCaseIds])
                  :message "Some agent score artifacts contain scorer or agent warnings."})]))))
+
+(defn- missing-predicted-file-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :maxMissingPredictedFileRuns])]
+    (let [actual (double (get-in check
+                                 [:report
+                                  :agentDiagnostics
+                                  :missingPredictedFileRuns]
+                                 0))]
+      (when (> actual expected)
+        [(merge (metric-failure "missingPredictedFileRuns" "<=" expected actual)
+                {:case-ids (get-in check
+                                   [:report
+                                    :agentDiagnostics
+                                    :missingPredictedFileCaseIds])
+                 :missingPredictedFiles (get-in check
+                                                [:report
+                                                 :agentDiagnostics
+                                                 :missingPredictedFiles])
+                 :message "Some agent score artifacts predicted paths that do not exist in the base checkout."})]))))
 
 (defn- commandless-run-failures
   [check]
@@ -4608,6 +4635,7 @@
                            "unsupportedGroundTruthFiles"]])
                    (case-threshold-failures check-base)
                    (empty-result-failures check-base)
+                   (missing-predicted-file-failures check-base)
                    (commandless-run-failures check-base)
                    (warning-run-failures check-base)
                    (unverified-score-failures check-base)
@@ -4651,6 +4679,9 @@
 (def ^:private comparison-report-specs
   [{:path [:agentDiagnostics :warningRuns]
     :label "warningRuns"
+    :direction :lower}
+   {:path [:agentDiagnostics :missingPredictedFileRuns]
+    :label "missingPredictedFileRuns"
     :direction :lower}
    {:path [:agentDiagnostics :commandlessRuns]
     :label "commandlessRuns"

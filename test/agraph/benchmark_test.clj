@@ -442,6 +442,7 @@
               :coverageFilteredCaseIds ["case-1"]
               :coverageFilteredCandidateFiles 1
               :missingPredictedFileRuns 0
+              :missingPredictedFileCaseIds []
               :missingPredictedFiles 0
               :commandlessRuns 1
               :commandlessCaseIds ["case-1"]
@@ -718,6 +719,9 @@
                 :inputHints {:inputHintedCases 1}
                 :agentDiagnostics {:emptyResultRuns 1
                                    :emptyResultCaseIds ["case-1"]
+                                   :missingPredictedFileRuns 1
+                                   :missingPredictedFileCaseIds ["case-1"]
+                                   :missingPredictedFiles 2
                                    :commandlessRuns 1
                                    :commandlessCaseIds ["case-1"]
                                    :warningRuns 1
@@ -787,6 +791,7 @@
                  :max-input-hinted-cases 0
                  :max-unsupported-ground-truth-files 0
                  :max-empty-result-runs 0
+                 :max-missing-predicted-file-runs 0
                  :max-commandless-runs 0
                  :max-warning-runs 0
                  :max-unverified-score-runs 0
@@ -834,6 +839,7 @@
                  :max-input-hinted-cases 1
                  :max-unsupported-ground-truth-files 1
                  :max-empty-result-runs 1
+                 :max-missing-predicted-file-runs 1
                  :max-commandless-runs 1
                  :max-warning-runs 1
                  :max-unverified-score-runs 1
@@ -864,6 +870,7 @@
              "inputHintedCases"
              "unsupportedGroundTruthFiles"
              "emptyResultRuns"
+             "missingPredictedFileRuns"
              "commandlessRuns"
              "warningRuns"
              "unverifiedScoreRuns"
@@ -898,6 +905,7 @@
                    "case.evidenceCitationRate"
                    "case.noiseRatioAt20"
                    "case.graphExpectations"
+                   "missingPredictedFileRuns"
                    "missedButPresentInContextRuns"
                    "missedAndAbsentFromContextRuns"]))
       (is (not (contains? case-1-failures "activeStageElapsedMs"))))
@@ -937,6 +945,7 @@
             :maxInputHintedCases 0.0
             :maxUnsupportedGroundTruthFiles 0.0
             :maxEmptyResultRuns 0.0
+            :maxMissingPredictedFileRuns 0.0
             :maxCommandlessRuns 0.0
             :maxWarningRuns 0.0
             :maxUnverifiedScoreRuns 0.0
@@ -1012,7 +1021,8 @@
                   :parserWorkers [{:mode "all"
                                    :source "option"
                                    :runs 2}]
-                  :agentDiagnostics {:warningRuns 0}
+                  :agentDiagnostics {:warningRuns 0
+                                     :missingPredictedFileRuns 0}
                   :coverageDiagnostics {:missingDeclaredSourceKindRuns 0
                                         :coverageExcludedGroundTruthFiles 0
                                         :unsupportedGroundTruthFiles 1}
@@ -1041,7 +1051,8 @@
                    :parserWorkers [{:mode "all"
                                     :source "option"
                                     :runs 2}]
-                   :agentDiagnostics {:warningRuns 1}
+                   :agentDiagnostics {:warningRuns 1
+                                      :missingPredictedFileRuns 1}
                    :coverageDiagnostics {:missingDeclaredSourceKindRuns 1
                                          :coverageExcludedGroundTruthFiles 1
                                          :unsupportedGroundTruthFiles 2}
@@ -1105,6 +1116,7 @@
     (is (= #{"fileRecallAt10"
              "noiseRatioAt20"
              "warningRuns"
+             "missingPredictedFileRuns"
              "missingDeclaredSourceKindRuns"
              "coverageExcludedGroundTruthFiles"
              "unsupportedGroundTruthFiles"
