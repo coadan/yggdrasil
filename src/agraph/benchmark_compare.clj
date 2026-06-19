@@ -73,7 +73,17 @@
     :direction :lower}
    {:path [:coverageDiagnostics :unsupportedGroundTruthFiles]
     :label "unsupportedGroundTruthFiles"
+    :direction :lower}
+   {:path [:comparison :improvementTargetRuns]
+    :label "improvementTargetRuns"
     :direction :lower}])
+(defn- improvement-target-runs
+  [report]
+  (reduce + 0 (map #(long (or (:runs %) 0))
+                   (:improvementSummary report))))
+(defn- comparison-report
+  [report]
+  (assoc report :comparison {:improvementTargetRuns (improvement-target-runs report)}))
 (defn- comparison-delta
   [baseline candidate {:keys [path key label direction]} tolerance]
   (let [value-path (or path [key])
@@ -184,6 +194,8 @@
   hiding meaningful regressions."
   [baseline-report candidate-report opts]
   (let [tolerance (double (or (:regression-tolerance opts) 0.0))
+        baseline-comparison-report (comparison-report baseline-report)
+        candidate-comparison-report (comparison-report candidate-report)
         baseline-by-case (report-result-by-case baseline-report)
         candidate-by-case (report-result-by-case candidate-report)
         case-ids (->> (concat (keys baseline-by-case)
@@ -201,8 +213,8 @@
                                    (score-deltas (:scores baseline-report)
                                                  (:scores candidate-report)
                                                  tolerance)
-                                   (report-deltas baseline-report
-                                                  candidate-report
+                                   (report-deltas baseline-comparison-report
+                                                  candidate-comparison-report
                                                   tolerance)))
         aggregate-deltas (if aggregate-comparable?
                            raw-aggregate-deltas
@@ -232,6 +244,8 @@
                 :parserWorkers (report-parser-worker-profiles baseline-report)
                 :agentDiagnostics (:agentDiagnostics baseline-report)
                 :coverageDiagnostics (:coverageDiagnostics baseline-report)
+                :improvementSummary (:improvementSummary baseline-report)
+                :improvementTargetRuns (improvement-target-runs baseline-report)
                 :scores (:scores baseline-report)}
      :candidate {:cases (:cases candidate-report)
                  :completed (:completed candidate-report)
@@ -239,6 +253,8 @@
                  :parserWorkers (report-parser-worker-profiles candidate-report)
                  :agentDiagnostics (:agentDiagnostics candidate-report)
                  :coverageDiagnostics (:coverageDiagnostics candidate-report)
+                 :improvementSummary (:improvementSummary candidate-report)
+                 :improvementTargetRuns (improvement-target-runs candidate-report)
                  :scores (:scores candidate-report)}
      :aggregateDeltas aggregate-deltas
      :caseDeltas cases

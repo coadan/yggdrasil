@@ -1223,6 +1223,7 @@
                   :coverageDiagnostics {:missingDeclaredSourceKindRuns 0
                                         :coverageExcludedGroundTruthFiles 0
                                         :unsupportedGroundTruthFiles 1}
+                  :improvementSummary []
                   :scores {:fileRecallAt5 0.5
                            :fileRecallAt10 0.75
                            :fileRecallAt20 1.0
@@ -1264,6 +1265,11 @@
                    :coverageDiagnostics {:missingDeclaredSourceKindRuns 1
                                          :coverageExcludedGroundTruthFiles 1
                                          :unsupportedGroundTruthFiles 2}
+                   :improvementSummary [{:kind "hint-diagnostics"
+                                         :area "agent-context-quality"
+                                         :runs 2
+                                         :caseIds ["case-1"]
+                                         :message "AGraph hints contained diagnostics."}]
                    :scores {:fileRecallAt5 0.5
                             :fileRecallAt10 0.7
                             :fileRecallAt20 1.0
@@ -1290,6 +1296,8 @@
                                                        (:artifactDiagnostics baseline)
                                                        :coverageDiagnostics
                                                        (:coverageDiagnostics baseline)
+                                                       :improvementSummary
+                                                       (:improvementSummary baseline)
                                                        :scores (assoc (:scores baseline)
                                                                       :meanReciprocalRankFile
                                                                       0.6)
@@ -1339,8 +1347,11 @@
              "missingDeclaredSourceKindRuns"
              "coverageExcludedGroundTruthFiles"
              "unsupportedGroundTruthFiles"
+             "improvementTargetRuns"
              "case.fileRecallAt10"}
            (set (map :metric (:regressions failed)))))
+    (is (= 2
+           (get-in failed [:candidate :improvementTargetRuns])))
     (is (= "regressed"
            (get-in (first (filter #(= "case-1" (:case-id %))
                                   (:caseDeltas failed)))
