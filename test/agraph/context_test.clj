@@ -157,6 +157,46 @@
     (is (some #{"Indexer diagnostics are present; inspect source coverage before relying on missing facts."}
               warnings))))
 
+(deftest answerability-surfaces-skipped-source-files-as-weak-coverage
+  (let [retrieval {:requested :lexical
+                   :effective :lexical
+                   :fallback? false}
+        counts {:files 4
+                :skipped-files 3
+                :nodes 2
+                :edges 1
+                :search-docs 2
+                :external-packages 1
+                :package-import-edges 1
+                :unresolved-imports 0
+                :package-evidence-gaps 0
+                :package-conflicts 0
+                :system-evidence 1
+                :system-nodes 1
+                :system-edges 1
+                :activity-items 1
+                :activity-events 1
+                :validation-events 1
+                :embeddings 1
+                :diagnostics 0}
+        match-counts {:entity-count 1
+                      :doc-count 1
+                      :activity-count 1
+                      :validation-count 1
+                      :runtime-count 1}
+        weak (#'context/weak-planes counts match-counts)
+        warnings (#'context/answerability-warnings counts retrieval weak)
+        actions (#'context/next-actions counts retrieval "fixture")]
+    (is (= [:source-files] weak))
+    (is (some #{"Some files were skipped by the latest index run; inspect source coverage before treating missing facts as absent."}
+              warnings))
+    (is (some #(= {:kind :coverage
+                   :label "Inspect skipped source candidates"
+                   :count 3
+                   :command "agraph sync coverage <project.edn> --json"}
+                  %)
+              actions))))
+
 (deftest answerability-warns-when-result-schema-mismatch-activity-exists
   (let [warnings (#'context/answerability-warnings
                   {:files 1
@@ -357,6 +397,86 @@
               warnings))
     (is (= (:nextActions freshness)
            (filterv #(= :freshness (:kind %)) actions)))))
+
+(deftest answerability-surfaces-skipped-index-run-files
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :project-id "fixture"
+                                                   :repo-id "app"
+                                                   :active? true}]
+                                   :agraph/index-runs [{:xt/id "run:app"
+                                                        :project-id "fixture"
+                                                        :repo-id "app"
+                                                        :status :completed
+                                                        :finished-at-ms 100
+                                                        :stats {:files-skipped 3}}]
+                                   []))
+                query/all-nodes (fn [& _]
+                                  [{:xt/id "node:src.app"
+                                    :kind :namespace
+                                    :active? true}
+                                   {:xt/id "package:npm:react"
+                                    :kind :external-package
+                                    :active? true}])
+                query/all-edges (fn [& _]
+                                  [{:xt/id "edge:src.app-react"
+                                    :relation :imports-package
+                                    :active? true}])
+                query/all-chunks (fn [& _]
+                                   [{:xt/id "chunk:app"
+                                     :active? true}])
+                query/all-search-docs (fn [& _]
+                                        [{:xt/id "search:app"}])
+                query/all-embeddings (fn [& _]
+                                       [{:xt/id "embedding:app"}])
+                query/all-system-nodes (fn [& _]
+                                         [{:xt/id "system:app"}])
+                query/all-system-edges (fn [& _]
+                                         [{:xt/id "system-edge:app"}])
+                query/all-system-evidence (fn [& _]
+                                            [{:xt/id "evidence:app"
+                                              :active? true}])
+                query/all-diagnostics (fn [& _] [])
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 1
+                                                      :imports-package 1
+                                                      :unresolved-imports 0
+                                                      :declared-without-import-evidence 0
+                                                      :version-conflicts 0}})
+                activity/all-items (fn [& _]
+                                     [{:xt/id "work:app"}])
+                activity/all-events (fn [& _]
+                                      [{:xt/id "event:validation"
+                                        :event-kind :validation}])]
+    (let [answerability (#'context/answerability
+                         :xtdb
+                         {}
+                         {:project-id "fixture"
+                          :repo-id "app"
+                          :retriever :lexical}
+                         {:entity-count 1
+                          :doc-count 1
+                          :activity-count 1
+                          :runtime-count 1
+                          :validation-count 1})]
+      (is (= :limited (:status answerability)))
+      (is (contains? (set (:weak answerability)) :source-files))
+      (is (= {:plane :source-files
+              :status :weak
+              :counts {:files 1
+                       :skipped-files 3
+                       :diagnostics 0}}
+             (some #(when (= :source-files (:plane %)) %)
+                   (:planes answerability))))
+      (is (some #{"Some files were skipped by the latest index run; inspect source coverage before treating missing facts as absent."}
+                (:warnings answerability)))
+      (is (some #(= {:kind :coverage
+                     :label "Inspect skipped source candidates"
+                     :count 3
+                     :command "agraph sync coverage <project.edn> --json"}
+                    %)
+                (:nextActions answerability))))))
 
 (deftest answerability-exposes-indexed-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]

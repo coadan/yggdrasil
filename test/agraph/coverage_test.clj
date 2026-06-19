@@ -219,6 +219,7 @@
                     :read-context nil})]
       (is (= coverage/context-schema (:schema summary)))
       (is (= {:indexedFiles 2
+              :skippedFiles 0
               :diagnostics 2
               :fileKinds 2}
              (:totals summary)))
@@ -283,6 +284,50 @@
              (get-in summary [:diagnostics :samples])))
       (is (= [{:kind :coverage
                :label "Inspect extractor diagnostics"
+               :count 2
+               :command "agraph sync coverage <project.edn> --json"}]
+             (:nextActions summary))))))
+
+(deftest context-summary-includes-latest-index-run-skipped-files
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files []
+                                   :agraph/nodes []
+                                   :agraph/edges []
+                                   :agraph/index-diagnostics []
+                                   :agraph/index-runs
+                                   [{:xt/id "run:old"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :status :completed
+                                     :finished-at-ms 10
+                                     :stats {:files-skipped 5}}
+                                    {:xt/id "run:latest"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :status :completed
+                                     :finished-at-ms 20
+                                     :stats {:files-skipped 2}}
+                                    {:xt/id "run:running"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :status :running
+                                     :finished-at-ms 30
+                                     :stats {:files-skipped 9}}
+                                    {:xt/id "run:other"
+                                     :project-id "fixture"
+                                     :repo-id "other"
+                                     :status :completed
+                                     :finished-at-ms 30
+                                     :stats {:files-skipped 7}}]
+                                   []))]
+    (let [summary (coverage/context-summary
+                   :xtdb
+                   {:project-id "fixture"
+                    :repo-id "app"})]
+      (is (= 2 (get-in summary [:totals :skippedFiles])))
+      (is (= [{:kind :coverage
+               :label "Inspect skipped source candidates"
                :count 2
                :command "agraph sync coverage <project.edn> --json"}]
              (:nextActions summary))))))

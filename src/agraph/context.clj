@@ -56,7 +56,7 @@
    :session-history])
 
 (def ^:private plane-count-keys
-  {:source-files [:files :diagnostics]
+  {:source-files [:files :skipped-files :diagnostics]
    :source-graph [:nodes :edges]
    :dependencies [:external-packages
                   :package-import-edges
@@ -803,6 +803,11 @@
                                   {:project-id project-id
                                    :repo-id repo-id
                                    :read-context read-context})
+      :skipped-files (coverage/index-run-skipped-files
+                      xtdb
+                      {:project-id project-id
+                       :repo-id repo-id
+                       :read-context read-context})
       :nodes (count nodes)
       :edges (count edges)
       :external-packages (count (filter #(= :external-package (:kind %)) nodes))
@@ -900,6 +905,10 @@
   [counts {:keys [entity-count doc-count activity-count validation-count runtime-count]}]
   (let [validation-history-events (validation-history-count counts)]
     (cond-> []
+      (or (pos? (:skipped-files counts 0))
+          (pos? (:diagnostics counts 0)))
+      (conj :source-files)
+
       (or (pos? (:unresolved-imports counts 0))
           (pos? (:package-evidence-gaps counts 0))
           (pos? (:package-conflicts counts 0)))
@@ -997,6 +1006,9 @@
 
      (pos? (:diagnostics counts))
      (conj "Indexer diagnostics are present; inspect source coverage before relying on missing facts.")
+
+     (pos? (:skipped-files counts 0))
+     (conj "Some files were skipped by the latest index run; inspect source coverage before treating missing facts as absent.")
 
      (zero? (+ (:external-packages counts 0)
                (:package-import-edges counts 0)
@@ -1106,6 +1118,24 @@
        (when (seq args)
          (str " " (str/join " " (map command/shell-token args))))))
 
+(defn- action-distinct-key
+  [action]
+  (if (= :coverage (:kind action))
+    [(:kind action) (:label action) (:command action)]
+    [(:command action)]))
+
+(defn- action-priority
+  [{:keys [kind label]}]
+  (case [kind label]
+    [:freshness "Refresh indexed graph basis"] 0
+    [:dependencies "Inspect packages without source import evidence"] 10
+    [:dependencies "Inspect package version conflicts"] 10
+    [:dependency-review "Queue unresolved import review work"] 15
+    [:coverage "Inspect extractor diagnostics"] 20
+    [:coverage "Inspect skipped source candidates"] 20
+    [:dependencies "Inspect package graph facts"] 30
+    50))
+
 (defn- next-actions
   ([counts retrieval project-id] (next-actions counts retrieval project-id nil))
   ([counts retrieval project-id freshness]
@@ -1125,6 +1155,12 @@
           (conj {:kind :coverage
                  :label "Inspect extractor diagnostics"
                  :count (:diagnostics counts)
+                 :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")})
+
+          (pos? (:skipped-files counts 0))
+          (conj {:kind :coverage
+                 :label "Inspect skipped source candidates"
+                 :count (:skipped-files counts 0)
                  :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")})
 
           (zero? (:search-docs counts))
@@ -1198,7 +1234,8 @@
                  :label "Import local activity and work rows"
                  :mcpTool "agraph_sync_activity"
                  :command (command/command "agraph" "sync" "activity" "<project.edn>")}))
-        (distinct-by :command)
+        (distinct-by action-distinct-key)
+        (sort-by action-priority)
         (take 5)
         vec)))
 
@@ -1209,7 +1246,7 @@
 (defn- answerability-status
   [missing weak retrieval {:keys [entity-count doc-count activity-count]} freshness]
   (let [core-missing? (some #{:source-files :source-graph :docs :system-graph} missing)
-        core-weak? (some #{:system-graph :docs} weak)]
+        core-weak? (some #{:source-files :system-graph :docs} weak)]
     (cond
       (and (zero? entity-count) (zero? doc-count) (zero? activity-count)) :empty
       (or (:fallback? retrieval)

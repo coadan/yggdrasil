@@ -220,6 +220,33 @@
        (filter #(scope-match? {:project-id project-id :repo-id repo-id} %))
        vec))
 
+(defn- completed-index-run?
+  [run]
+  (= "completed" (display-value (:status run))))
+
+(defn- run-finished-at
+  [run]
+  (long (or (:finished-at-ms run)
+            (:started-at-ms run)
+            0)))
+
+(defn- latest-index-runs
+  [runs]
+  (->> runs
+       (filter completed-index-run?)
+       (group-by :repo-id)
+       vals
+       (mapv #(apply max-key run-finished-at %))))
+
+(defn index-run-skipped-files
+  "Return skipped file count from the latest completed index run per repo."
+  [xtdb opts]
+  (->> (scoped-active-index-rows xtdb (:index-runs store/tables) opts)
+       latest-index-runs
+       (map #(get-in % [:stats :files-skipped] 0))
+       (reduce + 0)
+       long))
+
 (defn- context-extractor-rows
   [files]
   (->> files
@@ -348,10 +375,16 @@
      :byKind (connectivity-kind-rows files connected-ids cross-file-ids)}))
 
 (defn- context-next-actions
-  [diagnostics indexed-connectivity]
+  [skipped-files diagnostics indexed-connectivity]
   (let [diagnostic-count (count diagnostics)
         isolated-count (long (or (:isolatedFiles indexed-connectivity) 0))]
     (cond-> []
+      (pos? skipped-files)
+      (conj {:kind :coverage
+             :label "Inspect skipped source candidates"
+             :count skipped-files
+             :command (coverage-command nil)})
+
       (pos? diagnostic-count)
       (conj {:kind :coverage
              :label "Inspect extractor diagnostics"
@@ -375,10 +408,12 @@
         nodes (scoped-active-index-rows xtdb (:nodes store/tables) opts)
         edges (scoped-active-index-rows xtdb (:edges store/tables) opts)
         diagnostics (scoped-active-index-rows xtdb (:diagnostics store/tables) opts)
+        skipped-files (index-run-skipped-files xtdb opts)
         indexed-connectivity (indexed-connectivity-from-rows files nodes edges)
         summary {:schema context-schema
                  :basis "indexed-graph"
                  :totals {:indexedFiles (count files)
+                          :skippedFiles skipped-files
                           :diagnostics (count diagnostics)
                           :fileKinds (count (set (keep :kind files)))}
                  :indexedConnectivity indexed-connectivity
@@ -395,7 +430,7 @@
                                                         diagnostics)))
                                :samples (context-diagnostic-samples files
                                                                     diagnostics)}}
-        actions (context-next-actions diagnostics indexed-connectivity)]
+        actions (context-next-actions skipped-files diagnostics indexed-connectivity)]
     (cond-> summary
       (seq actions) (assoc :nextActions actions))))
 
