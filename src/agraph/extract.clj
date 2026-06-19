@@ -54,6 +54,7 @@
             [agraph.extract.source-jvm-worker :as extract.source-jvm-worker]
             [agraph.extract.source-dotnet-worker :as extract.source-dotnet-worker]
             [agraph.extract.yaml-generic :as extract.yaml-generic]
+            [agraph.extract.config-generic :as extract.config-generic]
             [clojure.string :as str]))
 
 
@@ -841,28 +842,6 @@
 
 
 
-(defn- extract-config-facts
-  [run-id {:keys [id-scope file-id path] :as file} root-kind chunk-kind]
-  (let [config-node (generic-node run-id id-scope file-id path root-kind path 1)
-        facts (extract.common/config-facts file)
-        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
-                           (generic-node run-id id-scope file-id path kind label source-line))
-                         facts)
-        fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
-                           (edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id config-node)
-                                     (node-id id-scope kind label)
-                                     relation
-                                     :extracted
-                                     source-line))
-                         facts)
-        chunk-result (extract-text-source run-id file chunk-kind)]
-    {:nodes (into [config-node] fact-nodes)
-     :edges fact-edges
-     :chunks (:chunks chunk-result)
-     :diagnostics []}))
 
 
 
@@ -874,15 +853,7 @@
 
 
 
-(defn extract-codegen-config
-  "Extract bounded GraphQL/codegen configuration facts."
-  [run-id file]
-  (extract-config-facts run-id file :codegen-config :codegen-config-file))
 
-(defn extract-test-config
-  "Extract bounded test runner configuration facts."
-  [run-id file]
-  (extract-config-facts run-id file :test-config :test-config-file))
 
 
 
@@ -1432,8 +1403,8 @@
      :dbt (extract.data-model/extract-dbt run-id file)
      :data-science (extract.data-science/extract-data-science run-id file)
      :db-config (extract.db-config/extract-db-config run-id file)
-     :codegen-config (extract-codegen-config run-id file)
-     :test-config (extract-test-config run-id file)
+     :codegen-config (extract.config-generic/extract-codegen-config run-id file)
+     :test-config (extract.config-generic/extract-test-config run-id file)
      :quality-config (extract.tool-config/extract-quality-config run-id file)
      :editor-config (extract.project-config/extract-editor-config run-id file)
      :release-config (extract.project-config/extract-release-config run-id file)
