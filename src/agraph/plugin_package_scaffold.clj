@@ -126,6 +126,8 @@
        "```sh\n"
        "bb plugin validate .\n"
        "bb plugin diagnose .\n"
+       "bb plugin input extractor . /path/to/repo src/example.clj --json\n"
+       "bb plugin input report . --json\n"
        "bb plugin dry-run extractor . /path/to/repo src/example.clj --json\n"
        "bb plugin dry-run report . --json\n"
        "bb plugin install /path/to/project.edn . --force\n"
