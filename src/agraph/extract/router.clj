@@ -36,11 +36,11 @@
             [agraph.extract.source-jvm-worker :as extract.source-jvm-worker]
             [agraph.extract.source-js :as extract.source-js]
             [agraph.extract.source-ml :as extract.source-ml]
-            [agraph.extract.source-misc :as extract.source-misc]
             [agraph.extract.source-native :as extract.source-native]
             [agraph.extract.source-python :as extract.source-python]
             [agraph.extract.source-scala :as extract.source-scala]
             [agraph.extract.source-scripting :as extract.source-scripting]
+            [agraph.extract.source-systems :as extract.source-systems]
             [agraph.extract.starlark :as extract.starlark]
             [agraph.extract.task-config :as extract.task-config]
             [agraph.extract.terraform :as extract.terraform]
@@ -89,8 +89,8 @@
      :ocaml (extract.source-ml/extract-ocaml run-id file)
      :perl (extract.source-ml/extract-perl run-id file)
      :haskell (extract.source-ml/extract-haskell run-id file)
-     :odin (extract.source-misc/extract-odin run-id file)
-     :zig (extract.source-misc/extract-zig run-id file)
+     :odin (extract.source-systems/extract-odin run-id file)
+     :zig (extract.source-systems/extract-zig run-id file)
      :apple-config (extract.xml/extract-apple-config run-id file)
      :prisma (extract.data-model/extract-prisma run-id file)
      :dbt (extract.data-model/extract-dbt run-id file)
