@@ -466,6 +466,9 @@ given.
   higher aggregate `warningRuns`, `commandlessRuns`, and
   `missingPredictedFileRuns` as lower-is-better regressions when the report case
   set and parser-worker profiles are comparable.
+- `agentDiagnostics.identityMismatchRuns`: scored agent artifacts whose schema,
+  case id, or case fingerprint did not match the prepared case. These are also
+  counted under `warningRuns`.
 - `localizationDiagnostics.missedButPresentInContextRuns`: missed scoreable files
   that were present in the AGraph context packet. Gate with
   `--max-missed-but-present-in-context-runs` when prompt or agent selection

@@ -3484,6 +3484,10 @@
   [result]
   (let [top-files (get-in result [:agent :topFiles])
         warnings (vec (get-in result [:agent :warnings]))
+        identity-warnings (filterv #(or (str/starts-with? % "agent result schema ")
+                                        (str/starts-with? % "agent result caseId ")
+                                        (str/starts-with? % "agent result caseFingerprint "))
+                                   warnings)
         missing-files (vec (get-in result [:agent :missingPredictedFiles]))
         commands (vec (get-in result [:agent :commands]))
         selection (get-in result [:agent :selection])
@@ -3500,6 +3504,8 @@
              :warnings warnings
              :warningCount (count warnings)
              :hasWarnings (boolean (seq warnings))
+             :identityWarnings identity-warnings
+             :hasIdentityMismatch (boolean (seq identity-warnings))
              :emptyResult (zero? ranked-count)
              :commandless (zero? command-count)
              :noRawSuspectedFiles (zero? raw-count)}
@@ -3534,7 +3540,10 @@
                                     result-pairs)
         warning-results (filter (fn [[_ diagnostic]]
                                   (:hasWarnings diagnostic))
-                                result-pairs)]
+                                result-pairs)
+        identity-mismatch-results (filter (fn [[_ diagnostic]]
+                                            (:hasIdentityMismatch diagnostic))
+                                          result-pairs)]
     {:emptyResultRuns (count empty-results)
      :emptyResultCaseIds (->> empty-results
                               (map (comp :case-id first))
@@ -3581,6 +3590,15 @@
                           distinct
                           sort
                           vec)
+     :identityMismatchRuns (count identity-mismatch-results)
+     :identityMismatchCaseIds (->> identity-mismatch-results
+                                   (map (comp :case-id first))
+                                   distinct
+                                   sort
+                                   vec)
+     :identityMismatches (reduce + 0
+                                 (map (comp count :identityWarnings second)
+                                      identity-mismatch-results))
      :warnings (reduce + 0
                        (map (comp count :warnings second)
                             warning-results))}))

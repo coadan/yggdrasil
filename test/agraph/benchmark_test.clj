@@ -448,6 +448,9 @@
               :commandlessCaseIds ["case-1"]
               :warningRuns 1
               :warningCaseIds ["case-1"]
+              :identityMismatchRuns 0
+              :identityMismatchCaseIds []
+              :identityMismatches 0
               :warnings 1}
              (:agentDiagnostics report)))
       (is (= {:configuredRuns 1
@@ -602,6 +605,8 @@
               :warnings ["agent result suspectedFiles row 1 missing evidence"]
               :warningCount 1
               :hasWarnings true
+              :identityWarnings []
+              :hasIdentityMismatch false
               :emptyResult false
               :commandless false
               :noRawSuspectedFiles false
@@ -2502,12 +2507,16 @@
                       :commands []
                       :warnings []
                       :summary "Found the changed file."}
-        scored (benchmark/score-agent-result prepared agent-result)]
+        scored (benchmark/score-agent-result prepared agent-result)
+        diagnostic (#'benchmark/agent-output-diagnostic scored)]
     (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
     (is (= ["agent result schema agraph.benchmark.agent-result/old does not match expected schema agraph.benchmark.agent-result/v1"
             "agent result caseId case-2 does not match expected case case-1"
             "agent result caseFingerprint sha256:old-case does not match expected case fingerprint sha256:test-case"]
-           (get-in scored [:agent :warnings])))))
+           (get-in scored [:agent :warnings])))
+    (is (= {:identityWarnings (get-in scored [:agent :warnings])
+            :hasIdentityMismatch true}
+           (select-keys diagnostic [:identityWarnings :hasIdentityMismatch])))))
 
 (deftest score-agent-result-writes-parser-worker-provenance
   (let [root (temp-dir "agraph-bench-agent-score-worker")
