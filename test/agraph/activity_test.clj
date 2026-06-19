@@ -61,6 +61,37 @@
           (is (= [(get-in enqueued [:item :id])]
                  (mapv :sourceId selected))))))))
 
+(deftest sync-queue-records-result-schema-mismatches
+  (let [root (temp-dir "agraph-activity-schema-mismatch")
+        project {:id "demo" :name "Demo" :repos []}
+        payload {:schema "agraph.test.work/v1"
+                 :project-id "demo"
+                 :target "system:demo:search"
+                 :expectedResultSchema "agraph.test.expected/v1"}
+        enqueued (queue/enqueue! payload
+                                 {:root root
+                                  :project-id "demo"
+                                  :kind "test-work"
+                                  :now 1000})
+        id (get-in enqueued [:item :id])
+        xtdb-path (temp-dir "agraph-activity-schema-mismatch-xtdb")]
+    (queue/claim-next! root {:agent-id "codex" :lease-ms 60000})
+    (queue/complete! root
+                     id
+                     {:schema "agraph.test.actual/v1"
+                      :summary "Wrong schema was returned"})
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (activity/sync-queue! xtdb project {:queue-root root :now 2000})
+        (let [events (activity/all-events xtdb {:project-id "demo"})
+              mismatch (first (filter #(= :result-schema-mismatch (:event-kind %))
+                                      events))]
+          (is (= #{:completed :created :result-schema-mismatch}
+                 (set (map :event-kind events))))
+          (is (some? mismatch))
+          (is (= "result schema mismatch expected agraph.test.expected/v1 actual agraph.test.actual/v1"
+                 (:summary mismatch))))))))
+
 (deftest context-packet-can-answer-from-activity-when-graph-is-empty
   (let [root (temp-dir "agraph-context-activity-queue")
         project {:id "demo" :name "Demo" :repos []}

@@ -183,6 +183,14 @@
       (seq (:groundTruthRanks result))
       (seq (:ground-truth-ranks result))))
 
+(defn- result-schema-mismatch?
+  [item]
+  (let [expected (expected-result-schema item)
+        actual (result-schema item)]
+    (and (present? expected)
+         (present? actual)
+         (not= expected actual))))
+
 (defn queue-item->events
   "Return durable lifecycle and validation events for a queue item row."
   [run-id {:keys [item] :as found}]
@@ -210,6 +218,17 @@
                          (:completed-at-ms item)
                          (compact "completed" (result-schema item) (:summary result) (:reason result))
                          {})
+              (when (result-schema-mismatch? item)
+                (event-row run-id
+                           item-row
+                           :result-schema-mismatch
+                           (or (:completed-at-ms item) (:updated-at-ms item))
+                           (compact "result schema mismatch"
+                                    "expected"
+                                    (expected-result-schema item)
+                                    "actual"
+                                    (result-schema item))
+                           {}))
               (event-row run-id
                          item-row
                          :rejected
