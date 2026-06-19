@@ -269,6 +269,14 @@
                   :missing [:docs]
                   :weak [:dependencies]
                   :unsupported [:remote-work]
+                  :planes [{:plane :source-files
+                            :status :available
+                            :counts {:files 2}}
+                           {:plane :dependencies
+                            :status :weak
+                            :counts {:unresolved-imports 1}}
+                           {:plane :remote-work
+                            :status :unsupported}]
                   :counts {:unresolved-imports 1}
                   :retrieval {:effective :lexical}
                   :warnings ["one" "two" "three" "four"]
@@ -282,6 +290,14 @@
             :missing [:docs]
             :weak [:dependencies]
             :unsupported [:remote-work]
+            :planes [{:plane :source-files
+                      :status :available
+                      :counts {:files 2}}
+                     {:plane :dependencies
+                      :status :weak
+                      :counts {:unresolved-imports 1}}
+                     {:plane :remote-work
+                      :status :unsupported}]
             :counts {:unresolved-imports 1}
             :retrieval {:effective :lexical}
             :warnings ["one" "two" "three"]
@@ -716,6 +732,16 @@
                           :validation-count 0})]
       (is (contains? (set (:available answerability)) :dependencies))
       (is (not (contains? (set (:missing answerability)) :dependencies)))
+      (is (= {:plane :dependencies
+              :status :available
+              :counts {:external-packages 1
+                       :package-import-edges 1
+                       :declared-packages 1
+                       :unresolved-imports 0
+                       :package-evidence-gaps 0
+                       :package-conflicts 0}}
+             (some #(when (= :dependencies (:plane %)) %)
+                   (:planes answerability))))
       (is (= 1 (get-in answerability [:counts :external-packages])))
       (is (= 1 (get-in answerability [:counts :package-import-edges]))))))
 
@@ -760,6 +786,12 @@
                           :validation-count 0})]
       (is (contains? (set (:available answerability)) :validation-history))
       (is (not (contains? (set (:missing answerability)) :validation-history)))
+      (is (= {:plane :validation-history
+              :status :weak
+              :counts {:validation-events 0
+                       :result-schema-mismatch-events 1}}
+             (some #(when (= :validation-history (:plane %)) %)
+                   (:planes answerability))))
       (is (= 1 (get-in answerability [:counts :result-schema-mismatch-events])))
       (is (some #{"Completed work has result schema mismatches; inspect activity before trusting prior results."}
                 (:warnings answerability)))

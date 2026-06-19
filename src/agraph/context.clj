@@ -36,6 +36,35 @@
 (def unsupported-planes
   [:remote-work :session-history])
 
+(def ^:private plane-order
+  [:source-files
+   :source-graph
+   :dependencies
+   :docs
+   :embeddings
+   :system-graph
+   :activity
+   :validation-history
+   :map-overlay
+   :remote-work
+   :session-history])
+
+(def ^:private plane-count-keys
+  {:source-files [:files :diagnostics]
+   :source-graph [:nodes :edges]
+   :dependencies [:external-packages
+                  :package-import-edges
+                  :declared-packages
+                  :unresolved-imports
+                  :package-evidence-gaps
+                  :package-conflicts]
+   :docs [:chunks :search-docs]
+   :embeddings [:embeddings]
+   :system-graph [:system-nodes :system-edges]
+   :activity [:activity-items :activity-events]
+   :validation-history [:validation-events :result-schema-mismatch-events]
+   :map-overlay [:map-systems :map-docs :map-edges :map-rejects]})
+
 (def role-weight
   {"overview" 0.35
    "contract" 0.35
@@ -1004,6 +1033,7 @@
                           :missing
                           :weak
                           :unsupported
+                          :planes
                           :counts
                           :retrieval
                           :next
@@ -1467,6 +1497,39 @@
            (zero? validation-count))
       (conj :validation-history))))
 
+(defn- plane-status
+  [{:keys [available missing weak unsupported counts]} plane]
+  (cond
+    (some #{plane} unsupported) :unsupported
+    (some #{plane} weak) :weak
+    (some #{plane} missing) :missing
+    (some #{plane} available) :available
+    (and (= :source-files plane)
+         (pos? (:files counts 0))) :available
+    :else :missing))
+
+(defn- plane-counts
+  [counts plane]
+  (when-let [ks (seq (get plane-count-keys plane))]
+    (into {}
+          (map (fn [k] [k (long (or (get counts k) 0))]))
+          ks)))
+
+(defn- evidence-planes
+  "Return compact mechanical evidence-plane statuses for agent packets."
+  [{:keys [available missing weak unsupported counts] :as status}]
+  (let [status (assoc status
+                      :available (set available)
+                      :missing (set missing)
+                      :weak (set weak)
+                      :unsupported (set unsupported))]
+    (mapv (fn [plane]
+            (let [plane-counts (plane-counts counts plane)]
+              (cond-> {:plane plane
+                       :status (plane-status status plane)}
+                (seq plane-counts) (assoc :counts plane-counts))))
+          plane-order)))
+
 (defn- answerability-warnings
   [counts retrieval weak]
   (cond-> []
@@ -1657,12 +1720,19 @@
         retrieval (retrieval-summary opts)
         missing (missing-planes counts)
         weak (weak-planes counts match-counts)
+        available (available-planes counts)
+        planes (evidence-planes {:available available
+                                 :missing missing
+                                 :weak weak
+                                 :unsupported unsupported-planes
+                                 :counts counts})
         actions (next-actions counts retrieval (:project-id opts))]
     {:status (answerability-status missing weak retrieval match-counts)
-     :available (available-planes counts)
+     :available available
      :missing missing
      :weak weak
      :unsupported unsupported-planes
+     :planes planes
      :counts counts
      :retrieval retrieval
      :warnings (answerability-warnings counts retrieval weak)

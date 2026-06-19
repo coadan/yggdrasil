@@ -34,6 +34,26 @@ The packet schema is `agraph.context/v1`:
     "missing": ["embeddings", "system-graph", "activity", "validation-history"],
     "weak": [],
     "unsupported": ["remote-work", "session-history"],
+    "planes": [
+      {
+        "plane": "source-files",
+        "status": "available",
+        "counts": {"files": 40, "diagnostics": 0}
+      },
+      {
+        "plane": "dependencies",
+        "status": "available",
+        "counts": {
+          "external-packages": 12,
+          "package-import-edges": 8,
+          "declared-packages": 12,
+          "unresolved-imports": 0,
+          "package-evidence-gaps": 0,
+          "package-conflicts": 0
+        }
+      },
+      {"plane": "remote-work", "status": "unsupported"}
+    ],
     "counts": {
       "nodes": 120,
       "external-packages": 12,
@@ -83,6 +103,10 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
 - `weak`: evidence exists, but did not match this query well
 - `unsupported`: useful evidence planes AGraph cannot model yet, currently
   `remote-work` and `session-history`
+- `planes`: bounded per-plane status rows for agents that need a quick
+  mechanical readiness table before reading raw counts. Rows can be `available`,
+  `missing`, `weak`, or `unsupported` and include only count fields relevant to
+  that plane.
 - `counts`: compact row counts used to make the decision, including
   `external-packages`, `package-import-edges`, `unresolved-imports`,
   `package-evidence-gaps`, and `package-conflicts` when dependency facts are
