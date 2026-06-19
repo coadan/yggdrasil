@@ -378,6 +378,139 @@
 (defn- dependency-evidence?
   [edge]
   (contains? dependency-relations (display-name (:relation edge))))
+(def ^:private dependency-result-path-limit
+  20)
+(defn- source-location-row
+  [source]
+  (cond-> {:path (:path source)}
+    (:id source) (assoc :id (:id source))
+    (:label source) (assoc :label (:label source))
+    (:line source) (assoc :line (:line source))
+    (:version-range source) (assoc :versionRange (:version-range source))
+    (:dependency-scope source) (assoc :dependencyScope (display-name (:dependency-scope source)))))
+(defn- selected-source-paths
+  [results accepted-systems candidate-systems]
+  (let [result-paths (ranked-result-paths results dependency-result-path-limit)
+        system-prefixes (mapcat system-source-prefixes
+                                (concat accepted-systems candidate-systems))]
+    {:result-paths result-paths
+     :system-prefixes system-prefixes}))
+(defn- source-path-selected?
+  [{:keys [result-paths system-prefixes]} source]
+  (let [path (:path source)
+        repo (:repo source)]
+    (or (contains? result-paths path)
+        (some (fn [prefix]
+                (and (path-under? path (:path prefix))
+                     (compatible-repo? (:repo prefix) repo)))
+              system-prefixes))))
+(defn- dependency-token-score
+  [query-tokens row]
+  (capped-token-score query-tokens
+                      (compact (:kind row)
+                               (:relation row)
+                               (:label row)
+                               (:package row)
+                               (:import row)
+                               (:ecosystem row)
+                               (:path row)
+                               (:versions row))))
+(defn- package-import-evidence-rows
+  [selection query-tokens package]
+  (let [sources (filter #(source-path-selected? selection %)
+                        (:imported-by package))]
+    (mapv (fn [source]
+            (cond-> {:kind "package-import"
+                     :id (str (:id package) ":import:" (:path source) ":" (:line source))
+                     :packageId (:id package)
+                     :package (:package-name package)
+                     :label (:label package)
+                     :ecosystem (display-name (:ecosystem package))
+                     :relation "imports-package"
+                     :path (:path source)
+                     :sourceLine (:line source)
+                     :score (+ 1.0
+                               (* 0.25
+                                  (dependency-token-score query-tokens
+                                                          (assoc package
+                                                                 :kind "package-import"
+                                                                 :path (:path source)))))}
+              (:import-name source) (assoc :importName (:import-name source))
+              (:resolution-source source) (assoc :resolutionSource (display-name (:resolution-source source)))))
+          sources)))
+(defn- unresolved-import-evidence-row
+  [selection query-tokens row]
+  (when (source-path-selected? selection row)
+    (cond-> {:kind "unresolved-import"
+             :id (str "unresolved-import:" (:source-id row) ":" (:target-id row) ":" (:path row) ":" (:line row))
+             :source (:source-id row)
+             :target (:target-id row)
+             :import (:import row)
+             :repo (:repo-id row)
+             :path (:path row)
+             :sourceLine (:line row)
+             :relation "unresolved-import"
+             :score (+ 1.25
+                       (* 0.25
+                          (dependency-token-score query-tokens
+                                                  (assoc row
+                                                         :kind "unresolved-import"
+                                                         :label (:source-label row)))))}
+      (:source-label row) (assoc :sourceLabel (:source-label row))
+      (:kind row) (assoc :fileKind (display-name (:kind row))))))
+(defn- declared-without-import-evidence-row
+  [query-tokens package]
+  (let [declared-by (mapv source-location-row (take 3 (:declared-by package)))]
+    (when (seq declared-by)
+      {:kind "declared-package-without-import-evidence"
+       :id (str (:id package) ":declared-without-import-evidence")
+       :packageId (:id package)
+       :package (:package-name package)
+       :label (:label package)
+       :ecosystem (display-name (:ecosystem package))
+       :relation "declared-without-import-evidence"
+       :declaredBy declared-by
+       :score (+ 0.5
+                 (* 0.25
+                    (dependency-token-score query-tokens
+                                            (assoc package
+                                                   :kind "declared-package-without-import-evidence"))))})))
+(defn- version-conflict-evidence-row
+  [query-tokens conflict]
+  {:kind "package-version-conflict"
+   :id (str (:id conflict) ":version-conflict")
+   :packageId (:id conflict)
+   :package (:package-name conflict)
+   :label (:label conflict)
+   :ecosystem (display-name (:ecosystem conflict))
+   :relation "version-conflict"
+   :versions (:versions conflict)
+   :score (+ 0.75
+             (* 0.25
+                (dependency-token-score query-tokens
+                                        (assoc conflict
+                                               :kind "package-version-conflict"))))})
+(defn- dependency-report-evidence
+  [query-tokens results accepted-systems candidate-systems dependency-report]
+  (let [selection (selected-source-paths results accepted-systems candidate-systems)]
+    (->> (concat
+          (mapcat #(package-import-evidence-rows selection query-tokens %)
+                  (:packages dependency-report))
+          (keep #(unresolved-import-evidence-row selection query-tokens %)
+                (:unresolved-imports dependency-report))
+          (map #(declared-without-import-evidence-row query-tokens %)
+               (:declared-without-import-evidence dependency-report))
+          (map #(version-conflict-evidence-row query-tokens %)
+               (:version-conflicts dependency-report)))
+         (keep identity)
+         (sort-by (juxt (comp - #(double (or (:score %) 0.0)))
+                        :kind
+                        :ecosystem
+                        :package
+                        :path
+                        :sourceLine
+                        :id))
+         vec)))
 (defn- architecture-doc-row
   [doc]
   (cond-> (select-keys doc [:target
@@ -725,8 +858,8 @@
   (vec (take 5 (concat (:warnings freshness)
                        (:warnings answerability)))))
 (defn architecture-section
-  [{:keys [overlay entities results edges runtime-evidence docs activity answerability freshness
-           accepted-systems]}]
+  [{:keys [overlay entities results edges runtime-evidence dependency-report docs activity answerability freshness
+           accepted-systems query-tokens]}]
   (let [accepted-systems (or accepted-systems
                              (selected-accepted-systems overlay entities results))
         candidate-systems (selected-candidate-systems accepted-systems entities)
@@ -741,8 +874,15 @@
         dependency-evidence (vec (take 8
                                        (ranked-evidence
                                         selected-ids
-                                        (map graph-edge-evidence-row
-                                             (filter dependency-evidence? edges)))))
+                                        (concat
+                                         (map graph-edge-evidence-row
+                                              (filter dependency-evidence? edges))
+                                         (dependency-report-evidence
+                                          query-tokens
+                                          results
+                                          accepted-systems
+                                          candidate-systems
+                                          dependency-report)))))
         deploy-evidence (deploy-evidence-rows runtime-evidence)
         architecture-docs (mapv architecture-doc-row
                                 (take 8 (filter accepted-architecture-doc? docs)))

@@ -8,6 +8,22 @@
             [agraph.xtdb :as store]
             [clojure.test :refer [deftest is]]))
 
+(defn- empty-dependency-report
+  []
+  {:schema "agraph.dependency.report/v1"
+   :counts {:packages 0
+            :versions 0
+            :requires 0
+            :resolves 0
+            :imports-package 0
+            :unresolved-imports 0
+            :declared-without-import-evidence 0
+            :version-conflicts 0}
+   :packages []
+   :declared-without-import-evidence []
+   :unresolved-imports []
+   :version-conflicts []})
+
 (deftest inferred-docs-include-source-chunk-for-retrieved-node-result
   (let [inferred-docs @#'context/inferred-docs
         docs (inferred-docs
@@ -271,7 +287,6 @@
                    :command "agraph sync coverage <project.edn> --json"}
                   %)
               actions))))
-
 
 (deftest answerability-exposes-indexed-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]
@@ -706,6 +721,7 @@
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
                 query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
                 context/answerability (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _]
@@ -794,6 +810,38 @@
                                               :source-line 4
                                               :confidence 1.0
                                               :active? true}])
+                dependency/package-report (fn [& _]
+                                            (assoc (empty-dependency-report)
+                                                   :counts {:packages 1
+                                                            :versions 0
+                                                            :requires 1
+                                                            :resolves 0
+                                                            :imports-package 1
+                                                            :unresolved-imports 1
+                                                            :declared-without-import-evidence 0
+                                                            :version-conflicts 0}
+                                                   :packages [{:id "node:pkg:stripe"
+                                                               :label "stripe"
+                                                               :ecosystem :npm
+                                                               :package-name "stripe"
+                                                               :declared-by [{:id "node:manifest:package"
+                                                                              :path "package.json"
+                                                                              :line 12}]
+                                                               :resolved-versions []
+                                                               :imported-by [{:id "node:billing-api"
+                                                                              :label "billing.api"
+                                                                              :path "src/billing/api.clj"
+                                                                              :line 9
+                                                                              :import-name "stripe"
+                                                                              :resolution-source :declared}]}]
+                                                   :unresolved-imports [{:source-id "node:worker-job"
+                                                                         :source-label "worker.job"
+                                                                         :target-id "node:namespace:jobs.queue"
+                                                                         :import "jobs.queue"
+                                                                         :repo-id "app"
+                                                                         :path "src/worker/job.clj"
+                                                                         :line 7
+                                                                         :kind :clojure}]))
                 activity/select-activity (fn [& _]
                                            [{:id "activity:boundary"
                                              :kind "maintenance-decision"
@@ -889,10 +937,42 @@
                :confidence 1.0
                :fileKind "clojure"}]
              (mapv #(dissoc % :score) (:runtimeEvidence architecture))))
+      (is (= [{:kind "unresolved-import"
+               :id "unresolved-import:node:worker-job:node:namespace:jobs.queue:src/worker/job.clj:7"
+               :source "node:worker-job"
+               :target "node:namespace:jobs.queue"
+               :import "jobs.queue"
+               :repo "app"
+               :path "src/worker/job.clj"
+               :sourceLine 7
+               :relation "unresolved-import"
+               :sourceLabel "worker.job"
+               :fileKind "clojure"}
+              {:kind "package-import"
+               :id "node:pkg:stripe:import:src/billing/api.clj:9"
+               :packageId "node:pkg:stripe"
+               :package "stripe"
+               :label "stripe"
+               :ecosystem "npm"
+               :relation "imports-package"
+               :path "src/billing/api.clj"
+               :sourceLine 9
+               :importName "stripe"
+               :resolutionSource "declared"}]
+             (mapv #(dissoc % :score)
+                   (:dependencyEvidence architecture))))
       (is (= [{:kind "source-structure"
                :basis "selected-architecture-evidence"
                :facts 1
                :topEvidenceTypes [{:kind "shares-config"
+                                   :count 1}]}
+              {:kind "dependencies"
+               :basis "selected-architecture-evidence"
+               :facts 2
+               :files 2
+               :topEvidenceTypes [{:kind "imports-package"
+                                   :count 1}
+                                  {:kind "unresolved-import"
                                    :count 1}]}
               {:kind "runtime-config"
                :basis "selected-architecture-evidence"
@@ -910,6 +990,24 @@
                :section "boundaryEvidence"}]
              (mapv #(dissoc % :score)
                    (get-in packet [:auditScopes 0 :samples]))))
+      (is (= [{:kind "unresolved-import"
+               :relation "unresolved-import"
+               :path "src/worker/job.clj"
+               :target "node:namespace:jobs.queue"
+               :source "node:worker-job"
+               :repo "app"
+               :id "unresolved-import:node:worker-job:node:namespace:jobs.queue:src/worker/job.clj:7"
+               :sourceLine 7
+               :fileKind "clojure"
+               :section "dependencyEvidence"}
+              {:kind "package-import"
+               :relation "imports-package"
+               :path "src/billing/api.clj"
+               :id "node:pkg:stripe:import:src/billing/api.clj:9"
+               :sourceLine 9
+               :section "dependencyEvidence"}]
+             (mapv #(dissoc % :score)
+                   (get-in packet [:auditScopes 1 :samples]))))
       (is (= [{:id "evidence:billing-env"
                :kind "env-var"
                :path "src/billing/api.clj"
@@ -918,7 +1016,7 @@
                :fileKind "clojure"
                :section "runtimeEvidence"}]
              (mapv #(dissoc % :score)
-                   (get-in packet [:auditScopes 1 :samples]))))
+                   (get-in packet [:auditScopes 2 :samples]))))
       (is (> (get-in architecture [:runtimeEvidence 0 :score]) 2.0))
       (is (= [{:plane "dependencies"
                :status "missing"
@@ -990,6 +1088,7 @@
                                               :source-line 4
                                               :confidence 0.8
                                               :active? true}])
+                dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [_ _ opts]
                                            (is (contains? (:target-ids opts)
                                                           "system:billing"))
@@ -1121,6 +1220,7 @@
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
                 query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
                 context/answerability (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
@@ -1171,6 +1271,7 @@
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
                 query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
                 context/answerability (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
@@ -1223,6 +1324,7 @@
                   query/chunks-by-ids (fn [& _] [])
                   query/chunks-by-paths (fn [& _] [])
                   query/all-system-evidence (fn [& _] [])
+                  dependency/package-report (fn [& _] (empty-dependency-report))
                   activity/select-activity (fn [& _] [])
                   context/answerability (fn [& _] {:status :ready})
                   coverage/context-summary (fn [& _] nil)]

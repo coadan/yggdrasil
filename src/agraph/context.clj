@@ -1312,6 +1312,11 @@
                                                    {:project-id project-id
                                                     :repo-id repo-id
                                                     :read-context read-context})
+        dependency-report (dependency/package-report xtdb
+                                                     {:project-id project-id
+                                                      :repo-id repo-id}
+                                                     {:limit 12
+                                                      :map-overlay overlay})
         selected-system-ids (concat (map :id entities)
                                     (map :id accepted-systems))
         runtime-evidence (select-system-evidence query-tokens
@@ -1358,7 +1363,9 @@
                                             :results results
                                             :edges edges
                                             :accepted-systems accepted-systems
+                                            :query-tokens query-tokens
                                             :runtime-evidence runtime-evidence
+                                            :dependency-report dependency-report
                                             :docs docs
                                             :activity activity
                                             :answerability answerability

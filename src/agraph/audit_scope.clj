@@ -46,10 +46,13 @@
    "unclassified-extractor" 99})
 
 (def ^:private dependency-relations
-  {"imports-package" #{"dependencies"}
+  {"declared-without-import-evidence" #{"dependencies"}
+   "imports-package" #{"dependencies"}
    "requires" #{"dependencies"}
    "version-of" #{"dependencies"}
-   "resolves" #{"dependencies"}})
+   "resolves" #{"dependencies"}
+   "unresolved-import" #{"dependencies"}
+   "version-conflict" #{"dependencies"}})
 
 (def ^:private fact-kind-scopes
   {"container-image" #{"containers"}
