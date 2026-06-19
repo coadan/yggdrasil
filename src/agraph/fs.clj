@@ -8,19 +8,19 @@
 
 (def supported-extensions
   #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs" ".cts"
-    ".code-workspace" ".conf" ".crt" ".cer" ".cert" ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
+    ".bmp" ".code-workspace" ".conf" ".crt" ".cer" ".cert" ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
     ".dvc"
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
-    ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
+    ".gif" ".gz" ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
     ".hrl" ".jl" ".key" ".lua"
     ".kt" ".kts" ".m" ".md" ".mdx" ".mjs" ".ml" ".mli" ".mm" ".mo" ".mts" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
-    ".mustache" ".neon" ".nix" ".njk" ".odin" ".out" ".patch" ".pem" ".prisma" ".properties" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
+    ".mp4" ".mustache" ".neon" ".nix" ".njk" ".odin" ".otf" ".out" ".patch" ".pem" ".ppm" ".prisma" ".properties" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
     ".service" ".sln" ".snap" ".socket" ".sql" ".subj" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".tmpl" ".ttf"
     ".license" ".template" ".toml" ".ts" ".tsx" ".txt" ".types" ".vb" ".vbproj" ".vue" ".xcconfig"
-    ".webp" ".woff" ".woff2" ".yaml" ".yml" ".zig" ".xml"})
+    ".webm" ".webp" ".woff" ".woff2" ".yaml" ".yml" ".zig" ".xml"})
 
 (def binary-file-kinds
-  #{:font-asset :gettext-binary :image-asset :secret-material})
+  #{:archive-asset :font-asset :gettext-binary :image-asset :media-asset :secret-material})
 
 (def docs-config-filenames
   #{"content.config.js" "content.config.mjs" "content.config.mts"
@@ -374,7 +374,9 @@
         ".go" :go
         (".graphql" ".gql") :graphql
         ".groovy" :groovy
-        (".ico" ".jpeg" ".jpg" ".png" ".webp") :image-asset
+        (".bmp" ".gif" ".ico" ".jpeg" ".jpg" ".png" ".ppm" ".webp") :image-asset
+        (".mp4" ".webm") :media-asset
+        ".gz" :archive-asset
         ".ipynb" :notebook
         ".java" :java
         (".js" ".jsx" ".mjs" ".cjs") :javascript
@@ -404,7 +406,7 @@
         ".hs" :haskell
         ".odin" :odin
         ".zig" :zig
-        (".ttf" ".woff" ".woff2") :font-asset
+        (".otf" ".ttf" ".woff" ".woff2") :font-asset
         ".mo" :gettext-binary
         (".cer" ".cert" ".crt" ".key" ".pem") :secret-material
         ".sh" :shell

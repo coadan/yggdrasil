@@ -115,6 +115,8 @@
    :text "text/v1"
    :image-asset "asset/v1"
    :font-asset "asset/v1"
+   :media-asset "asset/v1"
+   :archive-asset "asset/v1"
    :secret-material "secret-material/v1"
    :gettext-binary "gettext-binary/v1"
    :doc "markdown/v1"
@@ -20348,7 +20350,8 @@
      :env (extract-env run-id file)
      :text (extract-text-source run-id file :text-file)
      :unknown (extract-text-source run-id file :unknown-file)
-     (:image-asset :font-asset :gettext-binary :secret-material) (extract-binary-asset run-id file)
+     (:archive-asset :image-asset :font-asset :gettext-binary :media-asset :secret-material)
+     (extract-binary-asset run-id file)
      :doc (extract-doc run-id file)
      :edn (extract-edn run-id file)
      :config (extract-edn run-id file)

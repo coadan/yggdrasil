@@ -52,6 +52,10 @@ classification in core extractors; store bounded facts and relationships first.
   are indexed as metadata-only `secret-material` rows. AGraph records concrete
   file facts such as path, size, and content hash but does not create searchable
   text chunks for certificate or key contents.
+- Binary media/font/archive metadata: `.gif`, `.bmp`, `.ppm`, `.mp4`, `.webm`,
+  `.otf`, and `.gz` files are supported as metadata-only asset rows so coverage
+  reports expose concrete artifacts without putting binary payloads into
+  searchable context.
 
 ## Future Candidates
 
