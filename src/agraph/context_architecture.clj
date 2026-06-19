@@ -404,6 +404,11 @@
                 (and (path-under? path (:path prefix))
                      (compatible-repo? (:repo prefix) repo)))
               system-prefixes))))
+(defn- package-source-selected?
+  [selection package]
+  (some #(source-path-selected? selection %)
+        (concat (:declared-by package)
+                (:imported-by package))))
 (defn- dependency-token-score
   [query-tokens row]
   (capped-token-score query-tokens
@@ -415,6 +420,9 @@
                                (:ecosystem row)
                                (:path row)
                                (:versions row))))
+(defn- dependency-query-match?
+  [query-tokens row]
+  (pos? (dependency-token-score query-tokens row)))
 (defn- package-import-evidence-rows
   [selection query-tokens package]
   (let [sources (filter #(source-path-selected? selection %)
@@ -459,9 +467,11 @@
       (:source-label row) (assoc :sourceLabel (:source-label row))
       (:kind row) (assoc :fileKind (display-name (:kind row))))))
 (defn- declared-without-import-evidence-row
-  [query-tokens package]
+  [selection query-tokens package]
   (let [declared-by (mapv source-location-row (take 3 (:declared-by package)))]
-    (when (seq declared-by)
+    (when (and (seq declared-by)
+               (or (package-source-selected? selection package)
+                   (dependency-query-match? query-tokens package)))
       {:kind "declared-package-without-import-evidence"
        :id (str (:id package) ":declared-without-import-evidence")
        :packageId (:id package)
@@ -476,31 +486,37 @@
                                             (assoc package
                                                    :kind "declared-package-without-import-evidence"))))})))
 (defn- version-conflict-evidence-row
-  [query-tokens conflict]
-  {:kind "package-version-conflict"
-   :id (str (:id conflict) ":version-conflict")
-   :packageId (:id conflict)
-   :package (:package-name conflict)
-   :label (:label conflict)
-   :ecosystem (display-name (:ecosystem conflict))
-   :relation "version-conflict"
-   :versions (:versions conflict)
-   :score (+ 0.75
-             (* 0.25
-                (dependency-token-score query-tokens
-                                        (assoc conflict
-                                               :kind "package-version-conflict"))))})
+  [selection query-tokens packages-by-id conflict]
+  (let [package (get packages-by-id (:id conflict))]
+    (when (or (and package
+                   (package-source-selected? selection package))
+              (dependency-query-match? query-tokens conflict))
+      {:kind "package-version-conflict"
+       :id (str (:id conflict) ":version-conflict")
+       :packageId (:id conflict)
+       :package (:package-name conflict)
+       :label (:label conflict)
+       :ecosystem (display-name (:ecosystem conflict))
+       :relation "version-conflict"
+       :versions (:versions conflict)
+       :score (+ 0.75
+                 (* 0.25
+                    (dependency-token-score query-tokens
+                                            (assoc conflict
+                                                   :kind "package-version-conflict"))))})))
 (defn- dependency-report-evidence
   [query-tokens results accepted-systems candidate-systems dependency-report]
-  (let [selection (selected-source-paths results accepted-systems candidate-systems)]
+  (let [selection (selected-source-paths results accepted-systems candidate-systems)
+        packages-by-id (into {} (map (juxt :id identity))
+                             (:packages dependency-report))]
     (->> (concat
           (mapcat #(package-import-evidence-rows selection query-tokens %)
                   (:packages dependency-report))
           (keep #(unresolved-import-evidence-row selection query-tokens %)
                 (:unresolved-imports dependency-report))
-          (map #(declared-without-import-evidence-row query-tokens %)
+          (map #(declared-without-import-evidence-row selection query-tokens %)
                (:declared-without-import-evidence dependency-report))
-          (map #(version-conflict-evidence-row query-tokens %)
+          (map #(version-conflict-evidence-row selection query-tokens packages-by-id %)
                (:version-conflicts dependency-report)))
          (keep identity)
          (sort-by (juxt (comp - #(double (or (:score %) 0.0)))
@@ -749,7 +765,8 @@
      :reason reason}))
 (defn- dependency-inspect-action
   [evidence]
-  (let [target (or (:target evidence)
+  (let [target (or (:packageId evidence)
+                   (:target evidence)
                    (:source evidence)
                    (:id evidence))]
     (inspect-action target

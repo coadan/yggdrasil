@@ -812,14 +812,14 @@
                                               :active? true}])
                 dependency/package-report (fn [& _]
                                             (assoc (empty-dependency-report)
-                                                   :counts {:packages 1
+                                                   :counts {:packages 2
                                                             :versions 0
-                                                            :requires 1
+                                                            :requires 2
                                                             :resolves 0
                                                             :imports-package 1
-                                                            :unresolved-imports 1
-                                                            :declared-without-import-evidence 0
-                                                            :version-conflicts 0}
+                                                            :unresolved-imports 2
+                                                            :declared-without-import-evidence 1
+                                                            :version-conflicts 1}
                                                    :packages [{:id "node:pkg:stripe"
                                                                :label "stripe"
                                                                :ecosystem :npm
@@ -833,7 +833,16 @@
                                                                               :path "src/billing/api.clj"
                                                                               :line 9
                                                                               :import-name "stripe"
-                                                                              :resolution-source :declared}]}]
+                                                                              :resolution-source :declared}]}
+                                                              {:id "node:pkg:noise"
+                                                               :label "noise"
+                                                               :ecosystem :npm
+                                                               :package-name "noise"
+                                                               :declared-by [{:id "node:manifest:other"
+                                                                              :path "other/package.json"
+                                                                              :line 4}]
+                                                               :resolved-versions []
+                                                               :imported-by []}]
                                                    :unresolved-imports [{:source-id "node:worker-job"
                                                                          :source-label "worker.job"
                                                                          :target-id "node:namespace:jobs.queue"
@@ -841,7 +850,29 @@
                                                                          :repo-id "app"
                                                                          :path "src/worker/job.clj"
                                                                          :line 7
-                                                                         :kind :clojure}]))
+                                                                         :kind :clojure}
+                                                                        {:source-id "node:other-job"
+                                                                         :source-label "other.job"
+                                                                         :target-id "node:namespace:other.queue"
+                                                                         :import "other.queue"
+                                                                         :repo-id "app"
+                                                                         :path "other/job.clj"
+                                                                         :line 11
+                                                                         :kind :clojure}]
+                                                   :declared-without-import-evidence [{:id "node:pkg:noise"
+                                                                                       :label "noise"
+                                                                                       :ecosystem :npm
+                                                                                       :package-name "noise"
+                                                                                       :declared-by [{:id "node:manifest:other"
+                                                                                                      :path "other/package.json"
+                                                                                                      :line 4}]
+                                                                                       :resolved-versions []
+                                                                                       :imported-by []}]
+                                                   :version-conflicts [{:id "node:pkg:noise"
+                                                                        :label "noise"
+                                                                        :ecosystem :npm
+                                                                        :package-name "noise"
+                                                                        :versions ["1.0.0" "2.0.0"]}]))
                 activity/select-activity (fn [& _]
                                            [{:id "activity:boundary"
                                              :kind "maintenance-decision"
@@ -1030,7 +1061,9 @@
       (is (= ["system:billing" "system:worker" "evidence:billing-env"]
              (mapv :target (take 3 (:nextActions architecture)))))
       (is (= ["agraph_node" "agraph_node" "agraph_node"]
-             (mapv :mcpTool (take 3 (:nextActions architecture))))))))
+             (mapv :mcpTool (take 3 (:nextActions architecture)))))
+      (is (= ["node:namespace:jobs.queue" "node:pkg:stripe"]
+             (mapv :target (take 2 (drop 3 (:nextActions architecture)))))))))
 
 (deftest context-packet-selects-accepted-system-from-result-path
   (with-redefs [query/search-report (fn [_ query-text opts]
