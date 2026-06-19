@@ -336,6 +336,41 @@ fair issue text that asks about the architecture task, tag the case with
 should inspect. The tags are analysis labels only; AGraph core must still emit
 bounded facts and let the benchmark decide whether those facts helped.
 
+Synthetic architecture cases still need a checkout boundary. When there is no
+historical fix commit, set `:fix-sha` to the same commit as `:base-sha` and use
+`:ground-truth {:localization-files [...]}` for the scored files:
+
+```clojure
+{:id "bootstrap-synthetic-docs-route-impact"
+ :repo-id "bootstrap"
+ :coverage {:source-kinds [:javascript :typescript :web-framework]}
+ :tags [:synthetic
+        :problem-architecture
+        :architecture-cross-system-impact
+        :web-framework
+        :astro]
+ :base-sha "320f7139052be98339726cac20895f50172000f9"
+ :fix-sha "320f7139052be98339726cac20895f50172000f9"
+ :ground-truth {:localization-files ["site/src/pages/index.astro"
+                                      "site/src/pages/docs/[version]/examples/index.astro"]}
+ :expectations {:nodes [{:kind :web-framework-route
+                         :path "site/src/pages/index.astro"}
+                        {:kind :web-framework-route
+                         :path "site/src/pages/docs/[version]/examples/index.astro"}]
+                :chunks [{:kind :astro-file
+                          :path "site/src/pages/index.astro"}
+                         {:kind :astro-file
+                          :path "site/src/pages/docs/[version]/examples/index.astro"}]}
+ :issue {:title "Identify docs route impact before removing theme components"
+         :body "The docs team wants to remove the theme UI from Bootstrap's Astro docs. Identify the route files and component imports that a change would affect before editing code."}}
+```
+
+Other useful seeds for the current OSS corpus: Astro plugin config in
+Bootstrap, event-trigger ownership flow in Supabase Postgres, native proxy
+handling in Axios, and Dapper's PostgreSQL JSONB test stack. Give each one
+manual architecture problem tags and curated expectations; do not teach AGraph
+core to infer those classes from names or paths.
+
 Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
 agents through the filesystem queue:
 

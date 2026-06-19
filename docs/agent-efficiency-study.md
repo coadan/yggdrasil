@@ -37,6 +37,36 @@ historical bug fix. Mark them with tags such as `:synthetic`,
 `:problem-architecture`, `:architecture-boundary`,
 `:architecture-dependency-flow`, or `:architecture-cross-system-impact`.
 
+Starter architecture-class OSS cases:
+
+- `bootstrap-synthetic-docs-route-impact`: ask which Astro route files and
+  component imports are impacted by removing the docs theme surface. Expect
+  `site/src/pages/index.astro`,
+  `site/src/pages/docs/[version]/examples/index.astro`, and their imported
+  theme components. Tags: `:synthetic`, `:problem-architecture`,
+  `:architecture-cross-system-impact`, `:web-framework`.
+- `bootstrap-synthetic-astro-plugin-config`: ask where a docs build integration
+  should be wired and how the package manifest relates to the Astro config.
+  Expect `site/astro.config.ts`, `package.json`, and `astro/config` import or
+  plugin evidence. Tags: `:synthetic`, `:problem-architecture`,
+  `:architecture-dependency-flow`, `:web-framework-config`.
+- `supabase-postgres-synthetic-trigger-ownership-flow`: ask which database init
+  scripts, environment files, and ownership-sensitive SQL control built-in event
+  triggers. Expect `migrations/db/init-scripts/00000000000003-post-setup.sql`,
+  `migrations/.env`, and SQL/security evidence. Tags: `:synthetic`,
+  `:problem-architecture`, `:architecture-data-ownership`, `:database`.
+- `axios-synthetic-native-proxy-boundary`: ask where Node native proxy handling
+  intersects with Axios adapter proxy rewriting and which tests/config values
+  prove the boundary. Expect `lib/adapters/http.js` or its test coverage, plus
+  `NODE_USE_ENV_PROXY` and proxy env evidence. Tags: `:synthetic`,
+  `:problem-architecture`, `:architecture-runtime-boundary`,
+  `:runtime-config`.
+- `dapper-synthetic-jsonb-test-stack`: ask how the PostgreSQL test container,
+  Dapper type handling, and JSONB regression tests connect. Expect
+  `tests/docker-compose.yml`, `Dapper/SqlMapper.cs`, and Dapper test files.
+  Tags: `:synthetic`, `:problem-architecture`,
+  `:architecture-dependency-flow`, `:database`.
+
 ## Commands
 
 Use separate generated output roots so artifacts cannot overwrite each other:

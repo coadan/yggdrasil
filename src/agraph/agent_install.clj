@@ -127,7 +127,16 @@
        "humans or LLM-backed correction packets make semantic decisions. Do not "
        "infer architecture from names, host strings, path vocabulary, prose, or "
        "substring lists. Record accepted project meaning in `agraph.map.json` or "
-       "metadata through supported `agraph sync` commands.\n"
+       "metadata through supported `agraph sync` commands.\n\n"
+       "Do not justify AGraph agent-efficiency work with hand-wavy claims. Any "
+       "claim that AGraph makes agents faster, easier, or more effective must "
+       "point to replayable shell-only versus AGraph evidence such as benchmark "
+       "reports, `bb efficiency` summaries, command counts, timing, localization, "
+       "citation rates, or patch success. Efficiency suites must include manually "
+       "tagged problem classes, not only simple file-localization issues. Include "
+       "architecture-class cases, using synthetic OSS-corpus prompts with curated "
+       "ground truth when necessary, and name the class where AGraph helped or "
+       "regressed.\n"
        end-marker "\n"))
 
 (defn- broad-search-hook
