@@ -16,6 +16,7 @@
             [clojure.java.shell :as shell]
             [clojure.set :as set]
             [agraph.benchmark-io :as benchmark-io]
+            [agraph.benchmark-progress :as benchmark-progress]
             [clojure.string :as str])
   (:import [java.time Duration Instant]
            [java.util.concurrent TimeUnit]))
@@ -384,158 +385,11 @@
   [suite case opts result-file]
   (benchmark-paths/agent-score-path suite case opts result-file))
 
-(defn- now-string
-  []
-  (str (java.time.Instant/now)))
-
-(defn- instant-value
-  [value]
-  (cond
-    (instance? Instant value) value
-    (string? value) (Instant/parse value)
-    :else (Instant/now)))
-
-(defn- elapsed-between-ms
-  [started-at ended-at]
-  (max 0 (.toMillis (Duration/between (instant-value started-at)
-                                      (instant-value ended-at)))))
-
-(defn- elapsed-ms
-  [started-ns]
-  (max 1 (long (/ (- (System/nanoTime) started-ns) 1000000))))
-
-(defn- progress-event
-  [stage status extra]
-  (merge {:stage (name stage)
-          :status (name status)
-          :at (now-string)}
-         extra))
-
-(def ^:private progress-error-data-keys
-  #{:phase
-    :project-id
-    :repo-id
-    :files-scanned
-    :files-changed
-    :files-skipped
-    :files-extracted
-    :files-indexed
-    :files-deleted
-    :path})
-
-(defn- progress-error-value
-  [value]
-  (cond
-    (keyword? value) (name value)
-    (symbol? value) (str value)
-    (or (string? value)
-        (number? value)
-        (boolean? value)
-        (nil? value)) value
-    :else (str value)))
-
-(defn- progress-error-data
-  [throwable]
-  (not-empty
-   (into {}
-         (keep (fn [[k v]]
-                 (when (contains? progress-error-data-keys k)
-                   [k (progress-error-value v)])))
-         (ex-data throwable))))
-
-(defn- progress-error
-  [throwable]
-  (cond-> {:class (.getName (class throwable))
-           :message (ex-message throwable)}
-    (progress-error-data throwable) (assoc :data (progress-error-data throwable))))
-
-(defn- read-progress
-  [path suite case]
-  (if (.isFile (io/file path))
-    (benchmark-io/read-json-file path)
-    {:schema "agraph.benchmark.case-progress/v1"
-     :suite-id (:id suite)
-     :case-id (:id case)
-     :events []}))
-
-(defn- append-progress-event!
-  [suite case opts event]
-  (let [path (benchmark-paths/progress-path suite case opts)
-        progress (read-progress path suite case)]
-    (benchmark-io/write-json-file! path
-                      (-> progress
-                          (assoc :updatedAt (now-string))
-                          (update :events (fnil conj []) event)))
-    path))
-
-(defn- shutdown-hook-thread
-  [f]
-  (Thread. ^Runnable f "agraph-benchmark-progress-shutdown-hook"))
-
-(defn- remove-shutdown-hook!
-  [hook]
-  (try
-    (.removeShutdownHook (Runtime/getRuntime) hook)
-    (catch IllegalStateException _
-      nil)
-    (catch Throwable _
-      nil)))
-
 (defn- progress-stage!
   ([suite case opts stage f]
-   (progress-stage! suite case opts stage f (constantly nil)))
+   (benchmark-progress/progress-stage! suite case opts stage f))
   ([suite case opts stage f summarize]
-   (let [started-ns (System/nanoTime)
-         active? (atom true)]
-     (append-progress-event! suite
-                             case
-                             opts
-                             (progress-event stage :started {}))
-     (let [hook (shutdown-hook-thread
-                 (fn []
-                   (when (compare-and-set! active? true false)
-                     (try
-                       (append-progress-event!
-                        suite
-                        case
-                        opts
-                        (progress-event
-                         stage
-                         :failed
-                         {:elapsedMs (elapsed-ms started-ns)
-                          :interrupted true
-                          :error {:class "java.lang.Runtime"
-                                  :message
-                                  "Benchmark JVM shut down before stage completed."}}))
-                       (catch Throwable _
-                         nil)))))]
-       (.addShutdownHook (Runtime/getRuntime) hook)
-       (try
-         (let [result (f)
-               summary (summarize result)]
-           (when (compare-and-set! active? true false)
-             (append-progress-event! suite
-                                     case
-                                     opts
-                                     (progress-event
-                                      stage
-                                      :completed
-                                      (cond-> {:elapsedMs (elapsed-ms started-ns)}
-                                        (some? summary) (assoc :summary summary)))))
-           result)
-         (catch Throwable t
-           (when (compare-and-set! active? true false)
-             (append-progress-event! suite
-                                     case
-                                     opts
-                                     (progress-event
-                                      stage
-                                      :failed
-                                      {:elapsedMs (elapsed-ms started-ns)
-                                       :error (progress-error t)})))
-           (throw t))
-         (finally
-           (remove-shutdown-hook! hook)))))))
+   (benchmark-progress/progress-stage! suite case opts stage f summarize)))
 
 (defn- run-git!
   [repo-root args]
@@ -832,7 +686,7 @@
         _ (when-not (:fix-sha case)
             (throw (ex-info "Benchmark case is missing :fix-sha."
                             {:case-id (:id case)})))
-        worktree-root (progress-stage!
+        worktree-root (benchmark-progress/progress-stage!
                        suite
                        case
                        opts
@@ -843,7 +697,7 @@
                        (fn [root]
                          {:worktreeRoot root
                           :baseSha base-sha}))
-        truth (progress-stage!
+        truth (benchmark-progress/progress-stage!
                suite
                case
                opts
@@ -853,7 +707,7 @@
                  {:changedFiles (count (:changedFiles truth))
                   :localizationFiles (count (:localizationFiles truth))}))
         prepared (prepared-case suite case repo worktree-root truth)]
-    (progress-stage!
+    (benchmark-progress/progress-stage!
      suite
      case
      opts
@@ -2369,7 +2223,7 @@
         context-path (benchmark-paths/agent-baseline-context-path suite case opts)
         progress-path (benchmark-paths/progress-path suite case opts)
         agent-id (benchmark-paths/agent-baseline-id opts)]
-    (progress-stage!
+    (benchmark-progress/progress-stage!
      suite
      case
      opts
@@ -2380,7 +2234,7 @@
     (store/with-node (benchmark-paths/xtdb-dir suite case opts)
       (fn [xtdb]
         (let [parser-worker (parser-worker-profile opts)
-              index-summary (progress-stage!
+              index-summary (benchmark-progress/progress-stage!
                              suite
                              case
                              opts
@@ -2392,7 +2246,7 @@
                                                           bench-project
                                                           (benchmark-index-options opts))))
                              #(select-keys % [:files :repos :rows :extractors]))
-              system-summary (progress-stage!
+              system-summary (benchmark-progress/progress-stage!
                               suite
                               case
                               opts
@@ -2400,7 +2254,7 @@
                               #(project/infer-project! xtdb bench-project)
                               #(select-keys % [:systems :candidates :edges]))
               graph-expectations (evaluate-graph-expectations xtdb prepared)
-              packet (progress-stage!
+              packet (benchmark-progress/progress-stage!
                       suite
                       case
                       opts
@@ -2414,7 +2268,7 @@
                          :entities (count (:entities packet))
                          :edges (count (:edges packet))
                          :warnings (count (:warnings packet))}))
-              agent-result (progress-stage!
+              agent-result (benchmark-progress/progress-stage!
                             suite
                             case
                             opts
@@ -2432,7 +2286,7 @@
                               {:suspectedFiles (count (:suspectedFiles result))
                                :suspectedSymbols (count (:suspectedSymbols result))}))
               score-path (benchmark-paths/agent-score-path suite case opts result-path)
-              scored (progress-stage!
+              scored (benchmark-progress/progress-stage!
                       suite
                       case
                       opts
@@ -2475,7 +2329,7 @@
                                  :systemSummary system-summary}
                         :graphExpectations graph-expectations
                         :scores (:scores scored)}]
-          (progress-stage!
+          (benchmark-progress/progress-stage!
            suite
            case
            opts
@@ -2569,7 +2423,7 @@
         score-path (benchmark-paths/agent-score-path suite case opts result-path)
         progress-path (benchmark-paths/progress-path suite case opts)
         request (local-vector-request prepared opts agent-id)]
-    (progress-stage!
+    (benchmark-progress/progress-stage!
      suite
      case
      opts
@@ -2577,14 +2431,14 @@
      #(benchmark-io/write-json-file! request-path request)
      (fn [path]
        {:path (fs/canonical-path path)}))
-    (let [process (progress-stage!
+    (let [process (benchmark-progress/progress-stage!
                    suite
                    case
                    opts
                    :local-vector-worker
                    #(run-local-vector-command! request-path result-path opts)
                    #(select-keys % [:exit]))
-          agent-result (progress-stage!
+          agent-result (benchmark-progress/progress-stage!
                         suite
                         case
                         opts
@@ -2596,7 +2450,7 @@
                         (fn [result]
                           {:suspectedFiles (count (:suspectedFiles result))
                            :suspectedSymbols (count (:suspectedSymbols result))}))
-          scored (progress-stage!
+          scored (benchmark-progress/progress-stage!
                   suite
                   case
                   opts
@@ -2630,7 +2484,7 @@
                                   :model (local-vector-model opts)
                                   :process process}
                     :scores (:scores scored)}]
-      (progress-stage!
+      (benchmark-progress/progress-stage!
        suite
        case
        opts
@@ -3828,7 +3682,7 @@
             last-event (last events)
             running? (= "started" (:status last-event))
             active-elapsed-ms (when running?
-                                (elapsed-between-ms (:at last-event)
+                                (benchmark-progress/elapsed-between-ms (:at last-event)
                                                     (:now opts)))
             stage-rows (cond-> (->> events
                                     (keep (fn [{:keys [stage status elapsedMs]}]
