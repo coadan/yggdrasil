@@ -228,7 +228,10 @@ function nextActionTarget(action: Record<string, unknown>): ActionTarget | null 
       return { tab: "dependencies", graphSliceId: "package-evidence" };
     case "external-api-review":
       return { tab: "systems", graphSliceId: "external-surface" };
+    case "freshness":
+      return { tab: "evidence" };
     case "maintenance":
+    case "audit-scope":
       return { tab: "maintenance" };
     case "coverage":
       return { tab: "evidence" };

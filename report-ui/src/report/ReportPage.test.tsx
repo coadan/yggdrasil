@@ -81,6 +81,17 @@ describe("ReportPage", () => {
             label: "Review unresolved imports",
             count: 3,
             command: "agraph packages --project fixture --json"
+          },
+          {
+            kind: "freshness",
+            label: "Refresh indexed graph basis",
+            count: 6,
+            command: "agraph sync project.edn --check"
+          },
+          {
+            kind: "audit-scope",
+            label: "Inspect project audit scopes",
+            command: "agraph audit-scope project.edn --json"
           }
         ]
       }
@@ -98,6 +109,22 @@ describe("ReportPage", () => {
     fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Open graph slice" }));
     expect(screen.getByRole("button", { name: "Systems" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: /Package Evidence/ })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
+    const freshnessRow = screen
+      .getAllByText("Refresh indexed graph basis")
+      .map((element) => element.closest(".action-row"))
+      .find(Boolean);
+    expect(freshnessRow).toBeTruthy();
+    fireEvent.click(within(freshnessRow as HTMLElement).getByRole("button", { name: "Open evidence" }));
+    expect(screen.getByRole("button", { name: "Evidence" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("Evidence Freshness")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
+    const auditRow = screen.getByText("Inspect project audit scopes").closest(".action-row");
+    expect(auditRow).toBeTruthy();
+    fireEvent.click(within(auditRow as HTMLElement).getByRole("button", { name: "Open maintenance" }));
+    expect(screen.getByRole("button", { name: "Maintenance" })).toHaveAttribute("aria-current", "page");
   });
 
   it("asks from a review row with scoped evidence", () => {
