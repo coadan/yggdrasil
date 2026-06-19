@@ -925,6 +925,9 @@
       :activity-events (count activity-events)
       :validation-events (count (filter #(= :validation (:event-kind %))
                                         activity-events))
+      :result-schema-mismatch-events
+      (count (filter #(= :result-schema-mismatch (:event-kind %))
+                     activity-events))
       :diagnostics (count (filter active-row?
                                   (query/all-diagnostics xtdb {:project-id project-id
                                                                :repo-id repo-id
@@ -1051,6 +1054,9 @@
 
     (some #{:validation-history} weak)
     (conj "Validation history rows are indexed, but no validation events matched this query.")
+
+    (pos? (:result-schema-mismatch-events counts 0))
+    (conj "Completed work has result schema mismatches; inspect activity before trusting prior results.")
 
     (zero? (:embeddings counts))
     (conj "No embeddings are indexed for this project.")

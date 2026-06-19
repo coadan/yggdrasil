@@ -111,6 +111,27 @@
     (is (some #{"Indexer diagnostics are present; inspect source coverage before relying on missing facts."}
               warnings))))
 
+(deftest answerability-warns-when-result-schema-mismatch-activity-exists
+  (let [warnings (#'context/answerability-warnings
+                  {:files 1
+                   :nodes 1
+                   :edges 1
+                   :search-docs 1
+                   :diagnostics 0
+                   :system-nodes 1
+                   :system-edges 0
+                   :activity-items 1
+                   :activity-events 2
+                   :validation-events 1
+                   :result-schema-mismatch-events 1
+                   :embeddings 1}
+                  {:requested :lexical
+                   :effective :lexical
+                   :fallback? false}
+                  [])]
+    (is (some #{"Completed work has result schema mismatches; inspect activity before trusting prior results."}
+              warnings))))
+
 (deftest answerability-warns-when-source-plane-is-empty
   (let [retrieval {:requested :lexical
                    :effective :lexical
@@ -453,6 +474,51 @@
       (is (not (contains? (set (:missing answerability)) :dependencies)))
       (is (= 1 (get-in answerability [:counts :external-packages])))
       (is (= 1 (get-in answerability [:counts :package-import-edges]))))))
+
+(deftest answerability-counts-result-schema-mismatch-events
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :active? true}]
+                                   :agraph/index-diagnostics []
+                                   []))
+                query/all-nodes (fn [& _]
+                                  [{:xt/id "node:src.app"
+                                    :kind :namespace
+                                    :active? true}])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                query/all-diagnostics (fn [& _] [])
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :imports-package 0
+                                                      :unresolved-imports 0
+                                                      :declared-without-import-evidence 0
+                                                      :version-conflicts 0}})
+                activity/all-items (fn [& _]
+                                     [{:xt/id "work:app"}])
+                activity/all-events (fn [& _]
+                                      [{:xt/id "event:validation"
+                                        :event-kind :validation}
+                                       {:xt/id "event:mismatch"
+                                        :event-kind :result-schema-mismatch}])]
+    (let [answerability (#'context/answerability
+                         :xtdb
+                         {}
+                         {:project-id "fixture"
+                          :repo-id "app"
+                          :retriever :lexical}
+                         {:entity-count 1
+                          :doc-count 0
+                          :activity-count 0
+                          :validation-count 0})]
+      (is (= 1 (get-in answerability [:counts :result-schema-mismatch-events])))
+      (is (some #{"Completed work has result schema mismatches; inspect activity before trusting prior results."}
+                (:warnings answerability))))))
 
 (deftest answerability-reports-missing-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]
