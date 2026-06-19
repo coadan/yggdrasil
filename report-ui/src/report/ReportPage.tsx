@@ -36,6 +36,11 @@ type AskScope = {
   evidenceRows?: Array<Record<string, unknown>>;
 };
 
+type ActionTarget = {
+  tab: ReportTab;
+  graphSliceId?: string;
+};
+
 const tabs: Array<{ id: ReportTab; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
   { id: "ask", label: "Ask" },
@@ -168,6 +173,108 @@ function CommandList({ commands }: { commands: string[] }) {
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+function nextActionTarget(action: Record<string, unknown>): ActionTarget | null {
+  const kind = String(action.kind || "");
+  switch (kind) {
+    case "dependency-review":
+    case "dependencies":
+      return { tab: "dependencies", graphSliceId: "package-evidence" };
+    case "external-api-review":
+      return { tab: "systems", graphSliceId: "external-surface" };
+    case "maintenance":
+      return { tab: "maintenance" };
+    case "coverage":
+      return { tab: "evidence" };
+    case "activity":
+      return { tab: "evidence" };
+    case "ask":
+      return { tab: "ask" };
+    default:
+      return null;
+  }
+}
+
+function commandKey(action: Record<string, unknown>, index: number): string {
+  return String(action.kind || action.command || action.label || index);
+}
+
+function OperatorNextActions({
+  rows,
+  onAsk,
+  onCopyCommand,
+  onOpenGraphSlice,
+  onOpenTab,
+  copiedKey
+}: {
+  rows: Array<Record<string, unknown>>;
+  onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
+  onOpenTab: (tab: ReportTab) => void;
+  copiedKey: string | null;
+}) {
+  return (
+    <section className="panel">
+      <h2>Operator Next Actions</h2>
+      {rows.length === 0 ? (
+        <p className="muted">No queued next actions in this report.</p>
+      ) : (
+        <div className="action-list">
+          {rows.map((row, index) => {
+            const key = commandKey(row, index);
+            const label = displayValue(row.label || row.kind) || "Action";
+            const command = displayValue(row.command);
+            const count = displayValue(row.count);
+            const target = nextActionTarget(row);
+            return (
+              <article key={key} className="action-row">
+                <div>
+                  <div className="action-row-meta">
+                    <span>{displayValue(row.kind) || "action"}</span>
+                    {count ? <span>{count}</span> : null}
+                  </div>
+                  <h3>{label}</h3>
+                  {command ? <code>{command}</code> : null}
+                </div>
+                <div className="action-row-buttons">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onAsk({
+                        label,
+                        source: `atlas.next-actions.${displayValue(row.kind) || index}`,
+                        question: `What should I do for ${label}?`,
+                        evidenceRows: [row]
+                      })
+                    }
+                  >
+                    Ask
+                  </button>
+                  {target ? (
+                    <button type="button" onClick={() => onOpenTab(target.tab)}>
+                      Open {target.tab}
+                    </button>
+                  ) : null}
+                  {target?.graphSliceId ? (
+                    <button type="button" onClick={() => onOpenGraphSlice(target.graphSliceId as string)}>
+                      Open graph slice
+                    </button>
+                  ) : null}
+                  {command ? (
+                    <button type="button" onClick={() => onCopyCommand(key, command)}>
+                      {copiedKey === key ? "Copied" : "Copy command"}
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
       )}
     </section>
   );
@@ -618,14 +725,18 @@ function AtlasTab({
   report,
   graph,
   onAsk,
+  onCopyCommand,
   onOpenGraphSlice,
-  onOpenTab
+  onOpenTab,
+  copiedActionKey
 }: {
   report: AGraphReport;
   graph: AGraphGraph;
   onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
+  copiedActionKey: string | null;
 }) {
   const atlas = reportAtlas(report, graph);
   const evidence = asRecord(atlas.evidence);
@@ -705,23 +816,14 @@ function AtlasTab({
         />
       </section>
 
-      <section className="panel">
-        <h2>Operator Next Actions</h2>
-        {nextActions.length === 0 ? (
-          <p className="muted">No queued next actions in this report.</p>
-        ) : (
-          <table>
-            <tbody>
-              {nextActions.map((row, index) => (
-                <tr key={String(row.kind || index)}>
-                  <td>{displayValue(row.label || row.kind)}</td>
-                  <td className={numericCell(row.count)}>{displayValue(row.count)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <OperatorNextActions
+        rows={nextActions}
+        onAsk={onAsk}
+        onCopyCommand={onCopyCommand}
+        onOpenGraphSlice={onOpenGraphSlice}
+        onOpenTab={onOpenTab}
+        copiedKey={copiedActionKey}
+      />
 
       <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} limit={5} />
     </div>
@@ -1028,19 +1130,35 @@ function DashboardTab({
   report,
   graph,
   onAsk,
+  onCopyCommand,
   onOpenGraphSlice,
-  onOpenTab
+  onOpenTab,
+  copiedActionKey
 }: {
   report: AGraphReport;
   graph: AGraphGraph;
   onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
+  copiedActionKey: string | null;
 }) {
   const panels = pluginPanels(report);
   const reviewRows = reviewQueueRows(report);
+  const atlas = reportAtlas(report, graph);
+  const nextActions = asRows(atlas["next-actions"] || atlas.nextActions);
   if (panels.length === 0) {
-    return <AtlasTab report={report} graph={graph} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} />;
+    return (
+      <AtlasTab
+        report={report}
+        graph={graph}
+        onAsk={onAsk}
+        onCopyCommand={onCopyCommand}
+        onOpenGraphSlice={onOpenGraphSlice}
+        onOpenTab={onOpenTab}
+        copiedActionKey={copiedActionKey}
+      />
+    );
   }
 
   return (
@@ -1049,6 +1167,14 @@ function DashboardTab({
         <p className="eyebrow">Report Dashboard</p>
         <h2>{report.project.name || report.project.id}</h2>
       </section>
+      <OperatorNextActions
+        rows={nextActions}
+        onAsk={onAsk}
+        onCopyCommand={onCopyCommand}
+        onOpenGraphSlice={onOpenGraphSlice}
+        onOpenTab={onOpenTab}
+        copiedKey={copiedActionKey}
+      />
       <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} limit={5} />
       <PluginPanelList report={report} includeCore />
       <PluginDiagnostics diagnostics={report.plugins?.diagnostics || []} />
@@ -1196,6 +1322,7 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
   const [activeTab, setActiveTab] = useState<ReportTab>("dashboard");
   const [askScope, setAskScope] = useState<AskScope | null>(null);
   const [systemSliceId, setSystemSliceId] = useState<string>("");
+  const [copiedActionKey, setCopiedActionKey] = useState<string | null>(null);
   const askFromScope = useCallback((scope: AskScope) => {
     setAskScope(scope);
     setActiveTab("ask");
@@ -1204,11 +1331,25 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
     setSystemSliceId(sliceId);
     setActiveTab("systems");
   }, []);
+  const copyCommand = useCallback((key: string, command: string) => {
+    void navigator.clipboard?.writeText(command);
+    setCopiedActionKey(key);
+  }, []);
 
   const activePanel = useMemo(() => {
     switch (activeTab) {
       case "dashboard":
-        return <DashboardTab report={report} graph={graph} onAsk={askFromScope} onOpenGraphSlice={openGraphSlice} onOpenTab={setActiveTab} />;
+        return (
+          <DashboardTab
+            report={report}
+            graph={graph}
+            onAsk={askFromScope}
+            onCopyCommand={copyCommand}
+            onOpenGraphSlice={openGraphSlice}
+            onOpenTab={setActiveTab}
+            copiedActionKey={copiedActionKey}
+          />
+        );
       case "ask":
         return <AskTab report={report} graph={graph} scope={askScope} />;
       case "systems":
@@ -1230,9 +1371,19 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
       case "plugins":
         return <PluginsTab report={report} />;
       default:
-        return <DashboardTab report={report} graph={graph} onAsk={askFromScope} onOpenGraphSlice={openGraphSlice} onOpenTab={setActiveTab} />;
+        return (
+          <DashboardTab
+            report={report}
+            graph={graph}
+            onAsk={askFromScope}
+            onCopyCommand={copyCommand}
+            onOpenGraphSlice={openGraphSlice}
+            onOpenTab={setActiveTab}
+            copiedActionKey={copiedActionKey}
+          />
+        );
     }
-  }, [activeTab, askFromScope, askScope, graph, openGraphSlice, report, systemSliceId]);
+  }, [activeTab, askFromScope, askScope, copiedActionKey, copyCommand, graph, openGraphSlice, report, systemSliceId]);
 
   return (
     <div className="report-page">

@@ -182,6 +182,69 @@ h3 {
   padding: 0;
 }
 
+.action-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.action-row {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px;
+}
+
+.action-row h3 {
+  font-size: 14px;
+  margin: 5px 0 8px;
+}
+
+.action-row code {
+  overflow-wrap: anywhere;
+}
+
+.action-row-meta,
+.action-row-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.action-row-meta span {
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 2px 5px;
+}
+
+.action-row-buttons {
+  justify-content: flex-end;
+}
+
+.action-row-buttons button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #334155;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 9px;
+  white-space: nowrap;
+}
+
+.action-row-buttons button:first-child {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
 .ask-form {
   display: grid;
   gap: 10px;

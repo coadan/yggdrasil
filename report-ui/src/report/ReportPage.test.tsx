@@ -70,6 +70,36 @@ describe("ReportPage", () => {
     expect(screen.getByTestId("graph-panel")).toHaveTextContent("Package Evidence");
   });
 
+  it("renders actionable atlas next actions on plugin dashboards", () => {
+    const report = {
+      ...fixtureReport,
+      atlas: {
+        schema: "agraph.report.atlas/v1",
+        "next-actions": [
+          {
+            kind: "dependency-review",
+            label: "Review unresolved imports",
+            count: 3,
+            command: "agraph packages --project fixture --json"
+          }
+        ]
+      }
+    };
+
+    render(<ReportPage report={report} graph={fixtureGraph} />);
+
+    const row = screen.getByText("Review unresolved imports").closest("article");
+    expect(row).toBeTruthy();
+    expect(within(row as HTMLElement).getByText("agraph packages --project fixture --json")).toBeInTheDocument();
+
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Copy command" }));
+    expect(within(row as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Open graph slice" }));
+    expect(screen.getByRole("button", { name: "Systems" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: /Package Evidence/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("asks from a review row with scoped evidence", () => {
     render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
 
