@@ -115,3 +115,38 @@
       (is (= :git-plugin (:authority report)))
       (is (= "sample-plugin-pack" (:package-id report)))
       (is (= (:path entry) (:cwd report))))))
+
+(deftest scaffolds-valid-package-and-dry-runs-extractor
+  (let [workspace (temp-dir "agraph-plugin-authoring")
+        package-dir (io/file workspace "plugins" "demo")
+        repo-root (io/file workspace "repo")
+        src (io/file repo-root "src")]
+    (.mkdirs src)
+    (spit (io/file src "page.clj") "(ns page)\n(defn render [] :ok)\n")
+    (let [created (plugin-package/new! (.getPath package-dir)
+                                       {:id "demo-plugin"})
+          validation (plugin-package/validate-local (.getPath package-dir))
+          dry-run (plugin-package/dry-run-extractor
+                   (.getPath package-dir)
+                   (.getPath repo-root)
+                   "src/page.clj"
+                   {})]
+      (is (= plugin-package/new-schema (:schema created)))
+      (is (= "demo-plugin" (:package-id created)))
+      (is (= true (:extractor? created)))
+      (is (= true (:report? created)))
+      (is (.exists (io/file package-dir plugin-package/manifest-filename)))
+      (is (.exists (io/file package-dir "extract.py")))
+      (is (.exists (io/file package-dir "report.py")))
+      (is (= plugin-package/validate-schema (:schema validation)))
+      (is (= :warning (:status validation)))
+      (is (= 1 (count (:extractor-plugins validation))))
+      (is (= 1 (count (:report-plugins validation))))
+      (is (some #(str/includes? % "unbenchmarked") (:warnings validation)))
+      (is (= plugin-package/dry-run-schema (:schema dry-run)))
+      (is (= :passed (:status dry-run)))
+      (is (= "src/page.clj" (get-in dry-run [:file :path])))
+      (is (pos? (get-in dry-run [:enhanced-counts :file-facts])))
+      (is (pos? (get-in dry-run [:enhanced-counts :chunks])))
+      (is (some #(= "demo-plugin-extractor" (:plugin-id %))
+                (get-in dry-run [:rows :file-facts]))))))

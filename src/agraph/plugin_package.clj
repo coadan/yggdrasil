@@ -1,7 +1,10 @@
 (ns agraph.plugin-package
   "Git-shareable plugin packages for extractor and report plugins."
-  (:require [agraph.fs :as fs]
+  (:require [agraph.extract :as extract]
+            [agraph.extractor-plugin :as extractor-plugin]
+            [agraph.fs :as fs]
             [agraph.hash :as hash]
+            [agraph.report-plugin :as report-plugin]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -17,6 +20,15 @@
 
 (def list-schema
   "agraph.plugin.list/v1")
+
+(def new-schema
+  "agraph.plugin.new/v1")
+
+(def validate-schema
+  "agraph.plugin.validate/v1")
+
+(def dry-run-schema
+  "agraph.plugin.dry-run/v1")
 
 (def manifest-filename
   "agraph.plugin.edn")
@@ -65,6 +77,14 @@
               *print-namespace-maps* false]
       (pprint/pprint data)))
   path)
+
+(defn- write-file!
+  [path content]
+  (let [file (io/file path)]
+    (when-let [parent (.getParentFile file)]
+      (.mkdirs parent))
+    (spit file content)
+    (fs/canonical-path file)))
 
 (defn- git!
   [& args]
@@ -317,3 +337,249 @@
        :entry entry
        :force? (boolean force?)
        :opts (select-keys opts [:ref :subdir :cache-root])})))
+
+(defn- slug
+  [value]
+  (-> (str value)
+      str/lower-case
+      (str/replace #"[^a-z0-9._-]+" "-")
+      (str/replace #"(^[-._]+|[-._]+$)" "")
+      not-empty
+      (or "agraph-plugin")))
+
+(defn- default-package-id
+  [dir]
+  (slug (.getName (io/file dir))))
+
+(defn- extractor-template
+  []
+  (str "#!/usr/bin/env python3\n"
+       "import json\n"
+       "import sys\n\n"
+       "packet = json.load(sys.stdin)\n"
+       "path = packet[\"file\"][\"path\"]\n"
+       "content = packet[\"file\"].get(\"content\") or \"\"\n\n"
+       "json.dump({\n"
+       "    \"schema\": \"agraph.extractor-plugin.result/v1\",\n"
+       "    \"nodes\": [],\n"
+       "    \"edges\": [],\n"
+       "    \"fileFacts\": [{\n"
+       "        \"kind\": \"plugin-observation\",\n"
+       "        \"label\": f\"plugin saw {path}\",\n"
+       "        \"normalizedValue\": path,\n"
+       "        \"sourceLine\": 1,\n"
+       "        \"confidence\": 0.5,\n"
+       "    }] if content else [],\n"
+       "    \"chunks\": [{\n"
+       "        \"kind\": \"plugin-summary\",\n"
+       "        \"label\": f\"summary for {path}\",\n"
+       "        \"text\": content[:500],\n"
+       "        \"sourceLine\": 1,\n"
+       "    }] if content else [],\n"
+       "    \"diagnostics\": [],\n"
+       "}, sys.stdout)\n"))
+
+(defn- report-template
+  []
+  (str "#!/usr/bin/env python3\n"
+       "import json\n"
+       "import sys\n\n"
+       "packet = json.load(sys.stdin)\n"
+       "project = packet[\"project\"][\"id\"]\n\n"
+       "json.dump({\n"
+       "    \"schema\": \"agraph.report-plugin.result/v1\",\n"
+       "    \"panels\": [{\n"
+       "        \"id\": \"plugin-summary\",\n"
+       "        \"label\": \"Plugin Summary\",\n"
+       "        \"slot\": \"plugins\",\n"
+       "        \"order\": 100,\n"
+       "        \"mdx\": \"## Plugin Summary\\n\\n<MetricGrid dataKey=\\\"metrics\\\" />\",\n"
+       "        \"data\": {\"metrics\": [{\"label\": \"Project\", \"value\": project}]},\n"
+       "    }],\n"
+       "    \"diagnostics\": [],\n"
+       "    \"artifacts\": [],\n"
+       "}, sys.stdout)\n"))
+
+(defn- package-readme
+  [package-id]
+  (str "# " package-id "\n\n"
+       "AGraph plugin package scaffold.\n\n"
+       "Useful commands:\n\n"
+       "```sh\n"
+       "bb plugin validate .\n"
+       "bb plugin dry-run extractor . /path/to/repo src/example.clj --json\n"
+       "bb plugin install /path/to/project.edn . --force\n"
+       "```\n\n"
+       "Keep project-specific experiments in plugins. Promote to core only with "
+       "project-agnostic behavior, fixtures, and benchmark evidence.\n"))
+
+(defn- manifest
+  [package-id {:keys [name extractor? report?]}]
+  (cond-> {:schema manifest-schema
+           :id package-id
+           :name (str (or name package-id))
+           :version "0.1.0"
+           :license {:spdx "MIT"}
+           :distribution {:visibility :private
+                          :commercial? false}
+           :benchmark {:status :unbenchmarked}}
+    extractor?
+    (assoc :extractor-plugins
+           [{:id (str package-id "-extractor")
+             :command ["python3" "extract.py"]
+             :modes [:enhance :scan]
+             :applies-to {:file-kinds [:code]
+                          :path-globs ["src/*" "src/**/*"]}
+             :scan {:path-globs ["fixtures/**/*"]
+                    :file-kind :plugin-source}
+             :search {:chunks? true}
+             :emits [:plugin-observation]}])
+
+    report?
+    (assoc :report-plugins
+           [{:id (str package-id "-report")
+             :command ["python3" "report.py"]
+             :slots [:plugins]}])))
+
+(defn new!
+  "Create a local plugin package scaffold."
+  [dir {:keys [id extractor? report? force?] :as opts}]
+  (let [package-id (slug (or id (default-package-id dir)))
+        target (io/file dir)
+        any-kind? (or extractor? report?)
+        extractor? (if any-kind? extractor? true)
+        report? (if any-kind? report? true)
+        manifest-path (io/file target manifest-filename)]
+    (when (and (.exists manifest-path) (not force?))
+      (throw (ex-info "Plugin package already exists. Re-run with --force to replace scaffold files."
+                      {:path (.getPath manifest-path)})))
+    (.mkdirs target)
+    (let [files (cond-> [(write-edn-file! manifest-path
+                                          (manifest package-id
+                                                    (assoc opts
+                                                           :extractor? extractor?
+                                                           :report? report?)))
+                         (write-file! (io/file target "README.md")
+                                      (package-readme package-id))
+                         (write-file! (io/file target "fixtures/sample.clj")
+                                      "(ns sample)\n(defn value [] 1)\n")]
+                  extractor? (conj (write-file! (io/file target "extract.py")
+                                                (extractor-template)))
+                  report? (conj (write-file! (io/file target "report.py")
+                                             (report-template))))]
+      {:schema new-schema
+       :package-id package-id
+       :path (fs/canonical-path target)
+       :manifest (fs/canonical-path manifest-path)
+       :files files
+       :extractor? (boolean extractor?)
+       :report? (boolean report?)})))
+
+(defn read-local-package
+  [package-dir]
+  (read-package "."
+                {:path package-dir
+                 :manifest manifest-filename
+                 :source {:type :local
+                          :path (fs/canonical-path package-dir)}}))
+
+(defn validate-local
+  "Validate a plugin package manifest and normalized plugin configs."
+  [package-dir]
+  (try
+    (let [package (read-local-package package-dir)
+          extractor-plugins (extractor-plugin/normalize-plugins
+                             (:resolved-extractor-plugins package))
+          report-plugins (report-plugin/normalize-plugins
+                          (:resolved-report-plugins package))
+          warnings (:warnings package)
+          errors (cond-> []
+                   (and (empty? extractor-plugins)
+                        (empty? report-plugins))
+                   (conj "Package declares no extractor or report plugins."))]
+      {:schema validate-schema
+       :status (cond
+                 (seq errors) :failed
+                 (seq warnings) :warning
+                 :else :passed)
+       :package (package-summary package)
+       :extractor-plugins (mapv #(select-keys % [:id :version :modes :scan :search])
+                                extractor-plugins)
+       :report-plugins (mapv #(select-keys % [:id :version :slots])
+                             report-plugins)
+       :warnings warnings
+       :errors errors})
+    (catch Exception e
+      {:schema validate-schema
+       :status :failed
+       :package-dir (fs/canonical-path package-dir)
+       :warnings []
+       :errors [(or (ex-message e) (str e))]
+       :data (ex-data e)})))
+
+(defn- selected-extractor-plugins
+  [package plugin-id]
+  (let [plugins (extractor-plugin/normalize-plugins
+                 (:resolved-extractor-plugins package))]
+    (if (present? plugin-id)
+      (let [selected (filterv #(= plugin-id (:id %)) plugins)]
+        (when-not (seq selected)
+          (throw (ex-info "Extractor plugin not found in package."
+                          {:plugin-id plugin-id
+                           :available (mapv :id plugins)})))
+        selected)
+      plugins)))
+
+(defn- file-record-for-dry-run
+  [root file plugins]
+  (let [root-path (fs/canonical-path root)
+        file-path (resolve-path root-path file)
+        rel (fs/relative-path root-path file-path)
+        scan-matches (->> (extractor-plugin/scan-specs plugins)
+                          (filter (fn [{:keys [path-globs]}]
+                                    (some #(fs/path-glob-matches? % rel)
+                                          path-globs)))
+                          vec)
+        file (if (seq scan-matches)
+               (fs/plugin-file-record root-path
+                                      rel
+                                      {:file-kind (:file-kind (first scan-matches))
+                                       :plugin-ids (mapv :plugin-id scan-matches)})
+               (fs/file-record root-path file-path))]
+    (assoc file
+           :file-id (str "file:plugin-dry-run:repo:" (:path file))
+           :id-scope "project:plugin-dry-run:repo:repo")))
+
+(defn- counts
+  [extraction]
+  (into {}
+        (map (fn [k] [k (count (get extraction k))]))
+        [:nodes :edges :chunks :file-facts :diagnostics]))
+
+(defn dry-run-extractor
+  "Run package extractor plugins against one file without writing graph state."
+  [package-dir root file {:keys [plugin-id]}]
+  (let [package (read-local-package package-dir)
+        plugins (selected-extractor-plugins package plugin-id)
+        root-path (fs/canonical-path root)
+        file-record (file-record-for-dry-run root-path file plugins)
+        run-id "run:plugin-dry-run"
+        core (extract/extract-file run-id file-record)
+        enhanced (extractor-plugin/enhance-extraction
+                  {:plugins plugins
+                   :run-id run-id
+                   :project-id "plugin-dry-run"
+                   :repo-id "repo"
+                   :root-path root-path
+                   :file file-record}
+                  core)]
+    {:schema dry-run-schema
+     :status (if (seq (:diagnostics enhanced)) :warning :passed)
+     :package (select-keys package [:id :version :path :warnings])
+     :plugins (mapv #(select-keys % [:id :version :authority :benchmark-status])
+                    plugins)
+     :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
+     :core-counts (counts core)
+     :enhanced-counts (counts enhanced)
+     :diagnostics (:diagnostics enhanced)
+     :rows enhanced}))

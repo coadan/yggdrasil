@@ -99,6 +99,7 @@
     "--relation" "--base-url" "--detail" "--queue-dir" "--status" "--agent"
     "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
     "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode" "--tools"
+    "--id" "--plugin"
     "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
     "--vector-command" "--vector-model" "--parser-worker"
     "--ref" "--subdir" "--cache-dir"
@@ -135,7 +136,7 @@
     "--check" "--query-index" "--force" "--hooks" "--sync" "--allow-missing"
     "--allow-duplicate-runs" "--allow-unverified-scores"
     "--skip-existing" "--with-conflicts" "--without-import-evidence"
-    "--no-progress"})
+    "--no-progress" "--extractor" "--report"})
 
 (defn- positional-args
   [args]
@@ -2668,6 +2669,93 @@
   (doseq [package packages]
     (print-plugin-package package)))
 
+(defn- print-plugin-new
+  [{:keys [package-id path manifest files extractor? report?]}]
+  (println "# Plugin Package Created")
+  (println "- package" package-id)
+  (println "- path" path)
+  (println "- manifest" manifest)
+  (println "- extractor" extractor?)
+  (println "- report" report?)
+  (println "- files" (count files)))
+
+(defn- print-plugin-validation
+  [{:keys [status package extractor-plugins report-plugins warnings errors]}]
+  (println "# Plugin Validation")
+  (println "- status" (name status))
+  (when package
+    (println "- package" (:id package) (str "version=" (:version package))))
+  (println "- extractors" (count extractor-plugins))
+  (println "- reports" (count report-plugins))
+  (doseq [warning warnings]
+    (println "- warning" warning))
+  (doseq [error errors]
+    (println "- error" error)))
+
+(defn- print-plugin-dry-run
+  [{:keys [status package plugins file core-counts enhanced-counts diagnostics]}]
+  (println "# Plugin Dry Run")
+  (println "- status" (name status))
+  (println "- package" (:id package) (str "version=" (:version package)))
+  (println "- file" (:path file) (str "kind=" (name (:kind file))))
+  (println "- plugins" (str/join "," (map :id plugins)))
+  (println "- core" core-counts)
+  (println "- enhanced" enhanced-counts)
+  (when (seq diagnostics)
+    (println "## Diagnostics")
+    (doseq [{:keys [stage message path]} diagnostics]
+      (println "-" (name stage) path "-" message))))
+
+(defn- plugin-new!
+  [args]
+  (let [dir (first (positional-args args))]
+    (when-not dir
+      (throw (ex-info "Missing plugin package directory."
+                      {:usage (usage)})))
+    (let [result (plugin-package/new!
+                  dir
+                  {:id (option-value args "--id")
+                   :extractor? (boolean (some #{"--extractor"} args))
+                   :report? (boolean (some #{"--report"} args))
+                   :force? (boolean (some #{"--force"} args))})]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-new result)))))
+
+(defn- plugin-validate!
+  [args]
+  (let [dir (first (positional-args args))]
+    (when-not dir
+      (throw (ex-info "Missing plugin package directory."
+                      {:usage (usage)})))
+    (let [result (plugin-package/validate-local dir)]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-validation result))
+      (when (= :failed (:status result))
+        (throw (ex-info "Plugin validation failed."
+                        {:errors (:errors result)}))))))
+
+(defn- plugin-dry-run!
+  [args]
+  (let [[kind package-dir root file] (positional-args args)]
+    (when-not (= "extractor" kind)
+      (throw (ex-info "Unsupported plugin dry-run kind."
+                      {:kind kind
+                       :supported ["extractor"]
+                       :usage (usage)})))
+    (when-not (and package-dir root file)
+      (throw (ex-info "Missing plugin dry-run package directory, repo root, or file."
+                      {:usage (usage)})))
+    (let [result (plugin-package/dry-run-extractor
+                  package-dir
+                  root
+                  file
+                  {:plugin-id (option-value args "--plugin")})]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-dry-run result)))))
+
 (defn- plugin-install!
   [args]
   (let [[config-path source] (positional-args args)]
@@ -2701,6 +2789,15 @@
   (let [action (first args)
         action-args (vec (rest args))]
     (case action
+      "new"
+      (plugin-new! action-args)
+
+      "validate"
+      (plugin-validate! action-args)
+
+      "dry-run"
+      (plugin-dry-run! action-args)
+
       "install"
       (plugin-install! action-args)
 
@@ -2767,6 +2864,9 @@
     "  report <project.edn> [--map agraph.map.json] [--out agraph-out] [--detail primary|expanded|evidence|raw] [--force]"
     ""
     "Plugins:"
+    "  plugin new <dir> [--id ID] [--extractor] [--report] [--force] [--json]"
+    "  plugin validate <dir> [--json]"
+    "  plugin dry-run extractor <dir> <repo-root> <file> [--plugin ID] [--json]"
     "  plugin install <project.edn> <git-url-or-path> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--force] [--json]"
     "  plugin list <project.edn> [--json]"
     ""

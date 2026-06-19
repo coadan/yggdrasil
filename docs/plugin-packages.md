@@ -46,6 +46,31 @@ Install writes a `:plugin-packages` entry to `project.edn`:
 local package path. Updating a git plugin is explicit: rerun `bb plugin install
 ... --force` with the intended ref.
 
+## Authoring Loop
+
+Start with a local scaffold:
+
+```sh
+bb plugin new .dev/agraph/plugins/datastar-hiccup --id datastar-hiccup
+bb plugin validate .dev/agraph/plugins/datastar-hiccup
+bb plugin dry-run extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
+```
+
+`plugin new` writes `agraph.plugin.edn`, Python extractor/report examples,
+`fixtures/sample.clj`, and a package README. By default it creates both
+extractor and report examples; use `--extractor` or `--report` to scaffold only
+one lane.
+
+`plugin validate` reads the package manifest and runs the same plugin config
+normalizers used by project loading. It reports package caveats such as
+`:unbenchmarked` status without blocking local experiments.
+
+`plugin dry-run extractor` runs the package extractor against one file without
+writing graph state. It uses core extraction first, applies the selected plugin
+or all extractor plugins in the package, and returns normalized rows,
+diagnostics, and before/after counts. This is the fastest feedback loop for
+agents building project-local architecture understanding.
+
 ## Manifest
 
 Each package directory contains `agraph.plugin.edn`:

@@ -65,6 +65,9 @@
     (is (str/includes? usage "explore create"))
     (is (str/includes? usage "view overview|deps|query|systems"))
     (is (str/includes? usage "report <project.edn>"))
+    (is (str/includes? usage "plugin new <dir>"))
+    (is (str/includes? usage "plugin validate <dir>"))
+    (is (str/includes? usage "plugin dry-run extractor <dir>"))
     (is (str/includes? usage "plugin install <project.edn>"))
     (is (str/includes? usage "plugin list <project.edn>"))
     (is (str/includes? usage "install-agent --platform codex --project"))
@@ -133,6 +136,60 @@
                   :cache-root ".cache/plugins"
                   :force? true}]]
                @calls))))))
+
+(deftest plugin-authoring-dispatches-to-package-helpers
+  (let [calls (atom [])]
+    (with-redefs [plugin-package/new! (fn [dir opts]
+                                        (swap! calls conj [:new dir opts])
+                                        {:schema plugin-package/new-schema
+                                         :package-id (:id opts)
+                                         :path dir
+                                         :manifest (str dir "/agraph.plugin.edn")
+                                         :files []
+                                         :extractor? true
+                                         :report? true})
+                  plugin-package/validate-local (fn [dir]
+                                                  (swap! calls conj [:validate dir])
+                                                  {:schema plugin-package/validate-schema
+                                                   :status :warning
+                                                   :package {:id "demo"
+                                                             :version "0.1.0"}
+                                                   :extractor-plugins [{}]
+                                                   :report-plugins [{}]
+                                                   :warnings ["demo is unbenchmarked"]
+                                                   :errors []})
+                  plugin-package/dry-run-extractor (fn [dir root file opts]
+                                                     (swap! calls conj [:dry-run dir root file opts])
+                                                     {:schema plugin-package/dry-run-schema
+                                                      :status :passed
+                                                      :package {:id "demo"
+                                                                :version "0.1.0"}
+                                                      :plugins [{:id "demo-extractor"}]
+                                                      :file {:path file
+                                                             :kind :code}
+                                                      :core-counts {:nodes 1}
+                                                      :enhanced-counts {:nodes 2}
+                                                      :diagnostics []})]
+      (with-out-str
+        (cli/dispatch "plugin" ["new" ".dev/plugins/demo" "--id" "demo" "--force"]))
+      (with-out-str
+        (cli/dispatch "plugin" ["validate" ".dev/plugins/demo"]))
+      (with-out-str
+        (cli/dispatch "plugin"
+                      ["dry-run"
+                       "extractor"
+                       ".dev/plugins/demo"
+                       "."
+                       "src/page.clj"
+                       "--plugin"
+                       "demo-extractor"]))
+      (is (= [[:new ".dev/plugins/demo" {:id "demo"
+                                         :extractor? false
+                                         :report? false
+                                         :force? true}]
+              [:validate ".dev/plugins/demo"]
+              [:dry-run ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]]
+             @calls)))))
 
 (deftest benchmark-summary-prints-agent-baseline-scores
   (let [out (with-out-str
