@@ -924,7 +924,7 @@
               (print-source-coverage report))))))))
 
 (defn- print-activity-sync
-  [{:keys [project-id queue-root counts]}]
+  [{:keys [project-id queue-root counts result-schema-mismatches]}]
   (println "# Activity Sync")
   (println "- project" project-id)
   (println "- queue-root" queue-root)
@@ -936,7 +936,16 @@
   (println "- claimed" (:claimed counts 0))
   (println "- done" (:done counts 0))
   (println "- rejected" (:rejected counts 0))
-  (println "- failed" (:failed counts 0)))
+  (println "- failed" (:failed counts 0))
+  (when (seq result-schema-mismatches)
+    (println)
+    (println "## Result Schema Mismatches")
+    (doseq [{:keys [sourceId itemId expectedResultSchema resultSchema status]} result-schema-mismatches]
+      (println "-" sourceId
+               "expected" expectedResultSchema
+               "actual" resultSchema
+               "status" status
+               "item" itemId))))
 
 (defn- sync-activity!
   [args]

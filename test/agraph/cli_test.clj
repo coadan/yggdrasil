@@ -1237,17 +1237,38 @@
                                           :counts {:items 1
                                                    :events 2
                                                    :validation-events 1
-                                                   :result-schema-mismatch-events 1}})]
+                                                   :result-schema-mismatch-events 1}
+                                          :result-schema-mismatches
+                                          [{:sourceId "queue:abc"
+                                            :itemId "activity-item:abc"
+                                            :expectedResultSchema "expected/v1"
+                                            :resultSchema "actual/v1"
+                                            :status "done"}]})]
       (let [out (with-out-str
                   (cli/dispatch "sync"
                                 ["activity" "project.edn"
                                  "--queue-dir" ".dev/test-queue"
                                  "--json"]))
+            plain-out (with-out-str
+                        (cli/dispatch "sync"
+                                      ["activity" "project.edn"
+                                       "--queue-dir" ".dev/test-queue"]))
             parsed (read-json-output out)]
         (is (= activity/sync-schema (:schema parsed)))
         (is (= "fixture" (:project-id parsed)))
         (is (= 1 (get-in parsed [:counts :result-schema-mismatch-events])))
+        (is (= [{:sourceId "queue:abc"
+                 :itemId "activity-item:abc"
+                 :expectedResultSchema "expected/v1"
+                 :resultSchema "actual/v1"
+                 :status "done"}]
+               (:result-schema-mismatches parsed)))
+        (is (str/includes? plain-out "## Result Schema Mismatches"))
+        (is (str/includes? plain-out
+                           "- queue:abc expected expected/v1 actual actual/v1 status done item activity-item:abc"))
         (is (= [[:read "project.edn"]
+                [:activity :xtdb "fixture" {:queue-root ".dev/test-queue"}]
+                [:read "project.edn"]
                 [:activity :xtdb "fixture" {:queue-root ".dev/test-queue"}]]
                @calls))))))
 
