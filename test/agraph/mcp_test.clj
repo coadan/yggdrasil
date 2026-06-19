@@ -170,6 +170,7 @@
                                           :candidateFiles [{:repo "app"
                                                             :path "src/app.clj"}]
                                           :answerability {:status :usable}
+                                          :freshness (:freshness opts)
                                           :drilldowns ["agraph query \"where auth\" --project fixture"]})
                 evidence/summarize (fn [xtdb project opts]
                                      {:schema evidence/schema

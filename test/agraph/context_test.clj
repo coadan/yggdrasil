@@ -291,6 +291,61 @@
                            :command "agraph packages --project fixture --json"}]}
            compact))))
 
+(deftest compact-freshness-keeps-bounded-mechanical-detail
+  (let [compact (#'context/compact-freshness
+                 {:status :stale
+                  :counts {:indexed 5
+                           :current 5
+                           :changed 4
+                           :missing 0
+                           :unindexed 0}
+                  :warnings ["one" "two" "three" "four"]
+                  :nextActions [{:kind :freshness
+                                 :command "agraph sync project.edn --check"}
+                                {:kind :docs
+                                 :command "agraph sync project.edn --query-index"}
+                                {:kind :coverage
+                                 :command "agraph sync coverage project.edn --json"}
+                                {:kind :ask
+                                 :command "agraph ask \"where is this handled?\" --project fixture --json"}]
+                  :repos [{:repo-id "app"
+                           :root "/repo"
+                           :status :stale
+                           :counts {:indexed 5}
+                           :samples {:changed [{:repo-id "app"
+                                                :path "a.clj"}
+                                               {:repo-id "app"
+                                                :path "b.clj"}
+                                               {:repo-id "app"
+                                                :path "c.clj"}
+                                               {:repo-id "app"
+                                                :path "d.clj"}]}}]
+                  :extra "drop"})]
+    (is (= {:status :stale
+            :counts {:indexed 5
+                     :current 5
+                     :changed 4
+                     :missing 0
+                     :unindexed 0}
+            :warnings ["one" "two" "three"]
+            :nextActions [{:kind :freshness
+                           :command "agraph sync project.edn --check"}
+                          {:kind :docs
+                           :command "agraph sync project.edn --query-index"}
+                          {:kind :coverage
+                           :command "agraph sync coverage project.edn --json"}]
+            :repos [{:repo-id "app"
+                     :root "/repo"
+                     :status :stale
+                     :counts {:indexed 5}
+                     :samples {:changed [{:repo-id "app"
+                                          :path "a.clj"}
+                                         {:repo-id "app"
+                                          :path "b.clj"}
+                                         {:repo-id "app"
+                                          :path "c.clj"}]}}]}
+           compact))))
+
 (deftest architecture-section-keeps-accepted-systems-auditable
   (let [section (#'context/architecture-section
                  {:overlay {:systems [{:id "system:billing"
@@ -894,11 +949,20 @@
     (let [packet (context/context-packet :xtdb
                                          "auth"
                                          {:project-id "fixture"
-                                          :retriever :lexical})]
+                                          :retriever :lexical
+                                          :freshness {:status :current
+                                                      :counts {:indexed 1
+                                                               :current 1
+                                                               :changed 0}}})]
       (is (= "query:test" (get-in packet [:search :query-run-id])))
       (is (= :lexical (get-in packet [:search :retriever-effective])))
       (is (= 1 (get-in packet [:search :instrumentation :search-docs])))
       (is (= 0 (get-in packet [:search :instrumentation :context-chunks])))
+      (is (= {:status :current
+              :counts {:indexed 1
+                       :current 1
+                       :changed 0}}
+             (:freshness packet)))
       (is (= {:indexedFiles 1}
              (get-in packet [:sourceCoverage :totals])))
       (is (= [{:path "src/auth.clj"

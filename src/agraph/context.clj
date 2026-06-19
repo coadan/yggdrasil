@@ -903,7 +903,7 @@
 
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns answerability
-   search-instrumentation source-coverage architecture candidate-files]
+   search-instrumentation freshness source-coverage architecture candidate-files]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data)
@@ -917,6 +917,7 @@
            :drilldowns drilldowns}
     answerability (assoc :answerability answerability)
     search-instrumentation (assoc :search search-instrumentation)
+    freshness (assoc :freshness freshness)
     architecture (assoc :architecture architecture)
     source-coverage (assoc :sourceCoverage source-coverage)))
 
@@ -942,6 +943,37 @@
                           :nextActions])
       (seq (:warnings answerability))
       (assoc :warnings (vec (take 3 (:warnings answerability)))))))
+
+(defn- compact-freshness-samples
+  [samples]
+  (into {}
+        (map (fn [[k paths]]
+               [k (vec (take 3 paths))]))
+        samples))
+
+(defn- compact-freshness-repo
+  [repo]
+  (cond-> (select-keys repo [:repo-id :root :status :counts :error])
+    (seq (:samples repo)) (assoc :samples
+                                 (compact-freshness-samples (:samples repo)))))
+
+(defn- compact-freshness
+  [freshness]
+  (when freshness
+    (cond-> (select-keys freshness [:status :basis :counts :warnings :nextActions])
+      (seq (:repos freshness)) (assoc :repos
+                                      (mapv compact-freshness-repo
+                                            (take 3 (:repos freshness))))
+      (seq (:warnings freshness)) (assoc :warnings
+                                         (vec (take 3 (:warnings freshness))))
+      (seq (:nextActions freshness)) (assoc :nextActions
+                                            (vec (take 3 (:nextActions freshness)))))))
+
+(defn- compact-freshness-in-packet
+  [packet]
+  (if (contains? packet :freshness)
+    (update packet :freshness compact-freshness)
+    packet))
 
 (defn- compact-source-coverage
   [source-coverage]
@@ -998,6 +1030,7 @@
 (defn- trim-optional-context-metadata
   [packet budget]
   (let [trim-steps [#(update-in % [:search :instrumentation] dissoc :context-chunks)
+                    compact-freshness-in-packet
                     compact-source-coverage-in-packet
                     #(dissoc % :sourceCoverage)
                     compact-architecture-in-packet
@@ -1510,7 +1543,7 @@
   [xtdb query-text {:keys [budget entity-limit edge-limit doc-limit snippet-chars
                            retrieval-limit
                            retriever embedding-client project-id repo-id map-path
-                           map-overlay min-confidence read-context]
+                           map-overlay min-confidence read-context freshness]
                     :or {budget default-budget
                          entity-limit default-entity-limit
                          edge-limit default-edge-limit
@@ -1618,6 +1651,7 @@
                              drilldowns
                              answerability
                              search-context
+                             freshness
                              source-coverage
                              architecture
                              (candidate-files results))

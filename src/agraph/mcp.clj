@@ -383,22 +383,22 @@
     (with-xtdb
       ctx
       (fn [xtdb]
-        (assoc (context/context-packet xtdb
-                                       (require-string! args
-                                                        :query
-                                                        "agraph_explore requires query.")
-                                       {:project-id (project-id project args)
-                                        :retriever (keyword (or (:retriever args) "lexical"))
-                                        :map-overlay overlay
-                                        :budget (or (:budget args) context/default-budget)})
-               :freshness
-               (:freshness (evidence/summarize xtdb
-                                               project
-                                               {:map-overlay overlay
-                                                :config-path (or config-path
-                                                                 (:path project))
-                                                :map-path (or (:mapPath args)
-                                                              (:map-path ctx))})))))))
+        (let [freshness (:freshness (evidence/summarize xtdb
+                                                        project
+                                                        {:map-overlay overlay
+                                                         :config-path (or config-path
+                                                                          (:path project))
+                                                         :map-path (or (:mapPath args)
+                                                                       (:map-path ctx))}))]
+          (context/context-packet xtdb
+                                  (require-string! args
+                                                   :query
+                                                   "agraph_explore requires query.")
+                                  {:project-id (project-id project args)
+                                   :retriever (keyword (or (:retriever args) "lexical"))
+                                   :map-overlay overlay
+                                   :budget (or (:budget args) context/default-budget)
+                                   :freshness freshness}))))))
 
 (def node-inspect-schema
   "agraph.node.inspect/v1")
