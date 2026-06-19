@@ -255,8 +255,12 @@ agraph explore docs cursor:def456 "API Gateway"
 agraph explore search cursor:def456 "gateway route"
 ```
 
-Explore currently uses the `agraph.cursor.packet/v1` packet schema internally.
-Each mutating explore command
-creates a new immutable revision with a parent cursor id. If `--map` is used,
-AGraph stores the parsed map correction layer inside the cursor row, so later edits to
-`agraph.map.json` do not change older cursor revisions.
+Explore uses the `agraph.cursor.packet/v1` packet schema. Packets include
+`nextActions` rows with typed `kind`, `label`, `target`, and executable
+`command` fields for expanding the graph, inspecting docs, or searching within
+the fixed cursor basis. The legacy `next` field is derived from those rows for
+human-readable compatibility; agents should prefer `nextActions`.
+Each mutating explore command creates a new immutable revision with a parent
+cursor id. If `--map` is used, AGraph stores the parsed map correction layer
+inside the cursor row, so later edits to `agraph.map.json` do not change older
+cursor revisions.

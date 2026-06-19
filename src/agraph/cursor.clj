@@ -337,19 +337,45 @@
             :clusters (count (:clusters graph-data))}
    :detail "expanded"})
 
-(defn- next-actions
+(defn- shell-token
+  [value]
+  (let [value (str value)]
+    (if (or (= "<text>" value)
+            (re-matches #"[A-Za-z0-9_./:=+@%-]+" value))
+      value
+      (str "'" (str/replace value #"'" "'\"'\"'") "'"))))
+
+(defn- explore-command
+  [action & args]
+  (str "agraph explore " action
+       (when (seq args)
+         (str " " (str/join " " (map shell-token args))))))
+
+(defn- next-action-rows
   [cursor focus]
   (let [cursor-id (:xt/id cursor)]
     (vec
      (concat
       (mapcat (fn [node]
-                [{:command (str "agraph cursor expand " cursor-id " " (:id node))
+                [{:kind :expand
+                  :label "Expand adjacent systems"
+                  :target (:id node)
+                  :command (explore-command "expand" cursor-id (:id node))
                   :reason "Follow adjacent system graph edges"}
-                 {:command (str "agraph cursor docs " cursor-id " " (:id node))
+                 {:kind :docs
+                  :label "Inspect docs for this system"
+                  :target (:id node)
+                  :command (explore-command "docs" cursor-id (:id node))
                   :reason "Inspect accepted and candidate docs for this system"}])
               (take 3 focus))
-      [{:command (str "agraph cursor search " cursor-id " <text>")
+      [{:kind :search
+        :label "Search within this cursor basis"
+        :command (explore-command "search" cursor-id "<text>")
         :reason "Search within this cursor basis"}]))))
+
+(defn- next-compat
+  [actions]
+  (mapv #(select-keys % [:command :reason]) actions))
 
 (defn- strip-doc-snippets
   [packet]
@@ -426,6 +452,7 @@
          docs (if (and include-docs? doc-target)
                 (target-docs xtdb cursor doc-target)
                 [])
+         next-actions (next-action-rows cursor focus)
          packet {:schema packet-schema
                  :cursor (compact-map {:id (:xt/id cursor)
                                        :parentId (:parent-id cursor)
@@ -439,7 +466,8 @@
                  :edges edges
                  :docs docs
                  :warnings (vec (:warnings cursor))
-                 :next (next-actions cursor focus)}]
+                 :next (next-compat next-actions)
+                 :nextActions next-actions}]
      (fit-budget packet (:budget limits)))))
 
 (defn- persist!

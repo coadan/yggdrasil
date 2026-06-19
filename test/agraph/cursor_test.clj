@@ -114,6 +114,17 @@
         (is (= cursor/packet-schema (:schema created)))
         (is (= 0 (get-in created [:cursor :revision])))
         (is (= [api-id] (mapv :id (:focus created))))
+        (is (some #(= {:kind :expand
+                       :label "Expand adjacent systems"
+                       :target api-id
+                       :command (str "agraph explore expand " cursor-id " " api-id)
+                       :reason "Follow adjacent system graph edges"}
+                      %)
+                  (:nextActions created)))
+        (is (some #(= {:command (str "agraph explore search " cursor-id " <text>")
+                       :reason "Search within this cursor basis"}
+                      %)
+                  (:next created)))
         (testing "open creates a child revision and includes docs candidates"
           (let [opened (cursor/open! xtdb cursor-id "API Service" {:budget 2000})
                 opened-id (get-in opened [:cursor :id])]
