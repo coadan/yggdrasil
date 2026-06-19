@@ -1174,7 +1174,7 @@ function SystemsTab({
         onSelect={onSelectSlice}
       />
       <div className="span-2">
-        <GraphPanel graph={activeGraph} />
+        <GraphPanel graph={activeGraph} onAsk={onAsk} />
       </div>
       <ExternalApiReview report={report} />
       <DataTable

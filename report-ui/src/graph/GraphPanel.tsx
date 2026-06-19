@@ -6,9 +6,21 @@ import type { AGraphEdge, AGraphGraph, AGraphNode } from "../data/types";
 import { displayValue } from "../report/valueFormat";
 import { filterGraph, graphFilterOptions, type GraphFilters } from "./graphFilters";
 
+export type GraphAskScope = {
+  label: string;
+  source: string;
+  question: string;
+  evidenceRows?: Array<Record<string, unknown>>;
+};
+
 type Selection = {
   type: "node" | "edge";
   id: string;
+};
+
+type GraphPanelProps = {
+  graph: AGraphGraph;
+  onAsk?: (scope: GraphAskScope) => void;
 };
 
 function GraphRuntime({
@@ -52,6 +64,14 @@ function selectedRow(graph: AGraphGraph, selection: Selection | null): AGraphNod
     return graph.nodes.find((node) => node.id === selection.id) || null;
   }
   return graph.edges.find((edge) => edgeKey(edge) === selection.id) || null;
+}
+
+function rowLabel(row: AGraphNode | AGraphEdge): string {
+  return displayValue((row as AGraphNode).label || (row as AGraphNode).id || (row as AGraphEdge).relation) || "graph row";
+}
+
+function rowSource(graph: AGraphGraph, selection: Selection): string {
+  return `graph.${graph.title || "untitled"}.${selection.type}.${selection.id}`;
 }
 
 function detailEntries(row: AGraphNode | AGraphEdge, keys: string[]): Array<[string, unknown]> {
@@ -114,7 +134,13 @@ function DetailRows({ row }: { row: AGraphNode | AGraphEdge | null }) {
   );
 }
 
-function GraphRowsPreview({ graph }: { graph: AGraphGraph }) {
+function GraphRowsPreview({
+  graph,
+  onSelect
+}: {
+  graph: AGraphGraph;
+  onSelect: (selection: Selection) => void;
+}) {
   const nodeRows = graph.nodes.slice(0, 5);
   const edgeRows = graph.edges.slice(0, 5);
   if (nodeRows.length === 0 && edgeRows.length === 0) return null;
@@ -129,6 +155,7 @@ function GraphRowsPreview({ graph }: { graph: AGraphGraph }) {
               <tr>
                 <th>Node</th>
                 <th>Kind</th>
+                <th>Inspect</th>
               </tr>
             </thead>
             <tbody>
@@ -136,6 +163,11 @@ function GraphRowsPreview({ graph }: { graph: AGraphGraph }) {
                 <tr key={node.id}>
                   <td>{displayValue(node.label || node.id)}</td>
                   <td>{displayValue(node.kind)}</td>
+                  <td>
+                    <button type="button" onClick={() => onSelect({ type: "node", id: node.id })}>
+                      Inspect
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -148,6 +180,7 @@ function GraphRowsPreview({ graph }: { graph: AGraphGraph }) {
                 <th>Relation</th>
                 <th>Source</th>
                 <th>Target</th>
+                <th>Inspect</th>
               </tr>
             </thead>
             <tbody>
@@ -156,12 +189,73 @@ function GraphRowsPreview({ graph }: { graph: AGraphGraph }) {
                   <td>{displayValue(edge.relation)}</td>
                   <td>{displayValue(edge.source)}</td>
                   <td>{displayValue(edge.target)}</td>
+                  <td>
+                    <button type="button" onClick={() => onSelect({ type: "edge", id: edgeKey(edge) })}>
+                      Inspect
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function GraphRowActions({
+  graph,
+  row,
+  selection,
+  onAsk
+}: {
+  graph: AGraphGraph;
+  row: AGraphNode | AGraphEdge | null;
+  selection: Selection | null;
+  onAsk?: (scope: GraphAskScope) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    setCopied(false);
+  }, [selection?.id, selection?.type]);
+
+  if (!row || !selection) return null;
+
+  const label = rowLabel(row);
+  const source = rowSource(graph, selection);
+  const evidenceRow = {
+    ...((row as unknown as Record<string, unknown>) || {}),
+    "graph-title": graph.title || "Graph",
+    "row-type": selection.type
+  };
+
+  return (
+    <div className="graph-row-actions">
+      <button
+        type="button"
+        onClick={() => {
+          void navigator.clipboard?.writeText(JSON.stringify(evidenceRow, null, 2));
+          setCopied(true);
+        }}
+      >
+        {copied ? "Copied" : "Copy row JSON"}
+      </button>
+      {onAsk ? (
+        <button
+          type="button"
+          onClick={() =>
+            onAsk({
+              label,
+              source,
+              question: `Why is ${label} in this graph?`,
+              evidenceRows: [evidenceRow]
+            })
+          }
+        >
+          Ask about row
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -195,7 +289,7 @@ function untouchedFilters(filters: GraphFilters): boolean {
   );
 }
 
-export function GraphPanel({ graph }: { graph: AGraphGraph }) {
+export function GraphPanel({ graph, onAsk }: GraphPanelProps) {
   const [filters, setFilters] = useState<GraphFilters>(() => emptyFiltersForGraph(graph));
   const [layout, setLayout] = useState<GraphLayout>("circle");
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -337,8 +431,9 @@ export function GraphPanel({ graph }: { graph: AGraphGraph }) {
           </div>
           <aside className="graph-inspector">
             <h3>{selection ? (selection.type === "node" ? "Node" : "Edge") : "Selection"}</h3>
+            <GraphRowActions graph={filtered.graph} row={row} selection={selection} onAsk={onAsk} />
             <DetailRows row={row} />
-            <GraphRowsPreview graph={filtered.graph} />
+            <GraphRowsPreview graph={filtered.graph} onSelect={setSelection} />
           </aside>
         </div>
       )}

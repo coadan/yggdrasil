@@ -4,9 +4,30 @@ import { emptyGraph, emptyReport, fixtureGraph, fixtureReport, inventoryGraph, s
 import { ReportPage } from "./ReportPage";
 
 vi.mock("../graph/GraphPanel", () => ({
-  GraphPanel: ({ graph }: { graph: { title?: string; nodes: unknown[]; edges: unknown[] } }) => (
+  GraphPanel: ({
+    graph,
+    onAsk
+  }: {
+    graph: { title?: string; nodes: unknown[]; edges: unknown[] };
+    onAsk?: (scope: { label: string; source: string; question: string; evidenceRows?: Array<Record<string, unknown>> }) => void;
+  }) => (
     <div data-testid="graph-panel">
       {graph.title || "Graph"}: {graph.nodes.length}/{graph.edges.length}
+      {onAsk ? (
+        <button
+          type="button"
+          onClick={() =>
+            onAsk({
+              label: graph.title || "Graph",
+              source: "graph.mock",
+              question: `Why is ${graph.title || "Graph"} in this graph?`,
+              evidenceRows: [{ title: graph.title || "Graph", nodes: graph.nodes.length, edges: graph.edges.length }]
+            })
+          }
+        >
+          Ask graph row
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -164,6 +185,18 @@ describe("ReportPage", () => {
     expect(screen.getByRole("button", { name: "Systems" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: /Package Evidence/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("graph-panel")).toHaveTextContent("Package Evidence");
+  });
+
+  it("asks from graph row scope in the systems tab", () => {
+    render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Systems" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask graph row" }));
+
+    expect(screen.getAllByRole("button", { name: "Ask" }).some((button) => button.getAttribute("aria-current") === "page")).toBe(true);
+    expect(screen.getByText(/Why is System Neighborhood/)).toBeInTheDocument();
+    expect(screen.getByText("graph.mock")).toBeInTheDocument();
+    expect(screen.getByText("Scope Evidence")).toBeInTheDocument();
   });
 
   it("renders actionable atlas next actions on plugin dashboards", () => {

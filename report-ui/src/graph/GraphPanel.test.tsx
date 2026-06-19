@@ -13,7 +13,8 @@ vi.mock("@react-sigma/core", () => ({
 
 describe("GraphPanel", () => {
   it("renders graph controls and filters visible counts", () => {
-    render(<GraphPanel graph={fixtureGraph} />);
+    const onAsk = vi.fn();
+    render(<GraphPanel graph={fixtureGraph} onAsk={onAsk} />);
 
     expect(screen.getByText("Fixture Graph")).toBeInTheDocument();
     expect(screen.getByText("3 of 3 nodes, 2 of 2 edges")).toBeInTheDocument();
@@ -21,6 +22,19 @@ describe("GraphPanel", () => {
     expect(graphRows).toBeTruthy();
     expect(within(graphRows as HTMLElement).getByText("app.core")).toBeInTheDocument();
     expect(within(graphRows as HTMLElement).getByText("imports")).toBeInTheDocument();
+    fireEvent.click(within(graphRows as HTMLElement).getAllByRole("button", { name: "Inspect" })[0]);
+    expect(screen.getByRole("heading", { name: "Node" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy row JSON" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ask about row" }));
+    expect(onAsk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: "app.core",
+        source: expect.stringContaining("graph.Fixture Graph.node."),
+        question: "Why is app.core in this graph?",
+        evidenceRows: [expect.objectContaining({ label: "app.core", "row-type": "node" })]
+      })
+    );
 
     fireEvent.change(screen.getByLabelText("Kind"), { target: { value: "package" } });
 
