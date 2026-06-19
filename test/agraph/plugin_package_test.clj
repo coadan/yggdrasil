@@ -313,6 +313,38 @@
              (get-in report-dry-run
                      [:outputs 0 :output :panels 0 :plugin :packageClaimAuthority]))))))
 
+(deftest scaffolds-unsupported-file-family-extractor-options
+  (let [workspace (temp-dir "agraph-plugin-unsupported-file-family")
+        package-dir (io/file workspace "plugins" "htmx")
+        created (plugin-package/new! (.getPath package-dir)
+                                     {:id "htmx-plugin"
+                                      :extractor? true
+                                      :file-kind "htmx"
+                                      :path-globs "templates/**/*.html,resources/**/*.html"
+                                      :scan-globs "templates/**/*.html"
+                                      :fixture-path "fixtures/sample.html"})
+        manifest (edn/read-string
+                  (slurp (io/file package-dir plugin-package/manifest-filename)))
+        validation (plugin-package/validate-local (.getPath package-dir))
+        extractor (first (:extractor-plugins validation))]
+    (is (= :htmx (:file-kind created)))
+    (is (= ["templates/**/*.html" "resources/**/*.html"] (:path-globs created)))
+    (is (= ["templates/**/*.html"] (:scan-globs created)))
+    (is (= "fixtures/sample.html" (:fixture-path created)))
+    (is (.exists (io/file package-dir "fixtures" "sample.html")))
+    (is (str/includes? (slurp (io/file package-dir "fixtures" "sample.html"))
+                       "Sample htmx fixture"))
+    (is (= [:htmx]
+           (get-in manifest [:extractor-plugins 0 :applies-to :file-kinds])))
+    (is (= ["templates/**/*.html" "resources/**/*.html"]
+           (get-in manifest [:extractor-plugins 0 :applies-to :path-globs])))
+    (is (= {:path-globs ["templates/**/*.html"]
+            :file-kind :htmx}
+           (get-in manifest [:extractor-plugins 0 :scan])))
+    (is (= :warning (:status validation)))
+    (is (= #{:enhance :scan} (:modes extractor)))
+    (is (= :htmx (get-in extractor [:scan :file-kind])))))
+
 (deftest dry-run-fails-when-package-has-no-plugin-for-selected-lane
   (let [workspace (temp-dir "agraph-plugin-empty-lane")
         report-only-dir (io/file workspace "plugins" "report-only")

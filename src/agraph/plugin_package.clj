@@ -712,6 +712,41 @@
   [dir]
   (slug (.getName (io/file dir))))
 
+(defn- scaffold-file-kind
+  [file-kind]
+  (keyword (slug (or file-kind "code"))))
+
+(defn- split-globs
+  [value]
+  (cond
+    (nil? value) []
+    (string? value) (str/split value #",")
+    (sequential? value) (mapcat split-globs value)
+    :else [(str value)]))
+
+(defn- scaffold-globs
+  [value default-globs]
+  (let [globs (->> (split-globs value)
+                   (map str/trim)
+                   (remove str/blank?)
+                   vec)]
+    (if (seq globs)
+      globs
+      default-globs)))
+
+(defn- default-fixture-path
+  [file-kind]
+  (if (= :code file-kind)
+    "fixtures/sample.clj"
+    (str "fixtures/sample." (name file-kind))))
+
+(defn- fixture-template
+  [file-kind]
+  (if (= :code file-kind)
+    "(ns sample)\n(defn value [] 1)\n"
+    (str "# Sample " (name file-kind) " fixture.\n"
+         "# Replace this with small project-agnostic input that exercises the extractor.\n")))
+
 (defn- extractor-template
   []
   (str "#!/usr/bin/env python3\n"
@@ -817,43 +852,51 @@
        "claimed benefit.\n"))
 
 (defn- manifest
-  [package-id {:keys [name extractor? report?]}]
-  (cond-> {:schema manifest-schema
-           :id package-id
-           :name (str (or name package-id))
-           :version "0.1.0"
-           :license {:spdx "MIT"}
-           :distribution {:visibility :private
-                          :commercial? false}
-           :scope {:kind :project-local
-                   :reason "Scaffolded packages start project-local until reviewed for base reuse."}
-           :benchmark {:status :unbenchmarked}}
-    extractor?
-    (assoc :extractor-plugins
-           [{:id (str package-id "-extractor")
-             :command ["python3" "extract.py"]
-             :modes [:enhance :scan]
-             :applies-to {:file-kinds [:code]
-                          :path-globs ["src/*" "src/**/*"]}
-             :scan {:path-globs ["fixtures/**/*"]
-                    :file-kind :plugin-source}
-             :search {:chunks? true}
-             :emits [:plugin-observation]}])
+  [package-id {:keys [name extractor? report? file-kind path-globs scan-globs]}]
+  (let [file-kind (scaffold-file-kind file-kind)
+        path-globs (scaffold-globs path-globs ["src/*" "src/**/*"])
+        scan-globs (scaffold-globs scan-globs ["fixtures/**/*"])]
+    (cond-> {:schema manifest-schema
+             :id package-id
+             :name (str (or name package-id))
+             :version "0.1.0"
+             :license {:spdx "MIT"}
+             :distribution {:visibility :private
+                            :commercial? false}
+             :scope {:kind :project-local
+                     :reason "Scaffolded packages start project-local until reviewed for base reuse."}
+             :benchmark {:status :unbenchmarked}}
+      extractor?
+      (assoc :extractor-plugins
+             [{:id (str package-id "-extractor")
+               :command ["python3" "extract.py"]
+               :modes [:enhance :scan]
+               :applies-to {:file-kinds [file-kind]
+                            :path-globs path-globs}
+               :scan {:path-globs scan-globs
+                      :file-kind file-kind}
+               :search {:chunks? true}
+               :emits [:plugin-observation]}])
 
-    report?
-    (assoc :report-plugins
-           [{:id (str package-id "-report")
-             :command ["python3" "report.py"]
-             :slots [:plugins]}])))
+      report?
+      (assoc :report-plugins
+             [{:id (str package-id "-report")
+               :command ["python3" "report.py"]
+               :slots [:plugins]}]))))
 
 (defn new!
   "Create a local plugin package scaffold."
-  [dir {:keys [id extractor? report? force?] :as opts}]
+  [dir {:keys [id extractor? report? force? fixture-path] :as opts}]
   (let [package-id (slug (or id (default-package-id dir)))
         target (io/file dir)
         any-kind? (or extractor? report?)
         extractor? (if any-kind? extractor? true)
         report? (if any-kind? report? true)
+        file-kind (scaffold-file-kind (:file-kind opts))
+        fixture-path (or (some-> fixture-path str not-empty)
+                         (default-fixture-path file-kind))
+        path-globs (scaffold-globs (:path-globs opts) ["src/*" "src/**/*"])
+        scan-globs (scaffold-globs (:scan-globs opts) ["fixtures/**/*"])
         manifest-path (io/file target manifest-filename)]
     (when (and (.exists manifest-path) (not force?))
       (throw (ex-info "Plugin package already exists. Re-run with --force to replace scaffold files."
@@ -870,8 +913,8 @@
                                       (registry-example package-id))
                          (write-file! (io/file target "benchmarks/README.md")
                                       (benchmark-readme package-id))
-                         (write-file! (io/file target "fixtures/sample.clj")
-                                      "(ns sample)\n(defn value [] 1)\n")]
+                         (write-file! (io/file target fixture-path)
+                                      (fixture-template file-kind))]
                   extractor? (conj (write-file! (io/file target "extract.py")
                                                 (extractor-template)))
                   report? (conj (write-file! (io/file target "report.py")
@@ -880,6 +923,10 @@
        :package-id package-id
        :path (fs/canonical-path target)
        :manifest (fs/canonical-path manifest-path)
+       :file-kind file-kind
+       :path-globs path-globs
+       :scan-globs scan-globs
+       :fixture-path fixture-path
        :files files
        :extractor? (boolean extractor?)
        :report? (boolean report?)})))

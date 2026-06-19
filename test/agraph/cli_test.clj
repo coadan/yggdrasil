@@ -176,6 +176,8 @@
                                          :package-id (:id opts)
                                          :path dir
                                          :manifest (str dir "/agraph.plugin.edn")
+                                         :file-kind (some-> (:file-kind opts) keyword)
+                                         :fixture-path (:fixture-path opts)
                                          :files []
                                          :extractor? true
                                          :report? true})
@@ -263,6 +265,23 @@
                                                                   :errors []}]})]
       (with-out-str
         (cli/dispatch "plugin" ["new" ".dev/plugins/demo" "--id" "demo" "--force"]))
+      (let [new-out (with-out-str
+                      (cli/dispatch "plugin"
+                                    ["new"
+                                     ".dev/plugins/htmx"
+                                     "--id"
+                                     "htmx"
+                                     "--file-kind"
+                                     "htmx"
+                                     "--path-glob"
+                                     "templates/**/*.html"
+                                     "--scan-glob"
+                                     "templates/**/*.html"
+                                     "--fixture"
+                                     "fixtures/sample.html"
+                                     "--extractor"]))]
+        (is (str/includes? new-out "- file-kind htmx"))
+        (is (str/includes? new-out "- fixture fixtures/sample.html")))
       (let [validate-out (with-out-str
                            (cli/dispatch "plugin" ["validate" ".dev/plugins/demo"]))
             diagnose-out (with-out-str
@@ -315,6 +334,14 @@
                                          :extractor? false
                                          :report? false
                                          :force? true}]
+              [:new ".dev/plugins/htmx" {:id "htmx"
+                                         :extractor? true
+                                         :report? false
+                                         :force? false
+                                         :file-kind "htmx"
+                                         :path-globs "templates/**/*.html"
+                                         :scan-globs "templates/**/*.html"
+                                         :fixture-path "fixtures/sample.html"}]
               [:validate ".dev/plugins/demo"]
               [:diagnose ".dev/plugins/demo"]
               [:dry-run ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]

@@ -71,13 +71,25 @@ bb plugin dry-run report .dev/agraph/plugins/datastar-hiccup --json
 bb plugin registry validate .dev/agraph/plugins/registry.edn
 ```
 
-`plugin new` writes `agraph.plugin.edn`, Python extractor/report examples,
-`fixtures/sample.clj`, `registry.example.edn`, `benchmarks/README.md`, and a
-package README. By default it creates both extractor and report examples; use
+`plugin new` writes `agraph.plugin.edn`, Python extractor/report examples, a
+fixture file, `registry.example.edn`, `benchmarks/README.md`, and a package
+README. By default it creates both extractor and report examples; use
 `--extractor` or `--report` to scaffold only one lane.
 
-For unsupported file families, keep the package external and edit the scaffold
-instead of adding project-specific rules to core:
+For unsupported file families, keep the package external and pass explicit
+scaffold options instead of adding project-specific rules to core:
+
+```sh
+bb plugin new .dev/agraph/plugins/htmx \
+  --id htmx \
+  --extractor \
+  --file-kind htmx \
+  --path-glob 'templates/**/*.html' \
+  --scan-glob 'templates/**/*.html' \
+  --fixture fixtures/sample.html
+```
+
+After creation, review the generated manifest:
 
 - set the extractor plugin `:applies-to :file-kinds` to the file kind the
   package handles;

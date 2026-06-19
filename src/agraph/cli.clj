@@ -101,7 +101,7 @@
     "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
     "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode" "--tools"
     "--files" "--since"
-    "--id" "--plugin"
+    "--id" "--plugin" "--file-kind" "--path-glob" "--scan-glob" "--fixture"
     "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
     "--vector-command" "--vector-model" "--parser-worker"
     "--ref" "--subdir" "--cache-dir"
@@ -2910,13 +2910,17 @@
   (println "- remaining" remaining))
 
 (defn- print-plugin-new
-  [{:keys [package-id path manifest files extractor? report?]}]
+  [{:keys [package-id path manifest files extractor? report? file-kind fixture-path]}]
   (println "# Plugin Package Created")
   (println "- package" package-id)
   (println "- path" path)
   (println "- manifest" manifest)
   (println "- extractor" extractor?)
   (println "- report" report?)
+  (when file-kind
+    (println "- file-kind" (name file-kind)))
+  (when fixture-path
+    (println "- fixture" fixture-path))
   (println "- files" (count files)))
 
 (defn- print-plugin-validation
@@ -3021,10 +3025,21 @@
                       {:usage (usage)})))
     (let [result (plugin-package/new!
                   dir
-                  {:id (option-value args "--id")
-                   :extractor? (boolean (some #{"--extractor"} args))
-                   :report? (boolean (some #{"--report"} args))
-                   :force? (boolean (some #{"--force"} args))})]
+                  (cond-> {:id (option-value args "--id")
+                           :extractor? (boolean (some #{"--extractor"} args))
+                           :report? (boolean (some #{"--report"} args))
+                           :force? (boolean (some #{"--force"} args))}
+                    (option-value args "--file-kind")
+                    (assoc :file-kind (option-value args "--file-kind"))
+
+                    (option-value args "--path-glob")
+                    (assoc :path-globs (option-value args "--path-glob"))
+
+                    (option-value args "--scan-glob")
+                    (assoc :scan-globs (option-value args "--scan-glob"))
+
+                    (option-value args "--fixture")
+                    (assoc :fixture-path (option-value args "--fixture"))))]
       (if (json-output? args)
         (print-json result)
         (print-plugin-new result)))))
@@ -3257,7 +3272,7 @@
     "  report <project.edn> [--map agraph.map.json] [--out agraph-out] [--detail primary|expanded|evidence|raw] [--force]"
     ""
     "Plugins:"
-    "  plugin new <dir> [--id ID] [--extractor] [--report] [--force] [--json]"
+    "  plugin new <dir> [--id ID] [--file-kind KIND] [--path-glob GLOB] [--scan-glob GLOB] [--fixture PATH] [--extractor] [--report] [--force] [--json]"
     "  plugin validate <dir> [--json]"
     "  plugin diagnose <dir> [--json]"
     "  plugin dry-run extractor <dir> <repo-root> <file> [--plugin ID] [--json]"
