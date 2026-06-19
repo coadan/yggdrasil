@@ -66,7 +66,6 @@
          yaml-key-line
          yaml-section-items
          leading-spaces
-         source-definition-chunk
          docs-config-array-property-values
          docs-config-property-values
          extract-astro
@@ -272,88 +271,6 @@
 
 
 
-
-(defn- balanced-form
-  [content start]
-  (let [length (count content)]
-    (loop [idx start
-           depth 0
-           in-string? false
-           escaped? false]
-      (when (< idx length)
-        (let [ch (.charAt content idx)
-              escaped-next? (and in-string? (not escaped?) (= \\ ch))
-              in-string-next? (if (or escaped? escaped-next?)
-                                in-string?
-                                (if (= \" ch) (not in-string?) in-string?))
-              depth-next (cond
-                           in-string-next? depth
-                           (= \( ch) (inc depth)
-                           (= \) ch) (dec depth)
-                           :else depth)]
-          (if (and (not in-string-next?) (zero? depth-next) (pos? depth))
-            (subs content start (inc idx))
-            (recur (inc idx)
-                   depth-next
-                   in-string-next?
-                   escaped-next?)))))))
-
-(defn- bounded-lines
-  [text line-limit]
-  (str/join "\n" (take line-limit (str/split-lines (or text "")))))
-
-(defn- line-start-offsets
-  [content]
-  (loop [idx 0
-         starts [0]]
-    (if-let [newline-idx (str/index-of content "\n" idx)]
-      (recur (inc newline-idx) (conj starts (inc newline-idx)))
-      starts)))
-
-(defn- balanced-curly-block
-  [^String content ^long start]
-  (let [content (or content "")
-        length (count content)
-        open-idx (str/index-of content "{" start)]
-    (when open-idx
-      (loop [idx open-idx
-             depth 0
-             in-string? false
-             string-delim nil
-             escaped? false]
-        (when (< idx length)
-          (let [ch (.charAt content (int idx))
-                escaped-next? (and in-string?
-                                   (not escaped?)
-                                   (= \\ ch)
-                                   (not= \` string-delim))
-                closing-string? (and in-string?
-                                     (not escaped?)
-                                     (not escaped-next?)
-                                     (= ch string-delim))
-                opening-string? (and (not in-string?)
-                                     (or (= \" ch) (= \' ch) (= \` ch)))
-                in-string-next? (cond
-                                  closing-string? false
-                                  escaped-next? true
-                                  opening-string? true
-                                  :else in-string?)
-                string-delim-next (cond
-                                    closing-string? nil
-                                    opening-string? ch
-                                    :else string-delim)
-                depth-next (cond
-                             in-string-next? depth
-                             (= \{ ch) (inc depth)
-                             (= \} ch) (dec depth)
-                             :else depth)]
-            (if (and (not in-string-next?) (zero? depth-next) (pos? depth))
-              (subs content start (inc idx))
-              (recur (inc idx)
-                     depth-next
-                     in-string-next?
-                     string-delim-next
-                     escaped-next?))))))))
 
 
 
@@ -625,76 +542,6 @@
 
 
 
-
-(def ^:private jvm-family-file-chunk-lines 100)
-(def ^:private jvm-family-definition-chunk-lines 120)
-
-(defn- source-text-chunk
-  [run-id id-scope file-id path chunk-kind label content line-limit]
-  (let [chunk-text (bounded-lines content line-limit)]
-    {:xt/id (chunk-id id-scope path label 1)
-     :file-id file-id
-     :path path
-     :kind chunk-kind
-     :label label
-     :text chunk-text
-     :tokens (text/tokenize (str label "\n" chunk-text))
-     :source-line 1
-     :active? true
-     :run-id run-id}))
-
-(defn- source-definition-chunk
-  [run-id id-scope file-id path label definition-kind source-line text]
-  (let [chunk-text (bounded-lines text jvm-family-definition-chunk-lines)
-        line-count (count (str/split-lines chunk-text))]
-    (cond-> {:xt/id (chunk-id id-scope path label source-line)
-             :file-id file-id
-             :path path
-             :kind :code-definition
-             :definition-kind definition-kind
-             :label label
-             :text chunk-text
-             :tokens (text/tokenize (str label "\n" chunk-text))
-             :source-line (or source-line 1)
-             :active? true
-             :run-id run-id}
-      (pos? line-count) (assoc :end-line (+ (or source-line 1) line-count -1))
-      (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
-
-(defn- source-range-text
-  [content source-line end-line]
-  (let [lines (vec (str/split-lines (or content "")))
-        source-line (max 1 (long (or source-line 1)))
-        end-line (max source-line (long (or end-line source-line)))
-        start-idx (dec source-line)
-        end-idx (min (count lines) end-line)]
-    (if (< start-idx end-idx)
-      (str/join "\n" (subvec lines start-idx end-idx))
-      "")))
-
-(defn- curly-depth-delta
-  [line]
-  (- (count (re-seq #"\{" line))
-     (count (re-seq #"\}" line))))
-
-(defn- pop-closed-type-scopes
-  [type-stack depth]
-  (->> type-stack
-       (remove #(> (:end-depth %) depth))
-       vec))
-
-(defn- curly-balance-diagnostics
-  [run-id file-id path content language]
-  (let [balance (reduce + (map curly-depth-delta (str/split-lines content)))]
-    (if (zero? balance)
-      []
-      [(diagnostic-row run-id
-                       file-id
-                       path
-                       "parse"
-                       1
-                       (str language
-                            " extractor found unbalanced curly braces."))])))
 
 
 
