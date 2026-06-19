@@ -653,7 +653,17 @@
 (defn- compact-answerability
   [answerability]
   (when answerability
-    (select-keys answerability [:status :available :missing :weak :counts :retrieval :next])))
+    (cond-> (select-keys answerability
+                         [:status
+                          :available
+                          :missing
+                          :weak
+                          :unsupported
+                          :counts
+                          :retrieval
+                          :next])
+      (seq (:warnings answerability))
+      (assoc :warnings (vec (take 3 (:warnings answerability)))))))
 
 (defn- trim-optional-context-metadata
   [packet budget]

@@ -54,7 +54,9 @@ The packet schema is `agraph.context/v1`:
 AGraph keeps the source reference and marks `snippetOmitted`; if even that does
 not fit, the doc is omitted and a warning is added.
 `sourceCoverage` is trimmed before warnings and drilldowns when the packet is
-too small.
+too small. Under tight budgets, `answerability` is compacted but keeps status,
+evidence planes, counts, retrieval, next steps, unsupported planes, and a bounded
+warning list.
 
 ## Answerability
 

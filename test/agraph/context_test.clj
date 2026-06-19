@@ -111,6 +111,29 @@
     (is (some #{"Indexer diagnostics are present; inspect source coverage before relying on missing facts."}
               warnings))))
 
+(deftest compact-answerability-keeps-bounded-actionable-detail
+  (let [compact (#'context/compact-answerability
+                 {:status :limited
+                  :available [:source-graph]
+                  :missing [:docs]
+                  :weak [:dependencies]
+                  :unsupported [:remote-work]
+                  :counts {:unresolved-imports 1}
+                  :retrieval {:effective :lexical}
+                  :warnings ["one" "two" "three" "four"]
+                  :next ["Run agraph packages --project fixture --json"]
+                  :extra "drop"})]
+    (is (= {:status :limited
+            :available [:source-graph]
+            :missing [:docs]
+            :weak [:dependencies]
+            :unsupported [:remote-work]
+            :counts {:unresolved-imports 1}
+            :retrieval {:effective :lexical}
+            :warnings ["one" "two" "three"]
+            :next ["Run agraph packages --project fixture --json"]}
+           compact))))
+
 (deftest answerability-exposes-indexed-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
