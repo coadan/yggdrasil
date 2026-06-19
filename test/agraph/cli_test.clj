@@ -1210,7 +1210,16 @@
                                                :edges 4
                                                :activity-events 5
                                                :validation-events 1
-                                               :result-schema-mismatch-events 1}
+                                               :result-schema-mismatch-events 1
+                                               :skipped-files 1
+                                               :diagnostics 2}
+                                      :top-file-kinds [{:kind "clojure"
+                                                        :count 2}]
+                                      :extractors [{:kind "clojure"
+                                                    :files 2}]
+                                      :diagnostics {:total 2
+                                                    :by-stage [{:stage "parse"
+                                                                :count 2}]}
                                       :nextActions [{:kind :ask
                                                      :command "agraph ask \"where is this handled?\" --project fixture --json"}]
                                       :next ["agraph ask \"where is this handled?\" --project fixture --json"]})]
@@ -1227,6 +1236,17 @@
              (:repos parsed)))
       (is (= "agraph.evidence/v1" (get-in parsed [:evidence :schema])))
       (is (= ["source-graph" "docs"] (get-in parsed [:evidence :available])))
+      (is (= {:counts {:files 2
+                       :skippedFiles 1
+                       :diagnostics 2}
+              :topFileKinds [{:kind "clojure"
+                              :count 2}]
+              :extractors [{:kind "clojure"
+                            :files 2}]
+              :diagnostics {:total 2
+                            :by-stage [{:stage "parse"
+                                        :count 2}]}}
+             (:coverage parsed)))
       (is (= {:status "stale"
               :counts {:indexed 2
                        :current 3
@@ -1243,7 +1263,9 @@
               :edges 4
               :activity-events 5
               :validation-events 1
-              :result-schema-mismatch-events 1}
+              :result-schema-mismatch-events 1
+              :skipped-files 1
+              :diagnostics 2}
              (get-in parsed [:evidence :counts])))
       (is (str/includes? plain-out "- activity-events 5"))
       (is (str/includes? plain-out "- validation-events 1"))
@@ -1259,6 +1281,7 @@
         (is (= "fixture" (get-in status-parsed [:project :id])))
         (is (= ["source-graph" "docs"]
                (get-in status-parsed [:evidence :available])))
+        (is (= (:coverage parsed) (:coverage status-parsed)))
         (is (= (:freshness parsed) (:freshness status-parsed)))
         (is (= (:nextActions parsed) (:nextActions status-parsed)))))))
 

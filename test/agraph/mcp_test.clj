@@ -766,7 +766,16 @@
                                       :counts {:files 2
                                                :nodes 3
                                                :edges 4
-                                               :result-schema-mismatch-events 1}
+                                               :result-schema-mismatch-events 1
+                                               :skipped-files 1
+                                               :diagnostics 2}
+                                      :top-file-kinds [{:kind "clojure"
+                                                        :count 2}]
+                                      :extractors [{:kind "clojure"
+                                                    :files 2}]
+                                      :diagnostics {:total 2
+                                                    :by-stage [{:stage "parse"
+                                                                :count 2}]}
                                       :nextActions [{:kind :activity
                                                      :label "Inspect result schema mismatch activity"
                                                      :count 1
@@ -786,6 +795,17 @@
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
       (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
+      (is (= {:counts {:files 2
+                       :skippedFiles 1
+                       :diagnostics 2}
+              :topFileKinds [{:kind "clojure"
+                              :count 2}]
+              :extractors [{:kind "clojure"
+                            :files 2}]
+              :diagnostics {:total 2
+                            :by-stage [{:stage "parse"
+                                        :count 2}]}}
+             (:coverage packet)))
       (is (= {:status :stale
               :counts {:changed 1}}
              (:freshness packet)))
@@ -815,7 +835,11 @@
                                                   :counts {:changed 0}}
                                       :counts {:files 2
                                                :nodes 3
-                                               :edges 4}
+                                               :edges 4
+                                               :skipped-files 0
+                                               :diagnostics 0}
+                                      :top-file-kinds [{:kind "clojure"
+                                                        :count 2}]
                                       :nextActions [{:kind :ask
                                                      :command "agraph ask \"where is this handled?\" --project fixture --json"}]})]
     (let [response (mcp/handle-message
@@ -829,6 +853,12 @@
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
       (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
+      (is (= {:counts {:files 2
+                       :skippedFiles 0
+                       :diagnostics 0}
+              :topFileKinds [{:kind "clojure"
+                              :count 2}]}
+             (:coverage packet)))
       (is (= {:status :current
               :counts {:changed 0}}
              (:freshness packet)))

@@ -243,6 +243,23 @@
     (cond-> (:freshness summary)
       (seq actions) (assoc :nextActions actions))))
 
+(defn status-coverage
+  "Return compact coverage fields for agent-facing project status packets."
+  [summary]
+  (let [counts (:counts summary)]
+    (cond-> {:counts {:files (:files counts 0)
+                      :skippedFiles (:skipped-files counts 0)
+                      :diagnostics (:diagnostics counts 0)}}
+      (seq (:top-file-kinds summary))
+      (assoc :topFileKinds (vec (take 5 (:top-file-kinds summary))))
+
+      (seq (:extractors summary))
+      (assoc :extractors (vec (take 5 (:extractors summary))))
+
+      (seq (:diagnostics summary))
+      (assoc :diagnostics (select-keys (:diagnostics summary)
+                                       [:total :by-stage :by-extractor])))))
+
 (def freshness-sample-limit
   8)
 

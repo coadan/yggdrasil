@@ -990,6 +990,7 @@
                      :config-path (or config-path (:path project))}
            :repos (mapv #(select-keys % [:id :root :role]) (:repos project))
            :freshness (:freshness evidence-summary)
+           :coverage (evidence/status-coverage evidence-summary)
            :nextActions (:nextActions evidence-summary)
            :evidence evidence-summary})))))
 
