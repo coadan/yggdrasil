@@ -1171,6 +1171,18 @@
   (cond-> {:mcpTool "agraph_status"}
     map-path (assoc :mcpArgs {:mapPath map-path})))
 
+(defn- extractor-plugin-registry-command
+  []
+  "bb plugin registry list <registry.edn> --kind extractor --query <file-kind-or-extension>")
+
+(defn- extractor-plugin-scaffold-command
+  []
+  "bb plugin new <package-dir> --extractor --file-kind <file-kind> --path-glob '<glob>' --fixture fixtures/sample.<ext>")
+
+(defn- extractor-plugin-gap-command
+  []
+  "bb plugin gap extractor <package-dir> <repo-root> <file> --json")
+
 (defn- next-actions
   ([counts retrieval project-id] (next-actions counts retrieval project-id nil nil))
   ([counts retrieval project-id freshness] (next-actions counts retrieval project-id freshness nil))
@@ -1198,7 +1210,10 @@
           (conj (merge {:kind :coverage
                         :label "Inspect skipped source candidates"
                         :count (:skipped-files counts 0)
-                        :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")}
+                        :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")
+                        :pluginRegistryCommand (extractor-plugin-registry-command)
+                        :pluginScaffoldCommand (extractor-plugin-scaffold-command)
+                        :pluginGapCommand (extractor-plugin-gap-command)}
                        (status-mcp map-path)))
 
           (zero? (:search-docs counts))

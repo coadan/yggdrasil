@@ -265,6 +265,14 @@
   []
   "bb plugin gap extractor <package-dir> <repo-root> <file> --json")
 
+(defn- extractor-plugin-registry-command
+  []
+  "bb plugin registry list <registry.edn> --kind extractor --query <file-kind-or-extension>")
+
+(defn- extractor-plugin-scaffold-command
+  []
+  "bb plugin new <package-dir> --extractor --file-kind <file-kind> --path-glob '<glob>' --fixture fixtures/sample.<ext>")
+
 (defn- status-mcp
   [config-path map-path]
   (let [args (cond-> {}
@@ -279,6 +287,8 @@
           :label "Inspect skipped source candidates"
           :count skipped-files
           :command (sync-subcommand "coverage" config-path "--json")
+          :pluginRegistryCommand (extractor-plugin-registry-command)
+          :pluginScaffoldCommand (extractor-plugin-scaffold-command)
           :pluginGapCommand (extractor-plugin-gap-command)}
          (status-mcp config-path map-path)))
 

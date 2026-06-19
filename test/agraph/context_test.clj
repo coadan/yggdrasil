@@ -194,6 +194,9 @@
                    :label "Inspect skipped source candidates"
                    :count 3
                    :command "agraph sync coverage <project.edn> --json"
+                   :pluginRegistryCommand "bb plugin registry list <registry.edn> --kind extractor --query <file-kind-or-extension>"
+                   :pluginScaffoldCommand "bb plugin new <package-dir> --extractor --file-kind <file-kind> --path-glob '<glob>' --fixture fixtures/sample.<ext>"
+                   :pluginGapCommand "bb plugin gap extractor <package-dir> <repo-root> <file> --json"
                    :mcpTool "agraph_status"}
                   %)
               actions))))
@@ -410,6 +413,9 @@
              :label "Inspect skipped source candidates"
              :count 3
              :command "agraph sync coverage <project.edn> --json"
+             :pluginRegistryCommand "bb plugin registry list <registry.edn> --kind extractor --query <file-kind-or-extension>"
+             :pluginScaffoldCommand "bb plugin new <package-dir> --extractor --file-kind <file-kind> --path-glob '<glob>' --fixture fixtures/sample.<ext>"
+             :pluginGapCommand "bb plugin gap extractor <package-dir> <repo-root> <file> --json"
              :mcpTool "agraph_status"
              :mcpArgs {:mapPath "agraph.map.json"}}]
            (filterv #(= :coverage (:kind %)) actions)))))
@@ -531,6 +537,9 @@
                      :label "Inspect skipped source candidates"
                      :count 3
                      :command "agraph sync coverage <project.edn> --json"
+                     :pluginRegistryCommand "bb plugin registry list <registry.edn> --kind extractor --query <file-kind-or-extension>"
+                     :pluginScaffoldCommand "bb plugin new <package-dir> --extractor --file-kind <file-kind> --path-glob '<glob>' --fixture fixtures/sample.<ext>"
+                     :pluginGapCommand "bb plugin gap extractor <package-dir> <repo-root> <file> --json"
                      :mcpTool "agraph_status"}
                     %)
                 (:nextActions answerability))))))

@@ -212,10 +212,13 @@ the indexed basis and jump to concrete files before opening the full coverage
 report. Full coverage reports include the same connectivity signal plus
 `nextActions` rows when skipped files, extractor diagnostics, or isolated
 indexed files need a follow-up coverage inspection. When skipped files are
-present, the skipped-source action also includes `pluginGapCommand`:
-`bb plugin gap extractor <package-dir> <repo-root> <file> --json`. Use coverage
-samples to choose the concrete file; the command itself stays placeholder-based
-so core does not infer file-family semantics from extensions or paths.
+present, the skipped-source action also includes plugin workflow commands:
+`pluginRegistryCommand` for searching a public registry,
+`pluginScaffoldCommand` for creating a local extractor package, and
+`pluginGapCommand` for generating the extractor authoring packet. Use coverage
+samples to choose the concrete file, file kind, glob, or registry query; the
+commands themselves stay placeholder-based so core does not infer file-family
+semantics from extensions or paths.
 
 ## Audit Scopes
 
