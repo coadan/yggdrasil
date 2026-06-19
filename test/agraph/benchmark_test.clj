@@ -1890,7 +1890,11 @@
                     :maximum 1}
                    (get-in metrics-schema [:properties :cosine])))
             (is (= {:type "number"}
-                   (get-in metrics-schema [:properties :rankScore]))))
+                   (get-in metrics-schema [:properties :rankScore])))
+            (is (= {:type "integer"
+                    :minimum 0}
+                   (get-in metrics-schema
+                           [:properties :matchedIdentityCompoundTokenPairCount]))))
           (let [selection-schema (get-in (json/read-json
                                           (slurp (get-in run [:artifacts :outputSchemaPath]))
                                           :key-fn keyword)
@@ -2421,6 +2425,32 @@
     (is (nil? (get-in files [1 :metrics :graphNeighborScore])))
     (is (= 0.5 (get-in files [0 :metrics :graphNeighborScore])))))
 
+(deftest file-ranking-uses-mechanical-graph-and-lexical-score-support
+  (let [root (temp-dir "agraph-bench-candidate-graph-lexical-support")
+        _ (spit-file! root "src/plain.js" "export const plain = true;\n")
+        _ (spit-file! root "src/graph.js" "export const graph = true;\n")
+        packet {:query "native proxy boundary"
+                :candidateFiles [{:path "src/plain.js"
+                                  :rank 1
+                                  :score 0.9
+                                  :targetKind "node"
+                                  :label "plain"
+                                  :scoreComponents {:lexical 0.2
+                                                    :graph 0.0}}
+                                 {:path "src/graph.js"
+                                  :rank 50
+                                  :score 0.65
+                                  :targetKind "node"
+                                  :label "graph edge"
+                                  :scoreComponents {:lexical 0.45
+                                                    :graph 0.6}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/graph.js" "src/plain.js"]
+           (mapv :path files)))
+    (is (= 0.6 (get-in files [0 :metrics :graphNeighborScore])))
+    (is (pos? (get-in files [0 :metrics :graphNeighborBoost])))))
+
 (deftest file-ranking-bounds-candidate-only-graph-boost-by-evidence
   (let [root (temp-dir "agraph-bench-candidate-graph-bounds")
         _ (spit-file! root "src/direct.clj" "(ns direct)\n")
@@ -2560,6 +2590,45 @@
             :coverageSourceKinds []
             :candidateFileOnlyQuota 5
             :candidateFileOnlySelected 1}
+           (:selection result)))))
+
+(deftest limited-agent-result-preserves-declared-source-kind-diversity
+  (let [root (temp-dir "agraph-bench-source-kind-diversity")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        _ (spit-file! root "src/other.clj" "(ns other)\n")
+        _ (spit-file! root "config/.env" "DATABASE_URL=postgres://example\n")
+        packet {:query "runtime configuration"
+                :candidateFiles [{:path "src/app.clj"
+                                  :rank 1
+                                  :score 1.0
+                                  :targetKind "chunk"
+                                  :label "runtime configuration"}
+                                 {:path "src/other.clj"
+                                  :rank 2
+                                  :score 0.95
+                                  :targetKind "chunk"
+                                  :label "configuration helper"}
+                                 {:path "config/.env"
+                                  :rank 3
+                                  :score 0.1
+                                  :targetKind "node"
+                                  :label "DATABASE_URL"}]}
+        result (benchmark/context-packet->agent-result
+                packet
+                {:root root
+                 :limit 2
+                 :coverage {:declaredSourceKinds ["code" "env"]}})]
+    (is (= ["src/app.clj" "config/.env"]
+           (mapv :path (:suspectedFiles result))))
+    (is (= [1 2]
+           (mapv :rank (:suspectedFiles result))))
+    (is (= {:rawCandidateFiles 3
+            :candidateFiles 3
+            :coverageFilteredCandidateFiles 0
+            :limit 2
+            :coverageSourceKinds ["code" "env"]
+            :candidateFileOnlyQuota 2
+            :candidateFileOnlySelected 2}
            (:selection result)))))
 
 (deftest file-ranking-preserves-early-retrieved-source-order

@@ -122,6 +122,12 @@
 (def ^:private rank-score-candidate-only-graph-weight
   3.0)
 
+(def ^:private rank-score-graph-support-min
+  0.5)
+
+(def ^:private rank-score-graph-lexical-support-min
+  0.4)
+
 (def ^:private rank-score-support-count-cap
   2)
 
@@ -1987,8 +1993,14 @@
                                  (:score-components candidate))
             graph-score (double (or (parse-double-safe (:graph score-components))
                                     0.0))
+            lexical-score (double (or (parse-double-safe (:lexical score-components))
+                                      0.0))
             graph-score-supported? (or (>= (count matched-tokens) 2)
-                                       (seq matched-token-pairs))]
+                                       (seq matched-token-pairs)
+                                       (and (>= graph-score
+                                                rank-score-graph-support-min)
+                                            (>= lexical-score
+                                                rank-score-graph-lexical-support-min)))]
         (cond-> {:path path
                  :source-rank (+ 500 (inc idx))
                  :confidence (bounded-confidence (:score candidate))
@@ -2186,27 +2198,83 @@
          (zero? (long (or (:docCount metrics) 0)))
          (zero? (long (or (:entityCount metrics) 0))))))
 
+(defn- selected-source-kind-counts
+  [kind-by-path rows]
+  (frequencies
+   (keep #(path-source-kind kind-by-path (:path %)) rows)))
+
+(defn- source-kind-diversity-replacement-index
+  [kind-by-path rows]
+  (let [counts (selected-source-kind-counts kind-by-path rows)]
+    (->> rows
+         (map-indexed vector)
+         reverse
+         (some (fn [[idx row]]
+                 (let [kind (path-source-kind kind-by-path (:path row))]
+                   (when (< 1 (long (or (get counts kind) 0)))
+                     idx)))))))
+
+(defn- best-source-kind-candidate
+  [kind-by-path selected-paths candidate-files source-kind]
+  (->> candidate-files
+       (filter #(and (= source-kind
+                        (path-source-kind kind-by-path (:path %)))
+                     (not (contains? selected-paths (:path %)))))
+       first))
+
+(defn- preserve-source-kind-diversity
+  [candidate-files selected source-kinds kind-by-path]
+  (if (or (empty? source-kinds)
+          (empty? kind-by-path))
+    selected
+    (loop [selected (vec selected)
+           missing-kinds (->> source-kinds
+                              sort
+                              (remove (set (keys (selected-source-kind-counts
+                                                  kind-by-path
+                                                  selected))))
+                              vec)]
+      (if-let [source-kind (first missing-kinds)]
+        (let [selected-paths (set (map :path selected))
+              candidate (best-source-kind-candidate kind-by-path
+                                                    selected-paths
+                                                    candidate-files
+                                                    source-kind)
+              replace-idx (source-kind-diversity-replacement-index kind-by-path
+                                                                   selected)]
+          (recur (if (and candidate replace-idx)
+                   (assoc selected replace-idx candidate)
+                   selected)
+                 (subvec missing-kinds 1)))
+        selected))))
+
 (defn- select-limited-suspected-files
-  [candidate-files limit]
-  (if-not limit
-    {:files (vec candidate-files)}
-    (let [limit (long limit)
-          quota (min default-agent-baseline-candidate-file-only-quota limit)
-          candidate-file-only (take quota
-                                    (filter candidate-file-only-row?
-                                            candidate-files))
-          quota-paths (set (map :path candidate-file-only))
-          remaining-limit (max 0 (- limit (count candidate-file-only)))
-          primary (->> candidate-files
-                       (remove #(contains? quota-paths (:path %)))
-                       (take remaining-limit))
-          selected (->> (concat primary candidate-file-only)
-                        (sort-by :rank)
-                        renumber-file-ranks)]
-      (cond-> {:files selected}
-        (seq candidate-file-only)
-        (assoc :candidateFileOnlyQuota quota
-               :candidateFileOnlySelected (count candidate-file-only))))))
+  ([candidate-files limit]
+   (select-limited-suspected-files candidate-files limit {}))
+  ([candidate-files limit {:keys [source-kinds kind-by-path]}]
+   (if-not limit
+     {:files (vec candidate-files)}
+     (let [limit (long limit)
+           quota (min default-agent-baseline-candidate-file-only-quota limit)
+           candidate-file-only (take quota
+                                     (filter candidate-file-only-row?
+                                             candidate-files))
+           quota-paths (set (map :path candidate-file-only))
+           remaining-limit (max 0 (- limit (count candidate-file-only)))
+           primary (->> candidate-files
+                        (remove #(contains? quota-paths (:path %)))
+                        (take remaining-limit))
+           selected (->> (preserve-source-kind-diversity
+                          candidate-files
+                          (sort-by :rank (concat primary candidate-file-only))
+                          source-kinds
+                          kind-by-path)
+                         (sort-by :rank)
+                         renumber-file-ranks)]
+       (cond-> {:files selected}
+         (seq candidate-file-only)
+         (assoc :candidateFileOnlyQuota quota
+                :candidateFileOnlySelected (count candidate-file-only)))))))
 
 (defn- context-symbols
   [packet]
@@ -2274,7 +2342,11 @@
                               vec)
          filtered-files (- (count raw-candidate-files)
                            (count candidate-files))
-         selected-files (select-limited-suspected-files candidate-files limit)
+         selected-files (select-limited-suspected-files
+                         candidate-files
+                         limit
+                         {:source-kinds source-kinds
+                          :kind-by-path kind-by-path})
          selection (cond-> {:rawCandidateFiles (count raw-candidate-files)
                             :candidateFiles (count candidate-files)
                             :coverageFilteredCandidateFiles filtered-files
@@ -2847,6 +2919,8 @@
                                           "minimum" 0}
                  "matchedCompoundTokenPairCount" {"type" "integer"
                                                   "minimum" 0}
+                 "matchedIdentityCompoundTokenPairCount" {"type" "integer"
+                                                          "minimum" 0}
                  "definitionKinds" {"type" "array"
                                     "items" {"type" "string"}}
                  "sourceRankScore" {"type" "number"}
