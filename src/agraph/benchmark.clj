@@ -113,6 +113,9 @@
 (def ^:private rank-score-compound-pair-weight
   0.35)
 
+(def ^:private rank-score-identity-compound-pair-weight
+  1.00)
+
 (def ^:private rank-score-candidate-only-graph-weight
   3.0)
 
@@ -1838,6 +1841,14 @@
         evidence-pairs (set (text/compound-token-pairs text))]
     (set/intersection query-pairs evidence-pairs)))
 
+(defn- identity-text
+  [& values]
+  (str/join "\n" (remove blankish? values)))
+
+(defn- identity-compound-token-pair-matches
+  [query-tokens & values]
+  (compact-compound-token-pair-matches query-tokens (apply identity-text values)))
+
 (defn- retrieved-source-rank-score
   [retrieved-source-count first-source-rank]
   (if (and (pos? retrieved-source-count)
@@ -1912,6 +1923,10 @@
                                       (str (:path entity)
                                            "\n"
                                            (:label entity)))
+       :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
+                                               query-tokens
+                                               (:path entity)
+                                               (:label entity))
        :evidence [(str "graph-entity:"
                        (or (:label entity) path)
                        " path="
@@ -1960,6 +1975,10 @@
             matched-compound-token-pairs (compact-compound-token-pair-matches
                                           query-tokens
                                           evidence-text)
+            matched-identity-compound-token-pairs (identity-compound-token-pair-matches
+                                                   query-tokens
+                                                   (:path candidate)
+                                                   (:label candidate))
             score-components (or (:scoreComponents candidate)
                                  (:score-components candidate))
             graph-score (double (or (parse-double-safe (:graph score-components))
@@ -1978,6 +1997,7 @@
                  :matched-tokens matched-tokens
                  :matched-token-pairs matched-token-pairs
                  :matched-compound-token-pairs matched-compound-token-pairs
+                 :matched-identity-compound-token-pairs matched-identity-compound-token-pairs
                  :evidence [(candidate-file-evidence candidate
                                                      score-components
                                                      path)]
@@ -2009,6 +2029,9 @@
                              matched-compound-token-pairs (->> ordered
                                                                (mapcat :matched-compound-token-pairs)
                                                                set)
+                             matched-identity-compound-token-pairs (->> ordered
+                                                                        (mapcat :matched-identity-compound-token-pairs)
+                                                                        set)
                              evidence (->> ordered
                                            (mapcat :evidence)
                                            (remove blankish?)
@@ -2053,6 +2076,9 @@
                                            (* rank-score-compound-pair-weight
                                               (min rank-score-ordered-pair-cap
                                                    candidate-only-compound-pair-count))
+                                           (* rank-score-identity-compound-pair-weight
+                                              (min rank-score-ordered-pair-cap
+                                                   (count matched-identity-compound-token-pairs)))
                                            (* 0.08 (min rank-score-support-count-cap
                                                         support-count))
                                            (* 0.08 (min rank-score-retrieved-source-count-cap
@@ -2081,6 +2107,9 @@
                                        (seq matched-compound-token-pairs)
                                        (assoc :matchedCompoundTokenPairCount
                                               (count matched-compound-token-pairs))
+                                       (seq matched-identity-compound-token-pairs)
+                                       (assoc :matchedIdentityCompoundTokenPairCount
+                                              (count matched-identity-compound-token-pairs))
                                        (pos? source-rank-score)
                                        (assoc :sourceRankScore source-rank-score)
                                        (pos? graph-neighbor-score)
@@ -2120,6 +2149,7 @@
                                     :matched-tokens
                                     :matched-token-pairs
                                     :matched-compound-token-pairs
+                                    :matched-identity-compound-token-pairs
                                     :definition-kind)
                             (assoc :rank (inc idx)))))
          vec)))
@@ -2219,7 +2249,7 @@
   ([packet]
    (context-packet->agent-result packet {}))
   ([packet {:keys [agent-id mode case-id caseFingerprint root limit coverage]}]
-   (let [query-tokens (text/tokenize (:query packet))
+   (let [query-tokens (text/tokenize-all (:query packet))
          source-kinds (coverage-source-kinds coverage)
          kind-by-path (if (or (empty? source-kinds)
                               (str/blank? (str root)))

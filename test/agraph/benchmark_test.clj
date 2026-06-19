@@ -2498,6 +2498,29 @@
     (is (= 1 (get-in target-row [:metrics :matchedCompoundTokenPairCount])))
     (is (<= (:rank target-row) 20))))
 
+(deftest file-ranking-uses-identity-compound-token-pairs
+  (let [root (temp-dir "agraph-bench-identity-compound-token-pairs")
+        _ (spit-file! root "scss/forms/_input-group.scss" ".input-group {}\n")
+        _ (spit-file! root "scss/forms/_form-select.scss" ".form-select {}\n")
+        packet {:query "form select border radius"
+                :candidateFiles [{:path "scss/forms/_input-group.scss"
+                                  :rank 1
+                                  :score 1.4
+                                  :targetKind "chunk"
+                                  :label "form select small large border radius"}
+                                 {:path "scss/forms/_form-select.scss"
+                                  :rank 2
+                                  :score 0.9
+                                  :targetKind "chunk"
+                                  :label ".form-select"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["scss/forms/_form-select.scss" "scss/forms/_input-group.scss"]
+           (mapv :path files)))
+    (is (= 1 (get-in files [0 :metrics :matchedIdentityCompoundTokenPairCount])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
   (let [root (temp-dir "agraph-bench-candidate-file-quota")
         _ (doseq [path ["src/doc-1.clj" "src/doc-2.clj" "src/doc-3.clj"
@@ -3238,7 +3261,7 @@
                                   :label "below limit"}]}
         ranks (#'benchmark/context-ground-truth-ranks prepared packet)]
     (is (= [{:path "src/below-limit.clj"
-             :rank 2
+             :rank 1
              :found? true}]
            (get-in ranks [:files])))
     (is (= {:rawCandidateFiles 2
