@@ -81,7 +81,8 @@
     :label "elapsedMs"
     :category :timing
     :path [:timings :elapsedMs]
-    :direction :lower}
+    :direction :lower
+    :tolerance 50.0}
    {:key :failedCases
     :label "failedCases"
     :category :timing
@@ -129,23 +130,32 @@
     (neg? effect) "regressed"
     :else "unchanged"))
 
+(defn- effective-effect
+  [effect tolerance]
+  (if (<= (abs effect) (double (or tolerance 0.0)))
+    0.0
+    effect))
+
 (defn- metric-delta
-  [shell-report agraph-report {:keys [category direction key label path]}]
+  [shell-report agraph-report {:keys [category direction key label path tolerance]}]
   (let [shell-value (numeric-value shell-report path)
         agraph-value (numeric-value agraph-report path)
         delta (- agraph-value shell-value)
         effect (case direction
                  :higher delta
-                 :lower (- delta))]
-    {:key key
-     :metric label
-     :category (name category)
-     :direction (name direction)
-     :shellOnly shell-value
-     :agraph agraph-value
-     :delta delta
-     :effect effect
-     :result (result-label effect)}))
+                 :lower (- delta))
+        effective (effective-effect effect tolerance)]
+    (cond-> {:key key
+             :metric label
+             :category (name category)
+             :direction (name direction)
+             :shellOnly shell-value
+             :agraph agraph-value
+             :delta delta
+             :effect effective
+             :result (result-label effective)}
+      tolerance (assoc :rawEffect effect
+                       :tolerance tolerance))))
 
 (defn- result-by-case
   [report]

@@ -198,6 +198,48 @@
                 first
                 (#(select-keys % [:shellOnly :agraph :delta :effect :result])))))))
 
+(deftest ignores-small-report-timing-jitter
+  (let [shell (report {:mode "shell-only"
+                       :recall5 1.0
+                       :recall10 1.0
+                       :recall20 1.0
+                       :mrr 1.0
+                       :noise 0.0
+                       :evidence 1.0
+                       :path-evidence 1.0
+                       :missed 0
+                       :outside5 0
+                       :outside10 0
+                       :missing-predicted 0
+                       :empty 0
+                       :commandless 0
+                       :warnings 0
+                       :elapsed 1000
+                       :failed 0
+                       :running 0
+                       :case-ids ["case-1"]})
+        agraph (assoc-in shell [:timings :elapsedMs] 1025)
+        comparison (agent-efficiency/compare-reports shell agraph)
+        elapsed-delta (->> (:deltas comparison)
+                           (filter #(= :elapsedMs (:key %)))
+                           first)]
+    (is (= "unchanged" (:status comparison)))
+    (is (= {:shellOnly 1000.0
+            :agraph 1025.0
+            :delta 25.0
+            :rawEffect -25.0
+            :effect 0.0
+            :tolerance 50.0
+            :result "unchanged"}
+           (select-keys elapsed-delta
+                        [:shellOnly
+                         :agraph
+                         :delta
+                         :rawEffect
+                         :effect
+                         :tolerance
+                         :result])))))
+
 (deftest reports-comparability-warnings-for-different-case-sets
   (let [agraph-partial (assoc agraph-report
                               :results [(first (:results agraph-report))])

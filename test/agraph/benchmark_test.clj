@@ -1576,6 +1576,8 @@
           (is (= benchmark/agent-packet-schema (:schema packet)))
           (is (= benchmark/agent-result-schema
                  (get-in packet [:task :expectedResultSchema])))
+          (is (contains? (set (get-in packet [:task :rules]))
+                         "Only include files likely to require edits in suspectedFiles; cite comparison, example, generated, or read-only support files as evidence instead."))
           (is (= {:mode "none|java|dotnet|all"
                   :source "option|env|default|agent-result|unknown"}
                  (get-in packet [:task :resultContract :parserWorker])))
@@ -1839,6 +1841,8 @@
                              "AGRAPH_BENCH_OUTPUT_SCHEMA"))
           (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
                              "final response"))
+          (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
+                             "Only include files likely to require edits in suspectedFiles"))
           (is (= ["schema"
                   "caseId"
                   "caseFingerprint"

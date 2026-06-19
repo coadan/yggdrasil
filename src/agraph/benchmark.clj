@@ -74,6 +74,9 @@
 (def report-schema
   "agraph.benchmark.report/v1")
 
+(def ^:private suspected-files-scope-rule
+  "Only include files likely to require edits in suspectedFiles; cite comparison, example, generated, or read-only support files as evidence instead.")
+
 (def default-output-root
   ".dev/agraph/bench")
 
@@ -1759,6 +1762,7 @@
                                        "needed to fix the issue from the base checkout.")
                        :rules ["Use only the base checkout and issue text in this packet."
                                "Return ranked suspected files before attempting a patch."
+                               suspected-files-scope-rule
                                "Keep reasoning evidence-based and cite commands or graph context used."
                                "Do not inspect the fixing diff, PR body, post-fix commits, or ground-truth artifacts."]
                        :expectedResultSchema agent-result-schema
@@ -2961,6 +2965,7 @@
             "- Inspect at most 12 files or snippets."
             "- Prefer `rg`, focused `sed`, and packet-provided AGraph ask/explore commands."
             "- Return the best 1-5 suspected files as soon as evidence is sufficient."
+            (str "- " suspected-files-scope-rule)
             "- If structured output is active, make the final response the result JSON."
             "- Otherwise write JSON to `AGRAPH_BENCH_RESULT`; do not include prose outside JSON."
             ""]
@@ -3007,6 +3012,7 @@
        ""
        "Read the packet, inspect the checkout, and write the ranked localization result JSON."
        "Return files before proposing or applying a patch."
+       suspected-files-scope-rule
        ""
        "## Result Contract"
        (str "Write JSON with schema `" agent-result-schema "` to `AGRAPH_BENCH_RESULT`.")
