@@ -110,10 +110,21 @@
     (println "- manifest" (:manifest entry)))
   (println "- path" (:path entry)))
 (defn- print-plugin-list
-  [{:keys [project-id packages]}]
+  [{:keys [project-id filters counts packages]}]
   (println "# Plugins")
   (println "- project" project-id)
-  (println "- packages" (count packages))
+  (when (seq filters)
+    (println "- filters"
+             (str/join " "
+                       (keep (fn [[k v]]
+                               (when (present-text? v)
+                                 (str (name k) "=" v)))
+                             filters))))
+  (println "- packages" (or (:packages counts) (count packages)))
+  (when counts
+    (println "- matched" (:matched counts))
+    (println "- extractor" (:extractor counts))
+    (println "- report" (:report counts)))
   (doseq [package packages]
     (print-plugin-package package)))
 (defn- print-plugin-remove
@@ -658,7 +669,14 @@
     (when-not config-path
       (throw (ex-info "Missing plugin project config path."
                       {:usage (usage)})))
-    (let [result (plugin-package/list-installed config-path)]
+    (let [result (plugin-package/list-installed
+                  config-path
+                  (cond-> {}
+                    (option-value args "--kind")
+                    (assoc :kind (option-value args "--kind"))
+
+                    (option-value args "--query")
+                    (assoc :query (option-value args "--query"))))]
       (if (json-output? args)
         (print-json result)
         (print-plugin-list result)))))

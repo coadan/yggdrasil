@@ -98,6 +98,12 @@
           entry (first (:plugin-packages data))
           manifest-fingerprint (:manifest-fingerprint entry)
           listed (plugin-package/list-installed (.getPath project-edn))
+          filtered (plugin-package/list-installed (.getPath project-edn)
+                                                  {:kind "extractor"
+                                                   :query "sample"})
+          missing-filter (plugin-package/list-installed (.getPath project-edn)
+                                                        {:kind "report"
+                                                         :query "missing"})
           loaded (project/read-project (.getPath project-edn))
           extractor (first (:extractor-plugins loaded))
           report (first (:report-plugins loaded))]
@@ -115,6 +121,17 @@
              (get-in listed [:packages 0 :expected-manifest-fingerprint])))
       (is (= "sample-plugin-pack"
              (get-in listed [:packages 0 :expected-package-id])))
+      (is (= {:packages 1
+              :matched 1
+              :extractor 1
+              :report 1}
+             (:counts listed)))
+      (is (= {:kind "extractor"
+              :query "sample"}
+             (:filters filtered)))
+      (is (= ["sample-plugin-pack"] (mapv :id (:packages filtered))))
+      (is (= 0 (get-in missing-filter [:counts :matched])))
+      (is (empty? (:packages missing-filter)))
       (is (= 1 (get-in listed [:packages 0 :extractor-plugins])))
       (is (= 1 (get-in listed [:packages 0 :report-plugins])))
       (is (some #(str/includes? % "unbenchmarked")

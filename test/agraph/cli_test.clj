@@ -232,6 +232,46 @@
                   :cache-root ".cache/plugins"}]]
                @calls))))))
 
+(deftest plugin-list-dispatches-with-kind-and-query-filters
+  (let [calls (atom [])]
+    (with-redefs [plugin-package/list-installed
+                  (fn [config-path opts]
+                    (swap! calls conj [config-path opts])
+                    {:schema plugin-package/list-schema
+                     :project-id "fixture"
+                     :filters opts
+                     :counts {:packages 2
+                              :matched 1
+                              :extractor 1
+                              :report 1}
+                     :packages [{:id "datastar-hiccup"
+                                 :version "0.1.0"
+                                 :extractor-plugins 1
+                                 :report-plugins 0
+                                 :benchmark-status :unbenchmarked
+                                 :claim-authority {:status :non-authoritative
+                                                   :public-claims? false
+                                                   :blockers []}
+                                 :warnings []}]})]
+      (let [out (with-out-str
+                  (cli/dispatch "plugin"
+                                ["list"
+                                 "project.edn"
+                                 "--kind"
+                                 "extractor"
+                                 "--query"
+                                 "datastar"]))]
+        (is (str/includes? out "# Plugins"))
+        (is (str/includes? out "- filters kind=extractor query=datastar"))
+        (is (str/includes? out "- packages 2"))
+        (is (str/includes? out "- matched 1"))
+        (is (str/includes? out "- extractor 1"))
+        (is (str/includes? out "- report 1"))
+        (is (str/includes? out "datastar-hiccup"))
+        (is (= [["project.edn" {:kind "extractor"
+                                :query "datastar"}]]
+               @calls))))))
+
 (deftest plugin-registry-install-dispatches-to-registry-installer
   (let [calls (atom [])]
     (with-redefs [plugin-package/registry-install!
@@ -1659,7 +1699,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
 

@@ -15,6 +15,7 @@ while keeping core deterministic, project-agnostic, and benchmark-gated.
 bb plugin install project.edn https://github.com/org/agraph-datastar.git --ref v0.1.0
 bb plugin update project.edn datastar-hiccup --ref v0.2.0
 bb plugin list project.edn
+bb plugin list project.edn --kind extractor --query datastar
 bb plugin remove project.edn datastar-hiccup
 ```
 
@@ -27,6 +28,11 @@ Useful flags:
 - `--force`: replace an already installed package with the same package id.
 - `--json`: emit machine-readable install/update/list output.
 - `--no-progress`: suppress stderr progress lines for install/update.
+
+`plugin list` supports `--kind extractor|report` and `--query TEXT` for
+mechanical discovery across installed package metadata. Use it to find which
+installed packages can participate in extractor or report workflows without
+re-reading every package manifest by hand.
 
 Install writes a `:plugin-packages` entry to `project.edn`:
 

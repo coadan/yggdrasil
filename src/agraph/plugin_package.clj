@@ -755,12 +755,51 @@
         data (read-edn-file config-path)]
     (mapv #(read-package base %) (:plugin-packages data))))
 
+(defn- installed-package-kind?
+  [package kind]
+  (case (some-> kind keyword)
+    :extractor (pos? (long (or (:extractor-plugins package) 0)))
+    :report (pos? (long (or (:report-plugins package) 0)))
+    nil true
+    false))
+
+(defn- installed-package-search-text
+  [package]
+  (str/lower-case
+   (str/join "\n"
+             (keep identity
+                   [(some-> (:id package) str)
+                    (some-> (:name package) str)
+                    (some-> (:version package) str)
+                    (some-> (:source package) pr-str)
+                    (some-> (:scope package) pr-str)
+                    (some-> (:benchmark-status package) name)
+                    (some-> (:warnings package) pr-str)]))))
+
+(defn- installed-package-matches?
+  [package {:keys [kind query]}]
+  (and (installed-package-kind? package kind)
+       (or (not (present? query))
+           (str/includes? (installed-package-search-text package)
+                          (str/lower-case (str query))))))
+
 (defn list-installed
-  [config-path]
-  (let [data (read-edn-file config-path)]
-    {:schema list-schema
-     :project-id (some-> (:id data) str)
-     :packages (mapv package-summary (read-installed-packages config-path))}))
+  ([config-path]
+   (list-installed config-path {}))
+  ([config-path filters]
+   (let [data (read-edn-file config-path)
+         packages (mapv package-summary (read-installed-packages config-path))
+         matched (filterv #(installed-package-matches? % filters) packages)]
+     {:schema list-schema
+      :project-id (some-> (:id data) str)
+      :filters (select-keys filters [:kind :query])
+      :counts {:packages (count packages)
+               :matched (count matched)
+               :extractor (count (filter #(installed-package-kind? % :extractor)
+                                         packages))
+               :report (count (filter #(installed-package-kind? % :report)
+                                      packages))}
+      :packages matched})))
 
 (defn- remove-package-entry
   [entries package-id]

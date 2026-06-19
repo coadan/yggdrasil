@@ -607,7 +607,7 @@
     "  plugin gap report <dir> [--plugin ID] [--json]"
     "  plugin install <project.edn> <git-url-or-path> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--force] [--json] [--no-progress]"
     "  plugin update <project.edn> <package-id> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--json] [--no-progress]"
-    "  plugin list <project.edn> [--json]"
+    "  plugin list <project.edn> [--kind extractor|report] [--query TEXT] [--json]"
     "  plugin remove <project.edn> <package-id> [--json]"
     "  plugin registry list <registry.edn> [--kind extractor|report] [--query TEXT] [--json] [--no-progress]"
     "  plugin registry validate <registry.edn> [--json] [--no-progress]"
