@@ -394,24 +394,91 @@
   {:comparability (tag-comparability shell-report agraph-report)
    :groups (tag-deltas shell-report agraph-report)})
 
+(defn- class-keys
+  [report class-key]
+  (->> (get-in report [:problemClasses class-key])
+       (keep #(some-> (:key %) str))
+       sort
+       vec))
+
+(defn- measured-class-keys
+  [report class-key]
+  (->> (get-in report [:problemClasses class-key])
+       (filter #(= "measured" (:claimStatus %)))
+       (keep #(some-> (:key %) str))
+       sort
+       vec))
+
+(defn- shared-keys
+  [left right]
+  (let [right-set (set right)]
+    (->> left
+         (filter right-set)
+         sort
+         vec)))
+
+(defn- problem-class-summary-available?
+  [shell-report agraph-report]
+  (and (map? (:problemClasses shell-report))
+       (map? (:problemClasses agraph-report))))
+
 (defn- problem-class-coverage
-  [by-tag]
+  [shell-report agraph-report by-tag]
   (let [shared-tags (get-in by-tag [:comparability :sharedTagKeys])
         problem-tags (filterv problem-class-tag? shared-tags)
-        architecture-tags (filterv architecture-class-tag? shared-tags)]
+        architecture-tags (filterv architecture-class-tag? shared-tags)
+        summary-available? (problem-class-summary-available? shell-report
+                                                             agraph-report)
+        shell-measured-problem-tags (measured-class-keys shell-report :classes)
+        agraph-measured-problem-tags (measured-class-keys agraph-report :classes)
+        shared-measured-problem-tags (shared-keys shell-measured-problem-tags
+                                                  agraph-measured-problem-tags)
+        shell-measured-architecture-tags (measured-class-keys
+                                          shell-report
+                                          :architectureClasses)
+        agraph-measured-architecture-tags (measured-class-keys
+                                           agraph-report
+                                           :architectureClasses)
+        shared-measured-architecture-tags (shared-keys
+                                           shell-measured-architecture-tags
+                                           agraph-measured-architecture-tags)]
     {:sharedTagKeys (vec shared-tags)
      :problemClassTags problem-tags
      :architectureClassTags architecture-tags
+     :problemClassSummaryAvailable summary-available?
+     :shellProblemClassTags (class-keys shell-report :classes)
+     :agraphProblemClassTags (class-keys agraph-report :classes)
+     :shellMeasuredProblemClassTags shell-measured-problem-tags
+     :agraphMeasuredProblemClassTags agraph-measured-problem-tags
+     :sharedMeasuredProblemClassTags shared-measured-problem-tags
+     :shellArchitectureClassTags (class-keys shell-report :architectureClasses)
+     :agraphArchitectureClassTags (class-keys agraph-report :architectureClasses)
+     :shellMeasuredArchitectureClassTags shell-measured-architecture-tags
+     :agraphMeasuredArchitectureClassTags agraph-measured-architecture-tags
+     :sharedMeasuredArchitectureClassTags shared-measured-architecture-tags
      :hasProblemClasses (boolean (seq problem-tags))
      :hasArchitectureClasses (boolean (seq architecture-tags))
-     :broadEfficiencyClaimSupported (boolean (and (seq problem-tags)
-                                                  (seq architecture-tags)))
+     :hasMeasuredProblemClasses (boolean (seq shared-measured-problem-tags))
+     :hasMeasuredArchitectureClasses (boolean (seq shared-measured-architecture-tags))
+     :broadEfficiencyClaimSupported (boolean
+                                     (and summary-available?
+                                          (seq shared-measured-problem-tags)
+                                          (seq shared-measured-architecture-tags)))
      :warnings (cond-> []
                  (empty? problem-tags)
                  (conj "No shared problem-class tags; do not use this report for broad efficiency claims.")
 
                  (empty? architecture-tags)
-                 (conj "No shared architecture-class tags; do not use this report to claim representative architecture-task gains."))}))
+                 (conj "No shared architecture-class tags; do not use this report to claim representative architecture-task gains.")
+
+                 (not summary-available?)
+                 (conj "Problem-class measurement summaries are unavailable; regenerate agent reports before claiming broad efficiency.")
+
+                 (and summary-available? (empty? shared-measured-problem-tags))
+                 (conj "No shared measured problem-class groups; class tags are present but below the benchmark claim threshold in at least one lane.")
+
+                 (and summary-available? (empty? shared-measured-architecture-tags))
+                 (conj "No shared measured architecture-class groups; architecture tags are present but below the benchmark claim threshold in at least one lane."))}))
 
 (defn- category-summaries
   [deltas comparable min-shared-cases]
@@ -446,8 +513,9 @@
         improved-without-regressions? (and (= "agraph-improved"
                                               (:signal summary))
                                            (zero? (:regressedMetrics summary)))
-        problem-classes? (true? (:hasProblemClasses problem-coverage))
-        architecture-classes? (true? (:hasArchitectureClasses problem-coverage))
+        problem-classes? (true? (:hasMeasuredProblemClasses problem-coverage))
+        architecture-classes? (true? (:hasMeasuredArchitectureClasses
+                                      problem-coverage))
         evidence-metrics? (category-has-metrics? by-category "evidence")
         command-telemetry? (category-has-metrics? by-category
                                                   "command-telemetry")
@@ -490,10 +558,7 @@
                  (not command-telemetry?)
                  (conj "Command telemetry is unavailable; CLI search/read-loop savings are unproven.")
 
-                 (not problem-classes?)
-                 (into (:warnings problem-coverage))
-
-                 (and problem-classes? (not architecture-classes?))
+                 (not (and problem-classes? architecture-classes?))
                  (into (:warnings problem-coverage)))
      :notes (cond-> []
               (not token-cost-metrics?)
@@ -529,7 +594,9 @@
                                     {:min-shared-cases min-shared-cases})
          by-category (category-summaries deltas comparable min-shared-cases)
          by-tag (by-tag-comparison shell-report agraph-report)
-         problem-coverage (problem-class-coverage by-tag)]
+         problem-coverage (problem-class-coverage shell-report
+                                                  agraph-report
+                                                  by-tag)]
      {:schema schema
       :status (:signal summary)
       :suiteId (or (:suite-id agraph-report)

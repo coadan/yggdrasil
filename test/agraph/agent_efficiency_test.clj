@@ -75,6 +75,26 @@
    :scores {:fileRecallAt10 recall10
             :noiseRatioAt20 noise}})
 
+(defn- with-problem-classes
+  ([report]
+   (with-problem-classes report {}))
+  ([report {:keys [problem-status architecture-status]
+            :or {problem-status "measured"
+                 architecture-status "measured"}}]
+   (assoc report
+          :problemClasses
+          {:minimumCasesForClassClaim 2
+           :classes [{:key "problem-architecture"
+                      :cases 2
+                      :runs 2
+                      :claimStatus problem-status
+                      :minimumCases 2}]
+           :architectureClasses [{:key "architecture-dependency-flow"
+                                  :cases 2
+                                  :runs 2
+                                  :claimStatus architecture-status
+                                  :minimumCases 2}]})))
+
 (def shell-report
   (report {:mode "shell-only"
            :recall5 0.5
@@ -206,7 +226,8 @@
                            :commandTelemetry true}
             :optionalTelemetry {:tokenCostMetrics false}
             :warnings ["No shared problem-class tags; do not use this report for broad efficiency claims."
-                       "No shared architecture-class tags; do not use this report to claim representative architecture-task gains."]
+                       "No shared architecture-class tags; do not use this report to claim representative architecture-task gains."
+                       "Problem-class measurement summaries are unavailable; regenerate agent reports before claiming broad efficiency."]
             :notes ["Token/cost telemetry is unavailable; token and cost deltas are not part of this claim."]}
            (:claimReadiness comparison)))
     (is (= ["case-1" "case-2"]
@@ -291,11 +312,25 @@
     (is (= {:sharedTagKeys ["problem-cross-file" "problem-localization"]
             :problemClassTags ["problem-cross-file" "problem-localization"]
             :architectureClassTags []
+            :problemClassSummaryAvailable false
             :hasProblemClasses true
             :hasArchitectureClasses false
-            :broadEfficiencyClaimSupported false
-            :warnings ["No shared architecture-class tags; do not use this report to claim representative architecture-task gains."]}
-           (:problemClassCoverage comparison)))
+            :hasMeasuredProblemClasses false
+            :hasMeasuredArchitectureClasses false
+            :broadEfficiencyClaimSupported false}
+           (select-keys (:problemClassCoverage comparison)
+                        [:sharedTagKeys
+                         :problemClassTags
+                         :architectureClassTags
+                         :problemClassSummaryAvailable
+                         :hasProblemClasses
+                         :hasArchitectureClasses
+                         :hasMeasuredProblemClasses
+                         :hasMeasuredArchitectureClasses
+                         :broadEfficiencyClaimSupported])))
+    (is (= ["No shared architecture-class tags; do not use this report to claim representative architecture-task gains."
+            "Problem-class measurement summaries are unavailable; regenerate agent reports before claiming broad efficiency."]
+           (get-in comparison [:problemClassCoverage :warnings])))
     (is (= "agraph-improved"
            (get-in groups-by-tag ["problem-localization" :summary :signal])))
     (is (= "mixed"
@@ -310,38 +345,57 @@
                 first
                 (#(select-keys % [:shellOnly :agraph :delta :effect :result])))))))
 
-(deftest problem-class-coverage-recognizes-architecture-classes
-  (let [shell (assoc shell-report
-                     :byTag [(tag-row "problem-architecture"
-                                      {:cases 1
-                                       :runs 1
-                                       :recall10 0.5
-                                       :noise 0.5})
-                             (tag-row "architecture-dependency-flow"
-                                      {:cases 1
-                                       :runs 1
-                                       :recall10 0.5
-                                       :noise 0.5})])
-        agraph (assoc agraph-report
-                      :byTag [(tag-row "problem-architecture"
-                                       {:cases 1
-                                        :runs 1
-                                        :recall10 1.0
-                                        :noise 0.25})
-                              (tag-row "architecture-dependency-flow"
-                                       {:cases 1
-                                        :runs 1
-                                        :recall10 1.0
-                                        :noise 0.25})])
+(deftest problem-class-coverage-recognizes-measured-architecture-classes
+  (let [shell (-> shell-report
+                  with-problem-classes
+                  (assoc :byTag [(tag-row "problem-architecture"
+                                          {:cases 2
+                                           :runs 2
+                                           :recall10 0.5
+                                           :noise 0.5})
+                                 (tag-row "architecture-dependency-flow"
+                                          {:cases 2
+                                           :runs 2
+                                           :recall10 0.5
+                                           :noise 0.5})]))
+        agraph (-> agraph-report
+                   with-problem-classes
+                   (assoc :byTag [(tag-row "problem-architecture"
+                                           {:cases 2
+                                            :runs 2
+                                            :recall10 1.0
+                                            :noise 0.25})
+                                  (tag-row "architecture-dependency-flow"
+                                           {:cases 2
+                                            :runs 2
+                                            :recall10 1.0
+                                            :noise 0.25})]))
         comparison (agent-efficiency/compare-reports shell agraph)]
     (is (= {:sharedTagKeys ["architecture-dependency-flow" "problem-architecture"]
             :problemClassTags ["problem-architecture"]
             :architectureClassTags ["architecture-dependency-flow" "problem-architecture"]
+            :problemClassSummaryAvailable true
+            :sharedMeasuredProblemClassTags ["problem-architecture"]
+            :sharedMeasuredArchitectureClassTags ["architecture-dependency-flow"]
             :hasProblemClasses true
             :hasArchitectureClasses true
+            :hasMeasuredProblemClasses true
+            :hasMeasuredArchitectureClasses true
             :broadEfficiencyClaimSupported true
             :warnings []}
-           (:problemClassCoverage comparison)))
+           (select-keys (:problemClassCoverage comparison)
+                        [:sharedTagKeys
+                         :problemClassTags
+                         :architectureClassTags
+                         :problemClassSummaryAvailable
+                         :sharedMeasuredProblemClassTags
+                         :sharedMeasuredArchitectureClassTags
+                         :hasProblemClasses
+                         :hasArchitectureClasses
+                         :hasMeasuredProblemClasses
+                         :hasMeasuredArchitectureClasses
+                         :broadEfficiencyClaimSupported
+                         :warnings])))
     (is (= {:status "supported"
             :broadEfficiencyClaimSupported true
             :sharedCases 2
@@ -358,6 +412,51 @@
             :warnings []
             :notes ["Token/cost telemetry is unavailable; token and cost deltas are not part of this claim."]}
            (:claimReadiness comparison)))))
+
+(deftest measured-class-coverage-refuses-insufficient-architecture-classes
+  (let [shell (-> shell-report
+                  (with-problem-classes {:architecture-status
+                                         "insufficient-cases"})
+                  (assoc :byTag [(tag-row "problem-architecture"
+                                          {:cases 1
+                                           :runs 1
+                                           :recall10 0.5
+                                           :noise 0.5})
+                                 (tag-row "architecture-dependency-flow"
+                                          {:cases 1
+                                           :runs 1
+                                           :recall10 0.5
+                                           :noise 0.5})]))
+        agraph (-> agraph-report
+                   (with-problem-classes {:architecture-status
+                                          "insufficient-cases"})
+                   (assoc :byTag [(tag-row "problem-architecture"
+                                           {:cases 1
+                                            :runs 1
+                                            :recall10 1.0
+                                            :noise 0.25})
+                                  (tag-row "architecture-dependency-flow"
+                                           {:cases 1
+                                            :runs 1
+                                            :recall10 1.0
+                                            :noise 0.25})]))
+        comparison (agent-efficiency/compare-reports shell agraph)]
+    (is (= true (get-in comparison
+                        [:problemClassCoverage
+                         :hasMeasuredProblemClasses])))
+    (is (= false (get-in comparison
+                         [:problemClassCoverage
+                          :hasMeasuredArchitectureClasses])))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :broadEfficiencyClaimSupported])))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness
+                    :requirements
+                    :architectureClassCoverage])))
+    (is (= ["No shared measured architecture-class groups; architecture tags are present but below the benchmark claim threshold in at least one lane."]
+           (get-in comparison [:claimReadiness :warnings])))))
 
 (deftest ignores-small-report-timing-jitter
   (let [shell (report {:mode "shell-only"
