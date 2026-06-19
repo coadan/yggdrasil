@@ -3323,71 +3323,61 @@
              (:files agent-result)
              [])))
 
-(def ^:private agent-result-required-fields
-  [:schema
-   :caseId
-   :caseFingerprint
-   :agentId
-   :mode
-   :suspectedFiles
-   :suspectedSymbols
-   :commands
-   :warnings
-   :summary])
-
-(def ^:private agent-result-allowed-fields
-  (conj (set agent-result-required-fields)
-        :selection
-        :parserWorker))
-
-(def ^:private agent-result-selection-allowed-fields
-  #{:rawCandidateFiles
-    :candidateFiles
-    :coverageFilteredCandidateFiles
-    :limit
-    :coverageSourceKinds
-    :candidateFileOnlyQuota
-    :candidateFileOnlySelected})
-
-(def ^:private agent-result-parser-worker-allowed-fields
-  #{:mode :source})
-
-(def ^:private agent-result-suspected-file-allowed-fields
-  #{:path :rank :confidence :reason :evidence :metrics})
-
-(def ^:private agent-result-suspected-symbol-allowed-fields
-  #{:name :path :kind :rank :confidence :reason :evidence})
-
-(def ^:private agent-result-file-metrics-allowed-fields
-  #{:firstSourceRank
-    :supportCount
-    :docCount
-    :entityCount
-    :candidateFileCount
-    :retrievedSourceCount
-    :exactPathSourceCount
-    :maxConfidence
-    :rankScore
-    :matchedTokenCount
-    :matchedTokenPairCount
-    :matchedCompoundTokenPairCount
-    :definitionKinds
-    :sourceRankScore
-    :graphNeighborScore
-    :graphNeighborBoost
-    :cosine
-    :model})
-
-(defn- required-field-missing?
-  [m k]
-  (or (not (contains? m k))
-      (nil? (get m k))))
-
 (defn- field-name
   [k]
   (if (keyword? k)
     (name k)
     (str k)))
+
+(defn- schema-field-key
+  [k]
+  (if (keyword? k)
+    k
+    (keyword (str k))))
+
+(defn- schema-property-fields
+  [schema]
+  (->> (get schema "properties")
+       keys
+       (map schema-field-key)
+       set))
+
+(defn- schema-required-fields
+  [schema]
+  (->> (get schema "required")
+       (mapv schema-field-key)))
+
+(def ^:private agent-result-contract-schema
+  (agent-result-json-schema))
+
+(def ^:private agent-result-required-fields
+  (schema-required-fields agent-result-contract-schema))
+
+(def ^:private agent-result-allowed-fields
+  (schema-property-fields agent-result-contract-schema))
+
+(def ^:private agent-result-selection-allowed-fields
+  (schema-property-fields (agent-result-selection-json-schema)))
+
+(def ^:private agent-result-parser-worker-allowed-fields
+  (schema-property-fields (get-in agent-result-contract-schema
+                                  ["properties" "parserWorker"])))
+
+(def ^:private agent-result-suspected-file-allowed-fields
+  (schema-property-fields (get-in agent-result-contract-schema
+                                  ["properties" "suspectedFiles" "items"])))
+
+(def ^:private agent-result-suspected-symbol-allowed-fields
+  (schema-property-fields (get-in agent-result-contract-schema
+                                  ["properties" "suspectedSymbols" "items"])))
+
+(def ^:private agent-result-file-metrics-allowed-fields
+  (schema-property-fields (agent-result-file-metrics-json-schema)))
+
+(defn- required-field-missing?
+  [m k]
+  (or (not (contains? m k))
+      (nil? (get m k))))
 
 (defn- unknown-field-warnings
   [prefix allowed-fields m]
