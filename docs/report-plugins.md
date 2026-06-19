@@ -18,6 +18,10 @@ Report plugins are configured in `project.edn`:
    :timeout-ms 10000}]}
 ```
 
+Project-local report plugins default to `:benchmark-status :unbenchmarked`.
+Supported statuses are `:unbenchmarked` and `:benchmarked`; unsupported values
+fail config normalization.
+
 AGraph starts each plugin during `bb report`, writes a JSON packet to stdin, and
 expects a JSON result on stdout. Core AGraph dashboard panels use the same panel
 contract and are included in the same `report.plugins` registry.

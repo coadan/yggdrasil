@@ -39,7 +39,25 @@
       (is (= "0.1.0" (:version plugin)))
       (is (= ["plugins"] (:slots plugin)))
       (is (= :project-plugin (:authority plugin)))
+      (is (= :unbenchmarked (:benchmark-status plugin)))
       (is (= (plugin-command) (:command plugin))))))
+
+(deftest report-plugin-normalizes-and-validates-benchmark-status
+  (let [benchmarked (report-plugin/normalize-plugin
+                     (assoc (plugin-config)
+                            :benchmark {:status :benchmarked}))]
+    (is (= :benchmarked (:benchmark-status benchmarked)))
+    (try
+      (report-plugin/normalize-plugin
+       (assoc (plugin-config)
+              :benchmark-status :claimed))
+      (is false "Expected unsupported benchmark status to fail.")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= "Unknown report plugin benchmark status." (ex-message e)))
+        (is (= {:plugin-id "graph-crawl-plugin"
+                :benchmark-status :claimed
+                :supported [:benchmarked :unbenchmarked]}
+               (ex-data e)))))))
 
 (deftest report-plugin-input-includes-plugin-package-caveats
   (let [plugin (report-plugin/normalize-plugin (plugin-config))

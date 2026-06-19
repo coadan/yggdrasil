@@ -29,6 +29,9 @@
 (def default-timeout-ms
   10000)
 
+(def benchmark-statuses
+  #{:unbenchmarked :benchmarked})
+
 (def ^:private panel-key-aliases
   {:pluginId :plugin-id
    :dataKey :data-key})
@@ -54,21 +57,29 @@
   (let [plugin-id (some-> (:id plugin) str)]
     (when-not (present? plugin-id)
       (throw (ex-info "Report plugin is missing :id." {:plugin plugin})))
-    {:id plugin-id
-     :version (str (or (:version plugin) "dev"))
-     :command (normalize-command plugin-id (:command plugin))
-     :slots (mapv (comp name keyword) (:slots plugin))
-     :timeout-ms (long (or (:timeout-ms plugin) default-timeout-ms))
-     :authority (keyword (or (:authority plugin) :project-plugin))
-     :cwd (some-> (:cwd plugin) str)
-     :package-id (some-> (:package-id plugin) str)
-     :package-version (some-> (:package-version plugin) str)
-     :package-rev (some-> (:package-rev plugin) str)
-     :package-manifest-fingerprint (some-> (:package-manifest-fingerprint plugin) str)
-     :package-claim-authority (:package-claim-authority plugin)
-     :package-source (:package-source plugin)
-     :benchmark-status (some-> (:benchmark-status plugin) keyword)
-     :fingerprint-seed (:fingerprint plugin)}))
+    (let [benchmark-status (keyword (or (:benchmark-status plugin)
+                                        (get-in plugin [:benchmark :status])
+                                        :unbenchmarked))]
+      (when-not (contains? benchmark-statuses benchmark-status)
+        (throw (ex-info "Unknown report plugin benchmark status."
+                        {:plugin-id plugin-id
+                         :benchmark-status benchmark-status
+                         :supported (sort benchmark-statuses)})))
+      {:id plugin-id
+       :version (str (or (:version plugin) "dev"))
+       :command (normalize-command plugin-id (:command plugin))
+       :slots (mapv (comp name keyword) (:slots plugin))
+       :timeout-ms (long (or (:timeout-ms plugin) default-timeout-ms))
+       :authority (keyword (or (:authority plugin) :project-plugin))
+       :cwd (some-> (:cwd plugin) str)
+       :package-id (some-> (:package-id plugin) str)
+       :package-version (some-> (:package-version plugin) str)
+       :package-rev (some-> (:package-rev plugin) str)
+       :package-manifest-fingerprint (some-> (:package-manifest-fingerprint plugin) str)
+       :package-claim-authority (:package-claim-authority plugin)
+       :package-source (:package-source plugin)
+       :benchmark-status benchmark-status
+       :fingerprint-seed (:fingerprint plugin)})))
 
 (defn normalize-plugins
   "Normalize a vector of report plugin config entries."
