@@ -152,13 +152,36 @@
                    :leaseMinutes {:type "integer"
                                   :minimum 1}}
                   [])}
+   {:name "agraph_work_heartbeat"
+    :description "Extend the lease for one claimed filesystem queue item."
+    :inputSchema (json-schema
+                  {:queueDir {:type "string"}
+                   :workId {:type "string"}
+                   :agentId {:type "string"}
+                   :leaseMinutes {:type "integer"
+                                  :minimum 1}}
+                  ["workId"])}
    {:name "agraph_work_complete"
     :description "Complete a claimed filesystem queue item with a schema-bearing result object."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
                    :workId {:type "string"}
                    :result {:type "object"}}
-                  ["workId" "result"])}])
+                  ["workId" "result"])}
+   {:name "agraph_work_release"
+    :description "Release one claimed filesystem queue item back to ready."
+    :inputSchema (json-schema
+                  {:queueDir {:type "string"}
+                   :workId {:type "string"}
+                   :reason {:type "string"}}
+                  ["workId"])}
+   {:name "agraph_work_reject"
+    :description "Reject one filesystem queue item with a reason."
+    :inputSchema (json-schema
+                  {:queueDir {:type "string"}
+                   :workId {:type "string"}
+                   :reason {:type "string"}}
+                  ["workId" "reason"])}])
 
 (defn- abs-path
   [path]
@@ -351,6 +374,34 @@
         result (require-result! args)]
     (queue/item-summary (queue/complete! root work-id result))))
 
+(defn- work-heartbeat
+  [ctx args]
+  (let [root (or (:queueDir args) (:queue-dir ctx))
+        work-id (require-string! args :workId "agraph_work_heartbeat requires workId.")]
+    (queue/item-summary
+     (queue/heartbeat! root
+                       work-id
+                       {:agent-id (:agentId args)
+                        :lease-ms (* 60
+                                     1000
+                                     (long (or (:leaseMinutes args) 30)))}))))
+
+(defn- work-release
+  [ctx args]
+  (let [root (or (:queueDir args) (:queue-dir ctx))
+        work-id (require-string! args :workId "agraph_work_release requires workId.")]
+    (queue/item-summary
+     (queue/release! root
+                     work-id
+                     (or (:reason args) "released by MCP agent")))))
+
+(defn- work-reject
+  [ctx args]
+  (let [root (or (:queueDir args) (:queue-dir ctx))
+        work-id (require-string! args :workId "agraph_work_reject requires workId.")
+        reason (require-string! args :reason "agraph_work_reject requires reason.")]
+    (queue/item-summary (queue/reject! root work-id reason))))
+
 (defn call-tool
   "Call one MCP tool and return its raw AGraph value."
   [ctx name args]
@@ -366,7 +417,10 @@
     "agraph_sync_check" (sync-check ctx args)
     "agraph_work_list" (work-list ctx args)
     "agraph_work_pull" (work-pull ctx args)
+    "agraph_work_heartbeat" (work-heartbeat ctx args)
     "agraph_work_complete" (work-complete ctx args)
+    "agraph_work_release" (work-release ctx args)
+    "agraph_work_reject" (work-reject ctx args)
     (throw (ex-info "Unknown MCP tool."
                     {:schema "agraph.mcp.error/v1"
                      :error "unknown-tool"

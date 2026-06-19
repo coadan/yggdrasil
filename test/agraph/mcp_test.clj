@@ -61,7 +61,10 @@
             "agraph_sync_check"
             "agraph_work_list"
             "agraph_work_pull"
-            "agraph_work_complete"]
+            "agraph_work_heartbeat"
+            "agraph_work_complete"
+            "agraph_work_release"
+            "agraph_work_reject"]
            tool-names))))
 
 (deftest tool-schemas-stay-narrow-and-explicit
@@ -75,8 +78,14 @@
            (get-in schemas ["agraph_explore_docs" :required])))
     (is (= ["cursorId" "query"]
            (get-in schemas ["agraph_explore_search" :required])))
+    (is (= ["workId"]
+           (get-in schemas ["agraph_work_heartbeat" :required])))
     (is (= ["workId" "result"]
            (get-in schemas ["agraph_work_complete" :required])))
+    (is (= ["workId"]
+           (get-in schemas ["agraph_work_release" :required])))
+    (is (= ["workId" "reason"]
+           (get-in schemas ["agraph_work_reject" :required])))
     (is (every? #(= false (:additionalProperties %)) (vals schemas)))))
 
 (deftest ask-tool-returns-context-packet
@@ -231,6 +240,77 @@
     (is (= (:id (:item item)) (:id pulled)))
     (is (= "claimed" (:status pulled)))
     (is (= "agent" (get-in pulled [:lease :agent-id])))))
+
+(deftest work-heartbeat-extends-claimed-queue-item
+  (let [root (temp-dir "agraph-mcp-queue-heartbeat")
+        item-id (get-in (queue/enqueue! {:schema context/schema
+                                         :project-id "fixture"}
+                                        {:root root
+                                         :kind "context"
+                                         :project-id "fixture"})
+                        [:item :id])
+        _ (queue/claim-next! root {:agent-id "agent"
+                                   :project-id "fixture"
+                                   :lease-ms 1000})
+        response (mcp/handle-message
+                  (mcp/server-context [])
+                  (tool-call 15
+                             "agraph_work_heartbeat"
+                             {:queueDir root
+                              :workId item-id
+                              :agentId "agent"
+                              :leaseMinutes 2}))
+        summary (get-in response [:result :structuredContent])]
+    (is (= item-id (:id summary)))
+    (is (= "claimed" (:status summary)))
+    (is (= "agent" (get-in summary [:lease :agent-id])))
+    (is (integer? (get-in summary [:lease :heartbeat-at-ms])))))
+
+(deftest work-release-returns-claimed-queue-item-to-ready
+  (let [root (temp-dir "agraph-mcp-queue-release")
+        item-id (get-in (queue/enqueue! {:schema context/schema
+                                         :project-id "fixture"}
+                                        {:root root
+                                         :kind "context"
+                                         :project-id "fixture"})
+                        [:item :id])
+        _ (queue/claim-next! root {:agent-id "agent"
+                                   :project-id "fixture"})
+        response (mcp/handle-message
+                  (mcp/server-context [])
+                  (tool-call 16
+                             "agraph_work_release"
+                             {:queueDir root
+                              :workId item-id
+                              :reason "needs another agent"}))
+        summary (get-in response [:result :structuredContent])
+        found (queue/find-item root item-id)]
+    (is (= item-id (:id summary)))
+    (is (= "ready" (:status summary)))
+    (is (= "ready" (get-in found [:item :status])))
+    (is (= "needs another agent" (get-in found [:item :release-reason])))))
+
+(deftest work-reject-records-reason
+  (let [root (temp-dir "agraph-mcp-queue-reject")
+        item-id (get-in (queue/enqueue! {:schema context/schema
+                                         :project-id "fixture"}
+                                        {:root root
+                                         :kind "context"
+                                         :project-id "fixture"})
+                        [:item :id])
+        response (mcp/handle-message
+                  (mcp/server-context [])
+                  (tool-call 17
+                             "agraph_work_reject"
+                             {:queueDir root
+                              :workId item-id
+                              :reason "not applicable"}))
+        summary (get-in response [:result :structuredContent])
+        found (queue/find-item root item-id)]
+    (is (= item-id (:id summary)))
+    (is (= "rejected" (:status summary)))
+    (is (= "rejected" (get-in found [:item :status])))
+    (is (= "not applicable" (get-in found [:item :reason])))))
 
 (deftest stdio-loop-reads-and-writes-newline-delimited-json
   (let [in (java.io.StringReader.
