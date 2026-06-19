@@ -61,6 +61,8 @@
                  (:expectedResultSchema (first selected))))
           (is (= "agraph.test.result/v1"
                  (:resultSchema (first selected))))
+          (is (= "matching"
+                 (:resultSchemaStatus (first selected))))
           (is (= [(get-in enqueued [:item :id])]
                  (mapv :sourceId selected))))))))
 
@@ -102,6 +104,8 @@
           (is (= "done" (:status sample)))
           (is (= "agraph.test.expected/v1" (:expectedResultSchema sample)))
           (is (= "agraph.test.actual/v1" (:resultSchema sample)))
+          (is (= ["mismatch"]
+                 (mapv :resultSchemaStatus selected)))
           (is (str/includes? (:summary sample) "result schema mismatch"))
           (is (integer? (:updatedAtMs sample)))
           (is (integer? (:completedAtMs sample)))

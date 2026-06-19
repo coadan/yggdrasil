@@ -1470,6 +1470,11 @@
       (is (= {:plane :validation-history
               :status :weak
               :counts {:validation-events 0
+                       :result-schema-status-items 0
+                       :result-schema-matching-items 0
+                       :result-schema-mismatch-items 0
+                       :result-schema-missing-result-items 0
+                       :result-schema-unexpected-result-items 0
                        :result-schema-mismatch-events 1}}
              (some #(when (= :validation-history (:plane %)) %)
                    (:planes answerability))))
@@ -1485,6 +1490,64 @@
                      :command "agraph sync activity <project.edn> --json"}
                     %)
                 (:nextActions answerability))))))
+
+(deftest answerability-counts-result-schema-status-items
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :active? true}]
+                                   :agraph/index-diagnostics []
+                                   []))
+                query/all-nodes (fn [& _]
+                                  [{:xt/id "node:src.app"
+                                    :kind :namespace
+                                    :active? true}])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                query/all-diagnostics (fn [& _] [])
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :imports-package 0
+                                                      :unresolved-imports 0
+                                                      :declared-without-import-evidence 0
+                                                      :version-conflicts 0}})
+                activity/all-items (fn [& _]
+                                     [{:xt/id "work:ok"
+                                       :expected-result-schema "agraph.result/v1"
+                                       :result-schema "agraph.result/v1"}])
+                activity/all-events (fn [& _] [])]
+    (let [answerability (#'context/answerability
+                         :xtdb
+                         {}
+                         {:project-id "fixture"
+                          :repo-id "app"
+                          :retriever :lexical}
+                         {:entity-count 1
+                          :doc-count 0
+                          :activity-count 0
+                          :validation-count 0})]
+      (is (= {:matching 1}
+             (get-in answerability [:counts :result-schema-statuses])))
+      (is (= 1 (get-in answerability [:counts :result-schema-status-items])))
+      (is (contains? (set (:available answerability)) :validation-history))
+      (is (not (contains? (set (:missing answerability)) :validation-history)))
+      (is (= {:plane :validation-history
+              :status :weak
+              :counts {:validation-events 0
+                       :result-schema-status-items 1
+                       :result-schema-matching-items 1
+                       :result-schema-mismatch-items 0
+                       :result-schema-missing-result-items 0
+                       :result-schema-unexpected-result-items 0
+                       :result-schema-mismatch-events 0}}
+             (some #(when (= :validation-history (:plane %)) %)
+                   (:planes answerability))))
+      (is (not (some #{"No validation history rows are indexed; validation-history queries are limited."}
+                     (:warnings answerability)))))))
 
 (deftest answerability-reports-missing-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]

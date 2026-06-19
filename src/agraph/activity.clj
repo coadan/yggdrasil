@@ -113,16 +113,25 @@
          (present? actual)
          (not= expected actual))))
 
+(defn- result-schema-status*
+  [expected actual]
+  (cond
+    (and (present? expected) (present? actual) (= expected actual)) :matching
+    (and (present? expected) (present? actual)) :mismatch
+    (present? expected) :missing-result
+    (present? actual) :unexpected-result
+    :else :none))
+
+(defn item-result-schema-status
+  "Return the mechanical result-schema status for a durable activity item row."
+  [item]
+  (result-schema-status* (:expected-result-schema item)
+                         (:result-schema item)))
+
 (defn- result-schema-status
   [item]
-  (let [expected (expected-result-schema item)
-        actual (result-schema item)]
-    (cond
-      (and (present? expected) (present? actual) (= expected actual)) :matching
-      (and (present? expected) (present? actual)) :mismatch
-      (present? expected) :missing-result
-      (present? actual) :unexpected-result
-      :else :none)))
+  (result-schema-status* (expected-result-schema item)
+                         (result-schema item)))
 
 (defn- summary-text
   [item target-ids]
@@ -398,7 +407,8 @@
                         :source-id))
          (take limit)
          (mapv (fn [item]
-                 (let [events (->> (get events-by-item (:xt/id item))
+                 (let [schema-status (item-result-schema-status item)
+                       events (->> (get events-by-item (:xt/id item))
                                    (sort-by :at-ms >)
                                    (take 4)
                                    (mapv event-summary))]
@@ -417,4 +427,7 @@
                             :createdAtMs (:created-at-ms item)
                             :updatedAtMs (:updated-at-ms item)
                             :events events}
+                     (not= :none schema-status)
+                     (assoc :resultSchemaStatus (name schema-status))
+
                      (:completed-at-ms item) (assoc :completedAtMs (:completed-at-ms item)))))))))

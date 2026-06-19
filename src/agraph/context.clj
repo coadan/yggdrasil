@@ -66,7 +66,13 @@
    :system-evidence [:system-evidence]
    :system-graph [:system-nodes :system-edges]
    :activity [:activity-items :activity-events]
-   :validation-history [:validation-events :result-schema-mismatch-events]
+   :validation-history [:validation-events
+                        :result-schema-status-items
+                        :result-schema-matching-items
+                        :result-schema-mismatch-items
+                        :result-schema-missing-result-items
+                        :result-schema-unexpected-result-items
+                        :result-schema-mismatch-events]
    :map-overlay [:map-systems :map-docs :map-edges :map-rejects]})
 
 (def role-weight
@@ -1971,6 +1977,28 @@
    :map-edges (count (:edges overlay))
    :map-rejects (count (:reject overlay))})
 
+(defn- result-schema-status-counts
+  [activity-items]
+  (->> activity-items
+       (map activity/item-result-schema-status)
+       (remove #{:none})
+       frequencies
+       (into (sorted-map))))
+
+(defn- result-schema-count
+  [result-schema-statuses status]
+  (long (get result-schema-statuses status 0)))
+
+(defn- result-schema-counts
+  [activity-items]
+  (let [statuses (result-schema-status-counts activity-items)]
+    {:result-schema-statuses statuses
+     :result-schema-status-items (reduce + 0 (vals statuses))
+     :result-schema-matching-items (result-schema-count statuses :matching)
+     :result-schema-mismatch-items (result-schema-count statuses :mismatch)
+     :result-schema-missing-result-items (result-schema-count statuses :missing-result)
+     :result-schema-unexpected-result-items (result-schema-count statuses :unexpected-result)}))
+
 (defn- capability-counts
   [xtdb overlay {:keys [project-id repo-id read-context]}]
   (let [nodes (filter active-row?
@@ -1987,6 +2015,8 @@
                                                   {:limit 0
                                                    :map-overlay overlay})
         package-counts (:counts package-report)
+        activity-items (activity/all-items xtdb {:project-id project-id
+                                                 :read-context read-context})
         activity-events (activity/all-events xtdb {:project-id project-id
                                                    :read-context read-context})]
     (merge
@@ -2020,8 +2050,7 @@
                                                          :read-context read-context}))
       :system-edges (count (query/all-system-edges xtdb {:project-id project-id
                                                          :read-context read-context}))
-      :activity-items (count (activity/all-items xtdb {:project-id project-id
-                                                       :read-context read-context}))
+      :activity-items (count activity-items)
       :activity-events (count activity-events)
       :validation-events (count (filter #(= :validation (:event-kind %))
                                         activity-events))
@@ -2032,7 +2061,14 @@
                                   (query/all-diagnostics xtdb {:project-id project-id
                                                                :repo-id repo-id
                                                                :read-context read-context})))}
+     (result-schema-counts activity-items)
      (overlay-counts overlay))))
+
+(defn- validation-history-count
+  [counts]
+  (+ (:validation-events counts 0)
+     (:result-schema-status-items counts 0)
+     (:result-schema-mismatch-events counts 0)))
 
 (defn- retrieval-summary
   [{:keys [retriever embedding-client]}]
@@ -2048,8 +2084,7 @@
 
 (defn- available-planes
   [counts]
-  (let [validation-history-events (+ (:validation-events counts 0)
-                                     (:result-schema-mismatch-events counts 0))]
+  (let [validation-history-events (validation-history-count counts)]
     (cond-> []
       (pos? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
       (pos? (+ (:external-packages counts 0)
@@ -2068,8 +2103,7 @@
 
 (defn- missing-planes
   [counts]
-  (let [validation-history-events (+ (:validation-events counts 0)
-                                     (:result-schema-mismatch-events counts 0))]
+  (let [validation-history-events (validation-history-count counts)]
     (cond-> []
       (zero? (:files counts)) (conj :source-files)
       (zero? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
@@ -2085,8 +2119,7 @@
 
 (defn- weak-planes
   [counts {:keys [entity-count doc-count activity-count validation-count runtime-count]}]
-  (let [validation-history-events (+ (:validation-events counts 0)
-                                     (:result-schema-mismatch-events counts 0))]
+  (let [validation-history-events (validation-history-count counts)]
     (cond-> []
       (or (pos? (:unresolved-imports counts 0))
           (pos? (:package-evidence-gaps counts 0))
@@ -2200,8 +2233,7 @@
     (some #{:activity} weak)
     (conj "Activity/work rows are indexed, but no activity matched this query.")
 
-    (zero? (+ (:validation-events counts 0)
-              (:result-schema-mismatch-events counts 0)))
+    (zero? (validation-history-count counts))
     (conj "No validation history rows are indexed; validation-history queries are limited.")
 
     (some #{:validation-history} weak)
@@ -2209,6 +2241,12 @@
 
     (pos? (:result-schema-mismatch-events counts 0))
     (conj "Completed work has result schema mismatches; inspect activity before trusting prior results.")
+
+    (pos? (:result-schema-missing-result-items counts 0))
+    (conj "Some work declares expected result schemas but has no result schema yet; inspect activity before reusing prior work.")
+
+    (pos? (:result-schema-unexpected-result-items counts 0))
+    (conj "Some completed work returned result schemas without expected schemas; inspect activity before treating schema validation as complete.")
 
     (zero? (:embeddings counts))
     (conj "No embeddings are indexed for this project.")
@@ -2337,6 +2375,15 @@
          (conj {:kind :activity
                 :label "Inspect result schema mismatch activity"
                 :count (:result-schema-mismatch-events counts 0)
+                :mcpTool "agraph_sync_activity"
+                :command (command/command "agraph" "sync" "activity" "<project.edn>" "--json")})
+
+         (pos? (+ (:result-schema-missing-result-items counts 0)
+                  (:result-schema-unexpected-result-items counts 0)))
+         (conj {:kind :activity
+                :label "Inspect result schema status activity"
+                :count (+ (:result-schema-missing-result-items counts 0)
+                          (:result-schema-unexpected-result-items counts 0))
                 :mcpTool "agraph_sync_activity"
                 :command (command/command "agraph" "sync" "activity" "<project.edn>" "--json")})
 
