@@ -211,6 +211,8 @@ accepted map corrections from neutral mechanical candidates. Accepted systems
 and map edges come from `agraph.map.json`; candidate systems, graph edges,
 runtime/config rows, dependency rows, docs, and open decisions remain concrete
 evidence rows, not inferred project meaning.
+Runtime/config rows may be selected by exact result path, query-token match, or
+existing `system-id` membership in a selected graph or accepted map system.
 
 `architecture.evidenceFamilies` is a compact readiness summary for the selected
 work area. Rows use fixed evidence-family names such as `source-structure`,

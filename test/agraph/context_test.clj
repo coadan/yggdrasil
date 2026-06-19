@@ -1694,7 +1694,7 @@
                :section "runtimeEvidence"}]
              (mapv #(dissoc % :score)
                    (get-in packet [:auditScopes 1 :samples]))))
-      (is (< 1.0 (get-in architecture [:runtimeEvidence 0 :score]) 2.0))
+      (is (> (get-in architecture [:runtimeEvidence 0 :score]) 2.0))
       (is (= [{:plane "dependencies"
                :status "missing"
                :nextActions [{:kind :dependencies
@@ -1731,7 +1731,29 @@
                                       :clusters []})
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
-                query/all-system-evidence (fn [& _] [])
+                query/all-system-evidence (fn [& _]
+                                            [{:xt/id "evidence:billing-port"
+                                              :system-id "system:billing"
+                                              :repo-id "app"
+                                              :path "config/runtime.env"
+                                              :file-kind :env
+                                              :kind :port
+                                              :label "PORT"
+                                              :normalized-value "8080"
+                                              :source-line 3
+                                              :confidence 0.8
+                                              :active? true}
+                                             {:xt/id "evidence:other-port"
+                                              :system-id "system:other"
+                                              :repo-id "app"
+                                              :path "config/other.env"
+                                              :file-kind :env
+                                              :kind :port
+                                              :label "PORT"
+                                              :normalized-value "9090"
+                                              :source-line 4
+                                              :confidence 0.8
+                                              :active? true}])
                 activity/select-activity (fn [& _] [])
                 context/answerability (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
@@ -1752,7 +1774,9 @@
                                                         :path "src/other"}]}]}})]
       (is (= ["system:billing"]
              (mapv :id (get-in packet [:architecture :acceptedSystems]))))
-      (is (= ["system:billing"]
+      (is (= ["evidence:billing-port"]
+             (mapv :id (get-in packet [:architecture :runtimeEvidence]))))
+      (is (= ["system:billing" "evidence:billing-port"]
              (mapv :target (get-in packet [:architecture :nextActions]))))
       (is (= ["src/billing/api.clj"]
              (mapv :path (:candidateFiles packet)))))))
@@ -1760,8 +1784,7 @@
 (deftest runtime-evidence-keeps-selected-system-diversity
   (let [runtime-evidence (#'context/select-system-evidence
                           ["container"]
-                          [{:id "system:tests"}
-                           {:id "system:stack"}]
+                          ["system:tests" "system:stack"]
                           [{:repo-id "app"
                             :path "tests/Alpha.cs"
                             :score 2.0}

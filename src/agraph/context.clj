@@ -929,9 +929,9 @@
                                                  (:label row)
                                                  (:normalized-value row)
                                                  (:path row)))
-        system-bonus (if (contains? selected-system-ids (:system-id row)) 0.25 0.0)]
-    (if (or (pos? path-score) (pos? token-score))
-      (+ path-score system-bonus (* 0.5 token-score))
+        system-score (if (contains? selected-system-ids (:system-id row)) 0.75 0.0)]
+    (if (or (pos? path-score) (pos? token-score) (pos? system-score))
+      (+ path-score system-score (* 0.5 token-score))
       0.0)))
 
 (defn- system-evidence-row
@@ -1013,8 +1013,8 @@
     (:out filled-state)))
 
 (defn- select-system-evidence
-  [query-tokens entities results evidence limit]
-  (let [selected-system-ids (set (map :id entities))
+  [query-tokens selected-system-ids results evidence limit]
+  (let [selected-system-ids (set selected-system-ids)
         selected-paths (set (ranked-result-paths results runtime-evidence-result-path-limit))]
     (->> evidence
          (map (fn [row]
@@ -2300,8 +2300,11 @@
                                                    {:project-id project-id
                                                     :repo-id repo-id
                                                     :read-context read-context})
+        accepted-systems-for-runtime (selected-accepted-systems overlay entities results)
+        selected-system-ids (concat (map :id entities)
+                                    (map :id accepted-systems-for-runtime))
         runtime-evidence (select-system-evidence query-tokens
-                                                 entities
+                                                 selected-system-ids
                                                  results
                                                  system-evidence
                                                  12)
