@@ -58,7 +58,7 @@ Inspect a mounted project config:
 docker run --rm \
   -v "$PWD:/workspace:ro" \
   -v "$HOME/.cache/agraph:/data" \
-  agraph:dev sync inspect /workspace/project.edn
+  agraph:dev status /workspace/project.edn
 ```
 
 For first-run onboarding in a mounted repo, write generated project files to a

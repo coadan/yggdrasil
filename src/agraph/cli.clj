@@ -37,7 +37,7 @@
             [clojure.string :as str])
   (:import [java.util.logging LogManager]))
 
-(declare usage dispatch)
+(declare usage dispatch print-json json-output?)
 
 (defn- silence-jul!
   []
@@ -358,6 +358,23 @@
   (doseq [{:keys [id root role]} repos]
     (println "-" id (clojure.core/name role) root))
   (print-evidence-summary evidence))
+
+(defn- print-project-status!
+  ([config-path args]
+   (when-not config-path
+     (throw (ex-info "Missing project config path." {:usage (usage)})))
+   (print-project-status! (project/read-project config-path) config-path args))
+  ([project config-path args]
+   (let [map-path (default-map-path args)]
+     (store/with-node (store/storage-path)
+       (fn [xtdb]
+         (let [result (project-inspect-result xtdb
+                                              project
+                                              {:config-path config-path
+                                               :map-path map-path})]
+           (if (json-output? args)
+             (print-json result)
+             (print-project-inspect result))))))))
 
 (defn- timing-total-text
   [stats]
@@ -1191,19 +1208,7 @@
     (case action
       :inspect
       (let [config-path (first (positional-args action-args))]
-        (when-not config-path
-          (throw (ex-info "Missing project config path." {:usage (usage)})))
-        (let [project (project/read-project config-path)
-              map-path (default-map-path action-args)]
-          (store/with-node (store/storage-path)
-            (fn [xtdb]
-              (let [result (project-inspect-result xtdb
-                                                   project
-                                                   {:config-path config-path
-                                                    :map-path map-path})]
-                (if (json-output? action-args)
-                  (print-json result)
-                  (print-project-inspect result)))))))
+        (print-project-status! config-path action-args))
 
       :add-repo
       (sync-add-repo! action-args)
@@ -2472,6 +2477,7 @@
     "  install-agent uninstall --platform codex --project"
     ""
     "Sync and maintenance:"
+    "  status <project.edn> [--map PATH] [--json]"
     "  sync <project.edn> [--repo ID] [--map PATH] [--check] [--enqueue] [--query-index] [--dry-run] [--json]"
     "  sync inspect <project.edn>"
     "  sync coverage <project.edn> [--json]"
@@ -2546,6 +2552,9 @@
 
     "sync"
     (sync-dispatch! args)
+
+    "status"
+    (print-project-status! (first (positional-args args)) args)
 
     "ask"
     (ask! args)
@@ -3261,16 +3270,7 @@
         (let [project (project/read-project config-path)]
           (case action
             :inspect
-            (store/with-node (store/storage-path)
-              (fn [xtdb]
-                (let [map-path (default-map-path project-args)
-                      result (project-inspect-result xtdb
-                                                     project
-                                                     {:config-path config-path
-                                                      :map-path map-path})]
-                  (if (json-output? project-args)
-                    (print-json result)
-                    (print-project-inspect result)))))
+            (print-project-status! project config-path project-args)
 
             :index
             (if (dry-run? project-args)

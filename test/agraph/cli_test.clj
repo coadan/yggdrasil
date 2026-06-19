@@ -53,6 +53,7 @@
     (is (str/includes? usage "Agent integration:"))
     (is (str/includes? usage "Server integration:"))
     (is (str/includes? usage "start <repo-root>"))
+    (is (str/includes? usage "status <project.edn>"))
     (is (str/includes? usage "sync <project.edn>"))
     (is (str/includes? usage "init <repo-root>"))
     (is (str/includes? usage "ask <text>"))
@@ -282,7 +283,7 @@
                                        :project? true})
       (is (= first-content (slurp agents)))
       (is (str/includes? first-content "Keep this line."))
-      (is (str/includes? first-content "agraph sync inspect <project.edn> --json"))
+      (is (str/includes? first-content "agraph status <project.edn> --json"))
       (is (str/includes? first-content "`available`, `counts`, and structured `nextActions`"))
       (is (str/includes? first-content "agraph ask \"<question>\" --project <project-id> --json"))
       (is (str/includes? first-content "agraph explore search <cursor-id> \"<follow-up query>\""))
@@ -1222,7 +1223,14 @@
              (get-in parsed [:evidence :counts])))
       (is (str/includes? plain-out "- activity-events 5"))
       (is (str/includes? plain-out "- validation-events 1"))
-      (is (str/includes? plain-out "- result-schema-mismatch-events 1")))))
+      (is (str/includes? plain-out "- result-schema-mismatch-events 1"))
+      (let [status-out (with-out-str
+                         (cli/dispatch "status" ["project.edn" "--json"]))
+            status-parsed (read-json-output status-out)]
+        (is (= "agraph.project.inspect/v1" (:schema status-parsed)))
+        (is (= "fixture" (get-in status-parsed [:project :id])))
+        (is (= ["source-graph" "docs"]
+               (get-in status-parsed [:evidence :available])))))))
 
 (deftest sync-activity-routes-through-project-config
   (let [calls (atom [])]
