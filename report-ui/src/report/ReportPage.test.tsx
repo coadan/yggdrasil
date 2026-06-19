@@ -47,10 +47,27 @@ describe("ReportPage", () => {
     expect(screen.getByText("graph.nodes.kind/tags")).toBeInTheDocument();
     expect(screen.getByText("Operator Review Queue")).toBeInTheDocument();
     expect(screen.getByText("Refresh indexed graph basis")).toBeInTheDocument();
+    expect(screen.getByText("Report Actions")).toBeInTheDocument();
+    expect(screen.getByText("Regenerate report")).toBeInTheDocument();
+    expect(screen.getByText("agraph report project.edn --map agraph.map.json --out agraph-out")).toBeInTheDocument();
     expect(screen.getByText("packages.unresolved-imports")).toBeInTheDocument();
     expect(screen.getAllByText("Evidence Rows").length).toBeGreaterThan(0);
     expect(screen.getByText("src/app/core.clj")).toBeInTheDocument();
 
+    const reportActions = screen.getByText("Report Actions").closest("section");
+    expect(reportActions).toBeTruthy();
+    const regenerateRow = within(reportActions as HTMLElement).getByText("Regenerate report").closest("article");
+    expect(regenerateRow).toBeTruthy();
+    fireEvent.click(within(regenerateRow as HTMLElement).getByRole("button", { name: "Copy command" }));
+    expect(within(regenerateRow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    fireEvent.click(within(regenerateRow as HTMLElement).getByRole("button", { name: "Ask" }));
+    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.getByText("What should I know before I run Regenerate report?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
     const inventory = screen.getByText("Project Inventory").closest("section");
     expect(inventory).toBeTruthy();
     fireEvent.click(within(inventory as HTMLElement).getByRole("button", { name: "Ask" }));

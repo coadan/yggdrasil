@@ -250,6 +250,125 @@ function CommandList({
   );
 }
 
+type ReportActionCommand = {
+  id: string;
+  label: string;
+  description: string;
+  command: string;
+  targetTab?: ReportTab;
+};
+
+function firstCommandMatching(commands: string[], pattern: RegExp): string | undefined {
+  return commands.find((command) => pattern.test(command));
+}
+
+function reportActionCommands(report: AGraphReport): ReportActionCommand[] {
+  const commands = report.commands || [];
+  const rows = [
+    {
+      id: "regenerate-report",
+      label: "Regenerate report",
+      description: "Rebuild the static report from the same project config and map overlay.",
+      command: firstCommandMatching(commands, /\breport\s+/)
+    },
+    {
+      id: "refresh-graph",
+      label: "Refresh graph basis",
+      description: "Run sync checks against the indexed graph basis before trusting stale rows.",
+      command: firstCommandMatching(commands, /\bsync\s+.*--check/),
+      targetTab: "evidence" as const
+    },
+    {
+      id: "review-work-queue",
+      label: "Review work queue",
+      description: "Inspect queued maintenance or correction work before applying map changes.",
+      command: firstCommandMatching(commands, /\bsync\s+work\s+list\b/),
+      targetTab: "maintenance" as const
+    },
+    {
+      id: "apply-completed-work",
+      label: "Apply completed work",
+      description: "Apply a validated work result into the map overlay.",
+      command: firstCommandMatching(commands, /\bsync\s+work\s+apply\b/),
+      targetTab: "maintenance" as const
+    },
+    {
+      id: "ask-cli",
+      label: "Ask with CLI",
+      description: "Run the equivalent graph question through the CLI when report-local Ask is too narrow.",
+      command: firstCommandMatching(commands, /\bask\s+/),
+      targetTab: "ask" as const
+    }
+  ];
+
+  const seen = new Set<string>();
+  return rows.flatMap((row) => {
+    if (!row.command || seen.has(row.command)) return [];
+    seen.add(row.command);
+    return [{ ...(row as ReportActionCommand), command: row.command }];
+  });
+}
+
+function ReportActions({
+  report,
+  copiedKey,
+  onAsk,
+  onCopyCommand,
+  onOpenTab
+}: {
+  report: AGraphReport;
+  copiedKey: string | null;
+  onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
+  onOpenTab: (tab: ReportTab) => void;
+}) {
+  const rows = reportActionCommands(report);
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="panel">
+      <h2>Report Actions</h2>
+      <div className="action-list">
+        {rows.map((row) => (
+          <article key={row.id} className="action-row">
+            <div>
+              <div className="action-row-meta">
+                <span>{row.id}</span>
+              </div>
+              <h3>{row.label}</h3>
+              <p>{row.description}</p>
+              <code>{row.command}</code>
+            </div>
+            <div className="action-row-buttons">
+              <button
+                type="button"
+                onClick={() =>
+                  onAsk({
+                    label: row.label,
+                    source: `report.commands.${row.id}`,
+                    question: `What should I know before I run ${row.label}?`,
+                    evidenceRows: [{ id: row.id, label: row.label, command: row.command, targetTab: row.targetTab }]
+                  })
+                }
+              >
+                Ask
+              </button>
+              {row.targetTab ? (
+                <button type="button" onClick={() => onOpenTab(row.targetTab as ReportTab)}>
+                  Open {row.targetTab}
+                </button>
+              ) : null}
+              <button type="button" onClick={() => onCopyCommand(`report-action:${row.id}`, row.command)}>
+                {copiedKey === `report-action:${row.id}` ? "Copied" : "Copy command"}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function projectMapPath(report: AGraphReport): string {
   return displayValue(report.project.mapPath || report.project.map_path || "agraph.map.json");
 }
@@ -1086,6 +1205,13 @@ function AtlasTab({
       </section>
 
       <ProjectInventory report={report} graph={graph} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} />
+      <ReportActions
+        report={report}
+        copiedKey={copiedActionKey}
+        onAsk={onAsk}
+        onCopyCommand={onCopyCommand}
+        onOpenTab={onOpenTab}
+      />
 
       <section className="panel">
         <h2>Evidence Surface</h2>
@@ -1731,6 +1857,13 @@ function DashboardTab({
         <h2>{report.project.name || report.project.id}</h2>
       </section>
       <ProjectInventory report={report} graph={graph} onAsk={onAsk} onOpenGraphSlice={onOpenGraphSlice} onOpenTab={onOpenTab} />
+      <ReportActions
+        report={report}
+        copiedKey={copiedActionKey}
+        onAsk={onAsk}
+        onCopyCommand={onCopyCommand}
+        onOpenTab={onOpenTab}
+      />
       <OperatorNextActions
         rows={nextActions}
         onAsk={onAsk}

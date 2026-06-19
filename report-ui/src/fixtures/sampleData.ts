@@ -335,8 +335,10 @@ export const fixtureReport: AGraphReport = {
   },
   commands: [
     "agraph sync project.edn --check --map agraph.map.json",
+    "agraph report project.edn --map agraph.map.json --out agraph-out",
     "agraph packages --project fixture --json",
     "agraph ask \"where is this handled?\" --project fixture --json",
+    "agraph sync work list --project fixture",
     "agraph sync work apply <work-id> --map agraph.map.json"
   ]
 };
