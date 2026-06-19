@@ -302,7 +302,7 @@
 (defn- top-ids-by-kind
   [scores docs n]
   (->> docs
-       (group-by :target-kind)
+       (group-by (juxt :target-kind #(or (:kind %) :unknown)))
        vals
        (mapcat (fn [kind-docs]
                  (->> kind-docs

@@ -238,6 +238,55 @@
                           (= "src/needle.clj" (:path %)))
                     results)))))))
 
+(deftest lexical-query-keeps-extracted-kind-candidates-when-node-kind-dominates
+  (store/with-node (temp-dir "agraph-query-extracted-kind-xtdb")
+    (fn [xtdb]
+      (let [symbol-docs (mapv (fn [idx]
+                                {:xt/id (str "search-doc:symbol:" idx)
+                                 :target-id (str "node:symbol:" idx)
+                                 :target-kind :node
+                                 :file-id (str "file:symbol:" idx)
+                                 :path (str "src/symbol" idx ".clj")
+                                 :kind :var
+                                 :label (str "demo/symbol" idx)
+                                 :text (str "demo/symbol" idx)
+                                 :tokens []
+                                 :score 1.0
+                                 :input-sha (str "symbol-" idx)
+                                 :source-line 1
+                                 :active? true
+                                 :run-id "run"})
+                              (range 3))
+            config-doc {:xt/id "search-doc:config"
+                        :target-id "node:config"
+                        :target-kind :node
+                        :file-id "file:config"
+                        :path "config/runtime.env"
+                        :kind :env-var
+                        :label "DATABASE_URL"
+                        :text "DATABASE_URL"
+                        :tokens []
+                        :score 0.25
+                        :input-sha "config"
+                        :source-line 1
+                        :active? true
+                        :run-id "run"}]
+        (store/execute-tx!
+         xtdb
+         (mapv #(store/put-op (store/table-ref :search-docs) %)
+               (conj symbol-docs config-doc))))
+      (with-redefs [query/default-lexical-candidates 1
+                    query/default-kind-candidates 1]
+        (let [results (query/semantic-query
+                       xtdb
+                       "runtime database configuration"
+                       {:retriever :lexical
+                        :limit 10})]
+          (is (some #(and (= :node (:target-kind %))
+                          (= :env-var (:kind %))
+                          (= "config/runtime.env" (:path %)))
+                    results)))))))
+
 (deftest lexical-query-includes-graph-neighbor-candidates
   (store/with-node (temp-dir "agraph-query-graph-neighbor-xtdb")
     (fn [xtdb]
