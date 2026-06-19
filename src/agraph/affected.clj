@@ -300,6 +300,16 @@
                      :via via)
         (seq test-evidence) (assoc :testEvidence test-evidence)))))
 
+(defn- changed-test-file-row
+  [nodes-by-file chunks-by-file files-by-id file-id]
+  (let [test-evidence (file-test-evidence nodes-by-file chunks-by-file file-id)]
+    (when (seq test-evidence)
+      (assoc (file-summary (get files-by-id file-id))
+             :edgeCount 0
+             :directions ["changed-file"]
+             :via []
+             :testEvidence test-evidence))))
+
 (defn- warning-rows
   [resolved-inputs changed-nodes affected-files tests-only?]
   (vec
@@ -413,12 +423,20 @@
                                                           changed-node-ids
                                                           %)))
         tests-only? (boolean (:tests-only? opts))
-        affected-files (->> affected-edge-rows
-                            (group-by (comp :xt/id :file))
-                            (keep #(affected-file-row nodes-by-file
-                                                      chunks-by-file
-                                                      tests-only?
-                                                      %))
+        changed-test-files (if tests-only?
+                             (keep #(changed-test-file-row nodes-by-file
+                                                           chunks-by-file
+                                                           files-by-id
+                                                           %)
+                                   changed-file-ids)
+                             [])
+        edge-affected-files (->> affected-edge-rows
+                                 (group-by (comp :xt/id :file))
+                                 (keep #(affected-file-row nodes-by-file
+                                                           chunks-by-file
+                                                           tests-only?
+                                                           %)))
+        affected-files (->> (concat changed-test-files edge-affected-files)
                             (sort-by (juxt :repo-id :path))
                             vec)
         unsupported-edges (->> (:edges rows)

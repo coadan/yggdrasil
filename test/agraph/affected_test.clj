@@ -107,6 +107,31 @@
                  (get-in result [:affectedFiles 0 :testEvidence]))))
     (is (some #(= "tests-filter-boundary" (:kind %)) (:warnings result)))))
 
+(deftest tests-filter-includes-changed-files-with-indexed-test-definitions
+  (let [result (affected/analyze-rows project
+                                      rows
+                                      {:repo-id "app"
+                                       :files ["test/core_test.clj"]
+                                       :tests-only? true})]
+    (is (= [{:repo-id "app"
+             :path "test/core_test.clj"
+             :fileId "file:test"
+             :kind "clojure"
+             :edgeCount 0
+             :directions ["changed-file"]
+             :via []
+             :testEvidence [{:xt/id "node:test"
+                             :label "core-test"
+                             :kind :test
+                             :path "test/core_test.clj"}]}]
+           (mapv #(update % :testEvidence
+                          (fn [evidence]
+                            (mapv (fn [row]
+                                    (dissoc row :source-line))
+                                  evidence)))
+                 (:affectedFiles result))))
+    (is (not-any? #(= "no-mechanical-test-impact" (:kind %)) (:warnings result)))))
+
 (deftest ambiguous-unscoped-paths-are-boundary-warnings
   (let [result (affected/analyze-rows project
                                       {:files [(file-row "app" "src/core.clj" "file:app-core")
