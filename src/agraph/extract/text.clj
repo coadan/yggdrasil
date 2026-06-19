@@ -77,3 +77,123 @@
                :active? true
                :run-id run-id}]
      :diagnostics []}))
+
+(def ^:private shell-function-name-pattern
+  "[A-Za-z_][A-Za-z0-9_:-]*")
+(def ^:private shell-function-with-parens-pattern
+  (re-pattern (str "^\\s*(" shell-function-name-pattern ")\\s*\\(\\s*\\)\\s*(?:\\{.*)?$")))
+(def ^:private shell-function-keyword-pattern
+  (re-pattern (str "^\\s*function\\s+(" shell-function-name-pattern ")"
+                   "(?:\\s*\\(\\s*\\))?\\s*(?:\\{.*)?$")))
+(defn- shell-function-name
+  [line]
+  (or (some-> (re-matches shell-function-with-parens-pattern line) second)
+      (some-> (re-matches shell-function-keyword-pattern line) second)))
+(defn- next-nonblank-line
+  [lines idx]
+  (->> lines
+       (drop (inc idx))
+       (drop-while str/blank?)
+       first))
+(defn- shell-function-start?
+  [lines idx line]
+  (and (shell-function-name line)
+       (or (str/includes? line "{")
+           (= "{" (some-> (next-nonblank-line lines idx) str/trim)))))
+(defn- shell-function-facts
+  [content]
+  (let [lines (vec (str/split-lines (or content "")))
+        offsets (vec (common/line-start-offsets (or content "")))]
+    (->> lines
+         (map-indexed vector)
+         (keep (fn [[idx line]]
+                 (when (shell-function-start? lines idx line)
+                   (let [source-line (inc idx)
+                         text (or (common/balanced-curly-block content (nth offsets idx))
+                                  line)
+                         line-count (count (str/split-lines text))]
+                     {:name (shell-function-name line)
+                      :source-line source-line
+                      :end-line (+ source-line line-count -1)
+                      :text text}))))
+         vec)))
+(def ^:private shell-command-pattern
+  (re-pattern (str "(?:^|[;&|({]|\\$\\()\\s*(" shell-function-name-pattern ")\\b")))
+(def ^:private shell-syntax-commands
+  #{"case" "do" "done" "echo" "elif" "else" "esac" "exit" "export" "fi" "for" "function" "if" "in"
+    "return" "set" "then" "unset" "until" "while"})
+(defn- shell-command-names
+  [line]
+  (when-not (str/starts-with? (str/trim (or line "")) "#")
+    (->> (re-seq shell-command-pattern (or line ""))
+         (map second)
+         (remove shell-syntax-commands)
+         distinct
+         vec)))
+(defn- shell-call-facts
+  [content]
+  (let [lines (vec (str/split-lines (or content "")))]
+    (->> lines
+         (map-indexed vector)
+         (mapcat (fn [[idx line]]
+                   (when-not (shell-function-start? lines idx line)
+                     (map (fn [name]
+                            {:name name
+                             :source-line (inc idx)})
+                          (shell-command-names line)))))
+         distinct
+         vec)))
+(defn extract-shell
+  "Extract shell scripts as file chunks plus function definitions."
+  [run-id {:keys [id-scope file-id path content] :as file}]
+  (let [file-node (common/generic-node run-id id-scope file-id path :shell-file path 1)
+        file-chunk-result (extract-text-source run-id file :shell-file)
+        functions (shell-function-facts content)
+        calls (shell-call-facts content)
+        function-label (fn [{:keys [name]}]
+                         (str path "/" name))
+        function-nodes (mapv (fn [{:keys [source-line] :as function}]
+                               (common/generic-node run-id
+                                             id-scope
+                                             file-id
+                                             path
+                                             :shell-function
+                                             (function-label function)
+                                             source-line))
+                             functions)
+        function-edges (mapv (fn [{:keys [source-line] :as function}]
+                               (common/edge-row run-id
+                                         file-id
+                                         path
+                                         (:xt/id file-node)
+                                         (common/node-id id-scope
+                                                  :shell-function
+                                                  (function-label function))
+                                         :defines
+                                         :extracted
+                                         source-line))
+                             functions)
+        call-edges (mapv (fn [{:keys [name source-line]}]
+                           (common/edge-row run-id
+                                     file-id
+                                     path
+                                     (:xt/id file-node)
+                                     (common/node-id id-scope :shell-function name)
+                                     :calls
+                                     :extracted
+                                     source-line))
+                         calls)
+        function-chunks (mapv (fn [{:keys [source-line text] :as function}]
+                                (common/source-definition-chunk run-id
+                                                         id-scope
+                                                         file-id
+                                                         path
+                                                         (function-label function)
+                                                         :function
+                                                         source-line
+                                                         text))
+                              functions)]
+    {:nodes (into [file-node] function-nodes)
+     :edges (vec (concat function-edges call-edges))
+     :chunks (vec (concat (:chunks file-chunk-result) function-chunks))
+     :diagnostics []}))
