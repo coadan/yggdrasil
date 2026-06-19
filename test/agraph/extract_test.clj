@@ -4635,13 +4635,33 @@
                             "  return readFileSync(id, \"utf8\");\n"
                             "}\n")}
         result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
         relations (frequencies (map :relation (:edges result)))]
     (is (= :typescript (:kind file)))
+    (is (contains? labels "scripts.panel"))
+    (is (contains? labels "scripts.panel/loadPanel"))
+    (is (not (contains? labels "scripts.panel.cts")))
     (is (= [:typescript-file
             :code-definition]
            (mapv :kind (:chunks result))))
     (is (= 1 (get relations :imports 0)))
     (is (= 1 (get relations :defines 0)))
+    (is (empty? (:diagnostics result)))))
+
+(deftest extracts-typescript-esm-module-files-with-clean-labels
+  (let [file {:file-id "file:scripts/panel.mts"
+              :path "scripts/panel.mts"
+              :kind (fs/file-kind "scripts/panel.mts")
+              :content "export const route = '/panels';\n"}
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))]
+    (is (= :typescript (:kind file)))
+    (is (contains? labels "scripts.panel"))
+    (is (contains? labels "scripts.panel/route"))
+    (is (not (contains? labels "scripts.panel.mts")))
+    (is (= [:typescript-file
+            :code-definition]
+           (mapv :kind (:chunks result))))
     (is (empty? (:diagnostics result)))))
 
 (deftest extracts-typescript-declaration-member-chunks
