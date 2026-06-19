@@ -139,6 +139,15 @@
   (let [suite (benchmark/read-suite "benchmarks/headline.edn")
         cases (:cases suite)
         tags (set (mapcat :tags cases))
+        tag-counts (frequencies (mapcat :tags cases))
+        measured-architecture-tags (->> tag-counts
+                                        (filter (fn [[tag count]]
+                                                  (and (str/starts-with?
+                                                        tag
+                                                        "architecture-")
+                                                       (<= 2 count))))
+                                        (mapv first)
+                                        sort)
         source-kinds (set (mapcat #(get-in % [:coverage :source-kinds]) cases))
         repo-ids (set (map :repo-id cases))
         evidence-kinds (set (mapcat #(map :kind (get-in % [:expectations :evidence])) cases))
@@ -167,7 +176,9 @@
                  "architecture-data-ownership"
                  "architecture-runtime-boundary"
                  "docs-contracts"
-                 "runtime-config"]))))
+                 "runtime-config"]))
+    (is (= ["architecture-dependency-flow" "architecture-runtime-boundary"]
+           measured-architecture-tags))))
 
 (deftest scores-file-localization
   (let [result {:groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]

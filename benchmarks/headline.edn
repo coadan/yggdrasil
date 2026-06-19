@@ -78,6 +78,7 @@
                  :synthetic
                  :problem-architecture
                  :architecture-data-ownership
+                 :architecture-runtime-boundary
                  :runtime-config
                  :database]
           :base-sha "948b5feb51b9605babc6820475b5ccff44f29552"
