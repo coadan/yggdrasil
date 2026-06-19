@@ -1193,10 +1193,15 @@
                                       :available [:source-graph :docs]
                                       :counts {:files 2
                                                :nodes 3
-                                               :edges 4}
+                                               :edges 4
+                                               :activity-events 5
+                                               :validation-events 1
+                                               :result-schema-mismatch-events 1}
                                       :next ["agraph ask \"where is this handled?\" --project fixture --json"]})]
     (let [out (with-out-str
                 (cli/dispatch "sync" ["inspect" "project.edn" "--json"]))
+          plain-out (with-out-str
+                      (cli/dispatch "sync" ["inspect" "project.edn"]))
           parsed (read-json-output out)]
       (is (= "agraph.project.inspect/v1" (:schema parsed)))
       (is (= "fixture" (get-in parsed [:project :id])))
@@ -1208,8 +1213,14 @@
       (is (= ["source-graph" "docs"] (get-in parsed [:evidence :available])))
       (is (= {:files 2
               :nodes 3
-              :edges 4}
-             (get-in parsed [:evidence :counts]))))))
+              :edges 4
+              :activity-events 5
+              :validation-events 1
+              :result-schema-mismatch-events 1}
+             (get-in parsed [:evidence :counts])))
+      (is (str/includes? plain-out "- activity-events 5"))
+      (is (str/includes? plain-out "- validation-events 1"))
+      (is (str/includes? plain-out "- result-schema-mismatch-events 1")))))
 
 (deftest sync-activity-routes-through-project-config
   (let [calls (atom [])]
