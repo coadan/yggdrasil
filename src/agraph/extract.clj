@@ -1938,7 +1938,7 @@
 (defn- source-module-name
   [path]
   (-> path
-      (str/replace #"\.d\.ts$" "")
+      (str/replace #"\.d\.(?:ts|mts|cts)$" "")
       (str/replace #"\.rb\.template$" "")
       (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|groovy|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|m|ml|mli|mm|mjs|cjs|jsx|js|odin|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
       (str/replace #"/" ".")
@@ -2079,7 +2079,7 @@
 
 (defn- typescript-declaration-path?
   [path]
-  (str/ends-with? (str path) ".d.ts"))
+  (boolean (re-find #"\.d\.(?:ts|mts|cts)$" (str path))))
 
 (defn- typescript-declaration-member-line
   [idx line]

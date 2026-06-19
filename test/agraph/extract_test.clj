@@ -4650,12 +4650,22 @@
                (.mkdirs)
                (.deleteOnExit))
         source (io/file root "src/plugin-types/index.d.ts")
+        cjs-source (io/file root "src/plugin-types/node.d.cts")
+        esm-source (io/file root "src/plugin-types/browser.d.mts")
         content "export interface Context {\n  /**\n   * Opens a page in the current file.\n   * @example\n   * ```js\n   * penpot.openPage(page);\n   * ```\n   */\n  openPage(page: Page | string): void;\n  /**\n   * Creates a board and then appends a child.\n   * @example\n   * ```js\n   * const board = penpot.createBoard();\n   * board.appendChild(shape);\n   * ```\n   */\n  createBoard(): Board;\n}\nexport interface Board {\n  appendChild(child: Shape): void;\n}\nexport interface Page {\n  readonly root: Shape;\n}\n"
         _ (.mkdirs (.getParentFile source))
         _ (spit source content)
+        _ (spit cjs-source "export interface NodeContext {\n  resolve(id: string): string;\n}\n")
+        _ (spit esm-source "export interface BrowserContext {\n  readonly origin: string;\n}\n")
         result (extract/extract-file "run/test"
                                      (fs/file-record (.getPath root)
                                                      (.getPath source)))
+        cjs-result (extract/extract-file "run/test"
+                                         (fs/file-record (.getPath root)
+                                                         (.getPath cjs-source)))
+        esm-result (extract/extract-file "run/test"
+                                         (fs/file-record (.getPath root)
+                                                         (.getPath esm-source)))
         chunks-by-label (group-by :label (:chunks result))]
     (is (some? (get chunks-by-label "src.plugin_types.index/openPage")))
     (is (some? (get chunks-by-label "src.plugin_types.index/createBoard")))
@@ -4666,7 +4676,11 @@
               (get chunks-by-label "src.plugin_types.index/openPage")))
     (is (some #(and (= :property (:definition-kind %))
                     (str/includes? (:text %) "readonly root"))
-              (get chunks-by-label "src.plugin_types.index/root")))))
+              (get chunks-by-label "src.plugin_types.index/root")))
+    (is (some #(= "src.plugin_types.node/resolve" (:label %))
+              (:chunks cjs-result)))
+    (is (some #(= "src.plugin_types.browser/origin" (:label %))
+              (:chunks esm-result)))))
 
 (deftest extracts-style-as-searchable-source-chunk
   (let [style-result (extract/extract-file
