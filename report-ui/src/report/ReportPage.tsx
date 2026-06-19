@@ -409,6 +409,25 @@ function sourceRefs(rows: Array<Record<string, unknown>>): string[] {
   return [...refs];
 }
 
+function reviewEvidencePacket(row: ReviewQueueRow): string {
+  return JSON.stringify(
+    {
+      id: row.id,
+      area: row.area,
+      label: row.label,
+      severity: row.severity,
+      source: row.source,
+      targetTab: row.targetTab,
+      graphSliceId: row.graphSliceId,
+      command: row.command,
+      evidence: row.evidence,
+      evidenceRows: row.evidenceRows || []
+    },
+    null,
+    2
+  );
+}
+
 function pluginArtifactRefs(rows: Array<Record<string, unknown>>): string[] {
   const refs = new Set<string>();
   for (const row of rows) {
@@ -544,6 +563,14 @@ function ReviewQueue({
                     onClick={() => onCopyCommand(`review-sources:${row.id}`, sourceRefs(row.evidenceRows || []).join("\n"))}
                   >
                     {copiedKey === `review-sources:${row.id}` ? "Copied" : "Copy source refs"}
+                  </button>
+                ) : null}
+                {(row.evidenceRows || []).length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => onCopyCommand(`review-evidence:${row.id}`, reviewEvidencePacket(row))}
+                  >
+                    {copiedKey === `review-evidence:${row.id}` ? "Copied" : "Copy evidence JSON"}
                   </button>
                 ) : null}
               </div>

@@ -162,6 +162,8 @@ describe("ReportPage", () => {
     expect(within(row as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
     fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Copy source refs" }));
     expect(within(row as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Copy evidence JSON" }));
+    expect(within(row as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
 
     fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Open dependencies" }));
 
