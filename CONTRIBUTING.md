@@ -44,3 +44,23 @@ clojure -M:format/check
 - Keep external provider use optional.
 - Do not log or persist secret values; store names, hosts, ports, routes, hashes,
   and bounded previews only.
+
+## Plugin Contributions
+
+Keep project-specific extractors and reports as explicit plugins. Do not promote
+a plugin idea into core if it depends on one repository's helper names, product
+vocabulary, host names, path semantics, prose, or brittle substring rules.
+
+Core promotion PRs that start from plugin work must include:
+
+- project-agnostic extractor/report behavior suitable for base support;
+- fixtures and tests for the promoted behavior;
+- benchmark cases and generated reports showing material improvement for the
+  relevant problem class;
+- clear before/after evidence when the claim compares shell-only, core AGraph,
+  and plugin-enhanced AGraph;
+- FOSS, non-commercial package metadata when the work was developed as a public
+  plugin package.
+
+Unbenchmarked or project-local plugins can still be useful, but keep them
+external and non-authoritative for public claims until benchmark artifacts exist.
