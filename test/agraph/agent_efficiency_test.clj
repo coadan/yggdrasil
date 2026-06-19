@@ -825,6 +825,8 @@
     (is (.contains markdown "- Status: agraph-improved"))
     (is (.contains markdown "## Category Signals"))
     (is (.contains markdown "- command-telemetry: agraph-improved"))
+    (is (.contains markdown "## Case Signals"))
+    (is (.contains markdown "- case-1: agraph-improved"))
     (is (.contains markdown "- Claim readiness: not-supported"))))
 
 (deftest plain-output-shows-category-and-class-signals

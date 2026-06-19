@@ -773,6 +773,13 @@
        architectureClasses
        " measured"))
 
+(defn- case-delta-line
+  [{:keys [caseId summary]}]
+  (str "- " caseId ": " (:signal summary)
+       " (improved: " (:improvedMetrics summary)
+       ", regressed: " (:regressedMetrics summary)
+       ", unavailable: " (:unavailableMetrics summary) ")"))
+
 (defn- class-tag-groups
   [comparison pred]
   (->> (get-in comparison [:byTag :groups])
@@ -786,6 +793,7 @@
         warnings (get-in comparison [:claimReadiness :warnings])
         notes (get-in comparison [:claimReadiness :notes])
         categories (:byCategory comparison)
+        case-deltas (:caseDeltas comparison)
         problem-groups (class-tag-groups comparison
                                          benchmark-classes/problem-class-tag?)
         architecture-groups (class-tag-groups
@@ -824,6 +832,9 @@
               (when (seq categories)
                 (concat ["" "## Category Signals" ""]
                         (map category-line categories)))
+              (when (seq case-deltas)
+                (concat ["" "## Case Signals" ""]
+                        (map case-delta-line case-deltas)))
               (when (seq problem-groups)
                 (concat ["" "## Problem-Class Signals" ""]
                         (map tag-group-line problem-groups)))
