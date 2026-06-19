@@ -480,6 +480,23 @@
        (take evidence-type-limit)
        vec))
 
+(defn- report-file-kind-counts
+  [rows]
+  (->> rows
+       (keep (fn [{:keys [row]}]
+               (when-let [file-kind (normalize-key (row-file-kind row))]
+                 (when-let [path (selected-path row)]
+                   [file-kind path]))))
+       distinct
+       (map first)
+       frequencies
+       (map (fn [[file-kind n]]
+              {:kind file-kind
+               :files n}))
+       (sort-by (juxt (comp - long :files) :kind))
+       (take evidence-type-limit)
+       vec))
+
 (defn- report-sample-rows
   [rows]
   (->> rows
@@ -506,6 +523,7 @@
         diagnostics (count (filter :diagnostic? rows))
         overlays (count (filter :overlay? rows))
         evidence-types (report-evidence-type-counts rows)
+        file-kinds (report-file-kind-counts rows)
         samples (report-sample-rows rows)]
     (cond-> {:kind scope
              :basis "indexed-graph"
@@ -515,6 +533,7 @@
              :diagnostics diagnostics
              :overlayCount overlays}
       (seq evidence-types) (assoc :topEvidenceTypes evidence-types)
+      (seq file-kinds) (assoc :topFileKinds file-kinds)
       (seq samples) (assoc :samples samples))))
 
 (defn- registry-diagnostic-row

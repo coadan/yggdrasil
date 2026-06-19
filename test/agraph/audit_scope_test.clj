@@ -303,8 +303,19 @@
     (is (= 1 (get-in scopes-by-kind ["docs" :facts])))
     (is (= 1 (get-in scopes-by-kind ["docs" :overlayCount])))
     (is (= 1 (get-in scopes-by-kind ["dependencies" :facts])))
+    (is (= [{:kind "code"
+             :files 1}
+            {:kind "manifest"
+             :files 1}]
+           (get-in scopes-by-kind ["dependencies" :topFileKinds])))
     (is (= 1 (get-in scopes-by-kind ["runtime-config" :facts])))
+    (is (= [{:kind "env"
+             :files 1}]
+           (get-in scopes-by-kind ["runtime-config" :topFileKinds])))
     (is (= 1 (get-in scopes-by-kind ["containers" :facts])))
+    (is (= [{:kind "docker"
+             :files 1}]
+           (get-in scopes-by-kind ["containers" :topFileKinds])))
     (is (= 1 (get-in scopes-by-kind ["assets" :supportedFiles])))
     (is (= 1 (get-in scopes-by-kind ["unclassified-extractor" :supportedFiles])))
     (is (= 1 (get-in scopes-by-kind ["unclassified-extractor" :skippedFiles])))
