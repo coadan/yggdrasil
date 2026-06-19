@@ -972,6 +972,10 @@
       (when-not (present? (:source entry))
         [{:code :registry-source-missing
           :message "Registry entry is missing :source for git installation."}])
+      (when (and (present? (:source entry))
+                 (not (present? (:ref entry))))
+        [{:code :registry-ref-missing
+          :message "Registry entry is missing :ref for reproducible git installation."}])
       (when (and declared-id package-id (not= declared-id package-id))
         [{:code :registry-id-mismatch
           :message "Registry entry id does not match package manifest id."

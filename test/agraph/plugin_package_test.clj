@@ -725,7 +725,8 @@
         registry-path (io/file workspace "registry.edn")
         base-dir (io/file workspace "base")
         local-dir (io/file workspace "local")
-        missing-source-dir (io/file workspace "missing-source")]
+        missing-source-dir (io/file workspace "missing-source")
+        floating-ref-dir (io/file workspace "floating-ref")]
     (.mkdirs base-dir)
     (.mkdirs local-dir)
     (write-file! (.getPath base-dir)
@@ -751,6 +752,9 @@
                  "extract.py"
                  "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
     (write-file! (.getPath missing-source-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (write-file! (.getPath floating-ref-dir)
                  "extract.py"
                  "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
     (write-file! (.getPath local-dir)
@@ -785,6 +789,22 @@
                    [{:id "missing-source-extractor"
                      :command ["python3" "extract.py"]
                      :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath floating-ref-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "floating-ref-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Reusable fixture."}
+                   :benchmark {:status :unbenchmarked}
+                   :extractor-plugins
+                   [{:id "floating-ref-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
     (spit registry-path
           (pr-str {:schema plugin-package/registry-schema
                    :id "official"
@@ -796,18 +816,23 @@
                               {:id "local-plugin"
                                :path "local"}
                               {:id "missing-source-plugin"
-                               :path "missing-source"}]}))
+                               :path "missing-source"}
+                              {:id "floating-ref-plugin"
+                               :path "floating-ref"
+                               :source "https://github.com/org/agraph-plugins.git"
+                               :subdir "packages/floating-ref"}]}))
     (let [result (plugin-package/validate-registry (.getPath registry-path))
           by-id (into {} (map (juxt :id identity) (:packages result)))]
       (is (= plugin-package/registry-validate-schema (:schema result)))
       (is (= :failed (:status result)))
-      (is (= {:packages 3
+      (is (= {:packages 4
               :passed 1
-              :failed 2
+              :failed 3
               :claim-ready 0
-              :non-authoritative 3}
+              :non-authoritative 4}
              (:counts result)))
       (is (= {:registry-source-missing 2
+              :registry-ref-missing 1
               :public-sharing-not-ready 1}
              (:error-counts result)))
       (is (= :passed (get-in by-id ["base-plugin" :status])))
@@ -826,7 +851,10 @@
              (mapv :code (get-in by-id ["local-plugin" :errors]))))
       (is (= :failed (get-in by-id ["missing-source-plugin" :status])))
       (is (= [:registry-source-missing]
-             (mapv :code (get-in by-id ["missing-source-plugin" :errors])))))))
+             (mapv :code (get-in by-id ["missing-source-plugin" :errors]))))
+      (is (= :failed (get-in by-id ["floating-ref-plugin" :status])))
+      (is (= [:registry-ref-missing]
+             (mapv :code (get-in by-id ["floating-ref-plugin" :errors])))))))
 
 (deftest registry-validation-rejects-duplicate-package-ids
   (let [workspace (temp-dir "agraph-plugin-registry-duplicate-id")
@@ -858,10 +886,12 @@
                    :packages [{:id "base-plugin"
                                :path "package"
                                :source "https://github.com/org/agraph-plugins.git"
+                               :ref "v0.1.0"
                                :subdir "packages/base-plugin"}
                               {:id "base-plugin"
                                :path "package"
                                :source "https://github.com/org/agraph-plugins.git"
+                               :ref "v0.1.0"
                                :subdir "packages/base-plugin-copy"}]}))
     (let [result (plugin-package/validate-registry (.getPath registry-path))]
       (is (= :failed (:status result)))

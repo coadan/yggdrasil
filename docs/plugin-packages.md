@@ -226,9 +226,9 @@ Public registry indexes are EDN files that combine two roles:
 - `:source`, `:ref`, and `:subdir` describe how another project installs the
   package from git.
 
-Registry entries must use unique package ids and include both `:path` and
-`:source` to pass validation. `:ref` and `:subdir` are optional, but recommended
-for reproducible installs when the package does not live at the repository root.
+Registry entries must use unique package ids and include `:path`, `:source`, and
+`:ref` to pass validation. `:subdir` is optional, but recommended when the
+package does not live at the repository root.
 
 ```clojure
 {:schema "agraph.plugin.registry/v1"
@@ -248,11 +248,12 @@ bb plugin registry validate registry.edn --json
 
 Validation reads each local package manifest and runs `plugin diagnose`; it does
 not fetch git sources. A registry entry passes when the package is ready or
-caution for public sharing, declares a git `:source`, and has a package id that
-is unique within the registry. Project-local, commercial, non-FOSS, invalid,
-missing, non-installable, or duplicate-id packages fail the registry check.
-Unbenchmarked base packages may be listed as experimental, but public claims and
-core promotion remain blocked until benchmark artifacts exist.
+caution for public sharing, declares a git `:source` and pinned `:ref`, and has a
+package id that is unique within the registry. Project-local, commercial,
+non-FOSS, invalid, missing, non-installable, duplicate-id, or floating-ref
+packages fail the registry check. Unbenchmarked base packages may be listed as
+experimental, but public claims and core promotion remain blocked until
+benchmark artifacts exist.
 JSON validation output includes install metadata when `:source` is present,
 including a copyable `bb plugin install` command, plus `:claim-ready` and
 `:non-authoritative` counts and `:error-counts` grouped by registry error code.
