@@ -225,8 +225,10 @@ or human process. AGraph writes an `agraph.queue.item/v1` JSON file to
 Queue listings and claimed work summaries use `agraph.queue.summary/v1` and
 include `actions` rows with executable commands for inspecting payloads,
 claiming, extending leases, completing, releasing, rejecting, or applying work
-results. Agents should use those commands instead of reconstructing queue paths
-or item ids from payloads.
+results. When a packet declares `expectedResultSchema`, summaries expose it as
+`expected-result-schema` so agents know which result JSON shape to produce before
+loading the full payload. Agents should use those commands instead of
+reconstructing queue paths or item ids from payloads.
 
 ```sh
 agraph sync check project.edn --map agraph.map.json --enqueue
@@ -243,6 +245,9 @@ consumer result should be an explicit JSON artifact such as a map patch,
 classification, or finding. `sync work complete` stores the artifact for audit.
 `sync activity` imports queue item lifecycle and validation-shaped result facts
 into XTDB so future `ask --json` packets can include `activity` matches.
+Activity matches include `payloadSchema`, `expectedResultSchema`, and
+`resultSchema` when available, preserving both the requested and actual result
+contracts.
 `sync work apply` validates supported result schemas before writing accepted
 changes to `agraph.map.json`.
 
