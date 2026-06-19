@@ -95,10 +95,11 @@ bb efficiency \
 Read `Problem-class signals`, `Architecture-class signals`, and
 `Claim readiness` together. A headline result is useful only when the compared
 lanes share completed cases, architecture-class tags are measured, evidence
-quality is available, and the report remains claim-ready. In `--json` output,
-read `classSignals.problemClasses` and `classSignals.architectureClasses`; a
-row with `measured: false` is useful context but does not count toward broad
-claim readiness. Use `classSignals.summary.measuredProblemClasses` and
+quality is available, expected-evidence citation metrics are present, and the
+report remains claim-ready. In `--json` output, read
+`classSignals.problemClasses` and `classSignals.architectureClasses`; a row with
+`measured: false` is useful context but does not count toward broad claim
+readiness. Use `classSignals.summary.measuredProblemClasses` and
 `classSignals.summary.measuredArchitectureClasses` for automated gates. Treat
 `improvementTargetRuns` as lower-is-better: a run that improves recall but
 introduces more remediation targets is a mixed result, not a broad efficiency
@@ -655,6 +656,13 @@ given.
   cited by the agent result evidence strings. Path-bearing expectation rows
   require a matching path citation; rows without a path fall back to the declared
   label. The metric is emitted only for cases that declare expectation evidence.
+- `expectationDiagnostics`: report-level and grouped counters showing how many
+  runs declared expected evidence and how many had scored
+  `expectedEvidenceCitationRate` metrics. Claim readiness requires at least one
+  expected-evidence citation metric and no declared expected-evidence rows with
+  missing scored metrics. If stale or hand-written score artifacts declare
+  expected evidence without the scored metric, `improvementSummary` includes an
+  `expected-evidence-citation-metric-gaps` benchmark-hygiene row.
 - `changedFiles`: files changed by the fixing diff.
 - `localizationFiles`: localization target files, or changed files when no
   explicit localization set was provided.
