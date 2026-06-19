@@ -42,6 +42,27 @@
                     (merge {:phase phase}
                            extra)))))
 
+(def default-progress-interval
+  50)
+
+(defn- progress!
+  [progress-fn project-id repo-id event]
+  (when (and progress-fn event)
+    (progress-fn (assoc event
+                        :project-id project-id
+                        :repo-id repo-id))))
+
+(defn- normalized-progress-interval
+  [progress-interval]
+  (max 1 (long (or progress-interval default-progress-interval))))
+
+(defn- extraction-progress?
+  [idx total progress-interval]
+  (let [finished (inc (long idx))]
+    (or (= finished total)
+        (= 1 finished)
+        (zero? (mod finished progress-interval)))))
+
 (defn- git-sha
   [root]
   (let [{:keys [exit out]} (shell/sh "git" "-C" root "rev-parse" "HEAD")]
@@ -264,7 +285,8 @@
 (defn index-repo!
   "Index root into XTDB. Returns run summary."
   [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile map-overlay
-                     index-timeout-ms index-deadline-ns extractor-plugins]
+                     index-timeout-ms index-deadline-ns extractor-plugins
+                     progress-fn progress-interval]
               :or {dry-run? false
                    project-id default-project-id
                    repo-id default-repo-id
@@ -273,8 +295,16 @@
   (let [started (now-ms)
         index-deadline-ns (or index-deadline-ns (deadline-ns index-timeout-ms))
         index-profile (normalize-index-profile index-profile)
+        progress-interval (normalized-progress-interval progress-interval)
         extractor-plugins (extractor-plugin/normalize-plugins extractor-plugins)
         [root-path timings] (timed {} :canonicalize-root-ms #(fs/canonical-path root))
+        _ (progress! progress-fn
+                     project-id
+                     repo-id
+                     {:phase :repo-start
+                      :root root-path
+                      :index-profile index-profile
+                      :dry-run? dry-run?})
         _ (check-deadline! index-deadline-ns
                            :canonicalize-root
                            {:project-id project-id
@@ -305,6 +335,11 @@
                                                 (scoped-file project-id repo-id file))))
                                        (sort-by :path)
                                        vec)))
+        _ (progress! progress-fn
+                     project-id
+                     repo-id
+                     {:phase :scan-complete
+                      :files-scanned (count files)})
         _ (check-deadline! index-deadline-ns
                            :scan
                            {:project-id project-id
@@ -349,6 +384,12 @@
                          :files-deleted 0}}]
     (if dry-run?
       (let [finished-at (now-ms)]
+        (progress! progress-fn
+                   project-id
+                   repo-id
+                   {:phase :dry-run-complete
+                    :files-scanned (count files)
+                    :total-ms (max 0 (- finished-at started))})
         (assoc initial
                :status :dry-run
                :finished-at-ms finished-at
@@ -402,6 +443,14 @@
                                                         :valid-from valid-from}))))
                                          {:changed [] :skipped 0}
                                          files))
+              _ (progress! progress-fn
+                           project-id
+                           repo-id
+                           {:phase :plan-complete
+                            :files-scanned (count files)
+                            :files-changed (count (:changed planned-files))
+                            :files-skipped (:skipped planned-files)
+                            :files-deleted (count removed-files)})
               _ (check-deadline! index-deadline-ns
                                  :plan-changes
                                  {:project-id project-id
@@ -419,6 +468,11 @@
                                  {:project-id project-id
                                   :repo-id repo-id
                                   :files-changed (count (:changed planned-files))})
+              _ (progress! progress-fn
+                           project-id
+                           repo-id
+                           {:phase :extract-start
+                            :files-changed (count (:changed planned-files))})
               [planned timings] (timed
                                  timings
                                  :extract-ms
@@ -449,35 +503,69 @@
                                                                   :repo-id repo-id
                                                                   :root-path root-path
                                                                   :file file}
-                                                                 core-extraction)]
-                                                 {:file-row (->file-row run-id
-                                                                        (:xt/id snapshot)
-                                                                        valid-from
-                                                                        project-id
-                                                                        repo-id
-                                                                        root-path
-                                                                        repo-role
-                                                                        file)
-                                                  :extraction (indexable-extraction
-                                                               run-id
-                                                               project-id
-                                                               repo-id
-                                                               index-profile
-                                                               extractor-plugins
-                                                               file
-                                                               extraction)
-                                                  :existing? existing?
-                                                  :valid-from valid-from}))
+                                                                 core-extraction)
+                                                     entry {:file-row (->file-row run-id
+                                                                                  (:xt/id snapshot)
+                                                                                  valid-from
+                                                                                  project-id
+                                                                                  repo-id
+                                                                                  root-path
+                                                                                  repo-role
+                                                                                  file)
+                                                            :extraction (indexable-extraction
+                                                                         run-id
+                                                                         project-id
+                                                                         repo-id
+                                                                         index-profile
+                                                                         extractor-plugins
+                                                                         file
+                                                                         extraction)
+                                                            :existing? existing?
+                                                            :valid-from valid-from}]
+                                                 (progress! progress-fn
+                                                            project-id
+                                                            repo-id
+                                                            (when (extraction-progress?
+                                                                   idx
+                                                                   (count changed)
+                                                                   progress-interval)
+                                                              {:phase :extract-progress
+                                                               :files-extracted (inc idx)
+                                                               :files-changed (count changed)
+                                                               :path (:path file)}))
+                                                 entry))
                                              (range)
                                              changed))))
+              _ (progress! progress-fn
+                           project-id
+                           repo-id
+                           {:phase :extract-complete
+                            :files-extracted (count (:changed planned))
+                            :files-changed (count (:changed planned-files))})
               _ (check-deadline! index-deadline-ns
                                  :extract
                                  {:project-id project-id
                                   :repo-id repo-id
                                   :files-extracted (count (:changed planned))})
+              _ (progress! progress-fn
+                           project-id
+                           repo-id
+                           {:phase :commit-start
+                            :files-indexed (count (:changed planned))})
               [result timings] (timed timings
                                       :commit-files-ms
                                       #(store/commit-files! xtdb (:changed planned)))
+              _ (progress! progress-fn
+                           project-id
+                           repo-id
+                           {:phase :commit-complete
+                            :files-indexed (count (:changed planned))
+                            :nodes (:nodes result)
+                            :edges (:edges result)
+                            :chunks (:chunks result)
+                            :file-facts (:file-facts result)
+                            :search-docs (:search-docs result)
+                            :diagnostics (:diagnostics result)})
               _ (check-deadline! index-deadline-ns
                                  :commit-files
                                  {:project-id project-id
@@ -488,11 +576,20 @@
                                        #(store/commit-file-deletes! xtdb
                                                                     removed-files
                                                                     {:valid-from valid-from}))
+              _ (progress! progress-fn
+                           project-id
+                           repo-id
+                           {:phase :delete-complete
+                            :files-deleted (:files-deleted deletes)})
               _ (check-deadline! index-deadline-ns
                                  :delete-files
                                  {:project-id project-id
                                   :repo-id repo-id
                                   :files-deleted (:files-deleted deletes)})
+              _ (progress! progress-fn
+                           project-id
+                           repo-id
+                           {:phase :dependency-start})
               [dependency-result timings] (timed
                                            timings
                                            :dependency-ms
@@ -505,6 +602,11 @@
                                               :project-id project-id
                                               :repo-id repo-id
                                               :map-overlay map-overlay}))
+              _ (progress! progress-fn
+                           project-id
+                           repo-id
+                           {:phase :dependency-complete
+                            :dependency-edges (:dependency-edges dependency-result)})
               _ (check-deadline! index-deadline-ns
                                  :dependency
                                  {:project-id project-id
@@ -532,4 +634,13 @@
            {:run finished
             :valid-from valid-from})
           (store/commit-run! xtdb finished)
+          (progress! progress-fn
+                     project-id
+                     repo-id
+                     {:phase :repo-complete
+                      :files-scanned (:files-scanned summary)
+                      :files-indexed (:files-indexed summary)
+                      :files-skipped (:files-skipped summary)
+                      :files-deleted (:files-deleted summary)
+                      :total-ms (get-in summary [:timings-ms :total-ms])})
           finished)))))

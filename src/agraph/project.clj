@@ -205,13 +205,16 @@
 
 (defn index-project!
   "Index every repo in project config into XTDB."
-  [xtdb project {:keys [dry-run? index-profile map-overlay index-timeout-ms index-deadline-ns]
+  [xtdb project {:keys [dry-run? index-profile map-overlay index-timeout-ms index-deadline-ns
+                        progress-fn progress-interval]
                  :or {dry-run? false
                       index-profile index/default-index-profile}}]
   (let [index-opts (with-index-deadline {:index-profile index-profile
                                          :map-overlay map-overlay
                                          :index-timeout-ms index-timeout-ms
                                          :index-deadline-ns index-deadline-ns
+                                         :progress-fn progress-fn
+                                         :progress-interval progress-interval
                                          :extractor-plugins (:extractor-plugins project)})]
     (if dry-run?
       {:project-id (:id project)
@@ -241,7 +244,8 @@
 (defn index-project-repo!
   "Index one repo from a project config into XTDB."
   [xtdb project repo-id {:keys [dry-run? index-profile map-overlay
-                                index-timeout-ms index-deadline-ns]
+                                index-timeout-ms index-deadline-ns
+                                progress-fn progress-interval]
                          :or {dry-run? false
                               index-profile index/default-index-profile}}]
   (let [repo (or (some #(when (= repo-id (:id %)) %) (:repos project))
@@ -252,6 +256,8 @@
                                          :map-overlay map-overlay
                                          :index-timeout-ms index-timeout-ms
                                          :index-deadline-ns index-deadline-ns
+                                         :progress-fn progress-fn
+                                         :progress-interval progress-interval
                                          :extractor-plugins (:extractor-plugins project)})]
     (if dry-run?
       (index/index-repo! nil

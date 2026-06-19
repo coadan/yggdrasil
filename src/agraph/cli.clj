@@ -132,7 +132,8 @@
   #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer" "--enqueue"
     "--check" "--query-index" "--force" "--hooks" "--sync" "--allow-missing"
     "--allow-duplicate-runs" "--allow-unverified-scores"
-    "--skip-existing" "--with-conflicts" "--without-import-evidence"})
+    "--skip-existing" "--with-conflicts" "--without-import-evidence"
+    "--no-progress"})
 
 (defn- positional-args
   [args]
@@ -890,13 +891,101 @@
     :graph
     :query))
 
+(defn- progress-output?
+  [args]
+  (and (not (json-output? args))
+       (not (some #{"--no-progress"} args))))
+
+(defn- count-text
+  [n singular plural]
+  (str (long (or n 0)) " " (if (= 1 (long (or n 0))) singular plural)))
+
+(defn- sync-progress-line
+  [{:keys [phase repo-id index-profile files-scanned files-changed files-skipped
+           files-deleted files-extracted files-indexed dependency-edges
+           chunks search-docs diagnostics total-ms path]}]
+  (case phase
+    :repo-start
+    (str "- " repo-id " start profile=" (name (or index-profile index/default-index-profile)))
+
+    :scan-complete
+    (str "- " repo-id " scanned " (count-text files-scanned "file" "files"))
+
+    :plan-complete
+    (str "- " repo-id " plan "
+         (count-text files-changed "changed file" "changed files")
+         ", "
+         (count-text files-skipped "skipped file" "skipped files")
+         ", "
+         (count-text files-deleted "deleted file" "deleted files"))
+
+    :extract-start
+    (str "- " repo-id " extracting " (count-text files-changed "changed file" "changed files"))
+
+    :extract-progress
+    (str "- " repo-id " extracted " files-extracted "/" files-changed
+         (when path
+           (str " " path)))
+
+    :extract-complete
+    (str "- " repo-id " extracted " (count-text files-extracted "file" "files"))
+
+    :commit-start
+    (str "- " repo-id " committing " (count-text files-indexed "file" "files"))
+
+    :commit-complete
+    (str "- " repo-id " committed " (count-text files-indexed "file" "files")
+         ", " (count-text chunks "chunk" "chunks")
+         ", " (count-text search-docs "search doc" "search docs")
+         ", " (count-text diagnostics "diagnostic" "diagnostics"))
+
+    :delete-complete
+    (str "- " repo-id " deleted " (count-text files-deleted "stale file" "stale files"))
+
+    :dependency-start
+    (str "- " repo-id " deriving dependency edges")
+
+    :dependency-complete
+    (str "- " repo-id " derived " (count-text dependency-edges "dependency edge" "dependency edges"))
+
+    :dry-run-complete
+    (str "- " repo-id " dry-run complete " (count-text files-scanned "file" "files")
+         (when total-ms
+           (str ", " total-ms "ms")))
+
+    :repo-complete
+    (str "- " repo-id " complete "
+         (count-text files-scanned "scanned file" "scanned files")
+         ", "
+         (count-text files-indexed "indexed file" "indexed files")
+         ", "
+         (count-text files-skipped "skipped file" "skipped files")
+         (when total-ms
+           (str ", " total-ms "ms")))
+
+    nil))
+
+(defn- sync-progress-fn
+  [args]
+  (when (progress-output? args)
+    (let [printed-header? (atom false)]
+      (fn [event]
+        (when-let [line (sync-progress-line event)]
+          (binding [*out* *err*]
+            (when (compare-and-set! printed-header? false true)
+              (println "# Sync Progress"))
+            (println line)
+            (flush)))))))
+
 (defn- sync-index-project!
   [xtdb project args]
   (let [map-path (default-map-path args)
-        opts {:dry-run? (dry-run? args)
-              :index-profile (sync-index-profile args)
-              :map-overlay (when map-path
-                             (graph-map/read-map map-path))}]
+        progress-fn (sync-progress-fn args)
+        opts (cond-> {:dry-run? (dry-run? args)
+                      :index-profile (sync-index-profile args)
+                      :map-overlay (when map-path
+                                     (graph-map/read-map map-path))}
+               progress-fn (assoc :progress-fn progress-fn))]
     (if-let [repo-id (option-value args "--repo")]
       (let [run (project/index-project-repo! xtdb project repo-id opts)]
         {:project-id (:id project)
@@ -1788,7 +1877,7 @@
 
 (defn- init-sync-args
   [config-path map-path query-index?]
-  (cond-> [config-path "--check"]
+  (cond-> [config-path "--check" "--no-progress"]
     map-path (into ["--map" map-path])
     query-index? (conj "--query-index")))
 
