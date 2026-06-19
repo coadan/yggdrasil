@@ -172,6 +172,7 @@
                        "'" root "'")
                   (:command %))
               (:actions claimed-summary)))
+    (is (= "custom.result/v1" (:result-schema done-summary)))
     (is (= [{:kind :show
              :label "Inspect work item payload"
              :command (str "agraph sync work show "

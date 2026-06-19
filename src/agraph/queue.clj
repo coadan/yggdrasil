@@ -371,6 +371,8 @@
       path (assoc :path path)
       (:expectedResultSchema payload)
       (assoc :expected-result-schema (:expectedResultSchema payload))
+      (get-in item [:result :schema])
+      (assoc :result-schema (get-in item [:result :schema]))
       (seq actions) (assoc :actions actions)
       payload-summary (assoc :payload-summary payload-summary)
       (:lease item) (assoc :lease (:lease item)))))
