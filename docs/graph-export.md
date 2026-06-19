@@ -119,6 +119,9 @@ package-focused rows. It is a dependency report, not a replacement for
 Generated project report data includes compact package diagnostics for declared
 packages without import evidence, unresolved imports, and version conflicts so
 agents can triage dependency gaps before opening the full package report.
+The report atlas also carries `next-actions` rows with concrete `command`
+strings for dependency triage, source coverage diagnostics, external API review,
+and queued maintenance work.
 
 Use `agraph view deps <package-label> --project <id>` to export or render the
 graph slice around a package. For external package nodes, the slice is

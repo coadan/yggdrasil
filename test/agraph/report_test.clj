@@ -28,12 +28,13 @@
   (let [packet (report/report-data
                 {:project {:id "fixture"
                            :name "Fixture"
+                           :path "project.edn"
                            :repos []}
                  :detail :primary
                  :generated-at-ms 1
                  :graph-data {:nodes [] :edges []}
                  :systems-data {:nodes [] :edges []}
-                 :coverage {}
+                 :coverage {:diagnostics {:total 2}}
                  :maintenance {}
                  :context-example {}
                  :evidence {}
@@ -95,7 +96,11 @@
     (is (= "agraph.report.atlas/v1" (get-in packet [:atlas :schema])))
     (is (= 2 (get-in packet [:atlas :dependencies :packages])))
     (is (= 1 (get-in packet [:atlas :dependencies :unresolved-imports])))
-    (is (= 1 (get-in packet [:atlas :dependencies :version-conflicts])))))
+    (is (= 1 (get-in packet [:atlas :dependencies :version-conflicts])))
+    (is (= #{"agraph packages --project fixture --json"
+             "agraph packages --project fixture --with-conflicts --json"
+             "agraph sync coverage project.edn --json"}
+           (set (map :command (get-in packet [:atlas :next-actions])))))))
 
 (deftest report-data-suggests-maintenance-work-commands
   (let [packet (report/report-data
@@ -122,7 +127,12 @@
     (is (contains? commands "agraph sync work pull --project fixture --kind infra-review --agent <agent-id>"))
     (is (contains? commands "agraph sync work pull --project fixture --kind dependency-review --agent <agent-id>"))
     (is (contains? commands "agraph sync work complete <work-id> --result result.json"))
-    (is (contains? commands "agraph sync work apply <work-id> --map agraph.map.json"))))
+    (is (contains? commands "agraph sync work apply <work-id> --map agraph.map.json"))
+    (is (= [{:kind :maintenance
+             :label "Process maintenance work queue"
+             :count 3
+             :command "agraph sync work list --project fixture"}]
+           (get-in packet [:atlas :next-actions])))))
 
 (deftest writes-report-bundle-from-project-fixture
   (let [xtdb-path (temp-dir "agraph-report-xtdb")

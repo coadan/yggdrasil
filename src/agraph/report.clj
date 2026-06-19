@@ -264,8 +264,26 @@
        (sort-by (comp str :role))
        vec))
 
+(defn- package-command
+  [project & args]
+  (str "agraph packages --project " (:id project)
+       (when (seq args)
+         (str " " (str/join " " args)))))
+
+(defn- sync-command
+  [project & args]
+  (str "agraph sync " (or (:path project) "<project.edn>")
+       (when (seq args)
+         (str " " (str/join " " args)))))
+
+(defn- sync-subcommand
+  [project subcommand & args]
+  (str "agraph sync " subcommand " " (or (:path project) "<project.edn>")
+       (when (seq args)
+         (str " " (str/join " " args)))))
+
 (defn- atlas-next-actions
-  [package-report maintenance coverage]
+  [project package-report maintenance coverage]
   (let [package-counts (:counts package-report)
         maintenance-queue (queue-summary maintenance)
         external-api-counts (get-in maintenance [:external-api-review :counts])
@@ -274,27 +292,32 @@
       (pos? (long (get package-counts :unresolved-imports 0)))
       (conj {:kind :dependency-review
              :label "Review unresolved imports"
-             :count (get package-counts :unresolved-imports 0)})
+             :count (get package-counts :unresolved-imports 0)
+             :command (package-command project "--json")})
 
       (pos? (long (get package-counts :version-conflicts 0)))
       (conj {:kind :dependency-review
              :label "Review package version conflicts"
-             :count (get package-counts :version-conflicts 0)})
+             :count (get package-counts :version-conflicts 0)
+             :command (package-command project "--with-conflicts" "--json")})
 
       (pos? (long (get external-api-counts :source-fanouts 0)))
       (conj {:kind :external-api-review
              :label "Review external API fanouts"
-             :count (get external-api-counts :source-fanouts 0)})
+             :count (get external-api-counts :source-fanouts 0)
+             :command (sync-command project "--check" "--enqueue")})
 
       (some pos? (vals maintenance-queue))
       (conj {:kind :maintenance
              :label "Process maintenance work queue"
-             :count (reduce + (vals maintenance-queue))})
+             :count (reduce + (vals maintenance-queue))
+             :command (str "agraph sync work list --project " (:id project))})
 
       (pos? (long diagnostics))
       (conj {:kind :coverage
              :label "Inspect extractor diagnostics"
-             :count diagnostics}))))
+             :count diagnostics
+             :command (sync-subcommand project "coverage" "--json")}))))
 
 (defn- atlas-summary
   [{:keys [project graph-data systems-data coverage maintenance evidence package-report]}]
@@ -336,7 +359,7 @@
      :maintenance {:queue (queue-summary maintenance)
                    :decision-summary (:decision-summary maintenance)
                    :external-api-review external-api-counts}
-     :next-actions (atlas-next-actions package-report maintenance coverage)}))
+     :next-actions (atlas-next-actions project package-report maintenance coverage)}))
 
 (defn- maintenance-work-commands
   [project-id map-path maintenance]
