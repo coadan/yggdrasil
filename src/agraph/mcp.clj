@@ -112,6 +112,16 @@
                    :mapPath {:type "string"}
                    :minConfidence {:type "number"}}
                   [])}
+   {:name "agraph_work_list"
+    :description "List filesystem queue work items without claiming them."
+    :inputSchema (json-schema
+                  {:queueDir {:type "string"}
+                   :projectId {:type "string"}
+                   :kind {:type "string"}
+                   :status {:type "string"}
+                   :limit {:type "integer"
+                           :minimum 1}}
+                  [])}
    {:name "agraph_work_pull"
     :description "Claim one ready filesystem queue item for an agent."
     :inputSchema (json-schema
@@ -269,6 +279,15 @@
                                  {:low-confidence-threshold (or (:minConfidence args) 0.60)
                                   :map-overlay (map-overlay ctx args)}))))
 
+(defn- work-list
+  [ctx args]
+  (let [root (or (:queueDir args) (:queue-dir ctx))]
+    (queue/list-summary root
+                        {:status (:status args)
+                         :project-id (:projectId args)
+                         :kind (:kind args)
+                         :limit (:limit args)})))
+
 (defn- work-pull
   [ctx args]
   (let [root (or (:queueDir args) (:queue-dir ctx))
@@ -304,6 +323,7 @@
     "agraph_view_systems" (view-systems ctx args)
     "agraph_sync_inspect" (sync-inspect ctx args)
     "agraph_sync_check" (sync-check ctx args)
+    "agraph_work_list" (work-list ctx args)
     "agraph_work_pull" (work-pull ctx args)
     "agraph_work_complete" (work-complete ctx args)
     (throw (ex-info "Unknown MCP tool."

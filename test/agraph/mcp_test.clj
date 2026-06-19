@@ -56,6 +56,7 @@
             "agraph_view_systems"
             "agraph_sync_inspect"
             "agraph_sync_check"
+            "agraph_work_list"
             "agraph_work_pull"
             "agraph_work_complete"]
            tool-names))))
@@ -135,6 +136,29 @@
     (is (= "invalid-result" (get-in response [:error :data :error])))
     (is (= "result.schema" (get-in response [:error :data :field])))))
 
+(deftest work-list-returns-actionable-queue-summaries
+  (let [root (temp-dir "agraph-mcp-queue-list")
+        payload {:schema context/schema
+                 :project-id "fixture"}
+        item (queue/enqueue! payload {:root root
+                                      :kind "context"
+                                      :project-id "fixture"})
+        response (mcp/handle-message
+                  (mcp/server-context [])
+                  (tool-call 11
+                             "agraph_work_list"
+                             {:queueDir root
+                              :projectId "fixture"
+                              :kind "context"}))
+        listed (get-in response [:result :structuredContent])
+        first-item (first (:items listed))]
+    (is (= queue/list-schema (:schema listed)))
+    (is (= [(:id (:item item))] (mapv :id (:items listed))))
+    (is (= "ready" (:status first-item)))
+    (is (some #(= :claim (:kind %)) (:actions first-item)))
+    (is (= "ready" (get-in (queue/find-item root (:id first-item))
+                           [:item :status])))))
+
 (deftest work-pull-claims-ready-queue-item
   (let [root (temp-dir "agraph-mcp-queue")
         payload {:schema context/schema
@@ -144,7 +168,7 @@
                                       :project-id "fixture"})
         response (mcp/handle-message
                   (mcp/server-context [])
-                  (tool-call 11
+                  (tool-call 12
                              "agraph_work_pull"
                              {:queueDir root
                               :projectId "fixture"

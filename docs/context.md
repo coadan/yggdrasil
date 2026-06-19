@@ -210,7 +210,8 @@ agraph-mcp --config project.edn --map agraph.map.json
 The MCP server returns the same packet schemas as the CLI. Initial tools include
 `agraph_ask`, `agraph_explore_create`, `agraph_explore_open`,
 `agraph_explore_expand`, `agraph_view_systems`, `agraph_sync_inspect`,
-`agraph_sync_check`, `agraph_work_pull`, and `agraph_work_complete`.
+`agraph_sync_check`, `agraph_work_list`, `agraph_work_pull`, and
+`agraph_work_complete`.
 `agraph_work_complete` records an explicit result artifact; applying validated
 results to `agraph.map.json` stays a separate CLI step.
 
