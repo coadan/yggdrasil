@@ -79,6 +79,10 @@ docker run --rm -v "$PWD:/workspace:ro" -v "$HOME/.cache/agraph:/data" \
 Homebrew is planned for public releases. The formula template is in
 `packaging/homebrew/Formula/agraph.rb.template`.
 
+This section is for installing the AGraph binary. Project agent setup is
+noun-scoped: use `agraph agent install` and `agraph agent uninstall`, not a
+top-level `agraph install` or `agraph uninstall` wrapper.
+
 Embedding defaults:
 
 - OpenRouter is preferred when `AGRAPH_OPENROUTER_API_KEY` or `OPENROUTER_API_KEY` is set

@@ -73,6 +73,12 @@ Core commands:
 - `bb lint`
 - `bb format:check`
 
+Keep setup commands noun-scoped. Agent guidance is installed with
+`agraph agent install --platform codex --project` and removed with
+`agraph agent uninstall --platform codex --project`; do not introduce or
+document top-level `agraph install` / `agraph uninstall` wrappers for this
+flow.
+
 When a task depends on project structure, ownership, dependencies, or system
 boundaries, inspect AGraph before making broad assumptions:
 
