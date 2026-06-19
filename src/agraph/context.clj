@@ -1293,6 +1293,10 @@
     (keep architecture-doc-inspect-action
           (take 2 docs)))))
 
+(defn- freshness-next-actions
+  [freshness]
+  (vec (take 3 (:nextActions freshness))))
+
 (defn- architecture-section
   [{:keys [overlay entities results edges runtime-evidence docs activity answerability freshness]}]
   (let [accepted-systems (selected-accepted-systems overlay entities results)
@@ -1331,6 +1335,7 @@
                  :validationGaps (vec (take 12 (validation-gaps answerability freshness)))
                  :warnings (vec (take 5 (:warnings answerability)))
                  :nextActions (vec (take 6 (concat inspect-actions
+                                                   (freshness-next-actions freshness)
                                                    (:nextActions answerability))))}
         section (assoc section
                        :evidenceFamilies

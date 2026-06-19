@@ -834,7 +834,13 @@
                               :warnings ["Graph basis is stale."
                                          "Another warning."
                                          "Third warning."
-                                         "Dropped warning."]}})]
+                                         "Dropped warning."]
+                              :nextActions [{:kind :freshness
+                                             :label "Refresh indexed graph basis"
+                                             :command "agraph sync project.edn --check"}
+                                            {:kind :coverage
+                                             :label "Inspect extractor diagnostics"
+                                             :command "agraph sync coverage project.edn --json"}]}})]
     (is (= [{:plane "graph-basis"
              :status "stale"
              :counts {:changed 2
@@ -844,7 +850,20 @@
                         "Third warning."]}
             {:plane "dependencies"
              :status "missing"}]
-           (:validationGaps section)))))
+           (:validationGaps section)))
+    (is (= [{:kind :inspect
+             :label "Inspect accepted system Billing"
+             :target "system:billing"
+             :mcpTool "agraph_node"
+             :mcpArgs {:target "system:billing"}
+             :reason "Open accepted map system with graph neighbors and attached evidence"}
+            {:kind :freshness
+             :label "Refresh indexed graph basis"
+             :command "agraph sync project.edn --check"}
+            {:kind :coverage
+             :label "Inspect extractor diagnostics"
+             :command "agraph sync coverage project.edn --json"}]
+           (:nextActions section)))))
 
 (deftest architecture-section-ranks-boundary-evidence-by-mechanical-support
   (let [section (#'context/architecture-section
