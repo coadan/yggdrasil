@@ -193,8 +193,8 @@ generated output root.
   set. The check artifact includes `caseDiagnostics` so CI failures can be
   triaged without opening every score artifact. For scored cases, each case
   diagnostic includes the localization payload, agent-output diagnostics,
-  artifact freshness details, and expands case-scoped aggregate failures, such
-  as missed-in-context counters, onto the affected case.
+  artifact freshness details, progress when available, and expands case-scoped
+  aggregate failures, such as missed-in-context counters, onto the affected case.
 - `bench agent-compare <suite.edn>` compares two `agent-report.json` files and
   exits non-zero when aggregate or per-case recall/MRR/noise regress beyond
   `--regression-tolerance` (default `0`). Use this after a candidate change to

@@ -4577,28 +4577,38 @@
       (assoc :agentOutput (:agentOutput result))
 
       (:artifact result)
-      (assoc :artifact (:artifact result)))))
+      (assoc :artifact (:artifact result))
+
+      (:progress result)
+      (assoc :progress (:progress result)))))
 
 (defn- missing-case-diagnostic
-  [failures case-id]
-  {:case-id case-id
-   :status "missing"
-   :failures (into [{:metric "completed"
-                     :operator "="
-                     :expected 1
-                     :actual 0
-                     :message "Selected case does not have a matching agent score artifact."}]
-                   (filter #(= case-id (:case-id %)))
-                   failures)})
+  [failures case-id progress]
+  (cond-> {:case-id case-id
+           :status "missing"
+           :failures (into [{:metric "completed"
+                             :operator "="
+                             :expected 1
+                             :actual 0
+                             :message "Selected case does not have a matching agent score artifact."}]
+                           (filter #(= case-id (:case-id %)))
+                           failures)}
+    progress
+    (assoc :progress progress)))
 
 (defn- case-diagnostics
   [check failures]
-  (let [expanded-failures (vec (expand-case-id-failures failures))]
+  (let [expanded-failures (vec (expand-case-id-failures failures))
+        progress-by-case (into {}
+                               (map (juxt :case-id identity))
+                               (get-in check [:report :caseProgress]))]
     (vec
      (concat
       (map #(result-case-diagnostic expanded-failures %)
            (get-in check [:report :results]))
-      (map #(missing-case-diagnostic expanded-failures %)
+      (map #(missing-case-diagnostic expanded-failures
+                                     %
+                                     (get progress-by-case %))
            (get-in check [:report :missing]))))))
 
 (defn check-agent-report

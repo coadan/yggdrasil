@@ -770,6 +770,9 @@
                            :artifact {:fingerprintStatus "stale"
                                       :caseFingerprint "sha256:old"
                                       :expectedCaseFingerprint "sha256:new"}
+                           :progress {:case-id "case-1"
+                                      :status "completed"
+                                      :completedStages 4}
                            :graphExpectations {:status "failed"
                                                :summary {:expectedEvidence 1
                                                          :foundEvidence 0}}
@@ -927,6 +930,10 @@
             :caseFingerprint "sha256:old"
             :expectedCaseFingerprint "sha256:new"}
            (get-in failed [:caseDiagnostics 0 :artifact])))
+    (is (= {:case-id "case-1"
+            :status "completed"
+            :completedStages 4}
+           (get-in failed [:caseDiagnostics 0 :progress])))
     (is (= {:missedFiles [{:path "src/missing.clj"}]
             :missedFilesPresentInContext [{:path "src/missing.clj"
                                            :rank 12}]
@@ -943,6 +950,12 @@
             :status "missing"}
            (select-keys (get-in failed [:caseDiagnostics 1])
                         [:case-id :status])))
+    (is (= {:case-id "case-2"
+            :repo-id "repo"
+            :status "running"
+            :activeStage "context-packet"
+            :activeElapsedMs 1500}
+           (get-in failed [:caseDiagnostics 1 :progress])))
     (is (= #{"completed" "activeStageElapsedMs"}
            (set (map :metric (get-in failed [:caseDiagnostics 1 :failures])))))
     (is (= {:requireComplete true
