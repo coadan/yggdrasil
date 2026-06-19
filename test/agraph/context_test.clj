@@ -493,6 +493,22 @@
                  :validationGapStatusByPlane {"dependencies" "missing"
                                               "docs" "weak"
                                               "system-evidence" "missing"}
+                 :validationGapSamples [{:plane "dependencies"
+                                         :status "missing"}
+                                        {:plane "docs"
+                                         :status "weak"}
+                                        {:plane "system-evidence"
+                                         :status "missing"}]
+                 :nextActionSamples [{:kind :inspect
+                                      :target "system:billing"
+                                      :mcpTool "agraph_node"
+                                      :mcpArgs {:target "system:billing"}}
+                                     {:kind :inspect
+                                      :target "system:worker"
+                                      :mcpTool "agraph_node"
+                                      :mcpArgs {:target "system:worker"}}
+                                     {:kind :dependencies
+                                      :command "agraph packages --json"}]
                  :nextActionKinds {:inspect 3
                                    :dependencies 1}}
         architecture {:basis "mechanical-plus-map"
@@ -771,6 +787,29 @@
             :validationGapStatusByPlane {"dependencies" "missing"
                                          "docs" "weak"
                                          "remote-work" "unsupported"}
+            :validationGapSamples [{:plane "dependencies"
+                                    :status "missing"
+                                    :nextActions [{:kind :dependencies
+                                                   :command "agraph packages --json"}]}
+                                   {:plane "docs"
+                                    :status "weak"}
+                                   {:plane "remote-work"
+                                    :status "unsupported"}]
+            :nextActionSamples [{:kind :inspect
+                                 :label "Inspect accepted system Billing"
+                                 :target "system:billing"
+                                 :mcpTool "agraph_node"
+                                 :mcpArgs {:target "system:billing"}}
+                                {:kind :inspect
+                                 :label "Inspect candidate system Candidate"
+                                 :target "system:candidate"
+                                 :mcpTool "agraph_node"
+                                 :mcpArgs {:target "system:candidate"}}
+                                {:kind :inspect
+                                 :label "Inspect evidence DATABASE_URL"
+                                 :target "evidence:database-url"
+                                 :mcpTool "agraph_node"
+                                 :mcpArgs {:target "evidence:database-url"}}]
             :nextActionKinds {:inspect 6}}
            (:summary section)))
     (is (= [{:family "source-structure"

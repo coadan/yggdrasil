@@ -1385,6 +1385,26 @@
                    [k status]))))
        (into (sorted-map))))
 
+(defn- summary-action-samples
+  [actions]
+  (->> actions
+       (take 3)
+       (mapv #(select-keys % [:kind
+                              :label
+                              :target
+                              :command
+                              :mcpTool
+                              :mcpArgs]))))
+
+(defn- summary-gap-samples
+  [gaps]
+  (->> gaps
+       (take 3)
+       (mapv #(select-keys % [:plane
+                              :status
+                              :count
+                              :nextActions]))))
+
 (defn- architecture-summary
   [section]
   {:counts {:acceptedSystems (count (:acceptedSystems section))
@@ -1404,6 +1424,8 @@
    :validationGapStatuses (status-counts (:validationGaps section))
    :validationGapStatusByPlane (status-by-key (:validationGaps section)
                                               :plane)
+   :validationGapSamples (summary-gap-samples (:validationGaps section))
+   :nextActionSamples (summary-action-samples (:nextActions section))
    :nextActionKinds (kind-counts (:nextActions section))})
 
 (defn- freshness-next-actions
