@@ -7,180 +7,10 @@
             [agraph.extract.package-toml :as package-toml]
             [agraph.extract.package-python :as package-python]
             [agraph.extract.package-cargo-go :as package-cargo-go]
+            [agraph.extract.package-mobile :as package-mobile]
+            [agraph.extract.package-jvm-dotnet :as package-jvm-dotnet]
             [clojure.string :as str]))
 
-(defn- xml-tag-values
-  [content tag]
-  (let [pattern (re-pattern (str "(?is)<" tag "\\b[^>]*>(.*?)</" tag ">"))]
-    (->> (re-seq pattern content)
-         (map second)
-         (map str/trim)
-         (remove str/blank?)
-         distinct
-         vec)))
-(defn- xml-attr-value
-  [element attr]
-  (or (second (re-find (re-pattern (str "(?i)\\b" attr "\\s*=\\s*\"([^\"]+)\""))
-                       element))
-      (second (re-find (re-pattern (str "(?i)\\b" attr "\\s*=\\s*'([^']+)'"))
-                       element))))
-(defn- maven-coordinates
-  [content]
-  (let [project-content (str/replace content
-                                     #"(?is)<parent\b[^>]*>.*?</parent>"
-                                     "")
-        group-id (first (xml-tag-values project-content "groupId"))
-        artifact-id (first (xml-tag-values project-content "artifactId"))]
-    (when artifact-id
-      (if group-id
-        (str group-id ":" artifact-id)
-        artifact-id))))
-(defn- maven-dependencies
-  [content]
-  (->> (re-seq #"(?is)<dependency\b[^>]*>(.*?)</dependency>" content)
-       (map second)
-       (keep (fn [dependency]
-               (let [group-id (first (xml-tag-values dependency "groupId"))
-                     artifact-id (first (xml-tag-values dependency "artifactId"))
-                     version (first (xml-tag-values dependency "version"))
-                     scope (first (xml-tag-values dependency "scope"))]
-                 (when (and group-id artifact-id)
-                   (common/package-fact {:ecosystem :maven
-                                  :package-name (str group-id ":" artifact-id)
-                                  :version-range version
-                                  :dependency-scope scope
-                                  :source-line 1})))))
-       distinct
-       vec))
-(defn- maven-coordinate-fact
-  [kind relation block]
-  (let [group-id (first (xml-tag-values block "groupId"))
-        artifact-id (first (xml-tag-values block "artifactId"))]
-    (when (and group-id artifact-id)
-      {:kind kind
-       :label (str group-id ":" artifact-id)
-       :source-line 1
-       :relation relation})))
-(defn- maven-module-facts
-  [content]
-  (->> (xml-tag-values content "module")
-       (map (fn [module]
-              {:kind :maven-module
-               :label module
-               :source-line 1
-               :relation :defines}))
-       distinct
-       vec))
-(defn- maven-plugin-facts
-  [content]
-  (->> (re-seq #"(?is)<plugin\b[^>]*>(.*?)</plugin>" content)
-       (map second)
-       (keep #(maven-coordinate-fact :maven-plugin :uses %))
-       distinct
-       vec))
-(defn- maven-profile-facts
-  [content]
-  (->> (re-seq #"(?is)<profile\b[^>]*>(.*?)</profile>" content)
-       (map second)
-       (keep (fn [profile]
-               (when-let [profile-id (first (xml-tag-values profile "id"))]
-                 {:kind :maven-profile
-                  :label profile-id
-                  :source-line 1
-                  :relation :defines})))
-       distinct
-       vec))
-(defn- maven-repository-facts
-  [content]
-  (->> (re-seq #"(?is)<repository\b[^>]*>(.*?)</repository>" content)
-       (map second)
-       (mapcat (fn [repository]
-                 (let [repo-id (first (xml-tag-values repository "id"))
-                       url (first (xml-tag-values repository "url"))]
-                   (remove nil?
-                           [(when repo-id
-                              {:kind :maven-repository
-                               :label repo-id
-                               :source-line 1
-                               :relation :references})
-                            (when url
-                              {:kind :maven-repository
-                               :label url
-                               :source-line 1
-                               :relation :references})]))))
-       distinct
-       vec))
-(defn- maven-build-facts
-  [content]
-  (vec (remove nil?
-               [(when-let [packaging (first (xml-tag-values content "packaging"))]
-                  {:kind :maven-packaging
-                   :label packaging
-                   :source-line 1
-                   :relation :defines})
-                (when-let [directory (first (xml-tag-values content "directory"))]
-                  {:kind :maven-build-output
-                   :label directory
-                   :source-line 1
-                   :relation :defines})
-                (when-let [final-name (first (xml-tag-values content "finalName"))]
-                  {:kind :maven-build-output
-                   :label final-name
-                   :source-line 1
-                   :relation :defines})])))
-(defn- maven-facts
-  [content]
-  (vec (concat
-        (maven-dependencies content)
-        (maven-module-facts content)
-        (when-let [parent (some->> (re-find #"(?is)<parent\b[^>]*>(.*?)</parent>"
-                                            content)
-                                   second
-                                   (maven-coordinate-fact :maven-parent
-                                                          :references))]
-          [parent])
-        (maven-plugin-facts content)
-        (maven-profile-facts content)
-        (maven-repository-facts content)
-        (maven-build-facts content))))
-(defn- dotnet-package-references
-  [content]
-  (->> (re-seq #"(?is)<PackageReference\b[^>]*(?:/>|>.*?</PackageReference>)"
-               content)
-       (keep (fn [element]
-               (when-let [package (xml-attr-value element "Include")]
-                 (common/package-fact {:ecosystem :nuget
-                                :package-name package
-                                :version-range (xml-attr-value element "Version")
-                                :source-line 1}))))
-       distinct
-       vec))
-(defn- dotnet-project-references
-  [content]
-  (->> (re-seq #"(?is)<ProjectReference\b[^>]*(?:/>|>.*?</ProjectReference>)"
-               content)
-       (keep (fn [element]
-               (when-let [project-path (xml-attr-value element "Include")]
-                 {:kind :project-reference
-                  :label (str/replace project-path "\\" "/")
-                  :source-line 1
-                  :relation :references})))
-       distinct
-       vec))
-(defn- dotnet-target-frameworks
-  [content]
-  (let [single (xml-tag-values content "TargetFramework")
-        multiple (->> (xml-tag-values content "TargetFrameworks")
-                      (mapcat #(str/split % #";"))
-                      (map str/trim)
-                      (remove str/blank?))]
-    (->> (concat single multiple)
-         distinct
-         (mapv (fn [framework]
-                 {:kind :runtime
-                  :label framework
-                  :source-line 1
-                  :relation :uses})))))
 (defn- ruby-gem-dependencies
   [content]
   (->> (str/split-lines content)
@@ -406,20 +236,6 @@
                 :label label
                 :source-line source-line
                 :relation :references}))))
-(defn- solution-projects
-  [content]
-  (->> (str/split-lines content)
-       (map-indexed vector)
-       (keep (fn [[idx line]]
-               (when-let [[_ name project-path]
-                          (re-matches
-                           #"^Project\(\"[^\"]+\"\)\s*=\s*\"([^\"]+)\",\s*\"([^\"]+)\",\s*\"[^\"]+\".*"
-                           line)]
-                 {:kind :dotnet-project
-                  :label (str name " " (str/replace project-path "\\" "/"))
-                  :source-line (inc idx)
-                  :relation :defines})))
-       vec))
 (defn- composer-project-name
   [content path]
   (or (:name (common/read-json-map content))
@@ -480,384 +296,14 @@
            vec))
     (catch Exception _
       [])))
-(defn- android-manifest-package
-  [content]
-  (some-> (re-find #"(?is)<manifest\b[^>]*>" content)
-          (xml-attr-value "package")))
-(defn- android-permissions
-  [content]
-  (->> (re-seq #"(?is)<uses-permission\b[^>]*(?:/>|>.*?</uses-permission>)"
-               content)
-       (keep (fn [element]
-               (when-let [permission (xml-attr-value element "android:name")]
-                 {:kind :android-permission
-                  :label permission
-                  :source-line 1
-                  :relation :uses})))
-       distinct
-       vec))
-(defn- android-components
-  [content]
-  (->> (re-seq #"(?is)<(activity|service|receiver|provider)\b[^>]*(?:/>|>.*?</\1>)"
-               content)
-       (keep (fn [[element tag]]
-               (when-let [component-name (xml-attr-value element "android:name")]
-                 {:kind :android-component
-                  :label (str tag ":" component-name)
-                  :source-line 1
-                  :relation :defines})))
-       distinct
-       vec))
-(defn- plist-string-value
-  [content key-name]
-  (some-> (re-find (re-pattern (str "(?is)<key>\\s*"
-                                    (java.util.regex.Pattern/quote key-name)
-                                    "\\s*</key>\\s*<string>(.*?)</string>"))
-                   content)
-          second
-          str/trim))
-(defn- plist-facts
-  [content]
-  (->> [{:kind :mobile-bundle
-         :label (plist-string-value content "CFBundleIdentifier")
-         :source-line 1
-         :relation :defines}
-        {:kind :mobile-display-name
-         :label (or (plist-string-value content "CFBundleDisplayName")
-                    (plist-string-value content "CFBundleName"))
-         :source-line 1
-         :relation :defines}]
-       (filterv (comp seq :label))))
-(defn- plist-key-facts
-  [content kind]
-  (->> (re-seq #"(?is)<key>\s*([^<]+?)\s*</key>\s*(?:<string>\s*([^<]+?)\s*</string>|<(true|false)\s*/>|<array>\s*(.*?)\s*</array>)"
-               content)
-       (map-indexed
-        (fn [idx [_ key string-value bool-value array-value]]
-          (let [array-items (->> (or array-value "")
-                                 (re-seq #"(?is)<string>\s*([^<]+?)\s*</string>")
-                                 (map second)
-                                 (map str/trim)
-                                 (remove str/blank?))
-                value (or (some-> string-value str/trim)
-                          bool-value
-                          (when (seq array-items)
-                            (str/join "," array-items))
-                          "present")]
-            {:kind kind
-             :label (str (str/trim key) "=" value)
-             :source-line (inc idx)
-             :relation :defines})))
-       distinct
-       vec))
-(defn- podfile-facts
-  [content]
-  (let [lines (str/split-lines content)
-        targets (->> lines
-                     (map-indexed vector)
-                     (keep (fn [[idx line]]
-                             (when-let [[_ target-name]
-                                        (re-matches #"^\s*target\s+['\"]([^'\"]+)['\"]\s+do\s*$"
-                                                    line)]
-                               {:kind :ios-target
-                                :label target-name
-                                :source-line (inc idx)
-                                :relation :defines})))
-                     vec)
-        pods (->> lines
-                  (map-indexed vector)
-                  (keep (fn [[idx line]]
-                          (when-let [[_ pod-name]
-                                     (re-matches #"^\s*pod\s+['\"]([^'\"]+)['\"].*"
-                                                 line)]
-                            (common/package-fact {:ecosystem :cocoapods
-                                           :package-name pod-name
-                                           :source-line (inc idx)}))))
-                  vec)]
-    (vec (concat targets pods))))
-(defn- swift-package-name
-  [content]
-  (some-> (re-find #"(?s)Package\s*\(\s*name:\s*\"([^\"]+)\"" content)
-          second))
-(defn- swift-package-facts
-  [content]
-  (let [lines (str/split-lines content)
-        package-deps (->> lines
-                          (map-indexed vector)
-                          (keep (fn [[idx line]]
-                                  (when-let [[_ url]
-                                             (re-find #"\.package\s*\(\s*url:\s*\"([^\"]+)\""
-                                                      line)]
-                                    (common/package-fact {:ecosystem :swiftpm
-                                                   :package-name url
-                                                   :source-line (inc idx)}))))
-                          vec)
-        targets (->> lines
-                     (map-indexed vector)
-                     (keep (fn [[idx line]]
-                             (when-let [[_ target-name]
-                                        (re-find #"\.(?:target|testTarget|executableTarget)\s*\(\s*name:\s*\"([^\"]+)\""
-                                                 line)]
-                               {:kind :swift-target
-                                :label target-name
-                                :source-line (inc idx)
-                                :relation :defines})))
-                     vec)]
-    (vec (concat package-deps targets))))
-(defn- xcode-project-facts
-  [content]
-  (let [lines (str/split-lines content)
-        products (->> lines
-                      (map-indexed vector)
-                      (keep (fn [[idx line]]
-                              (when-let [[_ product-name]
-                                         (re-matches #"^\s*productName\s*=\s*([^;]+);\s*$"
-                                                     line)]
-                                {:kind :xcode-product
-                                 :label (str/replace product-name #"^\"|\"$" "")
-                                 :source-line (inc idx)
-                                 :relation :defines})))
-                      distinct
-                      vec)
-        package-urls (->> lines
-                          (map-indexed vector)
-                          (keep (fn [[idx line]]
-                                  (when-let [[_ url]
-                                             (re-matches #"^\s*repositoryURL\s*=\s*\"([^\"]+)\";\s*$"
-                                                         line)]
-                                    (common/package-fact {:ecosystem :swiftpm
-                                                   :package-name url
-                                                   :source-line (inc idx)}))))
-                          distinct
-                          vec)]
-    (vec (concat products package-urls))))
-(defn- json-string-at
-  [m path]
-  (let [value (get-in m path)]
-    (when (string? value)
-      value)))
-(defn- expo-json-facts
-  [content]
-  (try
-    (let [parsed (json/read-json content :key-fn keyword)
-          expo (or (:expo parsed) parsed)
-          android-package (json-string-at expo [:android :package])
-          ios-bundle (json-string-at expo [:ios :bundleIdentifier])
-          plugins (:plugins expo)
-          plugin-labels (->> plugins
-                             (keep (fn [plugin]
-                                     (cond
-                                       (string? plugin) plugin
-                                       (vector? plugin) (first plugin)
-                                       :else nil)))
-                             (filter string?)
-                             distinct)]
-      (vec (concat
-            (when android-package
-              [{:kind :android-package
-                :label android-package
-                :source-line 1
-                :relation :defines}])
-            (when ios-bundle
-              [{:kind :mobile-bundle
-                :label ios-bundle
-                :source-line 1
-                :relation :defines}])
-            (map (fn [plugin]
-                   {:kind :expo-plugin
-                    :label plugin
-                    :source-line 1
-                    :relation :uses})
-                 plugin-labels))))
-    (catch Exception _
-      [])))
-(defn- expo-project-label
-  [content path]
-  (try
-    (let [parsed (json/read-json content :key-fn keyword)
-          expo (or (:expo parsed) parsed)]
-      (or (json-string-at expo [:name])
-          (json-string-at expo [:slug])
-          path))
-    (catch Exception _
-      path)))
-(defn- js-config-string-value
-  [content key-name]
-  (or (some-> (re-find (re-pattern (str "(?m)\\b" key-name "\\s*:\\s*['\"]([^'\"]+)['\"]"))
-                       content)
-              second)
-      (some-> (re-find (re-pattern (str "(?m)\"" key-name "\"\\s*:\\s*\"([^\"]+)\""))
-                       content)
-              second)))
-(defn- json-or-js-string-at
-  [content path key-name]
-  (or (some-> (common/read-json-map content)
-              (json-string-at path))
-      (js-config-string-value content key-name)))
-(defn- object-key-facts
-  [m kind relation source-line]
-  (when (map? m)
-    (mapv (fn [[k _]]
-            {:kind kind
-             :label (common/json-key-label k)
-             :source-line source-line
-             :relation relation})
-          m)))
-(defn- capacitor-plugin-facts
-  [content]
-  (if-let [plugins (:plugins (common/read-json-map content))]
-    (object-key-facts plugins :capacitor-plugin :uses 1)
-    (loop [remaining (map-indexed vector (str/split-lines content))
-           in-plugins? false
-           depth 0
-           out []]
-      (if-let [[idx line] (first remaining)]
-        (let [starts? (and (not in-plugins?)
-                           (re-find #"\bplugins\s*:\s*\{" line))
-              depth-before (if starts? 1 depth)
-              plugin (when (and (or in-plugins? starts?)
-                                (= 1 depth-before))
-                       (some-> (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*\{?.*$" line)
-                               second))
-              opens (count (re-seq #"\{" line))
-              closes (count (re-seq #"\}" line))
-              depth* (cond
-                       starts? (+ opens (- closes))
-                       in-plugins? (+ depth opens (- closes))
-                       :else depth)
-              in-plugins* (or (and starts? (pos? depth*))
-                              (and in-plugins? (pos? depth*)))]
-          (recur (rest remaining)
-                 in-plugins*
-                 depth*
-                 (cond-> out
-                   (and plugin (not= "plugins" plugin))
-                   (conj {:kind :capacitor-plugin
-                          :label plugin
-                          :source-line (inc idx)
-                          :relation :uses}))))
-        (->> out distinct vec)))))
-(defn- capacitor-config-facts
-  [content]
-  (let [app-id (json-or-js-string-at content [:appId] "appId")
-        app-name (json-or-js-string-at content [:appName] "appName")
-        web-dir (json-or-js-string-at content [:webDir] "webDir")
-        server-url (json-or-js-string-at content [:server :url] "url")]
-    (vec (concat
-          (when app-id
-            [{:kind :mobile-bundle
-              :label app-id
-              :source-line 1
-              :relation :defines}])
-          (when app-name
-            [{:kind :mobile-display-name
-              :label app-name
-              :source-line 1
-              :relation :defines}])
-          (when web-dir
-            [{:kind :mobile-web-dir
-              :label web-dir
-              :source-line 1
-              :relation :references}])
-          (when server-url
-            [{:kind :mobile-entry-url
-              :label server-url
-              :source-line 1
-              :relation :references}])
-          (capacitor-plugin-facts content)))))
-(defn- capacitor-project-label
-  [content path]
-  (or (json-or-js-string-at content [:appName] "appName")
-      (json-or-js-string-at content [:appId] "appId")
-      path))
-(defn- tauri-config-value
-  [content paths key-name]
-  (or (some (fn [path]
-              (some-> (common/read-json-map content)
-                      (json-string-at path)))
-            paths)
-      (js-config-string-value content key-name)))
-(defn- tauri-plugin-facts
-  [content]
-  (let [parsed (common/read-json-map content)
-        plugins (:plugins parsed)]
-    (object-key-facts plugins :tauri-plugin :uses 1)))
-(defn- tauri-window-facts
-  [content]
-  (let [parsed (common/read-json-map content)
-        windows (or (get-in parsed [:app :windows])
-                    (get-in parsed [:tauri :windows]))]
-    (when (vector? windows)
-      (->> windows
-           (keep (fn [window]
-                   (when (map? window)
-                     (let [label (or (:label window) (:title window))]
-                       (when label
-                         {:kind :tauri-window
-                          :label (if-let [title (:title window)]
-                                   (str label ":" title)
-                                   label)
-                          :source-line 1
-                          :relation :defines})))))
-           vec))))
-(defn- tauri-config-facts
-  [content]
-  (let [identifier (tauri-config-value content
-                                       [[:identifier] [:tauri :bundle :identifier]]
-                                       "identifier")
-        product-name (tauri-config-value content
-                                         [[:productName] [:package :productName]]
-                                         "productName")
-        frontend-dist (tauri-config-value content
-                                          [[:build :frontendDist] [:build :distDir]]
-                                          "frontendDist")
-        dev-url (tauri-config-value content
-                                    [[:build :devUrl] [:build :devPath]]
-                                    "devUrl")
-        before-dev-command (tauri-config-value content
-                                               [[:build :beforeDevCommand]]
-                                               "beforeDevCommand")]
-    (vec (concat
-          (when identifier
-            [{:kind :mobile-bundle
-              :label identifier
-              :source-line 1
-              :relation :defines}])
-          (when product-name
-            [{:kind :mobile-display-name
-              :label product-name
-              :source-line 1
-              :relation :defines}])
-          (when frontend-dist
-            [{:kind :mobile-web-dir
-              :label frontend-dist
-              :source-line 1
-              :relation :references}])
-          (when dev-url
-            [{:kind :mobile-entry-url
-              :label dev-url
-              :source-line 1
-              :relation :references}])
-          (when before-dev-command
-            [{:kind :task-command
-              :label before-dev-command
-              :source-line 1
-              :relation :uses}])
-          (tauri-window-facts content)
-          (tauri-plugin-facts content)))))
-(defn- tauri-project-label
-  [content path]
-  (or (tauri-config-value content [[:productName] [:package :productName]] "productName")
-      (tauri-config-value content [[:identifier] [:tauri :bundle :identifier]] "identifier")
-      path))
 (defn- manifest-facts
   [{:keys [path content]}]
   (let [filename (common/manifest-name path)
         extension (last (str/split filename #"\."))]
     (cond
       (= "pom.xml" filename)
-      {:project-label (or (maven-coordinates content) path)
-       :facts (maven-facts content)}
+      {:project-label (or (package-jvm-dotnet/maven-coordinates content) path)
+       :facts (package-jvm-dotnet/maven-facts content)}
 
       (contains? #{"build.gradle" "build.gradle.kts" "settings.gradle"
                    "settings.gradle.kts" "gradle.properties"}
@@ -870,16 +316,16 @@
           (contains? #{"directory.build.props" "directory.build.targets"
                        "packages.config" "nuget.config"}
                      filename))
-      {:project-label (or (first (xml-tag-values content "AssemblyName"))
-                          (first (xml-tag-values content "PackageId"))
+      {:project-label (or (first (package-jvm-dotnet/xml-tag-values content "AssemblyName"))
+                          (first (package-jvm-dotnet/xml-tag-values content "PackageId"))
                           path)
-       :facts (vec (concat (dotnet-package-references content)
-                           (dotnet-project-references content)
-                           (dotnet-target-frameworks content)))}
+       :facts (vec (concat (package-jvm-dotnet/dotnet-package-references content)
+                           (package-jvm-dotnet/dotnet-project-references content)
+                           (package-jvm-dotnet/dotnet-target-frameworks content)))}
 
       (= "sln" extension)
       {:project-label path
-       :facts (solution-projects content)}
+       :facts (package-jvm-dotnet/solution-projects content)}
 
       (= "package.json" filename)
       {:project-label (package-js/package-json-project-label content path)
@@ -984,51 +430,51 @@
        :facts (package-js/workspace-json-facts content filename)}
 
       (= "androidmanifest.xml" filename)
-      {:project-label (or (android-manifest-package content) path)
-       :facts (vec (concat (when-let [package-name (android-manifest-package content)]
+      {:project-label (or (package-mobile/android-manifest-package content) path)
+       :facts (vec (concat (when-let [package-name (package-mobile/android-manifest-package content)]
                              [{:kind :android-package
                                :label package-name
                                :source-line 1
                                :relation :defines}])
-                           (android-permissions content)
-                           (android-components content)))}
+                           (package-mobile/android-permissions content)
+                           (package-mobile/android-components content)))}
 
       (= "info.plist" filename)
-      {:project-label (or (plist-string-value content "CFBundleIdentifier")
-                          (plist-string-value content "CFBundleName")
+      {:project-label (or (package-mobile/plist-string-value content "CFBundleIdentifier")
+                          (package-mobile/plist-string-value content "CFBundleName")
                           path)
-       :facts (plist-facts content)}
+       :facts (package-mobile/plist-facts content)}
 
       (= "entitlements" extension)
       {:project-label path
-       :facts (plist-key-facts content :apple-entitlement)}
+       :facts (package-mobile/plist-key-facts content :apple-entitlement)}
 
       (= "podfile" filename)
       {:project-label path
-       :facts (podfile-facts content)}
+       :facts (package-mobile/podfile-facts content)}
 
       (= "package.swift" filename)
-      {:project-label (or (swift-package-name content) path)
-       :facts (swift-package-facts content)}
+      {:project-label (or (package-mobile/swift-package-name content) path)
+       :facts (package-mobile/swift-package-facts content)}
 
       (= "pbxproj" extension)
       {:project-label path
-       :facts (xcode-project-facts content)}
+       :facts (package-mobile/xcode-project-facts content)}
 
       (contains? #{"app.json" "app.config.json" "eas.json"} filename)
-      {:project-label (expo-project-label content path)
-       :facts (expo-json-facts content)}
+      {:project-label (package-mobile/expo-project-label content path)
+       :facts (package-mobile/expo-json-facts content)}
 
       (contains? #{"capacitor.config.json" "capacitor.config.ts"
                    "capacitor.config.js" "capacitor.config.mjs"
                    "capacitor.config.cjs"}
                  filename)
-      {:project-label (capacitor-project-label content path)
-       :facts (capacitor-config-facts content)}
+      {:project-label (package-mobile/capacitor-project-label content path)
+       :facts (package-mobile/capacitor-config-facts content)}
 
       (contains? #{"tauri.conf.json" "tauri.conf.json5"} filename)
-      {:project-label (tauri-project-label content path)
-       :facts (tauri-config-facts content)}
+      {:project-label (package-mobile/tauri-project-label content path)
+       :facts (package-mobile/tauri-config-facts content)}
 
       :else
       {:project-label path
