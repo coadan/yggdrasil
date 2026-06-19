@@ -548,7 +548,9 @@
       (is (= :failed (:status result)))
       (is (= {:packages 3
               :passed 1
-              :failed 2}
+              :failed 2
+              :claim-ready 0
+              :non-authoritative 3}
              (:counts result)))
       (is (= :passed (get-in by-id ["base-plugin" :status])))
       (is (= {:type :git

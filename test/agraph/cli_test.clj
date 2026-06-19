@@ -244,7 +244,9 @@
                                                       :path path
                                                       :counts {:packages 1
                                                                :passed 1
-                                                               :failed 0}
+                                                               :failed 0
+                                                               :claim-ready 0
+                                                               :non-authoritative 1}
                                                       :errors []
                                                       :packages [{:id "demo"
                                                                   :status :passed
@@ -298,6 +300,7 @@
                                           ".dev/plugins/registry.edn"]))]
         (is (str/includes? registry-out
                            "install bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"))
+        (is (str/includes? registry-out "- non-authoritative 1"))
         (is (str/includes? registry-out
                            "claim-blockers project-local,unbenchmarked")))
       (is (= [[:new ".dev/plugins/demo" {:id "demo"

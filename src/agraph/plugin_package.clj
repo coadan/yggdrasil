@@ -1087,6 +1087,14 @@
                :entry entry}
         install (assoc :install install)))))
 
+(defn- registry-claim-counts
+  [results]
+  (let [statuses (frequencies
+                  (keep #(get-in % [:diagnosis :package :claim-authority :status])
+                        results))]
+    {:claim-ready (get statuses :benchmark-backed 0)
+     :non-authoritative (get statuses :non-authoritative 0)}))
+
 (defn validate-registry
   "Validate a local public plugin registry index."
   [registry-path]
@@ -1106,14 +1114,16 @@
           results (if (seq schema-errors)
                     []
                     (mapv #(validate-registry-entry registry-path %) entries))
-          failed (count (filter #(= :failed (:status %)) results))]
+          failed (count (filter #(= :failed (:status %)) results))
+          claim-counts (registry-claim-counts results)]
       {:schema registry-validate-schema
        :registry (select-keys registry [:schema :id :name :description])
        :path (fs/canonical-path registry-path)
        :status (if (or (seq schema-errors) (pos? failed)) :failed :passed)
-       :counts {:packages (count entries)
-                :passed (count (filter #(= :passed (:status %)) results))
-                :failed failed}
+       :counts (merge {:packages (count entries)
+                       :passed (count (filter #(= :passed (:status %)) results))
+                       :failed failed}
+                      claim-counts)
        :errors schema-errors
        :packages results})
     (catch Exception e
@@ -1122,7 +1132,9 @@
        :status :failed
        :counts {:packages 0
                 :passed 0
-                :failed 0}
+                :failed 0
+                :claim-ready 0
+                :non-authoritative 0}
        :errors [{:code :registry-read
                  :message (or (ex-message e) (str e))
                  :data (ex-data e)}]

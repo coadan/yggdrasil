@@ -2866,6 +2866,8 @@
   (println "- packages" (:packages counts))
   (println "- passed" (:passed counts))
   (println "- failed" (:failed counts))
+  (println "- claim-ready" (:claim-ready counts 0))
+  (println "- non-authoritative" (:non-authoritative counts 0))
   (doseq [{:keys [code message]} errors]
     (println "- error" (name code) "-" message))
   (doseq [{:keys [id status errors install diagnosis]} packages]
