@@ -1,6 +1,7 @@
 (ns agraph.mcp
   "Minimal MCP stdio server for AGraph packets."
-  (:require [agraph.context :as context]
+  (:require [agraph.activity :as activity]
+            [agraph.context :as context]
             [agraph.cursor :as cursor]
             [agraph.evidence :as evidence]
             [agraph.graph :as graph]
@@ -133,6 +134,12 @@
                   {:configPath {:type "string"}
                    :mapPath {:type "string"}
                    :minConfidence {:type "number"}}
+                  [])}
+   {:name "agraph_sync_activity"
+    :description "Import filesystem queue lifecycle and result audit facts into local activity rows."
+    :inputSchema (json-schema
+                  {:configPath {:type "string"}
+                   :queueDir {:type "string"}}
                   [])}
    {:name "agraph_work_list"
     :description "List filesystem queue work items without claiming them."
@@ -364,6 +371,16 @@
                                  {:low-confidence-threshold (or (:minConfidence args) 0.60)
                                   :map-overlay (map-overlay ctx args)}))))
 
+(defn- sync-activity
+  [ctx args]
+  (let [project (read-project! ctx args)]
+    (with-xtdb
+      ctx
+      #(activity/sync-queue! %
+                             project
+                             {:queue-root (or (:queueDir args)
+                                              (:queue-dir ctx))}))))
+
 (defn- work-list
   [ctx args]
   (let [root (or (:queueDir args) (:queue-dir ctx))]
@@ -448,6 +465,7 @@
     "agraph_view_systems" (view-systems ctx args)
     "agraph_sync_inspect" (sync-inspect ctx args)
     "agraph_sync_check" (sync-check ctx args)
+    "agraph_sync_activity" (sync-activity ctx args)
     "agraph_work_list" (work-list ctx args)
     "agraph_work_show" (work-show ctx args)
     "agraph_work_pull" (work-pull ctx args)

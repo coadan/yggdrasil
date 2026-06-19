@@ -1,5 +1,6 @@
 (ns agraph.mcp-test
-  (:require [agraph.context :as context]
+  (:require [agraph.activity :as activity]
+            [agraph.context :as context]
             [agraph.cursor :as cursor]
             [agraph.evidence :as evidence]
             [agraph.graph :as graph]
@@ -60,6 +61,7 @@
             "agraph_view_systems"
             "agraph_sync_inspect"
             "agraph_sync_check"
+            "agraph_sync_activity"
             "agraph_work_list"
             "agraph_work_show"
             "agraph_work_pull"
@@ -82,6 +84,8 @@
            (get-in schemas ["agraph_explore_search" :required])))
     (is (contains? (set (keys (get-in schemas ["agraph_sync_inspect" :properties])))
                    :mapPath))
+    (is (contains? (set (keys (get-in schemas ["agraph_sync_activity" :properties])))
+                   :queueDir))
     (is (= ["workId"]
            (get-in schemas ["agraph_work_show" :required])))
     (is (= ["workId"]
@@ -233,6 +237,32 @@
            (get-in response [:error :data :schema])))
     (is (= "missing-project-config"
            (get-in response [:error :data :error])))))
+
+(deftest sync-activity-tool-imports-queue-activity
+  (let [calls (atom [])]
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  activity/sync-queue! (fn [xtdb project opts]
+                                         (swap! calls conj [:activity xtdb (:id project) opts])
+                                         {:schema activity/sync-schema
+                                          :project-id (:id project)
+                                          :queue-root (:queue-root opts)
+                                          :counts {:items 1
+                                                   :events 2
+                                                   :validation-events 1
+                                                   :result-schema-mismatch-events 1}})]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 12
+                                 "agraph_sync_activity"
+                                 {:queueDir ".dev/test-queue"}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= activity/sync-schema (:schema packet)))
+        (is (= "fixture" (:project-id packet)))
+        (is (= ".dev/test-queue" (:queue-root packet)))
+        (is (= 1 (get-in packet [:counts :result-schema-mismatch-events])))
+        (is (= [[:activity :xtdb "fixture" {:queue-root ".dev/test-queue"}]]
+               @calls))))))
 
 (deftest work-complete-rejects-result-without-schema
   (let [response (mcp/handle-message
