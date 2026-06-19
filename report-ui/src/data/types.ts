@@ -34,6 +34,7 @@ export type AGraphReport = {
   basis?: Record<string, unknown>;
   repos: Array<{ id: string; root: string; role?: string }>;
   evidence: EvidenceSurface;
+  atlas?: Record<string, unknown>;
   coverage?: Record<string, unknown>;
   graphs: {
     overview: Record<string, unknown>;

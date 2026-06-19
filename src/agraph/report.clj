@@ -254,6 +254,90 @@
                       :package-name
                       :versions]))
 
+(defn- role-counts
+  [repos]
+  (->> repos
+       (group-by #(or (:role %) :repository))
+       (map (fn [[role rows]]
+              {:role role
+               :count (count rows)}))
+       (sort-by (comp str :role))
+       vec))
+
+(defn- atlas-next-actions
+  [package-report maintenance coverage]
+  (let [package-counts (:counts package-report)
+        maintenance-queue (queue-summary maintenance)
+        external-api-counts (get-in maintenance [:external-api-review :counts])
+        diagnostics (get-in coverage [:diagnostics :total] 0)]
+    (cond-> []
+      (pos? (long (get package-counts :unresolved-imports 0)))
+      (conj {:kind :dependency-review
+             :label "Review unresolved imports"
+             :count (get package-counts :unresolved-imports 0)})
+
+      (pos? (long (get package-counts :version-conflicts 0)))
+      (conj {:kind :dependency-review
+             :label "Review package version conflicts"
+             :count (get package-counts :version-conflicts 0)})
+
+      (pos? (long (get external-api-counts :source-fanouts 0)))
+      (conj {:kind :external-api-review
+             :label "Review external API fanouts"
+             :count (get external-api-counts :source-fanouts 0)})
+
+      (some pos? (vals maintenance-queue))
+      (conj {:kind :maintenance
+             :label "Process maintenance work queue"
+             :count (reduce + (vals maintenance-queue))})
+
+      (pos? (long diagnostics))
+      (conj {:kind :coverage
+             :label "Inspect extractor diagnostics"
+             :count diagnostics}))))
+
+(defn- atlas-summary
+  [{:keys [project graph-data systems-data coverage maintenance evidence package-report]}]
+  (let [package-counts (:counts package-report)
+        maintenance-counts (:counts maintenance)
+        external-api-counts (get-in maintenance [:external-api-review :counts])
+        coverage-totals (:totals coverage)]
+    {:schema "agraph.report.atlas/v1"
+     :project {:repos (count (:repos project))
+               :repo-roles (role-counts (:repos project))}
+     :evidence {:available (:available evidence)
+                :files (or (get-in evidence [:counts :files]) (:files coverage-totals) 0)
+                :nodes (get-in evidence [:counts :nodes] 0)
+                :edges (get-in evidence [:counts :edges] 0)
+                :diagnostics (or (get-in evidence [:counts :diagnostics])
+                                 (get-in coverage [:diagnostics :total])
+                                 0)
+                :extractors (count (:extractors coverage))
+                :skipped (or (:skipped coverage-totals)
+                             (get-in evidence [:counts :skipped-files])
+                             0)}
+     :systems {:nodes (count (:nodes systems-data))
+               :edges (count (:edges systems-data))
+               :overview-nodes (count (:nodes graph-data))
+               :overview-edges (count (:edges graph-data))
+               :clusters (get maintenance-counts :clusters 0)
+               :visible-connections (get maintenance-counts :visible-connections 0)
+               :orphaned-systems (get maintenance-counts :orphaned-systems 0)
+               :maintenance-decisions (get maintenance-counts :maintenance-decisions 0)}
+     :dependencies {:packages (get package-counts :packages 0)
+                    :versions (get package-counts :versions 0)
+                    :ecosystems (:ecosystems package-report)
+                    :imports-package (get package-counts :imports-package 0)
+                    :unresolved-imports (get package-counts :unresolved-imports 0)
+                    :declared-without-import-evidence (get package-counts
+                                                           :declared-without-import-evidence
+                                                           0)
+                    :version-conflicts (get package-counts :version-conflicts 0)}
+     :maintenance {:queue (queue-summary maintenance)
+                   :decision-summary (:decision-summary maintenance)
+                   :external-api-review external-api-counts}
+     :next-actions (atlas-next-actions package-report maintenance coverage)}))
+
 (defn- maintenance-work-commands
   [project-id map-path maintenance]
   (let [queue (queue-summary maintenance)
@@ -313,6 +397,13 @@
             (assoc :graph-basis-hash (get-in maintenance [:graph-basis :hash])))
    :repos (mapv compact-repo (:repos project))
    :evidence evidence
+   :atlas (atlas-summary {:project project
+                          :graph-data graph-data
+                          :systems-data systems-data
+                          :coverage coverage
+                          :maintenance maintenance
+                          :evidence evidence
+                          :package-report package-report})
    :coverage {:totals (:totals coverage)
               :top-file-kinds (vec (take 12 (:files-by-kind coverage)))
               :skipped-by-extension (vec (take 8 (:skipped-by-extension coverage)))

@@ -60,24 +60,63 @@ function displayValue(value: unknown): string {
   return String(value);
 }
 
+function detailEntries(row: AGraphNode | AGraphEdge, keys: string[]): Array<[string, unknown]> {
+  const record = row as Record<string, unknown>;
+  return keys.map((key) => [key, record[key]] as [string, unknown]).filter(([, value]) => displayValue(value));
+}
+
+function recordEntries(value: unknown): Array<[string, unknown]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value as Record<string, unknown>).filter(([, entry]) => displayValue(entry));
+}
+
+function DetailSection({ title, rows }: { title: string; rows: Array<[string, unknown]> }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="detail-section">
+      <h4>{title}</h4>
+      <dl className="detail-list">
+        {rows.map(([key, value]) => (
+          <div key={key}>
+            <dt>{key}</dt>
+            <dd>{displayValue(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function DetailRows({ row }: { row: AGraphNode | AGraphEdge | null }) {
   if (!row) {
     return <p className="muted">No selection.</p>;
   }
 
-  const rows = Object.entries(row)
-    .filter(([key, value]) => !["color", "size"].includes(key) && displayValue(value))
+  const identityKeys = [
+    "id",
+    "label",
+    "kind",
+    "relation",
+    "source",
+    "target",
+    "repo",
+    "repoId",
+    "repo_id",
+    "path",
+    "virtual"
+  ];
+  const structuredKeys = new Set([...identityKeys, "metrics", "attrs", "color", "size"]);
+  const rawRows = Object.entries(row as Record<string, unknown>)
+    .filter(([key, value]) => !structuredKeys.has(key) && displayValue(value))
     .sort(([left], [right]) => left.localeCompare(right));
 
   return (
-    <dl className="detail-list">
-      {rows.map(([key, value]) => (
-        <div key={key}>
-          <dt>{key}</dt>
-          <dd>{displayValue(value)}</dd>
-        </div>
-      ))}
-    </dl>
+    <div className="detail-sections">
+      <DetailSection title="Identity" rows={detailEntries(row, identityKeys)} />
+      <DetailSection title="Metrics" rows={recordEntries((row as AGraphNode).metrics)} />
+      <DetailSection title="Attributes" rows={recordEntries((row as AGraphNode).attrs)} />
+      <DetailSection title="Raw" rows={rawRows} />
+    </div>
   );
 }
 

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGraph, emptyReport, fixtureGraph, fixtureReport, sourceDocsSystemReport } from "../fixtures/sampleData";
 import { ReportPage } from "./ReportPage";
@@ -12,10 +12,17 @@ describe("ReportPage", () => {
     render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
 
     expect(screen.getByText("Fixture")).toBeInTheDocument();
-    expect(screen.getByText("Available Evidence")).toBeInTheDocument();
+    expect(screen.getByText("Project Atlas")).toBeInTheDocument();
+    expect(screen.getByText("Evidence Surface")).toBeInTheDocument();
     expect(screen.getByText("source-graph")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Systems" }));
+
     expect(screen.getByText("External API Review")).toBeInTheDocument();
-    expect(screen.getByText("20 targets")).toBeInTheDocument();
+    expect(screen.getByText("checkout")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Maintenance" }));
+
     expect(screen.getByText(/agraph ask/)).toBeInTheDocument();
   });
 
@@ -23,7 +30,7 @@ describe("ReportPage", () => {
     render(<ReportPage report={emptyReport} graph={emptyGraph} />);
 
     expect(screen.getByText("Empty Project")).toBeInTheDocument();
-    expect(screen.getAllByText("No rows.")).toHaveLength(3);
+    expect(screen.getByText("No queued next actions in this report.")).toBeInTheDocument();
   });
 
   it("renders source/docs/system evidence surfaces", () => {

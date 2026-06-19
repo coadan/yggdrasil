@@ -91,7 +91,11 @@
              :ecosystem :npm
              :package-name "react"
              :versions ["18.3.1" "19.1.0"]}]
-           (get-in packet [:packages :version-conflicts])))))
+           (get-in packet [:packages :version-conflicts])))
+    (is (= "agraph.report.atlas/v1" (get-in packet [:atlas :schema])))
+    (is (= 2 (get-in packet [:atlas :dependencies :packages])))
+    (is (= 1 (get-in packet [:atlas :dependencies :unresolved-imports])))
+    (is (= 1 (get-in packet [:atlas :dependencies :version-conflicts])))))
 
 (deftest report-data-suggests-maintenance-work-commands
   (let [packet (report/report-data
@@ -147,6 +151,9 @@
           (is (= report/schema (:schema report-json)))
           (is (= "fixture" (get-in report-json [:project :id])))
           (is (= "agraph.evidence/v1" (get-in report-json [:evidence :schema])))
+          (is (= "agraph.report.atlas/v1" (get-in report-json [:atlas :schema])))
+          (is (number? (get-in report-json [:atlas :evidence :files])))
+          (is (number? (get-in report-json [:atlas :systems :nodes])))
           (is (= "graph.json" (get-in report-json [:graphs :overview :artifact])))
           (is (= "systems.json" (get-in report-json [:graphs :systems :artifact])))
           (is (vector? (get-in report-json [:packages :declared-without-import-evidence])))

@@ -75,6 +75,37 @@ h3 {
   padding: 24px;
 }
 
+.report-page {
+  display: grid;
+  gap: 0;
+}
+
+.report-tabs {
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 12px 24px 0;
+}
+
+.report-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #475569;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 4px;
+}
+
+.report-tabs button[aria-current="page"] {
+  border-bottom-color: #0f172a;
+  color: #0f172a;
+}
+
 .span-2 {
   grid-column: 1 / -1;
 }
@@ -104,6 +135,16 @@ h3 {
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   padding: 10px;
+}
+
+.count-card.warn {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.count-card.ok {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
 }
 
 .count-card span,
@@ -156,9 +197,21 @@ table {
   width: 100%;
 }
 
+th {
+  border-top: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 8px 8px 8px 0;
+  text-align: left;
+  text-transform: uppercase;
+}
+
 td {
   border-top: 1px solid #e2e8f0;
-  padding: 8px 0;
+  font-size: 13px;
+  padding: 8px 8px 8px 0;
+  vertical-align: top;
 }
 
 td:last-child {
@@ -242,6 +295,18 @@ td:last-child {
   display: grid;
   gap: 10px;
   margin: 0;
+}
+
+.detail-sections {
+  display: grid;
+  gap: 14px;
+}
+
+.detail-section h4 {
+  color: #334155;
+  font-size: 12px;
+  letter-spacing: 0;
+  margin: 0 0 8px;
 }
 
 .detail-list div {
