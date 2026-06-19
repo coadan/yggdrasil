@@ -4,6 +4,7 @@
             [clojure.edn :as edn]
             [agraph.extract.package-js :as package-js]
             [agraph.extract.package-gradle :as package-gradle]
+            [agraph.extract.package-toml :as package-toml]
             [clojure.string :as str]))
 
 (defn- xml-tag-values
@@ -417,44 +418,16 @@
                   :source-line (inc idx)
                   :relation :defines})))
        vec))
-(defn- toml-string-value
-  [content key-name]
-  (some-> (re-find (re-pattern (str "(?m)^\\s*"
-                                    (java.util.regex.Pattern/quote key-name)
-                                    "\\s*=\\s*\"([^\"]+)\""))
-                   content)
-          second))
-(defn- toml-section-lines
-  [content section-name]
-  (loop [remaining (str/split-lines content)
-         in-section? false
-         out []]
-    (if-let [line (first remaining)]
-      (let [trimmed (str/trim line)]
-        (cond
-          (re-matches #"\[[^\]]+\]" trimmed)
-          (recur (rest remaining) (= trimmed (str "[" section-name "]")) out)
-
-          in-section?
-          (recur (rest remaining) in-section? (conj out line))
-
-          :else
-          (recur (rest remaining) in-section? out)))
-      out)))
-(defn- toml-string-or-array-value
-  [line]
-  (or (some-> (re-find #"=\s*\"([^\"]+)\"" line) second vector)
-      (some-> (re-find #"=\s*(\[[^\]]*\])" line) second common/toml-array-strings)))
 (defn- cargo-package-name
   [content path]
-  (or (some-> (str/join "\n" (toml-section-lines content "package"))
-              (toml-string-value "name"))
+  (or (some-> (str/join "\n" (package-toml/toml-section-lines content "package"))
+              (package-toml/toml-string-value "name"))
       path))
 (defn- cargo-dependencies
   [content]
   (let [dependency-section-facts
         (fn [section]
-          (->> (toml-section-lines content section)
+          (->> (package-toml/toml-section-lines content section)
                (map-indexed vector)
                (keep (fn [[idx line]]
                        (when-let [[_ package-name quoted-version map-version]
@@ -469,7 +442,7 @@
                    "workspace.dependencies"]
                   (mapcat dependency-section-facts)
                   distinct)
-        members (->> (toml-section-lines content "workspace")
+        members (->> (package-toml/toml-section-lines content "workspace")
                      (keep #(second (re-matches #"^\s*members\s*=\s*(\[.*\])\s*$" %)))
                      (mapcat common/toml-array-strings)
                      (map (fn [member]
@@ -477,7 +450,7 @@
                              :label member
                              :source-line 1
                              :relation :references})))
-        features (->> (toml-section-lines content "features")
+        features (->> (package-toml/toml-section-lines content "features")
                       (map-indexed vector)
                       (keep (fn [[idx line]]
                               (when-let [[_ feature]
@@ -629,10 +602,10 @@
     []))
 (defn- pyproject-name
   [content path]
-  (or (some-> (str/join "\n" (toml-section-lines content "project"))
-              (toml-string-value "name"))
-      (some-> (str/join "\n" (toml-section-lines content "tool.poetry"))
-              (toml-string-value "name"))
+  (or (some-> (str/join "\n" (package-toml/toml-section-lines content "project"))
+              (package-toml/toml-string-value "name"))
+      (some-> (str/join "\n" (package-toml/toml-section-lines content "tool.poetry"))
+              (package-toml/toml-string-value "name"))
       path))
 (defn- python-dependency-name
   [value]
@@ -640,27 +613,27 @@
           second))
 (defn- pyproject-import-name-map
   [content]
-  (->> (toml-section-lines content "tool.agraph.import-names")
+  (->> (package-toml/toml-section-lines content "tool.agraph.import-names")
        (keep (fn [line]
                (when-let [[_ package-name]
                           (re-matches #"^\s*\"?([A-Za-z0-9_.-]+)\"?\s*=.*" line)]
-                 (when-let [import-names (seq (toml-string-or-array-value line))]
+                 (when-let [import-names (seq (package-toml/toml-string-or-array-value line))]
                    [package-name (vec import-names)]))))
        (into {})))
 (defn- pyproject-dependencies
   [content]
-  (let [project-lines (toml-section-lines content "project")
+  (let [project-lines (package-toml/toml-section-lines content "project")
         import-name-map (pyproject-import-name-map content)
         inline-deps (->> project-lines
                          (keep #(second (re-matches #"^\s*dependencies\s*=\s*\[(.*)\]\s*$" %)))
                          (mapcat #(re-seq #"\"([^\"]+)\"" %))
                          (map second))
-        poetry-deps (->> (toml-section-lines content "tool.poetry.dependencies")
+        poetry-deps (->> (package-toml/toml-section-lines content "tool.poetry.dependencies")
                          (keep #(when-let [[_ dep-name version]
                                            (re-matches #"^\s*([A-Za-z0-9_.-]+)\s*=\s*\"([^\"]+)\".*" %)]
                                   (when-not (= "python" dep-name)
                                     [dep-name version]))))
-        optional-deps (->> (toml-section-lines content "project.optional-dependencies")
+        optional-deps (->> (package-toml/toml-section-lines content "project.optional-dependencies")
                            (mapcat (fn [line]
                                      (when-let [[_ group deps]
                                                 (re-matches #"^\s*([A-Za-z0-9_.-]+)\s*=\s*\[(.*)\]\s*$" line)]
@@ -695,7 +668,7 @@
             optional-deps)))))
 (defn- setup-cfg-name
   [content path]
-  (or (some->> (str/join "\n" (toml-section-lines content "metadata"))
+  (or (some->> (str/join "\n" (package-toml/toml-section-lines content "metadata"))
                (re-find #"(?m)^\s*name\s*=\s*([A-Za-z0-9_.-]+)\s*$")
                second)
       path))
@@ -756,7 +729,7 @@
   (->> ["packages" "dev-packages"]
        (mapcat
         (fn [section]
-          (->> (toml-section-lines content section)
+          (->> (package-toml/toml-section-lines content section)
                (map-indexed vector)
                (keep (fn [[idx line]]
                        (when-let [[_ dep-name version]
@@ -1409,8 +1382,8 @@
   [content]
   (->> (str/split content #"(?m)^\[\[package\]\]\s*$")
        (keep (fn [block]
-               (let [package-name (toml-string-value block "name")
-                     version (toml-string-value block "version")]
+               (let [package-name (package-toml/toml-string-value block "name")
+                     version (package-toml/toml-string-value block "version")]
                  (common/package-version-fact {:ecosystem :cargo
                                         :package-name package-name
                                         :resolved-version version
@@ -1521,8 +1494,8 @@
   [content ecosystem]
   (->> (str/split content #"(?m)^\[\[package\]\]\s*$")
        (keep (fn [block]
-               (let [package-name (toml-string-value block "name")
-                     version (toml-string-value block "version")]
+               (let [package-name (package-toml/toml-string-value block "name")
+                     version (package-toml/toml-string-value block "version")]
                  (common/package-version-fact {:ecosystem ecosystem
                                         :package-name package-name
                                         :resolved-version version
