@@ -374,6 +374,27 @@
       core-promotion-evidence-kinds))
     []))
 
+(defn- duplicate-plugin-id-diagnostics
+  [{:keys [id] :as package} lane k]
+  (->> (get package k)
+       (keep (fn [plugin]
+               (let [plugin-id (some-> (:id plugin) str)]
+                 (when (present? plugin-id)
+                   plugin-id))))
+       frequencies
+       (keep (fn [[plugin-id n]]
+               (when (> n 1)
+                 {:code (keyword (str "duplicate-" (name lane) "-plugin-id"))
+                  :severity :error
+                  :applies-to [:local-use :public-sharing :claims :core-promotion]
+                  :message (str id " declares duplicate " (name lane)
+                                " plugin id: " plugin-id)
+                  :evidence {:package-id id
+                             :plugin-id plugin-id
+                             :lane lane
+                             :count n}})))
+       vec))
+
 (defn- package-diagnostics
   [{:keys [id expected-package-id visibility license benchmark-status manifest-fingerprint
            expected-manifest-fingerprint]
@@ -422,7 +443,9 @@
         :message (str id " is unbenchmarked; keep claims scoped until benchmarks show material improvement.")
         :evidence {:benchmark-status benchmark-status}}])
     (benchmark-artifact-diagnostics package)
-    (core-promotion-artifact-diagnostics package))))
+    (core-promotion-artifact-diagnostics package)
+    (duplicate-plugin-id-diagnostics package :extractor :extractor-plugins)
+    (duplicate-plugin-id-diagnostics package :report :report-plugins))))
 
 (defn- package-warnings
   [package]
@@ -850,15 +873,23 @@
   [package-dir]
   (try
     (let [package (read-local-package package-dir)
+          package-diagnostics (package-diagnostics package)
           extractor-plugins (extractor-plugin/normalize-plugins
                              (:resolved-extractor-plugins package))
           report-plugins (report-plugin/normalize-plugins
                           (:resolved-report-plugins package))
-          warnings (:warnings package)
+          warnings (mapv :message
+                         (filter #(= :warning (:severity %))
+                                 package-diagnostics))
           errors (cond-> []
                    (and (empty? extractor-plugins)
                         (empty? report-plugins))
-                   (conj "Package declares no extractor or report plugins."))]
+                   (conj "Package declares no extractor or report plugins."))
+          errors (into errors
+                       (map :message)
+                       (filter #(and (= :error (:severity %))
+                                     (some #{:local-use} (:applies-to %)))
+                               package-diagnostics))]
       {:schema validate-schema
        :status (cond
                  (seq errors) :failed

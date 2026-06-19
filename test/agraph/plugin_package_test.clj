@@ -379,6 +379,57 @@
               :supported [:benchmarked :unbenchmarked]}
              (:data validation))))))
 
+(deftest validate-rejects-duplicate-plugin-ids-within-package-lanes
+  (let [workspace (temp-dir "agraph-plugin-duplicate-ids")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "duplicate-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :private
+                                  :commercial? false}
+                   :scope {:kind :project-local
+                           :reason "Duplicate id validation fixture."}
+                   :benchmark {:status :unbenchmarked}
+                   :extractor-plugins
+                   [{:id "dup-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}
+                    {:id "dup-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]
+                   :report-plugins
+                   [{:id "dup-report"
+                     :command ["python3" "report.py"]
+                     :slots [:plugins]}
+                    {:id "dup-report"
+                     :command ["python3" "report.py"]
+                     :slots [:plugins]}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (write-file! (.getPath package-dir)
+                 "report.py"
+                 "import json, sys\njson.dump({'schema':'agraph.report-plugin.result/v1','panels':[]}, sys.stdout)\n")
+    (let [validation (plugin-package/validate-local (.getPath package-dir))]
+      (is (= :failed (:status validation)))
+      (is (= #{"duplicate-plugin declares duplicate extractor plugin id: dup-extractor"
+               "duplicate-plugin declares duplicate report plugin id: dup-report"}
+             (set (:errors validation))))
+      (is (= #{:duplicate-extractor-plugin-id
+               :duplicate-report-plugin-id
+               :project-local-scope
+               :unbenchmarked}
+             (set (map :code (get-in validation [:package :diagnostics])))))
+      (is (= {:total 4
+              :errors 2
+              :warnings 2}
+             (get-in validation [:package :diagnostic-counts]))))))
+
 (deftest diagnose-blocks-invalid-public-package-policy
   (let [workspace (temp-dir "agraph-plugin-diagnose")
         package-dir (io/file workspace "plugin")]

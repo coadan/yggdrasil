@@ -85,6 +85,8 @@ normalizers used by project loading. It reports package caveats such as
 `:unbenchmarked` status without blocking local experiments.
 Plain output includes claim authority so unbenchmarked or project-local packages
 are visible as non-authoritative without requiring `--json`.
+Local-use package errors, including duplicate plugin ids inside the extractor or
+report lanes, fail validation before install or dry-run.
 
 `plugin diagnose` explains package readiness for four lanes:
 
