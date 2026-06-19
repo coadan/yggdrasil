@@ -281,6 +281,35 @@ for public claims.
 Text output prints that install command and claim authority under each
 installable registry package.
 
+### Registry Workflow
+
+For package authors:
+
+1. Keep experimental packages private or project-local while iterating.
+2. Run `bb plugin validate <package-dir>` and fix local-use errors.
+3. Run extractor/report dry-runs against representative fixtures.
+4. Declare `:scope {:kind :base}` only after reviewing that the package is
+   reusable and does not depend on one repository's helper names, product
+   vocabulary, path semantics, hosts, prose, or substring rules.
+5. Add benchmark artifacts before changing `:benchmark :status` to
+   `:benchmarked` or making public improvement claims.
+6. Publish a git ref and add a registry entry with `:source`, pinned `:ref`, and
+   optional `:subdir`.
+7. Run `bb plugin registry validate registry.edn --json` before sharing the
+   registry.
+
+For registry reviewers:
+
+- Reject project-local packages from the public registry.
+- Reject commercial or non-FOSS public packages.
+- Reject floating refs; registry installs must be reproducible.
+- Treat `:unbenchmarked` base packages as experimental and
+  non-authoritative, even when the registry entry passes sharing checks.
+- Require benchmark artifacts before accepting public claims or core-promotion
+  requests.
+- Prefer keeping niche or project-specific ideas as external packages rather
+  than widening AGraph core.
+
 ## Scope
 
 Every package has a declared scope:
