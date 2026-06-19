@@ -82,7 +82,8 @@
                                           :reviewId "infra-review:test"
                                           :project-id "demo"
                                           :kind "container-image-consumer-without-producer"
-                                          :artifact "container-image:api"}
+                                          :artifact "container-image:api"
+                                          :expectedResultSchema "agraph.infra.review-result/v1"}
                                          {:root root
                                           :kind "infra-review"
                                           :project-id "demo"})
@@ -95,7 +96,8 @@
                                                         :target "system:demo:api"
                                                         :reason "Needs review."
                                                         :basis {:hash "basis123"}}
-                                             :allowedActions ["accept-system" "none"]}
+                                             :allowedActions ["accept-system" "none"]
+                                             :expectedResultSchema "agraph.maintenance.classification/v1"}
                                             {:root root
                                              :kind "maintenance-decision"
                                              :project-id "demo"})
@@ -107,6 +109,8 @@
             :kind "container-image-consumer-without-producer"
             :artifact "container-image:api"}
            (:payload-summary (get by-id infra-id))))
+    (is (= "agraph.infra.review-result/v1"
+           (:expected-result-schema (get by-id infra-id))))
     (is (= {:id "maintenance-decision:test"
             :kind "unclustered-system"
             :severity "low"
@@ -114,7 +118,9 @@
             :reason "Needs review."
             :basisHash "basis123"
             :allowedActions ["accept-system" "none"]}
-           (:payload-summary (get by-id decision-id))))))
+           (:payload-summary (get by-id decision-id))))
+    (is (= "agraph.maintenance.classification/v1"
+           (:expected-result-schema (get by-id decision-id))))))
 
 (deftest queue-summary-includes-state-specific-actions
   (let [root (str (temp-dir "agraph-queue actions") "/queue root")

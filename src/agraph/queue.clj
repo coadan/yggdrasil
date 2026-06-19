@@ -369,6 +369,8 @@
              :created-at-ms (:created-at-ms item)
              :updated-at-ms (:updated-at-ms item)}
       path (assoc :path path)
+      (:expectedResultSchema payload)
+      (assoc :expected-result-schema (:expectedResultSchema payload))
       (seq actions) (assoc :actions actions)
       payload-summary (assoc :payload-summary payload-summary)
       (:lease item) (assoc :lease (:lease item)))))
