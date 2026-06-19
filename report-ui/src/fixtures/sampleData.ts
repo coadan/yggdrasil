@@ -220,9 +220,23 @@ export const fixtureReport: AGraphReport = {
         label: "Fixture Graph Crawl",
         slot: "plugins",
         order: 10,
-        mdx: "## Fixture Graph Crawl\n\n<Callout dataKey=\"summary\" />\n\n<DataTable dataKey=\"rows\" />\n\n<CommandList dataKey=\"commands\" />",
+        mdx: "## Fixture Graph Crawl\n\n<Callout dataKey=\"summary\" />\n\n<ActionList dataKey=\"actions\" />\n\n<DataTable dataKey=\"rows\" />\n\n<CommandList dataKey=\"commands\" />",
         data: {
           summary: "Plugin output can be shaped from graph traversal evidence.",
+          actions: [
+            {
+              id: "fixture-review-checkout",
+              kind: "plugin-review",
+              label: "Inspect checkout plugin crawl",
+              description: "Review the plugin-selected graph crawl before accepting the system boundary.",
+              source: "fixture-report-plugin.graph-crawl",
+              tab: "systems",
+              graphSliceId: "system-neighborhood",
+              command: "agraph ask \"what owns checkout?\" --project fixture --json",
+              question: "What should I inspect in the checkout plugin crawl?",
+              evidenceRows: [{ source: "systems.json", nodes: 3, edges: 2, path: "src/app/core.clj" }]
+            }
+          ],
           commands: ["agraph ask \"what owns checkout?\" --project fixture --json"],
           rows: {
             columns: [

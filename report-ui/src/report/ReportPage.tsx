@@ -8,7 +8,8 @@ import {
   PluginDiagnostics,
   PluginPanel,
   PluginPanelList,
-  pluginPanels
+  pluginPanels,
+  type PluginPanelActions
 } from "./ReportPluginPanels";
 import { graphSlices, type GraphSlice } from "./graphSlices";
 import { reviewQueueRows, type ReviewQueueRow } from "./reviewQueue";
@@ -50,6 +51,10 @@ const tabs: Array<{ id: ReportTab; label: string }> = [
   { id: "maintenance", label: "Maintenance" },
   { id: "plugins", label: "Plugins" }
 ];
+
+function isReportTab(value: string): value is ReportTab {
+  return tabs.some((tab) => tab.id === value);
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -260,6 +265,30 @@ function nextActionTarget(action: Record<string, unknown>): ActionTarget | null 
 
 function commandKey(action: Record<string, unknown>, index: number): string {
   return String(action.kind || action.command || action.label || index);
+}
+
+function pluginPanelActions({
+  copiedKey,
+  onAsk,
+  onCopyCommand,
+  onOpenGraphSlice,
+  onOpenTab
+}: {
+  copiedKey: string | null;
+  onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
+  onOpenTab: (tab: ReportTab) => void;
+}): PluginPanelActions {
+  return {
+    copiedKey,
+    onAsk,
+    onCopyCommand,
+    onOpenGraphSlice,
+    onOpenTab: (tab) => {
+      if (isReportTab(tab)) onOpenTab(tab);
+    }
+  };
 }
 
 function OperatorNextActions({
@@ -967,12 +996,20 @@ function SystemsTab({
   report,
   graph,
   onAsk,
+  onCopyCommand,
+  onOpenGraphSlice,
+  onOpenTab,
+  copiedActionKey,
   selectedSliceId,
   onSelectSlice
 }: {
   report: AGraphReport;
   graph: AGraphGraph;
   onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
+  onOpenTab: (tab: ReportTab) => void;
+  copiedActionKey: string | null;
   selectedSliceId: string;
   onSelectSlice: (id: string) => void;
 }) {
@@ -1022,7 +1059,11 @@ function SystemsTab({
           { key: "path-prefix", label: "Path" }
         ]}
       />
-      <PluginPanelList report={report} slot="systems" />
+      <PluginPanelList
+        report={report}
+        slot="systems"
+        actions={pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab })}
+      />
     </div>
   );
 }
@@ -1121,11 +1162,17 @@ function dependencyCommands(report: AGraphReport): string[] {
 function DependenciesTab({
   report,
   copiedActionKey,
-  onCopyCommand
+  onAsk,
+  onCopyCommand,
+  onOpenGraphSlice,
+  onOpenTab
 }: {
   report: AGraphReport;
   copiedActionKey: string | null;
+  onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
+  onOpenTab: (tab: ReportTab) => void;
 }) {
   const packages = asRecord(report.packages);
   const counts = asRecord(packages.counts);
@@ -1182,7 +1229,11 @@ function DependenciesTab({
           { key: "versions", label: "Versions" }
         ]}
       />
-      <PluginPanelList report={report} slot="dependencies" />
+      <PluginPanelList
+        report={report}
+        slot="dependencies"
+        actions={pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab })}
+      />
     </div>
   );
 }
@@ -1265,7 +1316,21 @@ function EvidenceFreshnessPanel({
   );
 }
 
-function EvidenceTab({ report, onAsk }: { report: AGraphReport; onAsk: (scope: AskScope) => void }) {
+function EvidenceTab({
+  report,
+  copiedActionKey,
+  onAsk,
+  onCopyCommand,
+  onOpenGraphSlice,
+  onOpenTab
+}: {
+  report: AGraphReport;
+  copiedActionKey: string | null;
+  onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
+  onOpenTab: (tab: ReportTab) => void;
+}) {
   const coverage = asRecord(report.coverage);
   const diagnostics = asRecord(coverage.diagnostics);
   return (
@@ -1311,7 +1376,11 @@ function EvidenceTab({ report, onAsk }: { report: AGraphReport; onAsk: (scope: A
           { key: "count", label: "Count" }
         ]}
       />
-      <PluginPanelList report={report} slot="evidence" />
+      <PluginPanelList
+        report={report}
+        slot="evidence"
+        actions={pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab })}
+      />
     </div>
   );
 }
@@ -1372,7 +1441,11 @@ function MaintenanceTab({
           { key: "reviewId", label: "Review" }
         ]}
       />
-      <PluginPanelList report={report} slot="maintenance" />
+      <PluginPanelList
+        report={report}
+        slot="maintenance"
+        actions={pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab })}
+      />
     </div>
   );
 }
@@ -1435,15 +1508,34 @@ function DashboardTab({
         onOpenTab={onOpenTab}
         limit={5}
       />
-      <PluginPanelList report={report} includeCore />
+      <PluginPanelList
+        report={report}
+        includeCore
+        actions={pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab })}
+      />
       <PluginDiagnostics diagnostics={report.plugins?.diagnostics || []} />
     </div>
   );
 }
 
-function PluginsTab({ report }: { report: AGraphReport }) {
+function PluginsTab({
+  report,
+  copiedActionKey,
+  onAsk,
+  onCopyCommand,
+  onOpenGraphSlice,
+  onOpenTab
+}: {
+  report: AGraphReport;
+  copiedActionKey: string | null;
+  onAsk: (scope: AskScope) => void;
+  onCopyCommand: (key: string, command: string) => void;
+  onOpenGraphSlice: (sliceId: string) => void;
+  onOpenTab: (tab: ReportTab) => void;
+}) {
   const panels = externalPanels(report);
   const diagnostics = report.plugins?.diagnostics || [];
+  const actions = pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab });
 
   return (
     <div className="report-grid">
@@ -1453,7 +1545,7 @@ function PluginsTab({ report }: { report: AGraphReport }) {
           <p className="muted">No project report plugin panels were emitted.</p>
         </section>
       ) : (
-        panels.map((panel) => <PluginPanel key={`${panelPluginId(panel)}:${panel.id}`} panel={panel} />)
+        panels.map((panel) => <PluginPanel key={`${panelPluginId(panel)}:${panel.id}`} panel={panel} actions={actions} />)
       )}
       <PluginDiagnostics diagnostics={diagnostics} />
     </div>
@@ -1617,14 +1709,36 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
             report={report}
             graph={graph}
             onAsk={askFromScope}
+            onCopyCommand={copyCommand}
+            onOpenGraphSlice={openGraphSlice}
+            onOpenTab={setActiveTab}
+            copiedActionKey={copiedActionKey}
             selectedSliceId={systemSliceId}
             onSelectSlice={setSystemSliceId}
           />
         );
       case "dependencies":
-        return <DependenciesTab report={report} copiedActionKey={copiedActionKey} onCopyCommand={copyCommand} />;
+        return (
+          <DependenciesTab
+            report={report}
+            copiedActionKey={copiedActionKey}
+            onAsk={askFromScope}
+            onCopyCommand={copyCommand}
+            onOpenGraphSlice={openGraphSlice}
+            onOpenTab={setActiveTab}
+          />
+        );
       case "evidence":
-        return <EvidenceTab report={report} onAsk={askFromScope} />;
+        return (
+          <EvidenceTab
+            report={report}
+            copiedActionKey={copiedActionKey}
+            onAsk={askFromScope}
+            onCopyCommand={copyCommand}
+            onOpenGraphSlice={openGraphSlice}
+            onOpenTab={setActiveTab}
+          />
+        );
       case "maintenance":
         return (
           <MaintenanceTab
@@ -1637,7 +1751,16 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
           />
         );
       case "plugins":
-        return <PluginsTab report={report} />;
+        return (
+          <PluginsTab
+            report={report}
+            copiedActionKey={copiedActionKey}
+            onAsk={askFromScope}
+            onCopyCommand={copyCommand}
+            onOpenGraphSlice={openGraphSlice}
+            onOpenTab={setActiveTab}
+          />
+        );
       default:
         return (
           <DashboardTab

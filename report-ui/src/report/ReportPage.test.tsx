@@ -32,7 +32,28 @@ describe("ReportPage", () => {
     expect(screen.getByText("flows-api / candidate-system, events-worker / candidate-system")).toBeInTheDocument();
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
 
-    const pluginCommand = screen.getByText("agraph ask \"what owns checkout?\" --project fixture --json").closest("li");
+    const pluginAction = screen.getByText("Inspect checkout plugin crawl").closest("article");
+    expect(pluginAction).toBeTruthy();
+    fireEvent.click(within(pluginAction as HTMLElement).getByRole("button", { name: "Ask" }));
+    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.getByText("What should I inspect in the checkout plugin crawl?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Plugins" }));
+    const pluginActionAgain = screen.getByText("Inspect checkout plugin crawl").closest("article");
+    fireEvent.click(within(pluginActionAgain as HTMLElement).getByRole("button", { name: "Copy command" }));
+    expect(within(pluginActionAgain as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    fireEvent.click(within(pluginActionAgain as HTMLElement).getByRole("button", { name: "Open graph slice" }));
+    expect(screen.getByRole("button", { name: "Systems" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: /System Neighborhood/ })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Plugins" }));
+    const pluginCommand = screen
+      .getAllByText("agraph ask \"what owns checkout?\" --project fixture --json")
+      .map((element) => element.closest("li"))
+      .find(Boolean);
     expect(pluginCommand).toBeTruthy();
     fireEvent.click(within(pluginCommand as HTMLElement).getByRole("button", { name: "Copy command" }));
     expect(within(pluginCommand as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();

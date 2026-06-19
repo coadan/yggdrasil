@@ -7,6 +7,21 @@ type TableColumn = {
   label: string;
 };
 
+export type PluginAskScope = {
+  label: string;
+  source: string;
+  question: string;
+  evidenceRows?: Array<Record<string, unknown>>;
+};
+
+export type PluginPanelActions = {
+  copiedKey?: string | null;
+  onAsk?: (scope: PluginAskScope) => void;
+  onCopyCommand?: (key: string, command: string) => void;
+  onOpenGraphSlice?: (sliceId: string) => void;
+  onOpenTab?: (tab: string) => void;
+};
+
 const coreReportPluginId = "agraph-core-report";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -161,6 +176,83 @@ function InlineCommandList({ value }: { value: unknown }) {
   );
 }
 
+function actionRowsFrom(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return asRows(value);
+  return asRows(asRecord(value).rows);
+}
+
+function actionEvidenceRows(row: Record<string, unknown>): Array<Record<string, unknown>> {
+  return asRows(row.evidenceRows || row.evidence_rows || row.evidence);
+}
+
+function InlineActionList({ value, actions, panel }: { value: unknown; actions?: PluginPanelActions; panel: ReportPluginPanel }) {
+  const rows = actionRowsFrom(value);
+  if (rows.length === 0) return <p className="muted">No actions.</p>;
+
+  return (
+    <div className="action-list plugin-action-list">
+      {rows.map((row, index) => {
+        const key = displayValue(row.id || row.key || row.kind || row.label) || `${panel.id}:${index}`;
+        const label = displayValue(row.label || row.title || row.kind) || "Action";
+        const kind = displayValue(row.kind) || "plugin-action";
+        const count = displayValue(row.count);
+        const command = displayValue(row.command);
+        const tab = displayValue(row.tab || row.targetTab || row.target_tab);
+        const graphSliceId = displayValue(row.graphSliceId || row.graph_slice_id);
+        const source = displayValue(row.source) || `${panelPluginId(panel)}.${panel.id}`;
+        const evidenceRows = actionEvidenceRows(row);
+        const question = displayValue(row.question) || `What should I do for ${label}?`;
+        return (
+          <article key={key} className="action-row plugin-action-row">
+            <div>
+              <div className="action-row-meta">
+                <span>{kind}</span>
+                {count ? <span>{count}</span> : null}
+                {source ? <span>{source}</span> : null}
+              </div>
+              <h3>{label}</h3>
+              {displayValue(row.description || row.summary) ? <p>{displayValue(row.description || row.summary)}</p> : null}
+              {command ? <code>{command}</code> : null}
+            </div>
+            <div className="action-row-buttons">
+              {actions?.onAsk ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    actions.onAsk?.({
+                      label,
+                      source,
+                      question,
+                      evidenceRows: evidenceRows.length > 0 ? evidenceRows : [row]
+                    })
+                  }
+                >
+                  Ask
+                </button>
+              ) : null}
+              {tab && actions?.onOpenTab ? (
+                <button type="button" onClick={() => actions.onOpenTab?.(tab)}>
+                  Open {tab}
+                </button>
+              ) : null}
+              {graphSliceId && actions?.onOpenGraphSlice ? (
+                <button type="button" onClick={() => actions.onOpenGraphSlice?.(graphSliceId)}>
+                  Open graph slice
+                </button>
+              ) : null}
+              {command && actions?.onCopyCommand ? (
+                <button type="button" onClick={() => actions.onCopyCommand?.(`plugin-action:${key}`, command)}>
+                  {actions.copiedKey === `plugin-action:${key}` ? "Copied" : "Copy command"}
+                </button>
+              ) : null}
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function metricTone(value: unknown): "warn" | "ok" | undefined {
   if (value === "warn" || value === "ok") return value;
   return undefined;
@@ -201,7 +293,13 @@ function parseMdxProps(source: string): Record<string, string> {
   return props;
 }
 
-function renderMdxComponent(panel: ReportPluginPanel, name: string, props: Record<string, string>, key: string): ReactNode {
+function renderMdxComponent(
+  panel: ReportPluginPanel,
+  name: string,
+  props: Record<string, string>,
+  key: string,
+  actions?: PluginPanelActions
+): ReactNode {
   const value = dataForPanel(panel, props.dataKey);
   switch (name) {
     case "MetricGrid":
@@ -210,6 +308,8 @@ function renderMdxComponent(panel: ReportPluginPanel, name: string, props: Recor
       return <InlineDataTable key={key} value={value} />;
     case "CommandList":
       return <InlineCommandList key={key} value={value} />;
+    case "ActionList":
+      return <InlineActionList key={key} value={value} actions={actions} panel={panel} />;
     case "Callout":
       return <PluginCallout key={key} value={value} />;
     case "KeyValueTable":
@@ -223,7 +323,7 @@ function renderMdxComponent(panel: ReportPluginPanel, name: string, props: Recor
   }
 }
 
-function renderPluginMdx(panel: ReportPluginPanel): ReactNode[] {
+function renderPluginMdx(panel: ReportPluginPanel, actions?: PluginPanelActions): ReactNode[] {
   const nodes: ReactNode[] = [];
   const lines = (panel.mdx || "").split(/\r?\n/);
   let list: string[] = [];
@@ -277,7 +377,7 @@ function renderPluginMdx(panel: ReportPluginPanel): ReactNode[] {
     const component = trimmed.match(/^<([A-Z][A-Za-z0-9]*)\s*([^>]*)\/>$/);
     if (component) {
       flushList(`${key}-list`);
-      nodes.push(renderMdxComponent(panel, component[1], parseMdxProps(component[2]), key));
+      nodes.push(renderMdxComponent(panel, component[1], parseMdxProps(component[2]), key, actions));
       return;
     }
 
@@ -329,7 +429,7 @@ function renderPluginMdx(panel: ReportPluginPanel): ReactNode[] {
   return nodes.length > 0 ? nodes : [<p key={`${panel.id}-empty`} className="muted">No plugin content.</p>];
 }
 
-export function PluginPanel({ panel }: { panel: ReportPluginPanel }) {
+export function PluginPanel({ panel, actions }: { panel: ReportPluginPanel; actions?: PluginPanelActions }) {
   const pluginId = panelPluginId(panel);
   const metaItems = pluginId === coreReportPluginId ? [] : [pluginId, panel.slot].filter(Boolean);
   return (
@@ -342,18 +442,28 @@ export function PluginPanel({ panel }: { panel: ReportPluginPanel }) {
         </div>
       ) : null}
       {panel.description ? <p className="muted">{panel.description}</p> : null}
-      <div className="plugin-mdx">{renderPluginMdx(panel)}</div>
+      <div className="plugin-mdx">{renderPluginMdx(panel, actions)}</div>
     </section>
   );
 }
 
-export function PluginPanelList({ report, slot, includeCore = false }: { report: AGraphReport; slot?: string; includeCore?: boolean }) {
+export function PluginPanelList({
+  report,
+  slot,
+  includeCore = false,
+  actions
+}: {
+  report: AGraphReport;
+  slot?: string;
+  includeCore?: boolean;
+  actions?: PluginPanelActions;
+}) {
   const panels = slot ? panelsForSlot(report, slot, includeCore) : pluginPanels(report);
   if (panels.length === 0) return null;
   return (
     <>
       {panels.map((panel) => (
-        <PluginPanel key={`${panelPluginId(panel)}:${panel.id}`} panel={panel} />
+        <PluginPanel key={`${panelPluginId(panel)}:${panel.id}`} panel={panel} actions={actions} />
       ))}
     </>
   );
