@@ -1690,6 +1690,11 @@
    :caseFingerprint "case fingerprint from the packet"
    :agentId "stable id for the agent run"
    :mode "agraph, shell-only, or local-vector"
+   :selection {:rawCandidateFiles 0
+               :candidateFiles 0
+               :coverageFilteredCandidateFiles 0
+               :limit 20
+               :coverageSourceKinds []}
    :parserWorker {:mode "none|java|dotnet|all"
                   :source "option|env|default|agent-result|unknown"}
    :suspectedFiles [{:path "repo-relative/path.ext"
@@ -2816,6 +2821,25 @@
                            "maximum" 1}
                  "model" {"type" "string"}}})
 
+(defn- agent-result-selection-json-schema
+  []
+  {"type" "object"
+   "additionalProperties" false
+   "properties" {"rawCandidateFiles" {"type" "integer"
+                                      "minimum" 0}
+                 "candidateFiles" {"type" "integer"
+                                   "minimum" 0}
+                 "coverageFilteredCandidateFiles" {"type" "integer"
+                                                   "minimum" 0}
+                 "limit" {"type" ["integer" "null"]
+                          "minimum" 0}
+                 "coverageSourceKinds" {"type" "array"
+                                        "items" {"type" "string"}}
+                 "candidateFileOnlyQuota" {"type" "integer"
+                                           "minimum" 0}
+                 "candidateFileOnlySelected" {"type" "integer"
+                                              "minimum" 0}}})
+
 (defn- agent-result-json-schema
   []
   {"$schema" "https://json-schema.org/draft/2020-12/schema"
@@ -2839,6 +2863,7 @@
                  "agentId" {"type" "string"}
                  "mode" {"type" "string"
                          "enum" agent-result-modes}
+                 "selection" (agent-result-selection-json-schema)
                  "parserWorker" {"type" "object"
                                  "additionalProperties" false
                                  "properties" {"mode" {"type" "string"}

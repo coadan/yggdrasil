@@ -1777,6 +1777,17 @@
                    (get-in metrics-schema [:properties :cosine])))
             (is (= {:type "number"}
                    (get-in metrics-schema [:properties :rankScore]))))
+          (let [selection-schema (get-in (json/read-json
+                                          (slurp (get-in run [:artifacts :outputSchemaPath]))
+                                          :key-fn keyword)
+                                         [:properties :selection])]
+            (is (= false (:additionalProperties selection-schema)))
+            (is (= {:type "integer"
+                    :minimum 0}
+                   (get-in selection-schema [:properties :rawCandidateFiles])))
+            (is (= {:type ["integer" "null"]
+                    :minimum 0}
+                   (get-in selection-schema [:properties :limit]))))
           (is (not (str/includes? (slurp (get-in run [:artifacts :promptPath]))
                                   "changedFiles")))
           (is (str/includes? (slurp (get-in run [:artifacts :stdoutPath]))

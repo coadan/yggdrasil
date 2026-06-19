@@ -345,6 +345,13 @@ Agents should return JSON shaped like this:
   "caseFingerprint": "sha256:...",
   "agentId": "codex",
   "mode": "agraph",
+  "selection": {
+    "rawCandidateFiles": 20,
+    "candidateFiles": 20,
+    "coverageFilteredCandidateFiles": 0,
+    "limit": 20,
+    "coverageSourceKinds": []
+  },
   "suspectedFiles": [
     {
       "path": "repo-relative/path.ext",
@@ -368,8 +375,9 @@ local semantic-vector baseline lane.
 
 Recall, MRR, and noise use `suspectedFiles.path` and rank. The citation score
 uses the presence of non-empty `suspectedFiles[].evidence` rows. Reasons,
-commands, warnings, symbols, and optional bounded `suspectedFiles[].metrics`
-are still part of the artifact because they make failures auditable.
+commands, warnings, symbols, optional bounded `selection`, and optional bounded
+`suspectedFiles[].metrics` are still part of the artifact because they make
+failures auditable.
 AGraph-generated baseline evidence uses compact mechanical rows such as
 `context-doc:<path>`, `graph-entity:<label>`, and
 `candidate-file:<path> rank=<n> ... components=<score-components>` so candidate
