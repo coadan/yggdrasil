@@ -331,6 +331,10 @@ describe("ReportPage", () => {
     expect(screen.getByText("Auth surfaces")).toBeInTheDocument();
     expect(screen.getByText("Inventory Evidence Rows")).toBeInTheDocument();
     expect(screen.getByText("generated/graphql-client.ts")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy answer JSON" }));
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy related JSON" }));
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "What dependency issues exist?" }));
 

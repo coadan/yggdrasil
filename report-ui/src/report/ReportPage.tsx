@@ -843,6 +843,22 @@ function freshnessEvidencePacket(report: AGraphReport): string {
   );
 }
 
+function askAnswerPacket(question: string, answer: AskAnswer): string {
+  return JSON.stringify(
+    {
+      schema: "agraph.report.ask-answer/v1",
+      question,
+      title: answer.title,
+      summary: answer.summary,
+      evidence: answer.evidence,
+      relatedTitle: answer.relatedTitle,
+      related: answer.related
+    },
+    null,
+    2
+  );
+}
+
 function maintenanceRows(report: AGraphReport, key: string): Array<Record<string, unknown>> {
   const maintenance = asRecord(report.maintenance);
   return asRows(maintenance[key] || maintenance[key.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())]);
@@ -2229,7 +2245,19 @@ function PluginsTab({
   );
 }
 
-function AskTab({ report, graph, scope }: { report: AGraphReport; graph: AGraphGraph; scope: AskScope | null }) {
+function AskTab({
+  report,
+  graph,
+  scope,
+  copiedKey,
+  onCopyCommand
+}: {
+  report: AGraphReport;
+  graph: AGraphGraph;
+  scope: AskScope | null;
+  copiedKey: string | null;
+  onCopyCommand: (key: string, command: string) => void;
+}) {
   const defaultQuestion = "What should I review next?";
   const quickPrompts = [
     "What is this project made of?",
@@ -2308,6 +2336,16 @@ function AskTab({ report, graph, scope }: { report: AGraphReport; graph: AGraphG
             <p className="eyebrow">Question</p>
             <h2>{asked}</h2>
           </div>
+          <div className="action-row-buttons">
+            <button type="button" onClick={() => onCopyCommand("ask:answer-json", askAnswerPacket(asked, answer))}>
+              {copiedKey === "ask:answer-json" ? "Copied" : "Copy answer JSON"}
+            </button>
+            {answer.related.length > 0 ? (
+              <button type="button" onClick={() => onCopyCommand("ask:related-json", JSON.stringify(answer.related, null, 2))}>
+                {copiedKey === "ask:related-json" ? "Copied" : "Copy related JSON"}
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="ask-answer">
           <h3>{answer.title}</h3>
@@ -2383,7 +2421,7 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
           />
         );
       case "ask":
-        return <AskTab report={report} graph={graph} scope={askScope} />;
+        return <AskTab report={report} graph={graph} scope={askScope} copiedKey={copiedActionKey} onCopyCommand={copyCommand} />;
       case "systems":
         return (
           <SystemsTab
