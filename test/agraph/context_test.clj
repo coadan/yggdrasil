@@ -427,7 +427,28 @@
              :status "weak"}
             {:plane "remote-work"
              :status "unsupported"}]
-           (:validationGaps section)))))
+           (:validationGaps section)))
+    (is (= [{:kind :inspect
+             :label "Inspect accepted system Billing"
+             :target "system:billing"
+             :mcpTool "agraph_node"
+             :mcpArgs {:target "system:billing"}
+             :reason "Open accepted map system with graph neighbors and attached evidence"}
+            {:kind :inspect
+             :label "Inspect candidate system Candidate"
+             :target "system:candidate"
+             :mcpTool "agraph_node"
+             :mcpArgs {:target "system:candidate"}
+             :reason "Open candidate system with mechanical graph neighbors"}
+            {:kind :inspect
+             :label "Inspect evidence DATABASE_URL"
+             :target "evidence:database-url"
+             :mcpTool "agraph_node"
+             :mcpArgs {:target "evidence:database-url"}
+             :reason "Open exact evidence row and source window"}
+            {:kind :dependencies
+             :command "agraph packages --json"}]
+           (:nextActions section)))))
 
 (deftest context-budget-compacts-source-coverage-before-dropping-it
   (let [trim @#'context/trim-optional-context-metadata
@@ -1018,7 +1039,11 @@
                :status "weak"}
               {:plane "remote-work"
                :status "unsupported"}]
-             (:validationGaps architecture))))))
+             (:validationGaps architecture)))
+      (is (= ["system:billing" "system:worker" "evidence:billing-env"]
+             (mapv :target (take 3 (:nextActions architecture)))))
+      (is (= ["agraph_node" "agraph_node" "agraph_node"]
+             (mapv :mcpTool (take 3 (:nextActions architecture))))))))
 
 (deftest candidate-files-preserve-query-score-components
   (with-redefs [query/search-report (fn [_ _ _]

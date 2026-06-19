@@ -841,6 +841,39 @@
               :docs
               :openDecisions])))
 
+(defn- inspect-action-label
+  [prefix row]
+  (str prefix " " (or (:label row) (:id row))))
+
+(defn- inspect-action
+  [target label reason]
+  {:kind :inspect
+   :label label
+   :target target
+   :mcpTool "agraph_node"
+   :mcpArgs {:target target}
+   :reason reason})
+
+(defn- architecture-inspect-actions
+  [accepted-systems candidate-systems runtime-evidence]
+  (vec
+   (concat
+    (map (fn [system]
+           (inspect-action (:id system)
+                           (inspect-action-label "Inspect accepted system" system)
+                           "Open accepted map system with graph neighbors and attached evidence"))
+         (take 2 accepted-systems))
+    (map (fn [system]
+           (inspect-action (:id system)
+                           (inspect-action-label "Inspect candidate system" system)
+                           "Open candidate system with mechanical graph neighbors"))
+         (take 2 candidate-systems))
+    (map (fn [evidence]
+           (inspect-action (:id evidence)
+                           (inspect-action-label "Inspect evidence" evidence)
+                           "Open exact evidence row and source window"))
+         (take 2 runtime-evidence)))))
+
 (defn- architecture-section
   [{:keys [overlay entities edges runtime-evidence docs activity answerability]}]
   (let [accepted-systems (selected-accepted-systems overlay entities)
@@ -848,6 +881,9 @@
         boundary-evidence (mapv graph-edge-evidence-row (take 12 edges))
         dependency-evidence (mapv graph-edge-evidence-row
                                   (take 8 (filter dependency-evidence? edges)))
+        inspect-actions (architecture-inspect-actions accepted-systems
+                                                      candidate-systems
+                                                      runtime-evidence)
         section {:basis "mechanical-plus-map"
                  :acceptedSystems accepted-systems
                  :candidateSystems candidate-systems
@@ -860,7 +896,8 @@
                                       (take 6 (filter open-decision? activity)))
                  :validationGaps (vec (take 12 (validation-gaps answerability)))
                  :warnings (vec (take 5 (:warnings answerability)))
-                 :nextActions (vec (take 5 (:nextActions answerability)))}]
+                 :nextActions (vec (take 6 (concat inspect-actions
+                                                   (:nextActions answerability))))}]
     (when (architecture-supported? section)
       section)))
 
