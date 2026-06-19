@@ -159,6 +159,48 @@ function DataTable({
   );
 }
 
+function InlineTable({
+  title,
+  rows,
+  columns,
+  empty = "No rows."
+}: {
+  title: string;
+  rows: Array<Record<string, unknown>>;
+  columns: TableColumn[];
+  empty?: string;
+}) {
+  return (
+    <div className="inline-table">
+      <h3>{title}</h3>
+      {rows.length === 0 ? (
+        <p className="muted">{empty}</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              {columns.map((column) => (
+                <th key={column.key}>{column.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={String(row.id || row.reviewId || row.review_id || row.source_id || row.path || index)}>
+                {columns.map((column) => (
+                  <td key={column.key} className={numericCell(row[column.key])}>
+                    {displayValue(row[column.key])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function CommandList({ commands }: { commands: string[] }) {
   return (
     <section className="panel">
@@ -418,6 +460,43 @@ function nestedLabel(row: Record<string, unknown>, key: string): string {
 function packageRows(report: AGraphReport, key: string): Array<Record<string, unknown>> {
   const packages = asRecord(report.packages);
   return asRows(packages[key] || packages[key.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())]);
+}
+
+function freshnessRepoRows(report: AGraphReport): Array<Record<string, unknown>> {
+  const freshness = asRecord(report.evidence.freshness);
+  return asRows(freshness.repos).map((repo) => {
+    const counts = asRecord(repo.counts);
+    return {
+      repo: repo["repo-id"] || repo.repoId || repo.id,
+      status: repo.status,
+      indexed: countValue(counts, "indexed"),
+      current: countValue(counts, "current"),
+      changed: countValue(counts, "changed"),
+      missing: countValue(counts, "missing"),
+      unindexed: countValue(counts, "unindexed")
+    };
+  });
+}
+
+function freshnessSampleRows(report: AGraphReport): Array<Record<string, unknown>> {
+  const rows: Array<Record<string, unknown>> = [];
+  const freshness = asRecord(report.evidence.freshness);
+  for (const repo of asRows(freshness.repos)) {
+    const repoId = repo["repo-id"] || repo.repoId || repo.id;
+    const samples = asRecord(repo.samples);
+    for (const category of ["changed", "missing", "unindexed"]) {
+      for (const sample of asRows(samples[category]).slice(0, 8)) {
+        rows.push({
+          repo: sample["repo-id"] || sample.repoId || repoId,
+          category,
+          path: sample.path,
+          ext: sample.ext,
+          reason: sample["skip-reason"] || sample.skipReason || sample.reason
+        });
+      }
+    }
+  }
+  return rows;
 }
 
 function maintenanceRows(report: AGraphReport, key: string): Array<Record<string, unknown>> {
@@ -1026,7 +1105,85 @@ function DependenciesTab({ report }: { report: AGraphReport }) {
   );
 }
 
-function EvidenceTab({ report }: { report: AGraphReport }) {
+function EvidenceFreshnessPanel({
+  report,
+  onAsk
+}: {
+  report: AGraphReport;
+  onAsk: (scope: AskScope) => void;
+}) {
+  const freshness = asRecord(report.evidence.freshness);
+  if (Object.keys(freshness).length === 0) return null;
+
+  const counts = asRecord(freshness.counts);
+  const repoRows = freshnessRepoRows(report);
+  const sampleRows = freshnessSampleRows(report);
+  const status = displayValue(freshness.status) || "unknown";
+
+  return (
+    <section className="panel span-2">
+      <div className="panel-header">
+        <div>
+          <h2>Evidence Freshness</h2>
+          <p className="muted">Report-local indexed/current file state with sample paths for stale evidence review.</p>
+        </div>
+        <button
+          className="slice-ask-button"
+          type="button"
+          onClick={() =>
+            onAsk({
+              label: "Evidence Freshness",
+              source: "evidence.freshness",
+              question: "What should I do about evidence freshness?",
+              evidenceRows: sampleRows.length > 0 ? sampleRows.slice(0, 12) : repoRows
+            })
+          }
+        >
+          Ask about freshness
+        </button>
+      </div>
+      <MetricStrip
+        items={[
+          { label: "Status", value: status, tone: status === "stale" ? "warn" : "ok" },
+          { label: "Indexed", value: countValue(counts, "indexed") },
+          { label: "Current", value: countValue(counts, "current") },
+          { label: "Changed", value: countValue(counts, "changed"), tone: countValue(counts, "changed") > 0 ? "warn" : undefined },
+          { label: "Missing", value: countValue(counts, "missing"), tone: countValue(counts, "missing") > 0 ? "warn" : undefined },
+          { label: "Unindexed", value: countValue(counts, "unindexed"), tone: countValue(counts, "unindexed") > 0 ? "warn" : undefined }
+        ]}
+      />
+      {repoRows.length > 0 ? (
+        <InlineTable
+          title="Freshness By Repo"
+          rows={repoRows}
+          columns={[
+            { key: "repo", label: "Repo" },
+            { key: "status", label: "Status" },
+            { key: "indexed", label: "Indexed" },
+            { key: "current", label: "Current" },
+            { key: "changed", label: "Changed" },
+            { key: "missing", label: "Missing" },
+            { key: "unindexed", label: "Unindexed" }
+          ]}
+        />
+      ) : null}
+      {sampleRows.length > 0 ? (
+        <InlineTable
+          title="Freshness Sample Paths"
+          rows={sampleRows.slice(0, 24)}
+          columns={[
+            { key: "repo", label: "Repo" },
+            { key: "category", label: "Category" },
+            { key: "path", label: "Path" },
+            { key: "reason", label: "Reason" }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function EvidenceTab({ report, onAsk }: { report: AGraphReport; onAsk: (scope: AskScope) => void }) {
   const coverage = asRecord(report.coverage);
   const diagnostics = asRecord(coverage.diagnostics);
   return (
@@ -1043,6 +1200,7 @@ function EvidenceTab({ report }: { report: AGraphReport }) {
           ]}
         />
       </section>
+      <EvidenceFreshnessPanel report={report} onAsk={onAsk} />
       <CountTable title="File Kinds" rows={fileKindRows(report)} />
       <CountTable title="Node Kinds" rows={nodeKindRows(report)} />
       <CountTable title="Edge Relations" rows={edgeRelationRows(report)} />
@@ -1365,7 +1523,7 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
       case "dependencies":
         return <DependenciesTab report={report} />;
       case "evidence":
-        return <EvidenceTab report={report} />;
+        return <EvidenceTab report={report} onAsk={askFromScope} />;
       case "maintenance":
         return <MaintenanceTab report={report} onAsk={askFromScope} onOpenGraphSlice={openGraphSlice} onOpenTab={setActiveTab} />;
       case "plugins":

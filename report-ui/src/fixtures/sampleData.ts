@@ -117,10 +117,30 @@ export const fixtureReport: AGraphReport = {
     freshness: {
       status: "stale",
       counts: {
+        indexed: 9,
+        current: 12,
         changed: 2,
         missing: 1,
         unindexed: 3
-      }
+      },
+      repos: [
+        {
+          "repo-id": "app",
+          status: "stale",
+          counts: {
+            indexed: 9,
+            current: 12,
+            changed: 2,
+            missing: 1,
+            unindexed: 3
+          },
+          samples: {
+            changed: [{ "repo-id": "app", path: "src/app/core.clj" }],
+            missing: [{ "repo-id": "app", path: "src/app/deleted.clj" }],
+            unindexed: [{ "repo-id": "app", path: "Makefile", reason: "unsupported-extension" }]
+          }
+        }
+      ]
     },
     topFileKinds: [{ value: "clojure", count: 8 }],
     topNodeKinds: [{ value: "namespace", count: 4 }],

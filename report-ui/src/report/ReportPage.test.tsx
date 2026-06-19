@@ -146,6 +146,25 @@ describe("ReportPage", () => {
     expect(screen.getByText("Unresolved imports")).toBeInTheDocument();
   });
 
+  it("shows evidence freshness drilldown and asks from it", () => {
+    render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Evidence" }));
+
+    expect(screen.getByText("Evidence Freshness")).toBeInTheDocument();
+    expect(screen.getByText("Freshness By Repo")).toBeInTheDocument();
+    expect(screen.getByText("Freshness Sample Paths")).toBeInTheDocument();
+    expect(screen.getByText("src/app/deleted.clj")).toBeInTheDocument();
+    expect(screen.getByText("Makefile")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ask about freshness" }));
+
+    expect(screen.getByText("Scoped To")).toBeInTheDocument();
+    expect(screen.getByText("Evidence Freshness")).toBeInTheDocument();
+    expect(screen.getByText("evidence.freshness")).toBeInTheDocument();
+    expect(screen.getByText("What should I do about evidence freshness?")).toBeInTheDocument();
+  });
+
   it("renders empty report packets without crashing", () => {
     render(<ReportPage report={emptyReport} graph={emptyGraph} />);
 

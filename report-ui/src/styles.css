@@ -512,6 +512,20 @@ td.numeric-cell {
   text-align: right;
 }
 
+.inline-table {
+  margin-top: 14px;
+}
+
+.inline-table h3 {
+  font-size: 13px;
+  margin: 0 0 6px;
+}
+
+.inline-table td {
+  max-width: 360px;
+  overflow-wrap: anywhere;
+}
+
 .graph-canvas {
   height: 520px;
   min-height: 320px;
