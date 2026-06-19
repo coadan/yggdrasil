@@ -186,13 +186,16 @@ evidence rows, not inferred project meaning.
 
 `architecture.evidenceFamilies` is a compact readiness summary for the selected
 work area. Rows use fixed evidence-family names such as `source-structure`,
-`dependency-flow`, `runtime-config`, `docs-contracts`, `map-corrections`, and
-`maintenance`. `rowCount` and `sourceCounts` come from packet rows already
-present in the architecture section. `planes` mirrors matching `answerability`
-plane statuses when a family depends on an indexed evidence plane. These rows
-help agents see whether an answer is backed by code, config, dependency, docs,
-map correction, or maintenance evidence without classifying architecture from
-path names or prose.
+`dependency-flow`, `runtime-config`, `deploy-topology`, `docs-contracts`,
+`map-corrections`, and `maintenance`. `deploy-topology` is backed by selected
+container/deploy fact rows such as container images, ports, Docker stages,
+Compose/devcontainer/Helm/Kustomize facts, and runtime commands. `rowCount` and
+`sourceCounts` come from packet rows already present in the architecture
+section. `planes` mirrors matching `answerability` plane statuses when a family
+depends on an indexed evidence plane. These rows help agents see whether an
+answer is backed by code, config, deployment evidence, dependency, docs, map
+correction, or maintenance evidence without classifying architecture from path
+names or prose.
 
 ## Doc Attachments
 

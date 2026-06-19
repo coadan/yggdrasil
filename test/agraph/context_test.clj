@@ -443,7 +443,18 @@
                                       :normalizedValue "database-url"
                                       :sourceLine 2
                                       :confidence 1.0
-                                      :score 1.25}]
+                                      :score 1.25}
+                                     {:id "evidence:billing-image"
+                                      :systemId "system:billing"
+                                      :repo "app"
+                                      :path "deploy/compose.yml"
+                                      :fileKind "compose"
+                                      :kind "container-image-consumer"
+                                      :label "billing image"
+                                      :normalizedValue "container-image:billing"
+                                      :sourceLine 7
+                                      :confidence 1.0
+                                      :score 1.1}]
                   :docs [{:target "system:billing"
                           :role "overview"
                           :status "accepted"
@@ -533,8 +544,31 @@
              :normalizedValue "database-url"
              :sourceLine 2
              :confidence 1.0
-             :score 1.25}]
+             :score 1.25}
+            {:id "evidence:billing-image"
+             :systemId "system:billing"
+             :repo "app"
+             :path "deploy/compose.yml"
+             :fileKind "compose"
+             :kind "container-image-consumer"
+             :label "billing image"
+             :normalizedValue "container-image:billing"
+             :sourceLine 7
+             :confidence 1.0
+             :score 1.1}]
            (:runtimeEvidence section)))
+    (is (= [{:id "evidence:billing-image"
+             :systemId "system:billing"
+             :repo "app"
+             :path "deploy/compose.yml"
+             :fileKind "compose"
+             :kind "container-image-consumer"
+             :label "billing image"
+             :normalizedValue "container-image:billing"
+             :sourceLine 7
+             :confidence 1.0
+             :score 1.1}]
+           (:deployEvidence section)))
     (is (= [{:target "system:billing"
              :role "overview"
              :status "accepted"
@@ -568,8 +602,13 @@
                        :status "missing"}]}
             {:family "runtime-config"
              :status "available"
-             :rowCount 1
+             :rowCount 2
              :sourceCounts [{:key "runtimeEvidence"
+                             :count 2}]}
+            {:family "deploy-topology"
+             :status "available"
+             :rowCount 1
+             :sourceCounts [{:key "deployEvidence"
                              :count 1}]}
             {:family "docs-contracts"
              :status "available"
@@ -617,6 +656,12 @@
              :mcpArgs {:target "evidence:database-url"}
              :reason "Open exact evidence row and source window"}
             {:kind :inspect
+             :label "Inspect evidence billing image"
+             :target "evidence:billing-image"
+             :mcpTool "agraph_node"
+             :mcpArgs {:target "evidence:billing-image"}
+             :reason "Open exact evidence row and source window"}
+            {:kind :inspect
              :label "Inspect dependency imports-package target system:candidate"
              :target "system:candidate"
              :mcpTool "agraph_node"
@@ -627,9 +672,7 @@
              :target "docs/billing.md"
              :mcpTool "agraph_node"
              :mcpArgs {:target "docs/billing.md"}
-             :reason "Open accepted architecture doc source and attached map evidence"}
-            {:kind :dependencies
-             :command "agraph packages --json"}]
+             :reason "Open accepted architecture doc source and attached map evidence"}]
            (:nextActions section)))))
 
 (deftest architecture-section-selects-accepted-systems-by-map-include-path
@@ -692,6 +735,7 @@
     (is (= {"source-structure" "available"
             "dependency-flow" "missing"
             "runtime-config" "missing"
+            "deploy-topology" "missing"
             "docs-contracts" "missing"
             "map-corrections" "available"
             "maintenance" "missing"}

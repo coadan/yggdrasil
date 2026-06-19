@@ -1056,6 +1056,9 @@
    {:family "runtime-config"
     :source-keys [:runtimeEvidence]
     :planes [:runtime-config]}
+   {:family "deploy-topology"
+    :source-keys [:deployEvidence]
+    :planes [:runtime-config]}
    {:family "docs-contracts"
     :source-keys [:docs]
     :planes [:docs]}
@@ -1127,6 +1130,43 @@
        (keep #(architecture-evidence-family-row section answerability %))
        vec))
 
+(def ^:private deploy-evidence-kinds
+  #{"container-image"
+    "container-image-producer"
+    "container-image-consumer"
+    "container-port"
+    "devcontainer-command"
+    "devcontainer-feature"
+    "devcontainer-port"
+    "devcontainer-service"
+    "docker-build-arg"
+    "docker-copy-source"
+    "docker-label"
+    "docker-stage"
+    "docker-workdir"
+    "runtime-command"})
+
+(def ^:private deploy-file-kinds
+  #{"compose"
+    "devcontainer"
+    "docker"
+    "helm"
+    "kustomize"
+    "procfile"})
+
+(defn- deploy-evidence?
+  [row]
+  (or (contains? deploy-evidence-kinds (display-name (:kind row)))
+      (contains? deploy-file-kinds (display-name (or (:fileKind row)
+                                                     (:file-kind row))))))
+
+(defn- deploy-evidence-rows
+  [runtime-evidence]
+  (->> runtime-evidence
+       (filter deploy-evidence?)
+       (take 8)
+       vec))
+
 (defn- architecture-supported?
   [section]
   (some seq
@@ -1135,6 +1175,7 @@
               :candidateSystems
               :boundaryEvidence
               :runtimeEvidence
+              :deployEvidence
               :dependencyEvidence
               :docs
               :openDecisions])))
@@ -1214,6 +1255,7 @@
                                         selected-ids
                                         (map graph-edge-evidence-row
                                              (filter dependency-evidence? edges)))))
+        deploy-evidence (deploy-evidence-rows runtime-evidence)
         architecture-docs (mapv architecture-doc-row
                                 (take 8 (filter accepted-architecture-doc? docs)))
         inspect-actions (architecture-inspect-actions accepted-systems
@@ -1226,6 +1268,7 @@
                  :candidateSystems candidate-systems
                  :boundaryEvidence boundary-evidence
                  :runtimeEvidence runtime-evidence
+                 :deployEvidence deploy-evidence
                  :dependencyEvidence dependency-evidence
                  :docs architecture-docs
                  :openDecisions (mapv open-decision-row
@@ -1367,6 +1410,7 @@
         (update :candidateSystems #(vec (take 5 %)))
         (update :boundaryEvidence #(vec (take 8 %)))
         (update :dependencyEvidence #(vec (take 5 %)))
+        (update :deployEvidence #(vec (take 5 %)))
         (update :evidenceFamilies #(vec (take 8 %)))
         (update :docs #(vec (take 5 %)))
         (update :openDecisions #(vec (take 3 %)))
