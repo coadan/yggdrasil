@@ -42,7 +42,7 @@
 
 (deftest summarize-exposes-dependency-evidence-plane
   (with-redefs [coverage/project-coverage (fn [& _]
-                                            {:totals {:skipped 0}
+                                            {:totals {:skipped 2}
                                              :files-by-kind []
                                              :extractors []
                                              :skipped-by-extension [{:ext ".wasm"
@@ -94,9 +94,9 @@
              (some #(when (= :dependencies (:plane %)) %)
                    (:planes summary))))
       (is (= {:plane :source-files
-              :status :available
+              :status :weak
               :counts {:files 1
-                       :skipped-files 0
+                       :skipped-files 2
                        :diagnostics 0}}
              (some #(when (= :source-files (:plane %)) %)
                    (:planes summary))))
@@ -128,6 +128,12 @@
                      :label "Queue unresolved import review work"
                      :count 1
                      :command "agraph sync check <project.edn> --enqueue"}
+                    %)
+                (:nextActions summary)))
+      (is (some #(= {:kind :coverage
+                     :label "Inspect skipped source candidates"
+                     :count 2
+                     :command "agraph sync coverage <project.edn> --json"}
                     %)
                 (:nextActions summary)))
       (is (some #(= {:kind :audit-scope

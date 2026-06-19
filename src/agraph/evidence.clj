@@ -247,7 +247,8 @@
 (defn- next-actions
   [{:keys [project config-path map-path counts freshness]}]
   (let [{:keys [files search-docs system-nodes system-edges activity-items
-                activity-events result-schema-mismatch-events diagnostics]} counts
+                activity-events result-schema-mismatch-events diagnostics skipped-files]}
+        counts
         project-id (:id project)
         stale-count (+ (get-in freshness [:counts :changed] 0)
                        (get-in freshness [:counts :missing] 0)
@@ -295,6 +296,12 @@
                          :command (sync-subcommand "activity" config-path "--json")}
                         (when config-path
                           {:mcpArgs {:configPath config-path}})))
+
+           (pos? skipped-files)
+           (conj {:kind :coverage
+                  :label "Inspect skipped source candidates"
+                  :count skipped-files
+                  :command (sync-subcommand "coverage" config-path "--json")})
 
            (pos? diagnostics)
            (conj {:kind :coverage
