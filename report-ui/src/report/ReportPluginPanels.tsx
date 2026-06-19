@@ -330,12 +330,17 @@ function renderPluginMdx(panel: ReportPluginPanel): ReactNode[] {
 }
 
 export function PluginPanel({ panel }: { panel: ReportPluginPanel }) {
+  const pluginId = panelPluginId(panel);
+  const metaItems = pluginId === coreReportPluginId ? [] : [pluginId, panel.slot].filter(Boolean);
   return (
     <section className="panel plugin-panel">
-      <div className="plugin-panel-meta">
-        <span>{panelPluginId(panel)}</span>
-        <span>{panel.slot}</span>
-      </div>
+      {metaItems.length > 0 ? (
+        <div className="plugin-panel-meta">
+          {metaItems.map((item) => (
+            <span key={item}>{item}</span>
+          ))}
+        </div>
+      ) : null}
       {panel.description ? <p className="muted">{panel.description}</p> : null}
       <div className="plugin-mdx">{renderPluginMdx(panel)}</div>
     </section>

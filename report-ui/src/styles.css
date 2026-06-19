@@ -445,19 +445,22 @@ h3 {
 
 .plugin-panel-meta {
   color: #64748b;
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
   gap: 6px;
-  font-size: 11px;
-  line-height: 1.2;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  min-height: 0;
+  text-transform: uppercase;
 }
 
 .plugin-panel-meta span {
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  max-width: 220px;
+  background: transparent;
+  border: 0;
+  max-width: 160px;
   overflow: hidden;
-  padding: 2px 5px;
+  padding: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

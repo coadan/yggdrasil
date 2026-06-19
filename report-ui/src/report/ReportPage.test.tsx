@@ -17,7 +17,7 @@ describe("ReportPage", () => {
 
     expect(screen.getByText("Fixture")).toBeInTheDocument();
     expect(screen.getByText("Project Atlas")).toBeInTheDocument();
-    expect(screen.getByText("agraph-core-report")).toBeInTheDocument();
+    expect(screen.queryByText("agraph-core-report")).not.toBeInTheDocument();
     expect(screen.getByText("Operator Review Queue")).toBeInTheDocument();
     expect(screen.getByText("Refresh indexed graph basis")).toBeInTheDocument();
     expect(screen.getByText("packages.unresolved-imports")).toBeInTheDocument();
