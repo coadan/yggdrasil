@@ -374,6 +374,48 @@
           str/trim
           (str/replace #"^['\"]|['\"]$" "")))
 
+(defn yaml-list-values
+  [content section-names]
+  (let [sections (set section-names)]
+    (loop [remaining (map-indexed vector (str/split-lines content))
+           section nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (cond
+          (str/blank? (str/trim line))
+          (recur (rest remaining) section out)
+
+          (re-matches #"^[A-Za-z_][A-Za-z0-9_-]*:\s*.*" line)
+          (let [[_ next-section inline-value]
+                (re-matches #"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)" line)
+                values (->> (re-seq #"['\"]?([^,'\"\[\]\s]+)['\"]?" inline-value)
+                            (map second)
+                            (remove str/blank?))]
+            (recur (rest remaining)
+                   (when (contains? sections next-section) next-section)
+                   (into out
+                         (map (fn [value]
+                                {:section next-section
+                                 :value value
+                                 :source-line (inc idx)}))
+                         (when (contains? sections next-section)
+                           values))))
+
+          (and section
+               (re-matches #"^\s*-\s+(.+?)\s*$" line))
+          (let [value (-> (second (re-matches #"^\s*-\s+(.+?)\s*$" line))
+                          str/trim
+                          (str/replace #"^['\"]|['\"]$" ""))]
+            (recur (rest remaining)
+                   section
+                   (conj out {:section section
+                              :value value
+                              :source-line (inc idx)})))
+
+          :else
+          (recur (rest remaining) section out))
+        out))))
+
 (defn yaml-scalar-list-values
   [value]
   (let [value (str/trim (or value ""))]
