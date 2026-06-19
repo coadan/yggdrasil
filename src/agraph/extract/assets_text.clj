@@ -1,10 +1,11 @@
 (ns agraph.extract.assets-text
   "Text-backed asset and catalog extractors."
-  (:require [agraph.extract.common :as common]))
+  (:require [agraph.extract.common :as common]
+            [clojure.string :as str]))
 
 (defn- gettext-messages
   [content]
-  (->> (clojure.string/split-lines content)
+  (->> (str/split-lines content)
        (map-indexed vector)
        (keep (fn [[idx line]]
                (when-let [[_ msgid]
