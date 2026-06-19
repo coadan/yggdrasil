@@ -189,8 +189,16 @@ indexed diagnostics exist, `sourceCoverage.nextActions` points at the same
 coverage inspection command. Project evidence and report packets include compact
 `skipped-by-extension` and
 `skipped-by-reason` rows with bounded samples for first-pass triage. Full
-coverage reports include `nextActions` rows when skipped files or extractor
-diagnostics need a follow-up coverage inspection.
+coverage reports include `indexedConnectivity`, a mechanical graph-topology
+summary with indexed file, node, edge, connected-file, cross-file-connected, and
+isolated-file counts. `connectedFiles` means an indexed file has at least one
+active graph edge through one of its indexed nodes; `crossFileConnectedFiles`
+means at least one such edge reaches a node in a different indexed file.
+`isolatedFiles` are indexed files without active graph edges. Isolation is not a
+semantic defect, but agents should treat it as a trust-boundary signal when a
+task depends on relationships. Full coverage reports include `nextActions` rows
+when skipped files, extractor diagnostics, or isolated indexed files need a
+follow-up coverage inspection.
 
 `candidateFiles` lists ranked file candidates from retrieval. Rows include
 `repo` when the indexed search result is repo-scoped, so agents can distinguish
