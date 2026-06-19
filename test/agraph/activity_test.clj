@@ -18,7 +18,8 @@
         payload {:schema "agraph.test.work/v1"
                  :project-id "demo"
                  :target "system:demo:search"
-                 :goal "Check knowledge base search work"}
+                 :goal "Check knowledge base search work"
+                 :expectedResultSchema "agraph.test.result/v1"}
         enqueued (queue/enqueue! payload
                                  {:root root
                                   :project-id "demo"
@@ -49,6 +50,10 @@
           (is (= #{:completed :created :validation}
                  (set (map :event-kind events))))
           (is (= ["system:demo:search"] (:target-ids (first items))))
+          (is (= "agraph.test.result/v1" (:expected-result-schema (first items))))
+          (is (= "agraph.test.result/v1" (:result-schema (first items))))
+          (is (contains? (set (:tokens (first items)))
+                         "agraph.test.result/v1"))
           (is (= [(get-in enqueued [:item :id])]
                  (mapv :sourceId selected))))))))
 

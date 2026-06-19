@@ -306,6 +306,7 @@
    [:kind string?]
    [:status keyword?]
    [:payload-schema {:optional true} string?]
+   [:expected-result-schema {:optional true} string?]
    [:result-schema {:optional true} string?]
    [:target-ids [:vector string?]]
    [:summary string?]

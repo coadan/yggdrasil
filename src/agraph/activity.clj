@@ -101,11 +101,16 @@
   [item]
   (get-in item [:result :schema]))
 
+(defn- expected-result-schema
+  [item]
+  (get-in item [:payload :expectedResultSchema]))
+
 (defn- summary-text
   [item target-ids]
   (compact (:kind item)
            (:status item)
            (:payload-schema item)
+           (expected-result-schema item)
            (result-schema item)
            target-ids
            (collect-text (:payload item))
@@ -145,6 +150,8 @@
        (:project-id item) (assoc :project-id (:project-id item))
        path (assoc :source-path path)
        (:payload-schema item) (assoc :payload-schema (:payload-schema item))
+       (expected-result-schema item) (assoc :expected-result-schema
+                                            (expected-result-schema item))
        (result-schema item) (assoc :result-schema (result-schema item))
        (:completed-at-ms item) (assoc :completed-at-ms (long (:completed-at-ms item)))))))
 
