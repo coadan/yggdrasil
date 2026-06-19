@@ -122,3 +122,49 @@
       (is (some #(= "agraph packages --project 'fixture project' --json"
                     (:command %))
                 (:nextActions summary))))))
+
+(deftest summarize-surfaces-result-schema-mismatch-activity
+  (with-redefs [coverage/project-coverage (fn [& _]
+                                            {:totals {:skipped 0}
+                                             :files-by-kind []
+                                             :extractors []
+                                             :skipped-by-extension []
+                                             :skipped-by-reason []
+                                             :diagnostics {:total 0}})
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :versions 0
+                                                      :imports-package 0
+                                                      :version-conflicts 0
+                                                      :declared-without-import-evidence 0
+                                                      :unresolved-imports 0}
+                                             :ecosystems []})
+                store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :project-id "fixture"
+                                                   :active? true}]
+                                   []))
+                query/all-nodes (fn [& _] [])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                activity/all-items (fn [& _] [])
+                activity/all-events (fn [& _]
+                                      [{:event-kind :result-schema-mismatch
+                                        :work-id "work-1"}])]
+    (let [summary (evidence/summarize :xtdb
+                                      {:id "fixture"
+                                       :repos []}
+                                      {})]
+      (is (contains? (set (:available summary)) :validation-history))
+      (is (= 1 (get-in summary [:counts :result-schema-mismatch-events])))
+      (is (some #(= {:kind :activity
+                     :label "Inspect result schema mismatch activity"
+                     :count 1
+                     :command "agraph sync activity <project.edn> --json"}
+                    %)
+                (:nextActions summary))))))

@@ -60,7 +60,8 @@
 
 (defn- available
   [{:keys [files nodes edges chunks search-docs embeddings system-nodes system-edges
-           activity-items activity-events validation-events packages map-overlay]}]
+           activity-items activity-events validation-events result-schema-mismatch-events
+           packages map-overlay]}]
   (cond-> []
     (pos? (+ nodes edges)) (conj :source-graph)
     (pos? (+ chunks search-docs)) (conj :docs)
@@ -68,7 +69,7 @@
     (pos? (+ system-nodes system-edges)) (conj :systems)
     (pos? packages) (conj :dependencies)
     (pos? (+ activity-items activity-events)) (conj :activity)
-    (pos? validation-events) (conj :validation-history)
+    (pos? (+ validation-events result-schema-mismatch-events)) (conj :validation-history)
     (pos? (reduce + (vals map-overlay))) (conj :map-overlay)
     (pos? files) vec))
 
@@ -155,7 +156,7 @@
 (defn- next-actions
   [{:keys [project config-path map-path counts]}]
   (let [{:keys [files search-docs system-nodes system-edges activity-items
-                activity-events diagnostics]} counts
+                activity-events result-schema-mismatch-events diagnostics]} counts
         project-id (:id project)]
     (->> (cond-> []
            (zero? files)
@@ -183,6 +184,12 @@
            (zero? (+ activity-items activity-events))
            (conj {:kind :activity
                   :label "Import local activity and work rows"
+                  :command (sync-subcommand "activity" config-path "--json")})
+
+           (pos? result-schema-mismatch-events)
+           (conj {:kind :activity
+                  :label "Inspect result schema mismatch activity"
+                  :count result-schema-mismatch-events
                   :command (sync-subcommand "activity" config-path "--json")})
 
            (pos? diagnostics)
@@ -232,6 +239,9 @@
         activity-events (activity/all-events xtdb {:project-id (:id project)
                                                    :read-context read-context})
         validation-events (filter #(= :validation (:event-kind %)) activity-events)
+        result-schema-mismatch-events (filter #(= :result-schema-mismatch
+                                                  (:event-kind %))
+                                              activity-events)
         counts {:files (count files)
                 :nodes (count nodes)
                 :edges (count edges)
@@ -251,6 +261,7 @@
                 :activity-items (count activity-items)
                 :activity-events (count activity-events)
                 :validation-events (count validation-events)
+                :result-schema-mismatch-events (count result-schema-mismatch-events)
                 :diagnostics (get-in coverage-report [:diagnostics :total] 0)
                 :skipped-files (get-in coverage-report [:totals :skipped] 0)
                 :map-overlay (overlay-counts map-overlay)}
