@@ -1,0 +1,134 @@
+(ns agraph.extractor-plugin-test
+  (:require [agraph.extractor-plugin :as extractor-plugin]
+            [agraph.index :as index]
+            [agraph.project :as project]
+            [agraph.xtdb :as store]
+            [clojure.java.io :as io]
+            [clojure.test :refer [deftest is]]))
+
+(defn- temp-dir
+  [prefix]
+  (let [file (java.nio.file.Files/createTempDirectory
+              prefix
+              (make-array java.nio.file.attribute.FileAttribute 0))]
+    (.getPath (.toFile file))))
+
+(defn- spit-file!
+  [root path content]
+  (let [file (io/file root path)]
+    (.mkdirs (.getParentFile file))
+    (spit file content)
+    (.getPath file)))
+
+(defn- emit-plugin-command
+  []
+  ["python3" (.getCanonicalPath (io/file "test/fixtures/extractor-plugin/emit.py"))])
+
+(defn- plugin-config
+  []
+  {:id "panel-plugin"
+   :version "0.1.0"
+   :command (emit-plugin-command)
+   :modes [:enhance :scan]
+   :applies-to {:file-kinds [:code]
+                :path-globs ["src/*.clj"]}
+   :scan {:path-globs ["flows/*.panel"]
+          :file-kind :panel}
+   :emits [:plugin-example]})
+
+(deftest plugin-enhances-core-files-and-scans-configured-unsupported-files
+  (let [repo (temp-dir "agraph-plugin-repo")
+        xtdb-path (temp-dir "agraph-plugin-xtdb")]
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn value [] 1)\n")
+    (spit-file! repo "flows/home.panel" "panel Home\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [summary (index/index-repo!
+                       xtdb
+                       repo
+                       {:project-id "plugin-project"
+                        :repo-id "app"
+                        :extractor-plugins [(plugin-config)]})
+              files (store/rows-by-field xtdb
+                                         (:files store/tables)
+                                         :project-id
+                                         "plugin-project")
+              nodes (store/rows-by-field xtdb
+                                         (:nodes store/tables)
+                                         :project-id
+                                         "plugin-project")
+              edges (store/rows-by-field xtdb
+                                         (:edges store/tables)
+                                         :project-id
+                                         "plugin-project")
+              file-facts (store/rows-by-field xtdb
+                                              (:file-facts store/tables)
+                                              :project-id
+                                              "plugin-project")]
+          (is (= :completed (:status summary)))
+          (is (some #(and (= "flows/home.panel" (:path %))
+                          (= :panel (:kind %))
+                          (:plugin-scanned? %)
+                          (= ["panel-plugin"] (:plugin-ids %)))
+                    files))
+          (is (= #{"flows/home.panel" "src/app.clj"}
+                 (->> nodes
+                      (filter #(= "panel-plugin" (:plugin-id %)))
+                      (map :path)
+                      set)))
+          (is (every? #(= :unbenchmarked (:benchmark-status %))
+                      (filter #(= "panel-plugin" (:plugin-id %)) nodes)))
+          (is (some #(and (= :plugin-links (:relation %))
+                          (= "panel-plugin" (:plugin-id %)))
+                    edges))
+          (is (some #(and (= :plugin-fact (:kind %))
+                          (= "flows/home.panel" (:path %))
+                          (= "panel-plugin" (:plugin-id %)))
+                    file-facts)))))))
+
+(deftest plugin-command-failure-becomes-diagnostic
+  (let [repo (temp-dir "agraph-plugin-failure-repo")
+        xtdb-path (temp-dir "agraph-plugin-failure-xtdb")]
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn value [] 1)\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [summary (index/index-repo!
+                       xtdb
+                       repo
+                       {:project-id "plugin-project"
+                        :repo-id "app"
+                        :extractor-plugins [{:id "broken-plugin"
+                                             :command ["python3"
+                                                       "-c"
+                                                       (str "import sys; "
+                                                            "sys.stderr.write('broken'); "
+                                                            "sys.exit(7)")]
+                                             :applies-to {:file-kinds [:code]}}]})
+              diagnostics (store/rows-by-field xtdb
+                                               (:diagnostics store/tables)
+                                               :project-id
+                                               "plugin-project")]
+          (is (= :completed (:status summary)))
+          (is (some #(and (= :extractor-plugin (:stage %))
+                          (= "broken-plugin" (:plugin-id %))
+                          (re-find #"exit 7" (:message %)))
+                    diagnostics)))))))
+
+(deftest project-config-normalizes-extractor-plugins
+  (let [root (io/file (temp-dir "agraph-plugin-config"))
+        repo-root (io/file root "repo")
+        project-edn (io/file root "project.edn")]
+    (.mkdirs repo-root)
+    (spit project-edn
+          (pr-str {:id "plugin-config"
+                   :repos [{:id "repo"
+                            :root (.getPath repo-root)}]
+                   :extractor-plugins [(plugin-config)]}))
+    (let [plugin (-> (project/read-project (.getPath project-edn))
+                     :extractor-plugins
+                     first)]
+      (is (= "panel-plugin" (:id plugin)))
+      (is (= #{:enhance :scan} (:modes plugin)))
+      (is (= :panel (get-in plugin [:scan :file-kind])))
+      (is (= :unbenchmarked (:benchmark-status plugin)))
+      (is (seq (extractor-plugin/scan-specs [plugin]))))))

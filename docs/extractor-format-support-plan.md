@@ -4,6 +4,12 @@ AGraph format support should grow through deterministic scanner kinds and small
 extractor adapters that emit canonical graph rows. Avoid semantic project
 classification in core extractors; store bounded facts and relationships first.
 
+Use [extractor plugins](extractor-plugins.md) for project-specific or
+unbenchmarked extraction gaps. A plugin can enhance core-scanned files or opt
+explicit fallback/unsupported file globs into indexing. Promotion from plugin to
+core requires project-agnostic behavior, fixtures, and benchmark evidence that
+shows material improvement for the relevant task class.
+
 ## In Progress
 
 - dbt: `profiles.yml`, `packages.yml`, schema/model YAML, sources, exposures,

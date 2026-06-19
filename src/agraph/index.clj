@@ -2,6 +2,7 @@
   "Index orchestration."
   (:require [agraph.dependency :as dependency]
             [agraph.extract :as extract]
+            [agraph.extractor-plugin :as extractor-plugin]
             [agraph.file-facts :as file-facts]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
@@ -135,22 +136,25 @@
 
 (defn- ->file-row
   [run-id snapshot-id valid-from project-id repo-id repo-root repo-role file]
-  {:xt/id (:file-id file)
-   :project-id project-id
-   :repo-id repo-id
-   :repo-root repo-root
-   :repo-role repo-role
-   :snapshot-id snapshot-id
-   :valid-from valid-from
-   :path (:path file)
-   :ext (:ext file)
-   :kind (:kind file)
-   :content-sha (:content-sha file)
-   :extractor-fingerprint (:extractor-fingerprint file)
-   :mtime-ms (long (:mtime-ms file))
-   :size-bytes (long (:size-bytes file))
-   :active? true
-   :run-id run-id})
+  (cond-> {:xt/id (:file-id file)
+           :project-id project-id
+           :repo-id repo-id
+           :repo-root repo-root
+           :repo-role repo-role
+           :snapshot-id snapshot-id
+           :valid-from valid-from
+           :path (:path file)
+           :ext (:ext file)
+           :kind (:kind file)
+           :content-sha (:content-sha file)
+           :extractor-fingerprint (:extractor-fingerprint file)
+           :mtime-ms (long (:mtime-ms file))
+           :size-bytes (long (:size-bytes file))
+           :active? true
+           :run-id run-id}
+    (:plugin-scanned? file) (assoc :plugin-scanned? true
+                                   :plugin-ids (:plugin-ids file)
+                                   :benchmark-status (:benchmark-status file))))
 
 (def indexed-relations
   "High-confidence relations persisted by default."
@@ -165,7 +169,7 @@
     :uses})
 
 (def indexing-contract-version
-  "agraph.index/v6")
+  "agraph.index/v7")
 
 (def index-profiles
   "Supported persistence profiles.
@@ -193,17 +197,23 @@
   unchanged files can be reindexed when either boundary changes."
   ([file] (extractor-fingerprint file (or (:index-profile file) default-index-profile)))
   ([file index-profile]
+   (extractor-fingerprint file index-profile []))
+  ([file index-profile extractor-plugins]
    (let [index-profile (normalize-index-profile index-profile)]
      (str "extractor:"
           (hash/short-hash [indexing-contract-version
                             index-profile
                             (extract/extractor-fingerprint file)
+                            (extractor-plugin/applicable-fingerprints
+                             extractor-plugins
+                             file)
                             (sort indexed-relations)])))))
 
 (defn- attach-extractor-fingerprint
-  [index-profile file]
+  [index-profile extractor-plugins file]
   (let [file (assoc file :index-profile index-profile)]
-    (assoc file :extractor-fingerprint (extractor-fingerprint file))))
+    (assoc file :extractor-fingerprint
+           (extractor-fingerprint file index-profile extractor-plugins))))
 
 (defn- profile-extraction
   [extraction index-profile]
@@ -214,24 +224,33 @@
 (defn- indexable-extraction
   [run-id project-id repo-id index-profile file extraction]
   (let [annotate #(assoc % :project-id project-id :repo-id repo-id)
+        plugin-edge? #(= :plugin (:provenance %))
         filtered (-> extraction
                      (profile-extraction index-profile)
                      (update :nodes #(mapv annotate %))
                      (update :edges #(mapv annotate %))
                      (update :chunks #(mapv annotate %))
+                     (update :file-facts #(mapv annotate %))
                      (update :diagnostics #(mapv annotate %))
-                     (update :edges #(filterv (comp indexed-relations :relation) %)))
+                     (update :edges #(filterv (fn [edge]
+                                                (or (plugin-edge? edge)
+                                                    (indexed-relations (:relation edge))))
+                                              %)))
         search-docs (case (normalize-index-profile index-profile)
                       :query (search-doc/build-search-docs run-id filtered)
                       :graph [])]
     (assoc filtered
-           :file-facts (file-facts/facts-for-file run-id project-id repo-id file)
+           :file-facts (vec (concat (file-facts/facts-for-file run-id
+                                                               project-id
+                                                               repo-id
+                                                               file)
+                                    (:file-facts filtered)))
            :search-docs search-docs)))
 
 (defn index-repo!
   "Index root into XTDB. Returns run summary."
   [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile map-overlay
-                     index-timeout-ms index-deadline-ns]
+                     index-timeout-ms index-deadline-ns extractor-plugins]
               :or {dry-run? false
                    project-id default-project-id
                    repo-id default-repo-id
@@ -240,6 +259,7 @@
   (let [started (now-ms)
         index-deadline-ns (or index-deadline-ns (deadline-ns index-timeout-ms))
         index-profile (normalize-index-profile index-profile)
+        extractor-plugins (extractor-plugin/normalize-plugins extractor-plugins)
         [root-path timings] (timed {} :canonicalize-root-ms #(fs/canonical-path root))
         _ (check-deadline! index-deadline-ns
                            :canonicalize-root
@@ -247,11 +267,30 @@
                             :repo-id repo-id})
         [files timings] (timed timings
                                :scan-ms
-                               #(mapv (fn [file]
-                                        (attach-extractor-fingerprint
-                                         index-profile
-                                         (scoped-file project-id repo-id file)))
-                                      (fs/scan-files root-path)))
+                               #(let [core-files (fs/scan-files root-path)
+                                      core-supported-paths (->> core-files
+                                                                (remove (fn [file]
+                                                                          (= :unknown
+                                                                             (:kind file))))
+                                                                (map :path))
+                                      plugin-files (fs/scan-plugin-files
+                                                    root-path
+                                                    (extractor-plugin/scan-specs
+                                                     extractor-plugins)
+                                                    core-supported-paths)
+                                      plugin-paths (set (map :path plugin-files))]
+                                  (->> (concat (remove (fn [file]
+                                                         (contains? plugin-paths
+                                                                    (:path file)))
+                                                       core-files)
+                                               plugin-files)
+                                       (mapv (fn [file]
+                                               (attach-extractor-fingerprint
+                                                index-profile
+                                                extractor-plugins
+                                                (scoped-file project-id repo-id file))))
+                                       (sort-by :path)
+                                       vec)))
         _ (check-deadline! index-deadline-ns
                            :scan
                            {:project-id project-id
@@ -387,7 +426,16 @@
                                                             (assoc file
                                                                    :parser-worker-facts
                                                                    facts)
-                                                            file)]
+                                                            file)
+                                                     core-extraction (extract/extract-file run-id file)
+                                                     extraction (extractor-plugin/enhance-extraction
+                                                                 {:plugins extractor-plugins
+                                                                  :run-id run-id
+                                                                  :project-id project-id
+                                                                  :repo-id repo-id
+                                                                  :root-path root-path
+                                                                  :file file}
+                                                                 core-extraction)]
                                                  {:file-row (->file-row run-id
                                                                         (:xt/id snapshot)
                                                                         valid-from
@@ -402,7 +450,7 @@
                                                                repo-id
                                                                index-profile
                                                                file
-                                                               (extract/extract-file run-id file))
+                                                               extraction)
                                                   :existing? existing?
                                                   :valid-from valid-from}))
                                              (range)

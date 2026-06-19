@@ -6,7 +6,7 @@
             [clojure.string :as str])
   (:import [java.nio ByteBuffer]
            [java.nio.charset CodingErrorAction StandardCharsets]
-           [java.nio.file Files]))
+           [java.nio.file FileSystems Files Paths]))
 
 (def supported-extensions
   #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".class" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs" ".cts"
@@ -484,6 +484,16 @@
   [file]
   (slurp (io/file file)))
 
+(defn path-glob-matches?
+  "Return true when repo-relative `path` matches a Java NIO glob pattern."
+  [glob path]
+  (boolean
+   (try
+     (let [matcher (.getPathMatcher (FileSystems/getDefault) (str "glob:" glob))]
+       (.matches matcher (Paths/get (str path) (make-array String 0))))
+     (catch Exception _
+       false))))
+
 (defn- shebang-kind
   [file]
   (when (str/blank? (extension file))
@@ -815,6 +825,31 @@
              :active? true}
       (binary-file? kind) (assoc :binary? true))))
 
+(defn plugin-file-record
+  "Build a text file record for an explicitly plugin-scanned repo-relative path.
+
+  Plugin-scanned files are project-configured extension points for file families
+  AGraph core does not support yet. They still use the canonical file row shape
+  and are ignored unless a project enables a plugin scan spec."
+  [root rel {:keys [file-kind plugin-ids]}]
+  (let [file (io/file root rel)
+        kind (keyword (or file-kind :plugin-source))
+        text (read-file file)
+        f (io/file file)]
+    {:file-id (str "file:" rel)
+     :path rel
+     :absolute-path (.getPath (.getAbsoluteFile file))
+     :ext (extension file)
+     :kind kind
+     :content text
+     :content-sha (str "sha256:" (hash/sha256-hex text))
+     :mtime-ms (.lastModified f)
+     :size-bytes (.length f)
+     :active? true
+     :plugin-scanned? true
+     :plugin-ids (vec (sort (map str plugin-ids)))
+     :benchmark-status :unbenchmarked}))
+
 (defn- supported-file?
   [file]
   (and (.isFile file)
@@ -929,3 +964,36 @@
          (map #(file-record-for-relative-path root-file %))
          (sort-by :path)
          vec)))
+
+(defn scan-plugin-files
+  "Return explicitly plugin-scanned files under root.
+
+  `scan-specs` are maps with `:path-globs`, `:file-kind`, and `:plugin-id`.
+  Paths already covered by core scanning are skipped so plugins enhance those
+  files through the post-core pass instead of producing duplicate file rows."
+  [root scan-specs existing-paths]
+  (let [root-file (.getCanonicalFile (io/file root))
+        existing-paths (set existing-paths)
+        spec-matches (fn [rel]
+                       (->> scan-specs
+                            (filter (fn [{:keys [path-globs]}]
+                                      (some #(path-glob-matches? % rel)
+                                            path-globs)))
+                            vec))]
+    (when-not (.isDirectory root-file)
+      (throw (ex-info "Index root is not a directory." {:root root})))
+    (if (seq scan-specs)
+      (->> (candidate-paths root-file)
+           (remove existing-paths)
+           (remove #(ignored-filename? (io/file root-file %)))
+           (keep (fn [rel]
+                   (when-let [matches (seq (spec-matches rel))]
+                     (let [file-kind (:file-kind (first matches))]
+                       (plugin-file-record
+                        root-file
+                        rel
+                        {:file-kind file-kind
+                         :plugin-ids (map :plugin-id matches)})))))
+           (sort-by :path)
+           vec)
+      [])))

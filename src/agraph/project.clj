@@ -1,6 +1,7 @@
 (ns agraph.project
   "Project config loading and multi-repo orchestration."
   (:require [agraph.fs :as fs]
+            [agraph.extractor-plugin :as extractor-plugin]
             [agraph.index :as index]
             [agraph.system :as system]
             [agraph.xtdb :as store]
@@ -123,10 +124,13 @@
         project-id (some-> (:id data) str)]
     (when (str/blank? project-id)
       (throw (ex-info "Project config is missing :id." {:path path})))
-    {:id project-id
-     :name (str (or (:name data) project-id))
-     :path (fs/canonical-path path)
-     :repos (normalize-repos base data)}))
+    (cond-> {:id project-id
+             :name (str (or (:name data) project-id))
+             :path (fs/canonical-path path)
+             :repos (normalize-repos base data)}
+      (seq (:extractor-plugins data))
+      (assoc :extractor-plugins
+             (extractor-plugin/normalize-plugins (:extractor-plugins data))))))
 
 (defn add-repo-to-config!
   "Add a repo entry to project config and return the normalized project.
@@ -202,7 +206,8 @@
   (let [index-opts (with-index-deadline {:index-profile index-profile
                                          :map-overlay map-overlay
                                          :index-timeout-ms index-timeout-ms
-                                         :index-deadline-ns index-deadline-ns})]
+                                         :index-deadline-ns index-deadline-ns
+                                         :extractor-plugins (:extractor-plugins project)})]
     (if dry-run?
       {:project-id (:id project)
        :status :dry-run
@@ -241,7 +246,8 @@
         index-opts (with-index-deadline {:index-profile index-profile
                                          :map-overlay map-overlay
                                          :index-timeout-ms index-timeout-ms
-                                         :index-deadline-ns index-deadline-ns})]
+                                         :index-deadline-ns index-deadline-ns
+                                         :extractor-plugins (:extractor-plugins project)})]
     (if dry-run?
       (index/index-repo! nil
                          (:root repo)

@@ -213,6 +213,14 @@ rows. Open-ended semantic judgment, merging, classification, and
 use-case-specific meaning belong in human or LLM-backed corrections where the
 project state space is too large for fixed rules.
 
+Extractor plugins are the explicit project extension path for gaps that are not
+ready for core. They can enhance files core already scans or opt configured
+fallback/unsupported file families into indexing, while preserving plugin
+provenance and `:unbenchmarked` status by default. See
+[docs/extractor-plugins.md](docs/extractor-plugins.md). Promoting a plugin into
+core requires project-agnostic behavior plus benchmark evidence showing a
+material improvement.
+
 Agent usage should follow progressive disclosure. A fresh agent should start
 with `agraph status` to check graph-basis freshness and evidence planes,
 `agraph sync check`, and a compact system view, then
