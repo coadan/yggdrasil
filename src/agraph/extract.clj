@@ -5919,98 +5919,11 @@
      :chunks (vec (concat (:chunks chunk-result) definition-chunks))
      :diagnostics diagnostics}))
 
-(defn- config-json-facts
-  [content]
-  (try
-    (let [parsed (json/read-json content :key-fn keyword)]
-      (->> parsed
-           (keep (fn [[k v]]
-                   (when (or (string? v) (number? v) (boolean? v))
-                     {:kind :config-setting
-                      :label (str (name k) "=" v)
-                      :source-line 1
-                      :relation :defines})))
-           vec))
-    (catch Exception _
-      [])))
 
-(defn- config-assignment-facts
-  [content]
-  (->> (str/split-lines content)
-       (map-indexed vector)
-       (keep (fn [[idx line]]
-               (or (when-let [[_ key]
-                              (re-matches #"^\s*(?:-\s*)?([A-Za-z_][A-Za-z0-9_.-]*)\s*[:=]\s*[\{\[].*$"
-                                          line)]
-                     {:kind :config-section
-                      :label key
-                      :source-line (inc idx)
-                      :relation :defines})
-                   (when-let [[_ key value]
-                              (re-matches #"^\s*(?:-\s*)?([A-Za-z_][A-Za-z0-9_.-]*)\s*[:=]\s*['\"]?([^,'\"#]+)['\"]?.*$"
-                                          line)]
-                     {:kind :config-setting
-                      :label (str key "=" (str/trim value))
-                      :source-line (inc idx)
-                      :relation :defines})
-                   (when-let [[_ key]
-                              (re-matches #"^\s*(?:-\s*)?([A-Za-z_][A-Za-z0-9_.-]*)\s*:\s*$"
-                                          line)]
-                     {:kind :config-section
-                      :label key
-                      :source-line (inc idx)
-                      :relation :defines}))))
-       distinct
-       vec))
 
-(defn- config-import-facts
-  [path content]
-  (->> (str/split-lines content)
-       (map-indexed #(js-import-targets %1 path %2))
-       (mapcat identity)
-       (map (fn [{:keys [target source-line]}]
-              {:kind :config-reference
-               :label target
-               :source-line source-line
-               :relation :references}))
-       distinct
-       vec))
 
-(def config-reference-keys
-  #{"extends" "plugins" "setupFiles" "setupFilesAfterEnv" "reporters"
-    "projects" "presets"})
 
-(defn- config-string-reference-facts
-  [content]
-  (->> (str/split-lines content)
-       (map-indexed vector)
-       (mapcat (fn [[idx line]]
-                 (when-let [[_ key rest]
-                            (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*:\s*(\[.*\]).*$" line)]
-                   (when (contains? config-reference-keys key)
-                     (map (fn [[_ target]]
-                            {:kind :config-reference
-                             :label target
-                             :source-line (inc idx)
-                             :relation :references})
-                          (re-seq #"['\"]([^'\"]+)['\"]" rest))))))
-       (remove nil?)
-       distinct
-       vec))
 
-(defn- config-facts
-  [{:keys [path content]}]
-  (let [path-lower (str/lower-case (str path))
-        filename (manifest-name path)
-        json-facts (when (or (str/ends-with? path-lower ".json")
-                             (str/ends-with? path-lower ".jsonc")
-                             (contains? #{".prettierrc" ".eslintrc" ".stylelintrc"}
-                                        filename))
-                     (config-json-facts content))]
-    (vec (concat (or json-facts [])
-                 (config-assignment-facts content)
-                 (config-import-facts path content)
-                 (config-string-reference-facts content)))))
 
 (defn- properties-assignment-lines
   [content]
@@ -6077,7 +5990,7 @@
 (defn- db-config-facts
   [{:keys [path content] :as file}]
   (let [filename (manifest-name path)]
-    (vec (concat (config-facts file)
+    (vec (concat (extract.common/config-facts file)
                  (case filename
                    "flyway.conf" (flyway-config-facts content)
                    [])))))
@@ -6085,7 +5998,7 @@
 (defn- extract-config-facts
   [run-id {:keys [id-scope file-id path] :as file} root-kind chunk-kind]
   (let [config-node (generic-node run-id id-scope file-id path root-kind path 1)
-        facts (config-facts file)
+        facts (extract.common/config-facts file)
         fact-nodes (mapv (fn [{:keys [kind label source-line]}]
                            (generic-node run-id id-scope file-id path kind label source-line))
                          facts)
@@ -6830,7 +6743,7 @@
 
                         :else
                         [])]
-    (vec (concat (config-facts file) special-facts))))
+    (vec (concat (extract.common/config-facts file) special-facts))))
 
 (defn- editor-json-scalar?
   [value]
@@ -9684,7 +9597,7 @@
     :ansible {:facts (ansible-facts content) :refs []}
     :nginx {:facts (nginx-facts content) :refs []}
     :systemd {:facts (systemd-facts path content) :refs []}
-    {:facts (config-facts file) :refs []}))
+    {:facts (extract.common/config-facts file) :refs []}))
 
 (defn extract-ops-config
   "Extract bounded operational configuration facts."
