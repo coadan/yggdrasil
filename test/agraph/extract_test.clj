@@ -2974,6 +2974,13 @@
                       "run/test"
                       (fs/file-record "test/fixtures/extractor-repo"
                                       "test/fixtures/extractor-repo/ops/nginx.conf"))
+        caddy-result (extract/extract-file
+                      "run/test"
+                      {:file-id "file:ops/Caddyfile"
+                       :id-scope "fixture"
+                       :path "ops/Caddyfile"
+                       :kind (fs/file-kind "ops/Caddyfile")
+                       :content ":8080\nrespond \"ok\"\n"})
         systemd-result (extract/extract-file
                         "run/test"
                         (fs/file-record "test/fixtures/extractor-repo"
@@ -2997,6 +3004,10 @@
                                               "test/fixtures/extractor-repo/ops/playbook.yaml"))))
     (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                               "test/fixtures/extractor-repo/ops/nginx.conf"))))
+    (is (= :ops-config (fs/file-kind "ops/Caddyfile")))
+    (is (= :ops-config (fs/file-kind "ops/sudoers")))
+    (is (= :ops-config (fs/file-kind "ops/apt.sources")))
+    (is (true? (fs/supported-path? "ops/Caddyfile")))
     (is (= :ops-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                               "test/fixtures/extractor-repo/ops/panels.service"))))
     (is (contains? (labels cloudformation-result) "PanelBucket"))
@@ -3078,6 +3089,8 @@
     (is (= 1 (:ops-port (kinds nginx-result))))
     (is (= 1 (:ops-route (kinds nginx-result))))
     (is (= 1 (:config-reference (kinds nginx-result))))
+    (is (contains? (labels caddy-result) "ops/Caddyfile"))
+    (is (= [:ops-config-file] (mapv :kind (:chunks caddy-result))))
     (is (contains? (labels systemd-result) "panels.service"))
     (is (contains? (labels systemd-result) "/usr/bin/panels-worker"))
     (is (contains? (labels systemd-result) "network.target"))
@@ -3242,6 +3255,13 @@
                           "run/test"
                           (fs/file-record "test/fixtures/extractor-repo"
                                           "test/fixtures/extractor-repo/panels.code-workspace"))
+        vimrc-result (extract/extract-file
+                      "run/test"
+                      {:file-id "file:vimrc"
+                       :id-scope "fixture"
+                       :path "vimrc"
+                       :kind (fs/file-kind "vimrc")
+                       :content "set number\n"})
         labels (fn [result] (set (map :label (:nodes result))))
         kinds (fn [result] (frequencies (map :kind (:nodes result))))
         relations (fn [result] (frequencies (map :relation (:edges result))))]
@@ -3255,6 +3275,8 @@
                                                  "test/fixtures/extractor-repo/.vscode/extensions.json"))))
     (is (= :editor-config (:kind (fs/file-record "test/fixtures/extractor-repo"
                                                  "test/fixtures/extractor-repo/panels.code-workspace"))))
+    (is (= :editor-config (fs/file-kind "vimrc")))
+    (is (true? (fs/supported-path? "vimrc")))
     (is (contains? (labels editorconfig-result) "root=true"))
     (is (contains? (labels editorconfig-result) "*"))
     (is (contains? (labels editorconfig-result) "*:indent_style=space"))
@@ -3284,6 +3306,7 @@
     (is (= 2 (:editor-task-type (kinds tasks-result))))
     (is (= 1 (:editor-problem-matcher (kinds tasks-result))))
     (is (= 2 (:workspace-folder (kinds workspace-result))))
+    (is (contains? (labels vimrc-result) "vimrc"))
     (is (pos? (get (relations settings-result) :defines 0)))
     (is (pos? (get (relations extensions-result) :references 0)))
     (is (= 1 (get (relations tasks-result) :depends-on 0)))
@@ -3291,7 +3314,8 @@
     (is (= [:editor-config-file :editor-task :editor-task]
            (mapv :kind (:chunks tasks-result))))
     (is (= [:editor-config-file :editor-task]
-           (mapv :kind (:chunks workspace-result))))))
+           (mapv :kind (:chunks workspace-result))))
+    (is (= [:editor-config-file] (mapv :kind (:chunks vimrc-result))))))
 
 (deftest extracts-release-change-management-facts
   (let [changeset-config-result (extract/extract-file
@@ -4325,12 +4349,24 @@
                      :path "bun.lock"
                      :kind :dependency-lock
                      :content "{\"packages\":{\"react\":\"19.1.0\",\"@types/react\":{\"version\":\"19.0.0\"}}}"})
+        flake-result (extract/extract-file
+                      "run/test"
+                      {:file-id "file:flake.lock"
+                       :path "flake.lock"
+                       :kind :dependency-lock
+                       :content "{\"nodes\":{}}\n"})
+        pixi-result (extract/extract-file
+                     "run/test"
+                     {:file-id "file:pixi.lock"
+                      :path "pixi.lock"
+                      :kind :dependency-lock
+                      :content "version: 6\n"})
         labels (fn [result] (set (map :label (:nodes result))))
         relations (fn [result] (frequencies (map :relation (:edges result))))]
     (doseq [path ["package-lock.json" "Cargo.lock" "go.sum" "pnpm-lock.yaml"
                   "yarn.lock" "Gemfile.lock" "poetry.lock" "uv.lock"
                   "pubspec.lock" "composer.lock" "Pipfile.lock" "mix.lock"
-                  "requirements.txt" "bun.lock"]]
+                  "requirements.txt" "bun.lock" "flake.lock" "pixi.lock"]]
       (is (= :dependency-lock (fs/file-kind path))))
     (is (contains? (labels package-lock-result) "npm:react"))
     (is (contains? (labels package-lock-result) "npm:react@19.1.0"))
@@ -4356,7 +4392,9 @@
     (is (contains? (labels requirements-result) "pypi:django@5.0.0"))
     (is (contains? (labels requirements-result) "pypi:requests@2.31.0"))
     (is (contains? (labels bun-result) "npm:react@19.1.0"))
-    (is (contains? (labels bun-result) "npm:@types/react@19.0.0"))))
+    (is (contains? (labels bun-result) "npm:@types/react@19.0.0"))
+    (is (= [:dependency-lock-file] (mapv :kind (:chunks flake-result))))
+    (is (= [:dependency-lock-file] (mapv :kind (:chunks pixi-result))))))
 
 (deftest extracts-graphql-schema-operations-and-references
   (let [file (fs/file-record "test/fixtures/extractor-repo"

@@ -56,12 +56,13 @@
 
 (def supported-filenames
   #{"dockerfile" "containerfile" "procfile"
+    "caddyfile" "sudoers" "vimrc" "apt.sources"
     "docker-compose.yml" "docker-compose.yaml"
     "compose.yml" "compose.yaml" "chart.yaml" "go.mod" "mix.exs"
     "package.json" "package-lock.json" "cargo.toml" "cargo.lock" "go.work" "go.sum"
     "pnpm-lock.yaml" "yarn.lock" "gemfile.lock" "poetry.lock"
     "pubspec.lock" "composer.lock" "pipfile.lock" "uv.lock"
-    "mix.lock" "requirements.txt" "bun.lock"
+    "mix.lock" "requirements.txt" "bun.lock" "flake.lock" "pixi.lock"
     "pipfile" "setup.cfg" "setup.py"
     "pyproject.toml" "pom.xml" "deno.json" "composer.json" "ols.json"
     "gemfile" "rakefile" "pubspec.yaml" "build.sbt" "rebar.config"
@@ -246,6 +247,7 @@
                    "mise.toml" ".mise.toml"}
                  filename) :tool-version-config
       (or (= ".editorconfig" filename)
+          (= "vimrc" filename)
           (str/ends-with? filename ".code-workspace")
           (re-find #"(^|/)\.vscode/(?:settings|tasks|extensions)\.json$"
                    path-lower)) :editor-config
@@ -280,6 +282,7 @@
                    "vector.yaml" "vector.yml" "vector.toml"}
                  filename) :observability-config
       (or (= "nginx.conf" filename)
+          (contains? #{"caddyfile" "sudoers" "apt.sources"} filename)
           (contains? #{"serverless.yml" "serverless.yaml" "cdk.json"} filename)
           (re-matches #"pulumi(?:\.[a-z0-9_.-]+)?\.ya?ml" filename)) :ops-config
       (contains? #{".graphqlrc" ".graphqlrc.json" ".graphqlrc.yaml" ".graphqlrc.yml"
@@ -352,7 +355,7 @@
                    "pnpm-lock.yaml" "yarn.lock" "gemfile.lock"
                    "poetry.lock" "pubspec.lock" "composer.lock"
                    "pipfile.lock" "uv.lock" "mix.lock" "requirements.txt"
-                   "bun.lock"}
+                   "bun.lock" "flake.lock" "pixi.lock"}
                  filename) :dependency-lock
       (contains? #{"docker-compose.yml" "docker-compose.yaml"
                    "compose.yml" "compose.yaml"}

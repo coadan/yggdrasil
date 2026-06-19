@@ -44,6 +44,10 @@ classification in core extractors; store bounded facts and relationships first.
   are routed through the existing Docker extractor so multi-image repos expose
   the same bounded build stages, images, environment, ports, and runtime command
   facts as canonical Dockerfile names.
+- Filename-defined ops/config/lock files: `Caddyfile`, `sudoers`,
+  `apt.sources`, `vimrc`, `flake.lock`, and `pixi.lock` are indexed through
+  existing bounded ops/editor/dependency-lock extractors, preserving concrete
+  local runtime and toolchain facts without path-based project semantics.
 
 ## Future Candidates
 
