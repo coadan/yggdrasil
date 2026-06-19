@@ -419,11 +419,13 @@ def cmd_batch(args: argparse.Namespace) -> None:
         target=target,
         ns=batch.get("ns"),
         requires=batch.get("require", []),
-        replacements=replacements,
+        replacements=[parse_replacement(value) for value in batch.get("targetReplace", [])],
         form_names=batch["forms"],
     )
     if batch.get("sourceRequire"):
         add_ns_require(source, batch["sourceRequire"])
+    if replacements:
+        apply_file_replacements(source, replacements)
     if batch.get("sourceReplace"):
         apply_file_replacements(source, [parse_replacement(value) for value in batch["sourceReplace"]])
     if batch.get("targetTextReplace"):
