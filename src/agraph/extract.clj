@@ -55,6 +55,7 @@
             [agraph.extract.source-dotnet-worker :as extract.source-dotnet-worker]
             [agraph.extract.yaml-generic :as extract.yaml-generic]
             [agraph.extract.config-generic :as extract.config-generic]
+            [agraph.extract.web-framework-entry :as extract.web-framework-entry]
             [clojure.string :as str]))
 
 
@@ -935,46 +936,8 @@
 
 
 
-(defn- web-framework-base-kind
-  [path]
-  (case (fs/extension path)
-    (".ts" ".tsx" ".mts" ".cts") :typescript
-    (".js" ".jsx" ".mjs" ".cjs") :javascript
-    ".svelte" :svelte
-    ".astro" :astro
-    ".vue" :vue
-    nil))
 
-(defn- web-framework-base-result
-  [run-id {:keys [path content] :as file}]
-  (when (or (extract.web-framework/web-route-info path)
-            (extract.web-framework/angular-router-source? content)
-            (extract.web-framework/ember-router-source? content)
-            (extract.web-framework/ember-config-source? content))
-    (case (web-framework-base-kind path)
-      :typescript (extract.source-js/extract-js-family run-id (assoc file :kind :typescript))
-      :javascript (extract.source-js/extract-js-family run-id (assoc file :kind :javascript))
-      :svelte (extract.web-source/extract-sfc run-id (assoc file :kind :svelte))
-      :astro (extract.web-source/extract-astro run-id (assoc file :kind :astro))
-      :vue (extract.web-source/extract-sfc run-id (assoc file :kind :vue))
-      nil)))
 
-(defn extract-web-framework
-  "Extract deterministic web framework config and file-backed route facts."
-  [run-id file]
-  (let [web-result (extract.common/extract-format-facts run-id
-                                                        file
-                                                        :web-framework-file
-                                                        :web-framework-file
-                                                        (extract.web-framework/web-framework-facts file))
-        base-result (web-framework-base-result run-id file)]
-    (if base-result
-      {:nodes (vec (distinct (concat (:nodes base-result) (:nodes web-result))))
-       :edges (vec (distinct (concat (:edges base-result) (:edges web-result))))
-       :chunks (vec (distinct (concat (:chunks base-result) (:chunks web-result))))
-       :diagnostics (vec (concat (:diagnostics base-result)
-                                 (:diagnostics web-result)))}
-      web-result)))
 
 
 
@@ -1408,7 +1371,7 @@
      :quality-config (extract.tool-config/extract-quality-config run-id file)
      :editor-config (extract.project-config/extract-editor-config run-id file)
      :release-config (extract.project-config/extract-release-config run-id file)
-     :web-framework (extract-web-framework run-id file)
+     :web-framework (extract.web-framework-entry/extract-web-framework run-id file)
      :workflow-orchestration (extract.workflow/extract-workflow-orchestration run-id file)
      :observability-config (extract.observability/extract-observability-config run-id file)
      :tool-config (extract.tool-config/extract-tool-config run-id file)
