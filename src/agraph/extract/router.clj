@@ -26,6 +26,7 @@
             [agraph.extract.protobuf :as extract.protobuf]
             [agraph.extract.runtime :as extract.runtime]
             [agraph.extract.sbom :as extract.sbom]
+            [agraph.extract.source-beam :as extract.source-beam]
             [agraph.extract.source-basic :as extract.source-basic]
             [agraph.extract.source-clojure :as extract.source-clojure]
             [agraph.extract.source-dart :as extract.source-dart]
@@ -78,8 +79,8 @@
      :objective-c (extract.source-native/extract-objective-c run-id file)
      :dart (extract.source-dart/extract-dart run-id file)
      :scala (extract.source-scala/extract-scala run-id file)
-     :elixir (extract.source-misc/extract-elixir run-id file)
-     :erlang (extract.source-misc/extract-erlang run-id file)
+     :elixir (extract.source-beam/extract-elixir run-id file)
+     :erlang (extract.source-beam/extract-erlang run-id file)
      :lua (extract.source-misc/extract-lua run-id file)
      :r (extract.source-misc/extract-r run-id file)
      :julia (extract.source-misc/extract-julia run-id file)
