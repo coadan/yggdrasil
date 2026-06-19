@@ -381,8 +381,18 @@
 
 (deftest validate-rejects-duplicate-plugin-ids-within-package-lanes
   (let [workspace (temp-dir "agraph-plugin-duplicate-ids")
-        package-dir (io/file workspace "plugin")]
+        package-dir (io/file workspace "plugin")
+        repo-root (io/file workspace "repo")
+        src (io/file repo-root "src")
+        project-edn (io/file workspace "project.edn")
+        cache-root (io/file workspace ".dev/agraph/plugins/cache")]
     (.mkdirs package-dir)
+    (.mkdirs src)
+    (spit (io/file src "page.clj") "(ns page)\n(defn render [] :ok)\n")
+    (spit project-edn
+          (pr-str {:id "duplicate-plugin-install"
+                   :repos [{:id "repo"
+                            :root (.getPath repo-root)}]}))
     (write-file! (.getPath package-dir)
                  plugin-package/manifest-filename
                  (pr-str
@@ -415,7 +425,26 @@
     (write-file! (.getPath package-dir)
                  "report.py"
                  "import json, sys\njson.dump({'schema':'agraph.report-plugin.result/v1','panels':[]}, sys.stdout)\n")
-    (let [validation (plugin-package/validate-local (.getPath package-dir))]
+    (git! (.getPath package-dir) "init" "--quiet")
+    (git! (.getPath package-dir) "add" ".")
+    (git! (.getPath package-dir)
+          "-c"
+          "user.name=AGraph Test"
+          "-c"
+          "user.email=agraph-test@example.test"
+          "commit"
+          "--quiet"
+          "-m"
+          "duplicate plugin package")
+    (let [validation (plugin-package/validate-local (.getPath package-dir))
+          extractor-dry-run (plugin-package/dry-run-extractor
+                             (.getPath package-dir)
+                             (.getPath repo-root)
+                             "src/page.clj"
+                             {})
+          report-dry-run (plugin-package/dry-run-report
+                          (.getPath package-dir)
+                          {})]
       (is (= :failed (:status validation)))
       (is (= #{"duplicate-plugin declares duplicate extractor plugin id: dup-extractor"
                "duplicate-plugin declares duplicate report plugin id: dup-report"}
@@ -428,7 +457,24 @@
       (is (= {:total 4
               :errors 2
               :warnings 2}
-             (get-in validation [:package :diagnostic-counts]))))))
+             (get-in validation [:package :diagnostic-counts])))
+      (is (= :failed (:status extractor-dry-run)))
+      (is (= #{:duplicate-extractor-plugin-id :duplicate-report-plugin-id}
+             (set (map :code (:diagnostics extractor-dry-run)))))
+      (is (= :failed (:status report-dry-run)))
+      (is (= #{:duplicate-extractor-plugin-id :duplicate-report-plugin-id}
+             (set (map :code (:diagnostics report-dry-run)))))
+      (try
+        (plugin-package/install!
+         (.getPath project-edn)
+         (.getPath package-dir)
+         {:cache-root (.getPath cache-root)})
+        (is false "Expected install to reject package local-use errors.")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= "Plugin package local-use validation failed." (ex-message e)))
+          (is (= #{:duplicate-extractor-plugin-id :duplicate-report-plugin-id}
+                 (set (map :code (:diagnostics (ex-data e))))))))
+      (is (nil? (:plugin-packages (edn/read-string (slurp project-edn))))))))
 
 (deftest diagnose-blocks-invalid-public-package-policy
   (let [workspace (temp-dir "agraph-plugin-diagnose")
