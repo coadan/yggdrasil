@@ -310,6 +310,74 @@
     (is (= 5 (count (get-in trimmed [:sourceCoverage :diagnostics :byExtractor]))))
     (is (= 3 (count (get-in trimmed [:sourceCoverage :diagnostics :samples]))))))
 
+(deftest reviewed-doc-fitting-compacts-source-coverage-before-dropping-it
+  (let [add-doc @#'context/add-doc-with-budget
+        compact-source @#'context/compact-source-coverage
+        source-coverage {:schema "agraph.source-coverage.context/v1"
+                         :basis "indexed-graph"
+                         :totals {:indexedFiles 200
+                                  :diagnostics 20
+                                  :fileKinds 4}
+                         :topFileKinds (mapv (fn [idx]
+                                               {:kind (str "kind-" idx)
+                                                :count idx})
+                                             (range 12))
+                         :extractors (mapv (fn [idx]
+                                             {:kind (str "kind-" idx)
+                                              :extractorVersion (str "v" idx)
+                                              :files idx})
+                                           (range 12))
+                         :extractorFingerprints (mapv (fn [idx]
+                                                        {:kind "code"
+                                                         :extractorFingerprint
+                                                         (apply str
+                                                                "extractor:"
+                                                                idx
+                                                                ":"
+                                                                (repeat 30 "detail"))
+                                                         :files idx})
+                                                      (range 12))
+                         :diagnostics {:byStage []
+                                       :byExtractor []
+                                       :samples []}}
+        packet {:schema context/schema
+                :query "reviewed source"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 1}
+                :entities []
+                :edges []
+                :activity []
+                :candidateFiles []
+                :docs []
+                :warnings []
+                :drilldowns []
+                :search {:instrumentation {:context-chunks []}}
+                :sourceCoverage source-coverage}
+        doc {:target "chunk:reviewed"
+             :role "reference"
+             :status "accepted"
+             :source {:path "src/reviewed.clj"
+                      :line 12}
+             :score 2.0
+             :snippet "reviewed source evidence"
+             :provenance "map-attachment"}
+        compact-packet (-> packet
+                           (update-in [:search :instrumentation]
+                                      dissoc
+                                      :context-chunks)
+                           (update :sourceCoverage compact-source))
+        budget (context/estimate-tokens (update compact-packet :docs conj doc))
+        fitted (add-doc packet doc budget)]
+    (is (> (context/estimate-tokens (update packet :docs conj doc))
+           budget))
+    (is (= ["chunk:reviewed"] (mapv :target (:docs fitted))))
+    (is (contains? fitted :sourceCoverage))
+    (is (= 5 (count (get-in fitted [:sourceCoverage :extractorFingerprints]))))
+    (is (<= (context/estimate-tokens fitted) budget))))
+
 (deftest answerability-exposes-indexed-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table

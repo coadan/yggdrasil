@@ -697,10 +697,16 @@
       (assoc-in [:diagnostics :samples]
                 (vec (take 3 (get-in source-coverage [:diagnostics :samples])))))))
 
+(defn- compact-source-coverage-in-packet
+  [packet]
+  (if (contains? packet :sourceCoverage)
+    (update packet :sourceCoverage compact-source-coverage)
+    packet))
+
 (defn- trim-optional-context-metadata
   [packet budget]
   (let [trim-steps [#(update-in % [:search :instrumentation] dissoc :context-chunks)
-                    #(update % :sourceCoverage compact-source-coverage)
+                    compact-source-coverage-in-packet
                     #(dissoc % :sourceCoverage)
                     #(update % :answerability compact-answerability)
                     #(assoc % :warnings [])
@@ -734,6 +740,7 @@
                 (trim-step packet))
               packet
               [#(update-in % [:search :instrumentation] dissoc :context-chunks)
+               compact-source-coverage-in-packet
                #(dissoc % :sourceCoverage)
                #(update % :answerability compact-answerability)
                #(assoc % :warnings [])
