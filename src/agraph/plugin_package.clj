@@ -192,6 +192,39 @@
   (or (true? (get-in manifest [:distribution :commercial?]))
       (true? (get-in manifest [:distribution :monetized?]))))
 
+(defn- distribution-policy-diagnostics
+  [{:keys [id visibility license] :as package}]
+  (vec
+   (concat
+    (when-not (foss-license? license)
+      [(if (= :public visibility)
+         {:code :public-license-missing
+          :severity :error
+          :applies-to [:public-sharing :claims :core-promotion]
+          :message (str id " is marked public but does not declare a known FOSS license.")
+          :evidence {:visibility visibility
+                     :license license}}
+         {:code :claim-license-not-foss
+          :severity :warning
+          :applies-to [:claims :core-promotion]
+          :message (str id " does not declare a known FOSS license; public claims and core promotion require FOSS plugin metadata.")
+          :evidence {:visibility visibility
+                     :license license}})])
+    (when (commercial? package)
+      [(if (= :public visibility)
+         {:code :public-commercial
+          :severity :error
+          :applies-to [:public-sharing :claims :core-promotion]
+          :message (str id " is marked public and commercial; public AGraph/Yggdrasil plugins should be non-commercial.")
+          :evidence {:visibility visibility
+                     :distribution (:distribution package)}}
+         {:code :claim-commercial
+          :severity :warning
+          :applies-to [:claims :core-promotion]
+          :message (str id " is marked commercial or monetized; public claims and core promotion require non-commercial plugin metadata.")
+          :evidence {:visibility visibility
+                     :distribution (:distribution package)}})]))))
+
 (defn- normalize-scope
   [scope]
   (let [scope (cond
@@ -389,7 +422,7 @@
        vec))
 
 (defn- package-diagnostics
-  [{:keys [id expected-package-id visibility license benchmark-status manifest-fingerprint
+  [{:keys [id expected-package-id benchmark-status manifest-fingerprint
            expected-manifest-fingerprint]
     :as package}]
   (vec
@@ -413,22 +446,7 @@
                    :actual manifest-fingerprint
                    :manifest (:manifest package)}}])
     (scope-diagnostics package)
-    (when (= :public visibility)
-      (concat
-       (when-not (foss-license? license)
-         [{:code :public-license-missing
-           :severity :error
-           :applies-to [:public-sharing]
-           :message (str id " is marked public but does not declare a known FOSS license.")
-           :evidence {:visibility visibility
-                      :license license}}])
-       (when (commercial? package)
-         [{:code :public-commercial
-           :severity :error
-           :applies-to [:public-sharing]
-           :message (str id " is marked public and commercial; public AGraph/Yggdrasil plugins should be non-commercial.")
-           :evidence {:visibility visibility
-                      :distribution (:distribution package)}}])))
+    (distribution-policy-diagnostics package)
     (when (= :unbenchmarked benchmark-status)
       [{:code :unbenchmarked
         :severity :warning
@@ -463,6 +481,9 @@
         benchmark-evidence-blockers (->> (benchmark-artifact-diagnostics package)
                                          (filter #(= :error (:severity %)))
                                          (mapv #(select-keys % [:code :message])))
+        policy-blockers (->> (distribution-policy-diagnostics package)
+                             (filter #(some #{:claims} (:applies-to %)))
+                             (mapv #(select-keys % [:code :message])))
         blockers (cond-> []
                    (= :project-local scope-kind)
                    (conj {:code :project-local
@@ -471,6 +492,9 @@
                    (= :unbenchmarked benchmark-status)
                    (conj {:code :unbenchmarked
                           :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."})
+
+                   (seq policy-blockers)
+                   (into policy-blockers)
 
                    (seq benchmark-evidence-blockers)
                    (into benchmark-evidence-blockers))]
@@ -773,6 +797,10 @@
                                            (some #{:public-sharing} (:applies-to %)))
                                      diagnostics)
         unsupported-scope? (some #(= :scope-kind-unsupported (:code %)) diagnostics)
+        claim-policy-blockers (filter #(some #{:claims} (:applies-to %))
+                                      (distribution-policy-diagnostics package))
+        core-policy-blockers (filter #(some #{:core-promotion} (:applies-to %))
+                                     (distribution-policy-diagnostics package))
         benchmark-evidence-errors (filter #(and (= :error (:severity %))
                                                 (some #{:claims} (:applies-to %)))
                                           diagnostics)
@@ -853,6 +881,11 @@
              "Public improvement claims require base-ready scope."
              ["Keep project-local results private, or review and declare :scope {:kind :base}."])
 
+       (seq claim-policy-blockers)
+       (lane :blocked
+             "Public improvement claims require FOSS, non-commercial plugin metadata."
+             ["Declare a known FOSS license and remove commercial/monetized distribution metadata before making public claims."])
+
        (seq benchmark-evidence-errors)
        (lane :blocked
              "Benchmark status is declared, but benchmark artifacts are missing or invalid."
@@ -884,6 +917,11 @@
        (lane :blocked
              "Project-local plugins must stay external."
              ["Keep this package external, or review and declare :scope {:kind :base} before core-promotion review."])
+
+       (seq core-policy-blockers)
+       (lane :blocked
+             "Core promotion requires FOSS, non-commercial plugin metadata."
+             ["Declare a known FOSS license and remove commercial/monetized distribution metadata before requesting core review."])
 
        (seq benchmark-evidence-errors)
        (lane :blocked

@@ -223,6 +223,10 @@ Package install surfaces warnings instead of blocking local use when:
 
 `bb plugin diagnose <dir>` treats public license/commercial policy violations as
 public-sharing blockers while still keeping private local experiments possible.
+The claims and core-promotion readiness lanes are stricter than local use: even
+a private benchmarked package remains non-authoritative for public claims and
+blocked from core-promotion review until it declares known FOSS,
+non-commercial metadata.
 
 ## Registry Validation
 
@@ -337,6 +341,7 @@ A package can become part of core only through a normal contribution:
 
 - The behavior is project-agnostic and suitable as base extractor/report support.
 - The package declares `:scope {:kind :base}`.
+- It declares known FOSS, non-commercial distribution metadata.
 - It does not depend on project names, host names, path semantics, prose, or
   substring heuristics.
 - It includes fixtures and tests.
