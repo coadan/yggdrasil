@@ -2100,32 +2100,60 @@
     (is (= infra-review/packet-schema (get-in parsed [:item :payload :schema])))))
 
 (deftest ask-json-returns-context-packet
-  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
-                context/context-packet (fn [xtdb query-text opts]
-                                         {:schema context/schema
-                                          :xtdb xtdb
-                                          :query query-text
-                                          :project-id (:project-id opts)})]
-    (let [out (with-out-str
-                (cli/dispatch "ask" ["where" "auth" "--project" "fixture" "--json"]))
-          parsed (read-json-output out)]
-      (is (= context/schema (:schema parsed)))
-      (is (= "where auth" (:query parsed)))
-      (is (= "fixture" (:project-id parsed))))))
+  (let [summaries (atom [])]
+    (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                  project/read-project (fn [path]
+                                         (assoc project-fixture :path path))
+                  evidence/summarize (fn [xtdb project opts]
+                                       (swap! summaries conj [xtdb project opts])
+                                       {:freshness {:status :current
+                                                    :counts {:indexed 3}}})
+                  context/context-packet (fn [xtdb query-text opts]
+                                           {:schema context/schema
+                                            :xtdb xtdb
+                                            :query query-text
+                                            :project-id (:project-id opts)
+                                            :freshness (:freshness opts)})]
+      (let [out (with-out-str
+                  (cli/dispatch "ask"
+                                ["where" "auth"
+                                 "--project" "fixture"
+                                 "--config" "project.edn"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= context/schema (:schema parsed)))
+        (is (= "where auth" (:query parsed)))
+        (is (= "fixture" (:project-id parsed)))
+        (is (= {:status "current"
+                :counts {:indexed 3}}
+               (:freshness parsed)))
+        (is (= [[:xtdb
+                 (assoc project-fixture :path "project.edn")
+                 {:map-overlay nil
+                  :config-path "project.edn"
+                  :map-path nil}]]
+               @summaries))))))
 
 (deftest explore-json-returns-one-shot-context-packet
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                project/read-project (fn [path]
+                                       (assoc project-fixture :path path))
+                evidence/summarize (fn [_ _ _]
+                                     {:freshness {:status :stale
+                                                  :counts {:changed 1}}})
                 context/context-packet (fn [xtdb query-text opts]
                                          {:schema context/schema
                                           :xtdb xtdb
                                           :query query-text
                                           :project-id (:project-id opts)
                                           :retriever (:retriever opts)
+                                          :freshness (:freshness opts)
                                           :answerability {:status :usable}})]
     (let [out (with-out-str
                 (cli/dispatch "explore"
                               ["where" "auth"
                                "--project" "fixture"
+                               "--config" "project.edn"
                                "--retriever" "lexical"
                                "--json"]))
           parsed (read-json-output out)]
@@ -2133,6 +2161,9 @@
       (is (= "where auth" (:query parsed)))
       (is (= "fixture" (:project-id parsed)))
       (is (= "lexical" (:retriever parsed)))
+      (is (= {:status "stale"
+              :counts {:changed 1}}
+             (:freshness parsed)))
       (is (= {:status "usable"} (:answerability parsed))))))
 
 (deftest ask-plain-empty-result-prints-answerability-warning

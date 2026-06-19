@@ -92,7 +92,7 @@
 
 (def value-options
   #{"--limit" "--retriever" "--model" "--batch-size" "--provider" "--depth" "--out"
-    "--project" "--repo" "--min-confidence" "--map" "--reason" "--budget"
+    "--project" "--repo" "--config" "--min-confidence" "--map" "--reason" "--budget"
     "--entity-limit" "--edge-limit" "--doc-limit" "--snippet-chars" "--role"
     "--heading" "--start-line" "--end-line" "--valid-at" "--known-at"
     "--snapshot-token" "--type" "--source" "--confidence" "--view" "--query"
@@ -178,6 +178,87 @@
     (option-value args "--map") (option-value args "--map")
     (graph-map/file-exists? graph-map/default-path) graph-map/default-path
     :else nil))
+
+(defn- context-config-ref
+  [args]
+  (if-let [config-path (option-value args "--config")]
+    {:path config-path
+     :explicit? true}
+    (let [file (io/file "project.edn")]
+      (when (.isFile file)
+        {:path (.getPath file)
+         :explicit? false}))))
+
+(defn- read-context-project
+  [{:keys [path explicit?]}]
+  (if explicit?
+    (project/read-project path)
+    (try
+      (project/read-project path)
+      (catch Exception _
+        nil))))
+
+(defn- matching-context-project
+  [args project-id]
+  (when-not (str/blank? (str project-id))
+    (when-let [{:keys [path explicit?] :as config-ref} (context-config-ref args)]
+      (when-let [project (read-context-project config-ref)]
+        (cond
+          (= (str project-id) (str (:id project)))
+          {:project project
+           :config-path path}
+
+          explicit?
+          (throw (ex-info "--config project id does not match --project."
+                          {:config path
+                           :config-project-id (:id project)
+                           :project-id project-id}))
+
+          :else
+          nil)))))
+
+(defn- context-packet-freshness
+  [xtdb args project-id map-path]
+  (when-let [{:keys [project config-path]} (matching-context-project args project-id)]
+    (let [overlay (when (and map-path (graph-map/file-exists? map-path))
+                    (graph-map/read-map map-path))
+          summary (evidence/summarize xtdb
+                                      project
+                                      {:map-overlay overlay
+                                       :config-path config-path
+                                       :map-path map-path})]
+      (evidence/packet-freshness summary))))
+
+(defn- context-packet-options
+  [xtdb args {:keys [project-id repo-id retriever embedding-client read-context]}]
+  (let [map-path (default-map-path args)
+        freshness (context-packet-freshness xtdb args project-id map-path)]
+    (cond-> {:project-id project-id
+             :repo-id repo-id
+             :retriever retriever
+             :embedding-client embedding-client
+             :map-path map-path
+             :read-context read-context
+             :budget (parse-long-option args
+                                        "--budget"
+                                        context/default-budget)
+             :entity-limit (parse-long-option args
+                                              "--entity-limit"
+                                              context/default-entity-limit)
+             :edge-limit (parse-long-option args
+                                            "--edge-limit"
+                                            context/default-edge-limit)
+             :doc-limit (parse-long-option args
+                                           "--doc-limit"
+                                           context/default-doc-limit)
+             :snippet-chars (parse-long-option args
+                                               "--snippet-chars"
+                                               context/default-snippet-chars)
+             :min-confidence (parse-double-option args
+                                                  "--min-confidence"
+                                                  0.55)}
+      freshness
+      (assoc :freshness freshness))))
 
 (defn- required-map-path
   [args]
@@ -278,30 +359,13 @@
     (print-ask-answerability-warning
      (context/context-packet xtdb
                              query-text
-                             {:project-id project-id
-                              :repo-id repo-id
-                              :retriever retriever
-                              :embedding-client embedding-client
-                              :map-path (default-map-path args)
-                              :read-context temporal
-                              :budget (parse-long-option args
-                                                         "--budget"
-                                                         context/default-budget)
-                              :entity-limit (parse-long-option args
-                                                               "--entity-limit"
-                                                               context/default-entity-limit)
-                              :edge-limit (parse-long-option args
-                                                             "--edge-limit"
-                                                             context/default-edge-limit)
-                              :doc-limit (parse-long-option args
-                                                            "--doc-limit"
-                                                            context/default-doc-limit)
-                              :snippet-chars (parse-long-option args
-                                                                "--snippet-chars"
-                                                                context/default-snippet-chars)
-                              :min-confidence (parse-double-option args
-                                                                   "--min-confidence"
-                                                                   0.55)}))))
+                             (context-packet-options xtdb
+                                                     args
+                                                     {:project-id project-id
+                                                      :repo-id repo-id
+                                                      :retriever retriever
+                                                      :embedding-client embedding-client
+                                                      :read-context temporal})))))
 
 (defn- print-embed-summary
   [{:keys [provider model search-docs pending embedded skipped]}]
@@ -1798,30 +1862,13 @@
           (print-json
            (context/context-packet xtdb
                                    query-text
-                                   {:project-id project-id
-                                    :repo-id repo-id
-                                    :retriever retriever
-                                    :embedding-client embedding-client
-                                    :map-path (default-map-path args)
-                                    :read-context temporal
-                                    :budget (parse-long-option args
-                                                               "--budget"
-                                                               context/default-budget)
-                                    :entity-limit (parse-long-option args
-                                                                     "--entity-limit"
-                                                                     context/default-entity-limit)
-                                    :edge-limit (parse-long-option args
-                                                                   "--edge-limit"
-                                                                   context/default-edge-limit)
-                                    :doc-limit (parse-long-option args
-                                                                  "--doc-limit"
-                                                                  context/default-doc-limit)
-                                    :snippet-chars (parse-long-option args
-                                                                      "--snippet-chars"
-                                                                      context/default-snippet-chars)
-                                    :min-confidence (parse-double-option args
-                                                                         "--min-confidence"
-                                                                         0.55)}))
+                                   (context-packet-options xtdb
+                                                           args
+                                                           {:project-id project-id
+                                                            :repo-id repo-id
+                                                            :retriever retriever
+                                                            :embedding-client embedding-client
+                                                            :read-context temporal})))
           (let [results (query/semantic-query xtdb
                                               query-text
                                               {:limit (or (parse-limit args) 10)
@@ -3015,8 +3062,8 @@
     "  sync work heartbeat <work-id> [--queue-dir DIR] [--agent ID] [--lease-minutes N]"
     ""
     "Ask and explore:"
-    "  ask <text> [--project ID] [--repo ID] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
-    "  explore <text> [--project ID] [--repo ID] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
+    "  ask <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
+    "  explore <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
     "  explore create [query text] --project ID [--budget N] [--limit N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--no-map] [--view ID] [--valid-at INSTANT] [--enqueue] [--queue-dir DIR]"
     "  explore show|open|expand|docs|search ..."
     ""
@@ -3579,30 +3626,13 @@
            project-id
            (context/context-packet xtdb
                                    query-text
-                                   {:project-id project-id
-                                    :repo-id repo-id
-                                    :retriever retriever
-                                    :embedding-client embedding-client
-                                    :map-path (default-map-path args)
-                                    :read-context temporal
-                                    :budget (parse-long-option args
-                                                               "--budget"
-                                                               context/default-budget)
-                                    :entity-limit (parse-long-option args
-                                                                     "--entity-limit"
-                                                                     context/default-entity-limit)
-                                    :edge-limit (parse-long-option args
-                                                                   "--edge-limit"
-                                                                   context/default-edge-limit)
-                                    :doc-limit (parse-long-option args
-                                                                  "--doc-limit"
-                                                                  context/default-doc-limit)
-                                    :snippet-chars (parse-long-option args
-                                                                      "--snippet-chars"
-                                                                      context/default-snippet-chars)
-                                    :min-confidence (parse-double-option args
-                                                                         "--min-confidence"
-                                                                         0.55)})))))
+                                   (context-packet-options xtdb
+                                                           args
+                                                           {:project-id project-id
+                                                            :repo-id repo-id
+                                                            :retriever retriever
+                                                            :embedding-client embedding-client
+                                                            :read-context temporal}))))))
 
     "cursor"
     (let [action (keyword (first args))
