@@ -197,11 +197,17 @@
       (is (= true (:report? created)))
       (is (.exists (io/file package-dir plugin-package/manifest-filename)))
       (is (.exists (io/file package-dir "registry.example.edn")))
+      (is (.exists (io/file package-dir "benchmarks" "README.md")))
       (is (.exists (io/file package-dir "extract.py")))
       (is (.exists (io/file package-dir "report.py")))
       (is (some #(str/ends-with? % "registry.example.edn") (:files created)))
+      (is (some #(str/ends-with? % "benchmarks/README.md") (:files created)))
       (is (str/includes? (slurp (io/file package-dir "README.md"))
                          "`registry.example.edn` is a sharing template"))
+      (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
+                         ":benchmark"))
+      (is (str/includes? (slurp (io/file package-dir "benchmarks" "README.md"))
+                         "benchmarks/demo-plugin-agent-report.json"))
       (is (= {:schema plugin-package/registry-schema
               :id "local-plugin-registry"
               :packages [{:id "demo-plugin"

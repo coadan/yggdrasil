@@ -733,6 +733,22 @@
        "             :source \"https://github.com/ORG/" package-id ".git\"\n"
        "             :ref \"v0.1.0\"}]}\n"))
 
+(defn- benchmark-readme
+  [package-id]
+  (str "# Benchmarks for " package-id "\n\n"
+       "Keep replayable benchmark artifacts here before making public claims or "
+       "requesting core promotion.\n\n"
+       "Expected manifest shape:\n\n"
+       "```clojure\n"
+       ":benchmark\n"
+       "{:status :benchmarked\n"
+       " :artifacts [{:path \"benchmarks/" package-id "-agent-report.json\"\n"
+       "              :kind :agent-report}]}\n"
+       "```\n\n"
+       "Benchmark artifacts should show material improvement on project-agnostic "
+       "cases and include architecture-understanding cases when that is the "
+       "claimed benefit.\n"))
+
 (defn- manifest
   [package-id {:keys [name extractor? report?]}]
   (cond-> {:schema manifest-schema
@@ -785,6 +801,8 @@
                                       (package-readme package-id))
                          (write-file! (io/file target "registry.example.edn")
                                       (registry-example package-id))
+                         (write-file! (io/file target "benchmarks/README.md")
+                                      (benchmark-readme package-id))
                          (write-file! (io/file target "fixtures/sample.clj")
                                       "(ns sample)\n(defn value [] 1)\n")]
                   extractor? (conj (write-file! (io/file target "extract.py")
