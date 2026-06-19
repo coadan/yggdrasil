@@ -255,8 +255,21 @@
        "  \"results\": []\n"
        "}\n"))
 
+(defn- distribution
+  [public-base?]
+  {:visibility (if public-base? :public :private)
+   :commercial? false})
+
+(defn- scope
+  [public-base?]
+  (if public-base?
+    {:kind :base
+     :reason "Scaffolded for public base reuse. Keep claims non-authoritative until benchmarked."}
+    {:kind :project-local
+     :reason "Scaffolded packages start project-local until reviewed for base reuse."}))
+
 (defn- manifest
-  [package-id {:keys [manifest-schema name extractor? report? file-kind path-globs scan-globs]}]
+  [package-id {:keys [manifest-schema name extractor? report? file-kind path-globs scan-globs public-base?]}]
   (let [file-kind (scaffold-file-kind file-kind)
         path-globs (scaffold-globs path-globs ["src/*" "src/**/*"])
         scan-globs (scaffold-globs scan-globs ["fixtures/**/*"])]
@@ -265,10 +278,8 @@
              :name (str (or name package-id))
              :version "0.1.0"
              :license {:spdx "MIT"}
-             :distribution {:visibility :private
-                            :commercial? false}
-             :scope {:kind :project-local
-                     :reason "Scaffolded packages start project-local until reviewed for base reuse."}
+             :distribution (distribution public-base?)
+             :scope (scope public-base?)
              :benchmark {:status :unbenchmarked}}
       extractor?
       (assoc :extractor-plugins
@@ -290,7 +301,7 @@
 
 (defn new!
   "Create a local plugin package scaffold."
-  [dir {:keys [id extractor? report? force? fixture-path] :as opts}
+  [dir {:keys [id extractor? report? force? fixture-path public-base?] :as opts}
    {:keys [manifest-schema new-schema registry-schema manifest-filename]}]
   (let [package-id (slug (or id (default-package-id dir)))
         target (io/file dir)
@@ -339,6 +350,8 @@
        :path-globs path-globs
        :scan-globs scan-globs
        :fixture-path fixture-path
+       :visibility (get-in (distribution public-base?) [:visibility])
+       :scope (scope public-base?)
        :files files
        :extractor? (boolean extractor?)
        :report? (boolean report?)})))

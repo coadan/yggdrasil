@@ -145,13 +145,17 @@
     (println "- path" path))
   (println "- remaining" remaining))
 (defn- print-plugin-new
-  [{:keys [package-id path manifest files extractor? report? file-kind fixture-path]}]
+  [{:keys [package-id path manifest files extractor? report? file-kind fixture-path visibility scope]}]
   (println "# Plugin Package Created")
   (println "- package" package-id)
   (println "- path" path)
   (println "- manifest" manifest)
   (println "- extractor" extractor?)
   (println "- report" report?)
+  (when visibility
+    (println "- visibility" (name visibility)))
+  (when-let [scope-kind (:kind scope)]
+    (println "- scope" (name scope-kind)))
   (when file-kind
     (println "- file-kind" (name file-kind)))
   (when fixture-path
@@ -469,6 +473,7 @@
                   (cond-> {:id (option-value args "--id")
                            :extractor? (boolean (some #{"--extractor"} args))
                            :report? (boolean (some #{"--report"} args))
+                           :public-base? (boolean (some #{"--public-base"} args))
                            :force? (boolean (some #{"--force"} args))}
                     (option-value args "--file-kind")
                     (assoc :file-kind (option-value args "--file-kind"))

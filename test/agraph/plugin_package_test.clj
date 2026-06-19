@@ -391,6 +391,8 @@
       (is (= "demo-plugin" (:package-id created)))
       (is (= true (:extractor? created)))
       (is (= true (:report? created)))
+      (is (= :private (:visibility created)))
+      (is (= :project-local (get-in created [:scope :kind])))
       (is (.exists (io/file package-dir plugin-package/manifest-filename)))
       (is (.exists (io/file package-dir "registry.example.edn")))
       (is (.exists (io/file package-dir "benchmarks" "README.md")))
@@ -680,6 +682,29 @@
       (is (= claim-authority
              (get-in report-context
                      [:report :plugin-packages :packages 0 :claim-authority]))))))
+
+(deftest scaffold-can-create-explicit-public-base-package
+  (let [workspace (temp-dir "agraph-plugin-public-base")
+        package-dir (io/file workspace "plugins" "shared")
+        created (plugin-package/new! (.getPath package-dir)
+                                     {:id "shared-plugin"
+                                      :extractor? true
+                                      :report? false
+                                      :public-base? true})
+        manifest (edn/read-string
+                  (slurp (io/file package-dir plugin-package/manifest-filename)))
+        diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+    (is (= :public (:visibility created)))
+    (is (= :base (get-in created [:scope :kind])))
+    (is (= {:visibility :public
+            :commercial? false}
+           (:distribution manifest)))
+    (is (= :base (get-in manifest [:scope :kind])))
+    (is (= :caution (get-in diagnosis [:readiness :public-sharing :status])))
+    (is (= :blocked (get-in diagnosis [:readiness :claims :status])))
+    (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+    (is (= [:unbenchmarked]
+           (mapv :code (get-in diagnosis [:package :claim-authority :blockers]))))))
 
 (deftest scaffolds-unsupported-file-family-extractor-options
   (let [workspace (temp-dir "agraph-plugin-unsupported-file-family")

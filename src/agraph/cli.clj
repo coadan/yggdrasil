@@ -595,7 +595,7 @@
     "  report <project.edn> [--map agraph.map.json] [--out agraph-out] [--detail primary|expanded|evidence|raw] [--force]"
     ""
     "Plugins:"
-    "  plugin new <dir> [--id ID] [--file-kind KIND] [--path-glob GLOB] [--scan-glob GLOB] [--fixture PATH] [--extractor] [--report] [--force] [--json]"
+    "  plugin new <dir> [--id ID] [--file-kind KIND] [--path-glob GLOB] [--scan-glob GLOB] [--fixture PATH] [--extractor] [--report] [--public-base] [--force] [--json]"
     "  plugin validate <dir> [--json]"
     "  plugin diagnose <dir> [--json]"
     "  plugin core-check <dir> [--json]"

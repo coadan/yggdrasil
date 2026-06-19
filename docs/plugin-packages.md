@@ -98,6 +98,10 @@ bb plugin registry install .dev/agraph/plugins/registry.edn project.edn datastar
 fixture file, `registry.example.edn`, benchmark starter templates under
 `benchmarks/`, and a package README. By default it creates both extractor and
 report examples; use `--extractor` or `--report` to scaffold only one lane.
+Scaffolds default to private `:project-local` packages. Use `--public-base` only
+when intentionally starting a public, base-scoped package for ecosystem reuse;
+it still starts `:unbenchmarked`, so public improvement claims and core
+promotion remain blocked until benchmark artifacts exist.
 
 For unsupported file families, keep the package external and pass explicit
 scaffold options instead of adding project-specific rules to core:
@@ -386,9 +390,10 @@ For package authors:
 1. Keep experimental packages private or project-local while iterating.
 2. Run `bb plugin validate <package-dir>` and fix local-use errors.
 3. Run extractor/report dry-runs against representative fixtures.
-4. Declare `:scope {:kind :base}` only after reviewing that the package is
-   reusable and does not depend on one repository's helper names, product
-   vocabulary, path semantics, hosts, prose, or substring rules.
+4. Declare `:scope {:kind :base}` manually, or scaffold with `--public-base`,
+   only after reviewing that the package is reusable and does not depend on one
+   repository's helper names, product vocabulary, path semantics, hosts, prose,
+   or substring rules.
 5. Add benchmark artifacts before changing `:benchmark :status` to
    `:benchmarked` or making public improvement claims.
 6. Publish a git ref and add a registry entry with maintainer, support, trust,

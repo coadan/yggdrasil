@@ -68,6 +68,7 @@
     (is (str/includes? usage "view overview|deps|query|systems"))
     (is (str/includes? usage "report <project.edn>"))
     (is (str/includes? usage "plugin new <dir>"))
+    (is (str/includes? usage "--public-base"))
     (is (str/includes? usage "plugin validate <dir>"))
     (is (str/includes? usage "plugin diagnose <dir>"))
     (is (str/includes? usage "plugin core-check <dir>"))
@@ -424,6 +425,12 @@
                                          :manifest (str dir "/agraph.plugin.edn")
                                          :file-kind (some-> (:file-kind opts) keyword)
                                          :fixture-path (:fixture-path opts)
+                                         :visibility (if (:public-base? opts)
+                                                       :public
+                                                       :private)
+                                         :scope {:kind (if (:public-base? opts)
+                                                         :base
+                                                         :project-local)}
                                          :files []
                                          :extractor? true
                                          :report? true})
@@ -714,7 +721,19 @@
                                      "fixtures/sample.html"
                                      "--extractor"]))]
         (is (str/includes? new-out "- file-kind htmx"))
-        (is (str/includes? new-out "- fixture fixtures/sample.html")))
+        (is (str/includes? new-out "- fixture fixtures/sample.html"))
+        (is (str/includes? new-out "- visibility private"))
+        (is (str/includes? new-out "- scope project-local")))
+      (let [public-base-out (with-out-str
+                              (cli/dispatch "plugin"
+                                            ["new"
+                                             ".dev/plugins/public-base"
+                                             "--id"
+                                             "public-base"
+                                             "--extractor"
+                                             "--public-base"]))]
+        (is (str/includes? public-base-out "- visibility public"))
+        (is (str/includes? public-base-out "- scope base")))
       (let [progress-err (java.io.StringWriter.)
             validate-out (with-out-str
                            (cli/dispatch "plugin" ["validate" ".dev/plugins/demo"]))
@@ -866,15 +885,22 @@
       (is (= [[:new ".dev/plugins/demo" {:id "demo"
                                          :extractor? false
                                          :report? false
+                                         :public-base? false
                                          :force? true}]
               [:new ".dev/plugins/htmx" {:id "htmx"
                                          :extractor? true
                                          :report? false
+                                         :public-base? false
                                          :force? false
                                          :file-kind "htmx"
                                          :path-globs "templates/*.html"
                                          :scan-globs "templates/*.html"
                                          :fixture-path "fixtures/sample.html"}]
+              [:new ".dev/plugins/public-base" {:id "public-base"
+                                                :extractor? true
+                                                :report? false
+                                                :public-base? true
+                                                :force? false}]
               [:validate ".dev/plugins/demo"]
               [:diagnose ".dev/plugins/demo"]
               [:dry-run ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]
