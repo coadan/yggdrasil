@@ -217,6 +217,7 @@
    :problemClassCoverage
    :architectureClassCoverage
    :evidenceMetrics
+   :expectedEvidenceCitationMetrics
    :commandTelemetry
    :shellLaneClaimReady
    :agraphLaneClaimReady])
@@ -640,6 +641,16 @@
                    (or (:regressedMetrics summary) 0)
                    (or (:unchangedMetrics summary) 0))))))
 
+(defn- expected-evidence-citation-present?
+  [report]
+  (number? (get-in report [:scores :expectedEvidenceCitationRate])))
+
+(defn- expected-evidence-citation-comparable?
+  [shell-report agraph-report]
+  (let [shell? (expected-evidence-citation-present? shell-report)
+        agraph? (expected-evidence-citation-present? agraph-report)]
+    (= shell? agraph?)))
+
 (defn- lane-claim-ready?
   [report]
   (let [claim-readiness (:claimReadiness report)]
@@ -667,6 +678,9 @@
         architecture-classes? (true? (:hasMeasuredArchitectureClasses
                                       problem-coverage))
         evidence-metrics? (category-has-metrics? by-category "evidence")
+        expected-evidence-metrics? (expected-evidence-citation-comparable?
+                                    shell-report
+                                    agraph-report)
         command-telemetry? (category-has-directional-metrics?
                             by-category
                             "command-telemetry")
@@ -684,6 +698,7 @@
                       :problemClassCoverage problem-classes?
                       :architectureClassCoverage architecture-classes?
                       :evidenceMetrics evidence-metrics?
+                      :expectedEvidenceCitationMetrics expected-evidence-metrics?
                       :commandTelemetry command-telemetry?
                       :shellLaneClaimReady shell-lane-ready?
                       :agraphLaneClaimReady agraph-lane-ready?}
@@ -717,6 +732,9 @@
 
                  (not evidence-metrics?)
                  (conj "Evidence citation metrics are unavailable; answer quality and citation quality are unproven.")
+
+                 (not expected-evidence-metrics?)
+                 (conj "Expected evidence citation metrics are only available in one lane; non-code evidence citation quality is not comparable.")
 
                  (not command-telemetry?)
                  (conj "Command telemetry is unavailable; CLI search/read-loop savings are unproven.")

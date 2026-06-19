@@ -24,50 +24,48 @@
 
 (defn- report
   [{:keys [mode recall5 recall10 recall20 mrr noise evidence path-evidence
+           expected-evidence
            missed outside5 outside10 missing-predicted empty commandless warnings
            command-count search-command-count file-read-command-count
            shell-command-count agraph-command-count elapsed failed running case-ids]}]
-  {:schema "agraph.benchmark.agent-report/v1"
-   :suite-id "suite"
-   :cases (count case-ids)
-   :completed (count case-ids)
-   :runs (count case-ids)
-   :missing []
-   :scores {:fileRecallAt5 recall5
-            :fileRecallAt10 recall10
-            :fileRecallAt20 recall20
-            :meanReciprocalRankFile mrr
-            :noiseRatioAt20 noise
-            :evidenceCitationRate evidence
-            :pathEvidenceCitationRate path-evidence}
-   :localizationDiagnostics {:missedRuns missed
-                             :rankedOutsideTop5Runs outside5
-                             :rankedOutsideTop10Runs outside10}
-   :agentDiagnostics {:missingPredictedFileRuns missing-predicted
-                      :emptyResultRuns empty
-                      :commandlessRuns commandless
-                      :warningRuns warnings
-                      :commandTelemetry {:commandCount command-count
-                                         :agraphCommandCount agraph-command-count
-                                         :searchCommandCount search-command-count
-                                         :fileReadCommandCount file-read-command-count
-                                         :shellCommandCount shell-command-count}}
-   :improvementSummary []
-   :timings {:elapsedMs elapsed
-             :failedCases failed
-             :runningCases running}
-   :results (mapv (fn [case-id]
-                    {:case-id case-id
-                     :agent {:mode mode
-                             :agentId "codex"}
-                     :scores {:fileRecallAt5 recall5
-                              :fileRecallAt10 recall10
-                              :fileRecallAt20 recall20
-                              :meanReciprocalRankFile mrr
-                              :noiseRatioAt20 noise
-                              :evidenceCitationRate evidence
-                              :pathEvidenceCitationRate path-evidence}})
-                  case-ids)})
+  (let [scores (cond-> {:fileRecallAt5 recall5
+                        :fileRecallAt10 recall10
+                        :fileRecallAt20 recall20
+                        :meanReciprocalRankFile mrr
+                        :noiseRatioAt20 noise
+                        :evidenceCitationRate evidence
+                        :pathEvidenceCitationRate path-evidence}
+                 (some? expected-evidence)
+                 (assoc :expectedEvidenceCitationRate expected-evidence))]
+    {:schema "agraph.benchmark.agent-report/v1"
+     :suite-id "suite"
+     :cases (count case-ids)
+     :completed (count case-ids)
+     :runs (count case-ids)
+     :missing []
+     :scores scores
+     :localizationDiagnostics {:missedRuns missed
+                               :rankedOutsideTop5Runs outside5
+                               :rankedOutsideTop10Runs outside10}
+     :agentDiagnostics {:missingPredictedFileRuns missing-predicted
+                        :emptyResultRuns empty
+                        :commandlessRuns commandless
+                        :warningRuns warnings
+                        :commandTelemetry {:commandCount command-count
+                                           :agraphCommandCount agraph-command-count
+                                           :searchCommandCount search-command-count
+                                           :fileReadCommandCount file-read-command-count
+                                           :shellCommandCount shell-command-count}}
+     :improvementSummary []
+     :timings {:elapsedMs elapsed
+               :failedCases failed
+               :runningCases running}
+     :results (mapv (fn [case-id]
+                      {:case-id case-id
+                       :agent {:mode mode
+                               :agentId "codex"}
+                       :scores scores})
+                    case-ids)}))
 
 (defn- tag-row
   [key {:keys [cases runs recall10 noise]}]
@@ -301,6 +299,7 @@
                            :problemClassCoverage false
                            :architectureClassCoverage false
                            :evidenceMetrics true
+                           :expectedEvidenceCitationMetrics true
                            :commandTelemetry true
                            :shellLaneClaimReady true
                            :agraphLaneClaimReady true}
@@ -602,6 +601,7 @@
                            :problemClassCoverage true
                            :architectureClassCoverage true
                            :evidenceMetrics true
+                           :expectedEvidenceCitationMetrics true
                            :commandTelemetry true
                            :shellLaneClaimReady true
                            :agraphLaneClaimReady true}
@@ -871,6 +871,22 @@
                         [:shellOnly :agraph :available :result])))
     (is (not (contains? (:elapsedMs deltas-by-key) :delta)))
     (is (not (contains? (:evidenceCitationRate deltas-by-key) :effect)))))
+
+(deftest claim-readiness-requires-comparable-expected-evidence-citation
+  (let [shell (with-claim-readiness (with-problem-classes shell-report))
+        agraph (-> agraph-report
+                   with-problem-classes
+                   with-claim-readiness
+                   (assoc-in [:scores :expectedEvidenceCitationRate] 0.8))
+        comparison (agent-efficiency/compare-reports shell agraph)]
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :requirements :expectedEvidenceCitationMetrics])))
+    (is (= [:expectedEvidenceCitationMetrics]
+           (get-in comparison [:headlineSummary :failedRequirements])))
+    (is (some #(= "Expected evidence citation metrics are only available in one lane; non-code evidence citation quality is not comparable."
+                  %)
+              (get-in comparison [:claimReadiness :warnings])))))
 
 (deftest reports-all-missing-metrics-as-unavailable-signal
   (let [strip-metrics (fn [report]
