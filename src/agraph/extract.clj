@@ -3,6 +3,7 @@
   (:require [agraph.extract.assets :as extract.assets]
             [agraph.extract.assets-text :as extract.assets-text]
             [agraph.extract.common :as extract.common]
+            [agraph.extract.text :as extract.text]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
             [agraph.text :as text]
@@ -850,22 +851,6 @@
                    chunks)
      :diagnostics []}))
 
-(defn extract-edn
-  "Extract EDN as a searchable chunk."
-  [run-id {:keys [id-scope file-id path content kind]}]
-  {:nodes []
-   :edges []
-   :chunks [{:xt/id (chunk-id id-scope path path 1)
-             :file-id file-id
-             :path path
-             :kind (or kind :edn)
-             :label path
-             :text content
-             :tokens (text/tokenize content)
-             :source-line 1
-             :active? true
-             :run-id run-id}]
-   :diagnostics []})
 
 (defn extract-text-source
   "Extract a supported text source file as one searchable chunk."
@@ -20498,8 +20483,8 @@
      (:archive-asset :compiled-artifact :font-asset :gettext-binary :image-asset :media-asset :opaque-asset :secret-material)
      (extract.assets/extract-binary-asset run-id file)
      :doc (extract-doc run-id file)
-     :edn (extract-edn run-id file)
-     :config (extract-edn run-id file)
+     :edn (extract.text/extract-edn run-id file)
+     :config (extract.text/extract-edn run-id file)
      :manifest (extract-manifest run-id file)
      :dependency-lock (extract-dependency-lock run-id file)
      (empty-extraction))))
