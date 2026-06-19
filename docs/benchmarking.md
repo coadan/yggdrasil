@@ -158,6 +158,9 @@ generated output root.
   as current, legacy, or stale against the current score schema and suite case
   fingerprint so old scores cannot silently stand in for changed issue text,
   commits, coverage, curated ground truth, or scorer semantics.
+  Obsolete score schemas are counted separately with the actual schema values
+  and expected current schema so CI output can distinguish rerun-required
+  scorer changes from stale case fingerprints.
   Unverified score artifacts are excluded from aggregate report scores by
   default; use `--allow-unverified-scores` only for forensic inspection of older
   benchmark runs.

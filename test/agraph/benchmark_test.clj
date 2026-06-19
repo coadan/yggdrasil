@@ -533,6 +533,10 @@
       (is (= {:currentScoreRuns 0
               :legacyScoreRuns 2
               :legacyScoreCaseIds ["case-1"]
+              :obsoleteScoreSchemaRuns 0
+              :obsoleteScoreSchemaCaseIds []
+              :obsoleteScoreSchemas []
+              :expectedScoreSchema benchmark/agent-score-schema
               :staleScoreRuns 0
               :staleScoreCaseIds []
               :unverifiedScoreRuns 2
@@ -788,6 +792,10 @@
       (is (= {:currentScoreRuns 0
               :legacyScoreRuns 1
               :legacyScoreCaseIds ["case-1"]
+              :obsoleteScoreSchemaRuns 1
+              :obsoleteScoreSchemaCaseIds ["case-1"]
+              :obsoleteScoreSchemas ["agraph.benchmark.agent-score/v1"]
+              :expectedScoreSchema benchmark/agent-score-schema
               :staleScoreRuns 0
               :staleScoreCaseIds []
               :unverifiedScoreRuns 1

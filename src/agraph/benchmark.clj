@@ -3883,15 +3883,31 @@
                             [result (artifact-diagnostic expected-fingerprints result)])
                           results)
         by-status (group-by (comp :fingerprintStatus second) result-pairs)
+        by-schema-status (group-by (comp :scoreSchemaStatus second) result-pairs)
         case-ids (fn [status]
                    (->> (get by-status status)
                         (map (comp :case-id first))
                         distinct
                         sort
-                        vec))]
+                        vec))
+        schema-case-ids (fn [status]
+                          (->> (get by-schema-status status)
+                               (map (comp :case-id first))
+                               distinct
+                               sort
+                               vec))
+        schemas (->> (get by-schema-status "legacy")
+                     (map (comp :scoreSchema second))
+                     distinct
+                     sort
+                     vec)]
     {:currentScoreRuns (count (get by-status "current"))
      :legacyScoreRuns (count (get by-status "legacy"))
      :legacyScoreCaseIds (case-ids "legacy")
+     :obsoleteScoreSchemaRuns (count (get by-schema-status "legacy"))
+     :obsoleteScoreSchemaCaseIds (schema-case-ids "legacy")
+     :obsoleteScoreSchemas schemas
+     :expectedScoreSchema agent-score-schema
      :staleScoreRuns (count (get by-status "stale"))
      :staleScoreCaseIds (case-ids "stale")
      :unverifiedScoreRuns (+ (count (get by-status "legacy"))
@@ -4726,7 +4742,19 @@
                                    [:report
                                     :artifactDiagnostics
                                     :unverifiedScoreCaseIds])
-                 :message "Some agent score artifacts are legacy or do not match the current suite case fingerprint."})]))))
+                 :obsoleteScoreSchemaCaseIds (get-in check
+                                                     [:report
+                                                      :artifactDiagnostics
+                                                      :obsoleteScoreSchemaCaseIds])
+                 :obsoleteScoreSchemas (get-in check
+                                               [:report
+                                                :artifactDiagnostics
+                                                :obsoleteScoreSchemas])
+                 :expectedScoreSchema (get-in check
+                                              [:report
+                                               :artifactDiagnostics
+                                               :expectedScoreSchema])
+                 :message "Some agent score artifacts are legacy, use an obsolete score schema, or do not match the current suite case fingerprint."})]))))
 
 (defn- localization-diagnostic-failures
   [check]
