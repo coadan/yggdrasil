@@ -73,6 +73,7 @@
     (is (str/includes? usage "bench agent-report"))
     (is (str/includes? usage "bench agent-check"))
     (is (str/includes? usage "bench agent-compare"))
+    (is (str/includes? usage "sync work heartbeat"))
     (is (str/includes? usage "--cases ID,ID"))
     (is (str/includes? usage "--min-evidence-citation-rate N"))
     (is (str/includes? usage "--min-path-evidence-citation-rate N"))
@@ -285,6 +286,7 @@
       (is (str/includes? first-content "agraph explore search <cursor-id> \"<follow-up query>\""))
       (is (str/includes? first-content "agraph sync check <project.edn> --map agraph.map.json --enqueue"))
       (is (str/includes? first-content "agraph sync work list --project <project-id> --status ready"))
+      (is (str/includes? first-content "agraph sync work heartbeat <work-id> --agent codex --lease-minutes 30"))
       (is (str/includes? first-content "agraph-mcp --config project.edn --map agraph.map.json"))
       (is (str/includes? first-content "`agraph_explore_search`"))
       (is (str/includes? first-content "`agraph_work_list`"))
@@ -1257,6 +1259,30 @@
                   :result-path nil
                   :command nil}]]
                @calls))))))
+
+(deftest sync-work-heartbeat-extends-claimed-work-lease
+  (let [root (temp-dir "agraph-cli-work-heartbeat")
+        id (get-in (queue/enqueue! {:schema context/schema
+                                    :project-id "fixture"}
+                                   {:root root
+                                    :kind "context"
+                                    :project-id "fixture"})
+                   [:item :id])]
+    (queue/claim-next! root {:agent-id "codex"
+                             :project-id "fixture"
+                             :lease-ms 1000})
+    (let [out (with-out-str
+                (cli/dispatch "sync"
+                              ["work" "heartbeat" id
+                               "--queue-dir" root
+                               "--agent" "codex"
+                               "--lease-minutes" "5"]))
+          parsed (read-json-output out)]
+      (is (= queue/summary-schema (:schema parsed)))
+      (is (= id (:id parsed)))
+      (is (= "claimed" (:status parsed)))
+      (is (= "codex" (get-in parsed [:lease :agent-id])))
+      (is (integer? (get-in parsed [:lease :heartbeat-at-ms]))))))
 
 (deftest sync-work-apply-valid-infra-review-result-updates-map
   (let [root (temp-dir "agraph-cli-work-apply")

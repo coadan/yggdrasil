@@ -155,7 +155,16 @@
                            (queue-option path))})
 
       (= "claimed" status)
-      (conj {:kind :complete
+      (conj {:kind :heartbeat
+             :label "Extend claimed work item lease"
+             :command (work-command found
+                                    "heartbeat"
+                                    id
+                                    "--agent"
+                                    "<agent-id>"
+                                    "--lease-minutes"
+                                    "30")}
+            {:kind :complete
              :label "Complete claimed work item with result JSON"
              :command (work-command found "complete" id "--result" "result.json")}
             {:kind :release

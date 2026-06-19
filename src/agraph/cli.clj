@@ -1077,6 +1077,17 @@
           (queue/release! root id (or (option-value work-args "--reason")
                                       "manual release")))))
 
+      :heartbeat
+      (let [id (first positional)]
+        (when-not id
+          (throw (ex-info "Missing sync work id." {:usage (usage)})))
+        (print-json
+         (queue/item-summary
+          (queue/heartbeat! root
+                            id
+                            {:agent-id (queue-agent work-args)
+                             :lease-ms (queue-lease-ms work-args)}))))
+
       (throw (ex-info "Unknown sync work command." {:command action
                                                     :usage (usage)})))))
 
@@ -2470,6 +2481,7 @@
     "  sync work apply <work-id> --map agraph.map.json [--queue-dir DIR]"
     "  sync work reject <work-id> --reason TEXT [--queue-dir DIR]"
     "  sync work release <work-id> [--reason TEXT] [--queue-dir DIR]"
+    "  sync work heartbeat <work-id> [--queue-dir DIR] [--agent ID] [--lease-minutes N]"
     ""
     "Ask and explore:"
     "  ask <text> [--project ID] [--repo ID] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"

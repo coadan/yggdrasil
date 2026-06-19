@@ -140,8 +140,14 @@
                            "--agent <agent-id> --queue-dir "
                            "'" root "'")}]
            (:actions ready-summary)))
-    (is (= #{:complete :release :reject}
+    (is (= #{:heartbeat :complete :release :reject}
            (set (map :kind (:actions claimed-summary)))))
+    (is (some #(= (str "agraph sync work heartbeat "
+                       ready-id
+                       " --agent <agent-id> --lease-minutes 30 --queue-dir "
+                       "'" root "'")
+                  (:command %))
+              (:actions claimed-summary)))
     (is (some #(= (str "agraph sync work complete "
                        ready-id
                        " --result result.json --queue-dir "
