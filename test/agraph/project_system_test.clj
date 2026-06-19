@@ -7,6 +7,7 @@
             [agraph.project :as project]
             [agraph.query :as query]
             [agraph.system :as system]
+            [agraph.system-report :as system-report]
             [agraph.xtdb :as store]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -92,6 +93,22 @@
                                           "scripts/flows/reindex.clj")
                       [:system-key :label :kind :path-prefix :source :candidate-types]))))
 
+(deftest external-runtime-url-hosts-are-auditable-candidates
+  (let [node (#'system/external-system-node "system-run:test"
+                                            "fixture"
+                                            "api.example.test")]
+    (is (= {:label "api.example.test"
+            :kind :external-api
+            :source :deterministic
+            :candidate-types [:runtime-url-host]
+            :evidence [{:type :runtime-url-host
+                        :host "api.example.test"}]}
+           (select-keys node [:label
+                              :kind
+                              :source
+                              :candidate-types
+                              :evidence])))))
+
 (deftest indexes-project-and-infers-system-graph
   (let [xtdb-path (temp-dir "agraph-project-xtdb")
         repo (.getPath (io/file "test/fixtures/project-repo"))
@@ -104,6 +121,15 @@
               system-summary (project/infer-project! xtdb project)
               systems (store/rows-by-field xtdb (:system-nodes store/tables) :project-id "fixture")
               system-edges (store/rows-by-field xtdb (:system-edges store/tables) :project-id "fixture")
+              stripe-system (some #(when (and (= :external-api (:kind %))
+                                              (= "api.stripe.com" (:label %)))
+                                     %)
+                                  systems)
+              stripe-edge (some #(when (and (= :calls-external-api (:relation %))
+                                            (str/includes? (:target-id %)
+                                                           "api.stripe.com"))
+                                   %)
+                                system-edges)
               maintenance (project/maintain-project xtdb project {})
               mapped-maintenance (project/maintain-project
                                   xtdb
@@ -143,9 +169,11 @@
                     systems))
           (is (not-any? #(contains? #{:service :library :tool :integration} (:kind %))
                         systems))
-          (is (some #(and (= :external-api (:kind %))
-                          (= "api.stripe.com" (:label %)))
-                    systems))
+          (is (some? stripe-system))
+          (is (= [:runtime-url-host] (:candidate-types stripe-system)))
+          (is (= [{:type :runtime-url-host
+                   :host "api.stripe.com"}]
+                 (:evidence stripe-system)))
           (is (some #(and (= :external-api (:kind %))
                           (= "api.example.com" (:label %)))
                     systems))
@@ -155,7 +183,8 @@
                                          (:label %)))
                         systems))
           (is (some #(= :code-depends-on (:relation %)) system-edges))
-          (is (some #(= :calls-external-api (:relation %)) system-edges))
+          (is (some? stripe-edge))
+          (is (= ["runtime-url-host"] (:rules stripe-edge)))
           (is (pos? (get-in maintenance [:counts :orphaned-systems])))
           (is (some #(= :system-node (:result-kind %)) search))
           (is (= ["services/api" "libs/core"] (mapv :label system-path)))
@@ -309,7 +338,7 @@
                          :reject-external-api)))))))
 
 (deftest maintenance-decision-summary-actions-quote-project-id
-  (let [summary (#'system/decision-queue-summary
+  (let [summary (system-report/decision-queue-summary
                  "demo project"
                  [{:id "maintenance-decision:demo"
                    :kind :unclustered-system

@@ -1,16 +1,9 @@
 (ns agraph.system
   "Derived project system graph inference."
-  (:require [agraph.command :as command]
-            [agraph.dependency :as dependency]
-            [agraph.dependency-review :as dependency-review]
-            [agraph.hash :as hash]
-            [agraph.infra-review :as infra-review]
-            [agraph.map :as graph-map]
+  (:require [agraph.hash :as hash]
             [agraph.search-doc :as search-doc]
             [agraph.system-report :as system-report]
             [agraph.system.candidate :as candidate]
-            [agraph.system.cluster :as cluster]
-            [agraph.system.salience :as salience]
             [agraph.text :as text]
             [agraph.xtdb :as store]
             [clojure.set :as set]
@@ -108,7 +101,10 @@
                {:repo-id external-repo-id :role :external}
                {:system-key (str "external-api/" host)
                 :label host
-                :kind :external-api}))
+                :kind :external-api
+                :candidate-types [:runtime-url-host]
+                :evidence [{:type :runtime-url-host
+                            :host host}]}))
 
 (defn- repo-for-row
   [repo-by-id row]
@@ -457,7 +453,7 @@
                                 :calls-external-api
                                 0.76
                                 [(:xt/id row)]
-                                ["url-host"])))))))
+                                ["runtime-url-host"])))))))
 
 (defn- merge-system-edges
   [run-id project-id edges]
@@ -606,10 +602,6 @@
            :run-id run-id
            :project-id id
            :status :completed)))
-
-(defn- decision-queue-summary
-  [project-id decision-queue]
-  (system-report/decision-queue-summary project-id decision-queue))
 
 (defn maintenance-report
   "Return read-only maintenance findings for a project's current system graph."
