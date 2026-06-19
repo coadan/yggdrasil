@@ -233,8 +233,12 @@
         missing (map name (:missing answerability))
         weak (map name (:weak answerability))
         unsupported (map name (:unsupported answerability))
-        warnings (take 2 (:warnings answerability))
-        next-steps (take 2 (:next answerability))]
+        warning-limit 3
+        next-limit 4
+        warnings (take warning-limit (:warnings answerability))
+        next-steps (take next-limit (:next answerability))
+        extra-warnings (max 0 (- (count (:warnings answerability)) warning-limit))
+        extra-next (max 0 (- (count (:next answerability)) next-limit))]
     (binding [*out* *err*]
       (println "No query results.")
       (println "Answerability" (name (:status answerability)))
@@ -246,8 +250,12 @@
         (println "Unsupported evidence:" (str/join ", " unsupported)))
       (doseq [warning warnings]
         (println "Warning:" warning))
+      (when (pos? extra-warnings)
+        (println "Warning:" extra-warnings "more warnings in --json output."))
       (when (seq next-steps)
-        (println "Next:" (str/join " | " next-steps))))))
+        (println "Next:" (str/join " | " next-steps))
+        (when (pos? extra-next)
+          (println "Next:" extra-next "more commands in --json output."))))))
 
 (defn- print-ask-no-results
   [xtdb query-text {:keys [project-id repo-id retriever embedding-client temporal args]}]

@@ -1545,6 +1545,34 @@
         (is (= [:query :context] (mapv first @calls)))
         (is (= "prior work" (nth (second @calls) 2)))))))
 
+(deftest ask-plain-empty-result-shows-actionable-next-steps
+  (let [err (java.io.StringWriter.)]
+    (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                  query/semantic-query (fn [& _] [])
+                  context/context-packet (fn [& _]
+                                           {:schema context/schema
+                                            :answerability
+                                            {:status :limited
+                                             :missing []
+                                             :weak [:dependencies]
+                                             :unsupported []
+                                             :warnings ["No search docs are indexed."
+                                                        "Dependency graph has unresolved imports."
+                                                        "Package version conflicts are present."
+                                                        "No embeddings are indexed."]
+                                             :next ["Run agraph packages --project fixture --json"
+                                                    "Run agraph packages --project fixture --without-import-evidence --json"
+                                                    "Run agraph packages --project fixture --with-conflicts --json"
+                                                    "Run agraph sync <project.edn> --check --enqueue"
+                                                    "Run agraph sync coverage <project.edn> --json"]}})]
+      (with-out-str
+        (binding [*err* err]
+          (cli/dispatch "ask" ["deps" "--project" "fixture" "--retriever" "lexical"])))
+      (is (str/includes? (str err) "Weak evidence: dependencies"))
+      (is (str/includes? (str err) "Run agraph sync <project.edn> --check --enqueue"))
+      (is (str/includes? (str err) "1 more warnings in --json output."))
+      (is (str/includes? (str err) "1 more commands in --json output.")))))
+
 (deftest ask-plain-success-does-not-build-context-packet
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                 query/semantic-query (fn [_ _ _]
