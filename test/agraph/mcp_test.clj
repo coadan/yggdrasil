@@ -319,6 +319,63 @@
         (is (= :ambiguous (:status packet)))
         (is (= ["node:one" "node:two"] (mapv :id (:choices packet))))))))
 
+(deftest node-tool-inspects-exact-node-target-with-source-window
+  (let [root (temp-dir "agraph-mcp-node-source")
+        source-file (java.io.File. root "src/app.clj")
+        file-row {:xt/id "file:fixture:app:src/app.clj"
+                  :project-id "fixture"
+                  :repo-id "app"
+                  :repo-root root
+                  :path "src/app.clj"
+                  :ext "clj"
+                  :kind :code
+                  :content-sha "sha"
+                  :mtime-ms 1
+                  :size-bytes 80
+                  :active? true
+                  :run-id "run"}
+        node-row {:xt/id "node:app:handler"
+                  :project-id "fixture"
+                  :repo-id "app"
+                  :label "app/handler"
+                  :kind :symbol
+                  :file-id (:xt/id file-row)
+                  :path "src/app.clj"
+                  :source-line 4
+                  :active? true
+                  :run-id "run"}]
+    (.mkdirs (.getParentFile source-file))
+    (spit source-file "(ns app)\n\n(defn helper [])\n(defn handler [])\n(defn tail [])\n")
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  store/all-rows (fn [_ table]
+                                   (if (= table (:files store/tables))
+                                     [file-row]
+                                     []))
+                  query/all-nodes (fn [_ _] [node-row])
+                  query/all-system-evidence (fn [_ _] [])
+                  query/all-edges (fn [_ _] [])]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 15
+                                 "agraph_node"
+                                 {:target "node:app:handler"
+                                  :sourceLines 3}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= :found (:status packet)))
+        (is (= :node (get-in packet [:match :targetKind])))
+        (is (= 4 (get-in packet [:source :focusLine])))
+        (is (= {:start 3
+                :end 5}
+               (get-in packet [:source :lineRange])))
+        (is (= [{:line 3
+                 :text "(defn helper [])"}
+                {:line 4
+                 :text "(defn handler [])"}
+                {:line 5
+                 :text "(defn tail [])"}]
+               (get-in packet [:source :lines])))))))
+
 (deftest node-tool-inspects-exact-map-system-target
   (let [root (temp-dir "agraph-mcp-map-system")
         map-path (str root "/agraph.map.json")
@@ -515,10 +572,12 @@
                (mapv :id (:choices packet))))))))
 
 (deftest node-tool-inspects-exact-evidence-target
-  (let [file-row {:xt/id "file:fixture:app:src/runtime.edn"
+  (let [root (temp-dir "agraph-mcp-evidence-source")
+        source-file (java.io.File. root "src/runtime.edn")
+        file-row {:xt/id "file:fixture:app:src/runtime.edn"
                   :project-id "fixture"
                   :repo-id "app"
-                  :repo-root "/tmp/app"
+                  :repo-root root
                   :path "src/runtime.edn"
                   :ext "edn"
                   :kind :config
@@ -553,6 +612,8 @@
                   :source-line 4
                   :active? true
                   :run-id "run"}]
+    (.mkdirs (.getParentFile source-file))
+    (spit source-file "{:a 1}\n{:b 2}\n{:c 3}\n{:url \"https://api.example.test\"}\n{:d 4}\n")
     (with-redefs [project/read-project (constantly project-fixture)
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ table]
@@ -566,7 +627,8 @@
                       (mcp/server-context ["--config" "project.edn"])
                       (tool-call 19
                                  "agraph_node"
-                                 {:target "evidence:runtime-url"}))
+                                 {:target "evidence:runtime-url"
+                                  :sourceLines 3}))
             packet (get-in response [:result :structuredContent])]
         (is (= :found (:status packet)))
         (is (= :evidence (get-in packet [:match :targetKind])))
@@ -574,6 +636,14 @@
         (is (= "https://api.example.test"
                (get-in packet [:evidence :normalized-value])))
         (is (= "src/runtime.edn" (get-in packet [:sourceLocation :path])))
+        (is (= 4 (get-in packet [:source :focusLine])))
+        (is (= [{:line 3
+                 :text "{:c 3}"}
+                {:line 4
+                 :text "{:url \"https://api.example.test\"}"}
+                {:line 5
+                 :text "{:d 4}"}]
+               (get-in packet [:source :lines])))
         (is (= ["edge:runtime:source"]
                (mapv :xt/id (get-in packet [:relationships :edges]))))))))
 

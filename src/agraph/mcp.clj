@@ -625,36 +625,65 @@
                       (get (repo-roots project) (:repo-id file)))]
     (.getPath (io/file root (:path file)))))
 
+(defn- source-window
+  [lines source-lines center-line]
+  (let [total (count lines)
+        limit (max 1 (long source-lines))
+        center-line (some-> center-line long)
+        half (quot limit 2)
+        start (if center-line
+                (max 1 (- center-line half))
+                1)
+        end (min total (+ start limit -1))
+        start (max 1 (- end limit -1))]
+    (if (zero? total)
+      {:start 1
+       :end 0
+       :truncated false
+       :focus-line center-line
+       :lines []}
+      {:start start
+       :end end
+       :truncated (or (> start 1) (< end total))
+       :focus-line center-line
+       :lines (mapv (fn [line text]
+                      {:line line
+                       :text text})
+                    (range start (inc end))
+                    (subvec (vec lines) (dec start) end))})))
+
 (defn- line-numbered-source
-  [project file source-lines]
-  (if-let [path (file-absolute-path project file)]
-    (let [source-file (io/file path)]
-      (cond
-        (not (.isFile source-file))
-        {:status :unavailable
-         :reason "file-not-found"
-         :path path}
+  ([project file source-lines]
+   (line-numbered-source project file source-lines {}))
+  ([project file source-lines {:keys [center-line]}]
+   (if-let [path (file-absolute-path project file)]
+     (let [source-file (io/file path)]
+       (cond
+         (not (.isFile source-file))
+         {:status :unavailable
+          :reason "file-not-found"
+          :path path}
 
-        (> (.length source-file) max-node-source-bytes)
-        {:status :unavailable
-         :reason "file-too-large"
-         :path path
-         :sizeBytes (.length source-file)
-         :maxBytes max-node-source-bytes}
+         (> (.length source-file) max-node-source-bytes)
+         {:status :unavailable
+          :reason "file-too-large"
+          :path path
+          :sizeBytes (.length source-file)
+          :maxBytes max-node-source-bytes}
 
-        :else
-        (let [lines (str/split-lines (slurp source-file))
-              selected (take source-lines lines)]
-          {:status :available
-           :path path
-           :truncated (> (count lines) source-lines)
-           :lines (mapv (fn [line text]
-                          {:line line
-                           :text text})
-                        (range 1 (inc (count selected)))
-                        selected)})))
-    {:status :unavailable
-     :reason "repo-root-missing"}))
+         :else
+         (let [window (source-window (str/split-lines (slurp source-file))
+                                     source-lines
+                                     center-line)]
+           (cond-> {:status :available
+                    :path path
+                    :truncated (:truncated window)
+                    :lines (:lines window)
+                    :lineRange {:start (:start window)
+                                :end (:end window)}}
+             (:focus-line window) (assoc :focusLine (:focus-line window))))))
+     {:status :unavailable
+      :reason "repo-root-missing"})))
 
 (defn- file-for-node
   [files node]
@@ -825,10 +854,13 @@
                 (= :package target-kind) (assoc :package (compact-package-row row))
                 (= :node target-kind) (assoc :node (compact-node-row row))
                 file (assoc :sourceLocation (compact-file-row file))
-                (= :file target-kind) (assoc :source
-                                             (line-numbered-source project
-                                                                   row
-                                                                   source-lines))
+                file (assoc :source
+                            (line-numbered-source project
+                                                  file
+                                                  source-lines
+                                                  (if (= :file target-kind)
+                                                    {}
+                                                    {:center-line (:source-line row)})))
                 overlay (assoc :map (map-attachments overlay target selected))))))))))
 
 (defn- explore-create
