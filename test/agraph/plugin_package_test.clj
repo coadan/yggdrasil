@@ -1239,6 +1239,22 @@
               :ref "v0.1.0"
               :subdir "packages/base-plugin"}
              (get-in by-id ["base-plugin" :registry-entry])))
+      (is (= {:id "base-plugin"
+              :version "0.1.0"
+              :visibility :public
+              :license {:spdx "MIT"}
+              :scope {:kind :base
+                      :reason "Reusable fixture."}
+              :benchmark-status :unbenchmarked
+              :claim-authority {:status :non-authoritative
+                                :public-claims? false
+                                :review-required? false
+                                :blockers [{:code :unbenchmarked
+                                            :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
+              :diagnostic-counts {:total 1
+                                  :errors 0
+                                  :warnings 1}}
+             (get-in by-id ["base-plugin" :package-summary])))
       (is (= :failed (get-in by-id ["local-plugin" :status])))
       (is (= [:registry-source-missing :public-sharing-not-ready]
              (mapv :code (get-in by-id ["local-plugin" :errors]))))

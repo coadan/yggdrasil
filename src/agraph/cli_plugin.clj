@@ -197,6 +197,22 @@
     (let [maintainers (keep maintainer-text (:maintainers entry))]
       (when (seq maintainers)
         (println prefix "maintainers" (str/join "," maintainers))))))
+(defn- print-plugin-registry-package-summary
+  [prefix package-summary]
+  (when package-summary
+    (println prefix
+             "package"
+             (str "version=" (:version package-summary))
+             (str "visibility=" (name (or (:visibility package-summary) :unknown)))
+             (str "benchmark=" (name (or (:benchmark-status package-summary)
+                                         :unbenchmarked)))
+             (str "scope=" (name (or (get-in package-summary [:scope :kind])
+                                     :unknown))))
+    (when-let [license (or (get-in package-summary [:license :spdx])
+                           (get-in package-summary [:license :id]))]
+      (println prefix "license" license))
+    (when-let [diagnostic-counts (:diagnostic-counts package-summary)]
+      (println prefix "diagnostics" diagnostic-counts))))
 (defn- print-plugin-selection
   [selection]
   (when selection
@@ -354,9 +370,10 @@
   (println "- non-authoritative" (:non-authoritative counts 0))
   (doseq [{:keys [code message]} errors]
     (println "- error" (name code) "-" message))
-  (doseq [{:keys [id status errors install diagnosis registry-entry]} packages]
+  (doseq [{:keys [id status errors install diagnosis registry-entry package-summary]} packages]
     (println "-" id (name status))
     (print-plugin-registry-entry " " registry-entry)
+    (print-plugin-registry-package-summary " " package-summary)
     (when-let [command (:command install)]
       (println "  install" command))
     (print-plugin-claim-authority " " (get-in diagnosis [:package :claim-authority]))

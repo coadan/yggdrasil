@@ -1086,6 +1086,18 @@
                       :ref
                       :subdir]))
 
+(defn- registry-package-summary
+  [diagnosis]
+  (let [package (:package diagnosis)]
+    (select-keys package [:id
+                          :version
+                          :visibility
+                          :license
+                          :scope
+                          :benchmark-status
+                          :claim-authority
+                          :diagnostic-counts])))
+
 (defn- registry-entry-status
   [diagnosis]
   (let [public-status (get-in diagnosis [:readiness :public-sharing :status])]
@@ -1184,6 +1196,7 @@
                  :path package-path
                  :status status
                  :registry-entry (registry-entry-summary entry)
+                 :package-summary (registry-package-summary diagnosis)
                  :errors errors
                  :diagnosis diagnosis}
           install (assoc :install install)))

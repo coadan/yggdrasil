@@ -507,6 +507,14 @@
                                                                                    :trust {:code-reviewed? false}
                                                                                    :source "https://github.com/org/demo.git"
                                                                                    :ref "v0.1.0"}
+                                                                  :package-summary {:version "0.1.0"
+                                                                                    :visibility :public
+                                                                                    :license {:spdx "MIT"}
+                                                                                    :scope {:kind :base}
+                                                                                    :benchmark-status :unbenchmarked
+                                                                                    :diagnostic-counts {:total 1
+                                                                                                        :errors 0
+                                                                                                        :warnings 1}}
                                                                   :install {:command "bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"}
                                                                   :diagnosis {:package {:claim-authority claim-authority}}
                                                                   :errors []}]})]
@@ -648,6 +656,9 @@
         (is (str/includes? registry-out "support experimental"))
         (is (str/includes? registry-out "code-reviewed false"))
         (is (str/includes? registry-out "maintainers Demo Maintainer"))
+        (is (str/includes? registry-out "package version=0.1.0 visibility=public benchmark=unbenchmarked scope=base"))
+        (is (str/includes? registry-out "license MIT"))
+        (is (str/includes? registry-out "diagnostics {:total 1, :errors 0, :warnings 1}"))
         (is (str/includes? registry-out "- non-authoritative 1"))
         (is (str/includes? registry-out
                            "claim-blockers project-local,unbenchmarked")))
@@ -1512,8 +1523,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
-
 
 
 

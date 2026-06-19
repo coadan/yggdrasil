@@ -328,12 +328,14 @@ benchmark artifacts exist.
 JSON validation output includes install metadata when `:source` is present,
 including a copyable `bb plugin install` command. It also includes a compact
 `:registry-entry` summary with public metadata: plugin kinds, maintainers,
-support status, trust review status, source, ref, and subdir. Registry-level
-counts include `:claim-ready`, `:non-authoritative`, and `:error-counts` grouped
-by registry error code. A package can pass registry sharing checks while still
-being non-authoritative for public claims.
-Text output prints public registry metadata, the install command, and claim
-authority under each installable registry package.
+support status, trust review status, source, ref, and subdir. Each package also
+includes `:package-summary` with version, visibility, license, scope, benchmark
+status, claim authority, and diagnostic counts. Registry-level counts include
+`:claim-ready`, `:non-authoritative`, and `:error-counts` grouped by registry
+error code. A package can pass registry sharing checks while still being
+non-authoritative for public claims.
+Text output prints public registry metadata, package readiness metadata, the
+install command, and claim authority under each installable registry package.
 Plain registry validation prints start/complete progress lines to stderr; use
 `--json` or `--no-progress` for quiet automation.
 
