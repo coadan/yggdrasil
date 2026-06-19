@@ -14,6 +14,7 @@ while keeping core deterministic, project-agnostic, and benchmark-gated.
 ```sh
 bb plugin install project.edn https://github.com/org/agraph-datastar.git --ref v0.1.0
 bb plugin list project.edn
+bb plugin remove project.edn datastar-hiccup
 ```
 
 Useful flags:
@@ -46,6 +47,11 @@ Install writes a `:plugin-packages` entry to `project.edn`:
 `bb sync` and `bb report` do not fetch network updates. They read the installed
 local package path. Updating a git plugin is explicit: rerun `bb plugin install
 ... --force` with the intended ref.
+
+Remove a package from a project with `bb plugin remove <project.edn>
+<package-id>`. This edits only the `:plugin-packages` entry in `project.edn`;
+cached git checkouts stay under `.dev/agraph/plugins/cache` and can be reused by
+installing again.
 
 AGraph recomputes the manifest fingerprint when a package is read. If the
 installed package path no longer matches the fingerprint recorded in

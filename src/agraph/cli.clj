@@ -2690,6 +2690,15 @@
   (doseq [package packages]
     (print-plugin-package package)))
 
+(defn- print-plugin-remove
+  [{:keys [project-id package-id removed-entry remaining]}]
+  (println "# Plugin Removed")
+  (println "- project" project-id)
+  (println "- package" package-id)
+  (when-let [path (:path removed-entry)]
+    (println "- path" path))
+  (println "- remaining" remaining))
+
 (defn- print-plugin-new
   [{:keys [package-id path manifest files extractor? report?]}]
   (println "# Plugin Package Created")
@@ -2873,6 +2882,17 @@
         (print-json result)
         (print-plugin-list result)))))
 
+(defn- plugin-remove!
+  [args]
+  (let [[config-path package-id] (positional-args args)]
+    (when-not (and config-path package-id)
+      (throw (ex-info "Missing plugin project config path or package id."
+                      {:usage (usage)})))
+    (let [result (plugin-package/remove! config-path package-id)]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-remove result)))))
+
 (defn- plugin-registry!
   [args]
   (let [[action registry-path] (positional-args args)]
@@ -2915,6 +2935,9 @@
 
       "list"
       (plugin-list! action-args)
+
+      "remove"
+      (plugin-remove! action-args)
 
       "registry"
       (plugin-registry! action-args)
@@ -2986,6 +3009,7 @@
     "  plugin dry-run report <dir> [--plugin ID] [--json]"
     "  plugin install <project.edn> <git-url-or-path> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--force] [--json]"
     "  plugin list <project.edn> [--json]"
+    "  plugin remove <project.edn> <package-id> [--json]"
     "  plugin registry validate <registry.edn> [--json]"
     ""
     "Agent integration:"

@@ -72,6 +72,7 @@
     (is (str/includes? usage "plugin dry-run report <dir>"))
     (is (str/includes? usage "plugin install <project.edn>"))
     (is (str/includes? usage "plugin list <project.edn>"))
+    (is (str/includes? usage "plugin remove <project.edn> <package-id>"))
     (is (str/includes? usage "plugin registry validate <registry.edn>"))
     (is (str/includes? usage "install-agent --platform codex --project"))
     (is (str/includes? usage "mcp [--root DIR]"))
@@ -210,6 +211,13 @@
                                                             :diagnostics 0
                                                             :artifacts 0}
                                                    :diagnostics []})
+                  plugin-package/remove! (fn [config-path package-id]
+                                           (swap! calls conj [:remove config-path package-id])
+                                           {:schema plugin-package/remove-schema
+                                            :project-id "demo-project"
+                                            :package-id package-id
+                                            :removed-entry {:path ".dev/plugins/demo"}
+                                            :remaining 0})
                   plugin-package/validate-registry (fn [path]
                                                      (swap! calls conj [:registry path])
                                                      {:schema plugin-package/registry-validate-schema
@@ -250,6 +258,13 @@
         (is (str/includes? extractor-out "warning demo is unbenchmarked"))
         (is (str/includes? report-out "benchmark=unbenchmarked"))
         (is (str/includes? report-out "scope=project-local")))
+      (let [remove-out (with-out-str
+                         (cli/dispatch "plugin"
+                                       ["remove"
+                                        "project.edn"
+                                        "demo"]))]
+        (is (str/includes? remove-out "# Plugin Removed"))
+        (is (str/includes? remove-out "- package demo")))
       (with-out-str
         (cli/dispatch "plugin"
                       ["registry"
@@ -263,6 +278,7 @@
               [:diagnose ".dev/plugins/demo"]
               [:dry-run ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]
               [:dry-run-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
+              [:remove "project.edn" "demo"]
               [:registry ".dev/plugins/registry.edn"]]
              @calls)))))
 

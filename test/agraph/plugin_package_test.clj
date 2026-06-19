@@ -131,6 +131,39 @@
                 (get-in (plugin-package/list-installed (.getPath project-edn))
                         [:packages 0 :warnings]))))))
 
+(deftest removes-installed-plugin-package-entry
+  (let [workspace (temp-dir "agraph-plugin-remove")
+        project-edn (io/file workspace "project.edn")]
+    (spit project-edn
+          (pr-str {:id "plugin-remove-fixture"
+                   :repos []
+                   :plugin-packages [{:id "keep-plugin"
+                                      :path "/tmp/keep"
+                                      :manifest plugin-package/manifest-filename}
+                                     {:id "remove-plugin"
+                                      :path "/tmp/remove"
+                                      :manifest plugin-package/manifest-filename}]}))
+    (let [result (plugin-package/remove! (.getPath project-edn) "remove-plugin")
+          data (edn/read-string (slurp project-edn))]
+      (is (= plugin-package/remove-schema (:schema result)))
+      (is (= "plugin-remove-fixture" (:project-id result)))
+      (is (= "remove-plugin" (:package-id result)))
+      (is (= "/tmp/remove" (get-in result [:removed-entry :path])))
+      (is (= 1 (:remaining result)))
+      (is (= ["keep-plugin"] (mapv :id (:plugin-packages data))))))
+  (let [workspace (temp-dir "agraph-plugin-remove-missing")
+        project-edn (io/file workspace "project.edn")]
+    (spit project-edn
+          (pr-str {:id "plugin-remove-missing"
+                   :plugin-packages []}))
+    (try
+      (plugin-package/remove! (.getPath project-edn) "missing-plugin")
+      (is false "Expected remove! to reject missing package id.")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= {:plugin-package-id "missing-plugin"
+                :installed []}
+               (ex-data e)))))))
+
 (deftest scaffolds-valid-package-and-dry-runs-extractor
   (let [workspace (temp-dir "agraph-plugin-authoring")
         package-dir (io/file workspace "plugins" "demo")

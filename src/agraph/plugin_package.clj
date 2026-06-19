@@ -20,6 +20,9 @@
 (def list-schema
   "agraph.plugin.list/v1")
 
+(def remove-schema
+  "agraph.plugin.remove/v1")
+
 (def new-schema
   "agraph.plugin.new/v1")
 
@@ -508,6 +511,36 @@
     {:schema list-schema
      :project-id (some-> (:id data) str)
      :packages (mapv package-summary (read-installed-packages config-path))}))
+
+(defn- remove-package-entry
+  [entries package-id]
+  (let [package-id (str package-id)
+        matches (filterv #(= package-id (str (:id %))) entries)]
+    (when-not (seq matches)
+      (throw (ex-info "Plugin package is not installed."
+                      {:plugin-package-id package-id
+                       :installed (mapv #(str (:id %)) entries)})))
+    {:removed (first matches)
+     :entries (vec (remove #(= package-id (str (:id %))) entries))}))
+
+(defn remove!
+  "Remove an installed plugin package entry from project config.
+
+  This updates `project.edn` only. Cached git checkouts are intentionally left in
+  place so removal is non-destructive and reversible by reinstalling the package."
+  [config-path package-id]
+  (when-not (present? package-id)
+    (throw (ex-info "Missing plugin package id." {:config-path config-path})))
+  (let [data (read-edn-file config-path)
+        entries (vec (:plugin-packages data))
+        removal (remove-package-entry entries package-id)
+        updated (assoc data :plugin-packages (:entries removal))]
+    (write-edn-file! config-path updated)
+    {:schema remove-schema
+     :project-id (some-> (:id data) str)
+     :package-id (str package-id)
+     :removed-entry (:removed removal)
+     :remaining (count (:entries removal))}))
 
 (defn- installed-entry
   [{:keys [id source rev ref subdir package-path manifest-fingerprint]}]
