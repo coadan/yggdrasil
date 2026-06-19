@@ -131,6 +131,8 @@ Use existing benchmark report fields first:
 - result health: warning runs, empty result runs, commandless runs
 - command telemetry: `agentDiagnostics.commandTelemetry` command, search,
   file-read, AGraph, and shell counts derived from cited benchmark commands
+  (`agraphCommandCount` is reported for interpretation, not treated as a
+  lower-is-better regression gate)
 - task fit: `bb efficiency` `byTag.groups`, especially problem-class tags
 - timing: stage timings and active-stage diagnostics from progress artifacts
 

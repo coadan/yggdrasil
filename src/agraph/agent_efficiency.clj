@@ -85,6 +85,11 @@
     :category :command-telemetry
     :path [:agentDiagnostics :commandTelemetry :commandCount]
     :direction :lower}
+   {:key :agraphCommandCount
+    :label "agraphCommandCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :agraphCommandCount]
+    :direction :observe}
    {:key :searchCommandCount
     :label "searchCommandCount"
     :category :command-telemetry
@@ -220,6 +225,7 @@
        :result "unavailable"}
       (let [delta (- agraph-value shell-value)
             effect (case direction
+                     :observe 0.0
                      :higher delta
                      :lower (- delta))
             effective (effective-effect effect tolerance)]
@@ -232,7 +238,9 @@
                  :available true
                  :delta delta
                  :effect effective
-                 :result (result-label effective)}
+                 :result (if (= :observe direction)
+                           "observed"
+                           (result-label effective))}
           tolerance (assoc :rawEffect effect
                            :tolerance tolerance))))))
 
@@ -328,25 +336,28 @@
    (let [improved (count-results deltas "improved")
          regressed (count-results deltas "regressed")
          unchanged (count-results deltas "unchanged")
+         observed (count-results deltas "observed")
          unavailable (count-results deltas "unavailable")
-         available (+ improved regressed unchanged)
+         available (+ improved regressed unchanged observed)
+         directional-available (+ improved regressed unchanged)
          min-shared-cases (long (or min-shared-cases 1))
          enough-cases? (<= min-shared-cases (long (:sharedCases comparable)))
          signal (cond
                   (zero? (:sharedCases comparable)) "not-comparable"
                   (not enough-cases?) "insufficient-cases"
-                  (zero? available) "metrics-unavailable"
+                  (zero? directional-available) "metrics-unavailable"
                   (and (pos? improved) (zero? regressed)) "agraph-improved"
                   (and (zero? improved) (pos? regressed)) "agraph-regressed"
                   (and (pos? improved) (pos? regressed)) "mixed"
                   :else "unchanged")]
-     {:signal signal
-      :minSharedCases min-shared-cases
-      :availableMetrics available
-      :improvedMetrics improved
-      :regressedMetrics regressed
-      :unchangedMetrics unchanged
-      :unavailableMetrics unavailable})))
+     (cond-> {:signal signal
+              :minSharedCases min-shared-cases
+              :availableMetrics available
+              :improvedMetrics improved
+              :regressedMetrics regressed
+              :unchangedMetrics unchanged
+              :unavailableMetrics unavailable}
+       (pos? observed) (assoc :observedMetrics observed)))))
 
 (defn- tag-comparability
   [shell-report agraph-report]

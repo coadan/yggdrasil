@@ -26,7 +26,7 @@
   [{:keys [mode recall5 recall10 recall20 mrr noise evidence path-evidence
            missed outside5 outside10 missing-predicted empty commandless warnings
            command-count search-command-count file-read-command-count
-           shell-command-count elapsed failed running case-ids]}]
+           shell-command-count agraph-command-count elapsed failed running case-ids]}]
   {:schema "agraph.benchmark.agent-report/v1"
    :suite-id "suite"
    :cases (count case-ids)
@@ -48,6 +48,7 @@
                       :commandlessRuns commandless
                       :warningRuns warnings
                       :commandTelemetry {:commandCount command-count
+                                         :agraphCommandCount agraph-command-count
                                          :searchCommandCount search-command-count
                                          :fileReadCommandCount file-read-command-count
                                          :shellCommandCount shell-command-count}}
@@ -129,6 +130,7 @@
            :search-command-count 4
            :file-read-command-count 2
            :shell-command-count 3
+           :agraph-command-count 0
            :elapsed 1000
            :failed 1
            :running 0
@@ -154,6 +156,7 @@
            :search-command-count 1
            :file-read-command-count 1
            :shell-command-count 1
+           :agraph-command-count 2
            :elapsed 900
            :failed 0
            :running 0
@@ -167,10 +170,11 @@
     (is (= "agraph-improved" (:status comparison)))
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
-            :availableMetrics 21
+            :availableMetrics 22
             :improvedMetrics 20
             :regressedMetrics 0
             :unchangedMetrics 1
+            :observedMetrics 1
             :unavailableMetrics 4}
            (:summary comparison)))
     (is (= {:sameSuite true
@@ -202,12 +206,20 @@
             :result "improved"}
            (select-keys (:searchCommandCount deltas-by-key)
                         [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly 0.0
+            :agraph 2.0
+            :delta 2.0
+            :effect 0.0
+            :result "observed"}
+           (select-keys (:agraphCommandCount deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
-            :availableMetrics 4
+            :availableMetrics 5
             :improvedMetrics 4
             :regressedMetrics 0
             :unchangedMetrics 0
+            :observedMetrics 1
             :unavailableMetrics 0}
            (get-in categories-by-key ["command-telemetry" :summary])))
     (is (= {:signal "agraph-improved"
@@ -619,10 +631,11 @@
         deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
-            :availableMetrics 19
+            :availableMetrics 20
             :improvedMetrics 18
             :regressedMetrics 0
             :unchangedMetrics 1
+            :observedMetrics 1
             :unavailableMetrics 6}
            (:summary comparison)))
     (is (= {:shellOnly nil
@@ -659,7 +672,7 @@
             :improvedMetrics 0
             :regressedMetrics 0
             :unchangedMetrics 0
-            :unavailableMetrics 25}
+            :unavailableMetrics 26}
            (:summary comparison)))
     (is (every? #(= "unavailable" (:result %))
                 (:deltas comparison)))))
