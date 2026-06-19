@@ -1099,7 +1099,34 @@ function FocusedGraphSlices({
   );
 }
 
-function DependenciesTab({ report }: { report: AGraphReport }) {
+function dependencyCommands(report: AGraphReport): string[] {
+  const projectId = report.project.id;
+  const packages = asRecord(report.packages);
+  const counts = asRecord(packages.counts);
+  const commands = new Set<string>([`agraph packages --project ${projectId} --json`]);
+
+  if (countValue(counts, "version-conflicts") > 0) {
+    commands.add(`agraph packages --project ${projectId} --with-conflicts --json`);
+  }
+  if (countValue(counts, "declared-without-import-evidence") > 0) {
+    commands.add(`agraph packages --project ${projectId} --without-import-evidence --json`);
+  }
+  for (const row of asRows(packages.ecosystems)) {
+    const ecosystem = displayValue(row.ecosystem);
+    if (ecosystem) commands.add(`agraph packages --project ${projectId} --ecosystem ${ecosystem} --json`);
+  }
+  return [...commands];
+}
+
+function DependenciesTab({
+  report,
+  copiedActionKey,
+  onCopyCommand
+}: {
+  report: AGraphReport;
+  copiedActionKey: string | null;
+  onCopyCommand: (key: string, command: string) => void;
+}) {
   const packages = asRecord(report.packages);
   const counts = asRecord(packages.counts);
   return (
@@ -1116,6 +1143,7 @@ function DependenciesTab({ report }: { report: AGraphReport }) {
           ]}
         />
       </section>
+      <CommandList commands={dependencyCommands(report)} copiedKey={copiedActionKey} onCopyCommand={onCopyCommand} />
       <DataTable
         title="Ecosystems"
         rows={asRows(packages.ecosystems)}
@@ -1594,7 +1622,7 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
           />
         );
       case "dependencies":
-        return <DependenciesTab report={report} />;
+        return <DependenciesTab report={report} copiedActionKey={copiedActionKey} onCopyCommand={copyCommand} />;
       case "evidence":
         return <EvidenceTab report={report} onAsk={askFromScope} />;
       case "maintenance":

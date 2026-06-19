@@ -70,7 +70,13 @@ describe("ReportPage", () => {
     fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Open dependencies" }));
 
     expect(screen.getByText("Package Summary")).toBeInTheDocument();
+    expect(screen.getByText("agraph packages --project fixture --without-import-evidence --json")).toBeInTheDocument();
     expect(screen.getByText("missing.lib")).toBeInTheDocument();
+
+    const commandItem = screen.getByText("agraph packages --project fixture --without-import-evidence --json").closest("li");
+    expect(commandItem).toBeTruthy();
+    fireEvent.click(within(commandItem as HTMLElement).getByRole("button", { name: "Copy command" }));
+    expect(within(commandItem as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
   it("opens focused graph slices from review rows", () => {
