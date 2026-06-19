@@ -13,6 +13,25 @@
               (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(deftest result-schema-counts-summarize-mechanical-item-statuses
+  (is (= {:result-schema-statuses {:matching 1
+                                   :mismatch 1
+                                   :missing-result 1
+                                   :unexpected-result 1}
+          :result-schema-status-items 4
+          :result-schema-matching-items 1
+          :result-schema-mismatch-items 1
+          :result-schema-missing-result-items 1
+          :result-schema-unexpected-result-items 1}
+         (activity/result-schema-counts
+          [{:expected-result-schema "ok/v1"
+            :result-schema "ok/v1"}
+           {:expected-result-schema "expected/v1"
+            :result-schema "actual/v1"}
+           {:expected-result-schema "missing/v1"}
+           {:result-schema "unexpected/v1"}
+           {}]))))
+
 (deftest sync-queue-imports-durable-activity-and-validation-events
   (let [root (temp-dir "agraph-activity-queue")
         project {:id "demo" :name "Demo" :repos []}

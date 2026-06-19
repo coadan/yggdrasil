@@ -128,6 +128,29 @@
   (result-schema-status* (:expected-result-schema item)
                          (:result-schema item)))
 
+(defn- result-schema-status-counts
+  [items]
+  (->> items
+       (map item-result-schema-status)
+       (remove #{:none})
+       frequencies
+       (into (sorted-map))))
+
+(defn- result-schema-status-count
+  [statuses status]
+  (long (get statuses status 0)))
+
+(defn result-schema-counts
+  "Return mechanical result-schema status counts for durable activity item rows."
+  [items]
+  (let [statuses (result-schema-status-counts items)]
+    {:result-schema-statuses statuses
+     :result-schema-status-items (reduce + 0 (vals statuses))
+     :result-schema-matching-items (result-schema-status-count statuses :matching)
+     :result-schema-mismatch-items (result-schema-status-count statuses :mismatch)
+     :result-schema-missing-result-items (result-schema-status-count statuses :missing-result)
+     :result-schema-unexpected-result-items (result-schema-status-count statuses :unexpected-result)}))
+
 (defn- result-schema-status
   [item]
   (result-schema-status* (expected-result-schema item)

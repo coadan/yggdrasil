@@ -152,28 +152,6 @@
       (positive-count? (:result-schema-missing-result-items counts))
       (positive-count? (:result-schema-unexpected-result-items counts))))
 
-(defn- result-schema-status-counts
-  [activity-items]
-  (->> activity-items
-       (map activity/item-result-schema-status)
-       (remove #{:none})
-       frequencies
-       (into (sorted-map))))
-
-(defn- result-schema-count
-  [statuses status]
-  (long (get statuses status 0)))
-
-(defn- result-schema-counts
-  [activity-items]
-  (let [statuses (result-schema-status-counts activity-items)]
-    {:result-schema-statuses statuses
-     :result-schema-status-items (reduce + 0 (vals statuses))
-     :result-schema-matching-items (result-schema-count statuses :matching)
-     :result-schema-mismatch-items (result-schema-count statuses :mismatch)
-     :result-schema-missing-result-items (result-schema-count statuses :missing-result)
-     :result-schema-unexpected-result-items (result-schema-count statuses :unexpected-result)}))
-
 (defn- family-status
   [counts available-families family]
   (cond
@@ -630,7 +608,7 @@
                        :diagnostics (get-in coverage-report [:diagnostics :total] 0)
                        :skipped-files (get-in coverage-report [:totals :skipped] 0)
                        :map-overlay (overlay-counts map-overlay)}
-                      (result-schema-counts activity-items))
+                      (activity/result-schema-counts activity-items))
         freshness (annotate-freshness freshness counts opts)
         available-families (available counts)
         families (evidence-families counts available-families)

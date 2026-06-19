@@ -1997,28 +1997,6 @@
    :map-edges (count (:edges overlay))
    :map-rejects (count (:reject overlay))})
 
-(defn- result-schema-status-counts
-  [activity-items]
-  (->> activity-items
-       (map activity/item-result-schema-status)
-       (remove #{:none})
-       frequencies
-       (into (sorted-map))))
-
-(defn- result-schema-count
-  [result-schema-statuses status]
-  (long (get result-schema-statuses status 0)))
-
-(defn- result-schema-counts
-  [activity-items]
-  (let [statuses (result-schema-status-counts activity-items)]
-    {:result-schema-statuses statuses
-     :result-schema-status-items (reduce + 0 (vals statuses))
-     :result-schema-matching-items (result-schema-count statuses :matching)
-     :result-schema-mismatch-items (result-schema-count statuses :mismatch)
-     :result-schema-missing-result-items (result-schema-count statuses :missing-result)
-     :result-schema-unexpected-result-items (result-schema-count statuses :unexpected-result)}))
-
 (defn- capability-counts
   [xtdb overlay {:keys [project-id repo-id read-context]}]
   (let [nodes (filter active-row?
@@ -2081,7 +2059,7 @@
                                   (query/all-diagnostics xtdb {:project-id project-id
                                                                :repo-id repo-id
                                                                :read-context read-context})))}
-     (result-schema-counts activity-items)
+     (activity/result-schema-counts activity-items)
      (overlay-counts overlay))))
 
 (defn- validation-history-count
