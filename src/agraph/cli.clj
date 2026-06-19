@@ -2665,6 +2665,8 @@
            (str "benchmark=" (name (or (:benchmark-status package) :unbenchmarked))))
   (when-let [source (:source package)]
     (println "  source" (:url source) (str "rev=" (:rev source))))
+  (when-let [fingerprint (:manifest-fingerprint package)]
+    (println "  manifest-fingerprint" fingerprint))
   (when (seq (:warnings package))
     (doseq [warning (:warnings package)]
       (println "  warning" warning))))
@@ -2675,7 +2677,9 @@
   (println "- project" project-id)
   (println "- force" force?)
   (print-plugin-package package)
-  (println "- manifest" (:manifest entry))
+  (if-let [fingerprint (:manifest-fingerprint entry)]
+    (println "- manifest" (:manifest entry) (str "fingerprint=" fingerprint))
+    (println "- manifest" (:manifest entry)))
   (println "- path" (:path entry)))
 
 (defn- print-plugin-list

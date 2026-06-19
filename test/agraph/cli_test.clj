@@ -113,10 +113,12 @@
                                                        :extractor-plugins 1
                                                        :report-plugins 1
                                                        :benchmark-status :unbenchmarked
+                                                       :manifest-fingerprint "sha256:abc123"
                                                        :source {:url source
                                                                 :rev "abc123"}
                                                        :warnings []}
                                              :entry {:manifest "agraph.plugin.edn"
+                                                     :manifest-fingerprint "sha256:abc123"
                                                      :path "/tmp/pkg"}
                                              :force? (:force? opts)})]
       (let [out (with-out-str
@@ -132,6 +134,8 @@
                                  ".cache/plugins"
                                  "--force"]))]
         (is (str/includes? out "# Plugin Installed"))
+        (is (str/includes? out "manifest-fingerprint sha256:abc123"))
+        (is (str/includes? out "fingerprint=sha256:abc123"))
         (is (= [["project.edn"
                  "git@example.test:org/pkg.git"
                  {:ref "v0.1.0"
