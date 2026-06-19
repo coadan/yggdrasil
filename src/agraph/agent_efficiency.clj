@@ -80,6 +80,26 @@
     :category :result-health
     :path [:agentDiagnostics :warningRuns]
     :direction :lower}
+   {:key :commandCount
+    :label "commandCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :commandCount]
+    :direction :lower}
+   {:key :searchCommandCount
+    :label "searchCommandCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :searchCommandCount]
+    :direction :lower}
+   {:key :fileReadCommandCount
+    :label "fileReadCommandCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :fileReadCommandCount]
+    :direction :lower}
+   {:key :shellCommandCount
+    :label "shellCommandCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :shellCommandCount]
+    :direction :lower}
    {:key :elapsedMs
     :label "elapsedMs"
     :category :timing

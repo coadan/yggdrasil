@@ -25,7 +25,8 @@
 (defn- report
   [{:keys [mode recall5 recall10 recall20 mrr noise evidence path-evidence
            missed outside5 outside10 missing-predicted empty commandless warnings
-           elapsed failed running case-ids]}]
+           command-count search-command-count file-read-command-count
+           shell-command-count elapsed failed running case-ids]}]
   {:schema "agraph.benchmark.agent-report/v1"
    :suite-id "suite"
    :cases (count case-ids)
@@ -45,7 +46,11 @@
    :agentDiagnostics {:missingPredictedFileRuns missing-predicted
                       :emptyResultRuns empty
                       :commandlessRuns commandless
-                      :warningRuns warnings}
+                      :warningRuns warnings
+                      :commandTelemetry {:commandCount command-count
+                                         :searchCommandCount search-command-count
+                                         :fileReadCommandCount file-read-command-count
+                                         :shellCommandCount shell-command-count}}
    :timings {:elapsedMs elapsed
              :failedCases failed
              :runningCases running}
@@ -86,6 +91,10 @@
            :empty 1
            :commandless 2
            :warnings 1
+           :command-count 9
+           :search-command-count 4
+           :file-read-command-count 2
+           :shell-command-count 3
            :elapsed 1000
            :failed 1
            :running 0
@@ -107,6 +116,10 @@
            :empty 0
            :commandless 1
            :warnings 0
+           :command-count 5
+           :search-command-count 1
+           :file-read-command-count 1
+           :shell-command-count 1
            :elapsed 900
            :failed 0
            :running 0
@@ -119,8 +132,8 @@
     (is (= "agraph-improved" (:status comparison)))
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
-            :availableMetrics 17
-            :improvedMetrics 16
+            :availableMetrics 21
+            :improvedMetrics 20
             :regressedMetrics 0
             :unchangedMetrics 1
             :unavailableMetrics 0}
@@ -146,6 +159,13 @@
             :effect 0.25
             :result "improved"}
            (select-keys (:noiseRatioAt20 deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly 4.0
+            :agraph 1.0
+            :delta -3.0
+            :effect 3.0
+            :result "improved"}
+           (select-keys (:searchCommandCount deltas-by-key)
                         [:shellOnly :agraph :delta :effect :result])))
     (is (= ["case-1" "case-2"]
            (mapv :caseId (:caseDeltas comparison))))
@@ -288,8 +308,8 @@
         deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
     (is (= {:signal "agraph-improved"
             :minSharedCases 2
-            :availableMetrics 15
-            :improvedMetrics 14
+            :availableMetrics 19
+            :improvedMetrics 18
             :regressedMetrics 0
             :unchangedMetrics 1
             :unavailableMetrics 2}
@@ -328,7 +348,7 @@
             :improvedMetrics 0
             :regressedMetrics 0
             :unchangedMetrics 0
-            :unavailableMetrics 17}
+            :unavailableMetrics 21}
            (:summary comparison)))
     (is (every? #(= "unavailable" (:result %))
                 (:deltas comparison)))))
