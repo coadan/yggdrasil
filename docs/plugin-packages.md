@@ -320,9 +320,18 @@ repository root.
 Run:
 
 ```sh
+bb plugin registry list registry.edn --query datastar
 bb plugin registry validate registry.edn --json
 bb plugin registry install registry.edn project.edn datastar-hiccup --cache-dir .dev/agraph/plugins/cache
 ```
+
+`plugin registry list` is the consumer-facing discovery command. It reads the
+registry index only; it does not require local package checkouts, fetch git
+sources, or run `plugin diagnose`. Use `--kind extractor|report` and
+`--query TEXT` to narrow entries. The output includes public registry metadata,
+support/trust fields, pinned install commands when `:source` and `:ref` are
+present, and lightweight registry metadata errors. This command is useful for
+finding packages, not for making public claims about their output.
 
 Validation reads each local package manifest and runs `plugin diagnose`; it does
 not fetch git sources. A registry entry passes when the package is ready or

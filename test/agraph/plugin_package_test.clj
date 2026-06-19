@@ -1314,6 +1314,66 @@
       (is (= [:project-local-scope]
              (mapv :code (:diagnostics diagnosis)))))))
 
+(deftest registry-list-supports-remote-discovery-without-package-checkouts
+  (let [workspace (temp-dir "agraph-plugin-registry-list")
+        registry-path (io/file workspace "registry.edn")]
+    (spit registry-path
+          (pr-str {:schema plugin-package/registry-schema
+                   :id "official"
+                   :name "AGraph plugins"
+                   :description "Public plugin index."
+                   :packages [{:id "datastar-hiccup"
+                               :description "Datastar and Hiccup extractor."
+                               :tags ["clojure" "hypermedia"]
+                               :kinds [:extractor]
+                               :maintainers [{:name "Maintainer"}]
+                               :support {:status :experimental}
+                               :trust {:code-reviewed? false}
+                               :source "https://github.com/org/agraph-plugins.git"
+                               :ref "v0.1.0"
+                               :subdir "packages/datastar-hiccup"}
+                              {:id "dashboard-panels"
+                               :description "Report panels."
+                               :kinds [:report]
+                               :maintainers [{:name "Maintainer"}]
+                               :support {:status :experimental}
+                               :trust {:code-reviewed? true}
+                               :source "https://github.com/org/agraph-plugins.git"}]}))
+    (let [all-result (plugin-package/list-registry (.getPath registry-path))
+          filtered (plugin-package/list-registry
+                    (.getPath registry-path)
+                    {:kind "extractor"
+                     :query "hiccup"})
+          by-id (into {} (map (juxt :id identity) (:packages all-result)))]
+      (is (= plugin-package/registry-list-schema (:schema all-result)))
+      (is (= :warning (:status all-result)))
+      (is (= {:packages 2
+              :matched 2
+              :listed 1
+              :invalid 1
+              :installable 1}
+             (:counts all-result)))
+      (is (= {:id "datastar-hiccup"
+              :description "Datastar and Hiccup extractor."
+              :tags ["clojure" "hypermedia"]
+              :kinds [:extractor]
+              :maintainers [{:name "Maintainer"}]
+              :support {:status :experimental}
+              :trust {:code-reviewed? false}
+              :source "https://github.com/org/agraph-plugins.git"
+              :ref "v0.1.0"
+              :subdir "packages/datastar-hiccup"}
+             (get-in by-id ["datastar-hiccup" :registry-entry])))
+      (is (= "bb plugin install '<project.edn>' https://github.com/org/agraph-plugins.git --ref v0.1.0 --subdir packages/datastar-hiccup"
+             (get-in by-id ["datastar-hiccup" :install :command])))
+      (is (= [:registry-ref-missing]
+             (mapv :code (get-in by-id ["dashboard-panels" :errors]))))
+      (is (= :passed (:status filtered)))
+      (is (= {:kind "extractor"
+              :query "hiccup"}
+             (:filters filtered)))
+      (is (= ["datastar-hiccup"] (mapv :id (:packages filtered)))))))
+
 (deftest registry-validation-enforces-public-sharing-readiness
   (let [workspace (temp-dir "agraph-plugin-registry")
         registry-path (io/file workspace "registry.edn")

@@ -57,6 +57,9 @@
 (def registry-validate-schema
   "agraph.plugin.registry.validate/v1")
 
+(def registry-list-schema
+  "agraph.plugin.registry.list/v1")
+
 (def registry-install-schema
   "agraph.plugin.registry.install/v1")
 
@@ -1190,9 +1193,17 @@
        :args args
        :command (str "bb " (str/join " " (map shell-token args)))})))
 
+(defn- registry-kind
+  [value]
+  (cond
+    (keyword? value) value
+    (present? value) (keyword (str value))))
+
 (defn- registry-entry-summary
   [entry]
   (select-keys entry [:id
+                      :description
+                      :tags
                       :kinds
                       :maintainers
                       :support
@@ -1224,24 +1235,35 @@
 
 (defn- registry-entry-kind-errors
   [entry]
-  (let [kinds (mapv keyword (:kinds entry))
-        unknown (remove registry-kinds kinds)]
-    (cond
-      (not (sequential? (:kinds entry)))
-      [{:code :registry-kinds-missing
-        :message "Registry entry must declare :kinds vector."
-        :supported (sort registry-kinds)}]
+  (if-not (sequential? (:kinds entry))
+    [{:code :registry-kinds-missing
+      :message "Registry entry must declare :kinds vector."
+      :supported (sort registry-kinds)}]
+    (let [kinds (vec (keep registry-kind (:kinds entry)))
+          unknown (remove registry-kinds kinds)]
+      (cond
+        (empty? kinds)
+        [{:code :registry-kinds-missing
+          :message "Registry entry must declare at least one plugin kind."
+          :supported (sort registry-kinds)}]
 
-      (empty? kinds)
-      [{:code :registry-kinds-missing
-        :message "Registry entry must declare at least one plugin kind."
-        :supported (sort registry-kinds)}]
+        (seq unknown)
+        [{:code :registry-kinds-unsupported
+          :message "Registry entry declares unsupported plugin kinds."
+          :kinds (vec unknown)
+          :supported (sort registry-kinds)}]))))
 
-      (seq unknown)
-      [{:code :registry-kinds-unsupported
-        :message "Registry entry declares unsupported plugin kinds."
-        :kinds (vec unknown)
-        :supported (sort registry-kinds)}])))
+(defn- registry-install-source-errors
+  [entry]
+  (vec
+   (concat
+    (when-not (present? (:source entry))
+      [{:code :registry-source-missing
+        :message "Registry entry is missing :source for git installation."}])
+    (when (and (present? (:source entry))
+               (not (present? (:ref entry))))
+      [{:code :registry-ref-missing
+        :message "Registry entry is missing :ref for reproducible git installation."}]))))
 
 (defn- registry-entry-metadata-errors
   [entry]
@@ -1280,13 +1302,7 @@
     (vec
      (concat
       (registry-entry-metadata-errors entry)
-      (when-not (present? (:source entry))
-        [{:code :registry-source-missing
-          :message "Registry entry is missing :source for git installation."}])
-      (when (and (present? (:source entry))
-                 (not (present? (:ref entry))))
-        [{:code :registry-ref-missing
-          :message "Registry entry is missing :ref for reproducible git installation."}])
+      (registry-install-source-errors entry)
       (when (and declared-id package-id (not= declared-id package-id))
         [{:code :registry-id-mismatch
           :message "Registry entry id does not match package manifest id."
@@ -1410,6 +1426,97 @@
                  :message (or (ex-message e) (str e))
                  :data (ex-data e)}]
        :packages []})))
+
+(defn- registry-entry-search-text
+  [entry]
+  (str/lower-case
+   (str/join "\n"
+             (keep identity
+                   [(some-> (:id entry) str)
+                    (some-> (:description entry) str)
+                    (some-> (:support entry) pr-str)
+                    (some-> (:maintainers entry) pr-str)
+                    (some-> (:tags entry) pr-str)
+                    (some-> (:kinds entry) pr-str)]))))
+
+(defn- registry-entry-matches?
+  [entry {:keys [kind query]}]
+  (and
+   (or (not (present? kind))
+       (and (sequential? (:kinds entry))
+            (contains? (set (keep registry-kind (:kinds entry)))
+                       (registry-kind kind))))
+   (or (not (present? query))
+       (str/includes? (registry-entry-search-text entry)
+                      (str/lower-case (str query))))))
+
+(defn- registry-list-entry
+  [entry]
+  (let [metadata-errors (registry-entry-metadata-errors entry)
+        source-errors (registry-install-source-errors entry)
+        errors (vec (concat metadata-errors source-errors))
+        install (when (empty? source-errors)
+                  (registry-install entry))]
+    (cond-> {:id (some-> (:id entry) str)
+             :status (if (empty? errors) :listed :invalid)
+             :registry-entry (registry-entry-summary entry)
+             :errors errors}
+      install (assoc :install install))))
+
+(defn list-registry
+  "Read a public plugin registry index for discovery without package-local diagnosis.
+
+  This is intentionally lighter than `validate-registry`: it does not require
+  package checkouts or run plugin diagnostics. Use it to inspect/search a shared
+  registry, then run `validate-registry` before publishing or accepting claims."
+  ([registry-path]
+   (list-registry registry-path {}))
+  ([registry-path filters]
+   (try
+     (let [registry (read-edn-file registry-path)
+           entries (vec (:packages registry))
+           schema-errors (cond-> []
+                           (not= registry-schema (:schema registry))
+                           (conj {:code :registry-schema
+                                  :message "Unknown plugin registry schema."
+                                  :expected registry-schema
+                                  :actual (:schema registry)})
+
+                           (not (sequential? (:packages registry)))
+                           (conj {:code :registry-packages
+                                  :message "Registry must contain :packages vector."}))
+           packages (if (seq schema-errors)
+                      []
+                      (->> entries
+                           (filter #(registry-entry-matches? % filters))
+                           (mapv registry-list-entry)))
+           invalid (count (filter #(= :invalid (:status %)) packages))]
+       {:schema registry-list-schema
+        :registry (select-keys registry [:schema :id :name :description])
+        :path (fs/canonical-path registry-path)
+        :status (if (or (seq schema-errors) (pos? invalid)) :warning :passed)
+        :filters (select-keys filters [:kind :query])
+        :counts {:packages (count entries)
+                 :matched (count packages)
+                 :listed (count (filter #(= :listed (:status %)) packages))
+                 :invalid invalid
+                 :installable (count (filter :install packages))}
+        :errors schema-errors
+        :packages packages})
+     (catch Exception e
+       {:schema registry-list-schema
+        :path (fs/canonical-path registry-path)
+        :status :failed
+        :filters (select-keys filters [:kind :query])
+        :counts {:packages 0
+                 :matched 0
+                 :listed 0
+                 :invalid 0
+                 :installable 0}
+        :errors [{:code :registry-read
+                  :message (or (ex-message e) (str e))
+                  :data (ex-data e)}]
+        :packages []}))))
 
 (defn- registry-package-by-id
   [registry-validation package-id]

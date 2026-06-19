@@ -81,6 +81,7 @@
     (is (str/includes? usage "plugin update <project.edn> <package-id>"))
     (is (str/includes? usage "plugin list <project.edn>"))
     (is (str/includes? usage "plugin remove <project.edn> <package-id>"))
+    (is (str/includes? usage "plugin registry list <registry.edn>"))
     (is (str/includes? usage "plugin registry validate <registry.edn>"))
     (is (str/includes? usage "agent install --platform codex --project"))
     (is (str/includes? usage "--print-config"))
@@ -595,7 +596,31 @@
                                                                                                         :warnings 1}}
                                                                   :install {:command "bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"}
                                                                   :diagnosis {:package {:claim-authority claim-authority}}
-                                                                  :errors []}]})]
+                                                                  :errors []}]})
+                  plugin-package/list-registry (fn [path opts]
+                                                 (swap! calls conj [:registry-list path opts])
+                                                 {:schema plugin-package/registry-list-schema
+                                                  :status :passed
+                                                  :path path
+                                                  :filters opts
+                                                  :counts {:packages 1
+                                                           :matched 1
+                                                           :listed 1
+                                                           :invalid 0
+                                                           :installable 1}
+                                                  :errors []
+                                                  :packages [{:id "demo"
+                                                              :status :listed
+                                                              :registry-entry {:id "demo"
+                                                                               :description "Demo plugin"
+                                                                               :kinds [:extractor :report]
+                                                                               :maintainers [{:name "Demo Maintainer"}]
+                                                                               :support {:status :experimental}
+                                                                               :trust {:code-reviewed? false}
+                                                                               :source "https://github.com/org/demo.git"
+                                                                               :ref "v0.1.0"}
+                                                              :install {:command "bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"}
+                                                              :errors []}]})]
       (with-out-str
         (cli/dispatch "plugin" ["new" ".dev/plugins/demo" "--id" "demo" "--force"]))
       (let [new-out (with-out-str
@@ -743,6 +768,26 @@
         (is (str/includes? registry-out "- non-authoritative 1"))
         (is (str/includes? registry-out
                            "claim-blockers project-local,unbenchmarked")))
+      (let [registry-list-err (java.io.StringWriter.)
+            registry-list-out (binding [*err* registry-list-err]
+                                (with-out-str
+                                  (cli/dispatch "plugin"
+                                                ["registry"
+                                                 "list"
+                                                 ".dev/plugins/registry.edn"
+                                                 "--kind"
+                                                 "extractor"
+                                                 "--query"
+                                                 "demo"])))]
+        (is (str/includes? registry-list-out "# Plugin Registry"))
+        (is (str/includes? registry-list-out "- filters kind=extractor query=demo"))
+        (is (str/includes? registry-list-out "- matched 1"))
+        (is (str/includes? registry-list-out "- installable 1"))
+        (is (str/includes? registry-list-out "description Demo plugin"))
+        (is (str/includes? registry-list-out
+                           "install bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"))
+        (is (str/includes? (str registry-list-err) "- registry list start .dev/plugins/registry.edn"))
+        (is (str/includes? (str registry-list-err) "- registry list complete status=passed matched=1 installable=1")))
       (is (= [[:new ".dev/plugins/demo" {:id "demo"
                                          :extractor? false
                                          :report? false
@@ -764,7 +809,9 @@
               [:input-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
               [:gap-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
               [:remove "project.edn" "demo"]
-              [:registry ".dev/plugins/registry.edn"]]
+              [:registry ".dev/plugins/registry.edn"]
+              [:registry-list ".dev/plugins/registry.edn" {:kind "extractor"
+                                                           :query "demo"}]]
              @calls)))))
 
 (deftest plugin-dry-run-failure-exits-with-diagnostics
@@ -1612,7 +1659,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
 

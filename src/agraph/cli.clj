@@ -609,6 +609,7 @@
     "  plugin update <project.edn> <package-id> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--json] [--no-progress]"
     "  plugin list <project.edn> [--json]"
     "  plugin remove <project.edn> <package-id> [--json]"
+    "  plugin registry list <registry.edn> [--kind extractor|report] [--query TEXT] [--json] [--no-progress]"
     "  plugin registry validate <registry.edn> [--json] [--no-progress]"
     "  plugin registry install <registry.edn> <project.edn> <package-id> [--cache-dir DIR] [--force] [--json] [--no-progress]"
     ""

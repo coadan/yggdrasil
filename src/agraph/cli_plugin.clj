@@ -397,6 +397,35 @@
     (doseq [{:keys [code message]} errors]
       (println "  error" (name code) "-" message))))
 
+(defn- print-plugin-registry-list
+  [{:keys [status path filters counts errors packages]}]
+  (println "# Plugin Registry")
+  (println "- status" (name status))
+  (println "- path" path)
+  (when (seq filters)
+    (println "- filters"
+             (str/join " "
+                       (keep (fn [[k v]]
+                               (when (present-text? v)
+                                 (str (name k) "=" v)))
+                             filters))))
+  (println "- packages" (:packages counts))
+  (println "- matched" (:matched counts))
+  (println "- listed" (:listed counts))
+  (println "- invalid" (:invalid counts))
+  (println "- installable" (:installable counts))
+  (doseq [{:keys [code message]} errors]
+    (println "- error" (name code) "-" message))
+  (doseq [{:keys [id status errors install registry-entry]} packages]
+    (println "-" id (name status))
+    (print-plugin-registry-entry " " registry-entry)
+    (when-let [description (:description registry-entry)]
+      (println " " "description" description))
+    (when-let [command (:command install)]
+      (println "  install" command))
+    (doseq [{:keys [code message]} errors]
+      (println "  error" (name code) "-" message))))
+
 (defn- print-plugin-registry-install
   [{:keys [registry-path package-id registry-package install]}]
   (println "# Plugin Registry Install")
@@ -646,15 +675,38 @@
 (defn- plugin-registry!
   [args]
   (let [[action registry-path config-path package-id] (positional-args args)]
-    (when-not (#{"validate" "install"} action)
+    (when-not (#{"list" "validate" "install"} action)
       (throw (ex-info "Unknown plugin registry command."
                       {:command action
-                       :supported ["validate" "install"]
+                       :supported ["list" "validate" "install"]
                        :usage (usage)})))
     (when-not registry-path
       (throw (ex-info "Missing plugin registry path."
                       {:usage (usage)})))
     (case action
+      "list"
+      (let [progress (plugin-progress-fn args)
+            _ (plugin-progress! progress "- registry list start" registry-path)
+            result (plugin-package/list-registry
+                    registry-path
+                    (cond-> {}
+                      (option-value args "--kind")
+                      (assoc :kind (option-value args "--kind"))
+
+                      (option-value args "--query")
+                      (assoc :query (option-value args "--query"))))]
+        (plugin-progress! progress
+                          "- registry list complete"
+                          (str "status=" (name (:status result)))
+                          (str "matched=" (get-in result [:counts :matched] 0))
+                          (str "installable=" (get-in result [:counts :installable] 0)))
+        (if (json-output? args)
+          (print-json result)
+          (print-plugin-registry-list result))
+        (when (= :failed (:status result))
+          (throw (ex-info "Plugin registry list failed."
+                          {:errors (:errors result)}))))
+
       "validate"
       (let [progress (plugin-progress-fn args)
             _ (plugin-progress! progress "- registry validate start" registry-path)
