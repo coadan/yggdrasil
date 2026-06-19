@@ -129,6 +129,11 @@
                      :count 1
                      :command "agraph sync check <project.edn> --enqueue"}
                     %)
+                (:nextActions summary)))
+      (is (some #(= {:kind :audit-scope
+                     :label "Inspect project audit scopes"
+                     :command "agraph audit-scope <project.edn> --json"}
+                    %)
                 (:nextActions summary))))))
 
 (deftest summarize-next-actions-quote-shell-paths
@@ -170,6 +175,48 @@
                 (:nextActions summary)))
       (is (some #(= "agraph packages --project 'fixture project' --json"
                     (:command %))
+                (:nextActions summary))))))
+
+(deftest summarize-audit-scope-next-action-quotes-shell-paths
+  (with-redefs [coverage/project-coverage (fn [& _]
+                                            {:totals {:skipped 0}
+                                             :files-by-kind []
+                                             :extractors []
+                                             :skipped-by-extension []
+                                             :skipped-by-reason []
+                                             :diagnostics {:total 0}})
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :versions 0
+                                                      :imports-package 0
+                                                      :version-conflicts 0
+                                                      :declared-without-import-evidence 0
+                                                      :unresolved-imports 0}
+                                             :ecosystems []})
+                store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :project-id "fixture project"
+                                                   :active? true}]
+                                   []))
+                query/all-nodes (fn [& _] [])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                activity/all-items (fn [& _] [])
+                activity/all-events (fn [& _] [])]
+    (let [summary (evidence/summarize :xtdb
+                                      {:id "fixture project"
+                                       :repos []}
+                                      {:config-path "Project Files/project.edn"
+                                       :map-path "Maps/agraph map.json"})]
+      (is (some #(= {:kind :audit-scope
+                     :label "Inspect project audit scopes"
+                     :command "agraph audit-scope 'Project Files/project.edn' --map 'Maps/agraph map.json' --json"}
+                    %)
                 (:nextActions summary))))))
 
 (deftest summarize-surfaces-result-schema-mismatch-activity

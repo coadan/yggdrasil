@@ -22,6 +22,8 @@
     (is (= agent-install/schema (:schema result)))
     (is (str/includes? content "`evidence.planes`"))
     (is (str/includes? content "`answerability.planes`"))
+    (is (str/includes? content "agraph audit-scope <project.edn> --map agraph.map.json --json"))
+    (is (str/includes? content "Use it for architecture-class work"))
     (is (str/includes? content "If `status` or `answerability` is `limited`, `empty`, `stale`, or `unsynced`"))
     (is (str/includes? content "`nextActions` before concluding evidence does not exist"))))
 

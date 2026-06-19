@@ -194,6 +194,14 @@
        (command/shell-token (or project-id "<project-id>"))
        " --json"))
 
+(defn- audit-scope-command
+  [config-path map-path]
+  (str "agraph audit-scope "
+       (command/shell-token (or config-path "<project.edn>"))
+       (when map-path
+         (str " --map " (command/shell-token map-path)))
+       " --json"))
+
 (defn- package-next-actions
   [project-id {:keys [packages package-evidence-gaps unresolved-imports package-conflicts]}
    {:keys [config-path map-path]}]
@@ -293,6 +301,11 @@
                   :label "Inspect extractor diagnostics"
                   :count diagnostics
                   :command (sync-subcommand "coverage" config-path "--json")})
+
+           (pos? files)
+           (conj {:kind :audit-scope
+                  :label "Inspect project audit scopes"
+                  :command (audit-scope-command config-path map-path)})
 
            true
            (conj {:kind :ask

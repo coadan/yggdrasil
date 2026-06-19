@@ -287,6 +287,8 @@
       (is (= first-content (slurp agents)))
       (is (str/includes? first-content "Keep this line."))
       (is (str/includes? first-content "agraph status <project.edn> --json"))
+      (is (str/includes? first-content "agraph audit-scope <project.edn> --map agraph.map.json --json"))
+      (is (str/includes? first-content "`audit-scope --json` summarizes core evidence"))
       (is (str/includes? first-content "graph-basis freshness, `evidence.planes`"))
       (is (str/includes? first-content "agraph explore \"<question>\" --project <project-id> --json"))
       (is (str/includes? first-content "agraph explore search <cursor-id> \"<follow-up query>\""))
