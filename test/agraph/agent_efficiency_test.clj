@@ -27,7 +27,10 @@
            expected-evidence
            missed outside5 outside10 missing-predicted empty commandless warnings
            command-count search-command-count file-read-command-count
-           shell-command-count agraph-command-count elapsed failed running case-ids]}]
+           shell-command-count agraph-command-count
+           segment-count search-segment-count file-read-segment-count
+           shell-segment-count agraph-segment-count
+           elapsed failed running case-ids]}]
   (let [scores (cond-> {:fileRecallAt5 recall5
                         :fileRecallAt10 recall10
                         :fileRecallAt20 recall20
@@ -51,11 +54,17 @@
                         :emptyResultRuns empty
                         :commandlessRuns commandless
                         :warningRuns warnings
-                        :commandTelemetry {:commandCount command-count
-                                           :agraphCommandCount agraph-command-count
-                                           :searchCommandCount search-command-count
-                                           :fileReadCommandCount file-read-command-count
-                                           :shellCommandCount shell-command-count}}
+                        :commandTelemetry (cond-> {:commandCount command-count
+                                                   :agraphCommandCount agraph-command-count
+                                                   :searchCommandCount search-command-count
+                                                   :fileReadCommandCount file-read-command-count
+                                                   :shellCommandCount shell-command-count}
+                                            (some? segment-count)
+                                            (assoc :segmentCount segment-count
+                                                   :agraphSegmentCount agraph-segment-count
+                                                   :searchSegmentCount search-segment-count
+                                                   :fileReadSegmentCount file-read-segment-count
+                                                   :shellSegmentCount shell-segment-count))}
      :improvementSummary []
      :timings {:elapsedMs elapsed
                :failedCases failed
@@ -319,6 +328,68 @@
            (get-in comparison [:shellOnly :modes])))
     (is (= {"agraph" 2}
            (get-in comparison [:agraph :modes])))))
+
+(deftest compares-segment-command-telemetry-when-available
+  (let [shell (update-in shell-report
+                         [:agentDiagnostics :commandTelemetry]
+                         merge
+                         {:segmentCount 12
+                          :agraphSegmentCount 0
+                          :searchSegmentCount 5
+                          :fileReadSegmentCount 3
+                          :shellSegmentCount 4})
+        agraph (update-in agraph-report
+                          [:agentDiagnostics :commandTelemetry]
+                          merge
+                          {:segmentCount 7
+                           :agraphSegmentCount 4
+                           :searchSegmentCount 1
+                           :fileReadSegmentCount 1
+                           :shellSegmentCount 1})
+        comparison (agent-efficiency/compare-reports shell agraph)
+        deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
+    (is (= [:fileRecallAt10
+            :noiseRatioAt20
+            :evidenceCitationRate
+            :pathEvidenceCitationRate
+            :commandCount
+            :searchCommandCount
+            :fileReadCommandCount
+            :segmentCount
+            :searchSegmentCount
+            :fileReadSegmentCount
+            :elapsedMs
+            :totalTokens
+            :costUsd]
+           (mapv :key (:headlineMetrics comparison))))
+    (is (= {:shellOnly 12.0
+            :agraph 7.0
+            :delta -5.0
+            :effect 5.0
+            :result "improved"}
+           (select-keys (:segmentCount deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly 5.0
+            :agraph 1.0
+            :delta -4.0
+            :effect 4.0
+            :result "improved"}
+           (select-keys (:searchSegmentCount deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly 3.0
+            :agraph 1.0
+            :delta -2.0
+            :effect 2.0
+            :result "improved"}
+           (select-keys (:fileReadSegmentCount deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly 0.0
+            :agraph 4.0
+            :delta 4.0
+            :effect 0.0
+            :result "observed"}
+           (select-keys (:agraphSegmentCount deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))))
 
 (deftest compares-token-cost-telemetry-when-available
   (let [shell (assoc-in shell-report

@@ -180,6 +180,9 @@
    :commandCount
    :searchCommandCount
    :fileReadCommandCount
+   :segmentCount
+   :searchSegmentCount
+   :fileReadSegmentCount
    :elapsedMs
    :totalTokens
    :costUsd])
@@ -273,6 +276,40 @@
                   :path [:efficiency :improvementTargetRunsByKind kind]
                   :default 0.0
                   :direction :lower})))))
+
+(def ^:private segment-metric-specs
+  [{:key :segmentCount
+    :label "segmentCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :segmentCount]
+    :direction :lower}
+   {:key :agraphSegmentCount
+    :label "agraphSegmentCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :agraphSegmentCount]
+    :direction :observe}
+   {:key :searchSegmentCount
+    :label "searchSegmentCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :searchSegmentCount]
+    :direction :lower}
+   {:key :fileReadSegmentCount
+    :label "fileReadSegmentCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :fileReadSegmentCount]
+    :direction :lower}
+   {:key :shellSegmentCount
+    :label "shellSegmentCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :shellSegmentCount]
+    :direction :lower}])
+
+(defn- segment-metric-specs-for
+  [shell-report agraph-report]
+  (if (or (some? (get-in shell-report [:agentDiagnostics :commandTelemetry :segmentCount]))
+          (some? (get-in agraph-report [:agentDiagnostics :commandTelemetry :segmentCount])))
+    segment-metric-specs
+    []))
 
 (defn- result-label
   [effect]
@@ -816,9 +853,13 @@
                                      agraph-efficiency-report
                                      %)
                       (into metric-specs
-                            (improvement-target-metric-specs
-                             shell-efficiency-report
-                             agraph-efficiency-report)))
+                            (concat
+                             (segment-metric-specs-for
+                              shell-efficiency-report
+                              agraph-efficiency-report)
+                             (improvement-target-metric-specs
+                              shell-efficiency-report
+                              agraph-efficiency-report))))
          min-shared-cases (long (or min-shared-cases default-min-shared-cases))
          summary (aggregate-summary deltas
                                     comparable

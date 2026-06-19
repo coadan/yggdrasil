@@ -134,7 +134,10 @@ Use existing benchmark report fields first:
   (`agraphCommandCount` is reported for interpretation, not treated as a
   lower-is-better regression gate; if only observed metrics are available,
   `bb efficiency` reports `observed-only` instead of a win or loss, and broad
-  claim readiness remains blocked until directional metrics are available)
+  claim readiness remains blocked until directional metrics are available).
+  When reports include compound-command segment counters, `bb efficiency`
+  compares segment, search-segment, and file-read-segment counts as
+  lower-is-better command telemetry too.
 - task fit: `bb efficiency` `classSignals` for compact problem-class and
   architecture-class rows. Use each row's `measured` flag to distinguish a
   shared class-shaped tag from a class that counts toward claim readiness; fall
