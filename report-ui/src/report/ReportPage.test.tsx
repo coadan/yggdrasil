@@ -148,9 +148,14 @@ describe("ReportPage", () => {
     const correctionWorkflow = screen.getByText("Correction Workflow").closest("section");
     expect(correctionWorkflow).toBeTruthy();
     expect(within(correctionWorkflow as HTMLElement).getByText("agraph.map.json")).toBeInTheDocument();
+    expect(within(correctionWorkflow as HTMLElement).getByText("agraph sync work complete <work-id> --result result.json")).toBeInTheDocument();
     fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copy map path" }));
     expect(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
     fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copy apply command" }));
+    expect(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copy complete command" }));
+    expect(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copy result JSON" }));
     expect(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
     fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Ask" }));
     expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(

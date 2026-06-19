@@ -377,6 +377,25 @@ function correctionApplyCommands(report: AGraphReport): string[] {
   return report.commands.filter((command) => /\bsync\s+work\s+apply\b/.test(command));
 }
 
+function correctionCompleteCommands(report: AGraphReport): string[] {
+  return report.commands.filter((command) => /\bsync\s+work\s+complete\b/.test(command));
+}
+
+function correctionResultTemplate(report: AGraphReport): string {
+  return JSON.stringify(
+    {
+      schema: "agraph.work.result/v1",
+      project: report.project.id,
+      status: "accepted",
+      summary: "Describe the reviewed evidence and accepted correction.",
+      evidenceRows: [],
+      mapChanges: []
+    },
+    null,
+    2
+  );
+}
+
 function nextActionTarget(action: Record<string, unknown>): ActionTarget | null {
   const kind = String(action.kind || "");
   switch (kind) {
@@ -1688,9 +1707,11 @@ function CorrectionWorkflow({
   onCopyCommand: (key: string, command: string) => void;
 }) {
   const mapPath = projectMapPath(report);
+  const completeCommands = correctionCompleteCommands(report);
   const applyCommands = correctionApplyCommands(report);
   const evidenceRows = [
     { field: "mapPath", value: mapPath },
+    ...completeCommands.map((command) => ({ field: "completeCommand", value: command })),
     ...applyCommands.map((command) => ({ field: "applyCommand", value: command }))
   ];
 
@@ -1725,6 +1746,14 @@ function CorrectionWorkflow({
               {copiedKey === "correction:apply-command" ? "Copied" : "Copy apply command"}
             </button>
           ) : null}
+          {completeCommands[0] ? (
+            <button type="button" onClick={() => onCopyCommand("correction:complete-command", completeCommands[0])}>
+              {copiedKey === "correction:complete-command" ? "Copied" : "Copy complete command"}
+            </button>
+          ) : null}
+          <button type="button" onClick={() => onCopyCommand("correction:result-template", correctionResultTemplate(report))}>
+            {copiedKey === "correction:result-template" ? "Copied" : "Copy result JSON"}
+          </button>
         </div>
       </div>
       <table>
@@ -1735,6 +1764,14 @@ function CorrectionWorkflow({
               <code>{mapPath}</code>
             </td>
           </tr>
+          {completeCommands.map((command) => (
+            <tr key={command}>
+              <th>Complete</th>
+              <td>
+                <code>{command}</code>
+              </td>
+            </tr>
+          ))}
           {applyCommands.map((command) => (
             <tr key={command}>
               <th>Apply</th>
