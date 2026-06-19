@@ -55,7 +55,7 @@
             :version "0.1.0"}
            (get-in init [:result :serverInfo])))
     (is (str/includes? instructions "Use agraph_explore first"))
-    (is (str/includes? instructions "evidence.planes"))
+    (is (str/includes? instructions "evidence.families"))
     (is (str/includes? instructions "answerability.planes"))
     (is (str/includes? instructions "nextActions before trusting missing evidence"))
     (is (str/includes? instructions "systems as the work-area orientation"))
@@ -64,7 +64,7 @@
     (is (str/includes? instructions "relationships as nearby mechanical edges"))
     (is (str/includes? instructions "Use agraph_node for one exact"))
     (is (str/includes? instructions "Use agraph_status"))
-    (is (str/includes? instructions "evidence-plane readiness"))
+    (is (str/includes? instructions "evidence-family readiness"))
     (is (str/includes? instructions "query-index readiness"))
     (is (str/includes? instructions "Use agraph_systems"))
     (is (str/includes? instructions "do not infer architecture from names"))
@@ -821,15 +821,15 @@
                                       :config-path (:config-path opts)
                                       :map-path (:map-path opts)
                                       :available [:source-graph :docs]
-                                      :planes [{:plane :source-files
-                                                :status :weak
-                                                :counts {:files 2
-                                                         :skipped-files 1
-                                                         :diagnostics 2}}
-                                               {:plane :source-graph
-                                                :status :available
-                                                :counts {:nodes 3
-                                                         :edges 4}}]
+                                      :families [{:family :source-files
+                                                  :status :weak
+                                                  :counts {:files 2
+                                                           :skipped-files 1
+                                                           :diagnostics 2}}
+                                                 {:family :source-graph
+                                                  :status :available
+                                                  :counts {:nodes 3
+                                                           :edges 4}}]
                                       :freshness {:status :stale
                                                   :counts {:changed 1}}
                                       :counts {:files 2
@@ -864,16 +864,16 @@
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
       (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
-      (is (= [{:plane :source-files
+      (is (= [{:family :source-files
                :status :weak
                :counts {:files 2
                         :skipped-files 1
                         :diagnostics 2}}
-              {:plane :source-graph
+              {:family :source-graph
                :status :available
                :counts {:nodes 3
                         :edges 4}}]
-             (get-in packet [:evidence :planes])))
+             (get-in packet [:evidence :families])))
       (is (= {:counts {:files 2
                        :skippedFiles 1
                        :diagnostics 2}
@@ -910,11 +910,11 @@
                                       :config-path (:config-path opts)
                                       :map-path (:map-path opts)
                                       :available [:source-graph]
-                                      :planes [{:plane :source-files
-                                                :status :available
-                                                :counts {:files 2
-                                                         :skipped-files 0
-                                                         :diagnostics 0}}]
+                                      :families [{:family :source-files
+                                                  :status :available
+                                                  :counts {:files 2
+                                                           :skipped-files 0
+                                                           :diagnostics 0}}]
                                       :freshness {:status :current
                                                   :basis "indexed-graph"
                                                   :missingQueryIndex false
@@ -942,12 +942,12 @@
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
       (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
-      (is (= [{:plane :source-files
+      (is (= [{:family :source-files
                :status :available
                :counts {:files 2
                         :skipped-files 0
                         :diagnostics 0}}]
-             (get-in packet [:evidence :planes])))
+             (get-in packet [:evidence :families])))
       (is (= {:counts {:files 2
                        :skippedFiles 0
                        :diagnostics 0}

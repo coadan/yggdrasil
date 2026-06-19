@@ -595,7 +595,7 @@
       (is (str/includes? first-content "agraph status <project.edn> --json"))
       (is (str/includes? first-content "agraph audit-scope <project.edn> --map agraph.map.json --json"))
       (is (str/includes? first-content "`audit-scope --json` summarizes core evidence"))
-      (is (str/includes? first-content "graph-basis freshness, `evidence.planes`"))
+      (is (str/includes? first-content "graph-basis freshness, `evidence.families`"))
       (is (str/includes? first-content "agraph explore \"<question>\" --project <project-id> --json"))
       (is (str/includes? first-content "agraph explore search <cursor-id> \"<follow-up query>\""))
       (is (str/includes? first-content "agraph sync check <project.edn> --map agraph.map.json --enqueue"))
@@ -629,7 +629,7 @@
     (is (str/includes? (get-in parsed [:hooks 0 :hooks 0 :command])
                        "agraph status <project.edn> --json"))
     (is (str/includes? (get-in parsed [:hooks 0 :hooks 0 :command])
-                       "evidence.planes"))
+                       "evidence.families"))
     (is (str/includes? (get-in parsed [:hooks 0 :hooks 0 :command])
                        "agraph explore"))))
 
@@ -1198,7 +1198,7 @@
         (is (not (contains? parsed :check-report)))
         (is (not (contains? parsed :semantic-connections)))
         (is (= report-out (get-in parsed [:report :out])))
-        (is (= "agraph.evidence/v1" (get-in parsed [:evidence :schema])))
+        (is (= "agraph.evidence/v2" (get-in parsed [:evidence :schema])))
         (is (= ["source-graph"] (get-in parsed [:evidence :available])))
         (is (= {:scanned 0
                 :indexed 0
@@ -1571,16 +1571,16 @@
                                       :project-id (:id project)
                                       :config-path (:config-path opts)
                                       :available [:source-graph :docs]
-                                      :planes [{:plane :source-graph
-                                                :status :available
-                                                :counts {:nodes 3
-                                                         :edges 4}}
-                                               {:plane :runtime-config
-                                                :status :missing
-                                                :counts {:system-evidence 0}}
-                                               {:plane :docs
-                                                :status :available
-                                                :counts {:search-docs 9}}]
+                                      :families [{:family :source-graph
+                                                  :status :available
+                                                  :counts {:nodes 3
+                                                           :edges 4}}
+                                                 {:family :system-evidence
+                                                  :status :missing
+                                                  :counts {:system-evidence 0}}
+                                                 {:family :docs
+                                                  :status :available
+                                                  :counts {:search-docs 9}}]
                                       :freshness {:status :stale
                                                   :basis "indexed-graph"
                                                   :projectConfig "project.edn"
@@ -1622,7 +1622,7 @@
                :root "/tmp/app"
                :role "application"}]
              (:repos parsed)))
-      (is (= "agraph.evidence/v1" (get-in parsed [:evidence :schema])))
+      (is (= "agraph.evidence/v2" (get-in parsed [:evidence :schema])))
       (is (= ["source-graph" "docs"] (get-in parsed [:evidence :available])))
       (is (= {:counts {:files 2
                        :skippedFiles 1
@@ -1663,9 +1663,9 @@
       (is (str/includes? plain-out "- activity-events 5"))
       (is (str/includes? plain-out "- validation-events 1"))
       (is (str/includes? plain-out "- result-schema-mismatch-events 1"))
-      (is (str/includes? plain-out "## Evidence Planes"))
+      (is (str/includes? plain-out "## Evidence Families"))
       (is (str/includes? plain-out "- source-graph available edges=4, nodes=3"))
-      (is (str/includes? plain-out "- runtime-config missing system-evidence=0"))
+      (is (str/includes? plain-out "- system-evidence missing system-evidence=0"))
       (is (str/includes? plain-out "- docs available search-docs=9"))
       (is (str/includes? plain-out "## Freshness"))
       (is (str/includes? plain-out "- status stale"))

@@ -85,22 +85,22 @@
       (is (= evidence/schema (:schema summary)))
       (is (contains? (set (:available summary)) :dependencies))
       (is (not (contains? (set (:available summary)) :packages)))
-      (is (= {:plane :dependencies
+      (is (= {:family :dependencies
               :status :weak
               :counts {:packages 2
                        :package-imports 1
                        :package-evidence-gaps 1
                        :package-conflicts 0
                        :unresolved-imports 1}}
-             (some #(when (= :dependencies (:plane %)) %)
-                   (:planes summary))))
-      (is (= {:plane :source-files
+             (some #(when (= :dependencies (:family %)) %)
+                   (:families summary))))
+      (is (= {:family :source-files
               :status :weak
               :counts {:files 1
                        :skipped-files 2
                        :diagnostics 0}}
-             (some #(when (= :source-files (:plane %)) %)
-                   (:planes summary))))
+             (some #(when (= :source-files (:family %)) %)
+                   (:families summary))))
       (is (= 2 (get-in summary [:counts :packages])))
       (is (= 1 (get-in summary [:counts :package-imports])))
       (is (= {:packages 2
@@ -143,7 +143,7 @@
                     %)
                 (:nextActions summary))))))
 
-(deftest summarize-exposes-runtime-config-evidence-plane
+(deftest summarize-exposes-system-evidence-family-and-fact-kinds
   (with-redefs [coverage/project-coverage (fn [& _]
                                             {:totals {:skipped 0}
                                              :files-by-kind []
@@ -164,6 +164,24 @@
                                    :agraph/files [{:xt/id "file:app"
                                                    :project-id "fixture"
                                                    :active? true}]
+                                   :agraph/file-facts [{:xt/id "fact:url"
+                                                        :project-id "fixture"
+                                                        :repo-id "app"
+                                                        :file-id "file:app"
+                                                        :path "config/runtime.env"
+                                                        :kind :url
+                                                        :label "https://api.example.test"
+                                                        :normalized-value "api-example-test"
+                                                        :active? true}
+                                                       {:xt/id "fact:auth"
+                                                        :project-id "fixture"
+                                                        :repo-id "app"
+                                                        :file-id "file:app"
+                                                        :path "config/runtime.env"
+                                                        :kind :auth-reference
+                                                        :label "OPENAI_API_KEY"
+                                                        :normalized-value "openai-api-key"
+                                                        :active? true}]
                                    []))
                 query/all-nodes (fn [& _] [])
                 query/all-edges (fn [& _] [])
@@ -188,12 +206,25 @@
                                       {:id "fixture"
                                        :repos []}
                                       {})]
-      (is (contains? (set (:available summary)) :runtime-config))
-      (is (= {:plane :runtime-config
+      (is (contains? (set (:available summary)) :file-facts))
+      (is (contains? (set (:available summary)) :system-evidence))
+      (is (not (contains? (set (:available summary)) :runtime-config)))
+      (is (= {:family :file-facts
+              :status :available
+              :counts {:file-facts 2}}
+             (some #(when (= :file-facts (:family %)) %)
+                   (:families summary))))
+      (is (= {:family :system-evidence
               :status :available
               :counts {:system-evidence 1}}
-             (some #(when (= :runtime-config (:plane %)) %)
-                   (:planes summary))))
+             (some #(when (= :system-evidence (:family %)) %)
+                   (:families summary))))
+      (is (= [{:kind :auth-reference :count 1}
+              {:kind :url :count 1}]
+             (get-in summary [:kinds :file-facts])))
+      (is (= [{:kind :env-var :count 1}]
+             (get-in summary [:kinds :system-evidence])))
+      (is (= 2 (get-in summary [:counts :file-facts])))
       (is (= 1 (get-in summary [:counts :system-evidence]))))))
 
 (deftest summarize-next-actions-quote-shell-paths
@@ -237,8 +268,8 @@
       (is (some #(= "agraph packages --project 'fixture project' --json"
                     (:command %))
                 (:nextActions summary)))
-      (is (some #(= {:kind :runtime-config
-                     :label "Inspect runtime/config evidence coverage"
+      (is (some #(= {:kind :system-evidence
+                     :label "Inspect system evidence coverage"
                      :command "agraph sync coverage 'Project Files/project.edn' --json"}
                     %)
                 (:nextActions summary))))))
@@ -325,12 +356,12 @@
                                        :repos []}
                                       {})]
       (is (contains? (set (:available summary)) :validation-history))
-      (is (= {:plane :validation-history
+      (is (= {:family :validation-history
               :status :weak
               :counts {:validation-events 0
                        :result-schema-mismatch-events 1}}
-             (some #(when (= :validation-history (:plane %)) %)
-                   (:planes summary))))
+             (some #(when (= :validation-history (:family %)) %)
+                   (:families summary))))
       (is (= 1 (get-in summary [:counts :result-schema-mismatch-events])))
       (is (some #(= {:kind :activity
                      :label "Inspect result schema mismatch activity"

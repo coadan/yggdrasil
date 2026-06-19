@@ -810,7 +810,7 @@
                                               :system-graph
                                               :map-overlay]
                                   :missing [:dependencies
-                                            :runtime-config
+                                            :system-evidence
                                             :docs
                                             :activity]
                                   :weak []
@@ -1225,7 +1225,7 @@
       (is (= 1 (get-in answerability [:counts :external-packages])))
       (is (= 1 (get-in answerability [:counts :package-import-edges]))))))
 
-(deftest answerability-exposes-runtime-config-plane
+(deftest answerability-exposes-system-evidence-plane
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :agraph/files [{:xt/id "file:app"
@@ -1267,13 +1267,13 @@
                           :activity-count 0
                           :runtime-count 0
                           :validation-count 0})]
-      (is (contains? (set (:available answerability)) :runtime-config))
-      (is (contains? (set (:weak answerability)) :runtime-config))
-      (is (not (contains? (set (:missing answerability)) :runtime-config)))
-      (is (= {:plane :runtime-config
+      (is (contains? (set (:available answerability)) :system-evidence))
+      (is (contains? (set (:weak answerability)) :system-evidence))
+      (is (not (contains? (set (:missing answerability)) :system-evidence)))
+      (is (= {:plane :system-evidence
               :status :weak
               :counts {:system-evidence 1}}
-             (some #(when (= :runtime-config (:plane %)) %)
+             (some #(when (= :system-evidence (:plane %)) %)
                    (:planes answerability))))
       (is (= 1 (get-in answerability [:counts :system-evidence])))
       (is (some #{"Runtime/config evidence rows are indexed, but no runtime/config evidence matched this query."}

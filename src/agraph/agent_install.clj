@@ -91,7 +91,7 @@
        "agraph audit-scope <project.edn> --map agraph.map.json --json\n"
        "agraph view systems --project <project-id> --detail primary\n"
        "```\n\n"
-       "`status --json` returns graph-basis freshness, `evidence.planes`, "
+       "`status --json` returns graph-basis freshness, `evidence.families`, "
        "coverage counts, diagnostics, and structured `nextActions`; follow "
        "freshness and coverage actions before trusting absence of graph "
        "evidence.\n\n"
@@ -171,7 +171,7 @@
                       "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\","
                       "\"additionalContext\":\"AGraph may have relevant project context. "
                       "Prefer `agraph status <project.edn> --json` to inspect freshness and "
-                      "evidence.planes, then `agraph explore \\\"<question>\\\" --project "
+                      "evidence.families, then `agraph explore \\\"<question>\\\" --project "
                       "<project-id> --json` before broad raw-file search.\"}}' ;; "
                       "esac")}]})
 

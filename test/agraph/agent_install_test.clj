@@ -14,13 +14,13 @@
     (.deleteOnExit dir)
     (.getPath dir)))
 
-(deftest codex-guidance-points-agents-at-evidence-plane-readiness
+(deftest codex-guidance-points-agents-at-evidence-family-readiness
   (let [root (temp-dir "agraph-agent-guidance")
         result (agent-install/install! "codex" {:root root
                                                 :project? true})
         content (slurp (io/file root "AGENTS.md"))]
     (is (= agent-install/schema (:schema result)))
-    (is (str/includes? content "`evidence.planes`"))
+    (is (str/includes? content "`evidence.families`"))
     (is (str/includes? content "`answerability.planes`"))
     (is (str/includes? content "agraph audit-scope <project.edn> --map agraph.map.json --json"))
     (is (str/includes? content "Use it for architecture-class work"))
@@ -37,5 +37,5 @@
         hook-json (json/read-json (slurp (:hooks result)) :key-fn keyword)
         command (get-in hook-json [:hooks 0 :hooks 0 :command])]
     (is (str/includes? command "agraph status <project.edn> --json"))
-    (is (str/includes? command "evidence.planes"))
+    (is (str/includes? command "evidence.families"))
     (is (str/includes? command "agraph explore"))))

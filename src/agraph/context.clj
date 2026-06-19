@@ -42,9 +42,9 @@
   [:source-files
    :source-graph
    :dependencies
-   :runtime-config
    :docs
    :embeddings
+   :system-evidence
    :system-graph
    :activity
    :validation-history
@@ -61,9 +61,9 @@
                   :unresolved-imports
                   :package-evidence-gaps
                   :package-conflicts]
-   :runtime-config [:system-evidence]
    :docs [:chunks :search-docs]
    :embeddings [:embeddings]
+   :system-evidence [:system-evidence]
    :system-graph [:system-nodes :system-edges]
    :activity [:activity-items :activity-events]
    :validation-history [:validation-events :result-schema-mismatch-events]
@@ -1103,7 +1103,7 @@
   {:source-files #{:source-files :coverage}
    :source-graph #{:source-graph :coverage}
    :dependencies #{:dependencies :dependency-review}
-   :runtime-config #{:runtime-config}
+   :system-evidence #{:system-evidence}
    :docs #{:docs}
    :embeddings #{:embeddings}
    :system-graph #{:system-graph}
@@ -1177,10 +1177,10 @@
     :planes [:dependencies]}
    {:family "runtime-config"
     :source-keys [:runtimeEvidence]
-    :planes [:runtime-config]}
+    :planes [:system-evidence]}
    {:family "deploy-topology"
     :source-keys [:deployEvidence]
-    :planes [:runtime-config]}
+    :planes [:system-evidence]}
    {:family "docs-contracts"
     :source-keys [:docs]
     :planes [:docs]}
@@ -1974,7 +1974,7 @@
       (pos? (+ (:external-packages counts 0)
                (:package-import-edges counts 0)
                (:unresolved-imports counts 0))) (conj :dependencies)
-      (pos? (:system-evidence counts 0)) (conj :runtime-config)
+      (pos? (:system-evidence counts 0)) (conj :system-evidence)
       (pos? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
       (pos? (:embeddings counts)) (conj :embeddings)
       (pos? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
@@ -1995,7 +1995,7 @@
       (zero? (+ (:external-packages counts 0)
                 (:package-import-edges counts 0)
                 (:unresolved-imports counts 0))) (conj :dependencies)
-      (zero? (:system-evidence counts 0)) (conj :runtime-config)
+      (zero? (:system-evidence counts 0)) (conj :system-evidence)
       (zero? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
       (zero? (:embeddings counts)) (conj :embeddings)
       (zero? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
@@ -2018,7 +2018,7 @@
 
       (and (pos? (:system-evidence counts 0))
            (zero? runtime-count))
-      (conj :runtime-config)
+      (conj :system-evidence)
 
       (and (pos? (:search-docs counts))
            (zero? doc-count))
@@ -2092,7 +2092,7 @@
     (zero? (:system-evidence counts 0))
     (conj "No runtime/config evidence rows are indexed; runtime/config questions are limited.")
 
-    (some #{:runtime-config} weak)
+    (some #{:system-evidence} weak)
     (conj "Runtime/config evidence rows are indexed, but no runtime/config evidence matched this query.")
 
     (pos? (:unresolved-imports counts 0))
@@ -2228,8 +2228,8 @@
                 :command (package-command project-id "--json")})
 
          (zero? (:system-evidence counts 0))
-         (conj {:kind :runtime-config
-                :label "Index runtime/config evidence rows"
+         (conj {:kind :system-evidence
+                :label "Index system evidence rows"
                 :command (sync-command)})
 
          (pos? (:package-evidence-gaps counts 0))

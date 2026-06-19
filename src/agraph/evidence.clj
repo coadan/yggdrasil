@@ -12,7 +12,7 @@
             [clojure.string :as str]))
 
 (def schema
-  "agraph.evidence/v1")
+  "agraph.evidence/v2")
 
 (defn- active?
   [row]
@@ -61,56 +61,59 @@
    :package-imports (+ (count (:packageImports overlay))
                        (count (:package-imports overlay)))})
 
-(def ^:private plane-order
+(def ^:private family-order
   [:source-files
+   :file-facts
    :source-graph
    :dependencies
-   :runtime-config
    :docs
    :embeddings
+   :system-evidence
    :system-graph
    :activity
    :validation-history
    :map-overlay])
 
-(def ^:private plane-count-keys
+(def ^:private family-count-keys
   {:source-files [:files :skipped-files :diagnostics]
+   :file-facts [:file-facts]
    :source-graph [:nodes :edges]
    :dependencies [:packages
                   :package-imports
                   :package-evidence-gaps
                   :package-conflicts
                   :unresolved-imports]
-   :runtime-config [:system-evidence]
    :docs [:chunks :search-docs]
    :embeddings [:embeddings]
+   :system-evidence [:system-evidence]
    :system-graph [:system-nodes :system-edges]
    :activity [:activity-items :activity-events]
    :validation-history [:validation-events :result-schema-mismatch-events]
    :map-overlay [:systems :docs :edges :rejects :package-imports]})
 
 (defn- available
-  [{:keys [files nodes edges chunks search-docs embeddings system-evidence
+  [{:keys [files file-facts nodes edges chunks search-docs embeddings system-evidence
            system-nodes system-edges activity-items activity-events validation-events
            result-schema-mismatch-events packages map-overlay]}]
   (cond-> []
     (pos? files) (conj :source-files)
+    (pos? file-facts) (conj :file-facts)
     (pos? (+ nodes edges)) (conj :source-graph)
-    (pos? system-evidence) (conj :runtime-config)
     (pos? (+ chunks search-docs)) (conj :docs)
     (pos? embeddings) (conj :embeddings)
+    (pos? system-evidence) (conj :system-evidence)
     (pos? (+ system-nodes system-edges)) (conj :system-graph)
     (pos? packages) (conj :dependencies)
     (pos? (+ activity-items activity-events)) (conj :activity)
     (pos? (+ validation-events result-schema-mismatch-events)) (conj :validation-history)
     (pos? (reduce + (vals map-overlay))) (conj :map-overlay)))
 
-(defn- plane-counts
-  [counts plane]
-  (let [source (if (= :map-overlay plane)
+(defn- family-counts
+  [counts family]
+  (let [source (if (= :map-overlay family)
                  (:map-overlay counts)
                  counts)]
-    (when-let [ks (seq (get plane-count-keys plane))]
+    (when-let [ks (seq (get family-count-keys family))]
       (into {}
             (map (fn [k] [k (long (or (get source k) 0))]))
             ks))))
@@ -134,28 +137,60 @@
   [counts]
   (positive-count? (:result-schema-mismatch-events counts)))
 
-(defn- plane-status
-  [counts available-planes plane]
+(defn- family-status
+  [counts available-families family]
   (cond
-    (and (= :source-files plane)
+    (and (= :source-files family)
          (source-files-weak? counts)) :weak
-    (and (= :dependencies plane)
+    (and (= :dependencies family)
          (dependencies-weak? counts)) :weak
-    (and (= :validation-history plane)
+    (and (= :validation-history family)
          (validation-history-weak? counts)) :weak
-    (contains? available-planes plane) :available
+    (contains? available-families family) :available
     :else :missing))
 
-(defn- evidence-planes
-  "Return compact project-level mechanical evidence-plane readiness rows."
-  [counts available-planes]
-  (let [available-planes (set available-planes)]
-    (mapv (fn [plane]
-            (let [plane-counts (plane-counts counts plane)]
-              (cond-> {:plane plane
-                       :status (plane-status counts available-planes plane)}
-                (seq plane-counts) (assoc :counts plane-counts))))
-          plane-order)))
+(defn- evidence-families
+  "Return compact project-level mechanical evidence-family readiness rows."
+  [counts available-families]
+  (let [available-families (set available-families)]
+    (mapv (fn [family]
+            (let [counts (family-counts counts family)]
+              (cond-> {:family family
+                       :status (family-status counts available-families family)}
+                (seq counts) (assoc :counts counts))))
+          family-order)))
+
+(defn- kind-counts
+  [rows]
+  (->> rows
+       (map :kind)
+       frequencies
+       (map (fn [[kind n]]
+              {:kind kind
+               :count n}))
+       (sort-by (juxt (comp - long :count) (comp name :kind)))
+       vec))
+
+(defn- evidence-kinds
+  [{:keys [file-facts system-evidence nodes edges files]}]
+  (cond-> {}
+    (seq file-facts) (assoc :file-facts (kind-counts file-facts))
+    (seq system-evidence) (assoc :system-evidence (kind-counts system-evidence))
+    (seq nodes) (assoc-in [:source-graph :nodes] (top-counts nodes :kind))
+    (seq edges) (assoc-in [:source-graph :edges] (top-counts edges :relation))
+    (seq files) (assoc-in [:source-files :files] (top-counts files :kind))))
+
+(defn- dependency-health
+  [counts]
+  {:package-evidence-gaps (:package-evidence-gaps counts 0)
+   :package-conflicts (:package-conflicts counts 0)
+   :unresolved-imports (:unresolved-imports counts 0)})
+
+(defn- evidence-state
+  [freshness diagnostics counts]
+  {:freshness freshness
+   :diagnostics diagnostics
+   :dependency-health (dependency-health counts)})
 
 (defn- distinct-by
   [f coll]
@@ -314,8 +349,8 @@
                   :command (sync-subcommand "coverage" config-path "--json")})
 
            (zero? system-evidence)
-           (conj {:kind :runtime-config
-                  :label "Inspect runtime/config evidence coverage"
+           (conj {:kind :system-evidence
+                  :label "Inspect system evidence coverage"
                   :command (sync-subcommand "coverage" config-path "--json")})
 
            (pos? files)
@@ -500,6 +535,7 @@
                                                   {:map-overlay map-overlay
                                                    :limit 0})
         files (active-rows xtdb (:files store/tables) scope)
+        file-facts (active-rows xtdb (:file-facts store/tables) scope)
         nodes (filter active? (query/all-nodes xtdb scope))
         edges (filter active? (query/all-edges xtdb scope))
         chunks (filter active? (query/all-chunks xtdb scope))
@@ -520,6 +556,7 @@
                                               activity-events)
         freshness (freshness-summary files project repo-id)
         counts {:files (count files)
+                :file-facts (count file-facts)
                 :nodes (count nodes)
                 :edges (count edges)
                 :chunks (count chunks)
@@ -544,8 +581,16 @@
                 :skipped-files (get-in coverage-report [:totals :skipped] 0)
                 :map-overlay (overlay-counts map-overlay)}
         freshness (annotate-freshness freshness counts opts)
-        available-planes (available counts)
-        planes (evidence-planes counts available-planes)
+        available-families (available counts)
+        families (evidence-families counts available-families)
+        diagnostics (select-keys (:diagnostics coverage-report)
+                                 [:total :by-stage :by-extractor])
+        kinds (evidence-kinds {:files files
+                               :file-facts file-facts
+                               :nodes nodes
+                               :edges edges
+                               :system-evidence system-evidence})
+        state (evidence-state freshness diagnostics counts)
         actions (next-actions {:project project
                                :config-path config-path
                                :map-path map-path
@@ -555,8 +600,10 @@
      :project-id (:id project)
      :repo-id repo-id
      :freshness freshness
-     :available available-planes
-     :planes planes
+     :available available-families
+     :families families
+     :kinds kinds
+     :state state
      :counts counts
      :top-file-kinds (vec (take 12 (:files-by-kind coverage-report)))
      :top-node-kinds (top-counts nodes :kind)
@@ -564,8 +611,7 @@
      :extractors (vec (take 20 (:extractors coverage-report)))
      :skipped-by-extension (vec (take 8 (:skipped-by-extension coverage-report)))
      :skipped-by-reason (vec (take 8 (:skipped-by-reason coverage-report)))
-     :diagnostics (select-keys (:diagnostics coverage-report)
-                               [:total :by-stage :by-extractor])
+     :diagnostics diagnostics
      :packages {:counts (:counts package-report)
                 :ecosystems (:ecosystems package-report)}
      :next (next-commands actions)

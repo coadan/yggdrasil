@@ -41,7 +41,7 @@ The packet schema is `agraph.context/v1`:
   },
   "answerability": {
     "status": "limited",
-    "available": ["source-graph", "dependencies", "runtime-config", "docs"],
+    "available": ["source-graph", "dependencies", "system-evidence", "docs"],
     "missing": ["embeddings", "system-graph", "activity", "validation-history"],
     "weak": [],
     "unsupported": ["remote-work", "session-history"],
@@ -63,7 +63,7 @@ The packet schema is `agraph.context/v1`:
           "package-conflicts": 0
         }
       },
-      {"plane": "runtime-config", "status": "available", "counts": {"system-evidence": 6}},
+      {"plane": "system-evidence", "status": "available", "counts": {"system-evidence": 6}},
       {"plane": "remote-work", "status": "unsupported"}
     ],
     "counts": {
@@ -98,10 +98,10 @@ evidence planes were available for the query and which were missing, weak, or
 not supported by the current model.
 
 Project-level reports and `agraph status --json` expose the same mechanical
-inventory as `agraph.evidence/v1`, including graph-basis freshness. Use that
+inventory as `agraph.evidence/v2`, including graph-basis freshness. Use that
 evidence surface when an agent needs to see what can be asked about at a glance.
-Its `planes` field is a bounded readiness table for source files, source graph
-rows, dependencies, runtime/config evidence, docs, embeddings, system graph
+Its `families` field is a bounded readiness table for source files, file facts,
+source graph rows, dependencies, docs, embeddings, system evidence, system graph
 rows, local activity, validation history, and accepted map overlay evidence.
 Use `agraph explore --json` when the agent has a concrete question and needs the
 smaller query-scoped `answerability` packet plus matching entities, edges, docs,
@@ -111,7 +111,7 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
 
 - `status`: `ready`, `limited`, or `empty`
 - `available`: populated evidence planes, such as `source-graph`,
-  `dependencies`, `runtime-config`, `docs`, `system-graph`, `embeddings`,
+  `dependencies`, `system-evidence`, `docs`, `system-graph`, `embeddings`,
   `activity`, `validation-history`, or `map-overlay`
 - `missing`: supported evidence planes with no useful rows for this project or
   read context
@@ -325,7 +325,7 @@ The MCP server returns the same packet schemas as the CLI. By default,
 Use `agraph_explore` as the primary one-shot MCP packet for structural
 questions; it returns graph-basis freshness, answerability, candidate files,
 docs, graph facts, and drilldowns without creating a cursor. MCP agents should
-inspect `freshness`, `evidence.planes`, `answerability.planes`, and
+inspect `freshness`, `evidence.families`, `answerability.planes`, and
 `nextActions` before treating missing facts as absent.
 Use `agraph_node` for a single file, evidence row, package, node, or accepted
 system; when map docs are attached, the node packet includes bounded
