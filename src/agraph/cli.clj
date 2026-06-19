@@ -2052,6 +2052,38 @@
     (println "- parser-workers"
              (str/join ", " (map parser-worker-summary-label profiles)))))
 
+(defn- print-agent-diagnostic-count
+  [diagnostics label count-key case-ids-key & {:keys [extra-key extra-label]}]
+  (let [count-value (long (or (get diagnostics count-key) 0))]
+    (when (pos? count-value)
+      (println
+       (str/join " "
+                 (cond-> [(str "- " label)
+                          (str count-value)]
+                   extra-key
+                   (conj (str extra-label " " (or (get diagnostics extra-key) 0)))
+                   true
+                   (conj "cases"
+                         (str/join "," (get diagnostics case-ids-key)))))))))
+
+(defn- print-agent-diagnostics-summary
+  [diagnostics]
+  (when diagnostics
+    (print-agent-diagnostic-count diagnostics
+                                  "missing-predicted-file-runs"
+                                  :missingPredictedFileRuns
+                                  :missingPredictedFileCaseIds
+                                  :extra-key :missingPredictedFiles
+                                  :extra-label "files")
+    (print-agent-diagnostic-count diagnostics
+                                  "commandless-runs"
+                                  :commandlessRuns
+                                  :commandlessCaseIds)
+    (print-agent-diagnostic-count diagnostics
+                                  "warning-runs"
+                                  :warningRuns
+                                  :warningCaseIds)))
+
 (defn- print-benchmark-summary
   [result]
   (println "# Benchmark")
@@ -2108,11 +2140,7 @@
       (println "- evidence-citation"
                (format "%.2f" (double (get-in result [:scores :evidenceCitationRate] 0.0))))
       (print-parser-worker-summary (:parserWorkers result))
-      (when (pos? (long (get-in result [:agentDiagnostics :warningRuns] 0)))
-        (println "- warning-runs"
-                 (get-in result [:agentDiagnostics :warningRuns])
-                 "cases"
-                 (str/join "," (get-in result [:agentDiagnostics :warningCaseIds]))))
+      (print-agent-diagnostics-summary (:agentDiagnostics result))
       (when-let [blocker (first (get-in result
                                         [:localizationDiagnostics
                                          :rankedOutsideTop5BlockingFiles]))]
@@ -2177,14 +2205,7 @@
                                               [:report :scores :evidenceCitationRate]
                                               0.0))))
       (print-parser-worker-summary (get-in result [:report :parserWorkers]))
-      (when (pos? (long (get-in result [:report :agentDiagnostics :warningRuns] 0)))
-        (println "- warning-runs"
-                 (get-in result [:report :agentDiagnostics :warningRuns])
-                 "cases"
-                 (str/join "," (get-in result
-                                       [:report
-                                        :agentDiagnostics
-                                        :warningCaseIds]))))
+      (print-agent-diagnostics-summary (get-in result [:report :agentDiagnostics]))
       (println "- noise@20"
                (format "%.2f" (double (get-in result
                                               [:report :scores :noiseRatioAt20]

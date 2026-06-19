@@ -141,6 +141,44 @@
                                  :runs 1}]}))]
     (is (str/includes? out "- parser-workers all/option:1, unknown/missing:1"))))
 
+(deftest benchmark-summary-prints-agent-diagnostics
+  (let [diagnostics {:missingPredictedFileRuns 1
+                     :missingPredictedFileCaseIds ["case-1"]
+                     :missingPredictedFiles 2
+                     :commandlessRuns 1
+                     :commandlessCaseIds ["case-2"]
+                     :warningRuns 1
+                     :warningCaseIds ["case-3"]}
+        report-out (with-out-str
+                     (#'cli/print-benchmark-summary
+                      {:schema benchmark/agent-report-schema
+                       :suite-id "suite"
+                       :cases 3
+                       :completed 3
+                       :runs 3
+                       :scores {:fileRecallAt10 0.5
+                                :meanReciprocalRankFile 0.25
+                                :evidenceCitationRate 0.75}
+                       :agentDiagnostics diagnostics}))
+        check-out (with-out-str
+                    (#'cli/print-benchmark-summary
+                     {:schema benchmark/agent-check-schema
+                      :suite-id "suite"
+                      :status "failed"
+                      :report {:cases 3
+                               :completed 3
+                               :runs 3
+                               :scores {:fileRecallAt10 0.5
+                                        :meanReciprocalRankFile 0.25
+                                        :evidenceCitationRate 0.75
+                                        :noiseRatioAt20 0.9}
+                               :agentDiagnostics diagnostics}
+                      :failures []}))]
+    (doseq [out [report-out check-out]]
+      (is (str/includes? out "- missing-predicted-file-runs 1 files 2 cases case-1"))
+      (is (str/includes? out "- commandless-runs 1 cases case-2"))
+      (is (str/includes? out "- warning-runs 1 cases case-3")))))
+
 (deftest benchmark-summary-prints-compare-comparability
   (let [out (with-out-str
               (#'cli/print-benchmark-summary

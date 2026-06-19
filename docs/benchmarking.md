@@ -455,9 +455,9 @@ given.
 - `agentDiagnostics.warningRuns`: scored agent artifacts that carried scorer or
   agent warnings. Gate this with `--max-warning-runs` when benchmark result
   shape quality should be part of the ratchet. `agent-compare` also treats
-  higher aggregate `warningRuns` and `commandlessRuns` as lower-is-better
-  regressions when the report case set and parser-worker profiles are
-  comparable.
+  higher aggregate `warningRuns`, `commandlessRuns`, and
+  `missingPredictedFileRuns` as lower-is-better regressions when the report case
+  set and parser-worker profiles are comparable.
 - `localizationDiagnostics.missedButPresentInContextRuns`: missed scoreable files
   that were present in the AGraph context packet. Gate with
   `--max-missed-but-present-in-context-runs` when prompt or agent selection
