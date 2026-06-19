@@ -2845,7 +2845,11 @@
   (doseq [warning (:warnings package)]
     (println "- warning" warning))
   (when file
-    (println "- file" (:path file) (str "kind=" (name (:kind file)))))
+    (println "- file"
+             (:path file)
+             (if-let [kind (:kind file)]
+               (str "kind=" (name kind))
+               "")))
   (println "- plugins" (str/join "," (map :id plugins)))
   (when core-counts
     (println "- core" core-counts))
@@ -2855,8 +2859,15 @@
     (println "- output" counts))
   (when (seq diagnostics)
     (println "## Diagnostics")
-    (doseq [{:keys [stage message path]} diagnostics]
-      (println "-" (str stage) path "-" message))))
+    (doseq [{:keys [severity code stage message path]} diagnostics]
+      (println "-"
+               (or (some-> severity name)
+                   (some-> stage str)
+                   "diagnostic")
+               (or (some-> code name) "")
+               (or path "")
+               "-"
+               message))))
 
 (defn- print-plugin-registry-validation
   [{:keys [status path counts errors packages]}]
@@ -2946,7 +2957,12 @@
                    (plugin-package/dry-run-report package-dir opts))]
       (if (json-output? args)
         (print-json result)
-        (print-plugin-dry-run result)))))
+        (print-plugin-dry-run result))
+      (when (= :failed (:status result))
+        (throw (ex-info "Plugin dry-run failed."
+                        {:kind kind
+                         :status (:status result)
+                         :diagnostics (:diagnostics result)}))))))
 
 (defn- plugin-install!
   [args]

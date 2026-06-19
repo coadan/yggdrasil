@@ -317,6 +317,51 @@
               [:registry ".dev/plugins/registry.edn"]]
              @calls)))))
 
+(deftest plugin-dry-run-failure-exits-with-diagnostics
+  (let [diagnostic {:severity :error
+                    :code :no-extractor-plugins-selected
+                    :message "demo has no extractor plugins selected for this dry-run."}
+        calls (atom [])]
+    (with-redefs [plugin-package/dry-run-extractor
+                  (fn [dir root file opts]
+                    (swap! calls conj [dir root file opts])
+                    {:schema plugin-package/dry-run-schema
+                     :kind :extractor
+                     :status :failed
+                     :package {:id "demo"
+                               :version "0.1.0"
+                               :benchmark-status :unbenchmarked
+                               :scope {:kind :project-local}}
+                     :plugins []
+                     :file {:path file}
+                     :core-counts {:nodes 0}
+                     :enhanced-counts {:nodes 0}
+                     :diagnostics [diagnostic]
+                     :rows {:diagnostics [diagnostic]}})]
+      (let [error (atom nil)
+            out (with-out-str
+                  (try
+                    (cli/dispatch "plugin"
+                                  ["dry-run"
+                                   "extractor"
+                                   ".dev/plugins/demo"
+                                   "."
+                                   "src/missing.clj"])
+                    (catch clojure.lang.ExceptionInfo e
+                      (reset! error e))))]
+        (is (str/includes? out "- status failed"))
+        (is (str/includes? out "error no-extractor-plugins-selected"))
+        (is (= "Plugin dry-run failed." (ex-message @error)))
+        (is (= {:kind "extractor"
+                :status :failed
+                :diagnostics [diagnostic]}
+               (ex-data @error)))
+        (is (= [[".dev/plugins/demo"
+                 "."
+                 "src/missing.clj"
+                 {:plugin-id nil}]]
+               @calls))))))
+
 (deftest benchmark-summary-prints-agent-baseline-scores
   (let [out (with-out-str
               (#'cli/print-benchmark-summary
