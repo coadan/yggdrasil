@@ -90,6 +90,60 @@ AGraph normalizes plugin results before they reach the UI. `panels`,
 rows are converted into plugin diagnostics while valid sibling rows are still
 kept in the bundle.
 
+## Minimal Graph Crawl Plugin
+
+This plugin reads the graph export from stdin and emits one panel:
+
+```python
+#!/usr/bin/env python3
+import json
+import sys
+
+packet = json.load(sys.stdin)
+systems = packet["graphs"]["systems"]
+nodes = systems.get("nodes", [])
+edges = systems.get("edges", [])
+
+by_kind = {}
+for node in nodes:
+    kind = node.get("kind") or "unknown"
+    by_kind[kind] = by_kind.get(kind, 0) + 1
+
+json.dump(
+    {
+        "schema": "agraph.report-plugin.result/v1",
+        "panels": [
+            {
+                "id": "systems-by-kind",
+                "label": "Systems by Kind",
+                "slot": "systems",
+                "order": 20,
+                "mdx": "## Systems by Kind\n\n<MetricGrid dataKey=\"metrics\" />\n\n<DataTable dataKey=\"rows\" />",
+                "data": {
+                    "metrics": [
+                        {"label": "Nodes", "value": len(nodes)},
+                        {"label": "Edges", "value": len(edges)},
+                    ],
+                    "rows": {
+                        "columns": [
+                            {"key": "kind", "label": "Kind"},
+                            {"key": "count", "label": "Count"},
+                        ],
+                        "rows": [
+                            {"kind": kind, "count": count}
+                            for kind, count in sorted(by_kind.items())
+                        ],
+                    },
+                },
+            }
+        ],
+        "diagnostics": [],
+        "artifacts": [],
+    },
+    sys.stdout,
+)
+```
+
 ## Slots
 
 Known slots are `atlas`, `systems`, `dependencies`, `evidence`, `maintenance`,
