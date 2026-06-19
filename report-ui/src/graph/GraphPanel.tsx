@@ -3,6 +3,7 @@ import { SigmaContainer, useCamera, useLoadGraph, useRegisterEvents } from "@rea
 import "@react-sigma/core/lib/style.css";
 import { edgeKey, type GraphLayout, toGraphology } from "../data/agraphGraphAdapter";
 import type { AGraphEdge, AGraphGraph, AGraphNode } from "../data/types";
+import { displayValue } from "../report/valueFormat";
 import { filterGraph, graphFilterOptions, type GraphFilters } from "./graphFilters";
 
 type Selection = {
@@ -51,13 +52,6 @@ function selectedRow(graph: AGraphGraph, selection: Selection | null): AGraphNod
     return graph.nodes.find((node) => node.id === selection.id) || null;
   }
   return graph.edges.find((edge) => edgeKey(edge) === selection.id) || null;
-}
-
-function displayValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "";
-  if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
 }
 
 function detailEntries(row: AGraphNode | AGraphEdge, keys: string[]): Array<[string, unknown]> {

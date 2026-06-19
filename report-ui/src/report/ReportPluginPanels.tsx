@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { AGraphReport, ReportPluginDiagnostic, ReportPluginPanel } from "../data/types";
+import { displayValue } from "./valueFormat";
 
 type TableColumn = {
   key: string;
@@ -14,13 +15,6 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asRows(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? (value.filter((row) => row && typeof row === "object") as Array<Record<string, unknown>>) : [];
-}
-
-function displayValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "";
-  if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
 }
 
 function numericCell(value: unknown): string | undefined {

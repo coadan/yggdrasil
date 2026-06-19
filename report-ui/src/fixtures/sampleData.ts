@@ -207,9 +207,20 @@ export const fixtureReport: AGraphReport = {
             columns: [
               { key: "source", label: "Source" },
               { key: "nodes", label: "Nodes" },
-              { key: "edges", label: "Edges" }
+              { key: "edges", label: "Edges" },
+              { key: "neighbors", label: "Neighbors" }
             ],
-            rows: [{ source: "systems.json", nodes: 3, edges: 2 }]
+            rows: [
+              {
+                source: "systems.json",
+                nodes: 3,
+                edges: 2,
+                neighbors: [
+                  { label: "flows-api", kind: "candidate-system" },
+                  { label: "events-worker", kind: "candidate-system" }
+                ]
+              }
+            ]
           }
         },
         plugin: {

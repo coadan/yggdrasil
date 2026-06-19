@@ -12,6 +12,7 @@ import {
 } from "./ReportPluginPanels";
 import { graphSlices, type GraphSlice } from "./graphSlices";
 import { reviewQueueRows, type ReviewQueueRow } from "./reviewQueue";
+import { displayValue } from "./valueFormat";
 
 type ReportTab = "dashboard" | "ask" | "systems" | "dependencies" | "evidence" | "maintenance" | "plugins";
 
@@ -51,13 +52,6 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asRows(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? (value.filter((row) => row && typeof row === "object") as Array<Record<string, unknown>>) : [];
-}
-
-function displayValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "";
-  if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
 }
 
 function numericCell(value: unknown): string | undefined {

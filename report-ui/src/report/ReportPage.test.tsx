@@ -29,6 +29,8 @@ describe("ReportPage", () => {
     expect(screen.getByText("Fixture Graph Crawl")).toBeInTheDocument();
     expect(screen.getAllByText("fixture-report-plugin").length).toBeGreaterThan(0);
     expect(screen.getByText("Fixture diagnostic")).toBeInTheDocument();
+    expect(screen.getByText("flows-api / candidate-system, events-worker / candidate-system")).toBeInTheDocument();
+    expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Systems" }));
 
