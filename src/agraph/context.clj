@@ -688,11 +688,60 @@
       (:reason system) (assoc :reason (:reason system))
       (:evidence system) (assoc :evidence (:evidence system)))))
 
+(defn- source-repo
+  [source]
+  (or (:repo source)
+      (:repo-id source)))
+
+(defn- source-path
+  [source]
+  (:path source))
+
+(defn- compatible-repo?
+  [expected actual]
+  (or (str/blank? (str expected))
+      (str/blank? (str actual))
+      (= (s expected) (s actual))))
+
+(defn- system-source-prefixes
+  [system]
+  (let [system-prefix (or (:pathPrefix system)
+                          (:path-prefix system)
+                          (:path system))]
+    (->> (concat
+          (when system-prefix
+            [{:repo (:repo system)
+              :path system-prefix}])
+          (mapcat (fn [include]
+                    (keep (fn [path]
+                            (when path
+                              {:repo (or (:repo include) (:repo system))
+                               :path path}))
+                          [(:pathPrefix include)
+                           (:path-prefix include)
+                           (:path include)]))
+                  (:includes system)))
+         (remove #(str/blank? (str (:path %))))
+         distinct
+         vec)))
+
+(defn- source-selects-system?
+  [source system]
+  (when-let [path (source-path source)]
+    (some (fn [prefix]
+            (and (path-under? path (:path prefix))
+                 (compatible-repo? (:repo prefix) (source-repo source))))
+          (system-source-prefixes system))))
+
 (defn- selected-accepted-systems
-  [overlay entities]
-  (let [selected-ids (set (map :id entities))]
+  [overlay entities selected-sources]
+  (let [selected-ids (set (map :id entities))
+        source-selected? (fn [system]
+                           (some #(source-selects-system? % system)
+                                 selected-sources))]
     (->> (:systems overlay)
-         (filter #(contains? selected-ids (s (:id %))))
+         (filter #(or (contains? selected-ids (s (:id %)))
+                      (source-selected? %)))
          (mapv accepted-system-row))))
 
 (defn- candidate-system-row
@@ -729,6 +778,28 @@
     (:score edge) (assoc :score (:score edge))
     (:evidenceCounts edge) (assoc :evidenceCounts (:evidenceCounts edge))
     (:relations edge) (assoc :relations (:relations edge))))
+
+(defn- map-edge-evidence-row
+  [edge]
+  (cond-> {:kind "map-edge"
+           :id (s (:id edge))
+           :source (s (:source edge))
+           :target (s (:target edge))
+           :relation (display-name (:relation edge))
+           :status (or (some-> (:status edge) display-name) "accepted")
+           :provenance "map-overlay"}
+    (:reason edge) (assoc :reason (:reason edge))
+    (:evidence edge) (assoc :evidence (:evidence edge))))
+
+(defn- selected-map-edges
+  [overlay entities accepted-systems]
+  (let [selected-ids (set (concat (map :id entities)
+                                  (map :id accepted-systems)))]
+    (->> (:edges overlay)
+         (filter #(not= "rejected" (display-name (:status %))))
+         (filter #(or (contains? selected-ids (s (:source %)))
+                      (contains? selected-ids (s (:target %)))))
+         (mapv map-edge-evidence-row))))
 
 (defn- relationship-target-row
   [edge]
@@ -970,10 +1041,13 @@
          (take 2 runtime-evidence)))))
 
 (defn- architecture-section
-  [{:keys [overlay entities edges runtime-evidence docs activity answerability]}]
-  (let [accepted-systems (selected-accepted-systems overlay entities)
+  [{:keys [overlay entities results edges runtime-evidence docs activity answerability]}]
+  (let [accepted-systems (selected-accepted-systems overlay entities results)
         candidate-systems (selected-candidate-systems accepted-systems entities)
-        boundary-evidence (mapv graph-edge-evidence-row (take 12 edges))
+        map-edges (selected-map-edges overlay entities accepted-systems)
+        boundary-evidence (vec (take 12
+                                     (concat map-edges
+                                             (map graph-edge-evidence-row edges))))
         dependency-evidence (mapv graph-edge-evidence-row
                                   (take 8 (filter dependency-evidence? edges)))
         inspect-actions (architecture-inspect-actions accepted-systems
@@ -1040,6 +1114,15 @@
                           :nextActions])
       (seq (:warnings answerability))
       (assoc :warnings (vec (take 3 (:warnings answerability)))))))
+
+(defn- minimal-answerability
+  [answerability]
+  (when answerability
+    (select-keys answerability [:status
+                                :available
+                                :missing
+                                :weak
+                                :unsupported])))
 
 (defn- compact-freshness-samples
   [samples]
@@ -1194,6 +1277,7 @@
                compact-relationships-in-packet
                compact-snippets-in-packet
                #(update % :answerability compact-answerability)
+               #(update % :answerability minimal-answerability)
                #(dissoc % :snippets)
                #(dissoc % :relationships)
                #(dissoc % :architecture)
@@ -1837,6 +1921,7 @@
                                                    :read-context read-context})
         architecture (architecture-section {:overlay overlay
                                             :entities entities
+                                            :results results
                                             :edges edges
                                             :runtime-evidence runtime-evidence
                                             :docs docs

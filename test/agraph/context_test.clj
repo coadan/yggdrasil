@@ -400,7 +400,19 @@
                                        :includes [{:repo "app"
                                                    :path "src/billing"}]
                                        :reason "accepted by review"
-                                       :evidence ["work:billing"]}]}
+                                       :evidence ["work:billing"]}]
+                            :edges [{:id "map-edge:billing-worker"
+                                     :source "system:billing"
+                                     :target "system:candidate"
+                                     :relation "shares-runtime-config"
+                                     :status "accepted"
+                                     :reason "reviewed boundary evidence"
+                                     :evidence ["work:edge"]}
+                                    {:id "map-edge:rejected"
+                                     :source "system:billing"
+                                     :target "system:ignored"
+                                     :relation "uses"
+                                     :status "rejected"}]}
                   :entities [{:id "system:billing"
                               :label "Billing"
                               :kind "service"
@@ -486,6 +498,23 @@
              :pathPrefix "src/candidate"
              :why "graph label match"}]
            (:candidateSystems section)))
+    (is (= [{:kind "map-edge"
+             :id "map-edge:billing-worker"
+             :source "system:billing"
+             :target "system:candidate"
+             :relation "shares-runtime-config"
+             :status "accepted"
+             :provenance "map-overlay"
+             :reason "reviewed boundary evidence"
+             :evidence ["work:edge"]}
+            {:kind "graph-edge"
+             :id "edge:billing-candidate"
+             :source "system:billing"
+             :target "system:candidate"
+             :relation "imports-package"
+             :confidence "high"
+             :score 1.0}]
+           (:boundaryEvidence section)))
     (is (= [{:kind "graph-edge"
              :id "edge:billing-candidate"
              :source "system:billing"
@@ -549,6 +578,43 @@
             {:kind :dependencies
              :command "agraph packages --json"}]
            (:nextActions section)))))
+
+(deftest architecture-section-selects-accepted-systems-by-map-include-path
+  (let [section (#'context/architecture-section
+                 {:overlay {:systems [{:id "system:billing"
+                                       :label "Billing"
+                                       :repo "app"
+                                       :includes [{:repo "app"
+                                                   :path "src/billing"}]}
+                                      {:id "system:other"
+                                       :label "Other"
+                                       :repo "app"
+                                       :includes [{:repo "app"
+                                                   :path "src/other"}]}
+                                      {:id "system:admin"
+                                       :label "Admin"
+                                       :repo "admin"
+                                       :includes [{:repo "admin"
+                                                   :path "src/billing"}]}]}
+                  :entities []
+                  :results [{:repo-id "app"
+                             :path "src/billing/api.clj"
+                             :score 1.0}]
+                  :edges []
+                  :runtime-evidence []
+                  :docs []
+                  :activity []
+                  :answerability {}})]
+    (is (= [{:id "system:billing"
+             :label "Billing"
+             :status "accepted"
+             :repo "app"
+             :pathPrefix "src/billing"
+             :includes [{:repo "app"
+                         :path "src/billing"}]}]
+           (:acceptedSystems section)))
+    (is (= ["system:billing"]
+           (mapv :target (:nextActions section))))))
 
 (deftest context-budget-compacts-source-coverage-before-dropping-it
   (let [trim @#'context/trim-optional-context-metadata
@@ -1177,6 +1243,54 @@
              (mapv :target (take 3 (:nextActions architecture)))))
       (is (= ["agraph_node" "agraph_node" "agraph_node"]
              (mapv :mcpTool (take 3 (:nextActions architecture))))))))
+
+(deftest context-packet-selects-accepted-system-from-result-path
+  (with-redefs [query/search-report (fn [_ query-text opts]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:billing-path"
+                                       :query-text query-text
+                                       :retriever-requested (:retriever opts)
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 1
+                                                         :returned-count 1}
+                                       :results [{:path "src/billing/api.clj"
+                                                  :repo-id "app"
+                                                  :score 1.0
+                                                  :target-kind :chunk
+                                                  :target-id "chunk:billing-api"
+                                                  :label "billing api"}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                activity/select-activity (fn [& _] [])
+                context/answerability (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet
+                  :xtdb
+                  "billing api"
+                  {:project-id "fixture"
+                   :retriever :lexical
+                   :map-overlay {:systems [{:id "system:billing"
+                                            :label "Billing"
+                                            :repo "app"
+                                            :includes [{:repo "app"
+                                                        :path "src/billing"}]}
+                                           {:id "system:other"
+                                            :label "Other"
+                                            :repo "app"
+                                            :includes [{:repo "app"
+                                                        :path "src/other"}]}]}})]
+      (is (= ["system:billing"]
+             (mapv :id (get-in packet [:architecture :acceptedSystems]))))
+      (is (= ["system:billing"]
+             (mapv :target (get-in packet [:architecture :nextActions]))))
+      (is (= ["src/billing/api.clj"]
+             (mapv :path (:candidateFiles packet)))))))
 
 (deftest runtime-evidence-keeps-selected-system-diversity
   (let [runtime-evidence (#'context/select-system-evidence
