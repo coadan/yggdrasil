@@ -2734,7 +2734,18 @@
   (println "# Plugin Dry Run")
   (println "- status" (name status))
   (println "- kind" (name (or kind :extractor)))
-  (println "- package" (:id package) (str "version=" (:version package)))
+  (println "- package"
+           (str/join " "
+                     (cond-> [(:id package)
+                              (str "version=" (:version package))
+                              (str "benchmark=" (name (or (:benchmark-status package)
+                                                          :unbenchmarked)))]
+                       (get-in package [:scope :kind])
+                       (conj (str "scope=" (name (get-in package [:scope :kind])))))))
+  (when-let [fingerprint (:manifest-fingerprint package)]
+    (println "- manifest-fingerprint" fingerprint))
+  (doseq [warning (:warnings package)]
+    (println "- warning" warning))
   (when file
     (println "- file" (:path file) (str "kind=" (name (:kind file)))))
   (println "- plugins" (str/join "," (map :id plugins)))

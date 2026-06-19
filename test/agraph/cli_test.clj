@@ -183,7 +183,11 @@
                                                       :kind :extractor
                                                       :status :passed
                                                       :package {:id "demo"
-                                                                :version "0.1.0"}
+                                                                :version "0.1.0"
+                                                                :benchmark-status :unbenchmarked
+                                                                :scope {:kind :project-local}
+                                                                :manifest-fingerprint "sha256:demo"
+                                                                :warnings ["demo is unbenchmarked"]}
                                                       :plugins [{:id "demo-extractor"}]
                                                       :file {:path file
                                                              :kind :code}
@@ -196,7 +200,11 @@
                                                    :kind :report
                                                    :status :passed
                                                    :package {:id "demo"
-                                                             :version "0.1.0"}
+                                                             :version "0.1.0"
+                                                             :benchmark-status :unbenchmarked
+                                                             :scope {:kind :project-local}
+                                                             :manifest-fingerprint "sha256:demo"
+                                                             :warnings ["demo is unbenchmarked"]}
                                                    :plugins [{:id "demo-report"}]
                                                    :counts {:panels 1
                                                             :diagnostics 0
@@ -220,22 +228,28 @@
         (cli/dispatch "plugin" ["validate" ".dev/plugins/demo"]))
       (with-out-str
         (cli/dispatch "plugin" ["diagnose" ".dev/plugins/demo"]))
-      (with-out-str
-        (cli/dispatch "plugin"
-                      ["dry-run"
-                       "extractor"
-                       ".dev/plugins/demo"
-                       "."
-                       "src/page.clj"
-                       "--plugin"
-                       "demo-extractor"]))
-      (with-out-str
-        (cli/dispatch "plugin"
-                      ["dry-run"
-                       "report"
-                       ".dev/plugins/demo"
-                       "--plugin"
-                       "demo-report"]))
+      (let [extractor-out (with-out-str
+                            (cli/dispatch "plugin"
+                                          ["dry-run"
+                                           "extractor"
+                                           ".dev/plugins/demo"
+                                           "."
+                                           "src/page.clj"
+                                           "--plugin"
+                                           "demo-extractor"]))
+            report-out (with-out-str
+                         (cli/dispatch "plugin"
+                                       ["dry-run"
+                                        "report"
+                                        ".dev/plugins/demo"
+                                        "--plugin"
+                                        "demo-report"]))]
+        (is (str/includes? extractor-out "benchmark=unbenchmarked"))
+        (is (str/includes? extractor-out "scope=project-local"))
+        (is (str/includes? extractor-out "manifest-fingerprint sha256:demo"))
+        (is (str/includes? extractor-out "warning demo is unbenchmarked"))
+        (is (str/includes? report-out "benchmark=unbenchmarked"))
+        (is (str/includes? report-out "scope=project-local")))
       (with-out-str
         (cli/dispatch "plugin"
                       ["registry"

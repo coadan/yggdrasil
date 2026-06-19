@@ -88,13 +88,16 @@ validation errors, and promotion blockers.
 `plugin dry-run extractor` runs the package extractor against one file without
 writing graph state. It uses core extraction first, applies the selected plugin
 or all extractor plugins in the package, and returns normalized rows,
-diagnostics, and before/after counts. This is the fastest feedback loop for
-agents building project-local architecture understanding.
+diagnostics, before/after counts, and the full package summary with benchmark,
+scope, fingerprint, core-promotion evidence, and warning caveats. This is the
+fastest feedback loop for agents building project-local architecture
+understanding.
 
 `plugin dry-run report` runs the package report plugin against a synthetic report
 context without generating a full report. It returns panels, artifacts,
-diagnostics, and per-plugin counts. This keeps report plugin authoring in the
-same scaffold / validate / diagnose / dry-run loop as extractors.
+diagnostics, per-plugin counts, and the same package caveats. This keeps report
+plugin authoring in the same scaffold / validate / diagnose / dry-run loop as
+extractors.
 
 ## Manifest
 

@@ -1095,7 +1095,7 @@
     {:schema dry-run-schema
      :kind :extractor
      :status (if (seq (:diagnostics enhanced)) :warning :passed)
-     :package (select-keys package [:id :version :path :warnings])
+     :package (package-summary package)
      :plugins (mapv #(select-keys % [:id
                                      :version
                                      :authority
@@ -1163,7 +1163,7 @@
     {:schema dry-run-schema
      :kind :report
      :status (if (seq diagnostics) :warning :passed)
-     :package (select-keys package [:id :version :path :warnings])
+     :package (package-summary package)
      :plugins (mapv :plugin outputs)
      :counts {:panels (reduce + (map #(count (get-in % [:output :panels] [])) outputs))
               :diagnostics (count diagnostics)
