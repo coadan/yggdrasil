@@ -1043,6 +1043,86 @@
                        :status "unsupported"})
                     (:unsupported answerability)))))
 
+(def ^:private architecture-family-specs
+  [{:family "source-structure"
+    :source-keys [:acceptedSystems :candidateSystems :boundaryEvidence]
+    :planes [:source-graph :system-graph]}
+   {:family "dependency-flow"
+    :source-keys [:dependencyEvidence]
+    :planes [:dependencies]}
+   {:family "runtime-config"
+    :source-keys [:runtimeEvidence]}
+   {:family "docs-contracts"
+    :source-keys [:docs]
+    :planes [:docs]}
+   {:family "map-corrections"
+    :source-keys [:acceptedSystems :mapEdges]
+    :planes [:map-overlay]}
+   {:family "maintenance"
+    :source-keys [:openDecisions]
+    :planes [:activity]}])
+
+(defn- family-plane-status
+  [answerability plane]
+  (cond
+    (contains? (set (:weak answerability)) plane) "weak"
+    (contains? (set (:missing answerability)) plane) "missing"
+    (contains? (set (:unsupported answerability)) plane) "unsupported"
+    (contains? (set (:available answerability)) plane) "available"))
+
+(defn- family-plane-rows
+  [answerability planes]
+  (->> planes
+       (keep (fn [plane]
+               (when-let [status (family-plane-status answerability plane)]
+                 {:plane (name plane)
+                  :status status})))
+       vec))
+
+(defn- architecture-source-count
+  [section source-key]
+  (case source-key
+    :mapEdges (count (filter #(= "map-edge" (:kind %))
+                             (:boundaryEvidence section)))
+    (count (get section source-key))))
+
+(defn- architecture-source-counts
+  [section source-keys]
+  (->> source-keys
+       (keep (fn [source-key]
+               (let [n (architecture-source-count section source-key)]
+                 (when (pos? n)
+                   {:key (name source-key)
+                    :count n}))))
+       vec))
+
+(defn- family-status
+  [row-count plane-rows]
+  (cond
+    (pos? row-count) "available"
+    (some #(= "weak" (:status %)) plane-rows) "weak"
+    (some #(= "missing" (:status %)) plane-rows) "missing"
+    (some #(= "unsupported" (:status %)) plane-rows) "unsupported"))
+
+(defn- architecture-evidence-family-row
+  [section answerability {:keys [family source-keys planes]}]
+  (let [source-counts (architecture-source-counts section source-keys)
+        row-count (reduce + 0 (map :count source-counts))
+        plane-rows (family-plane-rows answerability planes)
+        status (family-status row-count plane-rows)]
+    (when status
+      (cond-> {:family family
+               :status status
+               :rowCount row-count}
+        (seq source-counts) (assoc :sourceCounts source-counts)
+        (seq plane-rows) (assoc :planes plane-rows)))))
+
+(defn- architecture-evidence-families
+  [section answerability]
+  (->> architecture-family-specs
+       (keep #(architecture-evidence-family-row section answerability %))
+       vec))
+
 (defn- architecture-supported?
   [section]
   (some seq
@@ -1121,7 +1201,10 @@
                  :validationGaps (vec (take 12 (validation-gaps answerability)))
                  :warnings (vec (take 5 (:warnings answerability)))
                  :nextActions (vec (take 6 (concat inspect-actions
-                                                   (:nextActions answerability))))}]
+                                                   (:nextActions answerability))))}
+        section (assoc section
+                       :evidenceFamilies
+                       (architecture-evidence-families section answerability))]
     (when (architecture-supported? section)
       section)))
 
@@ -1250,6 +1333,7 @@
         (update :candidateSystems #(vec (take 5 %)))
         (update :boundaryEvidence #(vec (take 8 %)))
         (update :dependencyEvidence #(vec (take 5 %)))
+        (update :evidenceFamilies #(vec (take 8 %)))
         (update :docs #(vec (take 5 %)))
         (update :openDecisions #(vec (take 3 %)))
         (update :validationGaps #(vec (take 6 %)))

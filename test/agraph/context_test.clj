@@ -550,6 +550,47 @@
              :summary "review billing boundary"
              :score 1.0}]
            (:openDecisions section)))
+    (is (= [{:family "source-structure"
+             :status "available"
+             :rowCount 4
+             :sourceCounts [{:key "acceptedSystems"
+                             :count 1}
+                            {:key "candidateSystems"
+                             :count 1}
+                            {:key "boundaryEvidence"
+                             :count 2}]}
+            {:family "dependency-flow"
+             :status "available"
+             :rowCount 1
+             :sourceCounts [{:key "dependencyEvidence"
+                             :count 1}]
+             :planes [{:plane "dependencies"
+                       :status "missing"}]}
+            {:family "runtime-config"
+             :status "available"
+             :rowCount 1
+             :sourceCounts [{:key "runtimeEvidence"
+                             :count 1}]}
+            {:family "docs-contracts"
+             :status "available"
+             :rowCount 1
+             :sourceCounts [{:key "docs"
+                             :count 1}]
+             :planes [{:plane "docs"
+                       :status "weak"}]}
+            {:family "map-corrections"
+             :status "available"
+             :rowCount 2
+             :sourceCounts [{:key "acceptedSystems"
+                             :count 1}
+                            {:key "mapEdges"
+                             :count 1}]}
+            {:family "maintenance"
+             :status "available"
+             :rowCount 1
+             :sourceCounts [{:key "openDecisions"
+                             :count 1}]}]
+           (:evidenceFamilies section)))
     (is (= [{:plane "dependencies"
              :status "missing"}
             {:plane "docs"
@@ -615,6 +656,34 @@
            (:acceptedSystems section)))
     (is (= ["system:billing"]
            (mapv :target (:nextActions section))))))
+
+(deftest architecture-section-reports-missing-evidence-families
+  (let [section (#'context/architecture-section
+                 {:overlay {:systems [{:id "system:billing"
+                                       :label "Billing"}]}
+                  :entities [{:id "system:billing"
+                              :label "Billing"
+                              :kind "system"}]
+                  :edges []
+                  :runtime-evidence []
+                  :docs []
+                  :activity []
+                  :answerability {:available [:source-graph
+                                              :system-graph
+                                              :map-overlay]
+                                  :missing [:dependencies
+                                            :docs
+                                            :activity]
+                                  :weak []
+                                  :unsupported []}})]
+    (is (= {"source-structure" "available"
+            "dependency-flow" "missing"
+            "docs-contracts" "missing"
+            "map-corrections" "available"
+            "maintenance" "missing"}
+           (into {}
+                 (map (juxt :family :status))
+                 (:evidenceFamilies section))))))
 
 (deftest architecture-section-ranks-boundary-evidence-by-mechanical-support
   (let [section (#'context/architecture-section

@@ -170,6 +170,24 @@ and report packets include compact `skipped-by-extension` and
 `repo` when the indexed search result is repo-scoped, so agents can distinguish
 same-path files across multi-repo projects without relying on path text alone.
 
+## Architecture Evidence
+
+When selected facts support an architecture packet, `architecture` separates
+accepted map corrections from neutral mechanical candidates. Accepted systems
+and map edges come from `agraph.map.json`; candidate systems, graph edges,
+runtime/config rows, dependency rows, docs, and open decisions remain concrete
+evidence rows, not inferred project meaning.
+
+`architecture.evidenceFamilies` is a compact readiness summary for the selected
+work area. Rows use fixed evidence-family names such as `source-structure`,
+`dependency-flow`, `runtime-config`, `docs-contracts`, `map-corrections`, and
+`maintenance`. `rowCount` and `sourceCounts` come from packet rows already
+present in the architecture section. `planes` mirrors matching `answerability`
+plane statuses when a family depends on an indexed evidence plane. These rows
+help agents see whether an answer is backed by code, config, dependency, docs,
+map correction, or maintenance evidence without classifying architecture from
+path names or prose.
+
 ## Doc Attachments
 
 Docs are indexed as Markdown heading chunks with source lines, end lines,
