@@ -1207,6 +1207,11 @@
                                       :config-path (:config-path opts)
                                       :available [:source-graph :docs]
                                       :freshness {:status :stale
+                                                  :basis "indexed-graph"
+                                                  :projectConfig "project.edn"
+                                                  :map "agraph.map.json"
+                                                  :mapExists false
+                                                  :missingQueryIndex true
                                                   :counts {:indexed 2
                                                            :current 3
                                                            :changed 1
@@ -1256,6 +1261,11 @@
                                         :count 2}]}}
              (:coverage parsed)))
       (is (= {:status "stale"
+              :basis "indexed-graph"
+              :projectConfig "project.edn"
+              :map "agraph.map.json"
+              :mapExists false
+              :missingQueryIndex true
               :counts {:indexed 2
                        :current 3
                        :changed 1
@@ -1280,6 +1290,10 @@
       (is (str/includes? plain-out "- result-schema-mismatch-events 1"))
       (is (str/includes? plain-out "## Freshness"))
       (is (str/includes? plain-out "- status stale"))
+      (is (str/includes? plain-out "- basis indexed-graph"))
+      (is (str/includes? plain-out "- project-config project.edn"))
+      (is (str/includes? plain-out "- map agraph.map.json exists false"))
+      (is (str/includes? plain-out "- missing-query-index true"))
       (is (str/includes? plain-out "- changed 1"))
       (is (str/includes? plain-out "- unindexed 1"))
       (let [status-out (with-out-str
