@@ -95,6 +95,20 @@
                                   :claimStatus architecture-status
                                   :minimumCases 2}]})))
 
+(defn- with-claim-readiness
+  ([report]
+   (with-claim-readiness report true))
+  ([report supported?]
+   (assoc report
+          :claimReadiness
+          {:status (if supported? "supported" "not-supported")
+           :broadArchitectureClaimSupported supported?
+           :measuredProblemClassTags ["problem-architecture"]
+           :measuredArchitectureClassTags ["architecture-dependency-flow"]
+           :warnings (if supported?
+                       []
+                       ["Lane is not representative enough."])})))
+
 (def shell-report
   (report {:mode "shell-only"
            :recall5 0.5
@@ -223,9 +237,15 @@
                            :problemClassCoverage false
                            :architectureClassCoverage false
                            :evidenceMetrics true
-                           :commandTelemetry true}
+                           :commandTelemetry true
+                           :shellLaneClaimReady true
+                           :agraphLaneClaimReady true}
+            :laneClaimReadiness {:shellOnly nil
+                                 :agraph nil}
             :optionalTelemetry {:tokenCostMetrics false}
-            :warnings ["No shared problem-class tags; do not use this report for broad efficiency claims."
+            :warnings ["Shell-only report has no claimReadiness field; regenerate the lane report before using this comparison for a broad claim."
+                       "AGraph report has no claimReadiness field; regenerate the lane report before using this comparison for a broad claim."
+                       "No shared problem-class tags; do not use this report for broad efficiency claims."
                        "No shared architecture-class tags; do not use this report to claim representative architecture-task gains."
                        "Problem-class measurement summaries are unavailable; regenerate agent reports before claiming broad efficiency."]
             :notes ["Token/cost telemetry is unavailable; token and cost deltas are not part of this claim."]}
@@ -348,6 +368,7 @@
 (deftest problem-class-coverage-recognizes-measured-architecture-classes
   (let [shell (-> shell-report
                   with-problem-classes
+                  with-claim-readiness
                   (assoc :byTag [(tag-row "problem-architecture"
                                           {:cases 2
                                            :runs 2
@@ -360,6 +381,7 @@
                                            :noise 0.5})]))
         agraph (-> agraph-report
                    with-problem-classes
+                   with-claim-readiness
                    (assoc :byTag [(tag-row "problem-architecture"
                                            {:cases 2
                                             :runs 2
@@ -407,7 +429,11 @@
                            :problemClassCoverage true
                            :architectureClassCoverage true
                            :evidenceMetrics true
-                           :commandTelemetry true}
+                           :commandTelemetry true
+                           :shellLaneClaimReady true
+                           :agraphLaneClaimReady true}
+            :laneClaimReadiness {:shellOnly (:claimReadiness shell)
+                                 :agraph (:claimReadiness agraph)}
             :optionalTelemetry {:tokenCostMetrics false}
             :warnings []
             :notes ["Token/cost telemetry is unavailable; token and cost deltas are not part of this claim."]}
@@ -417,6 +443,7 @@
   (let [shell (-> shell-report
                   (with-problem-classes {:architecture-status
                                          "insufficient-cases"})
+                  with-claim-readiness
                   (assoc :byTag [(tag-row "problem-architecture"
                                           {:cases 1
                                            :runs 1
@@ -430,6 +457,7 @@
         agraph (-> agraph-report
                    (with-problem-classes {:architecture-status
                                           "insufficient-cases"})
+                   with-claim-readiness
                    (assoc :byTag [(tag-row "problem-architecture"
                                            {:cases 1
                                             :runs 1
@@ -456,6 +484,46 @@
                     :requirements
                     :architectureClassCoverage])))
     (is (= ["No shared measured architecture-class groups; architecture tags are present but below the benchmark claim threshold in at least one lane."]
+           (get-in comparison [:claimReadiness :warnings])))))
+
+(deftest refuses-broad-efficiency-when-source-lane-is-not-claim-ready
+  (let [shell (-> shell-report
+                  with-problem-classes
+                  (with-claim-readiness false)
+                  (assoc :byTag [(tag-row "problem-architecture"
+                                          {:cases 2
+                                           :runs 2
+                                           :recall10 0.5
+                                           :noise 0.5})
+                                 (tag-row "architecture-dependency-flow"
+                                          {:cases 2
+                                           :runs 2
+                                           :recall10 0.5
+                                           :noise 0.5})]))
+        agraph (-> agraph-report
+                   with-problem-classes
+                   with-claim-readiness
+                   (assoc :byTag [(tag-row "problem-architecture"
+                                           {:cases 2
+                                            :runs 2
+                                            :recall10 1.0
+                                            :noise 0.25})
+                                  (tag-row "architecture-dependency-flow"
+                                           {:cases 2
+                                            :runs 2
+                                            :recall10 1.0
+                                            :noise 0.25})]))
+        comparison (agent-efficiency/compare-reports shell agraph)]
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :broadEfficiencyClaimSupported])))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :requirements :shellLaneClaimReady])))
+    (is (= true
+           (get-in comparison
+                   [:claimReadiness :requirements :agraphLaneClaimReady])))
+    (is (= ["Shell-only report is not claim-ready; fix that lane before comparing broad efficiency."]
            (get-in comparison [:claimReadiness :warnings])))))
 
 (deftest ignores-small-report-timing-jitter

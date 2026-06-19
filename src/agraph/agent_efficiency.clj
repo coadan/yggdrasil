@@ -284,6 +284,7 @@
    :localizationDiagnostics (:localizationDiagnostics report)
    :agentDiagnostics (:agentDiagnostics report)
    :tags (:tags report)
+   :claimReadiness (:claimReadiness report)
    :timings (:timings report)})
 
 (defn- rows-by-key
@@ -504,8 +505,19 @@
   (pos? (long (or (:availableMetrics (category-summary by-category category))
                   0))))
 
+(defn- lane-claim-ready?
+  [report]
+  (let [claim-readiness (:claimReadiness report)]
+    (if (map? claim-readiness)
+      (true? (:broadArchitectureClaimSupported claim-readiness))
+      true)))
+
+(defn- lane-claim-known?
+  [report]
+  (map? (:claimReadiness report)))
+
 (defn- claim-readiness
-  [summary comparable by-category problem-coverage]
+  [summary comparable by-category problem-coverage shell-report agraph-report]
   (let [same-suite? (true? (:sameSuite comparable))
         same-cases? (true? (:sameCases comparable))
         enough-cases? (<= (long (:minSharedCases summary))
@@ -520,6 +532,10 @@
         command-telemetry? (category-has-metrics? by-category
                                                   "command-telemetry")
         token-cost-metrics? (category-has-metrics? by-category "token-cost")
+        shell-lane-ready? (lane-claim-ready? shell-report)
+        agraph-lane-ready? (lane-claim-ready? agraph-report)
+        shell-lane-known? (lane-claim-known? shell-report)
+        agraph-lane-known? (lane-claim-known? agraph-report)
         requirements {:sameSuite same-suite?
                       :sameCases same-cases?
                       :enoughSharedCases enough-cases?
@@ -528,13 +544,17 @@
                       :problemClassCoverage problem-classes?
                       :architectureClassCoverage architecture-classes?
                       :evidenceMetrics evidence-metrics?
-                      :commandTelemetry command-telemetry?}
+                      :commandTelemetry command-telemetry?
+                      :shellLaneClaimReady shell-lane-ready?
+                      :agraphLaneClaimReady agraph-lane-ready?}
         supported? (every? true? (vals requirements))]
     {:status (if supported? "supported" "not-supported")
      :broadEfficiencyClaimSupported supported?
      :sharedCases (long (:sharedCases comparable))
      :minSharedCases (long (:minSharedCases summary))
      :requirements requirements
+     :laneClaimReadiness {:shellOnly (:claimReadiness shell-report)
+                          :agraph (:claimReadiness agraph-report)}
      :optionalTelemetry {:tokenCostMetrics token-cost-metrics?}
      :warnings (cond-> []
                  (not same-suite?)
@@ -557,6 +577,18 @@
 
                  (not command-telemetry?)
                  (conj "Command telemetry is unavailable; CLI search/read-loop savings are unproven.")
+
+                 (not shell-lane-known?)
+                 (conj "Shell-only report has no claimReadiness field; regenerate the lane report before using this comparison for a broad claim.")
+
+                 (and shell-lane-known? (not shell-lane-ready?))
+                 (conj "Shell-only report is not claim-ready; fix that lane before comparing broad efficiency.")
+
+                 (not agraph-lane-known?)
+                 (conj "AGraph report has no claimReadiness field; regenerate the lane report before using this comparison for a broad claim.")
+
+                 (and agraph-lane-known? (not agraph-lane-ready?))
+                 (conj "AGraph report is not claim-ready; fix that lane before comparing broad efficiency.")
 
                  (not (and problem-classes? architecture-classes?))
                  (into (:warnings problem-coverage)))
@@ -612,7 +644,9 @@
       :claimReadiness (claim-readiness summary
                                        comparable
                                        by-category
-                                       problem-coverage)
+                                       problem-coverage
+                                       shell-report
+                                       agraph-report)
       :caseDeltas (case-deltas shell-report agraph-report)})))
 
 (defn compare-report-files!
