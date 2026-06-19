@@ -1,5 +1,6 @@
 (ns agraph.benchmark-test
   (:require [agraph.benchmark :as benchmark]
+            [agraph.benchmark-progress :as benchmark-progress]
             [agraph.context :as context]
             [agraph.extract :as extract]
             [agraph.project :as project]
@@ -1818,8 +1819,8 @@
   (let [out (temp-dir "agraph-bench-progress-shutdown")
         expr (pr-str
               `(do
-                 (require 'agraph.benchmark)
-                 ((var agraph.benchmark/progress-stage!)
+                 (require 'agraph.benchmark-progress)
+                 ((var agraph.benchmark-progress/progress-stage!)
                   {:id "fixture"}
                   {:id "case-1" :repo-id "repo"}
                   {:out ~out}
@@ -1854,7 +1855,7 @@
      (thrown-with-msg?
       clojure.lang.ExceptionInfo
       #"Index deadline exceeded"
-      ((var benchmark/progress-stage!)
+      ((var benchmark-progress/progress-stage!)
        {:id "fixture"}
        {:id "case-1" :repo-id "repo"}
        {:out out}

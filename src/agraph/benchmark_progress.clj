@@ -1,32 +1,37 @@
 (ns agraph.benchmark-progress
+  "Progress event helpers for benchmark case execution."
   (:require [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
-            [clojure.java.io :as io]
-            [clojure.string :as str])
+            [clojure.java.io :as io])
   (:import [java.time Duration Instant]))
 
 (defn now-string
   []
   (str (java.time.Instant/now)))
+
 (defn- instant-value
   [value]
   (cond
     (instance? Instant value) value
     (string? value) (Instant/parse value)
     :else (Instant/now)))
+
 (defn elapsed-between-ms
   [started-at ended-at]
   (max 0 (.toMillis (Duration/between (instant-value started-at)
                                       (instant-value ended-at)))))
+
 (defn- elapsed-ms
   [started-ns]
   (max 1 (long (/ (- (System/nanoTime) started-ns) 1000000))))
+
 (defn- progress-event
   [stage status extra]
   (merge {:stage (name stage)
           :status (name status)
           :at (now-string)}
          extra))
+
 (def ^:private progress-error-data-keys
   #{:phase
     :project-id
@@ -38,6 +43,7 @@
     :files-indexed
     :files-deleted
     :path})
+
 (defn- progress-error-value
   [value]
   (cond
@@ -48,6 +54,7 @@
         (boolean? value)
         (nil? value)) value
     :else (str value)))
+
 (defn- progress-error-data
   [throwable]
   (not-empty
@@ -56,11 +63,13 @@
                  (when (contains? progress-error-data-keys k)
                    [k (progress-error-value v)])))
          (ex-data throwable))))
+
 (defn- progress-error
   [throwable]
   (cond-> {:class (.getName (class throwable))
            :message (ex-message throwable)}
     (progress-error-data throwable) (assoc :data (progress-error-data throwable))))
+
 (defn- read-progress
   [path suite case]
   (if (.isFile (io/file path))
@@ -69,18 +78,21 @@
      :suite-id (:id suite)
      :case-id (:id case)
      :events []}))
+
 (defn- append-progress-event!
   [suite case opts event]
   (let [path (benchmark-paths/progress-path suite case opts)
         progress (read-progress path suite case)]
     (benchmark-io/write-json-file! path
-                      (-> progress
-                          (assoc :updatedAt (now-string))
-                          (update :events (fnil conj []) event)))
+                                   (-> progress
+                                       (assoc :updatedAt (now-string))
+                                       (update :events (fnil conj []) event)))
     path))
+
 (defn- shutdown-hook-thread
   [f]
   (Thread. ^Runnable f "agraph-benchmark-progress-shutdown-hook"))
+
 (defn- remove-shutdown-hook!
   [hook]
   (try
@@ -89,7 +101,9 @@
       nil)
     (catch Throwable _
       nil)))
+
 (defn progress-stage!
+  "Run f while appending benchmark progress events for the stage."
   ([suite case opts stage f]
    (progress-stage! suite case opts stage f (constantly nil)))
   ([suite case opts stage f summarize]
