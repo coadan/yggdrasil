@@ -4591,9 +4591,11 @@
         png-bytes (byte-array [1 2 3 4])
         font-bytes (byte-array [5 6 7 8])
         mo-bytes (byte-array [9 10 11 12])
+        key-bytes (byte-array [13 14 15 16])
         png-file (io/file root "hero.png")
         font-file (io/file root "brand.ttf")
-        mo-file (io/file root "messages.mo")]
+        mo-file (io/file root "messages.mo")
+        key-file (io/file root "dev.key")]
     (java.nio.file.Files/write (.toPath png-file)
                                png-bytes
                                (make-array java.nio.file.OpenOption 0))
@@ -4603,25 +4605,37 @@
     (java.nio.file.Files/write (.toPath mo-file)
                                mo-bytes
                                (make-array java.nio.file.OpenOption 0))
+    (java.nio.file.Files/write (.toPath key-file)
+                               key-bytes
+                               (make-array java.nio.file.OpenOption 0))
     (let [png-record (fs/file-record (.getPath root) (.getPath png-file))
           font-record (fs/file-record (.getPath root) (.getPath font-file))
           mo-record (fs/file-record (.getPath root) (.getPath mo-file))
+          key-record (fs/file-record (.getPath root) (.getPath key-file))
           png-result (extract/extract-file "run/test" png-record)
           font-result (extract/extract-file "run/test" font-record)
-          mo-result (extract/extract-file "run/test" mo-record)]
+          mo-result (extract/extract-file "run/test" mo-record)
+          key-result (extract/extract-file "run/test" key-record)]
       (is (= :image-asset (:kind png-record)))
       (is (= :font-asset (:kind font-record)))
       (is (= :gettext-binary (:kind mo-record)))
+      (is (= :secret-material (:kind key-record)))
       (is (= "" (:content png-record)))
+      (is (= "" (:content key-record)))
       (is (:binary? png-record))
+      (is (:binary? key-record))
       (is (= (str "sha256:" (hash/sha256-bytes-hex png-bytes))
              (:content-sha png-record)))
+      (is (= (str "sha256:" (hash/sha256-bytes-hex key-bytes))
+             (:content-sha key-record)))
       (is (= [:image-asset] (mapv :kind (:nodes png-result))))
       (is (= [:font-asset] (mapv :kind (:nodes font-result))))
       (is (= [:gettext-binary] (mapv :kind (:nodes mo-result))))
+      (is (= [:secret-material] (mapv :kind (:nodes key-result))))
       (is (empty? (:chunks png-result)))
       (is (empty? (:chunks font-result)))
-      (is (empty? (:chunks mo-result))))))
+      (is (empty? (:chunks mo-result)))
+      (is (empty? (:chunks key-result))))))
 
 (deftest detects-license-template-and-shebang-files
   (let [root (.toFile (java.nio.file.Files/createTempDirectory

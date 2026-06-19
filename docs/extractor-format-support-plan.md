@@ -48,6 +48,10 @@ classification in core extractors; store bounded facts and relationships first.
   `apt.sources`, `vimrc`, `flake.lock`, and `pixi.lock` are indexed through
   existing bounded ops/editor/dependency-lock extractors, preserving concrete
   local runtime and toolchain facts without path-based project semantics.
+- Secret material metadata: `.crt`, `.cer`, `.cert`, `.key`, and `.pem` files
+  are indexed as metadata-only `secret-material` rows. AGraph records concrete
+  file facts such as path, size, and content hash but does not create searchable
+  text chunks for certificate or key contents.
 
 ## Future Candidates
 

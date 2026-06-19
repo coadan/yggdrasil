@@ -8,19 +8,19 @@
 
 (def supported-extensions
   #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs" ".cts"
-    ".code-workspace" ".conf" ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
+    ".code-workspace" ".conf" ".crt" ".cer" ".cert" ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
     ".dvc"
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
     ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
-    ".hrl" ".jl" ".lua"
+    ".hrl" ".jl" ".key" ".lua"
     ".kt" ".kts" ".m" ".md" ".mdx" ".mjs" ".ml" ".mli" ".mm" ".mo" ".mts" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
-    ".mustache" ".neon" ".nix" ".njk" ".odin" ".out" ".patch" ".prisma" ".properties" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
+    ".mustache" ".neon" ".nix" ".njk" ".odin" ".out" ".patch" ".pem" ".prisma" ".properties" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
     ".service" ".sln" ".snap" ".socket" ".sql" ".subj" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".tmpl" ".ttf"
     ".license" ".template" ".toml" ".ts" ".tsx" ".txt" ".types" ".vb" ".vbproj" ".vue" ".xcconfig"
     ".webp" ".woff" ".woff2" ".yaml" ".yml" ".zig" ".xml"})
 
 (def binary-file-kinds
-  #{:font-asset :gettext-binary :image-asset})
+  #{:font-asset :gettext-binary :image-asset :secret-material})
 
 (def docs-config-filenames
   #{"content.config.js" "content.config.mjs" "content.config.mts"
@@ -406,6 +406,7 @@
         ".zig" :zig
         (".ttf" ".woff" ".woff2") :font-asset
         ".mo" :gettext-binary
+        (".cer" ".cert" ".crt" ".key" ".pem") :secret-material
         ".sh" :shell
         ".svg" :svg
         ".html" :html

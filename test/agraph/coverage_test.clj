@@ -321,6 +321,9 @@
     (spit-file! root "assets/preview.webp" "webp\n")
     (spit-file! root "assets/favicon.ico" "ico\n")
     (spit-file! root "assets/fonts/outfit.ttf" "ttf\n")
+    (spit-file! root "secrets/dev.crt" "-----BEGIN CERTIFICATE-----\n")
+    (spit-file! root "secrets/dev.key" "-----BEGIN PRIVATE KEY-----\n")
+    (spit-file! root "secrets/dev.pem" "-----BEGIN CERTIFICATE-----\n")
     (spit-file! root "languages/messages.mo" "mo\n")
     (spit-file! root "wrangler.ops.jsonc" "{ // comment\n \"name\": \"demo\"\n}\n")
     (spit-file! root "infra/support.env.example" "SUPPORT_URL=https://example.com\n")
@@ -492,8 +495,8 @@
                             :root root
                             :role :application}]})]
       (is (= coverage/schema (:schema report)))
-      (is (= {:files 256
-              :supported 255
+      (is (= {:files 259
+              :supported 258
               :skipped 1}
              (select-keys (:totals report) [:files :supported :skipped])))
       (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
@@ -562,6 +565,7 @@
       (is (= 1 (:count (row-by :kind "svg" (:files-by-kind report)))))
       (is (= 4 (:count (row-by :kind "image-asset" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "font-asset" (:files-by-kind report)))))
+      (is (= 3 (:count (row-by :kind "secret-material" (:files-by-kind report)))))
       (is (= 1 (:count (row-by :kind "html" (:files-by-kind report)))))
       (is (= 2 (:count (row-by :kind "shell" (:files-by-kind report)))))
       (is (= 8 (:count (row-by :kind "text" (:files-by-kind report)))))
@@ -709,6 +713,10 @@
                 (:extractors report)))
       (is (some #(and (= "font-asset" (:kind %))
                       (= "asset/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "secret-material" (:kind %))
+                      (= "secret-material/v1" (:extractor-version %))
+                      (= 3 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "gettext-binary" (:kind %))
                       (= "gettext-binary/v1" (:extractor-version %)))
