@@ -1,6 +1,5 @@
 (ns agraph.benchmark-prediction
   (:require [agraph.benchmark-prepare :as benchmark-prepare]
-            [agraph.fs :as fs]
             [agraph.text :as text]
             [clojure.java.io :as io]
             [clojure.set :as set]
@@ -283,6 +282,11 @@
        path
        (when-let [kind (not-empty (str (:kind row)))]
          (str " kind=" kind))
+       (when-let [file-kind (not-empty (str (or (:fileKind row)
+                                                (:file-kind row)
+                                                (:sourceKind row)
+                                                (:source-kind row))))]
+         (str " fileKind=" file-kind))
        (when-let [relation (not-empty (str (:relation row)))]
          (str " relation=" relation))
        (when-let [label (not-empty (str (:label row)))]

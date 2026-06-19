@@ -946,7 +946,7 @@
         files (:suspectedFiles result)]
     (is (= ["config/runtime.env"]
            (mapv :path files)))
-    (is (= ["architecture-evidence:runtimeEvidence:config/runtime.env kind=env-var label=\"DATABASE_URL\" score=1.2"]
+    (is (= ["architecture-evidence:runtimeEvidence:config/runtime.env kind=env-var fileKind=env label=\"DATABASE_URL\" score=1.2"]
            (get-in files [0 :evidence])))
     (is (= "AGraph architecture runtimeEvidence row evidence:database-url references config/runtime.env."
            (get-in files [0 :reason])))
