@@ -1017,6 +1017,13 @@
                                           :rankedOutsideTop10CaseIds ["case-1"]
                                           :rankedOutsideTop20Runs 1
                                           :rankedOutsideTop20CaseIds ["case-1"]}
+                :problemClasses {:minimumCasesForClassClaim 2
+                                 :classes [{:key "problem-architecture"
+                                            :cases 1
+                                            :runs 1
+                                            :claimStatus "insufficient-cases"
+                                            :minimumCases 2}]
+                                 :architectureClasses []}
                 :caseProgress [{:case-id "case-2"
                                 :repo-id "repo"
                                 :status "running"
@@ -1084,6 +1091,8 @@
                  :max-ranked-outside-top-20-runs 0
                  :max-active-stage-ms 1000
                  :max-parser-worker-profiles 1
+                 :min-measured-problem-classes 1
+                 :min-measured-architecture-classes 1
                  :require-parser-worker "all"})
         passed (benchmark/check-agent-report
                 (assoc report
@@ -1103,7 +1112,18 @@
                                                  :rankedOutsideTop10Runs 1
                                                  :rankedOutsideTop10CaseIds ["case-1"]
                                                  :rankedOutsideTop20Runs 1
-                                                 :rankedOutsideTop20CaseIds ["case-1"]})
+                                                 :rankedOutsideTop20CaseIds ["case-1"]}
+                       :problemClasses {:minimumCasesForClassClaim 2
+                                        :classes [{:key "problem-architecture"
+                                                   :cases 2
+                                                   :runs 2
+                                                   :claimStatus "measured"
+                                                   :minimumCases 2}]
+                                        :architectureClasses [{:key "architecture-dependency-flow"
+                                                               :cases 2
+                                                               :runs 2
+                                                               :claimStatus "measured"
+                                                               :minimumCases 2}]})
                 {:allow-missing? true
                  :min-cases 2
                  :min-runs 1
@@ -1136,6 +1156,8 @@
                  :max-ranked-outside-top-20-runs 1
                  :max-active-stage-ms 1500
                  :max-parser-worker-profiles 1
+                 :min-measured-problem-classes 1
+                 :min-measured-architecture-classes 1
                  :require-parser-worker "all"})]
     (is (= benchmark/agent-check-schema (:schema failed)))
     (is (= "failed" (:status failed)))
@@ -1172,7 +1194,9 @@
              "rankedOutsideTop20Runs"
              "parserWorkerProfiles"
              "parserWorker"
-             "activeStageElapsedMs"}
+             "activeStageElapsedMs"
+             "measuredProblemClasses"
+             "measuredArchitectureClasses"}
            (set (map :metric (:failures failed)))))
     (is (= {:case-id "case-1"
             :agentId "codex"
@@ -1271,6 +1295,8 @@
             :maxRankedOutsideTop20Runs 0.0
             :maxActiveStageMs 1000.0
             :maxParserWorkerProfiles 1.0
+            :minMeasuredProblemClasses 1.0
+            :minMeasuredArchitectureClasses 1.0
             :requiredParserWorker "all"}
            (:thresholds failed)))
     (is (= "passed" (:status passed)))

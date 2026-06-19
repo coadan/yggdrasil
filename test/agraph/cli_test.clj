@@ -658,6 +658,8 @@
                                  "--max-ranked-outside-top-20-runs" "0"
                                  "--max-active-stage-ms" "120000"
                                  "--max-parser-worker-profiles" "1"
+                                 "--min-measured-problem-classes" "1"
+                                 "--min-measured-architecture-classes" "1"
                                  "--require-parser-worker" "all"
                                  "--allow-missing"
                                  "--allow-duplicate-runs"
@@ -701,6 +703,8 @@
                   :max-ranked-outside-top-20-runs 0.0
                   :max-active-stage-ms 120000
                   :max-parser-worker-profiles 1
+                  :min-measured-problem-classes 1
+                  :min-measured-architecture-classes 1
                   :require-parser-worker "all"
                   :allow-missing? true
                   :allow-duplicate-runs? true}]]

@@ -4898,7 +4898,10 @@
                  [:max-ranked-outside-top-10-runs :maxRankedOutsideTop10Runs]
                  [:max-ranked-outside-top-20-runs :maxRankedOutsideTop20Runs]
                  [:max-active-stage-ms :maxActiveStageMs]
-                 [:max-parser-worker-profiles :maxParserWorkerProfiles]])
+                 [:max-parser-worker-profiles :maxParserWorkerProfiles]
+                 [:min-measured-problem-classes :minMeasuredProblemClasses]
+                 [:min-measured-architecture-classes
+                  :minMeasuredArchitectureClasses]])
     (extract/normalize-parser-worker-mode (:require-parser-worker opts))
     (assoc :requiredParserWorker
            (extract/normalize-parser-worker-mode (:require-parser-worker opts)))))
@@ -5309,6 +5312,40 @@
                         :message "Graph/evidence/chunk benchmark expectations failed for this run."}))
               failed-results))))))
 
+(defn- measured-problem-class-count
+  [check class-key]
+  (count (filter #(= "measured" (:claimStatus %))
+                 (get-in check [:report :problemClasses class-key]))))
+
+(defn- problem-class-claim-failure
+  [check threshold-key class-key metric message]
+  (when-some [expected (get-in check [:thresholds threshold-key])]
+    (let [actual (double (measured-problem-class-count check class-key))]
+      (when (< actual expected)
+        (merge (metric-failure metric ">=" expected actual)
+               {:classes (get-in check [:report :problemClasses class-key])
+                :minimumCasesForClassClaim (get-in check
+                                                   [:report
+                                                    :problemClasses
+                                                    :minimumCasesForClassClaim])
+                :message message})))))
+
+(defn- problem-class-claim-failures
+  [check]
+  (keep identity
+        [(problem-class-claim-failure
+          check
+          :minMeasuredProblemClasses
+          :classes
+          "measuredProblemClasses"
+          "Fewer problem-class groups are measured than required for the benchmark claim.")
+         (problem-class-claim-failure
+          check
+          :minMeasuredArchitectureClasses
+          :architectureClasses
+          "measuredArchitectureClasses"
+          "Fewer architecture-class groups are measured than required for the benchmark claim.")]))
+
 (defn- parser-worker-profile-failures
   [check]
   (let [profiles (vec (get-in check [:report :parserWorkers]))
@@ -5464,6 +5501,7 @@
                    (unverified-score-failures check-base)
                    (graph-expectation-failures check-base)
                    (coverage-diagnostic-failures check-base)
+                   (problem-class-claim-failures check-base)
                    (parser-worker-profile-failures check-base)
                    (localization-diagnostic-failures check-base)
                    (active-stage-failures check-base)))]
