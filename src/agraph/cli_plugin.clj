@@ -61,7 +61,8 @@
              "benchmark-cases"
              (str "artifacts=" (:artifacts benchmark-cases))
              (str "case-ids=" (id-list (:case-ids benchmark-cases)))
-             (str "problem-classes=" (id-list (:problem-classes benchmark-cases))))))
+             (str "problem-classes=" (id-list (:problem-classes benchmark-cases)))
+             (str "improvement-metrics=" (id-list (:improvement-metrics benchmark-cases))))))
 (defn- print-plugin-package
   [package]
   (println "-"

@@ -414,20 +414,26 @@ package-local benchmark artifacts:
  :artifacts [{:path "benchmarks/datastar-hiccup-report.json"
               :kind :agent-report
               :case-id "datastar-hiccup-architecture"
-              :problem-class :architecture-understanding}]}
+              :problem-class :architecture-understanding
+              :improvement {:metric :file-recall-at-5
+                            :baseline :core-agraph
+                            :candidate :plugin-enhanced-agraph
+                            :delta "+0.25"}}]}
 ```
 
 `bb plugin diagnose <dir>` checks that every declared artifact path exists and
 that benchmarked packages identify each artifact with `:kind`, `:case-id`, and
-`:problem-class`. A package marked `:benchmarked` without artifacts is blocked
-for public claims and core promotion. Diagnosis does not decide whether the
-benchmark proves enough material improvement; it verifies that reviewable,
-replayable evidence exists.
+`:problem-class`, plus an `:improvement` map naming the claimed metric,
+baseline, candidate, and delta. A package marked `:benchmarked` without
+artifacts or declared improvement metadata is blocked for public claims and
+core promotion. Diagnosis does not decide whether the benchmark proves enough
+material improvement; it verifies that reviewable, replayable evidence exists.
 
 Package summaries expose compact `:benchmark-cases` metadata with artifact
-count, case ids, and problem classes. Reports, registry validation, and plain
-CLI output surface the same summary so reviewers can see which claim classes a
-package attempts to support before opening benchmark artifacts.
+count, case ids, problem classes, and improvement metrics. Reports, registry
+validation, and plain CLI output surface the same summary so reviewers can see
+which claim classes and metrics a package attempts to support before opening
+benchmark artifacts.
 
 ## Core-Promotion Evidence
 

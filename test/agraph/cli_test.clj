@@ -246,7 +246,8 @@
                                :version "0.1.0"
                                :benchmark-cases {:artifacts 1
                                                  :case-ids ["core-ready-architecture"]
-                                                 :problem-classes ["architecture-understanding"]}
+                                                 :problem-classes ["architecture-understanding"]
+                                                 :improvement-metrics ["file-recall-at-5"]}
                                :claim-authority claim-authority}
                      :core-promotion {:status :review-required
                                       :reason "Benchmark metadata is present; project-agnostic core suitability still needs review."
@@ -259,7 +260,7 @@
         (is (str/includes? out "- core-promotion review-required"))
         (is (str/includes?
              out
-             "- benchmark-cases artifacts=1 case-ids=core-ready-architecture problem-classes=architecture-understanding"))
+             "- benchmark-cases artifacts=1 case-ids=core-ready-architecture problem-classes=architecture-understanding improvement-metrics=file-recall-at-5"))
         (is (str/includes? out "claim-authority status=benchmark-backed public-claims=true"))
         (is (= [".dev/plugins/core-ready"] @calls))))))
 
@@ -520,7 +521,8 @@
                                                                                     :benchmark-status :unbenchmarked
                                                                                     :benchmark-cases {:artifacts 1
                                                                                                       :case-ids ["demo-architecture"]
-                                                                                                      :problem-classes ["architecture-understanding"]}
+                                                                                                      :problem-classes ["architecture-understanding"]
+                                                                                                      :improvement-metrics ["file-recall-at-5"]}
                                                                                     :diagnostic-counts {:total 1
                                                                                                         :errors 0
                                                                                                         :warnings 1}}
@@ -669,7 +671,7 @@
         (is (str/includes? registry-out "license MIT"))
         (is (str/includes?
              registry-out
-             "benchmark-cases artifacts=1 case-ids=demo-architecture problem-classes=architecture-understanding"))
+             "benchmark-cases artifacts=1 case-ids=demo-architecture problem-classes=architecture-understanding improvement-metrics=file-recall-at-5"))
         (is (str/includes? registry-out "diagnostics {:total 1, :errors 0, :warnings 1}"))
         (is (str/includes? registry-out "- non-authoritative 1"))
         (is (str/includes? registry-out
@@ -1535,7 +1537,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
 

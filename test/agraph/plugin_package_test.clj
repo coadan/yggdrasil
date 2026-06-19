@@ -21,6 +21,12 @@
     (spit file content)
     (.getPath file)))
 
+(def benchmark-improvement-fixture
+  {:metric :file-recall-at-5
+   :baseline :core-agraph
+   :candidate :plugin-enhanced-agraph
+   :delta "+0.25"})
+
 (defn- git!
   [root & args]
   (let [{:keys [exit out err]} (apply shell/sh "git" "-C" root args)]
@@ -861,7 +867,8 @@
                                :artifacts [{:path "benchmarks/report.json"
                                             :kind :agent-report
                                             :case-id "paid-plugin-case"
-                                            :problem-class :architecture-understanding}]}
+                                            :problem-class :architecture-understanding
+                                            :improvement benchmark-improvement-fixture}]}
                    :extractor-plugins
                    [{:id "paid-extractor"
                      :command ["python3" "extract.py"]
@@ -974,7 +981,8 @@
                                :artifacts [{:path "benchmarks/report.json"
                                             :kind :agent-report
                                             :case-id "plugin-case"
-                                            :problem-class :architecture-understanding}]}
+                                            :problem-class :architecture-understanding
+                                            :improvement benchmark-improvement-fixture}]}
                    :extractor-plugins
                    [{:id "benchmarked-extractor"
                      :command ["python3" "extract.py"]
@@ -1034,14 +1042,66 @@
       (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
       (is (= #{:benchmark-artifact-kind-missing
                :benchmark-artifact-case-id-missing
-               :benchmark-artifact-problem-class-missing}
+               :benchmark-artifact-problem-class-missing
+               :benchmark-artifact-improvement-missing}
              (set (map :code (:diagnostics diagnosis)))))
       (is (= #{:benchmark-artifact-kind-missing
                :benchmark-artifact-case-id-missing
-               :benchmark-artifact-problem-class-missing}
+               :benchmark-artifact-problem-class-missing
+               :benchmark-artifact-improvement-missing}
              (set (map :code
                        (get-in diagnosis
                                [:package :claim-authority :blockers]))))))))
+
+(deftest diagnose-requires-material-improvement-metadata-for-benchmark-artifacts
+  (let [workspace (temp-dir "agraph-plugin-benchmark-improvement")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 "benchmarks/report.json"
+                 "{\"schema\":\"agraph.benchmark.agent-report/v1\",\"suite-id\":\"plugin\"}\n")
+    (write-file! (.getPath package-dir)
+                 "fixtures/sample.clj"
+                 "(ns sample)\n")
+    (write-file! (.getPath package-dir)
+                 "test/sample_test.clj"
+                 "(ns sample-test)\n")
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "improvement-missing-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Benchmark improvement metadata test fixture."}
+                   :benchmark {:status :benchmarked
+                               :artifacts [{:path "benchmarks/report.json"
+                                            :kind :agent-report
+                                            :case-id "plugin-case"
+                                            :problem-class :architecture-understanding
+                                            :improvement {:metric :file-recall-at-5
+                                                          :baseline :core-agraph
+                                                          :candidate :plugin-enhanced-agraph}}]}
+                   :core-promotion {:fixtures [{:path "fixtures/sample.clj"
+                                                :kind :fixture}]
+                                    :tests [{:path "test/sample_test.clj"
+                                             :kind :test}]}
+                   :extractor-plugins
+                   [{:id "improvement-missing-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (let [diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+      (is (= :failed (:status diagnosis)))
+      (is (= :blocked (get-in diagnosis [:readiness :claims :status])))
+      (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= [:benchmark-artifact-improvement-delta-missing]
+             (mapv :code (:diagnostics diagnosis)))))))
 
 (deftest diagnose-requires-core-promotion-fixtures-and-tests
   (let [workspace (temp-dir "agraph-plugin-core-ready")
@@ -1071,7 +1131,8 @@
                                :artifacts [{:path "benchmarks/report.json"
                                             :kind :agent-report
                                             :case-id "plugin-case"
-                                            :problem-class :architecture-understanding}]}
+                                            :problem-class :architecture-understanding
+                                            :improvement benchmark-improvement-fixture}]}
                    :core-promotion {:fixtures [{:path "fixtures/sample.clj"
                                                 :kind :fixture}]
                                     :tests [{:path "test/sample_test.clj"
@@ -1124,7 +1185,8 @@
                                :artifacts [{:path "benchmarks/report.json"
                                             :kind :agent-report
                                             :case-id "plugin-case"
-                                            :problem-class :architecture-understanding}]}
+                                            :problem-class :architecture-understanding
+                                            :improvement benchmark-improvement-fixture}]}
                    :core-promotion {:fixtures [{:path "fixtures/sample.clj"
                                                 :kind :fixture}]
                                     :tests [{:path "test/sample_test.clj"
@@ -1172,7 +1234,8 @@
                                :artifacts [{:path "benchmarks/report.json"
                                             :kind :agent-report
                                             :case-id "local-plugin-case"
-                                            :problem-class :architecture-understanding}]}
+                                            :problem-class :architecture-understanding
+                                            :improvement benchmark-improvement-fixture}]}
                    :extractor-plugins
                    [{:id "local-extractor"
                      :command ["python3" "extract.py"]
@@ -1351,7 +1414,8 @@
               :benchmark-status :unbenchmarked
               :benchmark-cases {:artifacts 0
                                 :case-ids []
-                                :problem-classes []}
+                                :problem-classes []
+                                :improvement-metrics []}
               :claim-authority {:status :non-authoritative
                                 :public-claims? false
                                 :review-required? false

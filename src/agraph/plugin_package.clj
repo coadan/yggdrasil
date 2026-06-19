@@ -315,7 +315,8 @@
                                            :case-id
                                            :problem-class
                                            :report-id
-                                           :description]))
+                                           :description
+                                           :improvement]))
       (present? path) (assoc :resolved-path (resolve-path (:path package) path)))))
 
 (defn- summary-value
@@ -338,7 +339,9 @@
                         (benchmark-artifacts package))]
     {:artifacts (count artifacts)
      :case-ids (sorted-summary-values (map :case-id artifacts))
-     :problem-classes (sorted-summary-values (map :problem-class artifacts))}))
+     :problem-classes (sorted-summary-values (map :problem-class artifacts))
+     :improvement-metrics (sorted-summary-values (map #(get-in % [:improvement :metric])
+                                                      artifacts))}))
 
 (def ^:private benchmark-artifact-required-fields
   {:kind {:code :benchmark-artifact-kind-missing
@@ -346,7 +349,45 @@
    :case-id {:code :benchmark-artifact-case-id-missing
              :label ":case-id"}
    :problem-class {:code :benchmark-artifact-problem-class-missing
-                   :label ":problem-class"}})
+                   :label ":problem-class"}
+   :improvement {:code :benchmark-artifact-improvement-missing
+                 :label ":improvement"}})
+
+(def ^:private benchmark-improvement-required-fields
+  {:metric {:code :benchmark-artifact-improvement-metric-missing
+            :label ":metric"}
+   :baseline {:code :benchmark-artifact-improvement-baseline-missing
+              :label ":baseline"}
+   :candidate {:code :benchmark-artifact-improvement-candidate-missing
+               :label ":candidate"}
+   :delta {:code :benchmark-artifact-improvement-delta-missing
+           :label ":delta"}})
+
+(defn- missing-benchmark-improvement-metadata
+  [id artifact summary]
+  (let [improvement (:improvement artifact)]
+    (cond
+      (not (present? improvement))
+      []
+
+      (not (map? improvement))
+      [{:code :benchmark-artifact-improvement-invalid
+        :severity :error
+        :applies-to [:claims :core-promotion]
+        :message (str id " benchmark artifact " (:path summary)
+                      " :improvement must be a map with :metric, :baseline, :candidate, and :delta.")
+        :evidence summary}]
+
+      :else
+      (keep (fn [[field {:keys [code label]}]]
+              (when-not (present? (get improvement field))
+                {:code code
+                 :severity :error
+                 :applies-to [:claims :core-promotion]
+                 :message (str id " benchmark artifact " (:path summary)
+                               " improvement is missing " label ".")
+                 :evidence summary}))
+            benchmark-improvement-required-fields))))
 
 (defn- missing-benchmark-artifact-metadata
   [id artifact summary]
@@ -355,17 +396,19 @@
       [{:code :benchmark-artifact-metadata-missing
         :severity :error
         :applies-to [:claims :core-promotion]
-        :message (str id " benchmark artifacts must be maps with :path, :kind, :case-id, and :problem-class.")
+        :message (str id " benchmark artifacts must be maps with :path, :kind, :case-id, :problem-class, and :improvement.")
         :evidence summary}]
-      (keep (fn [[field {:keys [code label]}]]
-              (when-not (present? (get artifact field))
-                {:code code
-                 :severity :error
-                 :applies-to [:claims :core-promotion]
-                 :message (str id " benchmark artifact " (:path summary)
-                               " is missing " label ".")
-                 :evidence summary}))
-            benchmark-artifact-required-fields))))
+      (concat
+       (keep (fn [[field {:keys [code label]}]]
+               (when-not (present? (get artifact field))
+                 {:code code
+                  :severity :error
+                  :applies-to [:claims :core-promotion]
+                  :message (str id " benchmark artifact " (:path summary)
+                                " is missing " label ".")
+                  :evidence summary}))
+             benchmark-artifact-required-fields)
+       (missing-benchmark-improvement-metadata id artifact summary)))))
 
 (defn- benchmark-artifact-diagnostics
   [{:keys [id benchmark-status] :as package}]
