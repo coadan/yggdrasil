@@ -4,7 +4,9 @@
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str])
-  (:import [java.nio.file Files]))
+  (:import [java.nio ByteBuffer]
+           [java.nio.charset CodingErrorAction StandardCharsets]
+           [java.nio.file Files]))
 
 (def supported-extensions
   #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs" ".cts"
@@ -21,6 +23,9 @@
 
 (def binary-file-kinds
   #{:archive-asset :font-asset :gettext-binary :image-asset :media-asset :secret-material})
+
+(def unknown-text-fallback-blocked-extensions
+  #{".bin" ".class" ".dll" ".dylib" ".ear" ".exe" ".jar" ".o" ".pdf" ".so" ".war" ".wasm" ".zip"})
 
 (def docs-config-filenames
   #{"content.config.js" "content.config.mjs" "content.config.mts"
@@ -497,6 +502,45 @@
     (catch Exception _
       "")))
 
+(defn- prefix-bytes
+  [file]
+  (try
+    (with-open [stream (io/input-stream file)]
+      (let [buffer (byte-array 8192)
+            n (.read stream buffer)]
+        (cond
+          (neg? n) (byte-array 0)
+          (= n (alength buffer)) buffer
+          :else (java.util.Arrays/copyOf buffer n))))
+    (catch Exception _
+      nil)))
+
+(defn- text-byte?
+  [b]
+  (let [value (bit-and b 0xff)]
+    (or (>= value 32)
+        (contains? #{9 10 12 13} value))))
+
+(defn- utf8-text-bytes?
+  [bytes]
+  (try
+    (let [decoder (doto (.newDecoder StandardCharsets/UTF_8)
+                    (.onMalformedInput CodingErrorAction/REPORT)
+                    (.onUnmappableCharacter CodingErrorAction/REPORT))]
+      (.decode decoder (ByteBuffer/wrap bytes))
+      true)
+    (catch Exception _
+      false)))
+
+(defn- unknown-text-fallback-kind
+  [file]
+  (when-not (contains? unknown-text-fallback-blocked-extensions (extension file))
+    (let [bytes (prefix-bytes file)]
+      (when (and bytes
+                 (every? text-byte? bytes)
+                 (utf8-text-bytes? bytes))
+        :unknown))))
+
 (defn- ops-config-content-kind
   [path-kind file]
   (when (contains? #{:config :yaml} path-kind)
@@ -692,6 +736,13 @@
         (shebang-kind file)
         :unknown)))
 
+(defn- supported-file-kind
+  [file]
+  (if (or (supported-path? file)
+          (shebang-kind file))
+    (file-kind-for-file file)
+    (unknown-text-fallback-kind file)))
+
 (defn- binary-file?
   [kind]
   (contains? binary-file-kinds kind))
@@ -745,8 +796,7 @@
   [file]
   (and (.isFile file)
        (not (ignored-filename? file))
-       (or (supported-path? file)
-           (shebang-kind file))))
+       (some? (supported-file-kind file))))
 
 (defn- allowed-hidden-supported-path?
   [rel-path]
@@ -817,10 +867,9 @@
   [root rel]
   (let [file (io/file root rel)
         ignored? (ignored-filename? file)
-        supported? (and (not ignored?)
-                        (or (supported-path? file)
-                            (shebang-kind file)))
-        kind (when supported? (file-kind-for-file file))]
+        kind (when-not ignored?
+               (supported-file-kind file))
+        supported? (some? kind)]
     (cond-> {:path rel
              :ext (extension rel)
              :filename (str/lower-case (.getName file))

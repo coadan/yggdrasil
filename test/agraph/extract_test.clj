@@ -4673,30 +4673,55 @@
         vendor-license-file (io/file root "cytoscape.LICENSE")
         template-file (doto (io/file root "demo.rb.template")
                         (io/make-parents))
+        redirects-file (io/file root "_redirects")
+        proc-file (doto (io/file root "fixtures/memory.max")
+                    (io/make-parents))
+        wasm-file (doto (io/file root "assets/module.wasm")
+                    (io/make-parents))
         script-file (doto (io/file root "tool")
                       (io/make-parents))]
     (spit license-file "MIT\n")
     (spit vendor-license-file "Vendor license\n")
     (spit template-file "class Demo < Formula\nend\n")
+    (spit redirects-file "/old /new 301\n")
+    (spit proc-file "max\n")
+    (spit wasm-file "wasm\n")
     (spit script-file "#!/usr/bin/env bash\nexec demo\n")
     (let [coverage (:files (fs/scan-file-coverage (.getPath root)))
-          kind-by-path (into {} (map (juxt :path :kind)) coverage)
+          kind-by-path (into {} (keep #(when (:supported? %)
+                                         [(:path %) (:kind %)])
+                                      coverage))
+          skipped-by-path (into {} (keep #(when-not (:supported? %)
+                                            [(:path %) (:skip-reason %)])
+                                         coverage))
           script-record (fs/file-record (.getPath root) (.getPath script-file))
+          redirects-record (fs/file-record (.getPath root) (.getPath redirects-file))
+          proc-record (fs/file-record (.getPath root) (.getPath proc-file))
           template-result (extract/extract-file
                            "run/test"
                            (fs/file-record (.getPath root)
                                            (.getPath template-file)))
+          redirects-result (extract/extract-file "run/test" redirects-record)
+          proc-result (extract/extract-file "run/test" proc-record)
           script-result (extract/extract-file "run/test" script-record)]
       (is (= :governance (fs/file-kind "LICENSE")))
       (is (= :doc (fs/file-kind "cytoscape.LICENSE")))
       (is (= :ruby (fs/file-kind "demo.rb.template")))
       (is (= :shell (:kind script-record)))
+      (is (= :unknown (:kind redirects-record)))
+      (is (= :unknown (:kind proc-record)))
       (is (= {"LICENSE" :governance
               "cytoscape.LICENSE" :doc
               "demo.rb.template" :ruby
+              "_redirects" :unknown
+              "fixtures/memory.max" :unknown
               "tool" :shell}
              kind-by-path))
+      (is (= {"assets/module.wasm" :unsupported-extension}
+             skipped-by-path))
       (is (contains? (set (map :label (:nodes template-result))) "demo"))
+      (is (= [:unknown-file] (mapv :kind (:chunks redirects-result))))
+      (is (= [:unknown-file] (mapv :kind (:chunks proc-result))))
       (is (= [:shell-file] (mapv :kind (:chunks script-result)))))))
 
 (deftest extracts-frontend-single-file-components

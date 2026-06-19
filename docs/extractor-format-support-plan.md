@@ -56,6 +56,11 @@ classification in core extractors; store bounded facts and relationships first.
   `.otf`, and `.gz` files are supported as metadata-only asset rows so coverage
   reports expose concrete artifacts without putting binary payloads into
   searchable context.
+- Unknown UTF-8 text fallback: unsupported filenames and extensions can be
+  indexed through the bounded `unknown` text extractor when the file prefix is
+  valid UTF-8 text and not a known compiled/archive binary extension. This keeps
+  extensionless fixtures and deployment text files visible without inventing
+  semantic file kinds.
 
 ## Future Candidates
 
