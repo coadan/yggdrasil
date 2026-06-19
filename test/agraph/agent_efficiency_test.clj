@@ -396,7 +396,19 @@
                                             :runs 2
                                             :caseIds ["case-1"]
                                             :message "AGraph hints contained diagnostics."}])
+        shifted-shell (assoc shell-report
+                             :improvementSummary [{:kind "coverage-filtered-candidates"
+                                                   :area "agent-context-quality"
+                                                   :runs 2
+                                                   :caseIds ["case-1"]}])
+        shifted-agraph (assoc agraph-report
+                              :improvementSummary [{:kind "audit-scope-trust-boundary"
+                                                    :area "audit-scope-quality"
+                                                    :runs 2
+                                                    :caseIds ["case-2"]}])
         comparison (agent-efficiency/compare-reports shell-report agraph)
+        shifted-comparison (agent-efficiency/compare-reports shifted-shell
+                                                             shifted-agraph)
         deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
     (is (= {:shellOnly 0.0
             :agraph 2.0
@@ -405,12 +417,30 @@
             :result "regressed"}
            (select-keys (:improvementTargetRuns deltas-by-key)
                         [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:shellOnly 0.0
+            :agraph 2.0
+            :delta 2.0
+            :effect -2.0
+            :result "regressed"}
+           (select-keys (get deltas-by-key
+                             "improvementTargetRuns.hint-diagnostics")
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {"hint-diagnostics" 2}
+           (get-in comparison [:agraph :improvementTargetRunsByKind])))
     (is (= "mixed" (:status comparison)))
     (is (= false
            (get-in comparison
                    [:claimReadiness
                     :requirements
-                    :agraphImprovedWithoutRegressions])))))
+                    :agraphImprovedWithoutRegressions])))
+    (is (= "mixed" (:status shifted-comparison)))
+    (is (= 0.0
+           (:delta (first (filter #(= :improvementTargetRuns (:key %))
+                                  (:deltas shifted-comparison))))))
+    (is (= "regressed"
+           (:result (first (filter #(= "improvementTargetRuns.audit-scope-trust-boundary"
+                                       (:key %))
+                                   (:deltas shifted-comparison))))))))
 
 (deftest compares-shell-only-and-agraph-by-tag-groups
   (let [shell (assoc shell-report

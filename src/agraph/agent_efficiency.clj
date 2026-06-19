@@ -236,18 +236,46 @@
     (.getPath file)))
 
 (defn- metric-value
-  [m path]
+  [m path default]
   (let [value (get-in m path)]
-    (when (number? value)
-      (double value))))
+    (if (number? value)
+      (double value)
+      default)))
 (defn- improvement-target-runs
   [report]
   (reduce + 0 (map #(long (or (:runs %) 0))
                    (:improvementSummary report))))
+(defn- improvement-target-runs-by-kind
+  [report]
+  (->> (:improvementSummary report)
+       (reduce (fn [runs-by-kind {:keys [kind runs]}]
+                 (if-let [kind (some-> kind str not-empty)]
+                   (update runs-by-kind kind (fnil + 0) (long (or runs 0)))
+                   runs-by-kind))
+               (sorted-map))))
 (defn- efficiency-report
   [report]
   (assoc report :efficiency {:improvementTargetRuns
-                             (improvement-target-runs report)}))
+                             (improvement-target-runs report)
+                             :improvementTargetRunsByKind
+                             (improvement-target-runs-by-kind report)}))
+
+(defn- improvement-target-metric-specs
+  [shell-report agraph-report]
+  (->> (concat (keys (get-in shell-report
+                             [:efficiency :improvementTargetRunsByKind]))
+               (keys (get-in agraph-report
+                             [:efficiency :improvementTargetRunsByKind])))
+       set
+       sort
+       (mapv (fn [kind]
+               (let [key (str "improvementTargetRuns." kind)]
+                 {:key key
+                  :label key
+                  :category :result-health
+                  :path [:efficiency :improvementTargetRunsByKind kind]
+                  :default 0.0
+                  :direction :lower})))))
 
 (defn- result-label
   [effect]
@@ -263,9 +291,9 @@
     effect))
 
 (defn- metric-delta
-  [shell-report agraph-report {:keys [category direction key label path tolerance]}]
-  (let [shell-value (metric-value shell-report path)
-        agraph-value (metric-value agraph-report path)
+  [shell-report agraph-report {:keys [category direction key label path tolerance default]}]
+  (let [shell-value (metric-value shell-report path default)
+        agraph-value (metric-value agraph-report path default)
         available? (and (some? shell-value)
                         (some? agraph-value))]
     (if-not available?
@@ -347,6 +375,7 @@
    :agentDiagnostics (:agentDiagnostics report)
    :improvementSummary (:improvementSummary report)
    :improvementTargetRuns (improvement-target-runs report)
+   :improvementTargetRunsByKind (improvement-target-runs-by-kind report)
    :tags (:tags report)
    :claimReadiness (:claimReadiness report)
    :timings (:timings report)})
@@ -772,7 +801,10 @@
          deltas (mapv #(metric-delta shell-efficiency-report
                                      agraph-efficiency-report
                                      %)
-                      metric-specs)
+                      (into metric-specs
+                            (improvement-target-metric-specs
+                             shell-efficiency-report
+                             agraph-efficiency-report)))
          min-shared-cases (long (or min-shared-cases default-min-shared-cases))
          summary (aggregate-summary deltas
                                     comparable
