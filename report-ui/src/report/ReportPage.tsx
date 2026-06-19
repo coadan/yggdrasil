@@ -349,6 +349,18 @@ function reviewEvidenceColumns(rows: Array<Record<string, unknown>>): TableColum
     .map((key) => ({ key, label: key }));
 }
 
+function sourceRefs(rows: Array<Record<string, unknown>>): string[] {
+  const refs = new Set<string>();
+  for (const row of rows) {
+    const path = displayValue(row.path || row.file || row.sourcePath || row.source_path);
+    if (!path) continue;
+    const repo = displayValue(row.repo || row["repo-id"] || row.repoId);
+    const line = displayValue(row.line || row["start-line"] || row.startLine);
+    refs.add(`${repo ? `${repo}:` : ""}${path}${line ? `:${line}` : ""}`);
+  }
+  return [...refs];
+}
+
 function ReviewEvidenceTable({ rows }: { rows: Array<Record<string, unknown>> }) {
   if (rows.length === 0) return null;
   const columns = reviewEvidenceColumns(rows);
@@ -452,6 +464,14 @@ function ReviewQueue({
                 {row.command ? (
                   <button type="button" onClick={() => onCopyCommand(`review:${row.id}`, row.command as string)}>
                     {copiedKey === `review:${row.id}` ? "Copied" : "Copy command"}
+                  </button>
+                ) : null}
+                {sourceRefs(row.evidenceRows || []).length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => onCopyCommand(`review-sources:${row.id}`, sourceRefs(row.evidenceRows || []).join("\n"))}
+                  >
+                    {copiedKey === `review-sources:${row.id}` ? "Copied" : "Copy source refs"}
                   </button>
                 ) : null}
               </div>
