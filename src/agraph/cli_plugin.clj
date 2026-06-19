@@ -21,6 +21,9 @@
 (defn- claim-blocker-codes
   [claim-authority]
   (str/join "," (map (comp name :code) (:blockers claim-authority))))
+(defn- present-text?
+  [value]
+  (and value (not (str/blank? (str value)))))
 (defn- print-plugin-claim-authority
   [prefix claim-authority]
   (when claim-authority
@@ -152,6 +155,29 @@
   (if (seq ids)
     (str/join "," ids)
     "none"))
+(defn- maintainer-text
+  [maintainer]
+  (cond
+    (map? maintainer) (or (:name maintainer)
+                          (:id maintainer)
+                          (:url maintainer)
+                          (pr-str maintainer))
+    (present-text? maintainer) (str maintainer)))
+(defn- print-plugin-registry-entry
+  [prefix entry]
+  (when entry
+    (println prefix
+             "kinds"
+             (if (sequential? (:kinds entry))
+               (id-list (map name (:kinds entry)))
+               "invalid"))
+    (when-let [support-status (get-in entry [:support :status])]
+      (println prefix "support" (name support-status)))
+    (when (contains? (:trust entry) :code-reviewed?)
+      (println prefix "code-reviewed" (boolean (get-in entry [:trust :code-reviewed?]))))
+    (let [maintainers (keep maintainer-text (:maintainers entry))]
+      (when (seq maintainers)
+        (println prefix "maintainers" (str/join "," maintainers))))))
 (defn- print-plugin-selection
   [selection]
   (when selection
@@ -309,8 +335,9 @@
   (println "- non-authoritative" (:non-authoritative counts 0))
   (doseq [{:keys [code message]} errors]
     (println "- error" (name code) "-" message))
-  (doseq [{:keys [id status errors install diagnosis]} packages]
+  (doseq [{:keys [id status errors install diagnosis registry-entry]} packages]
     (println "-" id (name status))
+    (print-plugin-registry-entry " " registry-entry)
     (when-let [command (:command install)]
       (println "  install" command))
     (print-plugin-claim-authority " " (get-in diagnosis [:package :claim-authority]))

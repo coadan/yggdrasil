@@ -1224,6 +1224,15 @@
              (get-in by-id ["base-plugin" :install :args])))
       (is (= "bb plugin install '<project.edn>' https://github.com/org/agraph-plugins.git --ref v0.1.0 --subdir packages/base-plugin"
              (get-in by-id ["base-plugin" :install :command])))
+      (is (= {:id "base-plugin"
+              :kinds [:extractor]
+              :maintainers [{:name "Maintainer"}]
+              :support {:status :experimental}
+              :trust {:code-reviewed? false}
+              :source "https://github.com/org/agraph-plugins.git"
+              :ref "v0.1.0"
+              :subdir "packages/base-plugin"}
+             (get-in by-id ["base-plugin" :registry-entry])))
       (is (= :failed (get-in by-id ["local-plugin" :status])))
       (is (= [:registry-source-missing :public-sharing-not-ready]
              (mapv :code (get-in by-id ["local-plugin" :errors]))))

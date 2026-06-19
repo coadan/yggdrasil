@@ -1075,6 +1075,17 @@
        :args args
        :command (str "bb " (str/join " " (map shell-token args)))})))
 
+(defn- registry-entry-summary
+  [entry]
+  (select-keys entry [:id
+                      :kinds
+                      :maintainers
+                      :support
+                      :trust
+                      :source
+                      :ref
+                      :subdir]))
+
 (defn- registry-entry-status
   [diagnosis]
   (let [public-status (get-in diagnosis [:readiness :public-sharing :status])]
@@ -1172,11 +1183,13 @@
                          (get-in diagnosis [:package :id]))
                  :path package-path
                  :status status
+                 :registry-entry (registry-entry-summary entry)
                  :errors errors
                  :diagnosis diagnosis}
           install (assoc :install install)))
       (cond-> {:id (some-> (:id entry) str)
                :status :failed
+               :registry-entry (registry-entry-summary entry)
                :errors [{:code :registry-path-missing
                          :message "Registry entry is missing :path for offline validation."}]
                :entry entry}

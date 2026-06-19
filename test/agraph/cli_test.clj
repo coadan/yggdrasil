@@ -490,6 +490,13 @@
                                                       :errors []
                                                       :packages [{:id "demo"
                                                                   :status :passed
+                                                                  :registry-entry {:id "demo"
+                                                                                   :kinds [:extractor :report]
+                                                                                   :maintainers [{:name "Demo Maintainer"}]
+                                                                                   :support {:status :experimental}
+                                                                                   :trust {:code-reviewed? false}
+                                                                                   :source "https://github.com/org/demo.git"
+                                                                                   :ref "v0.1.0"}
                                                                   :install {:command "bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"}
                                                                   :diagnosis {:package {:claim-authority claim-authority}}
                                                                   :errors []}]})]
@@ -615,6 +622,10 @@
                                           ".dev/plugins/registry.edn"]))]
         (is (str/includes? registry-out
                            "install bb plugin install '<project.edn>' https://github.com/org/demo.git --ref v0.1.0"))
+        (is (str/includes? registry-out "kinds extractor,report"))
+        (is (str/includes? registry-out "support experimental"))
+        (is (str/includes? registry-out "code-reviewed false"))
+        (is (str/includes? registry-out "maintainers Demo Maintainer"))
         (is (str/includes? registry-out "- non-authoritative 1"))
         (is (str/includes? registry-out
                            "claim-blockers project-local,unbenchmarked")))
@@ -1475,7 +1486,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
 
