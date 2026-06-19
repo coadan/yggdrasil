@@ -77,6 +77,7 @@
     (is (str/includes? usage "plugin remove <project.edn> <package-id>"))
     (is (str/includes? usage "plugin registry validate <registry.edn>"))
     (is (str/includes? usage "agent install --platform codex --project"))
+    (is (str/includes? usage "--print-config"))
     (is (str/includes? usage "agent uninstall --platform codex --project"))
     (is (str/includes? usage "agent list"))
     (is (not (str/includes? usage "  install --platform codex --project")))
@@ -627,6 +628,33 @@
       (finally
         (System/setProperty "user.dir" old-dir)))))
 
+(deftest agent-install-print-config-does-not-write-files
+  (let [root (temp-dir "agraph-agent-print-config-cli")
+        old-dir (System/getProperty "user.dir")]
+    (try
+      (System/setProperty "user.dir" root)
+      (let [out (with-out-str
+                  (cli/dispatch "agent" ["install"
+                                         "--platform" "codex"
+                                         "--project"
+                                         "--hooks"
+                                         "--print-config"]))
+            parsed (read-json-output out)
+            agents (io/file root "AGENTS.md")
+            hooks (io/file root ".codex" "hooks.json")]
+        (is (= agent-install/schema (:schema parsed)))
+        (is (= "print-config" (:action parsed)))
+        (is (= (.getPath agents) (get-in parsed [:instructions :path])))
+        (is (= (.getPath hooks) (get-in parsed [:hooks :path])))
+        (is (str/includes? (get-in parsed [:instructions :content])
+                           "AGraph Agent Workflow"))
+        (is (str/includes? (get-in parsed [:hooks :content])
+                           "AGraph may have relevant project context"))
+        (is (not (.exists agents)))
+        (is (not (.exists hooks))))
+      (finally
+        (System/setProperty "user.dir" old-dir)))))
+
 (deftest agent-uninstall-command-removes-codex-project-guidance
   (let [root (temp-dir "agraph-uninstall-cli")
         old-dir (System/getProperty "user.dir")]
@@ -675,7 +703,7 @@
       (is (str/includes? first-content "AGRAPH_MCP_TOOLS=all"))
       (is (str/includes? first-content "Use `agraph_explore` as the primary one-shot orientation packet"))
       (is (str/includes? first-content "with graph-basis freshness, `answerability.planes`"))
-      (is (str/includes? first-content "relationships, graph facts, and drilldowns"))
+      (is (str/includes? first-content "relationships, graph facts, architecture evidence, and drilldowns"))
       (is (str/includes? first-content "Treat returned snippets as already-read source context"))
       (is (str/includes? first-content "nearby mechanical edges before broad grep/read loops"))
       (is (str/includes? first-content "Use queued review packets"))

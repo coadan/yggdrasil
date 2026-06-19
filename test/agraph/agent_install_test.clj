@@ -32,6 +32,25 @@
     (is (str/includes? content "`agraphCommandCount` as observed tool usage"))
     (is (str/includes? content "search/read/shell command reductions are the lower-is-better"))))
 
+(deftest print-config-returns-codex-guidance-without-writing-files
+  (let [root (temp-dir "agraph-agent-print-config")
+        result (agent-install/install! "codex" {:root root
+                                                :project? true
+                                                :hooks? true
+                                                :print-config? true})
+        agents (io/file root "AGENTS.md")
+        hooks (io/file root ".codex" "hooks.json")]
+    (is (= agent-install/schema (:schema result)))
+    (is (= "print-config" (:action result)))
+    (is (= (.getPath agents) (get-in result [:instructions :path])))
+    (is (= (.getPath hooks) (get-in result [:hooks :path])))
+    (is (str/includes? (get-in result [:instructions :content])
+                       "AGraph Agent Workflow"))
+    (is (str/includes? (get-in result [:hooks :content])
+                       "AGraph may have relevant project context"))
+    (is (not (.exists agents)))
+    (is (not (.exists hooks)))))
+
 (deftest codex-broad-search-hook-prefers-status-and-explore
   (let [root (temp-dir "agraph-agent-hook")
         result (agent-install/install! "codex" {:root root

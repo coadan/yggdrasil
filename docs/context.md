@@ -312,6 +312,7 @@ AGraph automatically:
 ```sh
 agraph agent install --platform codex --project
 agraph agent install --platform codex --project --hooks
+agraph agent install --platform codex --project --hooks --print-config
 ```
 
 The installer edits only marked AGraph sections. Remove them with:

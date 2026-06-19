@@ -3122,7 +3122,8 @@
         platform (or (option-value agent-args "--platform") "codex")
         opts {:project? (boolean (some #{"--project"} agent-args))
               :hooks? (boolean (some #{"--hooks"} agent-args))
-              :force? (boolean (some #{"--force"} agent-args))}]
+              :force? (boolean (some #{"--force"} agent-args))
+              :print-config? (boolean (some #{"--print-config"} agent-args))}]
     (case action
       "list"
       (print-json (agent-install/list-platforms))
@@ -3202,7 +3203,7 @@
     "  plugin registry validate <registry.edn> [--json]"
     ""
     "Agent integration:"
-    "  agent install --platform codex --project [--hooks]"
+    "  agent install --platform codex --project [--hooks] [--print-config]"
     "  agent uninstall --platform codex --project"
     "  agent list"
     "  watch <project.edn> [--map agraph.map.json] [--query-index] [--debounce-ms N]"

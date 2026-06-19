@@ -182,10 +182,31 @@
   []
   {:hooks [(broad-search-hook)]})
 
+(defn- hooks-content
+  []
+  (str (json/write-json-str (hooks-json) {:indent-str "  "}) "\n"))
+
+(defn- install-plan
+  [platform opts]
+  (let [instructions (instruction-path platform opts)
+        existing (read-file instructions)
+        new-content (replace-marked-section existing (instruction-section))
+        hooks (when (:hooks? opts)
+                (let [file (hook-path platform opts)]
+                  {:path (.getPath file)
+                   :content (hooks-content)}))]
+    (cond-> {:schema schema
+             :action "print-config"
+             :platform platform
+             :scope "project"
+             :instructions {:path (.getPath instructions)
+                            :content new-content}}
+      hooks (assoc :hooks hooks))))
+
 (defn- write-hooks!
   [platform opts]
   (let [file (hook-path platform opts)
-        content (str (json/write-json-str (hooks-json) {:indent-str "  "}) "\n")
+        content (hooks-content)
         existing (read-file file)]
     (when (and existing
                (not= existing content)
@@ -201,25 +222,28 @@
   - `:root`: project root, defaults to current working directory
   - `:project?`: must be true for the current implementation
   - `:hooks?`: write optional hook configuration
-  - `:force?`: replace an existing hook file when `:hooks?` is true"
+  - `:force?`: replace an existing hook file when `:hooks?` is true
+  - `:print-config?`: return generated config without writing files"
   [platform opts]
   (ensure-supported-platform! platform)
   (when-not (:project? opts)
     (throw (ex-info "Only project-scoped agent install is implemented."
                     {:platform platform
                      :hint "Pass --project."})))
-  (let [instructions (instruction-path platform opts)
-        existing (read-file instructions)
-        new-content (replace-marked-section existing (instruction-section))
-        instruction-path (write-file! instructions new-content)
-        hooks-path (when (:hooks? opts)
-                     (write-hooks! platform opts))]
-    (cond-> {:schema schema
-             :action "install"
-             :platform platform
-             :scope "project"
-             :instructions instruction-path}
-      hooks-path (assoc :hooks hooks-path))))
+  (if (:print-config? opts)
+    (install-plan platform opts)
+    (let [instructions (instruction-path platform opts)
+          existing (read-file instructions)
+          new-content (replace-marked-section existing (instruction-section))
+          instruction-path (write-file! instructions new-content)
+          hooks-path (when (:hooks? opts)
+                       (write-hooks! platform opts))]
+      (cond-> {:schema schema
+               :action "install"
+               :platform platform
+               :scope "project"
+               :instructions instruction-path}
+        hooks-path (assoc :hooks hooks-path)))))
 
 (defn uninstall!
   "Remove assistant guidance for platform."

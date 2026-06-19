@@ -278,6 +278,8 @@ Use `agraph agent install --platform codex --project` to write concise project
 guidance into `AGENTS.md`. Add `--hooks` to install Codex hook guidance. The
 installer only edits marked AGraph sections, and `agraph agent uninstall`
 removes those sections.
+Use `--print-config` to preview the generated AGENTS section and hook JSON
+without writing files.
 
 Use `agraph-mcp --config project.edn --map agraph.map.json` when an MCP client
 should call AGraph tools directly. The default listed tools are
