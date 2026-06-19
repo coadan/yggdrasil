@@ -11,6 +11,7 @@
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
+            [clojure.set :as set]
             [clojure.string :as str])
   (:gen-class))
 
@@ -32,6 +33,23 @@
     (when-not (neg? idx)
       (nth args (inc idx)))))
 
+(def default-tool-groups
+  "default")
+
+(defn- configured-tool-groups
+  [args]
+  (or (option-value args "--tools")
+      (System/getenv "AGRAPH_MCP_TOOLS")
+      default-tool-groups))
+
+(defn- parse-tool-groups
+  [value]
+  (->> (str/split (str value) #",")
+       (map str/trim)
+       (remove str/blank?)
+       (map keyword)
+       set))
+
 (defn server-context
   "Return immutable server context from CLI args."
   [args]
@@ -40,7 +58,8 @@
                     (option-value args "--project-config"))
    :map-path (option-value args "--map")
    :queue-dir (or (option-value args "--queue-dir") queue/default-root)
-   :storage-path (or (option-value args "--storage") (store/storage-path))})
+   :storage-path (or (option-value args "--storage") (store/storage-path))
+   :tool-groups (parse-tool-groups (configured-tool-groups args))})
 
 (defn- json-schema
   [properties required]
@@ -51,6 +70,7 @@
 
 (def tool-definitions
   [{:name "agraph_explore"
+    :groups #{:default}
     :description "Return the primary one-shot AGraph orientation packet for an agent question."
     :inputSchema (json-schema
                   {:query {:type "string"}
@@ -63,6 +83,7 @@
                             :minimum 1000}}
                   ["query"])}
    {:name "agraph_ask"
+    :groups #{:ask}
     :description "Return an AGraph context packet for one graph-grounded question."
     :inputSchema (json-schema
                   {:query {:type "string"}
@@ -75,6 +96,7 @@
                             :minimum 1000}}
                   ["query"])}
    {:name "agraph_explore_create"
+    :groups #{:cursor}
     :description "Create a persistent graph exploration cursor packet."
     :inputSchema (json-schema
                   {:query {:type "string"}
@@ -85,6 +107,7 @@
                             :minimum 1000}}
                   [])}
    {:name "agraph_explore_open"
+    :groups #{:cursor}
     :description "Open one target in an existing graph exploration cursor."
     :inputSchema (json-schema
                   {:cursorId {:type "string"}
@@ -93,6 +116,7 @@
                             :minimum 1000}}
                   ["cursorId" "target"])}
    {:name "agraph_explore_expand"
+    :groups #{:cursor}
     :description "Expand an existing graph exploration cursor around one target."
     :inputSchema (json-schema
                   {:cursorId {:type "string"}
@@ -104,6 +128,7 @@
                             :minimum 1000}}
                   ["cursorId" "target"])}
    {:name "agraph_explore_docs"
+    :groups #{:cursor}
     :description "Open documentation and source snippets for one cursor target."
     :inputSchema (json-schema
                   {:cursorId {:type "string"}
@@ -112,6 +137,7 @@
                             :minimum 1000}}
                   ["cursorId" "target"])}
    {:name "agraph_explore_search"
+    :groups #{:cursor}
     :description "Search within an existing graph exploration cursor basis."
     :inputSchema (json-schema
                   {:cursorId {:type "string"}
@@ -124,6 +150,7 @@
                             :minimum 1000}}
                   ["cursorId" "query"])}
    {:name "agraph_view_systems"
+    :groups #{:default}
     :description "Return the canonical agraph.graph/v2 systems graph JSON."
     :inputSchema (json-schema
                   {:projectId {:type "string"}
@@ -135,18 +162,21 @@
                            :minimum 1}}
                   [])}
    {:name "agraph_sync_inspect"
+    :groups #{:sync}
     :description "Return project config plus the current mechanical evidence surface without syncing."
     :inputSchema (json-schema
                   {:configPath {:type "string"}
                    :mapPath {:type "string"}}
                   [])}
    {:name "agraph_status"
+    :groups #{:default}
     :description "Return the agent-facing project status, evidence surface, and next actions without syncing."
     :inputSchema (json-schema
                   {:configPath {:type "string"}
                    :mapPath {:type "string"}}
                   [])}
    {:name "agraph_sync_check"
+    :groups #{:sync}
     :description "Return the read-only maintenance check report for a project."
     :inputSchema (json-schema
                   {:configPath {:type "string"}
@@ -154,12 +184,14 @@
                    :minConfidence {:type "number"}}
                   [])}
    {:name "agraph_sync_activity"
+    :groups #{:sync}
     :description "Import filesystem queue lifecycle and result audit facts into local activity rows."
     :inputSchema (json-schema
                   {:configPath {:type "string"}
                    :queueDir {:type "string"}}
                   [])}
    {:name "agraph_work_list"
+    :groups #{:work}
     :description "List filesystem queue work items without claiming them."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
@@ -170,12 +202,14 @@
                            :minimum 1}}
                   [])}
    {:name "agraph_work_show"
+    :groups #{:work}
     :description "Return one filesystem queue work item without changing its state."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
                    :workId {:type "string"}}
                   ["workId"])}
    {:name "agraph_work_pull"
+    :groups #{:work}
     :description "Claim one ready filesystem queue item for an agent."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
@@ -186,6 +220,7 @@
                                   :minimum 1}}
                   [])}
    {:name "agraph_work_heartbeat"
+    :groups #{:work}
     :description "Extend the lease for one claimed filesystem queue item."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
@@ -195,6 +230,7 @@
                                   :minimum 1}}
                   ["workId"])}
    {:name "agraph_work_complete"
+    :groups #{:work}
     :description "Complete a claimed filesystem queue item with a schema-bearing result object."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
@@ -202,6 +238,7 @@
                    :result {:type "object"}}
                   ["workId" "result"])}
    {:name "agraph_work_release"
+    :groups #{:work}
     :description "Release one claimed filesystem queue item back to ready."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
@@ -209,12 +246,24 @@
                    :reason {:type "string"}}
                   ["workId"])}
    {:name "agraph_work_reject"
+    :groups #{:work}
     :description "Reject one filesystem queue item with a reason."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
                    :workId {:type "string"}
                    :reason {:type "string"}}
                   ["workId" "reason"])}])
+
+(defn- tool-visible?
+  [groups tool]
+  (or (contains? groups :all)
+      (seq (set/intersection groups (:groups tool)))))
+
+(defn- listed-tools
+  [ctx]
+  (->> tool-definitions
+       (filter #(tool-visible? (:tool-groups ctx) %))
+       (mapv #(dissoc % :groups))))
 
 (defn- abs-path
   [path]
@@ -608,7 +657,7 @@
           (response id {})
 
           "tools/list"
-          (response id {:tools tool-definitions})
+          (response id {:tools (listed-tools ctx)})
 
           "tools/call"
           (let [name (:name params)

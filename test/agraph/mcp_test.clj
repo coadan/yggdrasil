@@ -53,6 +53,15 @@
             :version "0.1.0"}
            (get-in init [:result :serverInfo])))
     (is (= ["agraph_explore"
+            "agraph_view_systems"
+            "agraph_status"]
+           tool-names))))
+
+(deftest all-tool-mode-lists-advanced-tools
+  (let [listed (mcp/handle-message (mcp/server-context ["--tools" "all"])
+                                   (request 1 "tools/list" {}))
+        tool-names (mapv :name (get-in listed [:result :tools]))]
+    (is (= ["agraph_explore"
             "agraph_ask"
             "agraph_explore_create"
             "agraph_explore_open"
@@ -73,8 +82,20 @@
             "agraph_work_reject"]
            tool-names))))
 
+(deftest tool-groups-compose-listed-tools
+  (let [listed (mcp/handle-message (mcp/server-context ["--tools" "default,sync"])
+                                   (request 1 "tools/list" {}))
+        tool-names (mapv :name (get-in listed [:result :tools]))]
+    (is (= ["agraph_explore"
+            "agraph_view_systems"
+            "agraph_sync_inspect"
+            "agraph_status"
+            "agraph_sync_check"
+            "agraph_sync_activity"]
+           tool-names))))
+
 (deftest tool-schemas-stay-narrow-and-explicit
-  (let [listed (mcp/handle-message (mcp/server-context [])
+  (let [listed (mcp/handle-message (mcp/server-context ["--tools" "all"])
                                    (request 1 "tools/list" {}))
         schemas (into {} (map (juxt :name :inputSchema)) (get-in listed [:result :tools]))]
     (is (= ["query"] (get-in schemas ["agraph_explore" :required])))

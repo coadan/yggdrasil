@@ -260,12 +260,11 @@ installer only edits marked AGraph sections, and `uninstall` removes those
 sections.
 
 Use `agraph-mcp --config project.edn --map agraph.map.json` when an MCP client
-should call AGraph tools directly. The server exposes compact packet tools such
-as `agraph_explore`, `agraph_ask`, `agraph_explore_create`, `agraph_explore_search`,
-`agraph_view_systems`, `agraph_status`, `agraph_sync_inspect`, `agraph_sync_check`,
-`agraph_sync_activity`, `agraph_work_show`, and the queue
-claim/heartbeat/complete/release/reject lifecycle tools. It does not expose
-arbitrary SQL or implicit map mutation.
+should call AGraph tools directly. The default listed tools are
+`agraph_explore`, `agraph_status`, and `agraph_view_systems`. Use
+`--tools default,cursor,sync,work,ask` or `AGRAPH_MCP_TOOLS=all` to list
+advanced cursor, sync, and queue lifecycle tools. MCP does not expose arbitrary
+SQL or implicit map mutation.
 
 ## Queue Handoff
 

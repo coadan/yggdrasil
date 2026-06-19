@@ -40,9 +40,11 @@ agraph-mcp --config project.edn --map agraph.map.json
 ```
 
 `agraph-mcp` is the stdio MCP server for editor and agent integrations. It
-exposes bounded graph tools for ask, explore, systems views, sync inspection,
-sync check, and filesystem queue handoff. Use the CLI for explicit map mutation
-and applying validated work results.
+lists the primary `agraph_explore`, `agraph_status`, and `agraph_view_systems`
+tools by default. Use `--tools default,cursor,sync,work,ask` or
+`AGRAPH_MCP_TOOLS=all` to list bounded advanced packet tools for cursor
+drilldowns, sync inspection/checks, and filesystem queue handoff. Use the CLI
+for explicit map mutation and applying validated work results.
 
 ## Docker
 
