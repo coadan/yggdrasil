@@ -22,8 +22,25 @@ Tracked starter suites:
 ## Headline Suite
 
 Use the tracked headline suite to compare shell-only and AGraph-assisted agents
-on architecture-oriented tasks. Until dedicated `bench headline` wrappers exist,
-run it through the existing agent commands.
+on architecture-oriented tasks. Generated lane outputs stay under
+`.dev/agraph/headline-bench/` by default.
+
+Repeatable helper workflow:
+
+```sh
+bb headline baseline
+bb headline agents
+bb headline reports
+bb headline compare
+```
+
+Use `bb headline all` for a full local run. Pass `--suite`, `--out`, `--agent`,
+`--command`, `--prompt-profile`, and `--timeout-ms` to make a run comparable
+across machines or agent CLIs. Add `--dry-run` to print the exact commands
+without launching agents.
+
+The helper wraps the existing benchmark commands. Use the raw command form below
+when debugging one lane or when a CI job needs each phase split explicitly.
 
 Deterministic AGraph baseline:
 

@@ -29,6 +29,10 @@
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "bench"
                       *command-line-args*)}
 
+  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|shell-only|agraph|agents|reports|compare|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
+            :task (apply shell "bash" "scripts/headline-bench.sh"
+                         *command-line-args*)}
+
   efficiency {:doc "Compare shell-only and AGraph agent reports. Usage: bb efficiency <shell-agent-report.json> <agraph-agent-report.json> [--out report.json] [--json] [--min-shared-cases N]"
               :task (apply shell "clojure" "-M:run" "-m" "agraph.agent-efficiency"
                            *command-line-args*)}
