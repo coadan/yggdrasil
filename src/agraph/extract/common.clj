@@ -378,6 +378,20 @@
        distinct
        vec))
 
+(defn properties-assignment-lines
+  [content]
+  (->> (str/split-lines content)
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (when-let [[_ key value]
+                          (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*[=:]\s*(.*?)\s*$"
+                                      line)]
+                 (when-not (or (str/blank? key)
+                               (str/starts-with? (str/trim line) "#"))
+                   {:key key
+                    :value (str/trim value)
+                    :source-line (inc idx)}))))))
+
 (defn leading-spaces
   [line]
   (count (take-while #(= \space %) line)))
