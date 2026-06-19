@@ -851,6 +851,11 @@
             {:plane "dependencies"
              :status "missing"}]
            (:validationGaps section)))
+    (is (= ["Graph basis is stale."
+            "Another warning."
+            "Third warning."
+            "Dropped warning."]
+           (:warnings section)))
     (is (= [{:kind :inspect
              :label "Inspect accepted system Billing"
              :target "system:billing"
