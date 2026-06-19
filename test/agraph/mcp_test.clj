@@ -113,6 +113,21 @@
             "agraph_sync_activity"]
            tool-names))))
 
+(deftest default-tool-mode-rejects-hidden-tool-calls
+  (let [response (mcp/handle-message (mcp/server-context [])
+                                     (tool-call 1 "agraph_sync_inspect" {}))]
+    (is (= -32602 (get-in response [:error :code])))
+    (is (= "agraph.mcp.error/v1"
+           (get-in response [:error :data :schema])))
+    (is (= "tool-not-enabled"
+           (get-in response [:error :data :error])))
+    (is (= "agraph_sync_inspect"
+           (get-in response [:error :data :tool])))
+    (is (= ["default"]
+           (get-in response [:error :data :enabledGroups])))
+    (is (= ["sync"]
+           (get-in response [:error :data :requiredGroups])))))
+
 (deftest tool-schemas-stay-narrow-and-explicit
   (let [listed (mcp/handle-message (mcp/server-context ["--tools" "all"])
                                    (request 1 "tools/list" {}))
@@ -161,7 +176,8 @@
                                             :retriever (name (:retriever opts))
                                             :freshness (:freshness opts)})]
       (let [response (mcp/handle-message
-                      (mcp/server-context ["--config" "project.edn"])
+                      (mcp/server-context ["--config" "project.edn"
+                                           "--tools" "default,ask"])
                       (tool-call 7
                                  "agraph_ask"
                                  {:query "where auth"
@@ -774,7 +790,7 @@
                                 :target target
                                 :budget (:budget opts)})]
     (let [response (mcp/handle-message
-                    (mcp/server-context [])
+                    (mcp/server-context ["--tools" "cursor"])
                     (tool-call 9
                                "agraph_explore_docs"
                                {:cursorId "cursor:abc"
@@ -797,7 +813,7 @@
                                   :retriever (:retriever opts)
                                   :limit (:limit opts)})]
     (let [response (mcp/handle-message
-                    (mcp/server-context [])
+                    (mcp/server-context ["--tools" "cursor"])
                     (tool-call 10
                                "agraph_explore_search"
                                {:cursorId "cursor:abc"
@@ -850,7 +866,8 @@
                                                      :count 1
                                                      :command "agraph sync activity project.edn --json"}]})]
     (let [response (mcp/handle-message
-                    (mcp/server-context ["--config" "project.edn"])
+                    (mcp/server-context ["--config" "project.edn"
+                                         "--tools" "default,sync"])
                     (tool-call 11
                                "agraph_sync_inspect"
                                {:mapPath "agraph.map.json"}))
@@ -968,7 +985,7 @@
 
 (deftest missing-project-returns-structured-error
   (let [response (mcp/handle-message
-                  (mcp/server-context [])
+                  (mcp/server-context ["--tools" "sync"])
                   (tool-call 11 "agraph_sync_inspect" {}))]
     (is (= -32602 (get-in response [:error :code])))
     (is (= "agraph.mcp.error/v1"
@@ -990,7 +1007,8 @@
                                                    :validation-events 1
                                                    :result-schema-mismatch-events 1}})]
       (let [response (mcp/handle-message
-                      (mcp/server-context ["--config" "project.edn"])
+                      (mcp/server-context ["--config" "project.edn"
+                                           "--tools" "sync"])
                       (tool-call 12
                                  "agraph_sync_activity"
                                  {:queueDir ".dev/test-queue"}))
@@ -1004,7 +1022,7 @@
 
 (deftest work-complete-rejects-result-without-schema
   (let [response (mcp/handle-message
-                  (mcp/server-context [])
+                  (mcp/server-context ["--tools" "work"])
                   (tool-call 12
                              "agraph_work_complete"
                              {:workId "queue:item"
@@ -1021,7 +1039,7 @@
                                       :kind "context"
                                       :project-id "fixture"})
         response (mcp/handle-message
-                  (mcp/server-context [])
+                  (mcp/server-context ["--tools" "work"])
                   (tool-call 13
                              "agraph_work_list"
                              {:queueDir root
@@ -1046,7 +1064,7 @@
                                       :kind "context"
                                       :project-id "fixture"})
         response (mcp/handle-message
-                  (mcp/server-context [])
+                  (mcp/server-context ["--tools" "work"])
                   (tool-call 14
                              "agraph_work_show"
                              {:queueDir root
@@ -1060,7 +1078,7 @@
 
 (deftest work-show-returns-queue-error-for-missing-item
   (let [response (mcp/handle-message
-                  (mcp/server-context [])
+                  (mcp/server-context ["--tools" "work"])
                   (tool-call 15
                              "agraph_work_show"
                              {:queueDir (temp-dir "agraph-mcp-queue-show-missing")
@@ -1078,7 +1096,7 @@
                                       :kind "context"
                                       :project-id "fixture"})
         response (mcp/handle-message
-                  (mcp/server-context [])
+                  (mcp/server-context ["--tools" "work"])
                   (tool-call 16
                              "agraph_work_pull"
                              {:queueDir root
@@ -1101,7 +1119,7 @@
                                    :project-id "fixture"
                                    :lease-ms 1000})
         response (mcp/handle-message
-                  (mcp/server-context [])
+                  (mcp/server-context ["--tools" "work"])
                   (tool-call 17
                              "agraph_work_heartbeat"
                              {:queueDir root
@@ -1125,7 +1143,7 @@
         _ (queue/claim-next! root {:agent-id "agent"
                                    :project-id "fixture"})
         response (mcp/handle-message
-                  (mcp/server-context [])
+                  (mcp/server-context ["--tools" "work"])
                   (tool-call 18
                              "agraph_work_release"
                              {:queueDir root
@@ -1147,7 +1165,7 @@
                                          :project-id "fixture"})
                         [:item :id])
         response (mcp/handle-message
-                  (mcp/server-context [])
+                  (mcp/server-context ["--tools" "work"])
                   (tool-call 19
                              "agraph_work_reject"
                              {:queueDir root

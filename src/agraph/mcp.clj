@@ -286,14 +286,40 @@
 
 (defn- tool-visible?
   [groups tool]
-  (or (contains? groups :all)
-      (seq (set/intersection groups (:groups tool)))))
+  (boolean
+   (or (contains? groups :all)
+       (seq (set/intersection groups (:groups tool))))))
+
+(def ^:private tool-definitions-by-name
+  (into {} (map (juxt :name identity)) tool-definitions))
+
+(defn- tool-definition
+  [tool-name]
+  (get tool-definitions-by-name tool-name))
 
 (defn- listed-tools
   [ctx]
   (->> tool-definitions
        (filter #(tool-visible? (:tool-groups ctx) %))
        (mapv #(dissoc % :groups))))
+
+(defn- ensure-tool-enabled!
+  [ctx tool-name]
+  (let [tool (tool-definition tool-name)]
+    (when-not tool
+      (throw (ex-info "Unknown MCP tool."
+                      {:schema "agraph.mcp.error/v1"
+                       :error "unknown-tool"
+                       :tool tool-name})))
+    (when-not (tool-visible? (:tool-groups ctx) tool)
+      (throw (ex-info "MCP tool is not enabled."
+                      {:schema "agraph.mcp.error/v1"
+                       :error "tool-not-enabled"
+                       :tool tool-name
+                       :enabledGroups (mapv name (sort-by name (:tool-groups ctx)))
+                       :requiredGroups (mapv name (sort-by name (:groups tool)))
+                       :hint "Start agraph-mcp with --tools default,cursor,sync,work,ask or AGRAPH_MCP_TOOLS=all."})))
+    tool))
 
 (defn- abs-path
   [path]
@@ -1140,6 +1166,7 @@
 (defn call-tool
   "Call one MCP tool and return its raw AGraph value."
   [ctx name args]
+  (ensure-tool-enabled! ctx name)
   (case name
     "agraph_explore" (explore ctx args)
     "agraph_node" (node-inspect ctx args)
@@ -1160,11 +1187,7 @@
     "agraph_work_heartbeat" (work-heartbeat ctx args)
     "agraph_work_complete" (work-complete ctx args)
     "agraph_work_release" (work-release ctx args)
-    "agraph_work_reject" (work-reject ctx args)
-    (throw (ex-info "Unknown MCP tool."
-                    {:schema "agraph.mcp.error/v1"
-                     :error "unknown-tool"
-                     :tool name}))))
+    "agraph_work_reject" (work-reject ctx args)))
 
 (defn- project-resource
   [file]
