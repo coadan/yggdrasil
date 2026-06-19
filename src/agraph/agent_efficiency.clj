@@ -498,21 +498,32 @@
   (assoc (select-keys group [:tag :shellOnly :agraph :summary])
          :measured (contains? measured-tags (:tag group))))
 
+(defn- class-signals-summary
+  [problem-classes architecture-classes]
+  {:problemClasses (count problem-classes)
+   :measuredProblemClasses (count (filter :measured problem-classes))
+   :architectureClasses (count architecture-classes)
+   :measuredArchitectureClasses (count (filter :measured
+                                               architecture-classes))})
+
 (defn- class-signals
   [by-tag problem-coverage]
   (let [groups (:groups by-tag)
         measured-problem-tags (set (:sharedMeasuredProblemClassTags
                                     problem-coverage))
         measured-architecture-tags (set (:sharedMeasuredArchitectureClassTags
-                                         problem-coverage))]
-    {:problemClasses (->> groups
-                          (filter #(problem-class-tag? (:tag %)))
-                          (mapv #(class-signal-row measured-problem-tags %)))
-     :architectureClasses (->> groups
-                               (filter #(architecture-class-tag? (:tag %)))
-                               (mapv #(class-signal-row
-                                       measured-architecture-tags
-                                       %)))}))
+                                         problem-coverage))
+        problem-classes (->> groups
+                             (filter #(problem-class-tag? (:tag %)))
+                             (mapv #(class-signal-row measured-problem-tags %)))
+        architecture-classes (->> groups
+                                  (filter #(architecture-class-tag? (:tag %)))
+                                  (mapv #(class-signal-row
+                                          measured-architecture-tags
+                                          %)))]
+    {:summary (class-signals-summary problem-classes architecture-classes)
+     :problemClasses problem-classes
+     :architectureClasses architecture-classes}))
 
 (defn- category-summaries
   [deltas comparable min-shared-cases]

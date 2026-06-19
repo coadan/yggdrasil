@@ -406,6 +406,7 @@
                                             :recall10 1.0
                                             :noise 0.25})]))
         comparison (agent-efficiency/compare-reports shell agraph)
+        class-summary (get-in comparison [:classSignals :summary])
         problem-signals (get-in comparison [:classSignals :problemClasses])
         architecture-signals (get-in comparison [:classSignals :architectureClasses])
         architecture-by-tag (into {} (map (juxt :tag identity)) architecture-signals)]
@@ -434,6 +435,11 @@
                          :hasMeasuredArchitectureClasses
                          :broadEfficiencyClaimSupported
                          :warnings])))
+    (is (= {:problemClasses 1
+            :measuredProblemClasses 1
+            :architectureClasses 2
+            :measuredArchitectureClasses 1}
+           class-summary))
     (is (= ["problem-architecture"] (mapv :tag problem-signals)))
     (is (= ["architecture-dependency-flow" "problem-architecture"]
            (mapv :tag architecture-signals)))
