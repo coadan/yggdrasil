@@ -181,7 +181,9 @@ file rows; they are not semantic classifications. It does not scan the
 filesystem for unsupported files; use `agraph sync coverage <project.edn> --json`
 when an agent needs skipped or unsupported source candidates. Project evidence
 and report packets include compact `skipped-by-extension` and
-`skipped-by-reason` rows with bounded samples for first-pass triage.
+`skipped-by-reason` rows with bounded samples for first-pass triage. Full
+coverage reports include `nextActions` rows when skipped files or extractor
+diagnostics need a follow-up coverage inspection.
 
 `candidateFiles` lists ranked file candidates from retrieval. Rows include
 `repo` when the indexed search result is repo-scoped, so agents can distinguish

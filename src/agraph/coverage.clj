@@ -1,6 +1,7 @@
 (ns agraph.coverage
   "Source type coverage reporting for project repos."
-  (:require [agraph.extract :as extract]
+  (:require [agraph.command :as command]
+            [agraph.extract :as extract]
             [agraph.fs :as fs]
             [agraph.xtdb :as store]
             [clojure.string :as str]))
@@ -167,6 +168,30 @@
      :coverage (if (pos? files)
                  (/ (double supported) (double files))
                  0.0)}))
+
+(defn- coverage-command
+  [config-path]
+  (str "agraph sync coverage "
+       (command/shell-token (or config-path "<project.edn>"))
+       " --json"))
+
+(defn- coverage-next-actions
+  [{:keys [totals diagnostics]} config-path]
+  (let [skipped (long (or (:skipped totals) 0))
+        diagnostic-count (long (or (:total diagnostics) 0))
+        command (coverage-command config-path)]
+    (cond-> []
+      (pos? skipped)
+      (conj {:kind :coverage
+             :label "Inspect skipped source candidates"
+             :count skipped
+             :command command})
+
+      (pos? diagnostic-count)
+      (conj {:kind :coverage
+             :label "Inspect extractor diagnostics"
+             :count diagnostic-count
+             :command command}))))
 
 (defn- active-rows
   [rows]
@@ -360,20 +385,23 @@
   When `xtdb` is provided, indexed diagnostics are joined with active file rows
   to summarize parser/extractor failures by source kind and extractor version."
   ([project] (project-coverage nil project {}))
-  ([xtdb {:keys [id repos] :as _project} _opts]
-   (let [repos (mapv repo-coverage repos)]
-     {:schema schema
-      :project-id id
-      :totals (project-totals repos)
-      :files-by-kind (merge-counts repos :files-by-kind :kind)
-      :files-by-extension (merge-counts repos :files-by-extension :ext)
-      :skipped-by-extension (merge-counts-with-samples repos
-                                                       :skipped-by-extension
-                                                       :ext)
-      :skipped-by-reason (merge-counts-with-samples repos
-                                                    :skipped-by-reason
-                                                    :reason)
-      :extractors (merge-extractors repos)
-      :extractor-fingerprints (indexed-extractor-fingerprint-summary xtdb id)
-      :diagnostics (diagnostics-summary xtdb id)
-      :repos repos})))
+  ([xtdb {:keys [id repos path] :as _project} {:keys [config-path]}]
+   (let [repos (mapv repo-coverage repos)
+         report {:schema schema
+                 :project-id id
+                 :totals (project-totals repos)
+                 :files-by-kind (merge-counts repos :files-by-kind :kind)
+                 :files-by-extension (merge-counts repos :files-by-extension :ext)
+                 :skipped-by-extension (merge-counts-with-samples repos
+                                                                  :skipped-by-extension
+                                                                  :ext)
+                 :skipped-by-reason (merge-counts-with-samples repos
+                                                               :skipped-by-reason
+                                                               :reason)
+                 :extractors (merge-extractors repos)
+                 :extractor-fingerprints (indexed-extractor-fingerprint-summary xtdb id)
+                 :diagnostics (diagnostics-summary xtdb id)
+                 :repos repos}
+         actions (coverage-next-actions report (or config-path path))]
+     (cond-> report
+       (seq actions) (assoc :nextActions actions)))))

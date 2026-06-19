@@ -31,6 +31,7 @@
     (spit-file! root-b "src/app.clj" "(ns app)\n")
     (let [report (coverage/project-coverage
                   {:id "fixture"
+                   :path "project.edn"
                    :repos [{:id "repo-a"
                             :root root-a
                             :role :application}
@@ -66,7 +67,47 @@
              (:samples wasm-row)))
       (is (= 7 (:count reason-row)))
       (is (= (take 3 (:samples wasm-row))
-             (take 3 (:samples reason-row)))))))
+             (take 3 (:samples reason-row))))
+      (is (= [{:kind :coverage
+               :label "Inspect skipped source candidates"
+               :count 7
+               :command "agraph sync coverage project.edn --json"}]
+             (:nextActions report))))))
+
+(deftest project-coverage-adds-diagnostic-next-action
+  (let [root (temp-dir "agraph-coverage-diagnostic-action")]
+    (spit-file! root "src/app.clj" "(ns app)\n")
+    (with-redefs [store/rows-by-field (fn [_ table field value]
+                                        (case [table field value]
+                                          [:agraph/files :project-id "fixture"]
+                                          [{:xt/id "file:app"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/app.clj"
+                                            :kind :code
+                                            :active? true}]
+
+                                          [:agraph/index-diagnostics :project-id "fixture"]
+                                          [{:file-id "file:app"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :stage :parse
+                                            :message "parser failed"
+                                            :active? true}]
+
+                                          []))]
+      (let [report (coverage/project-coverage
+                    :xtdb
+                    {:id "fixture"
+                     :repos [{:id "app"
+                              :root root
+                              :role :application}]}
+                    {:config-path "project.edn"})]
+        (is (= [{:kind :coverage
+                 :label "Inspect extractor diagnostics"
+                 :count 1
+                 :command "agraph sync coverage project.edn --json"}]
+               (:nextActions report)))))))
 
 (deftest context-summary-groups-indexed-files-and-diagnostics
   (with-redefs [store/all-rows (fn [_ table _]
