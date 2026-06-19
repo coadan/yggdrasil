@@ -180,25 +180,28 @@ Packet `drilldowns` favor agent-facing follow-ups: repeat the primary
 Context packets include `sourceCoverage`, a compact summary of the indexed graph
 basis for the selected project/repo/read context. It reports indexed file counts,
 top source kinds, extractor versions, persisted extractor fingerprint groups,
-and active diagnostics grouped by stage and extractor. Fingerprints are opaque
-mechanical audit ids for the extractor/indexing boundary used to create indexed
-file rows; they are not semantic classifications. It does not scan the
-filesystem for unsupported files; use `agraph sync coverage <project.edn> --json`
-when an agent needs skipped or unsupported source candidates. When active
-indexed diagnostics exist, `sourceCoverage.nextActions` points at the same
-coverage inspection command. Project evidence and report packets include compact
-`skipped-by-extension` and
-`skipped-by-reason` rows with bounded samples for first-pass triage. Full
-coverage reports include `indexedConnectivity`, a mechanical graph-topology
-summary with indexed file, node, edge, connected-file, cross-file-connected, and
-isolated-file counts. `connectedFiles` means an indexed file has at least one
-active graph edge through one of its indexed nodes; `crossFileConnectedFiles`
-means at least one such edge reaches a node in a different indexed file.
-`isolatedFiles` are indexed files without active graph edges. Isolation is not a
-semantic defect, but agents should treat it as a trust-boundary signal when a
-task depends on relationships. Full coverage reports include `nextActions` rows
-when skipped files, extractor diagnostics, or isolated indexed files need a
-follow-up coverage inspection.
+active diagnostics grouped by stage and extractor, and `indexedConnectivity`, a
+mechanical graph-topology summary for the same selected basis. Fingerprints are
+opaque mechanical audit ids for the extractor/indexing boundary used to create
+indexed file rows; they are not semantic classifications.
+
+`indexedConnectivity` reports indexed file, node, edge, connected-file,
+cross-file-connected, and isolated-file counts. `connectedFiles` means an
+indexed file has at least one active graph edge through one of its indexed
+nodes; `crossFileConnectedFiles` means at least one such edge reaches a node in
+a different indexed file. `isolatedFiles` are indexed files without active graph
+edges. Isolation is not a semantic defect, but agents should treat it as a
+trust-boundary signal when a task depends on relationships.
+
+`sourceCoverage` does not scan the filesystem for unsupported files; use
+`agraph sync coverage <project.edn> --json` when an agent needs skipped or
+unsupported source candidates. When active indexed diagnostics or isolated
+indexed files exist, `sourceCoverage.nextActions` points at the same coverage
+inspection command. Project evidence and report packets include compact
+`skipped-by-extension` and `skipped-by-reason` rows with bounded samples for
+first-pass triage. Full coverage reports include the same connectivity signal
+plus `nextActions` rows when skipped files, extractor diagnostics, or isolated
+indexed files need a follow-up coverage inspection.
 
 `candidateFiles` lists ranked file candidates from retrieval. Rows include
 `repo` when the indexed search result is repo-scoped, so agents can distinguish
