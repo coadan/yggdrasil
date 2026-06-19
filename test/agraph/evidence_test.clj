@@ -83,6 +83,26 @@
                                           {:kind "typescript"
                                            :indexedFiles 1}]}}))))
 
+(deftest status-coverage-keeps-bounded-diagnostic-samples
+  (let [samples (mapv (fn [idx]
+                        {:path (str "src/file" idx ".clj")
+                         :stage "parse"
+                         :message (str "diagnostic " idx)})
+                      (range 7))
+        coverage (evidence/status-coverage
+                  {:counts {:files 7
+                            :skipped-files 0
+                            :diagnostics 7}
+                   :diagnostics {:total 7
+                                 :by-stage [{:stage "parse"
+                                             :count 7}]
+                                 :samples samples}})]
+    (is (= {:total 7
+            :by-stage [{:stage "parse"
+                        :count 7}]
+            :samples (vec (take 5 samples))}
+           (:diagnostics coverage)))))
+
 (deftest summarize-exposes-dependency-evidence-plane
   (with-redefs [coverage/project-coverage (fn [& _]
                                             {:totals {:skipped 2}

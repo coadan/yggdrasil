@@ -1,6 +1,5 @@
 (ns agraph.cli-sync-query-test
-  (:require [agraph.affected :as affected]
-            [agraph.activity :as activity]
+  (:require [agraph.activity :as activity]
             [agraph.audit-scope :as audit-scope]
             [agraph.benchmark :as benchmark]
             [agraph.cli :as cli]
@@ -613,7 +612,11 @@
                                                     :files 2}]
                                       :diagnostics {:total 2
                                                     :by-stage [{:stage "parse"
-                                                                :count 2}]}
+                                                                :count 2}]
+                                                    :samples [{:repo-id "app"
+                                                               :path "src/broken.clj"
+                                                               :stage "parse"
+                                                               :message "reader error"}]}
                                       :nextActions [{:kind :ask
                                                      :command "agraph ask \"where is this handled?\" --project fixture --json"}]
                                       :next ["agraph ask \"where is this handled?\" --project fixture --json"]})]
@@ -639,7 +642,11 @@
                             :files 2}]
               :diagnostics {:total 2
                             :by-stage [{:stage "parse"
-                                        :count 2}]}}
+                                        :count 2}]
+                            :samples [{:repo-id "app"
+                                       :path "src/broken.clj"
+                                       :stage "parse"
+                                       :message "reader error"}]}}
              (:coverage parsed)))
       (is (= {:status "stale"
               :basis "indexed-graph"

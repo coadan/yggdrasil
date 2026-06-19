@@ -441,8 +441,13 @@
       (assoc :extractors (vec (take 5 (:extractors summary))))
 
       (seq (:diagnostics summary))
-      (assoc :diagnostics (select-keys (:diagnostics summary)
-                                       [:total :by-stage :by-extractor])))))
+      (assoc :diagnostics (cond-> (select-keys (:diagnostics summary)
+                                               [:total :by-stage :by-extractor])
+                            (seq (get-in summary [:diagnostics :samples]))
+                            (assoc :samples
+                                   (vec (take 5
+                                              (get-in summary
+                                                      [:diagnostics :samples])))))))))
 
 (def freshness-sample-limit
   8)
