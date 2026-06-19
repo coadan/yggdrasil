@@ -35,7 +35,7 @@
        "Use agraph_node for one exact file, node, package, system, or "
        "evidence target; ambiguous labels return choices. Use agraph_status for "
        "graph freshness, basis, query-index readiness, evidence-family readiness, "
-       "coverage, and next actions. "
+       "coverage, plugin package caveats, and next actions. "
        "Use agraph_systems for a compact systems view. Treat AGraph output as "
        "mechanical facts plus "
        "accepted map/metadata corrections; do not infer architecture from names "
@@ -1048,6 +1048,33 @@
                              :limit (or (:limit args) graph/default-node-limit)
                              :map-overlay (map-overlay ctx args)})))))
 
+(defn- compact-plugin-package
+  [package]
+  (select-keys package [:id
+                        :version
+                        :visibility
+                        :scope
+                        :benchmark-status
+                        :benchmark-cases
+                        :claim-authority
+                        :diagnostic-counts
+                        :warnings]))
+
+(defn- plugin-package-caveats
+  [project]
+  (let [packages (mapv compact-plugin-package (:plugin-packages project))
+        by-benchmark (frequencies (map :benchmark-status packages))
+        non-authoritative (count (filter #(= :non-authoritative
+                                             (get-in % [:claim-authority :status]))
+                                         packages))
+        warning-count (reduce + 0 (map (comp count :warnings) packages))]
+    {:counts {:packages (count packages)
+              :warnings warning-count
+              :unbenchmarked (get by-benchmark :unbenchmarked 0)
+              :benchmarked (get by-benchmark :benchmarked 0)
+              :nonAuthoritative non-authoritative}
+     :packages packages}))
+
 (defn- sync-inspect
   [ctx args]
   (let [project (read-project! ctx args)
@@ -1067,6 +1094,7 @@
                      :name (:name project)
                      :config-path (or config-path (:path project))}
            :repos (mapv #(select-keys % [:id :root :role]) (:repos project))
+           :pluginPackages (plugin-package-caveats project)
            :freshness (:freshness evidence-summary)
            :coverage (evidence/status-coverage evidence-summary)
            :nextActions (:nextActions evidence-summary)

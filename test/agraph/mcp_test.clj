@@ -21,6 +21,28 @@
             :root "/tmp/app"
             :role :application}]})
 
+(def plugin-package-fixture
+  {:id "datastar-hiccup"
+   :version "0.1.0"
+   :visibility :public
+   :scope {:kind :base}
+   :benchmark-status :unbenchmarked
+   :benchmark-cases {:artifacts 1
+                     :case-ids ["datastar-hiccup-architecture"]
+                     :problem-classes ["architecture-understanding"]}
+   :claim-authority {:status :non-authoritative
+                     :public-claims? false
+                     :review-required? false
+                     :blockers [{:code :unbenchmarked
+                                 :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
+   :diagnostic-counts {:total 1
+                       :errors 0
+                       :warnings 1}
+   :warnings ["datastar-hiccup is unbenchmarked"]})
+
+(def project-with-plugin-package
+  (assoc project-fixture :plugin-packages [plugin-package-fixture]))
+
 (defn- request
   [id method params]
   {:jsonrpc "2.0"
@@ -66,6 +88,7 @@
     (is (str/includes? instructions "Use agraph_status"))
     (is (str/includes? instructions "evidence-family readiness"))
     (is (str/includes? instructions "query-index readiness"))
+    (is (str/includes? instructions "plugin package caveats"))
     (is (str/includes? instructions "Use agraph_systems"))
     (is (str/includes? instructions "do not infer architecture from names"))
     (is (= ["agraph_explore"
@@ -828,7 +851,7 @@
       (is (= 7 (:limit packet))))))
 
 (deftest sync-inspect-tool-returns-project-evidence-surface
-  (with-redefs [project/read-project (constantly project-fixture)
+  (with-redefs [project/read-project (constantly project-with-plugin-package)
                 store/with-node (fn [_ f] (f :xtdb))
                 evidence/summarize (fn [xtdb project opts]
                                      {:schema evidence/schema
@@ -882,6 +905,13 @@
                :root "/tmp/app"
                :role :application}]
              (:repos packet)))
+      (is (= {:counts {:packages 1
+                       :warnings 1
+                       :unbenchmarked 1
+                       :benchmarked 0
+                       :nonAuthoritative 1}
+              :packages [plugin-package-fixture]}
+             (:pluginPackages packet)))
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
       (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
@@ -926,7 +956,7 @@
              (get-in packet [:evidence :nextActions]))))))
 
 (deftest status-tool-returns-project-evidence-surface
-  (with-redefs [project/read-project (constantly project-fixture)
+  (with-redefs [project/read-project (constantly project-with-plugin-package)
                 store/with-node (fn [_ f] (f :xtdb))
                 evidence/summarize (fn [xtdb project opts]
                                      {:schema evidence/schema
@@ -968,6 +998,13 @@
           packet (get-in response [:result :structuredContent])]
       (is (= "agraph.project.inspect/v1" (:schema packet)))
       (is (= "fixture" (get-in packet [:project :id])))
+      (is (= {:counts {:packages 1
+                       :warnings 1
+                       :unbenchmarked 1
+                       :benchmarked 0
+                       :nonAuthoritative 1}
+              :packages [plugin-package-fixture]}
+             (:pluginPackages packet)))
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
       (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
