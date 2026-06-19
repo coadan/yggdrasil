@@ -1631,6 +1631,7 @@
   (let [root (temp-dir "agraph-cli-work-show")
         id (get-in (queue/enqueue! {:schema "custom.packet/v1"
                                     :project-id "fixture"
+                                    :expectedResultSchema "custom.result/v1"
                                     :value 1}
                                    {:root root
                                     :kind "custom"
@@ -1643,6 +1644,7 @@
     (is (= id (:id parsed)))
     (is (= "custom" (:kind parsed)))
     (is (= "custom.packet/v1" (:payload-schema parsed)))
+    (is (= "custom.result/v1" (:expected-result-schema parsed)))
     (is (= "custom.packet/v1" (get-in parsed [:item :payload :schema])))))
 
 (deftest sync-work-pull-returns-summary-with-full-item

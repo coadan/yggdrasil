@@ -229,7 +229,8 @@
   (let [root (temp-dir "agraph-mcp-queue-show")
         payload {:schema context/schema
                  :project-id "fixture"
-                 :query "where auth"}
+                 :query "where auth"
+                 :expectedResultSchema "custom.result/v1"}
         item (queue/enqueue! payload {:root root
                                       :kind "context"
                                       :project-id "fixture"})
@@ -243,6 +244,7 @@
     (is (= queue/summary-schema (:schema shown)))
     (is (= (:id (:item item)) (:id shown)))
     (is (= "ready" (:status shown)))
+    (is (= "custom.result/v1" (:expected-result-schema shown)))
     (is (= payload (get-in shown [:item :payload])))))
 
 (deftest work-show-returns-queue-error-for-missing-item
