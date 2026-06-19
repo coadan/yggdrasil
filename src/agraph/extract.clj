@@ -4,6 +4,7 @@
             [agraph.extract.assets-text :as extract.assets-text]
             [agraph.extract.common :as extract.common]
             [agraph.extract.text :as extract.text]
+            [agraph.extract.xml :as extract.xml]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
             [agraph.text :as text]
@@ -8286,122 +8287,11 @@
      :chunks (:chunks chunk-result)
      :diagnostics []}))
 
-(defn- xml-start-tags
-  [content]
-  (let [matcher (re-matcher #"(?is)<([A-Za-z_][A-Za-z0-9_.:-]*)(?:\s+[^<>]*?)?/?>"
-                            content)
-        line-starts (line-start-offsets content)]
-    (loop [out []]
-      (if (.find matcher)
-        (let [offset (.start matcher)
-              source-line (count (take-while #(<= % offset) line-starts))]
-          (recur (conj out {:element (.group matcher 0)
-                            :tag (.group matcher 1)
-                            :source-line (max 1 source-line)})))
-        out))))
 
-(defn- xml-element-label
-  [{:keys [element tag]}]
-  (let [identifier (or (xml-attr-value element "android:id")
-                       (xml-attr-value element "id")
-                       (xml-attr-value element "name")
-                       (xml-attr-value element "android:name"))]
-    (if (seq identifier)
-      (str tag "#" identifier)
-      tag)))
 
-(defn- xml-reference-values
-  [element]
-  (->> (re-seq #"[\"'](@[^\"']+)[\"']" element)
-       (map second)
-       (remove #(str/starts-with? % "@+id/"))
-       distinct
-       vec))
 
-(defn extract-xml
-  "Extract bounded XML element and explicit resource reference facts."
-  [run-id {:keys [id-scope file-id path content] :as file}]
-  (let [xml-node (generic-node run-id id-scope file-id path :xml-file path 1)
-        elements (->> (xml-start-tags content)
-                      (map #(assoc % :label (xml-element-label %)))
-                      (remove #(= (:label %) (:tag %)))
-                      distinct
-                      vec)
-        element-nodes (mapv (fn [{:keys [label source-line]}]
-                              (generic-node run-id
-                                            id-scope
-                                            file-id
-                                            path
-                                            :xml-element
-                                            label
-                                            source-line))
-                            elements)
-        define-edges (mapv #(edge-row run-id file-id path
-                                      (:xt/id xml-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
-                           element-nodes)
-        reference-edges (->> elements
-                             (mapcat (fn [{:keys [label element source-line]}]
-                                       (map (fn [reference]
-                                              (edge-row run-id
-                                                        file-id
-                                                        path
-                                                        (node-id id-scope :xml-element label)
-                                                        (node-id id-scope :xml-reference reference)
-                                                        :references
-                                                        :extracted
-                                                        source-line))
-                                            (xml-reference-values element))))
-                             distinct
-                             vec)
-        chunk-result (extract-text-source run-id file :xml-file)]
-    {:nodes (into [xml-node] element-nodes)
-     :edges (vec (concat define-edges reference-edges))
-     :chunks (:chunks chunk-result)
-     :diagnostics []}))
 
-(defn- apple-config-settings
-  [content]
-  (->> (str/split-lines content)
-       (map-indexed vector)
-       (keep (fn [[idx line]]
-               (when-let [[_ key value]
-                          (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_.$()/-]*)\s*=\s*(.*?)\s*$"
-                                      line)]
-                 (when-not (str/starts-with? (str/trim line) "//")
-                   {:kind :build-setting
-                    :label (str key "=" (str/trim value))
-                    :source-line (inc idx)
-                    :relation :defines}))))
-       distinct
-       vec))
 
-(defn extract-apple-config
-  "Extract bounded Apple xcconfig build setting facts."
-  [run-id {:keys [id-scope file-id path] :as file}]
-  (let [config-node (generic-node run-id id-scope file-id path :apple-config path 1)
-        settings (apple-config-settings (:content file))
-        setting-nodes (mapv (fn [{:keys [kind label source-line]}]
-                              (generic-node run-id id-scope file-id path kind label source-line))
-                            settings)
-        setting-edges (mapv (fn [{:keys [kind label source-line relation]}]
-                              (edge-row run-id
-                                        file-id
-                                        path
-                                        (:xt/id config-node)
-                                        (node-id id-scope kind label)
-                                        relation
-                                        :extracted
-                                        source-line))
-                            settings)
-        chunk-result (extract-text-source run-id file :apple-config-file)]
-    {:nodes (into [config-node] setting-nodes)
-     :edges setting-edges
-     :chunks (:chunks chunk-result)
-     :diagnostics []}))
 
 (defn- prisma-block-line
   [idx line]
@@ -20080,7 +19970,7 @@
      :haskell (extract-haskell run-id file)
      :odin (extract-odin run-id file)
      :zig (extract-zig run-id file)
-     :apple-config (extract-apple-config run-id file)
+     :apple-config (extract.xml/extract-apple-config run-id file)
      :prisma (extract-prisma run-id file)
      :dbt (extract-dbt run-id file)
      :data-science (extract-data-science run-id file)
@@ -20135,7 +20025,7 @@
      :helm (extract-helm run-id file)
      :gettext (extract.assets-text/extract-gettext run-id file)
      :svg (extract.assets-text/extract-svg run-id file)
-     :xml (extract-xml run-id file)
+     :xml (extract.xml/extract-xml run-id file)
      :html (extract.text/extract-text-source run-id file :html-file)
      :env (extract.text/extract-env run-id file)
      :text (extract.text/extract-text-source run-id file :text-file)

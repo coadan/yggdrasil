@@ -142,3 +142,10 @@
              :run-id run-id}
       (pos? line-count) (assoc :end-line (+ (or source-line 1) line-count -1))
       (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
+
+(defn xml-attr-value
+  [element attr]
+  (or (second (re-find (re-pattern (str "(?i)\\b" attr "\\s*=\\s*\"([^\"]+)\""))
+                       element))
+      (second (re-find (re-pattern (str "(?i)\\b" attr "\\s*=\\s*'([^']+)'"))
+                       element))))
