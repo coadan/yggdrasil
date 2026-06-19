@@ -913,6 +913,7 @@
                                                                               :label "billing.api"
                                                                               :path "src/billing/api.clj"
                                                                               :line 9
+                                                                              :kind :clojure
                                                                               :import-name "stripe"
                                                                               :resolution-source :declared}]}
                                                               {:id "node:pkg:noise"
@@ -1088,6 +1089,7 @@
                :relation "imports-package"
                :path "src/billing/api.clj"
                :sourceLine 9
+               :fileKind "clojure"
                :importName "stripe"
                :resolutionSource "declared"}]
              (mapv #(dissoc % :score)
@@ -1160,6 +1162,7 @@
                :path "src/billing/api.clj"
                :id "node:pkg:stripe:import:src/billing/api.clj:9"
                :sourceLine 9
+               :fileKind "clojure"
                :section "dependencyEvidence"}]
              (mapv #(dissoc % :score)
                    (get-in packet [:auditScopes 2 :samples]))))

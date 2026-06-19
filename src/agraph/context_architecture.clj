@@ -561,6 +561,7 @@
                                                           (assoc package
                                                                  :kind "package-import"
                                                                  :path (:path source)))))}
+              (:kind source) (assoc :fileKind (display-name (:kind source)))
               (:import-name source) (assoc :importName (:import-name source))
               (:resolution-source source) (assoc :resolutionSource (display-name (:resolution-source source)))))
           sources)))
@@ -794,6 +795,12 @@
     :mapEdges (count (filter #(= "map-edge" (:kind %))
                              (:boundaryEvidence section)))
     (count (get section source-key))))
+(defn- architecture-source-rows
+  [section source-key]
+  (case source-key
+    :mapEdges (filter #(= "map-edge" (:kind %))
+                      (:boundaryEvidence section))
+    (get section source-key)))
 (defn- architecture-source-counts
   [section source-keys]
   (->> source-keys
@@ -802,6 +809,24 @@
                  (when (pos? n)
                    {:key (name source-key)
                     :count n}))))
+       vec))
+(defn- architecture-row-file-kind
+  [row]
+  (some-> (or (:fileKind row)
+              (:file-kind row)
+              (:sourceKind row)
+              (:source-kind row))
+          display-name))
+(defn- architecture-source-file-kinds
+  [section source-keys]
+  (->> source-keys
+       (mapcat #(architecture-source-rows section %))
+       (keep architecture-row-file-kind)
+       frequencies
+       (map (fn [[kind n]]
+              {:kind kind
+               :count n}))
+       (sort-by (juxt (comp - :count) :kind))
        vec))
 (defn- family-status
   [row-count plane-rows]
@@ -813,6 +838,7 @@
 (defn- architecture-evidence-family-row
   [section answerability {:keys [family source-keys planes]}]
   (let [source-counts (architecture-source-counts section source-keys)
+        file-kinds (architecture-source-file-kinds section source-keys)
         row-count (reduce + 0 (map :count source-counts))
         plane-rows (family-plane-rows answerability planes)
         status (family-status row-count plane-rows)]
@@ -821,6 +847,7 @@
                :status status
                :rowCount row-count}
         (seq source-counts) (assoc :sourceCounts source-counts)
+        (seq file-kinds) (assoc :fileKinds file-kinds)
         (seq plane-rows) (assoc :planes plane-rows)))))
 (defn- architecture-evidence-families
   [section answerability]

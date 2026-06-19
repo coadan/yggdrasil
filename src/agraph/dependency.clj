@@ -264,7 +264,7 @@
   (str "edge:" (hash/short-hash [source-id :imports-package target-id path])))
 
 (defn- import-package-edge
-  [run-id project-id repo-id import-edge {:keys [package import-name resolution-source]}]
+  [run-id project-id repo-id source-kind import-edge {:keys [package import-name resolution-source]}]
   (cond-> {:xt/id (dependency-edge-id (:source-id import-edge) (:xt/id package) (:path import-edge))
            :project-id project-id
            :repo-id repo-id
@@ -279,6 +279,7 @@
            :package-name (:package-name package)
            :active? true
            :run-id run-id}
+    source-kind (assoc :source-kind source-kind)
     resolution-source (assoc :resolution-source resolution-source)
     import-name (assoc :import-name import-name)))
 
@@ -313,7 +314,12 @@
                                                         map-overlay
                                                         repo-id
                                                         edge)]
-                        (import-package-edge run-id project-id repo-id edge result))))
+                        (import-package-edge run-id
+                                             project-id
+                                             repo-id
+                                             (source-kind files-by-path (:path edge))
+                                             edge
+                                             result))))
               distinct
               vec))))))
 
@@ -345,13 +351,14 @@
 
 (defn- import-row
   [node edge]
-  (cond-> {:id (:xt/id node)
-           :label (:label node)
-           :path (:path edge)
-           :line (:source-line edge)}
-    (:kind node) (assoc :kind (:kind node))
-    (:import-name edge) (assoc :import-name (:import-name edge))
-    (:resolution-source edge) (assoc :resolution-source (:resolution-source edge))))
+  (let [kind (or (:source-kind edge) (:kind node))]
+    (cond-> {:id (:xt/id node)
+             :label (:label node)
+             :path (:path edge)
+             :line (:source-line edge)}
+      kind (assoc :kind kind)
+      (:import-name edge) (assoc :import-name (:import-name edge))
+      (:resolution-source edge) (assoc :resolution-source (:resolution-source edge)))))
 
 (defn- sorted-values
   [rows]

@@ -627,12 +627,18 @@
              :status "available"
              :rowCount 2
              :sourceCounts [{:key "runtimeEvidence"
-                             :count 2}]}
+                             :count 2}]
+             :fileKinds [{:kind "compose"
+                          :count 1}
+                         {:kind "env"
+                          :count 1}]}
             {:family "deploy-topology"
              :status "available"
              :rowCount 1
              :sourceCounts [{:key "deployEvidence"
-                             :count 1}]}
+                             :count 1}]
+             :fileKinds [{:kind "compose"
+                          :count 1}]}
             {:family "docs-contracts"
              :status "available"
              :rowCount 1

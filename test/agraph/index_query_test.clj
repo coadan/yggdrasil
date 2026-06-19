@@ -701,6 +701,7 @@
           (is (= 1 (get-in first-summary [:stats :dependency-edges])))
           (is (= ["npm:react"] (mapv (comp :label :target) package-edges)))
           (is (= [:declared] (mapv :resolution-source package-edges)))
+          (is (= [:typescript] (mapv :source-kind package-edges)))
           (is (= 2 (get-in report [:counts :packages])))
           (is (= 3 (get-in report [:counts :versions])))
           (is (= 1 (get-in report [:counts :imports-package])))
@@ -710,6 +711,8 @@
                  (-> report :version-conflicts first :versions)))
           (is (= ["src/app.ts"]
                  (mapv :path (get-in package-by-label ["npm:react" :imported-by]))))
+          (is (= [:typescript]
+                 (mapv :kind (get-in package-by-label ["npm:react" :imported-by]))))
           (is (= ["npm:lodash" "npm:react"]
                  (mapv :label (:packages npm-report))))
           (is (= ["npm:react"] (mapv :label (:packages react-report))))
