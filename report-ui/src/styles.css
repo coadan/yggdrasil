@@ -238,16 +238,18 @@ h3 {
 }
 
 .action-row-meta span {
+  align-items: center;
+  background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 4px;
   color: #64748b;
   display: inline-flex;
   font-size: 11px;
-  line-height: 1.2;
+  height: 18px;
+  line-height: 18px;
   max-width: 220px;
-  min-height: 16px;
   overflow: hidden;
-  padding: 2px 5px;
+  padding: 0 5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -436,17 +438,18 @@ h3 {
 
 .review-row-meta span {
   align-items: center;
-  background: #f1f5f9;
-  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
   color: #475569;
   display: inline-flex;
   font-size: 11px;
   font-weight: 700;
-  line-height: 1.1;
+  height: 18px;
+  line-height: 18px;
   max-width: 220px;
-  min-height: 18px;
   overflow: hidden;
-  padding: 4px 7px;
+  padding: 0 6px;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -477,11 +480,16 @@ h3 {
 }
 
 .plugin-panel-meta span {
-  background: transparent;
-  border: 0;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  display: inline-flex;
+  height: 16px;
+  line-height: 16px;
   max-width: 160px;
   overflow: hidden;
-  padding: 0;
+  padding: 0 5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
