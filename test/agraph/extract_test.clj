@@ -4608,6 +4608,24 @@
               (:chunks result)))
     (is (empty? (:diagnostics result)))))
 
+(deftest extracts-typescript-commonjs-module-files
+  (let [file {:file-id "file:scripts/panel.cts"
+              :path "scripts/panel.cts"
+              :kind (fs/file-kind "scripts/panel.cts")
+              :content (str "import { readFileSync } from \"fs\";\n"
+                            "export function loadPanel(id: string) {\n"
+                            "  return readFileSync(id, \"utf8\");\n"
+                            "}\n")}
+        result (extract/extract-file "run/test" file)
+        relations (frequencies (map :relation (:edges result)))]
+    (is (= :typescript (:kind file)))
+    (is (= [:typescript-file
+            :code-definition]
+           (mapv :kind (:chunks result))))
+    (is (= 1 (get relations :imports 0)))
+    (is (= 1 (get relations :defines 0)))
+    (is (empty? (:diagnostics result)))))
+
 (deftest extracts-typescript-declaration-member-chunks
   (let [root (doto (java.io.File/createTempFile "agraph-types" "")
                (.delete)

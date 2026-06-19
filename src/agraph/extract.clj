@@ -10845,7 +10845,7 @@
 (defn- web-framework-base-kind
   [path]
   (case (fs/extension path)
-    (".ts" ".tsx" ".mts") :typescript
+    (".ts" ".tsx" ".mts" ".cts") :typescript
     (".js" ".jsx" ".mjs" ".cjs") :javascript
     ".svelte" :svelte
     ".astro" :astro
@@ -14804,7 +14804,7 @@
 (defn- workflow-source-import-targets
   [path content]
   (let [lines (str/split-lines content)
-        js? (contains? #{".js" ".jsx" ".mjs" ".cjs" ".ts" ".tsx" ".mts"}
+        js? (contains? #{".js" ".jsx" ".mjs" ".cjs" ".ts" ".tsx" ".mts" ".cts"}
                        (fs/extension path))]
     (if js?
       (->> lines
@@ -15311,12 +15311,12 @@
      (workflow-import-facts path content)
      (case (fs/extension path)
        ".py" (workflow-python-facts content)
-       (".js" ".jsx" ".mjs" ".cjs" ".ts" ".tsx" ".mts") (workflow-js-facts content)
+       (".js" ".jsx" ".mjs" ".cjs" ".ts" ".tsx" ".mts" ".cts") (workflow-js-facts content)
        [])))))
 
 (defn- workflow-facts
   [{:keys [path] :as file}]
-  (if (contains? #{".py" ".js" ".jsx" ".mjs" ".cjs" ".ts" ".tsx" ".mts"}
+  (if (contains? #{".py" ".js" ".jsx" ".mjs" ".cjs" ".ts" ".tsx" ".mts" ".cts"}
                  (fs/extension path))
     (workflow-source-facts file)
     (workflow-config-facts file)))
@@ -15325,7 +15325,7 @@
   [run-id {:keys [path] :as file}]
   (case (fs/extension path)
     ".py" (extract-python run-id (assoc file :kind :python))
-    (".ts" ".tsx" ".mts") (extract-js-family run-id (assoc file :kind :typescript))
+    (".ts" ".tsx" ".mts" ".cts") (extract-js-family run-id (assoc file :kind :typescript))
     (".js" ".jsx" ".mjs" ".cjs") (extract-js-family run-id (assoc file :kind :javascript))
     nil))
 

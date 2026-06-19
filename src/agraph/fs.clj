@@ -7,7 +7,7 @@
   (:import [java.nio.file Files]))
 
 (def supported-extensions
-  #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs"
+  #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs" ".cts"
     ".code-workspace" ".csproj" ".css" ".cxx" ".dart" ".edn" ".entitlements" ".fs" ".fsi" ".fsx"
     ".dvc"
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
@@ -347,7 +347,7 @@
         (".kt" ".kts") :kotlin
         (".m" ".mm") :objective-c
         ".swift" :swift
-        (".ts" ".tsx" ".mts") :typescript
+        (".ts" ".tsx" ".mts" ".cts") :typescript
         ".proto" :protobuf
         ".prisma" :prisma
         ".py" :python

@@ -37,6 +37,7 @@
   (is (watch/watchable-path? "ci/.woodpecker.yml"))
   (is (watch/watchable-path? "web/component.vue"))
   (is (watch/watchable-path? "web/component.svelte"))
+  (is (watch/watchable-path? "web/server.cts"))
   (is (watch/watchable-path? "android/MainActivity.kt"))
   (is (watch/watchable-path? "ios/AppDelegate.swift"))
   (is (watch/watchable-path? "android/res/layout/activity.xml"))
