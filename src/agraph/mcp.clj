@@ -974,17 +974,21 @@
     (with-xtdb
       ctx
       (fn [xtdb]
-        {:schema "agraph.project.inspect/v1"
-         :project {:id (:id project)
-                   :name (:name project)
-                   :config-path (or config-path (:path project))}
-         :repos (mapv #(select-keys % [:id :root :role]) (:repos project))
-         :evidence (evidence/summarize xtdb
-                                       project
-                                       {:map-overlay (map-overlay ctx args)
-                                        :config-path (or config-path (:path project))
-                                        :map-path (or (:mapPath args)
-                                                      (:map-path ctx))})}))))
+        (let [evidence-summary (evidence/summarize xtdb
+                                                   project
+                                                   {:map-overlay (map-overlay ctx args)
+                                                    :config-path (or config-path
+                                                                     (:path project))
+                                                    :map-path (or (:mapPath args)
+                                                                  (:map-path ctx))})]
+          {:schema "agraph.project.inspect/v1"
+           :project {:id (:id project)
+                     :name (:name project)
+                     :config-path (or config-path (:path project))}
+           :repos (mapv #(select-keys % [:id :root :role]) (:repos project))
+           :freshness (:freshness evidence-summary)
+           :nextActions (:nextActions evidence-summary)
+           :evidence evidence-summary})))))
 
 (defn- sync-check
   [ctx args]

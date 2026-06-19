@@ -310,17 +310,21 @@
 (defn- project-inspect-result
   [xtdb project {:keys [config-path map-path]}]
   (let [overlay (when (and map-path (graph-map/file-exists? map-path))
-                  (graph-map/read-map map-path))]
+                  (graph-map/read-map map-path))
+        evidence-summary (evidence/summarize xtdb
+                                             project
+                                             {:map-overlay overlay
+                                              :config-path (or config-path
+                                                               (:path project))
+                                              :map-path map-path})]
     {:schema "agraph.project.inspect/v1"
      :project {:id (:id project)
                :name (:name project)
                :config-path (or config-path (:path project))}
      :repos (mapv #(select-keys % [:id :root :role]) (:repos project))
-     :evidence (evidence/summarize xtdb
-                                   project
-                                   {:map-overlay overlay
-                                    :config-path (or config-path (:path project))
-                                    :map-path map-path})}))
+     :freshness (:freshness evidence-summary)
+     :nextActions (:nextActions evidence-summary)
+     :evidence evidence-summary}))
 
 (defn- print-evidence-summary
   [{:keys [available counts freshness next]}]

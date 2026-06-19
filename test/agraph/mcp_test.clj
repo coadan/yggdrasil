@@ -749,6 +749,8 @@
                                       :config-path (:config-path opts)
                                       :map-path (:map-path opts)
                                       :available [:source-graph :docs]
+                                      :freshness {:status :stale
+                                                  :counts {:changed 1}}
                                       :counts {:files 2
                                                :nodes 3
                                                :edges 4
@@ -772,6 +774,14 @@
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
       (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
+      (is (= {:status :stale
+              :counts {:changed 1}}
+             (:freshness packet)))
+      (is (= [{:kind :activity
+               :label "Inspect result schema mismatch activity"
+               :count 1
+               :command "agraph sync activity project.edn --json"}]
+             (:nextActions packet)))
       (is (= 1 (get-in packet [:evidence :counts :result-schema-mismatch-events])))
       (is (= [{:kind :activity
                :label "Inspect result schema mismatch activity"
@@ -789,10 +799,13 @@
                                       :config-path (:config-path opts)
                                       :map-path (:map-path opts)
                                       :available [:source-graph]
+                                      :freshness {:status :current
+                                                  :counts {:changed 0}}
                                       :counts {:files 2
                                                :nodes 3
                                                :edges 4}
-                                      :nextActions []})]
+                                      :nextActions [{:kind :ask
+                                                     :command "agraph ask \"where is this handled?\" --project fixture --json"}]})]
     (let [response (mcp/handle-message
                     (mcp/server-context ["--config" "project.edn"])
                     (tool-call 12
@@ -803,7 +816,13 @@
       (is (= "fixture" (get-in packet [:project :id])))
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
-      (is (= "agraph.map.json" (get-in packet [:evidence :map-path]))))))
+      (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
+      (is (= {:status :current
+              :counts {:changed 0}}
+             (:freshness packet)))
+      (is (= [{:kind :ask
+               :command "agraph ask \"where is this handled?\" --project fixture --json"}]
+             (:nextActions packet))))))
 
 (deftest missing-project-returns-structured-error
   (let [response (mcp/handle-message

@@ -1208,6 +1208,8 @@
                                                :activity-events 5
                                                :validation-events 1
                                                :result-schema-mismatch-events 1}
+                                      :nextActions [{:kind :ask
+                                                     :command "agraph ask \"where is this handled?\" --project fixture --json"}]
                                       :next ["agraph ask \"where is this handled?\" --project fixture --json"]})]
     (let [out (with-out-str
                 (cli/dispatch "sync" ["inspect" "project.edn" "--json"]))
@@ -1222,6 +1224,17 @@
              (:repos parsed)))
       (is (= "agraph.evidence/v1" (get-in parsed [:evidence :schema])))
       (is (= ["source-graph" "docs"] (get-in parsed [:evidence :available])))
+      (is (= {:status "stale"
+              :counts {:indexed 2
+                       :current 3
+                       :changed 1
+                       :missing 0
+                       :unindexed 1}
+              :repos []}
+             (:freshness parsed)))
+      (is (= [{:kind "ask"
+               :command "agraph ask \"where is this handled?\" --project fixture --json"}]
+             (:nextActions parsed)))
       (is (= {:files 2
               :nodes 3
               :edges 4
@@ -1242,7 +1255,9 @@
         (is (= "agraph.project.inspect/v1" (:schema status-parsed)))
         (is (= "fixture" (get-in status-parsed [:project :id])))
         (is (= ["source-graph" "docs"]
-               (get-in status-parsed [:evidence :available])))))))
+               (get-in status-parsed [:evidence :available])))
+        (is (= (:freshness parsed) (:freshness status-parsed)))
+        (is (= (:nextActions parsed) (:nextActions status-parsed)))))))
 
 (deftest sync-activity-routes-through-project-config
   (let [calls (atom [])]
