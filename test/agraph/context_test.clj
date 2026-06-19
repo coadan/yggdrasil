@@ -291,6 +291,121 @@
                            :command "agraph packages --project fixture --json"}]}
            compact))))
 
+(deftest architecture-section-keeps-accepted-systems-auditable
+  (let [section (#'context/architecture-section
+                 {:overlay {:systems [{:id "system:billing"
+                                       :label "Billing"
+                                       :kind "service"
+                                       :repo "app"
+                                       :includes [{:repo "app"
+                                                   :path "src/billing"}]
+                                       :reason "accepted by review"
+                                       :evidence ["work:billing"]}]}
+                  :entities [{:id "system:billing"
+                              :label "Billing"
+                              :kind "service"
+                              :repo "app"
+                              :pathPrefix "src/billing"
+                              :source "map-overlay"
+                              :score 1.0}
+                             {:id "system:candidate"
+                              :label "Candidate"
+                              :kind "candidate-system"
+                              :repo "app"
+                              :pathPrefix "src/candidate"
+                              :score 0.7
+                              :why "graph label match"}]
+                  :edges [{:id "edge:billing-candidate"
+                           :source "system:billing"
+                           :target "system:candidate"
+                           :relation "imports-package"
+                           :confidence "high"
+                           :score 1.0}]
+                  :docs [{:target "system:billing"
+                          :role "overview"
+                          :status "accepted"
+                          :source {:path "docs/billing.md"}
+                          :score 0.9
+                          :snippet "long prose omitted"
+                          :provenance "map-attachment"}
+                         {:target "chunk:local"
+                          :role "reference"
+                          :status "candidate"
+                          :source {:path "src/local.clj"}
+                          :score 0.8
+                          :snippet "local source"
+                          :provenance "retrieved-doc"}]
+                  :activity [{:id "activity:billing-review"
+                              :kind "maintenance-decision"
+                              :status "ready"
+                              :source "queue"
+                              :sourceId "work:billing"
+                              :summary "review billing boundary"
+                              :score 1.0}
+                             {:id "activity:done"
+                              :kind "maintenance-decision"
+                              :status "completed"
+                              :source "queue"
+                              :sourceId "work:done"}]
+                  :answerability {:missing [:dependencies]
+                                  :weak [:docs]
+                                  :unsupported [:remote-work]
+                                  :warnings ["Dependency graph is incomplete."]
+                                  :nextActions [{:kind :dependencies
+                                                 :command "agraph packages --json"}]}})]
+    (is (= "mechanical-plus-map" (:basis section)))
+    (is (= [{:id "system:billing"
+             :label "Billing"
+             :status "accepted"
+             :kind "service"
+             :repo "app"
+             :pathPrefix "src/billing"
+             :includes [{:repo "app"
+                         :path "src/billing"}]
+             :reason "accepted by review"
+             :evidence ["work:billing"]}]
+           (:acceptedSystems section)))
+    (is (= [{:id "system:candidate"
+             :label "Candidate"
+             :kind "candidate-system"
+             :status "candidate"
+             :basis "system-graph"
+             :score 0.7
+             :repo "app"
+             :pathPrefix "src/candidate"
+             :why "graph label match"}]
+           (:candidateSystems section)))
+    (is (= [{:kind "graph-edge"
+             :id "edge:billing-candidate"
+             :source "system:billing"
+             :target "system:candidate"
+             :relation "imports-package"
+             :confidence "high"
+             :score 1.0}]
+           (:dependencyEvidence section)))
+    (is (= [{:target "system:billing"
+             :role "overview"
+             :status "accepted"
+             :source {:path "docs/billing.md"}
+             :score 0.9
+             :provenance "map-attachment"}]
+           (:docs section)))
+    (is (= [{:id "activity:billing-review"
+             :kind "maintenance-decision"
+             :status "ready"
+             :source "queue"
+             :sourceId "work:billing"
+             :summary "review billing boundary"
+             :score 1.0}]
+           (:openDecisions section)))
+    (is (= [{:plane "dependencies"
+             :status "missing"}
+            {:plane "docs"
+             :status "weak"}
+            {:plane "remote-work"
+             :status "unsupported"}]
+           (:validationGaps section)))))
+
 (deftest context-budget-compacts-source-coverage-before-dropping-it
   (let [trim @#'context/trim-optional-context-metadata
         source-coverage {:schema "agraph.source-coverage.context/v1"
@@ -748,6 +863,114 @@
                :label "auth/start"
                :sourceLine 12}]
              (:candidateFiles packet))))))
+
+(deftest context-packet-includes-architecture-section-for-selected-systems
+  (with-redefs [query/search-report (fn [_ query-text opts]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:architecture"
+                                       :query-text query-text
+                                       :retriever-requested (:retriever opts)
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 2
+                                                         :returned-count 2}
+                                       :results [{:path "src/billing/api.clj"
+                                                  :score 1.2
+                                                  :target-kind :node
+                                                  :target-id "system:billing"
+                                                  :label "Billing"
+                                                  :source-line 1}
+                                                 {:path "src/worker/job.clj"
+                                                  :score 0.8
+                                                  :target-kind :node
+                                                  :target-id "system:worker"
+                                                  :label "Worker"
+                                                  :source-line 1}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes [{:id "system:billing"
+                                               :label "Billing"
+                                               :kind "service"
+                                               :repo "app"
+                                               :pathPrefix "src/billing"
+                                               :source "map-overlay"}
+                                              {:id "system:worker"
+                                               :label "Worker"
+                                               :kind "candidate-system"
+                                               :repo "app"
+                                               :pathPrefix "src/worker"}]
+                                      :edges [{:id "edge:billing-worker"
+                                               :source "system:billing"
+                                               :target "system:worker"
+                                               :relation "shares-config"
+                                               :confidence "medium"}]
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                activity/select-activity (fn [& _]
+                                           [{:id "activity:boundary"
+                                             :kind "maintenance-decision"
+                                             :status "ready"
+                                             :source "queue"
+                                             :sourceId "work:boundary"
+                                             :summary "review billing boundary"
+                                             :score 1.0}])
+                context/answerability (fn [& _]
+                                        {:status :limited
+                                         :missing [:dependencies]
+                                         :weak [:docs]
+                                         :unsupported [:remote-work]
+                                         :warnings ["Dependency graph is incomplete."]
+                                         :nextActions [{:kind :dependencies
+                                                        :command "agraph packages --json"}]})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet
+                  :xtdb
+                  "billing worker boundary"
+                  {:project-id "fixture"
+                   :retriever :lexical
+                   :map-overlay {:systems [{:id "system:billing"
+                                            :label "Billing"
+                                            :kind "service"
+                                            :repo "app"
+                                            :includes [{:repo "app"
+                                                        :path "src/billing"}]}]}})
+          architecture (:architecture packet)]
+      (is (= "mechanical-plus-map" (:basis architecture)))
+      (is (= ["system:billing"]
+             (mapv :id (:acceptedSystems architecture))))
+      (is (= [{:id "system:worker"
+               :label "Worker"
+               :kind "candidate-system"
+               :status "candidate"
+               :basis "system-graph"
+               :repo "app"
+               :pathPrefix "src/worker"
+               :why "retrieval and graph match"}]
+             (mapv #(select-keys % [:id
+                                    :label
+                                    :kind
+                                    :status
+                                    :basis
+                                    :repo
+                                    :pathPrefix
+                                    :why])
+                   (:candidateSystems architecture))))
+      (is (= [{:kind "graph-edge"
+               :id "edge:billing-worker"
+               :source "system:billing"
+               :target "system:worker"
+               :relation "shares-config"
+               :confidence "medium"
+               :score 1.0}]
+             (:boundaryEvidence architecture)))
+      (is (= [{:plane "dependencies"
+               :status "missing"}
+              {:plane "docs"
+               :status "weak"}
+              {:plane "remote-work"
+               :status "unsupported"}]
+             (:validationGaps architecture))))))
 
 (deftest candidate-files-preserve-query-score-components
   (with-redefs [query/search-report (fn [_ _ _]

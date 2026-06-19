@@ -615,6 +615,7 @@
                        :label (:label result)}
                 (:repo-id result) (assoc :repo (:repo-id result))
                 (:repo result) (assoc :repo (:repo result))
+                (:kind result) (assoc :kind (s (:kind result)))
                 (:source-line result) (assoc :sourceLine (:source-line result))
                 (:result-kind result) (assoc :resultKind (name (:result-kind result)))
                 (:reason result) (assoc :reason (:reason result))
@@ -630,9 +631,158 @@
          (sort-by (juxt :rank :repo :path))
          vec)))
 
+(defn- accepted-system-row
+  [system]
+  (let [path-prefix (or (:pathPrefix system)
+                        (:path-prefix system)
+                        (some :path (:includes system)))]
+    (cond-> {:id (s (:id system))
+             :label (or (s (:label system)) (s (:id system)))
+             :status "accepted"}
+      (:kind system) (assoc :kind (s (:kind system)))
+      (:repo system) (assoc :repo (s (:repo system)))
+      path-prefix (assoc :pathPrefix (s path-prefix))
+      (seq (:includes system)) (assoc :includes (mapv #(select-keys % [:id
+                                                                       :repo
+                                                                       :path
+                                                                       :pathPrefix
+                                                                       :path-prefix])
+                                                      (:includes system)))
+      (seq (:tags system)) (assoc :tags (mapv s (:tags system)))
+      (:reason system) (assoc :reason (:reason system))
+      (:evidence system) (assoc :evidence (:evidence system)))))
+
+(defn- selected-accepted-systems
+  [overlay entities]
+  (let [selected-ids (set (map :id entities))]
+    (->> (:systems overlay)
+         (filter #(contains? selected-ids (s (:id %))))
+         (mapv accepted-system-row))))
+
+(defn- candidate-system-row
+  [entity]
+  (cond-> {:id (:id entity)
+           :label (:label entity)
+           :kind (:kind entity)
+           :status "candidate"
+           :basis "system-graph"
+           :score (:score entity)}
+    (:repo entity) (assoc :repo (:repo entity))
+    (:path entity) (assoc :path (:path entity))
+    (:pathPrefix entity) (assoc :pathPrefix (:pathPrefix entity))
+    (:clusterId entity) (assoc :clusterId (:clusterId entity))
+    (:clusterLabel entity) (assoc :clusterLabel (:clusterLabel entity))
+    (:why entity) (assoc :why (:why entity))))
+
+(defn- selected-candidate-systems
+  [accepted-systems entities]
+  (let [accepted-ids (set (map :id accepted-systems))]
+    (->> entities
+         (remove #(contains? accepted-ids (:id %)))
+         (mapv candidate-system-row))))
+
+(defn- graph-edge-evidence-row
+  [edge]
+  (cond-> {:kind "graph-edge"
+           :id (:id edge)
+           :source (:source edge)
+           :target (:target edge)
+           :relation (:relation edge)}
+    (:confidence edge) (assoc :confidence (:confidence edge))
+    (:salience edge) (assoc :salience (:salience edge))
+    (:score edge) (assoc :score (:score edge))
+    (:evidenceCounts edge) (assoc :evidenceCounts (:evidenceCounts edge))
+    (:relations edge) (assoc :relations (:relations edge))))
+
+(def dependency-relations
+  #{"imports-package" "requires" "version-of" "resolves"})
+
+(defn- dependency-evidence?
+  [edge]
+  (contains? dependency-relations (s (:relation edge))))
+
+(defn- architecture-doc-row
+  [doc]
+  (cond-> (select-keys doc [:target :role :status :source :score :provenance])
+    (:snippetOmitted doc) (assoc :snippetOmitted true)))
+
+(defn- accepted-architecture-doc?
+  [doc]
+  (or (= "map-attachment" (:provenance doc))
+      (= "accepted" (s (:status doc)))))
+
+(defn- open-decision-row
+  [item]
+  (select-keys item [:id
+                     :kind
+                     :status
+                     :source
+                     :sourceId
+                     :sourcePath
+                     :payloadSchema
+                     :expectedResultSchema
+                     :resultSchema
+                     :targetIds
+                     :summary
+                     :score
+                     :updatedAtMs]))
+
+(defn- open-decision?
+  [item]
+  (not= "completed" (s (:status item))))
+
+(defn- validation-gaps
+  [answerability]
+  (vec (concat (map (fn [plane]
+                      {:plane (name plane)
+                       :status "missing"})
+                    (:missing answerability))
+               (map (fn [plane]
+                      {:plane (name plane)
+                       :status "weak"})
+                    (:weak answerability))
+               (map (fn [plane]
+                      {:plane (name plane)
+                       :status "unsupported"})
+                    (:unsupported answerability)))))
+
+(defn- architecture-supported?
+  [section]
+  (some seq
+        (map section
+             [:acceptedSystems
+              :candidateSystems
+              :boundaryEvidence
+              :dependencyEvidence
+              :docs
+              :openDecisions])))
+
+(defn- architecture-section
+  [{:keys [overlay entities edges docs activity answerability]}]
+  (let [accepted-systems (selected-accepted-systems overlay entities)
+        candidate-systems (selected-candidate-systems accepted-systems entities)
+        boundary-evidence (mapv graph-edge-evidence-row (take 12 edges))
+        dependency-evidence (mapv graph-edge-evidence-row
+                                  (take 8 (filter dependency-evidence? edges)))
+        section {:basis "mechanical-plus-map"
+                 :acceptedSystems accepted-systems
+                 :candidateSystems candidate-systems
+                 :boundaryEvidence boundary-evidence
+                 :runtimeEvidence []
+                 :dependencyEvidence dependency-evidence
+                 :docs (mapv architecture-doc-row
+                             (take 8 (filter accepted-architecture-doc? docs)))
+                 :openDecisions (mapv open-decision-row
+                                      (take 6 (filter open-decision? activity)))
+                 :validationGaps (vec (take 12 (validation-gaps answerability)))
+                 :warnings (vec (take 5 (:warnings answerability)))
+                 :nextActions (vec (take 5 (:nextActions answerability)))}]
+    (when (architecture-supported? section)
+      section)))
+
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns answerability
-   search-instrumentation source-coverage candidate-files]
+   search-instrumentation source-coverage architecture candidate-files]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data)
@@ -646,6 +796,7 @@
            :drilldowns drilldowns}
     answerability (assoc :answerability answerability)
     search-instrumentation (assoc :search search-instrumentation)
+    architecture (assoc :architecture architecture)
     source-coverage (assoc :sourceCoverage source-coverage)))
 
 (defn- add-warning-with-budget
@@ -703,12 +854,34 @@
     (update packet :sourceCoverage compact-source-coverage)
     packet))
 
+(defn- compact-architecture
+  [architecture]
+  (when architecture
+    (-> architecture
+        (update :acceptedSystems #(vec (take 5 %)))
+        (update :candidateSystems #(vec (take 5 %)))
+        (update :boundaryEvidence #(vec (take 8 %)))
+        (update :dependencyEvidence #(vec (take 5 %)))
+        (update :docs #(vec (take 5 %)))
+        (update :openDecisions #(vec (take 3 %)))
+        (update :validationGaps #(vec (take 6 %)))
+        (update :warnings #(vec (take 3 %)))
+        (update :nextActions #(vec (take 3 %))))))
+
+(defn- compact-architecture-in-packet
+  [packet]
+  (if (contains? packet :architecture)
+    (update packet :architecture compact-architecture)
+    packet))
+
 (defn- trim-optional-context-metadata
   [packet budget]
   (let [trim-steps [#(update-in % [:search :instrumentation] dissoc :context-chunks)
                     compact-source-coverage-in-packet
                     #(dissoc % :sourceCoverage)
+                    compact-architecture-in-packet
                     #(update % :answerability compact-answerability)
+                    #(dissoc % :architecture)
                     #(assoc % :warnings [])
                     #(assoc % :drilldowns [])]]
     (reduce (fn [packet trim-step]
@@ -742,7 +915,9 @@
               [#(update-in % [:search :instrumentation] dissoc :context-chunks)
                compact-source-coverage-in-packet
                #(dissoc % :sourceCoverage)
+               compact-architecture-in-packet
                #(update % :answerability compact-answerability)
+               #(dissoc % :architecture)
                #(assoc % :warnings [])
                #(assoc % :drilldowns [])
                #(assoc % :activity [])
@@ -1295,7 +1470,13 @@
         source-coverage (coverage/context-summary xtdb
                                                   {:project-id project-id
                                                    :repo-id repo-id
-                                                   :read-context read-context})]
+                                                   :read-context read-context})
+        architecture (architecture-section {:overlay overlay
+                                            :entities entities
+                                            :edges edges
+                                            :docs docs
+                                            :activity activity
+                                            :answerability answerability})]
     (fit-budget (base-packet query-text
                              budget
                              graph-data
@@ -1307,6 +1488,7 @@
                              answerability
                              search-context
                              source-coverage
+                             architecture
                              (candidate-files results))
                 docs
                 budget)))
