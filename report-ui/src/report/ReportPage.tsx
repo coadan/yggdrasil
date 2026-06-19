@@ -555,6 +555,14 @@ function reviewEvidencePacket(row: ReviewQueueRow): string {
   );
 }
 
+function quoteCommandArg(value: string): string {
+  return /^[A-Za-z0-9_./:=@+-]+$/.test(value) ? value : JSON.stringify(value);
+}
+
+function reviewExplainCommand(row: ReviewQueueRow, mapPath: string): string {
+  return `agraph sync explain ${quoteCommandArg(row.source)} --map ${quoteCommandArg(mapPath)}`;
+}
+
 function pluginArtifactRefs(rows: Array<Record<string, unknown>>): string[] {
   const refs = new Set<string>();
   for (const row of rows) {
@@ -613,6 +621,7 @@ function ReviewEvidenceTable({ rows }: { rows: Array<Record<string, unknown>> })
 
 function ReviewQueue({
   rows,
+  mapPath,
   copiedKey,
   onAsk,
   onCopyCommand,
@@ -622,6 +631,7 @@ function ReviewQueue({
   title = "Operator Review Queue"
 }: {
   rows: ReviewQueueRow[];
+  mapPath: string;
   copiedKey: string | null;
   onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
@@ -684,6 +694,12 @@ function ReviewQueue({
                     {copiedKey === `review:${row.id}` ? "Copied" : "Copy command"}
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() => onCopyCommand(`review-explain:${row.id}`, reviewExplainCommand(row, mapPath))}
+                >
+                  {copiedKey === `review-explain:${row.id}` ? "Copied" : "Copy explain command"}
+                </button>
                 {sourceRefs(row.evidenceRows || []).length > 0 ? (
                   <button
                     type="button"
@@ -1332,6 +1348,7 @@ function AtlasTab({
 
       <ReviewQueue
         rows={reviewRows}
+        mapPath={projectMapPath(report)}
         copiedKey={copiedActionKey}
         onAsk={onAsk}
         onCopyCommand={onCopyCommand}
@@ -1861,6 +1878,7 @@ function MaintenanceTab({
     <div className="report-grid">
       <ReviewQueue
         rows={reviewRows}
+        mapPath={projectMapPath(report)}
         copiedKey={copiedActionKey}
         onAsk={onAsk}
         onCopyCommand={onCopyCommand}
@@ -1965,6 +1983,7 @@ function DashboardTab({
       />
       <ReviewQueue
         rows={reviewRows}
+        mapPath={projectMapPath(report)}
         copiedKey={copiedActionKey}
         onAsk={onAsk}
         onCopyCommand={onCopyCommand}
