@@ -1593,6 +1593,50 @@
                                  :graph 0.6}}]
              (:candidateFiles packet))))))
 
+(deftest candidate-files-merge-line-range-from-duplicate-results
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :instrumentation {:search-docs 2
+                                                         :returned-count 2}
+                                       :results [{:path "src/caller.clj"
+                                                  :score 0.8
+                                                  :target-kind :node
+                                                  :target-id "node:caller"
+                                                  :label "demo/caller"}
+                                                 {:path "src/caller.clj"
+                                                  :score 0.4
+                                                  :target-kind :chunk
+                                                  :target-id "chunk:caller"
+                                                  :label "demo/caller body"
+                                                  :source-line 12
+                                                  :end-line 18}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/answerability (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "caller"
+                                         {:project-id "fixture"
+                                          :retriever :lexical})]
+      (is (= [{:path "src/caller.clj"
+               :rank 1
+               :score 0.8
+               :targetKind "node"
+               :label "demo/caller"
+               :sourceLine 12
+               :endLine 18}]
+             (:candidateFiles packet))))))
+
 (deftest candidate-files-are-scoped-by-repo-and-path
   (with-redefs [query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema

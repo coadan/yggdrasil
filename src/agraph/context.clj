@@ -654,10 +654,19 @@
         merge-row (fn [existing row]
                     (let [earlier (if (< (:rank row) (:rank existing))
                                     row
-                                    existing)]
+                                    existing)
+                          later (if (identical? earlier row) existing row)]
                       (cond-> (assoc earlier
                                      :score (max (double (or (:score existing) 0.0))
                                                  (double (or (:score row) 0.0))))
+                        (and (nil? (:sourceLine earlier))
+                             (:sourceLine later))
+                        (assoc :sourceLine (:sourceLine later))
+
+                        (and (nil? (:endLine earlier))
+                             (:endLine later))
+                        (assoc :endLine (:endLine later))
+
                         (or (:scoreComponents existing)
                             (:scoreComponents row))
                         (assoc :scoreComponents
