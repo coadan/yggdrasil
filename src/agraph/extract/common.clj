@@ -225,6 +225,56 @@
     (string? value) value
     :else (str value)))
 
+(defn normalize-module-path-part
+  [value]
+  (str/replace value #"-" "_"))
+
+(defn drop-source-extension
+  [value]
+  (-> value
+      (str/replace #"\.d\.ts$" "")
+      (str/replace #"\.(astro|mjs|cjs|jsx|js|tsx|ts|scss|css|json|svelte|vue)$" "")))
+
+(defn resolve-relative-source-target
+  [path target]
+  (let [base (->> (str/split path #"/")
+                  drop-last
+                  vec)]
+    (loop [parts (concat base (str/split target #"/"))
+           out []]
+      (if-let [part (first parts)]
+        (case part
+          "." (recur (rest parts) out)
+          "" (recur (rest parts) out)
+          ".." (recur (rest parts) (vec (drop-last out)))
+          (recur (rest parts) (conj out (normalize-module-path-part part))))
+        (->> out
+             (str/join ".")
+             drop-source-extension)))))
+
+(defn js-import-target
+  [path target]
+  (let [target (str target)]
+    (if (str/starts-with? target ".")
+      (resolve-relative-source-target path target)
+      target)))
+
+(defn js-import-targets
+  [idx path line]
+  (let [patterns [#"^\s*import\s+(?:type\s+)?(?:[^\"']+\s+from\s+)?[\"']([^\"']+)[\"'].*"
+                  #"^\s*export\s+(?:type\s+)?[^\"']+\s+from\s+[\"']([^\"']+)[\"'].*"
+                  #"\brequire\s*\(\s*[\"']([^\"']+)[\"']\s*\)"
+                  #"\bimport\s*\(\s*[\"']([^\"']+)[\"']\s*\)"]]
+    (->> patterns
+         (mapcat #(re-seq % line))
+         (map second)
+         (remove str/blank?)
+         (map #(js-import-target path %))
+         (map (fn [target]
+                {:target target
+                 :source-line (inc idx)}))
+         distinct)))
+
 (defn manifest-name
   [path]
   (str/lower-case (last (str/split path #"/"))))
