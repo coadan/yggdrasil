@@ -906,7 +906,7 @@
                          :extract-ms))
           (is (= 1 (get-in second-summary [:stats :files-skipped])))
           (is (string? (:extractor-fingerprint row)))
-          (with-redefs [index/extractor-fingerprint (fn [_]
+          (with-redefs [index/extractor-fingerprint (fn [& _]
                                                       "extractor:test-changed")]
             (let [third-summary (index/index-repo! xtdb (.getPath repo) {})
                   changed-row (store/file-row xtdb "src/demo.clj")]
