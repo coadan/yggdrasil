@@ -144,7 +144,9 @@
   [{:keys [path item] :as found}]
   (let [status (status-name (:status item))
         id (:id item)]
-    (cond-> []
+    (cond-> [{:kind :show
+              :label "Inspect work item payload"
+              :command (work-command found "show" id)}]
       (= "ready" status)
       (conj {:kind :claim
              :label "Claim next matching work item"

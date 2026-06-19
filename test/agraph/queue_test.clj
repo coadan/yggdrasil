@@ -134,14 +134,26 @@
                                        ready-id
                                        {:schema "custom.result/v1"
                                         :ok true}))]
-    (is (= [{:kind :claim
+    (is (= [{:kind :show
+             :label "Inspect work item payload"
+             :command (str "agraph sync work show "
+                           ready-id
+                           " --queue-dir "
+                           "'" root "'")}
+            {:kind :claim
              :label "Claim next matching work item"
              :command (str "agraph sync work pull --project demo --kind custom "
                            "--agent <agent-id> --queue-dir "
                            "'" root "'")}]
            (:actions ready-summary)))
-    (is (= #{:heartbeat :complete :release :reject}
+    (is (= #{:show :heartbeat :complete :release :reject}
            (set (map :kind (:actions claimed-summary)))))
+    (is (some #(= (str "agraph sync work show "
+                       ready-id
+                       " --queue-dir "
+                       "'" root "'")
+                  (:command %))
+              (:actions claimed-summary)))
     (is (some #(= (str "agraph sync work heartbeat "
                        ready-id
                        " --agent <agent-id> --lease-minutes 30 --queue-dir "
@@ -154,7 +166,13 @@
                        "'" root "'")
                   (:command %))
               (:actions claimed-summary)))
-    (is (= [{:kind :apply
+    (is (= [{:kind :show
+             :label "Inspect work item payload"
+             :command (str "agraph sync work show "
+                           ready-id
+                           " --queue-dir "
+                           "'" root "'")}
+            {:kind :apply
              :label "Apply completed work result to map"
              :command (str "agraph sync work apply "
                            ready-id
