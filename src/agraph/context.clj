@@ -1616,6 +1616,17 @@
     (update packet :architecture compact-architecture)
     packet))
 
+(defn- minimal-architecture
+  [architecture]
+  (when architecture
+    (select-keys architecture [:basis :summary])))
+
+(defn- minimal-architecture-in-packet
+  [packet]
+  (if (contains? packet :architecture)
+    (update packet :architecture minimal-architecture)
+    packet))
+
 (defn- compact-systems
   [systems]
   (when systems
@@ -1696,6 +1707,7 @@
                     #(dissoc % :relationships)
                     #(dissoc % :blastRadius)
                     #(dissoc % :auditScopes)
+                    minimal-architecture-in-packet
                     #(dissoc % :architecture)
                     #(dissoc % :systems)
                     #(assoc % :warnings [])

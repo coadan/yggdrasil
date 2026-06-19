@@ -472,6 +472,74 @@
     (is (= 4 (count (:snippets compact))))
     (is (every? #(= 2 (count (:items %))) (:snippets compact)))))
 
+(deftest packet-trimming-keeps-architecture-summary-before-dropping-section
+  (let [trim @#'context/trim-optional-context-metadata
+        summary {:counts {:acceptedSystems 12
+                          :candidateSystems 10
+                          :boundaryEvidence 40
+                          :validationGaps 3}
+                 :evidenceFamilyStatuses {"available" 4
+                                          "missing" 2}
+                 :validationGapStatuses {"missing" 2
+                                         "weak" 1}}
+        architecture {:basis "mechanical-plus-map"
+                      :summary summary
+                      :acceptedSystems (mapv (fn [idx]
+                                               {:id (str "system:accepted:" idx)
+                                                :label (apply str
+                                                              "Accepted "
+                                                              (repeat 80
+                                                                      "billing "))})
+                                             (range 12))
+                      :candidateSystems (mapv (fn [idx]
+                                                {:id (str "system:candidate:" idx)
+                                                 :why (apply str
+                                                             "mechanical evidence "
+                                                             (repeat 80
+                                                                     "relation "))})
+                                              (range 10))
+                      :boundaryEvidence (mapv (fn [idx]
+                                                {:id (str "edge:" idx)
+                                                 :relation "imports-package"
+                                                 :reason (apply str
+                                                                "bounded evidence "
+                                                                (repeat 80
+                                                                        "fact "))})
+                                              (range 40))
+                      :validationGaps [{:plane "dependencies"
+                                        :status "missing"}
+                                       {:plane "docs"
+                                        :status "weak"}
+                                       {:plane "system-evidence"
+                                        :status "missing"}]}
+        packet {:schema context/schema
+                :query "billing architecture"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 1}
+                :entities []
+                :edges []
+                :activity []
+                :candidateFiles []
+                :docs []
+                :warnings []
+                :drilldowns []
+                :answerability {:status :ready}
+                :architecture architecture}
+        minimal-architecture {:basis "mechanical-plus-map"
+                              :summary summary}
+        budget 500
+        trimmed (trim packet budget)]
+    (is (> (context/estimate-tokens packet) budget))
+    (is (<= (context/estimate-tokens (assoc packet
+                                            :architecture
+                                            minimal-architecture))
+            budget))
+    (is (= minimal-architecture (:architecture trimmed)))
+    (is (<= (context/estimate-tokens trimmed) budget))))
+
 (deftest architecture-section-keeps-accepted-systems-auditable
   (let [section (#'context/architecture-section
                  {:overlay {:systems [{:id "system:billing"
