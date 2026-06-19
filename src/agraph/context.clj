@@ -1052,7 +1052,14 @@
 
 (defn- architecture-doc-row
   [doc]
-  (cond-> (select-keys doc [:target :role :status :source :score :provenance])
+  (cond-> (select-keys doc [:target
+                            :role
+                            :status
+                            :source
+                            :score
+                            :provenance
+                            :reason
+                            :warning])
     (:snippetOmitted doc) (assoc :snippetOmitted true)))
 
 (defn- accepted-architecture-doc?
@@ -1123,6 +1130,24 @@
              :status status}
       (seq actions) (assoc :nextActions actions))))
 
+(defn- stale-architecture-doc?
+  [doc]
+  (= "stale" (display-name (:status doc))))
+
+(defn- stale-doc-sample
+  [doc]
+  (cond-> (select-keys doc [:target :role :source :warning :reason])
+    (:provenance doc) (assoc :provenance (:provenance doc))))
+
+(defn- stale-doc-validation-gap
+  [docs]
+  (let [stale-docs (filter stale-architecture-doc? docs)]
+    (when (seq stale-docs)
+      {:plane "docs-contracts"
+       :status "stale"
+       :count (count stale-docs)
+       :samples (mapv stale-doc-sample (take 3 stale-docs))})))
+
 (defn- freshness-validation-gap-row
   [freshness]
   (when-let [gap (freshness-validation-gap freshness)]
@@ -1131,8 +1156,10 @@
       (assoc :nextActions (vec (take 2 (:nextActions freshness)))))))
 
 (defn- validation-gaps
-  [answerability freshness]
+  [answerability freshness docs]
   (vec (concat (when-let [gap (freshness-validation-gap-row freshness)]
+                 [gap])
+               (when-let [gap (stale-doc-validation-gap docs)]
                  [gap])
                (map (fn [plane] (validation-gap-row answerability plane "missing"))
                     (:missing answerability))
@@ -1379,7 +1406,10 @@
                  :docs architecture-docs
                  :openDecisions (mapv open-decision-row
                                       (take 6 (filter open-decision? activity)))
-                 :validationGaps (vec (take 12 (validation-gaps answerability freshness)))
+                 :validationGaps (vec (take 12
+                                            (validation-gaps answerability
+                                                             freshness
+                                                             architecture-docs)))
                  :warnings (architecture-warnings answerability freshness)
                  :nextActions (vec (take 6 (concat inspect-actions
                                                    (freshness-next-actions freshness)

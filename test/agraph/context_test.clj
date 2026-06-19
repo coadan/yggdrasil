@@ -857,6 +857,51 @@
                             :command "agraph sync <project.edn> --query-index"}]}]
            (:validationGaps section)))))
 
+(deftest architecture-section-reports-stale-accepted-docs-as-validation-gap
+  (let [section (#'context/architecture-section
+                 {:overlay {:systems [{:id "system:billing"
+                                       :label "Billing"}]}
+                  :entities [{:id "system:billing"
+                              :label "Billing"
+                              :kind "system"}]
+                  :edges []
+                  :runtime-evidence []
+                  :docs [{:target "system:billing"
+                          :role "contract"
+                          :status "stale"
+                          :source {:path "docs/billing.md"
+                                   :contentSha "sha256:old"}
+                          :score 2.35
+                          :provenance "map-attachment"
+                          :reason "accepted by architecture review"
+                          :warning "attached doc source not found"}]
+                  :activity []
+                  :answerability {:available [:docs]
+                                  :missing []
+                                  :weak []
+                                  :unsupported []}})]
+    (is (= [{:target "system:billing"
+             :role "contract"
+             :status "stale"
+             :source {:path "docs/billing.md"
+                      :contentSha "sha256:old"}
+             :score 2.35
+             :provenance "map-attachment"
+             :reason "accepted by architecture review"
+             :warning "attached doc source not found"}]
+           (:docs section)))
+    (is (= [{:plane "docs-contracts"
+             :status "stale"
+             :count 1
+             :samples [{:target "system:billing"
+                        :role "contract"
+                        :source {:path "docs/billing.md"
+                                 :contentSha "sha256:old"}
+                        :warning "attached doc source not found"
+                        :reason "accepted by architecture review"
+                        :provenance "map-attachment"}]}]
+           (:validationGaps section)))))
+
 (deftest architecture-section-reports-stale-graph-basis-validation-gap
   (let [section (#'context/architecture-section
                  {:overlay {:systems [{:id "system:billing"

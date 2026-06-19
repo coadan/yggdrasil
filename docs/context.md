@@ -238,7 +238,10 @@ repair or inspection command beside the missing or weak evidence plane.
 Matching actions are still included in `architecture.nextActions`, and
 freshness warnings are surfaced in `architecture.warnings` before
 answerability warnings so agents see basis problems before trusting missing
-architecture evidence.
+architecture evidence. Accepted map docs whose indexed source is stale or
+missing remain visible under `architecture.docs`, but also add a
+`docs-contracts` validation gap with bounded samples so agents know the
+contract attachment needs repair before relying on it.
 
 ## Doc Attachments
 
