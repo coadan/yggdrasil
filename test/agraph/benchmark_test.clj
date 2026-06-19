@@ -1598,6 +1598,67 @@
           (is (= 1 (:runs report)))
           (is (= "script-agent" (get-in report [:results 0 :agent :agentId]))))))))
 
+(deftest external-agent-result-preserves-identity-mismatches
+  (let [root (temp-dir "agraph-bench-agent-run-identity-repo")
+        out (temp-dir "agraph-bench-agent-run-identity-out")
+        suite-dir (temp-dir "agraph-bench-agent-run-identity-suite")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))
+        script-path (.getPath (io/file suite-dir "agent.sh"))]
+    (git! root "init")
+    (git! root "config" "user.email" "agraph@example.test")
+    (git! root "config" "user.name" "AGraph Test")
+    (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (let [base-sha (commit! root "base")]
+      (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :fixed)\n")
+      (let [fix-sha (commit! root "fix")]
+        (spit suite-path
+              (pr-str {:id "agent-run-identity-fixture"
+                       :repos [{:id "repo"
+                                :root root}]
+                       :cases [{:id "case-1"
+                                :repo-id "repo"
+                                :base-sha base-sha
+                                :fix-sha fix-sha
+                                :issue {:id 1
+                                        :title "broken app"
+                                        :body "The app returns the old value."}}]}))
+        (spit script-path
+              (str "cat > \"$AGRAPH_BENCH_RESULT\" <<'JSON'\n"
+                   "{\"schema\":\"agraph.benchmark.agent-result/old\","
+                   "\"caseId\":\"case-2\","
+                   "\"caseFingerprint\":\"sha256:old-case\","
+                   "\"suspectedFiles\":[{\"path\":\"src/app.clj\","
+                   "\"rank\":1,\"confidence\":1.0,\"reason\":\"script\","
+                   "\"evidence\":[\"rg broken src/app.clj\"]}],"
+                   "\"suspectedSymbols\":[],"
+                   "\"commands\":[\"rg broken src/app.clj\"],"
+                   "\"warnings\":[],"
+                   "\"summary\":\"script result\"}\n"
+                   "JSON\n"))
+        (let [suite (benchmark/read-suite suite-path)
+              result (benchmark/agent-runs! suite {:out out
+                                                   :case-id "case-1"
+                                                   :agent-id "identity-agent"
+                                                   :mode "shell-only"
+                                                   :prompt-profile "fast"
+                                                   :command (str "sh " script-path)})
+              report (benchmark/report-agent-suite suite {:out out
+                                                          :agent-id "identity-agent"})
+              warnings (get-in report [:results 0 :agentOutput :identityWarnings])]
+          (is (= 1 (:completed result)))
+          (is (= ["agent result schema agraph.benchmark.agent-result/old does not match expected schema agraph.benchmark.agent-result/v1"
+                  "agent result caseId case-2 does not match expected case case-1"
+                  (str "agent result caseFingerprint sha256:old-case does not match expected case fingerprint "
+                       (get-in report [:results 0 :caseFingerprint]))]
+                 warnings))
+          (is (= {:identityMismatchRuns 1
+                  :identityMismatchCaseIds ["case-1"]
+                  :identityMismatches 3}
+                 (select-keys (:agentDiagnostics report)
+                              [:identityMismatchRuns
+                               :identityMismatchCaseIds
+                               :identityMismatches]))))))))
+
 (deftest failed-external-agent-command-is-scored-as-empty-result
   (let [root (temp-dir "agraph-bench-agent-fail-repo")
         out (temp-dir "agraph-bench-agent-fail-out")

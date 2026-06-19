@@ -2392,12 +2392,22 @@
                        :err err})))
     (select-keys process [:exit :out :err])))
 
+(defn- assoc-if-missing
+  [m k v]
+  (if (contains? m k)
+    m
+    (assoc m k v)))
+
+(defn- normalize-agent-result-identity
+  [agent-result prepared]
+  (-> agent-result
+      (assoc-if-missing :schema agent-result-schema)
+      (assoc-if-missing :caseId (:case-id prepared))
+      (assoc-if-missing :caseFingerprint (:caseFingerprint prepared))))
+
 (defn- normalize-local-vector-result
   [agent-result prepared agent-id]
-  (assoc agent-result
-         :schema agent-result-schema
-         :caseId (:case-id prepared)
-         :caseFingerprint (:caseFingerprint prepared)
+  (assoc (normalize-agent-result-identity agent-result prepared)
          :agentId agent-id
          :mode "local-vector"))
 
@@ -2841,10 +2851,7 @@
 
 (defn- normalize-agent-run-result
   [prepared agent-result opts]
-  (assoc agent-result
-         :schema agent-result-schema
-         :caseId (:case-id prepared)
-         :caseFingerprint (:caseFingerprint prepared)
+  (assoc (normalize-agent-result-identity agent-result prepared)
          :agentId (:agent-id opts)
          :mode (agent-mode opts)
          :suspectedSymbols (vec (or (:suspectedSymbols agent-result)
