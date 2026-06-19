@@ -122,10 +122,12 @@
                  :artifacts {}})
         commands (set (:commands packet))]
     (is (contains? commands "agraph sync work list --project fixture"))
+    (is (contains? commands "agraph sync work show <work-id>"))
     (is (contains? commands "agraph sync work pull --project fixture --agent <agent-id>"))
     (is (contains? commands "agraph sync work pull --project fixture --kind maintenance-decision --agent <agent-id>"))
     (is (contains? commands "agraph sync work pull --project fixture --kind infra-review --agent <agent-id>"))
     (is (contains? commands "agraph sync work pull --project fixture --kind dependency-review --agent <agent-id>"))
+    (is (contains? commands "agraph sync work heartbeat <work-id> --agent <agent-id> --lease-minutes 30"))
     (is (contains? commands "agraph sync work complete <work-id> --result result.json"))
     (is (contains? commands "agraph sync work apply <work-id> --map agraph.map.json"))
     (is (= [{:kind :maintenance

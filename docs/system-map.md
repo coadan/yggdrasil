@@ -161,6 +161,8 @@ If semantic help is needed, classify one decision at a time:
 agraph classify decision maintenance-decision:abc123 --project sample
 agraph sync check project.edn --map agraph.map.json --enqueue
 agraph sync work pull --project sample --agent codex
+agraph sync work show queue:abc123
+agraph sync work heartbeat queue:abc123 --agent codex --lease-minutes 30
 agraph sync work complete queue:abc123 --result result.json
 agraph sync work apply queue:abc123 --map agraph.map.json
 ```

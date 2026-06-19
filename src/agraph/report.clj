@@ -373,6 +373,7 @@
     (cond-> []
       (some pos? (vals queue))
       (conj (str "agraph sync work list --project " (command/shell-token project-id))
+            "agraph sync work show <work-id>"
             (str "agraph sync work pull --project " (command/shell-token project-id)
                  " --agent <agent-id>"))
 
@@ -386,7 +387,8 @@
       (conj (pull "dependency-review"))
 
       (some pos? (vals queue))
-      (conj "agraph sync work complete <work-id> --result result.json"
+      (conj "agraph sync work heartbeat <work-id> --agent <agent-id> --lease-minutes 30"
+            "agraph sync work complete <work-id> --result result.json"
             (str "agraph sync work apply <work-id> --map "
                  (command/shell-token (or map-path "agraph.map.json")))))))
 
