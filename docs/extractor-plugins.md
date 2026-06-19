@@ -39,6 +39,10 @@ Commands run from the indexed repo root. AGraph sends one JSON request on stdin
 and expects one JSON result on stdout. Commands are executed as argv vectors,
 not through shell interpolation.
 
+For git-shared packages, install a package with `bb plugin install` and let
+`project.edn` reference its pinned local manifest. See
+[plugin-packages.md](plugin-packages.md).
+
 ## Scan Mode
 
 Use `:scan` when a project has a file family AGraph does not support as a core

@@ -60,6 +60,11 @@
      :slots (mapv (comp name keyword) (:slots plugin))
      :timeout-ms (long (or (:timeout-ms plugin) default-timeout-ms))
      :authority (keyword (or (:authority plugin) :project-plugin))
+     :cwd (some-> (:cwd plugin) str)
+     :package-id (some-> (:package-id plugin) str)
+     :package-version (some-> (:package-version plugin) str)
+     :package-rev (some-> (:package-rev plugin) str)
+     :package-source (:package-source plugin)
      :fingerprint-seed (:fingerprint plugin)}))
 
 (defn normalize-plugins
@@ -77,6 +82,11 @@
                          (:command plugin)
                          (:slots plugin)
                          (:authority plugin)
+                         (:cwd plugin)
+                         (:package-id plugin)
+                         (:package-version plugin)
+                         (:package-rev plugin)
+                         (:package-source plugin)
                          (:fingerprint-seed plugin)])))
 
 (def core-plugin
@@ -91,7 +101,10 @@
            :version (:version plugin)
            :authority (name (:authority plugin))
            :fingerprint (plugin-fingerprint plugin)}
-    (:slots plugin) (assoc :slots (:slots plugin))))
+    (:slots plugin) (assoc :slots (:slots plugin))
+    (:package-id plugin) (assoc :packageId (:package-id plugin))
+    (:package-version plugin) (assoc :packageVersion (:package-version plugin))
+    (:package-rev plugin) (assoc :packageRev (:package-rev plugin))))
 
 (defn- canonical-key
   [aliases k]
@@ -270,7 +283,8 @@
   [ctx plugin]
   (try
     (let [input (json/write-json-str (plugin-input ctx plugin) {:escape-slash false})
-          cwd (some-> (:project ctx) :path io/file .getParent)
+          cwd (or (:cwd plugin)
+                  (some-> (:project ctx) :path io/file .getParent))
           {:keys [exit out err timeout?]} (process-result! (:command plugin)
                                                            input
                                                            (:timeout-ms plugin)

@@ -81,6 +81,10 @@
           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "report"
                        *command-line-args*)}
 
+  plugin {:doc "Install or list AGraph plugin packages. Usage: bb plugin install|list ..."
+          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "plugin"
+                       *command-line-args*)}
+
   report-ui:install {:doc "Install report UI dependencies."
                      :task (shell {:dir "report-ui"} "npm install")}
 

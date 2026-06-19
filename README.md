@@ -217,9 +217,11 @@ Extractor plugins are the explicit project extension path for gaps that are not
 ready for core. They can enhance files core already scans or opt configured
 fallback/unsupported file families into indexing, while preserving plugin
 provenance and `:unbenchmarked` status by default. See
-[docs/extractor-plugins.md](docs/extractor-plugins.md). Promoting a plugin into
-core requires project-agnostic behavior plus benchmark evidence showing a
-material improvement.
+[docs/extractor-plugins.md](docs/extractor-plugins.md). Git-shared plugin
+packages are installed and pinned with `agraph plugin install`; see
+[docs/plugin-packages.md](docs/plugin-packages.md). Promoting a plugin into core
+requires project-agnostic behavior plus benchmark evidence showing a material
+improvement.
 
 Report plugins are a separate presentation extension path for generated
 dashboards. They run after report generation, receive the exported report packet

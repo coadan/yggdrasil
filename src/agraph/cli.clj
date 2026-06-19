@@ -24,6 +24,7 @@
             [agraph.map :as graph-map]
             [agraph.metadata :as metadata]
             [agraph.mcp :as mcp]
+            [agraph.plugin-package :as plugin-package]
             [agraph.project :as project]
             [agraph.queue :as queue]
             [agraph.query :as query]
@@ -100,6 +101,7 @@
     "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode" "--tools"
     "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
     "--vector-command" "--vector-model" "--parser-worker"
+    "--ref" "--subdir" "--cache-dir"
     "--timeout-ms" "--index-timeout-ms" "--min-cases" "--min-runs"
     "--retrieval-limit"
     "--min-file-recall-at-5" "--min-file-recall-at-10"
@@ -2635,6 +2637,80 @@
                          :failures (or (:failures result)
                                        (:regressions result))}))))))
 
+(defn- print-plugin-package
+  [package]
+  (println "-"
+           (:id package)
+           (str "version=" (:version package))
+           (str "extractors=" (:extractor-plugins package))
+           (str "reports=" (:report-plugins package))
+           (str "benchmark=" (name (or (:benchmark-status package) :unbenchmarked))))
+  (when-let [source (:source package)]
+    (println "  source" (:url source) (str "rev=" (:rev source))))
+  (when (seq (:warnings package))
+    (doseq [warning (:warnings package)]
+      (println "  warning" warning))))
+
+(defn- print-plugin-install
+  [{:keys [project-id package entry force?]}]
+  (println "# Plugin Installed")
+  (println "- project" project-id)
+  (println "- force" force?)
+  (print-plugin-package package)
+  (println "- manifest" (:manifest entry))
+  (println "- path" (:path entry)))
+
+(defn- print-plugin-list
+  [{:keys [project-id packages]}]
+  (println "# Plugins")
+  (println "- project" project-id)
+  (println "- packages" (count packages))
+  (doseq [package packages]
+    (print-plugin-package package)))
+
+(defn- plugin-install!
+  [args]
+  (let [[config-path source] (positional-args args)]
+    (when-not (and config-path source)
+      (throw (ex-info "Missing plugin project config path or git source."
+                      {:usage (usage)})))
+    (let [result (plugin-package/install!
+                  config-path
+                  source
+                  {:ref (option-value args "--ref")
+                   :subdir (option-value args "--subdir")
+                   :cache-root (option-value args "--cache-dir")
+                   :force? (boolean (some #{"--force"} args))})]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-install result)))))
+
+(defn- plugin-list!
+  [args]
+  (let [config-path (first (positional-args args))]
+    (when-not config-path
+      (throw (ex-info "Missing plugin project config path."
+                      {:usage (usage)})))
+    (let [result (plugin-package/list-installed config-path)]
+      (if (json-output? args)
+        (print-json result)
+        (print-plugin-list result)))))
+
+(defn- plugin!
+  [args]
+  (let [action (first args)
+        action-args (vec (rest args))]
+    (case action
+      "install"
+      (plugin-install! action-args)
+
+      "list"
+      (plugin-list! action-args)
+
+      (throw (ex-info "Unknown plugin command."
+                      {:command action
+                       :usage (usage)})))))
+
 (defn usage
   []
   (str/join
@@ -2689,6 +2765,10 @@
     "  view overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--format html|json] [--out PATH] [--valid-at INSTANT]"
     "  packages [--project ID] [--repo ID] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]"
     "  report <project.edn> [--map agraph.map.json] [--out agraph-out] [--detail primary|expanded|evidence|raw] [--force]"
+    ""
+    "Plugins:"
+    "  plugin install <project.edn> <git-url-or-path> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--force] [--json]"
+    "  plugin list <project.edn> [--json]"
     ""
     "Agent integration:"
     "  watch <project.edn> [--map agraph.map.json] [--query-index] [--debounce-ms N]"
@@ -2760,6 +2840,9 @@
 
     "bench"
     (bench! args)
+
+    "plugin"
+    (plugin! args)
 
     "install-agent"
     (let [action (first args)

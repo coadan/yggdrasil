@@ -3,6 +3,7 @@
   (:require [agraph.fs :as fs]
             [agraph.extractor-plugin :as extractor-plugin]
             [agraph.index :as index]
+            [agraph.plugin-package :as plugin-package]
             [agraph.report-plugin :as report-plugin]
             [agraph.system :as system]
             [agraph.xtdb :as store]
@@ -122,6 +123,14 @@
   [path]
   (let [base (config-dir path)
         data (read-config-data path)
+        plugin-packages (mapv #(plugin-package/read-package base %)
+                              (:plugin-packages data))
+        extractor-plugins (vec (concat (mapcat :resolved-extractor-plugins
+                                               plugin-packages)
+                                       (:extractor-plugins data)))
+        report-plugins (vec (concat (mapcat :resolved-report-plugins
+                                            plugin-packages)
+                                    (:report-plugins data)))
         project-id (some-> (:id data) str)]
     (when (str/blank? project-id)
       (throw (ex-info "Project config is missing :id." {:path path})))
@@ -129,13 +138,16 @@
              :name (str (or (:name data) project-id))
              :path (fs/canonical-path path)
              :repos (normalize-repos base data)}
-      (seq (:extractor-plugins data))
-      (assoc :extractor-plugins
-             (extractor-plugin/normalize-plugins (:extractor-plugins data)))
+      (seq plugin-packages)
+      (assoc :plugin-packages (mapv plugin-package/package-summary plugin-packages))
 
-      (seq (:report-plugins data))
+      (seq extractor-plugins)
+      (assoc :extractor-plugins
+             (extractor-plugin/normalize-plugins extractor-plugins))
+
+      (seq report-plugins)
       (assoc :report-plugins
-             (report-plugin/normalize-plugins (:report-plugins data))))))
+             (report-plugin/normalize-plugins report-plugins)))))
 
 (defn add-repo-to-config!
   "Add a repo entry to project config and return the normalized project.

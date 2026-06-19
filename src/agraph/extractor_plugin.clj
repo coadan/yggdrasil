@@ -153,6 +153,11 @@
                :benchmark-status benchmark-status
                :search (normalize-search plugin)
                :emits (mapv keyword (:emits plugin))
+               :cwd (some-> (:cwd plugin) str)
+               :package-id (some-> (:package-id plugin) str)
+               :package-version (some-> (:package-version plugin) str)
+               :package-rev (some-> (:package-rev plugin) str)
+               :package-source (:package-source plugin)
                :fingerprint-seed (:fingerprint plugin)}
         scan (assoc :scan scan)))))
 
@@ -176,6 +181,11 @@
                          (:benchmark-status plugin)
                          (:search plugin)
                          (:emits plugin)
+                         (:cwd plugin)
+                         (:package-id plugin)
+                         (:package-version plugin)
+                         (:package-rev plugin)
+                         (:package-source plugin)
                          (:fingerprint-seed plugin)])))
 
 (defn search-chunk-plugin-ids
@@ -245,6 +255,9 @@
    :plugin-version (:version plugin)
    :plugin-fingerprint (plugin-fingerprint plugin)
    :plugin-authority (:authority plugin)
+   :plugin-package-id (:package-id plugin)
+   :plugin-package-version (:package-version plugin)
+   :plugin-package-rev (:package-rev plugin)
    :benchmark-status (:benchmark-status plugin)})
 
 (defn- process-result!
@@ -458,7 +471,8 @@
           {:keys [exit out err timeout?]} (process-result! (:command plugin)
                                                            input
                                                            (:timeout-ms plugin)
-                                                           (:root-path ctx))]
+                                                           (or (:cwd plugin)
+                                                               (:root-path ctx)))]
       (cond
         timeout?
         {:diagnostics [(plugin-diagnostic (:run-id ctx)

@@ -14,6 +14,7 @@
             [agraph.init :as init]
             [agraph.infra-review :as infra-review]
             [agraph.map :as graph-map]
+            [agraph.plugin-package :as plugin-package]
             [agraph.project :as project]
             [agraph.queue :as queue]
             [agraph.query :as query]
@@ -51,6 +52,7 @@
     (is (str/includes? usage "Sync and maintenance:"))
     (is (str/includes? usage "Ask and explore:"))
     (is (str/includes? usage "View and report:"))
+    (is (str/includes? usage "Plugins:"))
     (is (str/includes? usage "Agent integration:"))
     (is (str/includes? usage "Server integration:"))
     (is (str/includes? usage "start <repo-root>"))
@@ -63,6 +65,8 @@
     (is (str/includes? usage "explore create"))
     (is (str/includes? usage "view overview|deps|query|systems"))
     (is (str/includes? usage "report <project.edn>"))
+    (is (str/includes? usage "plugin install <project.edn>"))
+    (is (str/includes? usage "plugin list <project.edn>"))
     (is (str/includes? usage "install-agent --platform codex --project"))
     (is (str/includes? usage "mcp [--root DIR]"))
     (is (str/includes? usage "watch <project.edn>"))
@@ -91,6 +95,44 @@
     (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|all"))
     (is (not (str/includes? usage "overlay")))))
+
+(deftest plugin-install-dispatches-to-package-installer
+  (let [calls (atom [])]
+    (with-redefs [plugin-package/install! (fn [config-path source opts]
+                                            (swap! calls conj [config-path source opts])
+                                            {:schema plugin-package/install-schema
+                                             :project-id "fixture"
+                                             :package {:id "pkg"
+                                                       :version "0.1.0"
+                                                       :extractor-plugins 1
+                                                       :report-plugins 1
+                                                       :benchmark-status :unbenchmarked
+                                                       :source {:url source
+                                                                :rev "abc123"}
+                                                       :warnings []}
+                                             :entry {:manifest "agraph.plugin.edn"
+                                                     :path "/tmp/pkg"}
+                                             :force? (:force? opts)})]
+      (let [out (with-out-str
+                  (cli/dispatch "plugin"
+                                ["install"
+                                 "project.edn"
+                                 "git@example.test:org/pkg.git"
+                                 "--ref"
+                                 "v0.1.0"
+                                 "--subdir"
+                                 "packages/pkg"
+                                 "--cache-dir"
+                                 ".cache/plugins"
+                                 "--force"]))]
+        (is (str/includes? out "# Plugin Installed"))
+        (is (= [["project.edn"
+                 "git@example.test:org/pkg.git"
+                 {:ref "v0.1.0"
+                  :subdir "packages/pkg"
+                  :cache-root ".cache/plugins"
+                  :force? true}]]
+               @calls))))))
 
 (deftest benchmark-summary-prints-agent-baseline-scores
   (let [out (with-out-str
