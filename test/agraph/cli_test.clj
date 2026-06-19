@@ -79,6 +79,7 @@
     (is (str/includes? usage "--max-commandless-runs N"))
     (is (str/includes? usage "--max-missing-predicted-file-runs N"))
     (is (str/includes? usage "--max-warning-runs N"))
+    (is (str/includes? usage "--max-identity-mismatch-runs N"))
     (is (str/includes? usage "--max-missed-but-present-in-context-runs N"))
     (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|all"))
@@ -577,6 +578,7 @@
                                  "--max-commandless-runs" "0"
                                  "--max-missing-predicted-file-runs" "0"
                                  "--max-warning-runs" "0"
+                                 "--max-identity-mismatch-runs" "0"
                                  "--max-missing-declared-source-kind-runs" "0"
                                  "--max-missed-runs" "0"
                                  "--max-missed-but-present-in-context-runs" "0"
@@ -617,6 +619,7 @@
                   :max-commandless-runs 0.0
                   :max-missing-predicted-file-runs 0.0
                   :max-warning-runs 0.0
+                  :max-identity-mismatch-runs 0.0
                   :max-missing-declared-source-kind-runs 0.0
                   :max-missed-runs 0.0
                   :max-missed-but-present-in-context-runs 0.0

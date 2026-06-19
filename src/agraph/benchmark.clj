@@ -4233,6 +4233,7 @@
                   :maxMissingPredictedFileRuns]
                  [:max-commandless-runs :maxCommandlessRuns]
                  [:max-warning-runs :maxWarningRuns]
+                 [:max-identity-mismatch-runs :maxIdentityMismatchRuns]
                  [:max-unverified-score-runs :maxUnverifiedScoreRuns]
                  [:max-graph-expectation-failures :maxGraphExpectationFailures]
                  [:max-missing-declared-source-kind-runs :maxMissingDeclaredSourceKindRuns]
@@ -4413,6 +4414,24 @@
                                     :agentDiagnostics
                                     :warningCaseIds])
                  :message "Some agent score artifacts contain scorer or agent warnings."})]))))
+
+(defn- identity-mismatch-run-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :maxIdentityMismatchRuns])]
+    (let [actual (double (get-in check
+                                 [:report :agentDiagnostics :identityMismatchRuns]
+                                 0))]
+      (when (> actual expected)
+        [(merge (metric-failure "identityMismatchRuns" "<=" expected actual)
+                {:case-ids (get-in check
+                                   [:report
+                                    :agentDiagnostics
+                                    :identityMismatchCaseIds])
+                 :identityMismatches (get-in check
+                                             [:report
+                                              :agentDiagnostics
+                                              :identityMismatches])
+                 :message "Some agent score artifacts reported a schema, case id, or case fingerprint that does not match the prepared case."})]))))
 
 (defn- missing-predicted-file-failures
   [check]
@@ -4720,6 +4739,7 @@
                    (missing-predicted-file-failures check-base)
                    (commandless-run-failures check-base)
                    (warning-run-failures check-base)
+                   (identity-mismatch-run-failures check-base)
                    (unverified-score-failures check-base)
                    (graph-expectation-failures check-base)
                    (coverage-diagnostic-failures check-base)
@@ -4767,6 +4787,9 @@
     :direction :lower}
    {:path [:agentDiagnostics :commandlessRuns]
     :label "commandlessRuns"
+    :direction :lower}
+   {:path [:agentDiagnostics :identityMismatchRuns]
+    :label "identityMismatchRuns"
     :direction :lower}
    {:path [:coverageDiagnostics :missingDeclaredSourceKindRuns]
     :label "missingDeclaredSourceKindRuns"

@@ -177,7 +177,9 @@ generated output root.
   that do not exist in the base checkout, `--max-commandless-runs` to fail when
   agents do not cite commands,
   `--max-warning-runs` to fail when scorer or agent warnings are present beyond
-  the configured budget, `--max-unverified-score-runs` to fail when
+  the configured budget, `--max-identity-mismatch-runs` to fail when score
+  artifacts report a wrong schema, case id, or case fingerprint,
+  `--max-unverified-score-runs` to fail when
   matching score artifacts are legacy or stale relative to the current suite file,
   `--max-graph-expectation-failures` to fail when graph/evidence expectations
   do not match the indexed facts,
@@ -468,7 +470,8 @@ given.
   set and parser-worker profiles are comparable.
 - `agentDiagnostics.identityMismatchRuns`: scored agent artifacts whose schema,
   case id, or case fingerprint did not match the prepared case. These are also
-  counted under `warningRuns`.
+  counted under `warningRuns`; gate them directly with
+  `--max-identity-mismatch-runs`.
 - `localizationDiagnostics.missedButPresentInContextRuns`: missed scoreable files
   that were present in the AGraph context packet. Gate with
   `--max-missed-but-present-in-context-runs` when prompt or agent selection
