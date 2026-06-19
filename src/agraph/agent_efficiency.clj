@@ -822,6 +822,7 @@
   "Return a compact Markdown summary for a shell-only versus AGraph comparison."
   [comparison]
   (let [class-summary (get-in comparison [:classSignals :summary])
+        inputs (:inputs comparison)
         warnings (get-in comparison [:claimReadiness :warnings])
         notes (get-in comparison [:claimReadiness :notes])
         key-deltas (headline-metric-deltas comparison)
@@ -850,6 +851,14 @@
                     (get-in comparison [:summary :unavailableMetrics]))
                (str "- Claim readiness: "
                     (get-in comparison [:claimReadiness :status]))]
+              (when (seq inputs)
+                [""
+                 "## Inputs"
+                 ""
+                 (str "- Shell-only report: "
+                      (or (:shellReport inputs) "unknown"))
+                 (str "- AGraph report: "
+                      (or (:agraphReport inputs) "unknown"))])
               (when class-summary
                 [""
                  "## Class Signals"
