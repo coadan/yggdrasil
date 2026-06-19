@@ -684,12 +684,14 @@
                                               :system-graph
                                               :map-overlay]
                                   :missing [:dependencies
+                                            :runtime-config
                                             :docs
                                             :activity]
                                   :weak []
                                   :unsupported []}})]
     (is (= {"source-structure" "available"
             "dependency-flow" "missing"
+            "runtime-config" "missing"
             "docs-contracts" "missing"
             "map-corrections" "available"
             "maintenance" "missing"}
@@ -940,6 +942,60 @@
                    (:planes answerability))))
       (is (= 1 (get-in answerability [:counts :external-packages])))
       (is (= 1 (get-in answerability [:counts :package-import-edges]))))))
+
+(deftest answerability-exposes-runtime-config-plane
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :agraph/files [{:xt/id "file:app"
+                                                   :active? true}]
+                                   :agraph/index-diagnostics []
+                                   []))
+                query/all-nodes (fn [& _]
+                                  [{:xt/id "node:src.app"
+                                    :kind :namespace
+                                    :active? true}])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _]
+                                         [{:xt/id "system:app"}])
+                query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _]
+                                            [{:xt/id "evidence:database-url"
+                                              :kind :env-var
+                                              :active? true}])
+                query/all-diagnostics (fn [& _] [])
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :imports-package 0
+                                                      :unresolved-imports 0
+                                                      :declared-without-import-evidence 0
+                                                      :version-conflicts 0}})
+                activity/all-items (fn [& _] [])
+                activity/all-events (fn [& _] [])]
+    (let [answerability (#'context/answerability
+                         :xtdb
+                         {}
+                         {:project-id "fixture"
+                          :repo-id "app"
+                          :retriever :lexical}
+                         {:entity-count 1
+                          :doc-count 0
+                          :activity-count 0
+                          :runtime-count 0
+                          :validation-count 0})]
+      (is (contains? (set (:available answerability)) :runtime-config))
+      (is (contains? (set (:weak answerability)) :runtime-config))
+      (is (not (contains? (set (:missing answerability)) :runtime-config)))
+      (is (= {:plane :runtime-config
+              :status :weak
+              :counts {:system-evidence 1}}
+             (some #(when (= :runtime-config (:plane %)) %)
+                   (:planes answerability))))
+      (is (= 1 (get-in answerability [:counts :system-evidence])))
+      (is (some #{"Runtime/config evidence rows are indexed, but no runtime/config evidence matched this query."}
+                (:warnings answerability))))))
 
 (deftest answerability-counts-result-schema-mismatch-events
   (with-redefs [store/all-rows (fn [_ table _]

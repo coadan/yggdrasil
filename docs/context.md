@@ -30,7 +30,7 @@ The packet schema is `agraph.context/v1`:
   },
   "answerability": {
     "status": "limited",
-    "available": ["source-graph", "dependencies", "docs"],
+    "available": ["source-graph", "dependencies", "runtime-config", "docs"],
     "missing": ["embeddings", "system-graph", "activity", "validation-history"],
     "weak": [],
     "unsupported": ["remote-work", "session-history"],
@@ -52,6 +52,7 @@ The packet schema is `agraph.context/v1`:
           "package-conflicts": 0
         }
       },
+      {"plane": "runtime-config", "status": "available", "counts": {"system-evidence": 6}},
       {"plane": "remote-work", "status": "unsupported"}
     ],
     "counts": {
@@ -89,8 +90,8 @@ Project-level reports and `agraph status --json` expose the same mechanical
 inventory as `agraph.evidence/v1`, including graph-basis freshness. Use that
 evidence surface when an agent needs to see what can be asked about at a glance.
 Its `planes` field is a bounded readiness table for source files, source graph
-rows, dependencies, docs, embeddings, system graph rows, local activity,
-validation history, and accepted map overlay evidence.
+rows, dependencies, runtime/config evidence, docs, embeddings, system graph
+rows, local activity, validation history, and accepted map overlay evidence.
 Use `agraph explore --json` when the agent has a concrete question and needs the
 smaller query-scoped `answerability` packet plus matching entities, edges, docs,
 and activity.
@@ -99,8 +100,8 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
 
 - `status`: `ready`, `limited`, or `empty`
 - `available`: populated evidence planes, such as `source-graph`,
-  `dependencies`, `docs`, `system-graph`, `embeddings`, `activity`,
-  `validation-history`, or `map-overlay`
+  `dependencies`, `runtime-config`, `docs`, `system-graph`, `embeddings`,
+  `activity`, `validation-history`, or `map-overlay`
 - `missing`: supported evidence planes with no useful rows for this project or
   read context
 - `weak`: evidence exists, but did not match this query well
@@ -113,7 +114,9 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
 - `counts`: compact row counts used to make the decision, including
   `external-packages`, `package-import-edges`, `unresolved-imports`,
   `package-evidence-gaps`, and `package-conflicts` when dependency facts are
-  indexed. Queue-backed activity counts include `activity-items`,
+  indexed. Runtime/config support is reported as `system-evidence`, the active
+  count of concrete runtime/config evidence rows selected from indexed system
+  evidence. Queue-backed activity counts include `activity-items`,
   `activity-events`, `validation-events`, and
   `result-schema-mismatch-events`.
 - `retrieval`: requested and effective retriever, including lexical fallback
@@ -131,6 +134,9 @@ When unresolved imports are present, `next` also suggests
 through the review queue. When declared packages lack source import evidence or
 version conflicts are present, `next` includes the matching package-report
 filter command.
+If `runtime-config` is missing or weak, agents should treat runtime/config
+answers as limited. Missing means no active system-evidence rows are indexed;
+weak means rows exist, but none matched the selected work area.
 If source files or source graph rows are missing, `warnings` names that source
 plane explicitly and `next` points at `agraph sync <project.edn>` or
 `agraph sync <project.edn> --check`. Agents should treat those as graph-basis
