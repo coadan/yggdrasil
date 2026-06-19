@@ -871,6 +871,38 @@
                :core-tests-missing}
              (set (map :code (:diagnostics diagnosis))))))))
 
+(deftest diagnose-requires-explicit-benchmark-status-for-public-sharing
+  (let [workspace (temp-dir "agraph-plugin-benchmark-status-required")
+        package-dir (io/file workspace "plugin")]
+    (.mkdirs package-dir)
+    (write-file! (.getPath package-dir)
+                 plugin-package/manifest-filename
+                 (pr-str
+                  {:schema plugin-package/manifest-schema
+                   :id "missing-benchmark-status-plugin"
+                   :version "0.1.0"
+                   :license {:spdx "MIT"}
+                   :distribution {:visibility :public
+                                  :commercial? false}
+                   :scope {:kind :base
+                           :reason "Benchmark status fixture."}
+                   :extractor-plugins
+                   [{:id "missing-benchmark-status-extractor"
+                     :command ["python3" "extract.py"]
+                     :applies-to {:file-kinds [:code]}}]}))
+    (write-file! (.getPath package-dir)
+                 "extract.py"
+                 "import json, sys\njson.dump({'schema':'agraph.extractor-plugin.result/v1'}, sys.stdout)\n")
+    (let [validation (plugin-package/validate-local (.getPath package-dir))
+          diagnosis (plugin-package/diagnose-local (.getPath package-dir))]
+      (is (= :warning (:status validation)))
+      (is (= :failed (:status diagnosis)))
+      (is (= :blocked (get-in diagnosis [:readiness :public-sharing :status])))
+      (is (= :blocked (get-in diagnosis [:readiness :claims :status])))
+      (is (= :blocked (get-in diagnosis [:readiness :core-promotion :status])))
+      (is (= #{:benchmark-status-missing :unbenchmarked}
+             (set (map :code (:diagnostics diagnosis))))))))
+
 (deftest diagnose-requires-benchmark-artifacts-for-claims-and-core-promotion
   (let [workspace (temp-dir "agraph-plugin-benchmark-evidence")
         package-dir (io/file workspace "plugin")]

@@ -255,16 +255,18 @@ based on license metadata.
 
 Public AGraph/Yggdrasil plugin packages should be FOSS and non-commercial. The
 official registry should not list commercial plugins or project-local plugins.
-Public packages should declare license metadata and `:scope {:kind :base}` and
-should not claim agent or architecture-understanding improvements without
-benchmark artifacts.
+Public packages should declare license metadata, `:scope {:kind :base}`, and an
+explicit `:benchmark :status`. They should not claim agent or
+architecture-understanding improvements without benchmark artifacts.
 
 Package install surfaces warnings instead of blocking local use when:
 
 - a public package does not declare a known FOSS license;
 - a public package is marked commercial or monetized;
 - a package is declared `:project-local`;
-- a package is unbenchmarked.
+- a package is unbenchmarked;
+- a public package relies on the default benchmark status instead of declaring
+  `:benchmark {:status :unbenchmarked}` or `:benchmarked`.
 
 `bb plugin diagnose <dir>` treats public license/commercial policy violations as
 public-sharing blockers while still keeping private local experiments possible.

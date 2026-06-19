@@ -468,6 +468,15 @@
                    :manifest (:manifest package)}}])
     (scope-diagnostics package)
     (distribution-policy-diagnostics package)
+    (when-not (present? (get-in package [:benchmark :status]))
+      [{:code :benchmark-status-missing
+        :severity (if (= :public (:visibility package)) :error :warning)
+        :applies-to (if (= :public (:visibility package))
+                      [:public-sharing :claims :core-promotion]
+                      [:claims :core-promotion])
+        :message (str id " must declare :benchmark :status before public sharing or claims.")
+        :evidence {:benchmark (:benchmark package)
+                   :defaulted-benchmark-status benchmark-status}}])
     (when (= :unbenchmarked benchmark-status)
       [{:code :unbenchmarked
         :severity :warning
