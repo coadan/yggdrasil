@@ -63,6 +63,7 @@
     (is (str/includes? instructions "Use agraph_node for one exact"))
     (is (str/includes? instructions "Use agraph_status"))
     (is (str/includes? instructions "evidence-plane readiness"))
+    (is (str/includes? instructions "query-index readiness"))
     (is (str/includes? instructions "Use agraph_systems"))
     (is (str/includes? instructions "do not infer architecture from names"))
     (is (= ["agraph_explore"
@@ -860,6 +861,11 @@
                                                          :skipped-files 0
                                                          :diagnostics 0}}]
                                       :freshness {:status :current
+                                                  :basis "indexed-graph"
+                                                  :missingQueryIndex false
+                                                  :projectConfig "project.edn"
+                                                  :map "agraph.map.json"
+                                                  :mapExists true
                                                   :counts {:changed 0}}
                                       :counts {:files 2
                                                :nodes 3
@@ -894,6 +900,11 @@
                               :count 2}]}
              (:coverage packet)))
       (is (= {:status :current
+              :basis "indexed-graph"
+              :missingQueryIndex false
+              :projectConfig "project.edn"
+              :map "agraph.map.json"
+              :mapExists true
               :counts {:changed 0}}
              (:freshness packet)))
       (is (= [{:kind :ask

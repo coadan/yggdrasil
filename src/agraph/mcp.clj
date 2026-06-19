@@ -33,7 +33,8 @@
        "nearby mechanical edges before broad grep. "
        "Use agraph_node for one exact file, node, package, system, or "
        "evidence target; ambiguous labels return choices. Use agraph_status for "
-       "graph freshness, evidence-plane readiness, coverage, and next actions. "
+       "graph freshness, basis, query-index readiness, evidence-plane readiness, "
+       "coverage, and next actions. "
        "Use agraph_systems for a compact systems view. Treat AGraph output as "
        "mechanical facts plus "
        "accepted map/metadata corrections; do not infer architecture from names "
@@ -198,7 +199,7 @@
                   [])}
    {:name "agraph_status"
     :groups #{:default}
-    :description "Return the agent-facing project status, evidence surface, and next actions without syncing."
+    :description "Return agent-facing freshness, query-index readiness, evidence surface, coverage, and next actions without syncing."
     :inputSchema (json-schema
                   {:configPath {:type "string"}
                    :mapPath {:type "string"}}
