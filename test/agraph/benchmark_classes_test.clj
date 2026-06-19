@@ -8,6 +8,7 @@
            "architecture-dependency-flow"
            "architecture-data-ownership"
            "architecture-cross-system-impact"
+           "audit-scope-dependencies"
            "audit-scope-runtime-config"
            "audit-scope-containers"
            "audit-scope-docs"}
@@ -18,6 +19,7 @@
     "architecture-dependency-flow"
     "architecture-data-ownership"
     "architecture-cross-system-impact"
+    "audit-scope-dependencies"
     "audit-scope-runtime-config"
     "audit-scope-containers"
     "audit-scope-docs"))

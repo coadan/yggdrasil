@@ -1,5 +1,6 @@
 (ns agraph.benchmark-test
   (:require [agraph.benchmark :as benchmark]
+            [agraph.benchmark-classes :as benchmark-classes]
             [agraph.benchmark-progress :as benchmark-progress]
             [agraph.benchmark-test-support :refer [commit!
                                                    git!
@@ -103,7 +104,8 @@
                 ["architecture-cross-system-impact"
                  "architecture-dependency-flow"
                  "architecture-data-ownership"
-                 "architecture-runtime-boundary"]))))
+                 "architecture-runtime-boundary"
+                 "audit-scope-dependencies"]))))
 
 (deftest headline-suite-covers-architecture-first-agent-questions
   (let [suite (benchmark/read-suite "benchmarks/headline.edn")
@@ -112,9 +114,8 @@
         tag-counts (frequencies (mapcat :tags cases))
         measured-architecture-tags (->> tag-counts
                                         (filter (fn [[tag count]]
-                                                  (and (str/starts-with?
-                                                        tag
-                                                        "architecture-")
+                                                  (and (benchmark-classes/architecture-class-tag?
+                                                        tag)
                                                        (<= 2 count))))
                                         (mapv first)
                                         sort)
@@ -151,9 +152,13 @@
                  "architecture-dependency-flow"
                  "architecture-data-ownership"
                  "architecture-runtime-boundary"
+                 "audit-scope-dependencies"
                  "docs-contracts"
                  "runtime-config"]))
-    (is (= ["architecture-dependency-flow" "architecture-runtime-boundary"]
+    (is (= ["architecture-dependency-flow"
+            "architecture-runtime-boundary"
+            "audit-scope-dependencies"
+            "audit-scope-runtime-config"]
            measured-architecture-tags))))
 
 (deftest scores-file-localization

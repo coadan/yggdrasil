@@ -35,7 +35,8 @@ question is about system boundaries, dependency flow, route-to-handler shape,
 runtime configuration, data ownership, or cross-file impact rather than one
 historical bug fix. Mark them with tags such as `:synthetic`,
 `:problem-architecture`, `:architecture-boundary`,
-`:architecture-dependency-flow`, or `:architecture-cross-system-impact`.
+`:architecture-dependency-flow`, `:audit-scope-dependencies`, or
+`:architecture-cross-system-impact`.
 
 Starter architecture-class OSS cases:
 
@@ -49,7 +50,8 @@ Starter architecture-class OSS cases:
   should be wired and how the package manifest relates to the Astro config.
   Expect `site/astro.config.ts`, `package.json`, and `astro/config` import or
   plugin evidence. Tags: `:synthetic`, `:problem-architecture`,
-  `:architecture-dependency-flow`, `:web-framework-config`.
+  `:architecture-dependency-flow`, `:audit-scope-dependencies`,
+  `:web-framework-config`.
 - `supabase-postgres-synthetic-trigger-ownership-flow`: ask which database init
   scripts, environment files, and ownership-sensitive SQL control built-in event
   triggers. Expect `migrations/db/init-scripts/00000000000003-post-setup.sql`,
@@ -65,7 +67,7 @@ Starter architecture-class OSS cases:
   Dapper type handling, and JSONB regression tests connect. Expect
   `tests/docker-compose.yml`, `Dapper/SqlMapper.cs`, and Dapper test files.
   Tags: `:synthetic`, `:problem-architecture`,
-  `:architecture-dependency-flow`, `:database`.
+  `:architecture-dependency-flow`, `:audit-scope-dependencies`, `:database`.
 
 The tracked starter suite is `benchmarks/oss-architecture-synthetic.edn`. It
 expects local OSS checkouts under `.dev/oss-test-cases/repos/` and keeps all

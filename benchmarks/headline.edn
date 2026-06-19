@@ -64,6 +64,7 @@
                  :synthetic
                  :problem-architecture
                  :architecture-dependency-flow
+                 :audit-scope-dependencies
                  :audit-scope-runtime-config
                  :web-framework-config
                  :astro]
@@ -149,6 +150,7 @@
                  :synthetic
                  :problem-architecture
                  :architecture-dependency-flow
+                 :audit-scope-dependencies
                  :audit-scope-containers
                  :audit-scope-runtime-config
                  :runtime-config
