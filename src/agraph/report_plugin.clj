@@ -283,6 +283,7 @@
    :maintenance maintenance
    :evidence evidence
    :packages package-report
+   :pluginPackages (:plugin-packages report)
    :artifacts artifacts})
 
 (defn run-plugin

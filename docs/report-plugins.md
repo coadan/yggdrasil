@@ -45,6 +45,16 @@ Plugins receive `agraph.report-plugin.input/v1`:
   "maintenance": {},
   "evidence": {},
   "packages": {},
+  "pluginPackages": {
+    "counts": {"packages": 1, "warnings": 1, "unbenchmarked": 1},
+    "packages": [
+      {
+        "id": "datastar-hiccup",
+        "benchmark-status": "unbenchmarked",
+        "warnings": ["datastar-hiccup is unbenchmarked"]
+      }
+    ]
+  },
   "artifacts": {}
 }
 ```
@@ -170,8 +180,8 @@ and plugin diagnostics.
 
 `report.json` also includes `plugin-packages`: compact package summaries with
 warnings, benchmark status, source pins, manifest fingerprints, and diagnose
-commands. Report plugins receive this data through their input packet under
-`report.plugin-packages`.
+commands. Report plugins receive the same data directly as `pluginPackages` and
+inside the full report packet as `report.plugin-packages`.
 
 Report plugins are presentation and planning tools. They should emit panel data,
 diagnostics, or artifacts for review. They should not mutate graph facts or

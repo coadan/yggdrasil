@@ -41,6 +41,33 @@
       (is (= :project-plugin (:authority plugin)))
       (is (= (plugin-command) (:command plugin))))))
 
+(deftest report-plugin-input-includes-plugin-package-caveats
+  (let [plugin (report-plugin/normalize-plugin (plugin-config))
+        plugin-packages {:counts {:packages 1
+                                  :warnings 1
+                                  :unbenchmarked 1}
+                         :packages [{:id "datastar-hiccup"
+                                     :benchmark-status :unbenchmarked
+                                     :warnings ["unbenchmarked"]}]}
+        input (#'report-plugin/plugin-input
+               {:project {:id "report-plugin-test"
+                          :name "Report Plugin Test"
+                          :path "project.edn"
+                          :repos []}
+                :generated-at-ms 1
+                :report {:schema "agraph.report/v2"
+                         :plugin-packages plugin-packages}
+                :graph {:nodes [] :edges []}
+                :systems {:nodes [] :edges []}
+                :coverage {}
+                :maintenance {}
+                :evidence {}
+                :package-report {}
+                :artifacts {}}
+               plugin)]
+    (is (= plugin-packages (:pluginPackages input)))
+    (is (= plugin-packages (get-in input [:report :plugin-packages])))))
+
 (deftest report-plugin-can-crawl-generated-graph-exports
   (let [plugin (report-plugin/normalize-plugin (plugin-config))
         packet {:schema "agraph.report/v2"
