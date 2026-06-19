@@ -159,6 +159,10 @@ def cmd_delete(args: argparse.Namespace) -> None:
     delete_forms(source=args.source, form_names=args.forms)
 
 
+def cmd_compact_blanks(args: argparse.Namespace) -> None:
+    compact_blank_runs(source=args.source, max_blank_lines=args.max_blank_lines)
+
+
 def selected_form_names(
     forms: list[Form],
     *,
@@ -308,6 +312,22 @@ def delete_forms(*, source: Path, form_names: list[str]) -> None:
     source.write_text("".join(out_parts))
 
 
+def compact_blank_runs(*, source: Path, max_blank_lines: int) -> None:
+    if max_blank_lines < 0:
+        raise SystemExit("--max-blank-lines must be non-negative")
+    out: list[str] = []
+    blank_count = 0
+    for line in source.read_text().splitlines(keepends=True):
+        if line.strip():
+            blank_count = 0
+            out.append(line)
+        else:
+            blank_count += 1
+            if blank_count <= max_blank_lines:
+                out.append(line)
+    source.write_text("".join(out))
+
+
 def add_ns_require(source: Path, require: str) -> None:
     text = source.read_text()
     if require in text:
@@ -432,6 +452,11 @@ def main() -> None:
     delete_parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     delete_parser.add_argument("forms", nargs="+")
     delete_parser.set_defaults(func=cmd_delete)
+
+    compact_parser = subparsers.add_parser("compact-blanks")
+    compact_parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    compact_parser.add_argument("--max-blank-lines", type=int, default=2)
+    compact_parser.set_defaults(func=cmd_compact_blanks)
 
     manifest_parser = subparsers.add_parser("manifest")
     manifest_parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
