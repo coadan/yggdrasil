@@ -36,6 +36,7 @@
             [agraph.extract.data-science :as extract.data-science]
             [agraph.extract.ops-config :as extract.ops-config]
             [agraph.extract.source-basic :as extract.source-basic]
+            [agraph.extract.source-js :as extract.source-js]
             [clojure.string :as str]))
 
 (def definition-symbols
@@ -1005,62 +1006,8 @@
       (str/replace #"/" ".")
       (str/replace #"-" "_")))
 
-(defn- js-identifier
-  []
-  "[A-Za-z_$][A-Za-z0-9_$]*")
 
-(defn- js-public-line?
-  [line]
-  (boolean (re-find #"^\s*export\b" line)))
 
-(defn- js-definition-line
-  [idx line]
-  (let [identifier (js-identifier)
-        public? (js-public-line? line)]
-    (or (when-let [[_ name]
-                   (re-matches
-                    (re-pattern
-                     (str "^\\s*(?:export\\s+)?(?:default\\s+)?"
-                          "(?:async\\s+)?function\\s+(" identifier ")\\b.*"))
-                    line)]
-          {:kind :function
-           :name name
-           :public? public?
-           :source-line (inc idx)})
-        (when-let [[_ name]
-                   (re-matches
-                    (re-pattern
-                     (str "^\\s*(?:export\\s+)?(?:default\\s+)?class\\s+("
-                          identifier
-                          ")\\b.*"))
-                    line)]
-          {:kind :class
-           :name name
-           :public? public?
-           :source-line (inc idx)})
-        (when-let [[_ name]
-                   (re-matches
-                    (re-pattern
-                     (str "^\\s*(?:export\\s+)?(?:const|let|var)\\s+("
-                          identifier
-                          ")\\s*(?::[^=]+)?=\\s*(?:async\\s*)?"
-                          "(?:\\([^)]*\\)|" identifier ")\\s*=>.*"))
-                    line)]
-          {:kind :function
-           :name name
-           :public? public?
-           :source-line (inc idx)})
-        (when-let [[_ name]
-                   (re-matches
-                    (re-pattern
-                     (str "^\\s*export\\s+(?:const|let|var)\\s+("
-                          identifier
-                          ")\\b.*"))
-                    line)]
-          {:kind :var
-           :name name
-           :public? true
-           :source-line (inc idx)}))))
 
 (defn- normalize-module-path-part
   [value]
@@ -1112,176 +1059,12 @@
                  :source-line (inc idx)}))
          distinct)))
 
-(def ^:private js-definition-chunk-lines 80)
-(def ^:private typescript-declaration-member-before-lines 32)
-(def ^:private typescript-declaration-member-after-lines 8)
-(def ^:private typescript-declaration-member-limit 300)
 
-(defn- js-definition-chunk
-  [run-id id-scope file-id path lines {:keys [label kind source-line]}]
-  (let [chunk-text (->> lines
-                        (drop (dec (or source-line 1)))
-                        (take js-definition-chunk-lines)
-                        (str/join "\n"))
-        line-count (count (str/split-lines chunk-text))]
-    (cond-> {:xt/id (chunk-id id-scope path label (or source-line 1))
-             :file-id file-id
-             :path path
-             :kind :code-definition
-             :definition-kind kind
-             :label label
-             :text chunk-text
-             :tokens (text/tokenize (str label "\n" chunk-text))
-             :source-line (or source-line 1)
-             :active? true
-             :run-id run-id}
-      (pos? line-count) (assoc :end-line (+ (or source-line 1) line-count -1))
-      (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
 
-(defn- typescript-declaration-path?
-  [path]
-  (boolean (re-find #"\.d\.(?:ts|mts|cts)$" (str path))))
 
-(defn- typescript-declaration-member-line
-  [idx line]
-  (let [identifier (js-identifier)]
-    (when-let [[_ name marker]
-               (re-matches
-                (re-pattern
-                 (str "^\\s*(?:" "readonly" "\\s+)?("
-                      identifier
-                      ")\\??\\s*(:|\\(|<).*$"))
-                line)]
-      (let [line (str/trim line)]
-        (when-not (or (str/starts-with? line "export ")
-                      (str/starts-with? line "import ")
-                      (str/starts-with? line "interface ")
-                      (str/starts-with? line "type "))
-          {:kind (if (and (= ":" marker)
-                          (not (str/includes? line "=>"))
-                          (not (str/includes? line "(")))
-                   :property
-                   :method)
-           :name name
-           :source-line (inc idx)})))))
 
-(defn- nearest-jsdoc-start
-  [lines start-idx member-idx]
-  (or (->> (range member-idx (dec start-idx) -1)
-           (some (fn [idx]
-                   (when (re-find #"^\s*/\*\*" (nth lines idx))
-                     idx))))
-      start-idx))
 
-(defn- typescript-declaration-member-chunk
-  [run-id id-scope file-id path module-name lines {:keys [kind name source-line]}]
-  (let [member-idx (max 0 (dec (or source-line 1)))
-        start-idx (nearest-jsdoc-start
-                   lines
-                   (max 0 (- member-idx typescript-declaration-member-before-lines))
-                   member-idx)
-        end-idx (min (count lines)
-                     (+ member-idx typescript-declaration-member-after-lines 1))
-        chunk-text (->> lines
-                        (drop start-idx)
-                        (take (- end-idx start-idx))
-                        (str/join "\n"))
-        line-count (count (str/split-lines chunk-text))
-        label (str module-name "/" name)]
-    (cond-> {:xt/id (chunk-id id-scope path label (or source-line 1))
-             :file-id file-id
-             :path path
-             :kind :code-definition
-             :definition-kind kind
-             :label label
-             :text chunk-text
-             :tokens (text/tokenize (str label "\n" chunk-text))
-             :source-line (inc start-idx)
-             :active? true
-             :run-id run-id}
-      (pos? line-count) (assoc :end-line (+ (inc start-idx) line-count -1))
-      (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
 
-(defn extract-js-family
-  "Extract bounded module facts from JavaScript and TypeScript source files."
-  [run-id {:keys [id-scope file-id path content kind]}]
-  (let [module-name (source-module-name path)
-        ns-node (namespace-node run-id id-scope file-id path module-name)
-        lines (str/split-lines content)
-        defs (->> lines
-                  (map-indexed js-definition-line)
-                  (keep identity)
-                  (mapv (fn [{:keys [kind name public? source-line]}]
-                          (let [label (str module-name "/" name)]
-                            {:xt/id (node-id id-scope :symbol label)
-                             :label label
-                             :kind kind
-                             :file-id file-id
-                             :path path
-                             :namespace module-name
-                             :name name
-                             :public? public?
-                             :source-line source-line
-                             :tokens (text/tokenize label)
-                             :active? true
-                             :run-id run-id}))))
-        define-edges (mapv #(edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
-                           defs)
-        import-edges (->> lines
-                          (map-indexed #(js-import-targets %1 path %2))
-                          (mapcat identity)
-                          (mapv #(edge-row run-id file-id path
-                                           (:xt/id ns-node)
-                                           (node-id id-scope :namespace (:target %))
-                                           :imports
-                                           :extracted
-                                           (:source-line %))))
-        chunk-text (str/join "\n" (take 100 lines))
-        chunk-kind (case kind
-                     :typescript :typescript-file
-                     :javascript-file)
-        chunk {:xt/id (chunk-id id-scope path module-name 1)
-               :file-id file-id
-               :path path
-               :kind chunk-kind
-               :label module-name
-               :text chunk-text
-               :tokens (text/tokenize (str module-name "\n" chunk-text))
-               :source-line 1
-               :active? true
-               :run-id run-id}
-        definition-chunks (mapv #(js-definition-chunk run-id
-                                                      id-scope
-                                                      file-id
-                                                      path
-                                                      lines
-                                                      %)
-                                defs)
-        declaration-member-chunks (if (and (= :typescript kind)
-                                           (typescript-declaration-path? path))
-                                    (->> lines
-                                         (map-indexed typescript-declaration-member-line)
-                                         (keep identity)
-                                         (take typescript-declaration-member-limit)
-                                         (mapv #(typescript-declaration-member-chunk
-                                                 run-id
-                                                 id-scope
-                                                 file-id
-                                                 path
-                                                 module-name
-                                                 lines
-                                                 %)))
-                                    [])]
-    {:nodes (into [ns-node] defs)
-     :edges (vec (concat define-edges import-edges))
-     :chunks (into [chunk] (concat definition-chunks
-                                   declaration-member-chunks))
-     :diagnostics []}))
 
 (def ^:private jvm-family-file-chunk-lines 100)
 (def ^:private jvm-family-definition-chunk-lines 120)
@@ -7505,8 +7288,8 @@
             (ember-router-source? content)
             (ember-config-source? content))
     (case (web-framework-base-kind path)
-      :typescript (extract-js-family run-id (assoc file :kind :typescript))
-      :javascript (extract-js-family run-id (assoc file :kind :javascript))
+      :typescript (extract.source-js/extract-js-family run-id (assoc file :kind :typescript))
+      :javascript (extract.source-js/extract-js-family run-id (assoc file :kind :javascript))
       :svelte (extract-sfc run-id (assoc file :kind :svelte))
       :astro (extract-astro run-id (assoc file :kind :astro))
       :vue (extract-sfc run-id (assoc file :kind :vue))
@@ -7749,7 +7532,7 @@
                                          segment)
                                 second)
 
-                       (re-matches (re-pattern (js-identifier)) segment)
+                       (re-matches (re-pattern (extract.common/js-identifier)) segment)
                        segment
 
                        :else nil))))
@@ -7761,7 +7544,7 @@
   [content]
   (let [line-starts (line-start-offsets content)]
     (->> (re-seq (re-pattern (str "\\b(?:const|let|var)\\s+("
-                                  (js-identifier)
+                                  (extract.common/js-identifier)
                                   ")\\s*=\\s*defineCollection\\s*\\("))
                  content)
          (keep (fn [[match collection-name]]
@@ -8450,7 +8233,7 @@
        (mapcat (fn [{:keys [source-line lines]}]
                  (keep-indexed
                   (fn [idx line]
-                    (js-definition-line (+ (dec source-line) idx) line))
+                    (extract.common/js-definition-line (+ (dec source-line) idx) line))
                   lines)))
        vec))
 
@@ -9419,8 +9202,8 @@
   [run-id {:keys [path] :as file}]
   (case (fs/extension path)
     ".py" (extract-python run-id (assoc file :kind :python))
-    (".ts" ".tsx" ".mts" ".cts") (extract-js-family run-id (assoc file :kind :typescript))
-    (".js" ".jsx" ".mjs" ".cjs") (extract-js-family run-id (assoc file :kind :javascript))
+    (".ts" ".tsx" ".mts" ".cts") (extract.source-js/extract-js-family run-id (assoc file :kind :typescript))
+    (".js" ".jsx" ".mjs" ".cjs") (extract.source-js/extract-js-family run-id (assoc file :kind :javascript))
     nil))
 
 (defn- workflow-dependency-edges
@@ -9778,8 +9561,8 @@
      :svelte (extract-sfc run-id file)
      :ci (extract.ci/extract-ci run-id file)
      :build (extract.build/extract-build run-id file)
-     :javascript (extract-js-family run-id file)
-     :typescript (extract-js-family run-id file)
+     :javascript (extract.source-js/extract-js-family run-id file)
+     :typescript (extract.source-js/extract-js-family run-id file)
      :python (extract-python run-id file)
      :rust (extract.source-basic/extract-rust run-id file)
      :style (extract.text/extract-style run-id file)

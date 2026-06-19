@@ -275,6 +275,63 @@
                  :source-line (inc idx)}))
          distinct)))
 
+(defn js-identifier
+  []
+  "[A-Za-z_$][A-Za-z0-9_$]*")
+
+(defn js-public-line?
+  [line]
+  (boolean (re-find #"^\s*export\b" line)))
+
+(defn js-definition-line
+  [idx line]
+  (let [identifier (js-identifier)
+        public? (js-public-line? line)]
+    (or (when-let [[_ name]
+                   (re-matches
+                    (re-pattern
+                     (str "^\\s*(?:export\\s+)?(?:default\\s+)?"
+                          "(?:async\\s+)?function\\s+(" identifier ")\\b.*"))
+                    line)]
+          {:kind :function
+           :name name
+           :public? public?
+           :source-line (inc idx)})
+        (when-let [[_ name]
+                   (re-matches
+                    (re-pattern
+                     (str "^\\s*(?:export\\s+)?(?:default\\s+)?class\\s+("
+                          identifier
+                          ")\\b.*"))
+                    line)]
+          {:kind :class
+           :name name
+           :public? public?
+           :source-line (inc idx)})
+        (when-let [[_ name]
+                   (re-matches
+                    (re-pattern
+                     (str "^\\s*(?:export\\s+)?(?:const|let|var)\\s+("
+                          identifier
+                          ")\\s*(?::[^=]+)?=\\s*(?:async\\s*)?"
+                          "(?:\\([^)]*\\)|" identifier ")\\s*=>.*"))
+                    line)]
+          {:kind :function
+           :name name
+           :public? public?
+           :source-line (inc idx)})
+        (when-let [[_ name]
+                   (re-matches
+                    (re-pattern
+                     (str "^\\s*export\\s+(?:const|let|var)\\s+("
+                          identifier
+                          ")\\b.*"))
+                    line)]
+          {:kind :var
+           :name name
+           :public? true
+           :source-line (inc idx)}))))
+
 (defn manifest-name
   [path]
   (str/lower-case (last (str/split path #"/"))))
