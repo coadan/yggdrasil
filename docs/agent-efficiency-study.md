@@ -138,7 +138,9 @@ Use existing benchmark report fields first:
 - task fit: `bb efficiency` `classSignals` for compact problem-class and
   architecture-class rows. Use each row's `measured` flag to distinguish a
   shared class-shaped tag from a class that counts toward claim readiness; fall
-  back to `byTag.groups` only when inspecting arbitrary non-class tags.
+  back to `byTag.groups` only when inspecting arbitrary non-class tags. Use
+  `classSignals.summary.measuredProblemClasses` and
+  `classSignals.summary.measuredArchitectureClasses` for machine gates.
 - timing: stage timings and active-stage diagnostics from progress artifacts
 
 For patching runs, also record test pass rate, lint pass rate, unrelated file

@@ -80,8 +80,9 @@ lanes share completed cases, architecture-class tags are measured, evidence
 quality is available, and the report remains claim-ready. In `--json` output,
 read `classSignals.problemClasses` and `classSignals.architectureClasses`; a
 row with `measured: false` is useful context but does not count toward broad
-claim readiness. Treat generated files under `.dev/agraph/headline-bench/` as
-disposable artifacts.
+claim readiness. Use `classSignals.summary.measuredProblemClasses` and
+`classSignals.summary.measuredArchitectureClasses` for automated gates. Treat
+generated files under `.dev/agraph/headline-bench/` as disposable artifacts.
 
 ## Workflow
 
