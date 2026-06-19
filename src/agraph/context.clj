@@ -948,58 +948,64 @@
 
 (defn- available-planes
   [counts]
-  (cond-> []
-    (pos? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
-    (pos? (+ (:external-packages counts 0)
-             (:package-import-edges counts 0)
-             (:unresolved-imports counts 0))) (conj :dependencies)
-    (pos? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
-    (pos? (:embeddings counts)) (conj :embeddings)
-    (pos? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
-    (pos? (+ (:activity-items counts) (:activity-events counts))) (conj :activity)
-    (pos? (:validation-events counts)) (conj :validation-history)
-    (pos? (+ (:map-systems counts)
-             (:map-docs counts)
-             (:map-edges counts)
-             (:map-rejects counts))) (conj :map-overlay)))
+  (let [validation-history-events (+ (:validation-events counts 0)
+                                     (:result-schema-mismatch-events counts 0))]
+    (cond-> []
+      (pos? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
+      (pos? (+ (:external-packages counts 0)
+               (:package-import-edges counts 0)
+               (:unresolved-imports counts 0))) (conj :dependencies)
+      (pos? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
+      (pos? (:embeddings counts)) (conj :embeddings)
+      (pos? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
+      (pos? (+ (:activity-items counts) (:activity-events counts))) (conj :activity)
+      (pos? validation-history-events) (conj :validation-history)
+      (pos? (+ (:map-systems counts)
+               (:map-docs counts)
+               (:map-edges counts)
+               (:map-rejects counts))) (conj :map-overlay))))
 
 (defn- missing-planes
   [counts]
-  (cond-> []
-    (zero? (:files counts)) (conj :source-files)
-    (zero? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
-    (zero? (+ (:external-packages counts 0)
-              (:package-import-edges counts 0)
-              (:unresolved-imports counts 0))) (conj :dependencies)
-    (zero? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
-    (zero? (:embeddings counts)) (conj :embeddings)
-    (zero? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
-    (zero? (+ (:activity-items counts) (:activity-events counts))) (conj :activity)
-    (zero? (:validation-events counts)) (conj :validation-history)))
+  (let [validation-history-events (+ (:validation-events counts 0)
+                                     (:result-schema-mismatch-events counts 0))]
+    (cond-> []
+      (zero? (:files counts)) (conj :source-files)
+      (zero? (+ (:nodes counts) (:edges counts))) (conj :source-graph)
+      (zero? (+ (:external-packages counts 0)
+                (:package-import-edges counts 0)
+                (:unresolved-imports counts 0))) (conj :dependencies)
+      (zero? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
+      (zero? (:embeddings counts)) (conj :embeddings)
+      (zero? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
+      (zero? (+ (:activity-items counts) (:activity-events counts))) (conj :activity)
+      (zero? validation-history-events) (conj :validation-history))))
 
 (defn- weak-planes
   [counts {:keys [entity-count doc-count activity-count validation-count]}]
-  (cond-> []
-    (or (pos? (:unresolved-imports counts 0))
-        (pos? (:package-evidence-gaps counts 0))
-        (pos? (:package-conflicts counts 0)))
-    (conj :dependencies)
+  (let [validation-history-events (+ (:validation-events counts 0)
+                                     (:result-schema-mismatch-events counts 0))]
+    (cond-> []
+      (or (pos? (:unresolved-imports counts 0))
+          (pos? (:package-evidence-gaps counts 0))
+          (pos? (:package-conflicts counts 0)))
+      (conj :dependencies)
 
-    (and (pos? (+ (:system-nodes counts) (:system-edges counts)))
-         (zero? entity-count))
-    (conj :system-graph)
+      (and (pos? (+ (:system-nodes counts) (:system-edges counts)))
+           (zero? entity-count))
+      (conj :system-graph)
 
-    (and (pos? (:search-docs counts))
-         (zero? doc-count))
-    (conj :docs)
+      (and (pos? (:search-docs counts))
+           (zero? doc-count))
+      (conj :docs)
 
-    (and (pos? (+ (:activity-items counts) (:activity-events counts)))
-         (zero? activity-count))
-    (conj :activity)
+      (and (pos? (+ (:activity-items counts) (:activity-events counts)))
+           (zero? activity-count))
+      (conj :activity)
 
-    (and (pos? (:validation-events counts))
-         (zero? validation-count))
-    (conj :validation-history)))
+      (and (pos? validation-history-events)
+           (zero? validation-count))
+      (conj :validation-history))))
 
 (defn- answerability-warnings
   [counts retrieval weak]
@@ -1049,7 +1055,8 @@
     (some #{:activity} weak)
     (conj "Activity/work rows are indexed, but no activity matched this query.")
 
-    (zero? (:validation-events counts))
+    (zero? (+ (:validation-events counts 0)
+              (:result-schema-mismatch-events counts 0)))
     (conj "No validation history rows are indexed; validation-history queries are limited.")
 
     (some #{:validation-history} weak)
@@ -1105,6 +1112,7 @@
          (pos? (:diagnostics counts))
          (conj {:kind :coverage
                 :label "Inspect extractor diagnostics"
+                :count (:diagnostics counts)
                 :command (command/command "agraph" "sync" "coverage" "<project.edn>" "--json")})
 
          (zero? (:search-docs counts))
@@ -1130,6 +1138,7 @@
          (pos? (:package-evidence-gaps counts 0))
          (conj {:kind :dependencies
                 :label "Inspect packages without source import evidence"
+                :count (:package-evidence-gaps counts 0)
                 :command (package-command project-id
                                           "--without-import-evidence"
                                           "--json")})
@@ -1137,12 +1146,20 @@
          (pos? (:package-conflicts counts 0))
          (conj {:kind :dependencies
                 :label "Inspect package version conflicts"
+                :count (:package-conflicts counts 0)
                 :command (package-command project-id "--with-conflicts" "--json")})
 
          (pos? (:unresolved-imports counts 0))
          (conj {:kind :dependency-review
                 :label "Queue unresolved import review work"
+                :count (:unresolved-imports counts 0)
                 :command (sync-command "--check" "--enqueue")})
+
+         (pos? (:result-schema-mismatch-events counts 0))
+         (conj {:kind :activity
+                :label "Inspect result schema mismatch activity"
+                :count (:result-schema-mismatch-events counts 0)
+                :command (command/command "agraph" "sync" "activity" "<project.edn>" "--json")})
 
          (zero? (+ (:system-nodes counts) (:system-edges counts)))
          (conj {:kind :system-graph

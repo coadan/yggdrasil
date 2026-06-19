@@ -92,7 +92,7 @@ declarations, lockfile versions, and mechanically resolved package-import edges.
 - `warnings`: short mechanical explanations
 - `next`: bounded follow-up commands
 - `nextActions`: the same follow-up work as structured rows with `kind`,
-  `label`, and executable `command`
+  `label`, optional `count`, and executable `command`
 
 If `dependencies` is missing or weak, `next` points at the package report so
 agents can inspect whether the graph has package declarations, import evidence,

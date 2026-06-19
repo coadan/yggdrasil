@@ -257,6 +257,7 @@
     (is (= 5 (count actions)))
     (is (some #(= {:kind :coverage
                    :label "Inspect extractor diagnostics"
+                   :count 3
                    :command "agraph sync coverage <project.edn> --json"}
                   %)
               actions))))
@@ -502,9 +503,7 @@
                 activity/all-items (fn [& _]
                                      [{:xt/id "work:app"}])
                 activity/all-events (fn [& _]
-                                      [{:xt/id "event:validation"
-                                        :event-kind :validation}
-                                       {:xt/id "event:mismatch"
+                                      [{:xt/id "event:mismatch"
                                         :event-kind :result-schema-mismatch}])]
     (let [answerability (#'context/answerability
                          :xtdb
@@ -516,9 +515,19 @@
                           :doc-count 0
                           :activity-count 0
                           :validation-count 0})]
+      (is (contains? (set (:available answerability)) :validation-history))
+      (is (not (contains? (set (:missing answerability)) :validation-history)))
       (is (= 1 (get-in answerability [:counts :result-schema-mismatch-events])))
       (is (some #{"Completed work has result schema mismatches; inspect activity before trusting prior results."}
-                (:warnings answerability))))))
+                (:warnings answerability)))
+      (is (not (some #{"No validation history rows are indexed; validation-history queries are limited."}
+                     (:warnings answerability))))
+      (is (some #(= {:kind :activity
+                     :label "Inspect result schema mismatch activity"
+                     :count 1
+                     :command "agraph sync activity <project.edn> --json"}
+                    %)
+                (:nextActions answerability))))))
 
 (deftest answerability-reports-missing-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]
@@ -624,7 +633,13 @@
                     %)
                 (:nextActions answerability)))
       (is (some #{"Run agraph sync <project.edn> --check --enqueue"}
-                (:next answerability))))))
+                (:next answerability)))
+      (is (some #(= {:kind :dependency-review
+                     :label "Queue unresolved import review work"
+                     :count 1
+                     :command "agraph sync <project.edn> --check --enqueue"}
+                    %)
+                (:nextActions answerability))))))
 
 (deftest answerability-surfaces-dependency-evidence-gaps-and-conflicts
   (with-redefs [store/all-rows (fn [_ table _]
@@ -672,7 +687,19 @@
       (is (some #{"Run agraph packages --project fixture --without-import-evidence --json"}
                 (:next answerability)))
       (is (some #{"Run agraph packages --project fixture --with-conflicts --json"}
-                (:next answerability))))))
+                (:next answerability)))
+      (is (some #(= {:kind :dependencies
+                     :label "Inspect packages without source import evidence"
+                     :count 1
+                     :command "agraph packages --project fixture --without-import-evidence --json"}
+                    %)
+                (:nextActions answerability)))
+      (is (some #(= {:kind :dependencies
+                     :label "Inspect package version conflicts"
+                     :count 1
+                     :command "agraph packages --project fixture --with-conflicts --json"}
+                    %)
+                (:nextActions answerability))))))
 
 (deftest context-packet-includes-search-instrumentation
   (with-redefs [query/search-report (fn [_ query-text opts]
