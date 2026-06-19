@@ -17,11 +17,7 @@
             [agraph.extract.text :as extract.text]
             [agraph.extract.xml :as extract.xml]
             [agraph.extract.yaml-config :as extract.yaml-config]
-            [agraph.fs :as fs]
             [agraph.hash :as hash]
-            [agraph.text :as text]
-            [charred.api :as json]
-            [clojure.edn :as edn]
             [agraph.extract.protobuf :as extract.protobuf]
             [agraph.extract.avro :as extract.avro]
             [agraph.extract.api-schema :as extract.api-schema]
@@ -55,8 +51,7 @@
             [agraph.extract.source-dotnet-worker :as extract.source-dotnet-worker]
             [agraph.extract.yaml-generic :as extract.yaml-generic]
             [agraph.extract.config-generic :as extract.config-generic]
-            [agraph.extract.web-framework-entry :as extract.web-framework-entry]
-            [clojure.string :as str]))
+            [agraph.extract.web-framework-entry :as extract.web-framework-entry]))
 
 
 
@@ -66,10 +61,7 @@
 (declare docs-config-array-property-values
          docs-config-property-values
          extract-astro
-         extract-sfc
-         js-import-targets
-         json-ref-tail
-         json-ref-values)
+         extract-sfc)
 
 (def extractor-contract-version
   "agraph.extract/v2")
@@ -248,21 +240,20 @@
 
 (defn node-id
   "Return stable node id for kind/name."
-  ([kind value] (node-id nil kind value))
+  ([kind value] (extract.common/node-id kind value))
   ([id-scope kind value]
-   (str (when (seq id-scope) (str id-scope ":"))
-        "node:" (name kind) ":" value)))
+   (extract.common/node-id id-scope kind value)))
 
 (defn edge-id
   "Return stable edge id."
   [source-id target-id relation _path _source-line]
-  (str "edge:" (hash/short-hash [source-id relation target-id])))
+  (extract.common/edge-id source-id target-id relation nil nil))
 
 (defn chunk-id
   "Return stable chunk id."
-  ([path label source-line] (chunk-id nil path label source-line))
+  ([path label source-line] (extract.common/chunk-id path label source-line))
   ([id-scope path label source-line]
-   (str "chunk:" (hash/short-hash [id-scope path label source-line]))))
+   (extract.common/chunk-id id-scope path label source-line)))
 
 
 
@@ -275,104 +266,13 @@
 
 
 
-(defn- namespace-node
-  [run-id id-scope file-id path ns-name]
-  {:xt/id (node-id id-scope :namespace ns-name)
-   :label ns-name
-   :kind :namespace
-   :file-id file-id
-   :path path
-   :namespace ns-name
-   :name ns-name
-   :public? true
-   :source-line 1
-   :tokens (text/tokenize ns-name)
-   :active? true
-   :run-id run-id})
 
-(defn- edge-row
-  [run-id file-id path source-id target-id relation confidence source-line]
-  {:xt/id (edge-id source-id target-id relation path source-line)
-   :source-id source-id
-   :target-id target-id
-   :relation relation
-   :confidence confidence
-   :file-id file-id
-   :path path
-   :source-line (or source-line 1)
-   :active? true
-   :run-id run-id})
 
-(defn- generic-node
-  [run-id id-scope file-id path kind label source-line]
-  {:xt/id (node-id id-scope kind label)
-   :label label
-   :kind kind
-   :file-id file-id
-   :path path
-   :name label
-   :source-line (or source-line 1)
-   :tokens (text/tokenize label)
-   :active? true
-   :run-id run-id})
 
-(defn- package-label
-  [ecosystem package-name]
-  (str (name ecosystem) ":" package-name))
 
-(defn- package-fact
-  [{:keys [ecosystem package-name version-range dependency-scope import-names
-           source-line relation]
-    :or {relation :requires}}]
-  (when (and ecosystem (seq package-name))
-    (cond-> {:kind :external-package
-             :label (package-label ecosystem package-name)
-             :ecosystem ecosystem
-             :package-name package-name
-             :source-line (or source-line 1)
-             :relation relation}
-      version-range (assoc :version-range version-range)
-      dependency-scope (assoc :dependency-scope dependency-scope)
-      (seq import-names) (assoc :import-names (vec import-names)))))
 
-(defn- package-version-fact
-  [{:keys [ecosystem package-name resolved-version source-line relation]
-    :or {relation :resolves}}]
-  (when (and ecosystem (seq package-name) (seq resolved-version))
-    {:kind :external-package-version
-     :label (str (package-label ecosystem package-name) "@" resolved-version)
-     :ecosystem ecosystem
-     :package-name package-name
-     :resolved-version resolved-version
-     :source-line (or source-line 1)
-     :relation relation}))
 
-(defn- fact-node
-  [run-id id-scope file-id path {:keys [kind label source-line] :as fact}]
-  (cond-> (generic-node run-id id-scope file-id path kind label source-line)
-    (:ecosystem fact) (assoc :ecosystem (:ecosystem fact))
-    (:package-name fact) (assoc :package-name (:package-name fact))
-    (:version-range fact) (assoc :version-range (:version-range fact))
-    (:resolved-version fact) (assoc :resolved-version (:resolved-version fact))
-    (:dependency-scope fact) (assoc :dependency-scope (:dependency-scope fact))
-    (seq (:import-names fact)) (assoc :import-names (vec (:import-names fact)))))
 
-(defn- fact-edge-row
-  [run-id file-id path source-id id-scope {:keys [kind label source-line relation] :as fact}]
-  (cond-> (edge-row run-id
-                    file-id
-                    path
-                    source-id
-                    (node-id id-scope kind label)
-                    relation
-                    :extracted
-                    source-line)
-    (:ecosystem fact) (assoc :ecosystem (:ecosystem fact))
-    (:package-name fact) (assoc :package-name (:package-name fact))
-    (:version-range fact) (assoc :version-range (:version-range fact))
-    (:resolved-version fact) (assoc :resolved-version (:resolved-version fact))
-    (:dependency-scope fact) (assoc :dependency-scope (:dependency-scope fact))
-    (seq (:import-names fact)) (assoc :import-names (vec (:import-names fact)))))
 
 
 
@@ -443,22 +343,7 @@
 
 
 
-(defn- bounded-message
-  [message]
-  (let [message (str (or message ""))]
-    (subs message 0 (min 500 (count message)))))
 
-(defn- diagnostic-row
-  [run-id file-id path stage line message]
-  {:xt/id (str "diagnostic:"
-               (hash/short-hash [file-id stage line message]))
-   :file-id file-id
-   :path path
-   :stage (keyword (str (or stage "extract")))
-   :message (bounded-message message)
-   :source-line (or line 1)
-   :active? true
-   :run-id run-id})
 
 
 
@@ -470,67 +355,14 @@
 
 
 
-(defn- source-module-name
-  [path]
-  (-> path
-      (str/replace #"\.d\.(?:ts|mts|cts)$" "")
-      (str/replace #"\.rb\.template$" "")
-      (str/replace #"\.(astro|c|cc|cpp|cxx|dart|erl|ex|exs|groovy|h|hh|hpp|hrl|hs|html|hxx|jl|kt|kts|lua|m|ml|mli|mm|mts|cts|mjs|cjs|jsx|js|odin|pl|pm|r|R|rake|rb|scala|tsx|ts|php|scss|css|sql|svelte|swift|svg|vue|zig)$" "")
-      (str/replace #"/" ".")
-      (str/replace #"-" "_")))
 
 
 
 
-(defn- normalize-module-path-part
-  [value]
-  (str/replace value #"-" "_"))
 
-(defn- drop-source-extension
-  [value]
-  (-> value
-      (str/replace #"\.d\.ts$" "")
-      (str/replace #"\.(astro|mjs|cjs|jsx|js|tsx|ts|scss|css|json|svelte|vue)$" "")))
 
-(defn- resolve-relative-source-target
-  [path target]
-  (let [base (->> (str/split path #"/")
-                  drop-last
-                  vec)]
-    (loop [parts (concat base (str/split target #"/"))
-           out []]
-      (if-let [part (first parts)]
-        (case part
-          "." (recur (rest parts) out)
-          "" (recur (rest parts) out)
-          ".." (recur (rest parts) (vec (drop-last out)))
-          (recur (rest parts) (conj out (normalize-module-path-part part))))
-        (->> out
-             (str/join ".")
-             drop-source-extension)))))
 
-(defn- js-import-target
-  [path target]
-  (let [target (str target)]
-    (if (str/starts-with? target ".")
-      (resolve-relative-source-target path target)
-      target)))
 
-(defn- js-import-targets
-  [idx path line]
-  (let [patterns [#"^\s*import\s+(?:type\s+)?(?:[^\"']+\s+from\s+)?[\"']([^\"']+)[\"'].*"
-                  #"^\s*export\s+(?:type\s+)?[^\"']+\s+from\s+[\"']([^\"']+)[\"'].*"
-                  #"\brequire\s*\(\s*[\"']([^\"']+)[\"']\s*\)"
-                  #"\bimport\s*\(\s*[\"']([^\"']+)[\"']\s*\)"]]
-    (->> patterns
-         (mapcat #(re-seq % line))
-         (map second)
-         (remove str/blank?)
-         (map #(js-import-target path %))
-         (map (fn [target]
-                {:target target
-                 :source-line (inc idx)}))
-         distinct)))
 
 
 
@@ -693,13 +525,6 @@
 
 
 
-(defn- yaml-top-level-value
-  [content key-name]
-  (some-> (re-find (re-pattern (str "(?m)^" key-name ":\\s*([^#\\n]+)\\s*$"))
-                   content)
-          second
-          str/trim
-          (str/replace #"^['\"]|['\"]$" "")))
 
 
 
@@ -1248,34 +1073,11 @@
 
 
 
-(def ^:private json-ref-key
-  (keyword "$ref"))
 
-(def ^:private json-id-key
-  (keyword "$id"))
 
-(def ^:private json-defs-key
-  (keyword "$defs"))
 
-(defn- json-ref-values
-  [value]
-  (cond
-    (map? value)
-    (let [self-ref (get value json-ref-key)]
-      (cond-> (mapcat json-ref-values (vals value))
-        (string? self-ref) (conj self-ref)))
 
-    (vector? value)
-    (mapcat json-ref-values value)
 
-    :else
-    []))
-
-
-(defn- json-ref-tail
-  [prefix ref]
-  (when (and (string? ref) (str/starts-with? ref prefix))
-    (subs ref (count prefix))))
 
 
 
