@@ -243,6 +243,8 @@ export const fixtureReport: AGraphReport = {
               { key: "source", label: "Source" },
               { key: "nodes", label: "Nodes" },
               { key: "edges", label: "Edges" },
+              { key: "path", label: "Path" },
+              { key: "line", label: "Line" },
               { key: "neighbors", label: "Neighbors" }
             ],
             rows: [
@@ -250,6 +252,8 @@ export const fixtureReport: AGraphReport = {
                 source: "systems.json",
                 nodes: 3,
                 edges: 2,
+                path: "src/app/plugin_crawl.clj",
+                line: 18,
                 neighbors: [
                   { label: "flows-api", kind: "candidate-system" },
                   { label: "events-worker", kind: "candidate-system" }

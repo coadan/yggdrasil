@@ -30,6 +30,7 @@ describe("ReportPage", () => {
     expect(screen.getAllByText("fixture-report-plugin").length).toBeGreaterThan(0);
     expect(screen.getByText("Fixture diagnostic")).toBeInTheDocument();
     expect(screen.getByText("flows-api / candidate-system, events-worker / candidate-system")).toBeInTheDocument();
+    expect(screen.getByText("src/app/plugin_crawl.clj")).toBeInTheDocument();
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
 
     const pluginAction = screen.getByText("Inspect checkout plugin crawl").closest("article");
@@ -50,6 +51,9 @@ describe("ReportPage", () => {
     expect(screen.getByRole("button", { name: /System Neighborhood/ })).toHaveAttribute("aria-pressed", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "Plugins" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy source refs" }));
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+
     const pluginCommand = screen
       .getAllByText("agraph ask \"what owns checkout?\" --project fixture --json")
       .map((element) => element.closest("li"))

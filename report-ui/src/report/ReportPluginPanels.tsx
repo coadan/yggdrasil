@@ -116,10 +116,31 @@ function tableRowsFrom(value: unknown): Array<Record<string, unknown>> {
   return asRows(asRecord(value).rows);
 }
 
-function InlineDataTable({ value }: { value: unknown }) {
+function sourceRefs(rows: Array<Record<string, unknown>>): string[] {
+  const refs = new Set<string>();
+  for (const row of rows) {
+    const path = displayValue(row.path || row.file || row.sourcePath || row.source_path);
+    if (!path) continue;
+    const repo = displayValue(row.repo || row["repo-id"] || row.repoId);
+    const line = displayValue(row.line || row["start-line"] || row.startLine);
+    refs.add(`${repo ? `${repo}:` : ""}${path}${line ? `:${line}` : ""}`);
+  }
+  return [...refs];
+}
+
+function InlineDataTable({
+  value,
+  actions,
+  actionKey
+}: {
+  value: unknown;
+  actions?: PluginPanelActions;
+  actionKey: string;
+}) {
   const columns = tableColumnsFrom(value);
   const rows = tableRowsFrom(value);
   const empty = displayValue(asRecord(value).empty) || "No rows.";
+  const refs = sourceRefs(rows);
 
   if (columns.length === 0) {
     return <p className="muted">{empty}</p>;
@@ -128,26 +149,35 @@ function InlineDataTable({ value }: { value: unknown }) {
   return rows.length === 0 ? (
     <p className="muted">{empty}</p>
   ) : (
-    <table>
-      <thead>
-        <tr>
-          {columns.map((column) => (
-            <th key={column.key}>{column.label}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr key={String(row.id || row.key || index)}>
+    <div className="plugin-table">
+      {refs.length > 0 && actions?.onCopyCommand ? (
+        <div className="plugin-table-actions">
+          <button type="button" onClick={() => actions.onCopyCommand?.(`plugin-table-sources:${actionKey}`, refs.join("\n"))}>
+            {actions.copiedKey === `plugin-table-sources:${actionKey}` ? "Copied" : "Copy source refs"}
+          </button>
+        </div>
+      ) : null}
+      <table>
+        <thead>
+          <tr>
             {columns.map((column) => (
-              <td key={column.key} className={numericCell(row[column.key])}>
-                {displayValue(row[column.key])}
-              </td>
+              <th key={column.key}>{column.label}</th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={String(row.id || row.key || index)}>
+              {columns.map((column) => (
+                <td key={column.key} className={numericCell(row[column.key])}>
+                  {displayValue(row[column.key])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -277,7 +307,7 @@ function PluginCallout({ value }: { value: unknown }) {
 function KeyValueTable({ value }: { value: unknown }) {
   const record = asRecord(value);
   const rows = Object.entries(record).map(([key, cell]) => ({ key, value: cell }));
-  return <InlineDataTable value={{ columns: [{ key: "key", label: "Key" }, { key: "value", label: "Value" }], rows }} />;
+  return <InlineDataTable value={{ columns: [{ key: "key", label: "Key" }, { key: "value", label: "Value" }], rows }} actionKey="key-value" />;
 }
 
 function dataForPanel(panel: ReportPluginPanel, key?: string): unknown {
@@ -305,7 +335,7 @@ function renderMdxComponent(
     case "MetricGrid":
       return <PluginMetricGrid key={key} value={value} />;
     case "DataTable":
-      return <InlineDataTable key={key} value={value} />;
+      return <InlineDataTable key={key} value={value} actions={actions} actionKey={`${panel.id}:${props.dataKey || key}`} />;
     case "CommandList":
       return <InlineCommandList key={key} value={value} />;
     case "ActionList":
