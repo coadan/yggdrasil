@@ -30,6 +30,7 @@
             [agraph.benchmark-agent-packet :as benchmark-agent-packet]
             [agraph.benchmark-local-vector :as benchmark-local-vector]
             [agraph.benchmark-score-artifacts :as benchmark-score-artifacts]
+            [agraph.benchmark-agent-baseline :as benchmark-agent-baseline]
             [clojure.string :as str])
   (:import [java.util.concurrent TimeUnit]))
 
@@ -136,19 +137,6 @@
   ["standard" "fast"])
 
 (declare agent-baseline-suspect-limit agent-prompt-profile agent-result-contract)
-
-(defn- index-timeout-ms
-  [opts]
-  (let [configured (get opts :index-timeout-ms ::default)]
-    (cond
-      (= ::default configured) default-index-timeout-ms
-      (and configured (pos? (long configured))) (long configured)
-      :else nil)))
-
-(defn- benchmark-index-options
-  [opts]
-  (cond-> {:index-profile :query}
-    (some? (index-timeout-ms opts)) (assoc :index-timeout-ms (index-timeout-ms opts))))
 
 (defn- parser-worker-option
   [opts]
@@ -287,6 +275,31 @@
 (defn- evaluate-graph-expectations
   [xtdb prepared]
   (benchmark-expectations/evaluate-graph-expectations xtdb prepared))
+
+(defn- benchmark-index-options
+  [opts]
+  (benchmark-agent-baseline/benchmark-index-options opts))
+
+(defn- context-ground-truth-ranks
+  [prepared packet]
+  (benchmark-agent-baseline/context-ground-truth-ranks prepared packet))
+
+(defn- context-ground-truth-ranks-from-path
+  [prepared path]
+  (benchmark-agent-baseline/context-ground-truth-ranks-from-path prepared path))
+
+(defn- agent-baseline-context-options
+  [prepared opts]
+  (benchmark-agent-baseline/agent-baseline-context-options prepared opts))
+
+(defn- agent-baseline-suspect-limit
+  [opts]
+  (benchmark-agent-baseline/agent-baseline-suspect-limit opts))
+
+(defn agent-baseline!
+  "Generate, write, and score one deterministic AGraph agent-result artifact."
+  [suite case opts]
+  (benchmark-agent-baseline/agent-baseline! suite case opts))
 
 (defn- run-query!
   [xtdb prepared opts]
@@ -444,37 +457,6 @@
   [packet]
   (benchmark-prediction/packet-commands packet))
 
-(defn- context-ground-truth-ranks
-  [prepared packet]
-  (let [context-result (context-packet->agent-result
-                        packet
-                        {:root (:worktreeRoot prepared)
-                         :coverage (:coverage prepared)})]
-    {:files (benchmark-score/ground-truth-file-ranks
-             (benchmark-score/scoreable-changed-files (:groundTruth prepared))
-             (:suspectedFiles context-result))
-     :selection (:selection context-result)}))
-
-(defn- context-ground-truth-ranks-from-path
-  [prepared path]
-  (when (and (not (blankish? path))
-             (.isFile (io/file path)))
-    (context-ground-truth-ranks prepared (benchmark-io/read-json-file path))))
-
-(defn- agent-baseline-context-options
-  [prepared opts]
-  {:project-id (:project-id prepared)
-   :repo-id (:repo-id prepared)
-   :retriever (keyword (or (:retriever opts) :lexical))
-   :budget (long (or (:budget opts) default-agent-baseline-budget))
-   :doc-limit (long (or (:doc-limit opts) default-agent-baseline-doc-limit))
-   :retrieval-limit (long (or (:retrieval-limit opts) default-agent-baseline-retrieval-limit))
-   :snippet-chars (long (or (:snippet-chars opts) context/default-snippet-chars))})
-
-(defn- agent-baseline-suspect-limit
-  [opts]
-  (long (or (:limit opts) default-agent-baseline-suspect-limit)))
-
 (defn- normalize-agent-result-identity
   [agent-result prepared]
   (benchmark-local-vector/normalize-agent-result-identity agent-result prepared))
@@ -538,140 +520,6 @@
   not include hidden benchmark ground truth or accepted fix metadata."
   [prepared packet opts]
   (benchmark-hints/context-packet->agent-hints prepared packet opts))
-
-(defn agent-baseline!
-  "Generate, write, and score one deterministic AGraph agent-result artifact."
-  [suite case opts]
-  (let [prepared (prepare-case! suite case opts)
-        bench-project (agent-project prepared)
-        project-path (fs/canonical-path (benchmark-paths/agent-project-path suite case opts))
-        result-path (benchmark-paths/agent-baseline-result-path suite case opts)
-        context-path (benchmark-paths/agent-baseline-context-path suite case opts)
-        progress-path (benchmark-paths/progress-path suite case opts)
-        agent-id (benchmark-paths/agent-baseline-id opts)]
-    (benchmark-progress/progress-stage!
-     suite
-     case
-     opts
-     :write-agent-project
-     #(benchmark-io/write-edn-file! project-path bench-project)
-     (fn [path]
-       {:path (fs/canonical-path path)}))
-    (store/with-node (benchmark-paths/xtdb-dir suite case opts)
-      (fn [xtdb]
-        (let [parser-worker (parser-worker-profile opts)
-              index-summary (benchmark-progress/progress-stage!
-                             suite
-                             case
-                             opts
-                             :index-project
-                             #(with-benchmark-parser-worker
-                                opts
-                                (fn []
-                                  (project/index-project! xtdb
-                                                          bench-project
-                                                          (benchmark-index-options opts))))
-                             #(select-keys % [:files :repos :rows :extractors]))
-              system-summary (benchmark-progress/progress-stage!
-                              suite
-                              case
-                              opts
-                              :infer-project
-                              #(project/infer-project! xtdb bench-project)
-                              #(select-keys % [:systems :candidates :edges]))
-              graph-expectations (evaluate-graph-expectations xtdb prepared)
-              packet (benchmark-progress/progress-stage!
-                      suite
-                      case
-                      opts
-                      :context-packet
-                      #(context/context-packet
-                        xtdb
-                        (get-in prepared [:input :queryText])
-                        (agent-baseline-context-options prepared opts))
-                      (fn [packet]
-                        {:docs (count (:docs packet))
-                         :entities (count (:entities packet))
-                         :edges (count (:edges packet))
-                         :warnings (count (:warnings packet))}))
-              agent-result (benchmark-progress/progress-stage!
-                            suite
-                            case
-                            opts
-                            :agent-result
-                            #(context-packet->agent-result
-                              packet
-                              {:agent-id agent-id
-                               :mode "agraph"
-                               :case-id (:case-id prepared)
-                               :caseFingerprint (:caseFingerprint prepared)
-                               :root (:worktreeRoot prepared)
-                               :coverage (:coverage prepared)
-                               :limit (agent-baseline-suspect-limit opts)})
-                            (fn [result]
-                              {:suspectedFiles (count (:suspectedFiles result))
-                               :suspectedSymbols (count (:suspectedSymbols result))}))
-              score-path (benchmark-paths/agent-score-path suite case opts result-path)
-              scored (benchmark-progress/progress-stage!
-                      suite
-                      case
-                      opts
-                      :score-agent-result
-                      #(cond-> (assoc (score-agent-result prepared agent-result)
-                                      :agentResultPath (fs/canonical-path result-path)
-                                      :contextPacketPath (fs/canonical-path context-path)
-                                      :parserWorker parser-worker
-                                      :contextGroundTruthRanks (context-ground-truth-ranks
-                                                                prepared
-                                                                packet))
-                         graph-expectations
-                         (assoc :graphExpectations graph-expectations))
-                      (fn [scored]
-                        (select-keys (:scores scored)
-                                     [:fileRecallAt5
-                                      :fileRecallAt10
-                                      :fileRecallAt20
-                                      :meanReciprocalRankFile
-                                      :noiseRatioAt20
-                                      :evidenceCitationRate])))
-              baseline {:schema agent-baseline-schema
-                        :suite-id (:suite-id prepared)
-                        :case-id (:case-id prepared)
-                        :repo-id (:repo-id prepared)
-                        :project-id (:project-id prepared)
-                        :caseFingerprint (:caseFingerprint prepared)
-                        :agentId agent-id
-                        :mode "agraph"
-                        :retriever (name (keyword (or (:retriever opts)
-                                                      :lexical)))
-                        :parserWorker parser-worker
-                        :suspectLimit (agent-baseline-suspect-limit opts)
-                        :artifacts {:projectConfig project-path
-                                    :agentResultPath (fs/canonical-path result-path)
-                                    :contextPacketPath (fs/canonical-path context-path)
-                                    :agentScorePath (fs/canonical-path score-path)
-                                    :progressPath (fs/canonical-path progress-path)}
-                        :agraph {:indexSummary index-summary
-                                 :systemSummary system-summary}
-                        :graphExpectations graph-expectations
-                        :scores (:scores scored)}]
-          (benchmark-progress/progress-stage!
-           suite
-           case
-           opts
-           :write-agent-artifacts
-           (fn []
-             (benchmark-io/write-json-file! context-path packet)
-             (benchmark-io/write-json-file! result-path agent-result)
-             (benchmark-io/write-json-file! score-path scored)
-             {:contextPath context-path
-              :agentResultPath result-path
-              :agentScorePath score-path})
-           (fn [paths]
-             {:contextPacketPath (fs/canonical-path (:contextPath paths))
-              :agentResultPath (fs/canonical-path (:agentResultPath paths))
-              :agentScorePath (fs/canonical-path (:agentScorePath paths))}))
-          baseline)))))
 
 (defn agent-baselines!
   "Generate deterministic AGraph agent-result artifacts for selected cases."
