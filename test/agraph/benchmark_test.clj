@@ -762,6 +762,10 @@
                            :graphExpectations {:status "failed"
                                                :summary {:expectedEvidence 1
                                                          :foundEvidence 0}}
+                           :localization {:missedFiles [{:path "src/missing.clj"}]
+                                          :missedFilesPresentInContext [{:path "src/missing.clj"
+                                                                         :rank 12}]
+                                          :missedFilesAbsentFromContext []}
                            :scores {:fileRecallAt5 0.5
                                     :fileRecallAt10 0.75
                                     :fileRecallAt20 1.0
@@ -885,15 +889,26 @@
     (is (= ["case-1" "case-2"]
            (mapv :case-id (:caseDiagnostics failed))))
     (is (= "failed" (get-in failed [:caseDiagnostics 0 :status])))
-    (is (= #{"case.fileRecallAt10"
-             "case.meanReciprocalRankFile"
-             "case.evidenceCitationRate"
-             "case.noiseRatioAt20"
-             "case.graphExpectations"}
-           (set (map :metric (get-in failed [:caseDiagnostics 0 :failures])))))
+    (let [case-1-failures (set (map :metric
+                                    (get-in failed
+                                            [:caseDiagnostics 0 :failures])))]
+      (is (every? case-1-failures
+                  ["case.fileRecallAt10"
+                   "case.meanReciprocalRankFile"
+                   "case.evidenceCitationRate"
+                   "case.noiseRatioAt20"
+                   "case.graphExpectations"
+                   "missedButPresentInContextRuns"
+                   "missedAndAbsentFromContextRuns"]))
+      (is (not (contains? case-1-failures "activeStageElapsedMs"))))
     (is (= {:mode "all"
             :source "option"}
            (get-in failed [:caseDiagnostics 0 :parserWorker])))
+    (is (= {:missedFiles [{:path "src/missing.clj"}]
+            :missedFilesPresentInContext [{:path "src/missing.clj"
+                                           :rank 12}]
+            :missedFilesAbsentFromContext []}
+           (get-in failed [:caseDiagnostics 0 :localization])))
     (is (= {:fileRecallAt5 0.5
             :fileRecallAt10 0.75
             :fileRecallAt20 1.0

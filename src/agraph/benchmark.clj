@@ -4418,6 +4418,17 @@
                              :message message}))))))
        vec))
 
+(defn- expand-case-id-failures
+  [failures]
+  (mapcat (fn [failure]
+            (if (seq (:case-ids failure))
+              (map #(-> failure
+                        (assoc :case-id %)
+                        (dissoc :case-ids))
+                   (:case-ids failure))
+              [failure]))
+          failures))
+
 (defn- coverage-diagnostic-failures
   [check]
   (when-some [expected (get-in check
@@ -4533,6 +4544,7 @@
      :agentResultPath (:agentResultPath result)
      :status (if (seq result-failures) "failed" "passed")
      :scores (select-keys (:scores result) case-diagnostic-score-keys)
+     :localization (:localization result)
      :failures result-failures}))
 
 (defn- missing-case-diagnostic
@@ -4549,12 +4561,13 @@
 
 (defn- case-diagnostics
   [check failures]
-  (vec
-   (concat
-    (map #(result-case-diagnostic failures %)
-         (get-in check [:report :results]))
-    (map #(missing-case-diagnostic failures %)
-         (get-in check [:report :missing])))))
+  (let [expanded-failures (vec (expand-case-id-failures failures))]
+    (vec
+     (concat
+      (map #(result-case-diagnostic expanded-failures %)
+           (get-in check [:report :results]))
+      (map #(missing-case-diagnostic expanded-failures %)
+           (get-in check [:report :missing]))))))
 
 (defn check-agent-report
   "Return a pass/fail check over an agent benchmark report."
