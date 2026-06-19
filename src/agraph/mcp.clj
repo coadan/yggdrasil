@@ -89,6 +89,26 @@
                    :budget {:type "integer"
                             :minimum 1000}}
                   ["cursorId" "target"])}
+   {:name "agraph_explore_docs"
+    :description "Open documentation and source snippets for one cursor target."
+    :inputSchema (json-schema
+                  {:cursorId {:type "string"}
+                   :target {:type "string"}
+                   :budget {:type "integer"
+                            :minimum 1000}}
+                  ["cursorId" "target"])}
+   {:name "agraph_explore_search"
+    :description "Search within an existing graph exploration cursor basis."
+    :inputSchema (json-schema
+                  {:cursorId {:type "string"}
+                   :query {:type "string"}
+                   :retriever {:type "string"
+                               :enum ["lexical" "auto" "hybrid" "semantic"]}
+                   :limit {:type "integer"
+                           :minimum 1}
+                   :budget {:type "integer"
+                            :minimum 1000}}
+                  ["cursorId" "query"])}
    {:name "agraph_view_systems"
     :description "Return the canonical agraph.graph/v2 systems graph JSON."
     :inputSchema (json-schema
@@ -253,6 +273,25 @@
                         :relation (:relation args)
                         :limit (:limit args)}))))
 
+(defn- explore-docs
+  [ctx args]
+  (let [cursor-id (require-string! args :cursorId "agraph_explore_docs requires cursorId.")
+        target (require-string! args :target "agraph_explore_docs requires target.")]
+    (with-xtdb ctx #(cursor/docs! % cursor-id target {:budget (:budget args)}))))
+
+(defn- explore-search
+  [ctx args]
+  (let [cursor-id (require-string! args :cursorId "agraph_explore_search requires cursorId.")
+        query (require-string! args :query "agraph_explore_search requires query.")]
+    (with-xtdb
+      ctx
+      #(cursor/search! %
+                       cursor-id
+                       query
+                       {:budget (:budget args)
+                        :retriever (some-> (:retriever args) keyword)
+                        :limit (:limit args)}))))
+
 (defn- view-systems
   [ctx args]
   (let [project (read-project! ctx args)]
@@ -320,6 +359,8 @@
     "agraph_explore_create" (explore-create ctx args)
     "agraph_explore_open" (explore-open ctx args)
     "agraph_explore_expand" (explore-expand ctx args)
+    "agraph_explore_docs" (explore-docs ctx args)
+    "agraph_explore_search" (explore-search ctx args)
     "agraph_view_systems" (view-systems ctx args)
     "agraph_sync_inspect" (sync-inspect ctx args)
     "agraph_sync_check" (sync-check ctx args)

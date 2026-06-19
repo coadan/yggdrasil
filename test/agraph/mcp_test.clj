@@ -1,5 +1,6 @@
 (ns agraph.mcp-test
   (:require [agraph.context :as context]
+            [agraph.cursor :as cursor]
             [agraph.graph :as graph]
             [agraph.mcp :as mcp]
             [agraph.project :as project]
@@ -53,6 +54,8 @@
             "agraph_explore_create"
             "agraph_explore_open"
             "agraph_explore_expand"
+            "agraph_explore_docs"
+            "agraph_explore_search"
             "agraph_view_systems"
             "agraph_sync_inspect"
             "agraph_sync_check"
@@ -68,6 +71,10 @@
     (is (= ["query"] (get-in schemas ["agraph_ask" :required])))
     (is (= ["cursorId" "target"]
            (get-in schemas ["agraph_explore_open" :required])))
+    (is (= ["cursorId" "target"]
+           (get-in schemas ["agraph_explore_docs" :required])))
+    (is (= ["cursorId" "query"]
+           (get-in schemas ["agraph_explore_search" :required])))
     (is (= ["workId" "result"]
            (get-in schemas ["agraph_work_complete" :required])))
     (is (every? #(= false (:additionalProperties %)) (vals schemas)))))
@@ -115,10 +122,57 @@
       (is (= "fixture" (:project-id packet)))
       (is (= "expanded" (get-in packet [:basis :detail]))))))
 
+(deftest explore-docs-tool-calls-cursor-docs
+  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                cursor/docs! (fn [xtdb cursor-id target opts]
+                               {:schema cursor/packet-schema
+                                :xtdb xtdb
+                                :cursor {:id cursor-id}
+                                :operation :docs
+                                :target target
+                                :budget (:budget opts)})]
+    (let [response (mcp/handle-message
+                    (mcp/server-context [])
+                    (tool-call 9
+                               "agraph_explore_docs"
+                               {:cursorId "cursor:abc"
+                                :target "API Service"
+                                :budget 2000}))
+          packet (get-in response [:result :structuredContent])]
+      (is (= cursor/packet-schema (:schema packet)))
+      (is (= "cursor:abc" (get-in packet [:cursor :id])))
+      (is (= "API Service" (:target packet)))
+      (is (= 2000 (:budget packet))))))
+
+(deftest explore-search-tool-calls-cursor-search
+  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                cursor/search! (fn [xtdb cursor-id query opts]
+                                 {:schema cursor/packet-schema
+                                  :xtdb xtdb
+                                  :cursor {:id cursor-id}
+                                  :operation :search
+                                  :query query
+                                  :retriever (:retriever opts)
+                                  :limit (:limit opts)})]
+    (let [response (mcp/handle-message
+                    (mcp/server-context [])
+                    (tool-call 10
+                               "agraph_explore_search"
+                               {:cursorId "cursor:abc"
+                                :query "gateway routes"
+                                :retriever "lexical"
+                                :limit 7}))
+          packet (get-in response [:result :structuredContent])]
+      (is (= cursor/packet-schema (:schema packet)))
+      (is (= "cursor:abc" (get-in packet [:cursor :id])))
+      (is (= "gateway routes" (:query packet)))
+      (is (= :lexical (:retriever packet)))
+      (is (= 7 (:limit packet))))))
+
 (deftest missing-project-returns-structured-error
   (let [response (mcp/handle-message
                   (mcp/server-context [])
-                  (tool-call 9 "agraph_sync_inspect" {}))]
+                  (tool-call 11 "agraph_sync_inspect" {}))]
     (is (= -32602 (get-in response [:error :code])))
     (is (= "agraph.mcp.error/v1"
            (get-in response [:error :data :schema])))
@@ -128,7 +182,7 @@
 (deftest work-complete-rejects-result-without-schema
   (let [response (mcp/handle-message
                   (mcp/server-context [])
-                  (tool-call 10
+                  (tool-call 12
                              "agraph_work_complete"
                              {:workId "queue:item"
                               :result {:ok true}}))]
@@ -145,7 +199,7 @@
                                       :project-id "fixture"})
         response (mcp/handle-message
                   (mcp/server-context [])
-                  (tool-call 11
+                  (tool-call 13
                              "agraph_work_list"
                              {:queueDir root
                               :projectId "fixture"
@@ -168,7 +222,7 @@
                                       :project-id "fixture"})
         response (mcp/handle-message
                   (mcp/server-context [])
-                  (tool-call 12
+                  (tool-call 14
                              "agraph_work_pull"
                              {:queueDir root
                               :projectId "fixture"
