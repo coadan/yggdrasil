@@ -383,6 +383,8 @@ def apply_literal_file_replacements(path: Path, replacements: dict[str, str]) ->
 def publicize_forms(path: Path, form_names: list[str]) -> None:
     text = path.read_text()
     for name in form_names:
+        if re.search(rf"\(defn\s+{re.escape(name)}(\s|\n)", text):
+            continue
         text, count = re.subn(
             rf"\(defn-\s+{re.escape(name)}(\s|\n)",
             rf"(defn {name}\1",
