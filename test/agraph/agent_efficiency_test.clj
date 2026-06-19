@@ -479,6 +479,64 @@
             :notes ["Token/cost telemetry is unavailable; token and cost deltas are not part of this claim."]}
            (:claimReadiness comparison)))))
 
+(deftest problem-class-coverage-recognizes-audit-scope-architecture-classes
+  (let [problem-classes {:minimumCasesForClassClaim 2
+                         :classes [{:key "problem-architecture"
+                                    :cases 2
+                                    :runs 2
+                                    :claimStatus "measured"
+                                    :minimumCases 2}]
+                         :architectureClasses [{:key "audit-scope-docs"
+                                                :cases 2
+                                                :runs 2
+                                                :claimStatus "measured"
+                                                :minimumCases 2}]}
+        shell (-> shell-report
+                  (assoc :problemClasses problem-classes)
+                  with-claim-readiness
+                  (assoc :byTag [(tag-row "problem-architecture"
+                                          {:cases 2
+                                           :runs 2
+                                           :recall10 0.5
+                                           :noise 0.5})
+                                 (tag-row "audit-scope-docs"
+                                          {:cases 2
+                                           :runs 2
+                                           :recall10 0.5
+                                           :noise 0.5})]))
+        agraph (-> agraph-report
+                   (assoc :problemClasses problem-classes)
+                   with-claim-readiness
+                   (assoc :byTag [(tag-row "problem-architecture"
+                                           {:cases 2
+                                            :runs 2
+                                            :recall10 1.0
+                                            :noise 0.25})
+                                  (tag-row "audit-scope-docs"
+                                           {:cases 2
+                                            :runs 2
+                                            :recall10 1.0
+                                            :noise 0.25})]))
+        comparison (agent-efficiency/compare-reports shell agraph)
+        architecture-signals (get-in comparison [:classSignals :architectureClasses])
+        audit-scope-signal (first architecture-signals)]
+    (is (= ["audit-scope-docs"]
+           (get-in comparison
+                   [:problemClassCoverage
+                    :sharedMeasuredArchitectureClassTags])))
+    (is (= ["audit-scope-docs"]
+           (mapv :tag architecture-signals)))
+    (is (= {:tag "audit-scope-docs"
+            :measured true
+            :shellOnly {:cases 2 :runs 2}
+            :agraph {:cases 2 :runs 2}
+            :signal "agraph-improved"}
+           {:tag (:tag audit-scope-signal)
+            :measured (:measured audit-scope-signal)
+            :shellOnly (:shellOnly audit-scope-signal)
+            :agraph (:agraph audit-scope-signal)
+            :signal (get-in audit-scope-signal [:summary :signal])}))))
+
 (deftest measured-class-coverage-refuses-insufficient-architecture-classes
   (let [shell (-> shell-report
                   (with-problem-classes {:architecture-status
