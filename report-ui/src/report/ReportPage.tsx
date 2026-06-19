@@ -569,6 +569,28 @@ function reviewEvidencePacket(row: ReviewQueueRow): string {
   );
 }
 
+function reviewCorrectionTemplate(row: ReviewQueueRow, projectId: string): string {
+  return JSON.stringify(
+    {
+      schema: "agraph.work.result/v1",
+      project: projectId,
+      status: "accepted",
+      summary: `Review ${row.label} and record the accepted correction.`,
+      review: {
+        id: row.id,
+        area: row.area,
+        source: row.source,
+        targetTab: row.targetTab,
+        graphSliceId: row.graphSliceId
+      },
+      evidenceRows: row.evidenceRows || [],
+      mapChanges: []
+    },
+    null,
+    2
+  );
+}
+
 function quoteCommandArg(value: string): string {
   return /^[A-Za-z0-9_./:=@+-]+$/.test(value) ? value : JSON.stringify(value);
 }
@@ -635,6 +657,7 @@ function ReviewEvidenceTable({ rows }: { rows: Array<Record<string, unknown>> })
 
 function ReviewQueue({
   rows,
+  projectId,
   mapPath,
   copiedKey,
   onAsk,
@@ -645,6 +668,7 @@ function ReviewQueue({
   title = "Operator Review Queue"
 }: {
   rows: ReviewQueueRow[];
+  projectId: string;
   mapPath: string;
   copiedKey: string | null;
   onAsk: (scope: AskScope) => void;
@@ -730,6 +754,12 @@ function ReviewQueue({
                     {copiedKey === `review-evidence:${row.id}` ? "Copied" : "Copy evidence JSON"}
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() => onCopyCommand(`review-correction:${row.id}`, reviewCorrectionTemplate(row, projectId))}
+                >
+                  {copiedKey === `review-correction:${row.id}` ? "Copied" : "Copy correction JSON"}
+                </button>
               </div>
             </article>
           ))}
@@ -1362,6 +1392,7 @@ function AtlasTab({
 
       <ReviewQueue
         rows={reviewRows}
+        projectId={report.project.id}
         mapPath={projectMapPath(report)}
         copiedKey={copiedActionKey}
         onAsk={onAsk}
@@ -1892,6 +1923,7 @@ function MaintenanceTab({
     <div className="report-grid">
       <ReviewQueue
         rows={reviewRows}
+        projectId={report.project.id}
         mapPath={projectMapPath(report)}
         copiedKey={copiedActionKey}
         onAsk={onAsk}
@@ -1997,6 +2029,7 @@ function DashboardTab({
       />
       <ReviewQueue
         rows={reviewRows}
+        projectId={report.project.id}
         mapPath={projectMapPath(report)}
         copiedKey={copiedActionKey}
         onAsk={onAsk}
