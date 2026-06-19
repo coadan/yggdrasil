@@ -389,6 +389,8 @@ It also warns when ranked file or symbol rows contain non-positive ranks or
 confidence values outside the `0..1` range, or when ranks are duplicated within
 the same ranked section. Repeated `suspectedFiles.path` rows are warned and the
 scorer keeps the best-ranked row for metrics.
+Scoring also warns on fields outside the closed agent-result contract, including
+nested selection, parser-worker, file metric, file row, and symbol row fields.
 
 ## Fair Inputs
 

@@ -2834,6 +2834,57 @@
             "agent result referenced files missing from the base checkout"]
            (get-in scored [:agent :warnings])))))
 
+(deftest score-agent-result-warns-on-non-contract-fields
+  (let [root (temp-dir "agraph-bench-agent-score-contract")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :caseId "case-1"
+                      :caseFingerprint "sha256:test-case"
+                      :agentId "codex"
+                      :mode "agraph"
+                      :selection {:candidateFiles 1
+                                  :extraSelection "ignored"}
+                      :parserWorker {:mode "local"
+                                     :extraParser "ignored"}
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.8
+                                        :reason "candidate"
+                                        :evidence ["manual"]
+                                        :metrics {:supportCount 1
+                                                  :weirdMetric 2}
+                                        :extraFile "ignored"}]
+                      :suspectedSymbols [{:name "load"
+                                          :path "src/app.clj"
+                                          :kind "function"
+                                          :rank 1
+                                          :confidence 0.7
+                                          :reason "candidate"
+                                          :evidence ["manual"]
+                                          :extraSymbol "ignored"}]
+                      :commands []
+                      :warnings []
+                      :summary "Found candidates."
+                      :extraRoot "ignored"}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (= ["agent result unknown field extraRoot"
+            "agent result selection unknown field extraSelection"
+            "agent result parserWorker unknown field extraParser"
+            "agent result suspectedFiles row 1 path src/app.clj unknown field extraFile"
+            "agent result suspectedFiles row 1 path src/app.clj metrics unknown field weirdMetric"
+            "agent result suspectedSymbols row 1 path src/app.clj unknown field extraSymbol"]
+           (get-in scored [:agent :warnings])))))
+
 (deftest score-agent-result-warns-on-invalid-rankable-values
   (let [root (temp-dir "agraph-bench-agent-score-values")
         _ (spit-file! root "src/app.clj" "(ns app)\n")

@@ -3335,10 +3335,67 @@
    :warnings
    :summary])
 
+(def ^:private agent-result-allowed-fields
+  (conj (set agent-result-required-fields)
+        :selection
+        :parserWorker))
+
+(def ^:private agent-result-selection-allowed-fields
+  #{:rawCandidateFiles
+    :candidateFiles
+    :coverageFilteredCandidateFiles
+    :limit
+    :coverageSourceKinds
+    :candidateFileOnlyQuota
+    :candidateFileOnlySelected})
+
+(def ^:private agent-result-parser-worker-allowed-fields
+  #{:mode :source})
+
+(def ^:private agent-result-suspected-file-allowed-fields
+  #{:path :rank :confidence :reason :evidence :metrics})
+
+(def ^:private agent-result-suspected-symbol-allowed-fields
+  #{:name :path :kind :rank :confidence :reason :evidence})
+
+(def ^:private agent-result-file-metrics-allowed-fields
+  #{:firstSourceRank
+    :supportCount
+    :docCount
+    :entityCount
+    :candidateFileCount
+    :retrievedSourceCount
+    :exactPathSourceCount
+    :maxConfidence
+    :rankScore
+    :matchedTokenCount
+    :matchedTokenPairCount
+    :matchedCompoundTokenPairCount
+    :definitionKinds
+    :sourceRankScore
+    :graphNeighborScore
+    :graphNeighborBoost
+    :cosine
+    :model})
+
 (defn- required-field-missing?
   [m k]
   (or (not (contains? m k))
       (nil? (get m k))))
+
+(defn- field-name
+  [k]
+  (if (keyword? k)
+    (name k)
+    (str k)))
+
+(defn- unknown-field-warnings
+  [prefix allowed-fields m]
+  (when (map? m)
+    (->> (keys m)
+         (remove allowed-fields)
+         (sort-by field-name)
+         (mapv #(str prefix " unknown field " (field-name %))))))
 
 (defn- missing-required-field-warnings
   [agent-result]
@@ -3428,8 +3485,28 @@
                         (str/join " and " (map :label path-rows))))))
          vec)))
 
+(defn- suspected-file-metrics-shape-warnings
+  [field idx item]
+  (when (and (= :suspectedFiles field)
+             (map? item)
+             (contains? item :metrics))
+    (if (map? (:metrics item))
+      (unknown-field-warnings
+       (str "agent result "
+            (name field)
+            " "
+            (row-label idx item)
+            " metrics")
+       agent-result-file-metrics-allowed-fields
+       (:metrics item))
+      [(str "agent result "
+            (name field)
+            " "
+            (row-label idx item)
+            " metrics must be an object")])))
+
 (defn- rankable-row-shape-warnings
-  [field rows required-fields]
+  [field rows required-fields allowed-fields]
   (vec
    (concat
     (->> rows
@@ -3439,6 +3516,10 @@
               [(str "agent result " (name field) " " (row-label idx item) " is not an object")]
               (vec
                (concat
+                (unknown-field-warnings
+                 (str "agent result " (name field) " " (row-label idx item))
+                 allowed-fields
+                 item)
                 (->> required-fields
                      (filter #(required-field-missing? item %))
                      (mapv #(str "agent result "
@@ -3447,22 +3528,43 @@
                                  (row-label idx item)
                                  " missing "
                                  (name %))))
-                (rankable-row-value-warnings field idx item))))))
+                (rankable-row-value-warnings field idx item)
+                (suspected-file-metrics-shape-warnings field idx item))))))
          (mapcat identity))
     (duplicate-rank-warnings field rows)
     (duplicate-file-path-warnings field rows))))
+
+(defn- nested-object-shape-warnings
+  [agent-result field allowed-fields]
+  (when (contains? agent-result field)
+    (let [value (get agent-result field)]
+      (if (map? value)
+        (unknown-field-warnings
+         (str "agent result " (name field))
+         allowed-fields
+         value)
+        [(str "agent result " (name field) " must be an object")]))))
 
 (defn- agent-result-shape-warnings
   [agent-result]
   (vec
    (concat
     (missing-required-field-warnings agent-result)
+    (unknown-field-warnings "agent result" agent-result-allowed-fields agent-result)
+    (nested-object-shape-warnings agent-result
+                                  :selection
+                                  agent-result-selection-allowed-fields)
+    (nested-object-shape-warnings agent-result
+                                  :parserWorker
+                                  agent-result-parser-worker-allowed-fields)
     (rankable-row-shape-warnings :suspectedFiles
                                  (or (:suspectedFiles agent-result) [])
-                                 [:path :rank :confidence :reason :evidence])
+                                 [:path :rank :confidence :reason :evidence]
+                                 agent-result-suspected-file-allowed-fields)
     (rankable-row-shape-warnings :suspectedSymbols
                                  (or (:suspectedSymbols agent-result) [])
-                                 [:name :path :kind :rank :confidence :reason :evidence]))))
+                                 [:name :path :kind :rank :confidence :reason :evidence]
+                                 agent-result-suspected-symbol-allowed-fields))))
 
 (defn- mismatched-field-warning
   [agent-result field expected label]
