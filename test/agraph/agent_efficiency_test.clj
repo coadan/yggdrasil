@@ -405,7 +405,10 @@
                                             :runs 2
                                             :recall10 1.0
                                             :noise 0.25})]))
-        comparison (agent-efficiency/compare-reports shell agraph)]
+        comparison (agent-efficiency/compare-reports shell agraph)
+        problem-signals (get-in comparison [:classSignals :problemClasses])
+        architecture-signals (get-in comparison [:classSignals :architectureClasses])
+        architecture-by-tag (into {} (map (juxt :tag identity)) architecture-signals)]
     (is (= {:sharedTagKeys ["architecture-dependency-flow" "problem-architecture"]
             :problemClassTags ["problem-architecture"]
             :architectureClassTags ["architecture-dependency-flow" "problem-architecture"]
@@ -431,6 +434,18 @@
                          :hasMeasuredArchitectureClasses
                          :broadEfficiencyClaimSupported
                          :warnings])))
+    (is (= ["problem-architecture"] (mapv :tag problem-signals)))
+    (is (= ["architecture-dependency-flow" "problem-architecture"]
+           (mapv :tag architecture-signals)))
+    (is (= {:shellOnly {:cases 2 :runs 2}
+            :agraph {:cases 2 :runs 2}
+            :signal "agraph-improved"}
+           {:shellOnly (:shellOnly (first problem-signals))
+            :agraph (:agraph (first problem-signals))
+            :signal (get-in (first problem-signals) [:summary :signal])}))
+    (is (= "agraph-improved"
+           (get-in architecture-by-tag
+                   ["architecture-dependency-flow" :summary :signal])))
     (is (= {:status "supported"
             :broadEfficiencyClaimSupported true
             :sharedCases 2
