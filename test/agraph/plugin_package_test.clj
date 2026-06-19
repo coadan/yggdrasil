@@ -189,8 +189,19 @@
       (is (= true (:extractor? created)))
       (is (= true (:report? created)))
       (is (.exists (io/file package-dir plugin-package/manifest-filename)))
+      (is (.exists (io/file package-dir "registry.example.edn")))
       (is (.exists (io/file package-dir "extract.py")))
       (is (.exists (io/file package-dir "report.py")))
+      (is (some #(str/ends-with? % "registry.example.edn") (:files created)))
+      (is (str/includes? (slurp (io/file package-dir "README.md"))
+                         "`registry.example.edn` is a sharing template"))
+      (is (= {:schema plugin-package/registry-schema
+              :id "local-plugin-registry"
+              :packages [{:id "demo-plugin"
+                          :path "."
+                          :source "https://github.com/ORG/demo-plugin.git"
+                          :ref "v0.1.0"}]}
+             (edn/read-string (slurp (io/file package-dir "registry.example.edn")))))
       (is (= plugin-package/validate-schema (:schema validation)))
       (is (str/starts-with? manifest-fingerprint "sha256:"))
       (is (= :warning (:status validation)))

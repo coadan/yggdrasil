@@ -71,9 +71,9 @@ bb plugin registry validate .dev/agraph/plugins/registry.edn
 ```
 
 `plugin new` writes `agraph.plugin.edn`, Python extractor/report examples,
-`fixtures/sample.clj`, and a package README. By default it creates both
-extractor and report examples; use `--extractor` or `--report` to scaffold only
-one lane.
+`fixtures/sample.clj`, `registry.example.edn`, and a package README. By default
+it creates both extractor and report examples; use `--extractor` or `--report`
+to scaffold only one lane.
 
 `plugin validate` reads the package manifest and runs the same plugin config
 normalizers used by project loading. It reports package caveats such as

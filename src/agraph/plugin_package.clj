@@ -678,9 +678,24 @@
        "bb plugin dry-run extractor . /path/to/repo src/example.clj --json\n"
        "bb plugin dry-run report . --json\n"
        "bb plugin install /path/to/project.edn . --force\n"
+       "bb plugin registry validate registry.example.edn --json\n"
        "```\n\n"
+       "`registry.example.edn` is a sharing template. It will not pass public "
+       "registry validation until this package is reviewed as base/public and "
+       "declares a real git source.\n\n"
        "Keep project-specific experiments in plugins. Promote to core only with "
        "project-agnostic behavior, fixtures, and package-local benchmark artifacts.\n"))
+
+(defn- registry-example
+  [package-id]
+  (str ";; Copy this entry shape into a public registry after the package is\n"
+       ";; base/public, non-commercial, FOSS-licensed, and git-hosted.\n"
+       "{:schema " (pr-str registry-schema) "\n"
+       " :id \"local-plugin-registry\"\n"
+       " :packages [{:id " (pr-str package-id) "\n"
+       "             :path \".\"\n"
+       "             :source \"https://github.com/ORG/" package-id ".git\"\n"
+       "             :ref \"v0.1.0\"}]}\n"))
 
 (defn- manifest
   [package-id {:keys [name extractor? report?]}]
@@ -732,6 +747,8 @@
                                                            :report? report?)))
                          (write-file! (io/file target "README.md")
                                       (package-readme package-id))
+                         (write-file! (io/file target "registry.example.edn")
+                                      (registry-example package-id))
                          (write-file! (io/file target "fixtures/sample.clj")
                                       "(ns sample)\n(defn value [] 1)\n")]
                   extractor? (conj (write-file! (io/file target "extract.py")
