@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { AGraphGraph, AGraphReport, CountRow } from "../data/types";
 import { edgeRelationRows, fileKindRows, nodeKindRows, numericCount } from "../data/reportAdapter";
 import { GraphPanel } from "../graph/GraphPanel";
@@ -26,6 +26,13 @@ type AskAnswer = {
   evidence: Array<Record<string, unknown>>;
   related: Array<Record<string, unknown>>;
   relatedTitle: string;
+};
+
+type AskScope = {
+  label: string;
+  source: string;
+  question: string;
+  evidenceRows?: Array<Record<string, unknown>>;
 };
 
 const tabs: Array<{ id: ReportTab; label: string }> = [
@@ -216,11 +223,13 @@ function ReviewEvidenceTable({ rows }: { rows: Array<Record<string, unknown>> })
 
 function ReviewQueue({
   rows,
+  onAsk,
   onOpenTab,
   limit,
   title = "Operator Review Queue"
 }: {
   rows: ReviewQueueRow[];
+  onAsk: (scope: AskScope) => void;
   onOpenTab: (tab: ReportTab) => void;
   limit?: number;
   title?: string;
@@ -252,9 +261,24 @@ function ReviewQueue({
                 <ReviewEvidenceTable rows={row.evidenceRows || []} />
                 {row.command ? <code>{row.command}</code> : null}
               </div>
-              <button type="button" onClick={() => onOpenTab(row.targetTab)}>
-                Open {row.targetTab}
-              </button>
+              <div className="review-row-actions">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onAsk({
+                      label: row.label,
+                      source: row.source,
+                      question: `What should I do about ${row.label}?`,
+                      evidenceRows: row.evidenceRows
+                    })
+                  }
+                >
+                  Ask
+                </button>
+                <button type="button" onClick={() => onOpenTab(row.targetTab)}>
+                  Open {row.targetTab}
+                </button>
+              </div>
             </article>
           ))}
         </div>
@@ -589,7 +613,17 @@ function ExternalApiReview({ report }: { report: AGraphReport }) {
   );
 }
 
-function AtlasTab({ report, graph, onOpenTab }: { report: AGraphReport; graph: AGraphGraph; onOpenTab: (tab: ReportTab) => void }) {
+function AtlasTab({
+  report,
+  graph,
+  onAsk,
+  onOpenTab
+}: {
+  report: AGraphReport;
+  graph: AGraphGraph;
+  onAsk: (scope: AskScope) => void;
+  onOpenTab: (tab: ReportTab) => void;
+}) {
   const atlas = reportAtlas(report, graph);
   const evidence = asRecord(atlas.evidence);
   const systems = asRecord(atlas.systems);
@@ -686,12 +720,20 @@ function AtlasTab({ report, graph, onOpenTab }: { report: AGraphReport; graph: A
         )}
       </section>
 
-      <ReviewQueue rows={reviewRows} onOpenTab={onOpenTab} limit={5} />
+      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenTab={onOpenTab} limit={5} />
     </div>
   );
 }
 
-function SystemsTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph }) {
+function SystemsTab({
+  report,
+  graph,
+  onAsk
+}: {
+  report: AGraphReport;
+  graph: AGraphGraph;
+  onAsk: (scope: AskScope) => void;
+}) {
   const maintenance = asRecord(report.maintenance);
   const slices = useMemo(() => graphSlices(graph), [graph]);
   const [selectedSliceId, setSelectedSliceId] = useState<string>(() => slices[0]?.id || "full");
@@ -711,6 +753,7 @@ function SystemsTab({ report, graph }: { report: AGraphReport; graph: AGraphGrap
         selectedSlice={selectedSlice}
         slices={slices}
         selectedSliceId={selectedSliceId}
+        onAsk={onAsk}
         onSelect={setSelectedSliceId}
       />
       <div className="span-2">
@@ -744,12 +787,14 @@ function SystemsTab({ report, graph }: { report: AGraphReport; graph: AGraphGrap
 
 function FocusedGraphSlices({
   graph,
+  onAsk,
   selectedSlice,
   slices,
   selectedSliceId,
   onSelect
 }: {
   graph: AGraphGraph;
+  onAsk: (scope: AskScope) => void;
   selectedSlice: GraphSlice | null;
   slices: GraphSlice[];
   selectedSliceId: string;
@@ -787,6 +832,26 @@ function FocusedGraphSlices({
           </span>
         </button>
       </div>
+      <button
+        className="slice-ask-button"
+        type="button"
+        onClick={() =>
+          onAsk({
+            label: selectedSlice?.label || "Full Graph",
+            source: selectedSlice ? `systems.${selectedSlice.id}` : "systems.full-graph",
+            question: `What should I inspect in ${selectedSlice?.label || "the full graph"}?`,
+            evidenceRows: [
+              {
+                slice: selectedSlice?.label || "Full Graph",
+                nodes: selectedSlice?.graph.nodes.length || graph.nodes.length,
+                edges: selectedSlice?.graph.edges.length || graph.edges.length
+              }
+            ]
+          })
+        }
+      >
+        Ask about this slice
+      </button>
       {slices.length === 0 ? <p className="muted">No focused slices can be derived from this graph.</p> : null}
     </section>
   );
@@ -902,12 +967,20 @@ function EvidenceTab({ report }: { report: AGraphReport }) {
   );
 }
 
-function MaintenanceTab({ report, onOpenTab }: { report: AGraphReport; onOpenTab: (tab: ReportTab) => void }) {
+function MaintenanceTab({
+  report,
+  onAsk,
+  onOpenTab
+}: {
+  report: AGraphReport;
+  onAsk: (scope: AskScope) => void;
+  onOpenTab: (tab: ReportTab) => void;
+}) {
   const maintenance = asRecord(report.maintenance);
   const reviewRows = reviewQueueRows(report);
   return (
     <div className="report-grid">
-      <ReviewQueue rows={reviewRows} onOpenTab={onOpenTab} />
+      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenTab={onOpenTab} />
       <CommandList commands={report.commands} />
       <DataTable
         title="Maintenance Decisions"
@@ -942,10 +1015,20 @@ function MaintenanceTab({ report, onOpenTab }: { report: AGraphReport; onOpenTab
   );
 }
 
-function DashboardTab({ report, graph, onOpenTab }: { report: AGraphReport; graph: AGraphGraph; onOpenTab: (tab: ReportTab) => void }) {
+function DashboardTab({
+  report,
+  graph,
+  onAsk,
+  onOpenTab
+}: {
+  report: AGraphReport;
+  graph: AGraphGraph;
+  onAsk: (scope: AskScope) => void;
+  onOpenTab: (tab: ReportTab) => void;
+}) {
   const panels = pluginPanels(report);
   const reviewRows = reviewQueueRows(report);
-  if (panels.length === 0) return <AtlasTab report={report} graph={graph} onOpenTab={onOpenTab} />;
+  if (panels.length === 0) return <AtlasTab report={report} graph={graph} onAsk={onAsk} onOpenTab={onOpenTab} />;
 
   return (
     <div className="report-grid">
@@ -953,7 +1036,7 @@ function DashboardTab({ report, graph, onOpenTab }: { report: AGraphReport; grap
         <p className="eyebrow">Report Dashboard</p>
         <h2>{report.project.name || report.project.id}</h2>
       </section>
-      <ReviewQueue rows={reviewRows} onOpenTab={onOpenTab} limit={5} />
+      <ReviewQueue rows={reviewRows} onAsk={onAsk} onOpenTab={onOpenTab} limit={5} />
       <PluginPanelList report={report} includeCore />
       <PluginDiagnostics diagnostics={report.plugins?.diagnostics || []} />
     </div>
@@ -979,7 +1062,7 @@ function PluginsTab({ report }: { report: AGraphReport }) {
   );
 }
 
-function AskTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph }) {
+function AskTab({ report, graph, scope }: { report: AGraphReport; graph: AGraphGraph; scope: AskScope | null }) {
   const defaultQuestion = "What should I review next?";
   const quickPrompts = [
     defaultQuestion,
@@ -990,6 +1073,13 @@ function AskTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph })
   ];
   const [question, setQuestion] = useState(defaultQuestion);
   const [asked, setAsked] = useState(defaultQuestion);
+
+  useEffect(() => {
+    if (!scope) return;
+    setQuestion(scope.question);
+    setAsked(scope.question);
+  }, [scope]);
+
   const answer = useMemo(() => answerReportQuestion(report, graph, asked), [asked, graph, report]);
 
   function submitQuestion(event: FormEvent<HTMLFormElement>) {
@@ -1012,6 +1102,13 @@ function AskTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph })
           Answers use only the loaded report and graph artifacts. They are deterministic summaries with evidence rows,
           not live `bb ask` retrieval.
         </p>
+        {scope ? (
+          <div className="ask-scope">
+            <p className="eyebrow">Scoped To</p>
+            <strong>{scope.label}</strong>
+            <span>{scope.source}</span>
+          </div>
+        ) : null}
         <form className="ask-form" onSubmit={submitQuestion}>
           <input
             type="search"
@@ -1029,6 +1126,13 @@ function AskTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph })
           ))}
         </div>
       </section>
+
+      {scope?.evidenceRows?.length ? (
+        <section className="panel span-2">
+          <h2>Scope Evidence</h2>
+          <ReviewEvidenceTable rows={scope.evidenceRows} />
+        </section>
+      ) : null}
 
       <section className="panel span-2">
         <div className="panel-header">
@@ -1077,26 +1181,32 @@ function AskTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph })
 
 export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGraphGraph }) {
   const [activeTab, setActiveTab] = useState<ReportTab>("dashboard");
+  const [askScope, setAskScope] = useState<AskScope | null>(null);
+  const askFromScope = useCallback((scope: AskScope) => {
+    setAskScope(scope);
+    setActiveTab("ask");
+  }, []);
+
   const activePanel = useMemo(() => {
     switch (activeTab) {
       case "dashboard":
-        return <DashboardTab report={report} graph={graph} onOpenTab={setActiveTab} />;
+        return <DashboardTab report={report} graph={graph} onAsk={askFromScope} onOpenTab={setActiveTab} />;
       case "ask":
-        return <AskTab report={report} graph={graph} />;
+        return <AskTab report={report} graph={graph} scope={askScope} />;
       case "systems":
-        return <SystemsTab report={report} graph={graph} />;
+        return <SystemsTab report={report} graph={graph} onAsk={askFromScope} />;
       case "dependencies":
         return <DependenciesTab report={report} />;
       case "evidence":
         return <EvidenceTab report={report} />;
       case "maintenance":
-        return <MaintenanceTab report={report} onOpenTab={setActiveTab} />;
+        return <MaintenanceTab report={report} onAsk={askFromScope} onOpenTab={setActiveTab} />;
       case "plugins":
         return <PluginsTab report={report} />;
       default:
-        return <DashboardTab report={report} graph={graph} onOpenTab={setActiveTab} />;
+        return <DashboardTab report={report} graph={graph} onAsk={askFromScope} onOpenTab={setActiveTab} />;
     }
-  }, [activeTab, graph, report]);
+  }, [activeTab, askFromScope, askScope, graph, report]);
 
   return (
     <div className="report-page">

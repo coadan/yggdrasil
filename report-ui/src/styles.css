@@ -233,6 +233,26 @@ h3 {
   margin: 0;
 }
 
+.ask-scope {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  display: grid;
+  gap: 3px;
+  margin-top: 12px;
+  padding: 10px;
+}
+
+.ask-scope strong {
+  font-size: 14px;
+}
+
+.ask-scope span {
+  color: #64748b;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .review-queue {
   display: grid;
   gap: 12px;
@@ -293,6 +313,11 @@ h3 {
   font-size: 12px;
   max-width: 280px;
   overflow-wrap: anywhere;
+}
+
+.review-row-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .review-row button {
@@ -465,6 +490,19 @@ td.numeric-cell {
   color: inherit;
   font-size: 12px;
   opacity: 0.78;
+}
+
+.slice-ask-button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #334155;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  justify-self: start;
+  padding: 8px 10px;
 }
 
 .graph-workspace {

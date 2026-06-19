@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGraph, emptyReport, fixtureGraph, fixtureReport, sourceDocsSystemReport } from "../fixtures/sampleData";
 import { ReportPage } from "./ReportPage";
@@ -56,10 +56,40 @@ describe("ReportPage", () => {
     expect(screen.getByText("missing.lib")).toBeInTheDocument();
   });
 
+  it("asks from a review row with scoped evidence", () => {
+    render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
+
+    const row = screen.getByText("Resolve import-to-package gaps").closest("article");
+    expect(row).toBeTruthy();
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Ask" }));
+
+    expect(screen.getAllByRole("button", { name: "Ask" }).some((button) => button.getAttribute("aria-current") === "page")).toBe(true);
+    expect(screen.getByText("Scoped To")).toBeInTheDocument();
+    expect(screen.getByText("Resolve import-to-package gaps")).toBeInTheDocument();
+    expect(screen.getByText("packages.unresolved-imports")).toBeInTheDocument();
+    expect(screen.getByText("Scope Evidence")).toBeInTheDocument();
+    expect(screen.getAllByText("src/app/core.clj").length).toBeGreaterThan(0);
+  });
+
+  it("asks from the selected graph slice", () => {
+    render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Systems" }));
+    fireEvent.click(screen.getByRole("button", { name: /Package Evidence/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask about this slice" }));
+
+    expect(screen.getByText("Scoped To")).toBeInTheDocument();
+    expect(screen.getAllByText("Package Evidence").length).toBeGreaterThan(0);
+    expect(screen.getByText("systems.package-evidence")).toBeInTheDocument();
+    expect(screen.getByText("What should I inspect in Package Evidence?")).toBeInTheDocument();
+  });
+
   it("answers report-local questions from loaded artifacts", () => {
     render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    const askTab = screen.getAllByRole("button", { name: "Ask" }).find((button) => button.closest("nav"));
+    expect(askTab).toBeTruthy();
+    fireEvent.click(askTab as HTMLElement);
 
     expect(screen.getByText("Ask this report")).toBeInTheDocument();
     expect(screen.getByText("Report-local Ask")).toBeInTheDocument();
