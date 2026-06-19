@@ -60,24 +60,98 @@
    :package-imports (+ (count (:packageImports overlay))
                        (count (:package-imports overlay)))})
 
+(def ^:private plane-order
+  [:source-files
+   :source-graph
+   :dependencies
+   :docs
+   :embeddings
+   :system-graph
+   :activity
+   :validation-history
+   :map-overlay])
+
+(def ^:private plane-count-keys
+  {:source-files [:files :skipped-files :diagnostics]
+   :source-graph [:nodes :edges]
+   :dependencies [:packages
+                  :package-imports
+                  :package-evidence-gaps
+                  :package-conflicts
+                  :unresolved-imports]
+   :docs [:chunks :search-docs]
+   :embeddings [:embeddings]
+   :system-graph [:system-nodes :system-edges]
+   :activity [:activity-items :activity-events]
+   :validation-history [:validation-events :result-schema-mismatch-events]
+   :map-overlay [:systems :docs :edges :rejects :package-imports]})
+
 (defn- available
   [{:keys [files nodes edges chunks search-docs embeddings system-nodes system-edges
            activity-items activity-events validation-events result-schema-mismatch-events
            packages map-overlay]}]
   (cond-> []
+    (pos? files) (conj :source-files)
     (pos? (+ nodes edges)) (conj :source-graph)
     (pos? (+ chunks search-docs)) (conj :docs)
     (pos? embeddings) (conj :embeddings)
-    (pos? (+ system-nodes system-edges)) (conj :systems)
+    (pos? (+ system-nodes system-edges)) (conj :system-graph)
     (pos? packages) (conj :dependencies)
     (pos? (+ activity-items activity-events)) (conj :activity)
     (pos? (+ validation-events result-schema-mismatch-events)) (conj :validation-history)
-    (pos? (reduce + (vals map-overlay))) (conj :map-overlay)
-    (pos? files) vec))
+    (pos? (reduce + (vals map-overlay))) (conj :map-overlay)))
+
+(defn- plane-counts
+  [counts plane]
+  (let [source (if (= :map-overlay plane)
+                 (:map-overlay counts)
+                 counts)]
+    (when-let [ks (seq (get plane-count-keys plane))]
+      (into {}
+            (map (fn [k] [k (long (or (get source k) 0))]))
+            ks))))
 
 (defn- positive-count?
   [value]
   (pos? (long (or value 0))))
+
+(defn- dependencies-weak?
+  [counts]
+  (or (positive-count? (:package-evidence-gaps counts))
+      (positive-count? (:package-conflicts counts))
+      (positive-count? (:unresolved-imports counts))))
+
+(defn- source-files-weak?
+  [counts]
+  (or (positive-count? (:skipped-files counts))
+      (positive-count? (:diagnostics counts))))
+
+(defn- validation-history-weak?
+  [counts]
+  (positive-count? (:result-schema-mismatch-events counts)))
+
+(defn- plane-status
+  [counts available-planes plane]
+  (cond
+    (and (= :source-files plane)
+         (source-files-weak? counts)) :weak
+    (and (= :dependencies plane)
+         (dependencies-weak? counts)) :weak
+    (and (= :validation-history plane)
+         (validation-history-weak? counts)) :weak
+    (contains? available-planes plane) :available
+    :else :missing))
+
+(defn- evidence-planes
+  "Return compact project-level mechanical evidence-plane readiness rows."
+  [counts available-planes]
+  (let [available-planes (set available-planes)]
+    (mapv (fn [plane]
+            (let [plane-counts (plane-counts counts plane)]
+              (cond-> {:plane plane
+                       :status (plane-status counts available-planes plane)}
+                (seq plane-counts) (assoc :counts plane-counts))))
+          plane-order)))
 
 (defn- distinct-by
   [f coll]
@@ -404,6 +478,8 @@
                 :diagnostics (get-in coverage-report [:diagnostics :total] 0)
                 :skipped-files (get-in coverage-report [:totals :skipped] 0)
                 :map-overlay (overlay-counts map-overlay)}
+        available-planes (available counts)
+        planes (evidence-planes counts available-planes)
         actions (next-actions {:project project
                                :config-path config-path
                                :map-path map-path
@@ -413,7 +489,8 @@
      :project-id (:id project)
      :repo-id repo-id
      :freshness freshness
-     :available (available counts)
+     :available available-planes
+     :planes planes
      :counts counts
      :top-file-kinds (vec (take 12 (:files-by-kind coverage-report)))
      :top-node-kinds (top-counts nodes :kind)

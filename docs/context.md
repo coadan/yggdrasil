@@ -88,6 +88,9 @@ not supported by the current model.
 Project-level reports and `agraph status --json` expose the same mechanical
 inventory as `agraph.evidence/v1`, including graph-basis freshness. Use that
 evidence surface when an agent needs to see what can be asked about at a glance.
+Its `planes` field is a bounded readiness table for source files, source graph
+rows, dependencies, docs, embeddings, system graph rows, local activity,
+validation history, and accepted map overlay evidence.
 Use `agraph explore --json` when the agent has a concrete question and needs the
 smaller query-scoped `answerability` packet plus matching entities, edges, docs,
 and activity.

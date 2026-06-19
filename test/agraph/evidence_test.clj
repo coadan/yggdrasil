@@ -75,6 +75,22 @@
       (is (= evidence/schema (:schema summary)))
       (is (contains? (set (:available summary)) :dependencies))
       (is (not (contains? (set (:available summary)) :packages)))
+      (is (= {:plane :dependencies
+              :status :weak
+              :counts {:packages 2
+                       :package-imports 1
+                       :package-evidence-gaps 1
+                       :package-conflicts 0
+                       :unresolved-imports 1}}
+             (some #(when (= :dependencies (:plane %)) %)
+                   (:planes summary))))
+      (is (= {:plane :source-files
+              :status :available
+              :counts {:files 1
+                       :skipped-files 0
+                       :diagnostics 0}}
+             (some #(when (= :source-files (:plane %)) %)
+                   (:planes summary))))
       (is (= 2 (get-in summary [:counts :packages])))
       (is (= 1 (get-in summary [:counts :package-imports])))
       (is (= {:packages 2
@@ -185,6 +201,12 @@
                                        :repos []}
                                       {})]
       (is (contains? (set (:available summary)) :validation-history))
+      (is (= {:plane :validation-history
+              :status :weak
+              :counts {:validation-events 0
+                       :result-schema-mismatch-events 1}}
+             (some #(when (= :validation-history (:plane %)) %)
+                   (:planes summary))))
       (is (= 1 (get-in summary [:counts :result-schema-mismatch-events])))
       (is (some #(= {:kind :activity
                      :label "Inspect result schema mismatch activity"

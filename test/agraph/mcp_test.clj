@@ -761,6 +761,15 @@
                                       :config-path (:config-path opts)
                                       :map-path (:map-path opts)
                                       :available [:source-graph :docs]
+                                      :planes [{:plane :source-files
+                                                :status :weak
+                                                :counts {:files 2
+                                                         :skipped-files 1
+                                                         :diagnostics 2}}
+                                               {:plane :source-graph
+                                                :status :available
+                                                :counts {:nodes 3
+                                                         :edges 4}}]
                                       :freshness {:status :stale
                                                   :counts {:changed 1}}
                                       :counts {:files 2
@@ -795,6 +804,16 @@
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
       (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
+      (is (= [{:plane :source-files
+               :status :weak
+               :counts {:files 2
+                        :skipped-files 1
+                        :diagnostics 2}}
+              {:plane :source-graph
+               :status :available
+               :counts {:nodes 3
+                        :edges 4}}]
+             (get-in packet [:evidence :planes])))
       (is (= {:counts {:files 2
                        :skippedFiles 1
                        :diagnostics 2}
@@ -831,6 +850,11 @@
                                       :config-path (:config-path opts)
                                       :map-path (:map-path opts)
                                       :available [:source-graph]
+                                      :planes [{:plane :source-files
+                                                :status :available
+                                                :counts {:files 2
+                                                         :skipped-files 0
+                                                         :diagnostics 0}}]
                                       :freshness {:status :current
                                                   :counts {:changed 0}}
                                       :counts {:files 2
@@ -853,6 +877,12 @@
       (is (= evidence/schema (get-in packet [:evidence :schema])))
       (is (= "project.edn" (get-in packet [:evidence :config-path])))
       (is (= "agraph.map.json" (get-in packet [:evidence :map-path])))
+      (is (= [{:plane :source-files
+               :status :available
+               :counts {:files 2
+                        :skipped-files 0
+                        :diagnostics 0}}]
+             (get-in packet [:evidence :planes])))
       (is (= {:counts {:files 2
                        :skippedFiles 0
                        :diagnostics 0}
