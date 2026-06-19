@@ -714,6 +714,71 @@
     (is (empty? (:diagnostics next-result)))
     (is (empty? (:diagnostics meta-result)))))
 
+(deftest extracts-typescript-module-docs-configs
+  (let [root (doto (java.io.File/createTempFile "agraph-module-docs-configs" "")
+               (.delete)
+               (.mkdirs)
+               (.deleteOnExit))
+        write! (fn [path content]
+                 (let [file (io/file root path)]
+                   (io/make-parents file)
+                   (spit file content)
+                   file))
+        vitepress-source (write! "docs/.vitepress/config.cts"
+                                 (slurp "test/fixtures/extractor-repo/docs/.vitepress/config.ts"))
+        vitepress-index-source (write! "docs/.vitepress/config/index.cts"
+                                       (slurp "test/fixtures/extractor-repo/docs/.vitepress/config.ts"))
+        astro-source (write! "docs/src/content/config.cts"
+                             (slurp "test/fixtures/extractor-repo/docs/src/content.config.ts"))
+        astro-root-source (write! "docs/content.config.mts"
+                                  (slurp "test/fixtures/extractor-repo/docs/src/content.config.ts"))
+        nextra-source (write! "docs/nextra/next.config.cts"
+                              "import nextra from 'nextra';\nexport default nextra({ contentDirBasePath: '/handbook', locales: ['en'], defaultLocale: 'en' });\n")
+        meta-source (write! "docs/nextra/content/_meta.cts"
+                            (slurp "test/fixtures/extractor-repo/docs/nextra/content/_meta.ts"))
+        docusaurus-source (write! "docs/docusaurus.config.mts"
+                                  "export default { title: 'Panels Docs', baseUrl: '/docs/', presets: [{ name: 'classic' }], plugins: [{ name: 'plugin-panels' }] };\n")
+        sidebar-source (write! "docs/sidebars.cts"
+                               "export default { docs: [{ type: 'doc', id: 'intro', label: 'Intro' }] };\n")
+        result-for (fn [source]
+                     (extract/extract-file "run/test"
+                                           (fs/file-record (.getPath root)
+                                                           (.getPath source))))
+        kind-for (fn [source]
+                   (:kind (fs/file-record (.getPath root)
+                                          (.getPath source))))
+        labels (fn [result] (set (map :label (:nodes result))))
+        vitepress-labels (labels (result-for vitepress-source))
+        vitepress-index-labels (labels (result-for vitepress-index-source))
+        astro-labels (labels (result-for astro-source))
+        astro-root-labels (labels (result-for astro-root-source))
+        nextra-labels (labels (result-for nextra-source))
+        meta-labels (labels (result-for meta-source))
+        docusaurus-labels (labels (result-for docusaurus-source))
+        sidebar-labels (labels (result-for sidebar-source))]
+    (is (= :docs-config (kind-for vitepress-source)))
+    (is (= :docs-config (kind-for vitepress-index-source)))
+    (is (= :docs-config (kind-for astro-source)))
+    (is (= :docs-config (kind-for astro-root-source)))
+    (is (= :docs-config (kind-for nextra-source)))
+    (is (= :docs-config (kind-for meta-source)))
+    (is (= :docs-config (kind-for docusaurus-source)))
+    (is (= :docs-config (kind-for sidebar-source)))
+    (is (contains? vitepress-labels "Panels Handbook"))
+    (is (contains? vitepress-labels "local"))
+    (is (contains? vitepress-index-labels "/guide/"))
+    (is (contains? astro-labels "astro:content"))
+    (is (contains? astro-labels "blog"))
+    (is (contains? astro-root-labels "authors"))
+    (is (contains? nextra-labels "nextra"))
+    (is (contains? nextra-labels "/handbook"))
+    (is (contains? meta-labels "API Reference"))
+    (is (contains? docusaurus-labels "Panels Docs"))
+    (is (contains? docusaurus-labels "/docs/"))
+    (is (contains? docusaurus-labels "classic"))
+    (is (contains? sidebar-labels "Intro"))
+    (is (contains? sidebar-labels "intro"))))
+
 (deftest extracts-rust-modules-definitions-uses-and-calls
   (let [file (fs/file-record "test/fixtures/sample-repo"
                              "test/fixtures/sample-repo/src/rust/lib.rs")

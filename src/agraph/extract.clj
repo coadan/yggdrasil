@@ -11189,8 +11189,8 @@
   [path]
   (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")]
     (boolean
-     (or (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|ts)$" path-lower)
-         (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|ts)$"
+     (or (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|cts|ts)$" path-lower)
+         (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|cts|ts)$"
                   path-lower)))))
 
 (defn- vitepress-config-import-facts
@@ -11469,38 +11469,43 @@
   [{:keys [path content]}]
   (let [filename (manifest-name path)]
     (case filename
-      ("next.config.cjs" "next.config.js" "next.config.mjs" "next.config.ts")
+      ("next.config.cjs" "next.config.js" "next.config.mjs"
+                         "next.config.mts" "next.config.cts" "next.config.ts")
       (nextra-next-config-facts path content)
 
-      ("_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx")
+      ("_meta.js" "_meta.jsx" "_meta.mjs" "_meta.mts" "_meta.cts"
+                  "_meta.ts" "_meta.tsx")
       (nextra-meta-facts content)
 
       "conf.py"
       (sphinx-config-facts content)
 
-      ("config.js" "config.mjs" "config.mts" "config.ts"
-                   "index.js" "index.mjs" "index.mts" "index.ts")
+      ("config.js" "config.mjs" "config.mts" "config.cts" "config.ts"
+                   "index.js" "index.mjs" "index.mts" "index.cts" "index.ts")
       (cond
         (vitepress-config-path? path)
         (vitepress-config-facts {:path path :content content})
 
-        (re-find #"(^|/)src/content/config\.(?:js|mjs|ts)$"
+        (re-find #"(^|/)src/content/config\.(?:js|mjs|mts|cts|ts)$"
                  (str/replace (str/lower-case (str path)) "\\" "/"))
         (astro-content-config-facts {:path path :content content})
 
         :else [])
 
-      ("content.config.js" "content.config.mjs" "content.config.ts")
+      ("content.config.js" "content.config.mjs" "content.config.mts"
+                           "content.config.cts" "content.config.ts")
       (astro-content-config-facts {:path path :content content})
 
       ("docusaurus.config.js" "docusaurus.config.cjs"
-                              "docusaurus.config.mjs" "docusaurus.config.ts")
+                              "docusaurus.config.mjs" "docusaurus.config.mts"
+                              "docusaurus.config.cts" "docusaurus.config.ts")
       (vec (concat (docs-config-title-facts content)
                    (docs-config-route-facts content)
                    (docs-config-reference-facts content)
                    (docs-config-plugin-facts content)))
 
-      ("sidebars.js" "sidebars.ts")
+      ("sidebars.js" "sidebars.mjs" "sidebars.mts" "sidebars.cts"
+                     "sidebars.ts")
       (docs-sidebar-facts content)
 
       ("mkdocs.yml" "mkdocs.yaml")

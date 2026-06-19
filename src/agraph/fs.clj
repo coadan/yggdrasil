@@ -68,10 +68,11 @@
     "angular.json"
     "dagster.yaml" "dagster.yml" "prefect.yaml" "prefect.yml"
     "dvc.yaml" "dvc.yml" "dvc.lock" "mlproject"
-    "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx"
-    "content.config.js" "content.config.mjs" "content.config.ts"
+    "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.mts" "_meta.cts" "_meta.ts" "_meta.tsx"
+    "content.config.js" "content.config.mjs" "content.config.mts" "content.config.cts" "content.config.ts"
     "docusaurus.config.js" "docusaurus.config.cjs" "docusaurus.config.mjs"
-    "docusaurus.config.ts" "sidebars.js" "sidebars.ts"
+    "docusaurus.config.mts" "docusaurus.config.cts" "docusaurus.config.ts"
+    "sidebars.js" "sidebars.mjs" "sidebars.mts" "sidebars.cts" "sidebars.ts"
     "mkdocs.yml" "mkdocs.yaml"
     "otelcol.yaml" "otelcol.yml" "otel-collector.yaml" "otel-collector.yml"
     "prometheus.yml" "prometheus.yaml" "alertmanager.yml" "alertmanager.yaml"
@@ -284,15 +285,17 @@
       (or (re-matches #"tsconfig\.[a-z0-9_.-]+\.json" filename)
           (re-find #"(^|/)\.github/dependabot\.ya?ml$" path-lower))
       :tool-config
-      (or (contains? #{"content.config.js" "content.config.mjs" "content.config.ts"
-                       "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx"
+      (or (contains? #{"content.config.js" "content.config.mjs" "content.config.mts" "content.config.cts" "content.config.ts"
+                       "_meta.js" "_meta.jsx" "_meta.mjs" "_meta.mts" "_meta.cts" "_meta.ts" "_meta.tsx"
                        "docusaurus.config.js" "docusaurus.config.cjs"
-                       "docusaurus.config.mjs" "docusaurus.config.ts"
-                       "sidebars.js" "sidebars.ts" "mkdocs.yml" "mkdocs.yaml"}
+                       "docusaurus.config.mjs" "docusaurus.config.mts"
+                       "docusaurus.config.cts" "docusaurus.config.ts"
+                       "sidebars.js" "sidebars.mjs" "sidebars.mts"
+                       "sidebars.cts" "sidebars.ts" "mkdocs.yml" "mkdocs.yaml"}
                      filename)
-          (re-find #"(^|/)src/content/config\.(?:js|mjs|ts)$" path-lower)
-          (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|ts)$" path-lower)
-          (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|ts)$" path-lower))
+          (re-find #"(^|/)src/content/config\.(?:js|mjs|mts|cts|ts)$" path-lower)
+          (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|cts|ts)$" path-lower)
+          (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|cts|ts)$" path-lower))
       :docs-config
       (or (re-find #"(^|/)\.storybook/(?:main|preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
                    path-lower)
@@ -494,12 +497,13 @@
   [path-kind file]
   (let [filename (str/lower-case (.getName (io/file file)))]
     (cond
-      (contains? #{"_meta.js" "_meta.jsx" "_meta.mjs" "_meta.ts" "_meta.tsx"}
+      (contains? #{"_meta.js" "_meta.jsx" "_meta.mjs" "_meta.mts" "_meta.cts"
+                   "_meta.ts" "_meta.tsx"}
                  filename)
       :docs-config
 
       (and (contains? #{:javascript :typescript :web-framework} path-kind)
-           (re-matches #"next\.config\.(?:cjs|js|mjs|ts)" filename))
+           (re-matches #"next\.config\.(?:cjs|js|mjs|mts|cts|ts)" filename))
       (let [content (text-file-prefix file)]
         (when (or (re-find #"(?m)\bfrom\s+['\"]nextra['\"]" content)
                   (re-find #"(?m)\brequire\(['\"]nextra['\"]\)" content)
@@ -728,8 +732,8 @@
         (re-find #"^\.storybook/main\.(?:js|cjs|mjs|ts)$" path-lower)
         (re-find #"^\.storybook/(?:preview|manager)\.(?:js|cjs|mjs|ts|tsx)$"
                  path-lower)
-        (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|ts)$" path-lower)
-        (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|ts)$"
+        (re-find #"(^|/)\.vitepress/config\.(?:js|mjs|mts|cts|ts)$" path-lower)
+        (re-find #"(^|/)\.vitepress/config/index\.(?:js|mjs|mts|cts|ts)$"
                  path-lower)
         (re-find #"^\.vscode/(?:settings|tasks|extensions)\.json$" path-lower)
         (re-find #"^\.changeset/(?:config\.json|[^/]+\.md)$" path-lower)
