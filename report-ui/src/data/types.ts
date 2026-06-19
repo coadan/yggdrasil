@@ -11,6 +11,7 @@ export type EvidenceSurface = {
   project_id?: string;
   available: string[];
   counts: Record<string, number | Record<string, number>>;
+  freshness?: Record<string, unknown>;
   topFileKinds?: CountRow[];
   top_file_kinds?: CountRow[];
   topNodeKinds?: CountRow[];
@@ -75,6 +76,7 @@ export type AGraphReport = {
   packages?: {
     counts?: Record<string, number>;
     ecosystems?: Array<Record<string, unknown>>;
+    [key: string]: unknown;
   };
   maintenance?: Record<string, unknown>;
   plugins?: ReportPlugins;

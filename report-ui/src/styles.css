@@ -233,6 +233,79 @@ h3 {
   margin: 0;
 }
 
+.review-queue {
+  display: grid;
+  gap: 12px;
+}
+
+.review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.review-row {
+  align-items: start;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #94a3b8;
+  border-radius: 6px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.review-row.high {
+  border-left-color: #dc2626;
+}
+
+.review-row.medium {
+  border-left-color: #f59e0b;
+}
+
+.review-row.low {
+  border-left-color: #64748b;
+}
+
+.review-row h3 {
+  margin: 6px 0;
+}
+
+.review-row p {
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0 0 8px;
+}
+
+.review-row button {
+  background: #0f172a;
+  border: 1px solid #0f172a;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.review-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.review-row-meta span {
+  background: #f1f5f9;
+  border-radius: 999px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 7px;
+  text-transform: uppercase;
+}
+
 .plugin-panel {
   display: grid;
   gap: 12px;

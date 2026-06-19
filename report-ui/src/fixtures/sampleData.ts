@@ -114,6 +114,14 @@ export const fixtureReport: AGraphReport = {
       packages: 2,
       diagnostics: 0
     },
+    freshness: {
+      status: "stale",
+      counts: {
+        changed: 2,
+        missing: 1,
+        unindexed: 3
+      }
+    },
     topFileKinds: [{ value: "clojure", count: 8 }],
     topNodeKinds: [{ value: "namespace", count: 4 }],
     topEdgeRelations: [{ value: "imports", count: 3 }]
@@ -121,6 +129,19 @@ export const fixtureReport: AGraphReport = {
   graphs: {
     overview: { nodes: 2, edges: 1, artifact: "graph.json" },
     systems: { nodes: 2, edges: 1, artifact: "systems.json" }
+  },
+  packages: {
+    counts: {
+      packages: 2,
+      versions: 2,
+      "imports-package": 1,
+      "unresolved-imports": 1,
+      "version-conflicts": 0,
+      "declared-without-import-evidence": 1
+    },
+    ecosystems: [{ ecosystem: "maven", packages: 2, versions: 2, imports: 1 }],
+    "unresolved-imports": [{ import: "missing.lib", path: "src/app/core.clj", line: 12, kind: "clojure" }],
+    "declared-without-import-evidence": [{ label: "unused-lib", ecosystem: "maven", "package-name": "unused/lib" }]
   },
   maintenance: {
     "external-api-review": {
@@ -140,7 +161,15 @@ export const fixtureReport: AGraphReport = {
           "target-count": 20
         }
       ]
-    }
+    },
+    "decision-queue": [
+      {
+        kind: "external-api",
+        severity: "review",
+        target: "api-0.example.test",
+        reason: "single evidence external API candidate"
+      }
+    ]
   },
   plugins: {
     schema: "agraph.report.plugins/v1",
@@ -199,7 +228,11 @@ export const fixtureReport: AGraphReport = {
     ],
     artifacts: []
   },
-  commands: ["agraph ask \"where is this handled?\" --project fixture --json"]
+  commands: [
+    "agraph sync project.edn --check --map agraph.map.json",
+    "agraph packages --project fixture --json",
+    "agraph ask \"where is this handled?\" --project fixture --json"
+  ]
 };
 
 export const emptyReport: AGraphReport = {

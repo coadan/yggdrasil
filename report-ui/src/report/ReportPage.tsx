@@ -10,6 +10,7 @@ import {
   PluginPanelList,
   pluginPanels
 } from "./ReportPluginPanels";
+import { reviewQueueRows, type ReviewQueueRow } from "./reviewQueue";
 
 type ReportTab = "dashboard" | "ask" | "systems" | "dependencies" | "evidence" | "maintenance" | "plugins";
 
@@ -165,6 +166,54 @@ function CommandList({ commands }: { commands: string[] }) {
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+function ReviewQueue({
+  rows,
+  onOpenTab,
+  limit,
+  title = "Operator Review Queue"
+}: {
+  rows: ReviewQueueRow[];
+  onOpenTab: (tab: ReportTab) => void;
+  limit?: number;
+  title?: string;
+}) {
+  const visibleRows = typeof limit === "number" ? rows.slice(0, limit) : rows;
+
+  return (
+    <section className="panel span-2 review-queue">
+      <div className="panel-header">
+        <div>
+          <h2>{title}</h2>
+          <p className="muted">Ranked rows with source evidence and the next report surface to inspect.</p>
+        </div>
+      </div>
+      {visibleRows.length === 0 ? (
+        <p className="muted">No review rows were derived from this report.</p>
+      ) : (
+        <div className="review-list">
+          {visibleRows.map((row) => (
+            <article key={row.id} className={`review-row ${row.severity}`}>
+              <div>
+                <div className="review-row-meta">
+                  <span>{row.area}</span>
+                  <span>{row.severity}</span>
+                  <span>{row.source}</span>
+                </div>
+                <h3>{row.label}</h3>
+                <p>{row.evidence}</p>
+                {row.command ? <code>{row.command}</code> : null}
+              </div>
+              <button type="button" onClick={() => onOpenTab(row.targetTab)}>
+                Open {row.targetTab}
+              </button>
+            </article>
+          ))}
+        </div>
       )}
     </section>
   );
@@ -496,7 +545,7 @@ function ExternalApiReview({ report }: { report: AGraphReport }) {
   );
 }
 
-function AtlasTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph }) {
+function AtlasTab({ report, graph, onOpenTab }: { report: AGraphReport; graph: AGraphGraph; onOpenTab: (tab: ReportTab) => void }) {
   const atlas = reportAtlas(report, graph);
   const evidence = asRecord(atlas.evidence);
   const systems = asRecord(atlas.systems);
@@ -505,6 +554,7 @@ function AtlasTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph 
   const queue = asRecord(maintenance.queue);
   const externalApi = asRecord(maintenance["external-api-review"] || maintenance.externalApiReview);
   const nextActions = asRows(atlas["next-actions"] || atlas.nextActions);
+  const reviewRows = reviewQueueRows(report);
 
   return (
     <div className="report-grid">
@@ -591,6 +641,8 @@ function AtlasTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph 
           </table>
         )}
       </section>
+
+      <ReviewQueue rows={reviewRows} onOpenTab={onOpenTab} limit={5} />
     </div>
   );
 }
@@ -738,10 +790,12 @@ function EvidenceTab({ report }: { report: AGraphReport }) {
   );
 }
 
-function MaintenanceTab({ report }: { report: AGraphReport }) {
+function MaintenanceTab({ report, onOpenTab }: { report: AGraphReport; onOpenTab: (tab: ReportTab) => void }) {
   const maintenance = asRecord(report.maintenance);
+  const reviewRows = reviewQueueRows(report);
   return (
     <div className="report-grid">
+      <ReviewQueue rows={reviewRows} onOpenTab={onOpenTab} />
       <CommandList commands={report.commands} />
       <DataTable
         title="Maintenance Decisions"
@@ -776,9 +830,10 @@ function MaintenanceTab({ report }: { report: AGraphReport }) {
   );
 }
 
-function DashboardTab({ report, graph }: { report: AGraphReport; graph: AGraphGraph }) {
+function DashboardTab({ report, graph, onOpenTab }: { report: AGraphReport; graph: AGraphGraph; onOpenTab: (tab: ReportTab) => void }) {
   const panels = pluginPanels(report);
-  if (panels.length === 0) return <AtlasTab report={report} graph={graph} />;
+  const reviewRows = reviewQueueRows(report);
+  if (panels.length === 0) return <AtlasTab report={report} graph={graph} onOpenTab={onOpenTab} />;
 
   return (
     <div className="report-grid">
@@ -786,6 +841,7 @@ function DashboardTab({ report, graph }: { report: AGraphReport; graph: AGraphGr
         <p className="eyebrow">Report Dashboard</p>
         <h2>{report.project.name || report.project.id}</h2>
       </section>
+      <ReviewQueue rows={reviewRows} onOpenTab={onOpenTab} limit={5} />
       <PluginPanelList report={report} includeCore />
       <PluginDiagnostics diagnostics={report.plugins?.diagnostics || []} />
     </div>
@@ -912,7 +968,7 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
   const activePanel = useMemo(() => {
     switch (activeTab) {
       case "dashboard":
-        return <DashboardTab report={report} graph={graph} />;
+        return <DashboardTab report={report} graph={graph} onOpenTab={setActiveTab} />;
       case "ask":
         return <AskTab report={report} graph={graph} />;
       case "systems":
@@ -922,11 +978,11 @@ export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGr
       case "evidence":
         return <EvidenceTab report={report} />;
       case "maintenance":
-        return <MaintenanceTab report={report} />;
+        return <MaintenanceTab report={report} onOpenTab={setActiveTab} />;
       case "plugins":
         return <PluginsTab report={report} />;
       default:
-        return <DashboardTab report={report} graph={graph} />;
+        return <DashboardTab report={report} graph={graph} onOpenTab={setActiveTab} />;
     }
   }, [activeTab, graph, report]);
 

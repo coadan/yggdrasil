@@ -14,6 +14,9 @@ describe("ReportPage", () => {
     expect(screen.getByText("Fixture")).toBeInTheDocument();
     expect(screen.getByText("Project Atlas")).toBeInTheDocument();
     expect(screen.getByText("agraph-core-report")).toBeInTheDocument();
+    expect(screen.getByText("Operator Review Queue")).toBeInTheDocument();
+    expect(screen.getByText("Refresh indexed graph basis")).toBeInTheDocument();
+    expect(screen.getByText("packages.unresolved-imports")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Plugins" }));
 
@@ -28,7 +31,16 @@ describe("ReportPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Maintenance" }));
 
-    expect(screen.getByText(/agraph ask/)).toBeInTheDocument();
+    expect(screen.getAllByText(/agraph ask/).length).toBeGreaterThan(0);
+  });
+
+  it("opens focused report sections from review rows", () => {
+    render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Open dependencies" })[0]);
+
+    expect(screen.getByText("Package Summary")).toBeInTheDocument();
+    expect(screen.getByText("missing.lib")).toBeInTheDocument();
   });
 
   it("answers report-local questions from loaded artifacts", () => {
