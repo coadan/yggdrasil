@@ -108,6 +108,10 @@ smaller query-scoped `answerability` packet plus matching entities, edges, docs,
 and activity.
 Both surfaces use `dependencies` for the evidence plane backed by package
 declarations, lockfile versions, and mechanically resolved package-import edges.
+When plugin packages are installed, context packets also include
+`pluginPackages`: compact package caveats with benchmark status, claim authority,
+warning counts, and package ids. Treat unbenchmarked or non-authoritative plugin
+output as review evidence, not as benchmark-backed architecture understanding.
 
 - `status`: `ready`, `limited`, or `empty`
 - `available`: populated evidence planes, such as `source-graph`,
@@ -378,9 +382,10 @@ The MCP server returns the same packet schemas as the CLI. By default,
 handoff tools; hidden advanced tools are rejected by default.
 Use `agraph_explore` as the primary one-shot MCP packet for structural
 questions; it returns graph-basis freshness, answerability, candidate files,
-docs, graph facts, and drilldowns without creating a cursor. MCP agents should
-inspect `freshness`, `evidence.families`, `answerability.planes`, and
-`nextActions` before treating missing facts as absent.
+docs, graph facts, plugin package caveats, and drilldowns without creating a
+cursor. MCP agents should inspect `freshness`, `evidence.families`,
+`answerability.planes`, `pluginPackages`, and `nextActions` before treating
+missing facts as absent.
 Use `agraph_node` for a single file, evidence row, package, node, or accepted
 system; when map docs are attached, the node packet includes bounded
 line-numbered doc source windows when the file is available.

@@ -24,6 +24,20 @@
    :unresolved-imports []
    :version-conflicts []})
 
+(def plugin-package-fixture
+  {:id "datastar-hiccup"
+   :version "0.1.0"
+   :visibility :public
+   :scope {:kind :base}
+   :benchmark-status :unbenchmarked
+   :benchmark-cases {:artifacts 1
+                     :case-ids ["datastar-hiccup-architecture"]}
+   :claim-authority {:status :non-authoritative}
+   :diagnostic-counts {:total 1
+                       :errors 0
+                       :warnings 1}
+   :warnings ["datastar-hiccup is unbenchmarked"]})
+
 (deftest inferred-docs-include-source-chunk-for-retrieved-node-result
   (let [inferred-docs @#'context/inferred-docs
         docs (inferred-docs
@@ -771,6 +785,7 @@
                                          "auth"
                                          {:project-id "fixture"
                                           :retriever :lexical
+                                          :plugin-packages [plugin-package-fixture]
                                           :freshness {:status :current
                                                       :counts {:indexed 1
                                                                :current 1
@@ -786,6 +801,13 @@
              (:freshness packet)))
       (is (= {:indexedFiles 1}
              (get-in packet [:sourceCoverage :totals])))
+      (is (= {:counts {:packages 1
+                       :warnings 1
+                       :unbenchmarked 1
+                       :benchmarked 0
+                       :nonAuthoritative 1}
+              :packages [plugin-package-fixture]}
+             (:pluginPackages packet)))
       (is (not (contains? packet :auditScopes)))
       (is (= [{:path "src/auth.clj"
                :rank 1

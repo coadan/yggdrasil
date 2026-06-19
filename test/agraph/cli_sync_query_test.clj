@@ -34,6 +34,10 @@
   [s]
   (json/read-json s :key-fn keyword))
 
+(defn- json-roundtrip
+  [value]
+  (json/read-json (json/write-json-str value) :key-fn keyword))
+
 (def project-fixture
   {:id "fixture"
    :name "Fixture"
@@ -41,6 +45,21 @@
    :repos [{:id "app"
             :root "/tmp/app"
             :role :application}]})
+
+(def plugin-package-fixture
+  {:id "datastar-hiccup"
+   :version "0.1.0"
+   :visibility :public
+   :scope {:kind :base}
+   :benchmark-status :unbenchmarked
+   :claim-authority {:status :non-authoritative}
+   :diagnostic-counts {:total 1
+                       :errors 0
+                       :warnings 1}
+   :warnings ["datastar-hiccup is unbenchmarked"]})
+
+(def project-with-plugin-package
+  (assoc project-fixture :plugin-packages [plugin-package-fixture]))
 
 (deftest init-command-can-run-sync-and-create-explicit-map
   (let [root (temp-dir "agraph-cli-init")
@@ -1197,7 +1216,7 @@
   (let [summaries (atom [])]
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                   project/read-project (fn [path]
-                                         (assoc project-fixture :path path))
+                                         (assoc project-with-plugin-package :path path))
                   evidence/summarize (fn [xtdb project opts]
                                        (swap! summaries conj [xtdb project opts])
                                        {:freshness {:status :current
@@ -1207,6 +1226,7 @@
                                             :xtdb xtdb
                                             :query query-text
                                             :project-id (:project-id opts)
+                                            :pluginPackages (:plugin-packages opts)
                                             :freshness (:freshness opts)})]
       (let [out (with-out-str
                   (cli/dispatch "ask"
@@ -1221,8 +1241,10 @@
         (is (= {:status "current"
                 :counts {:indexed 3}}
                (:freshness parsed)))
+        (is (= (json-roundtrip [plugin-package-fixture])
+               (:pluginPackages parsed)))
         (is (= [[:xtdb
-                 (assoc project-fixture :path "project.edn")
+                 (assoc project-with-plugin-package :path "project.edn")
                  {:map-overlay nil
                   :config-path "project.edn"
                   :map-path nil}]]
@@ -1230,7 +1252,7 @@
 (deftest explore-json-returns-one-shot-context-packet
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                 project/read-project (fn [path]
-                                       (assoc project-fixture :path path))
+                                       (assoc project-with-plugin-package :path path))
                 evidence/summarize (fn [_ _ _]
                                      {:freshness {:status :stale
                                                   :counts {:changed 1}}})
@@ -1241,6 +1263,7 @@
                                           :project-id (:project-id opts)
                                           :retriever (:retriever opts)
                                           :freshness (:freshness opts)
+                                          :pluginPackages (:plugin-packages opts)
                                           :answerability {:status :usable}})]
     (let [out (with-out-str
                 (cli/dispatch "explore"
@@ -1257,6 +1280,8 @@
       (is (= {:status "stale"
               :counts {:changed 1}}
              (:freshness parsed)))
+      (is (= (json-roundtrip [plugin-package-fixture])
+             (:pluginPackages parsed)))
       (is (= {:status "usable"} (:answerability parsed))))))
 (deftest ask-plain-empty-result-prints-answerability-warning
   (let [err (java.io.StringWriter.)

@@ -697,6 +697,7 @@
                           {:project-id (:id project)
                            :retriever :lexical
                            :map-path map-path
+                           :plugin-packages (:plugin-packages project)
                            :budget context/default-budget}))
 
 (defn bundle!

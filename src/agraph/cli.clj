@@ -120,8 +120,8 @@
           nil)))))
 
 (defn- context-packet-freshness
-  [xtdb args project-id map-path]
-  (when-let [{:keys [project config-path]} (matching-context-project args project-id)]
+  [xtdb project-info map-path]
+  (when-let [{:keys [project config-path]} project-info]
     (let [overlay (when (and map-path (graph-map/file-exists? map-path))
                     (graph-map/read-map map-path))
           summary (evidence/summarize xtdb
@@ -134,7 +134,9 @@
 (defn- context-packet-options
   [xtdb args {:keys [project-id repo-id retriever embedding-client read-context]}]
   (let [map-path (default-map-path args)
-        freshness (context-packet-freshness xtdb args project-id map-path)]
+        project-info (matching-context-project args project-id)
+        freshness (context-packet-freshness xtdb project-info map-path)
+        plugin-packages (seq (get-in project-info [:project :plugin-packages]))]
     (cond-> {:project-id project-id
              :repo-id repo-id
              :retriever retriever
@@ -160,7 +162,10 @@
                                                   "--min-confidence"
                                                   0.55)}
       freshness
-      (assoc :freshness freshness))))
+      (assoc :freshness freshness)
+
+      plugin-packages
+      (assoc :plugin-packages (vec plugin-packages)))))
 
 (defn- required-map-path
   [args]

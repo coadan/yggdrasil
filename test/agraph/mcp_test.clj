@@ -184,7 +184,7 @@
 
 (deftest ask-tool-returns-context-packet
   (let [summaries (atom [])]
-    (with-redefs [project/read-project (constantly project-fixture)
+    (with-redefs [project/read-project (constantly project-with-plugin-package)
                   store/with-node (fn [_ f] (f :xtdb))
                   evidence/summarize (fn [xtdb project opts]
                                        (swap! summaries conj [xtdb project opts])
@@ -197,6 +197,7 @@
                                             :query query-text
                                             :project-id (:project-id opts)
                                             :retriever (name (:retriever opts))
+                                            :pluginPackages (:plugin-packages opts)
                                             :freshness (:freshness opts)})]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"
@@ -212,8 +213,10 @@
         (is (= {:status :current
                 :counts {:indexed 4}}
                (:freshness packet)))
+        (is (= [plugin-package-fixture]
+               (:pluginPackages packet)))
         (is (= [[:xtdb
-                 project-fixture
+                 project-with-plugin-package
                  {:map-overlay nil
                   :config-path "project.edn"
                   :map-path nil}]]
@@ -223,7 +226,7 @@
                                         :key-fn keyword))))))))
 
 (deftest explore-tool-returns-primary-context-packet
-  (with-redefs [project/read-project (constantly project-fixture)
+  (with-redefs [project/read-project (constantly project-with-plugin-package)
                 store/with-node (fn [_ f] (f :xtdb))
                 context/context-packet (fn [xtdb query-text opts]
                                          {:schema context/schema
@@ -234,6 +237,7 @@
                                           :candidateFiles [{:repo "app"
                                                             :path "src/app.clj"}]
                                           :answerability {:status :usable}
+                                          :pluginPackages (:plugin-packages opts)
                                           :freshness (:freshness opts)
                                           :drilldowns ["agraph query \"where auth\" --project fixture"]})
                 evidence/summarize (fn [xtdb project opts]
@@ -267,6 +271,8 @@
                :path "src/app.clj"}]
              (:candidateFiles packet)))
       (is (= {:status :usable} (:answerability packet)))
+      (is (= [plugin-package-fixture]
+             (:pluginPackages packet)))
       (is (= {:status :stale
               :counts {:indexed 2
                        :current 2

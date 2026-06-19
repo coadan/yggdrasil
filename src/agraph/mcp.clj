@@ -414,6 +414,7 @@
                                  :retriever (keyword (or (:retriever args) "lexical"))
                                  :map-overlay overlay
                                  :budget (or (:budget args) context/default-budget)
+                                 :plugin-packages (:plugin-packages project)
                                  :freshness (context-packet-freshness xtdb
                                                                       project
                                                                       ctx
@@ -440,6 +441,7 @@
                                    :retriever (keyword (or (:retriever args) "lexical"))
                                    :map-overlay overlay
                                    :budget (or (:budget args) context/default-budget)
+                                   :plugin-packages (:plugin-packages project)
                                    :freshness freshness}))))))
 
 (def node-inspect-schema

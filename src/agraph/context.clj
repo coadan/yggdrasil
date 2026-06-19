@@ -717,10 +717,37 @@
   [architecture]
   (context-architecture/systems-section architecture))
 
+(defn- compact-plugin-package
+  [package]
+  (select-keys package [:id
+                        :version
+                        :visibility
+                        :scope
+                        :benchmark-status
+                        :benchmark-cases
+                        :claim-authority
+                        :diagnostic-counts
+                        :warnings]))
+
+(defn- plugin-package-caveats
+  [packages]
+  (let [packages (mapv compact-plugin-package packages)
+        by-benchmark (frequencies (map :benchmark-status packages))
+        non-authoritative (count (filter #(= :non-authoritative
+                                             (get-in % [:claim-authority :status]))
+                                         packages))
+        warning-count (reduce + 0 (map (comp count :warnings) packages))]
+    {:counts {:packages (count packages)
+              :warnings warning-count
+              :unbenchmarked (get by-benchmark :unbenchmarked 0)
+              :benchmarked (get by-benchmark :benchmarked 0)
+              :nonAuthoritative non-authoritative}
+     :packages packages}))
+
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns answerability
    search-instrumentation freshness source-coverage architecture systems audit-scopes
-   relationships blast-radius candidate-files]
+   relationships blast-radius candidate-files plugin-packages]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data)
@@ -738,6 +765,7 @@
     architecture (assoc :architecture architecture)
     systems (assoc :systems systems)
     (seq audit-scopes) (assoc :auditScopes audit-scopes)
+    (seq plugin-packages) (assoc :pluginPackages (plugin-package-caveats plugin-packages))
     (seq relationships) (assoc :relationships relationships)
     blast-radius (assoc :blastRadius blast-radius)
     source-coverage (assoc :sourceCoverage source-coverage)))
@@ -1247,7 +1275,7 @@
   [xtdb query-text {:keys [budget entity-limit edge-limit doc-limit snippet-chars
                            retrieval-limit
                            retriever embedding-client project-id repo-id map-path
-                           map-overlay min-confidence read-context freshness]
+                           map-overlay min-confidence read-context freshness plugin-packages]
                     :or {budget default-budget
                          entity-limit default-entity-limit
                          edge-limit default-edge-limit
@@ -1383,7 +1411,8 @@
                              audit-scopes
                              (relationship-groups edges)
                              blast-radius
-                             (candidate-files results))
+                             (candidate-files results)
+                             plugin-packages)
                 docs
                 budget)))
 
