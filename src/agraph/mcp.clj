@@ -327,6 +327,18 @@
     (when (and path (graph-map/file-exists? path))
       (graph-map/read-map path))))
 
+(defn- context-packet-freshness
+  [xtdb project ctx args overlay]
+  (let [config-path (config-path ctx args)
+        summary (evidence/summarize xtdb
+                                    project
+                                    {:map-overlay overlay
+                                     :config-path (or config-path
+                                                      (:path project))
+                                     :map-path (or (:mapPath args)
+                                                   (:map-path ctx))})]
+    (evidence/packet-freshness summary)))
+
 (defn- with-xtdb
   [ctx f]
   (store/with-node (:storage-path ctx) f))
@@ -375,7 +387,12 @@
                                 {:project-id (project-id project args)
                                  :retriever (keyword (or (:retriever args) "lexical"))
                                  :map-overlay overlay
-                                 :budget (or (:budget args) context/default-budget)})))))
+                                 :budget (or (:budget args) context/default-budget)
+                                 :freshness (context-packet-freshness xtdb
+                                                                      project
+                                                                      ctx
+                                                                      args
+                                                                      overlay)})))))
 
 (defn- ask
   [ctx args]
@@ -384,18 +401,11 @@
 (defn- explore
   [ctx args]
   (let [project (read-project! ctx args)
-        overlay (map-overlay ctx args)
-        config-path (config-path ctx args)]
+        overlay (map-overlay ctx args)]
     (with-xtdb
       ctx
       (fn [xtdb]
-        (let [evidence-summary (evidence/summarize xtdb
-                                                   project
-                                                   {:map-overlay overlay
-                                                    :config-path (or config-path
-                                                                     (:path project))
-                                                    :map-path (or (:mapPath args)
-                                                                  (:map-path ctx))})]
+        (let [freshness (context-packet-freshness xtdb project ctx args overlay)]
           (context/context-packet xtdb
                                   (require-string! args
                                                    :query
@@ -404,8 +414,7 @@
                                    :retriever (keyword (or (:retriever args) "lexical"))
                                    :map-overlay overlay
                                    :budget (or (:budget args) context/default-budget)
-                                   :freshness (evidence/packet-freshness
-                                               evidence-summary)}))))))
+                                   :freshness freshness}))))))
 
 (def node-inspect-schema
   "agraph.node.inspect/v1")

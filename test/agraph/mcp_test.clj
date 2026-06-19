@@ -145,27 +145,43 @@
     (is (every? #(= false (:additionalProperties %)) (vals schemas)))))
 
 (deftest ask-tool-returns-context-packet
-  (with-redefs [project/read-project (constantly project-fixture)
-                store/with-node (fn [_ f] (f :xtdb))
-                context/context-packet (fn [xtdb query-text opts]
-                                         {:schema context/schema
-                                          :xtdb xtdb
-                                          :query query-text
-                                          :project-id (:project-id opts)
-                                          :retriever (name (:retriever opts))})]
-    (let [response (mcp/handle-message
-                    (mcp/server-context ["--config" "project.edn"])
-                    (tool-call 7
-                               "agraph_ask"
-                               {:query "where auth"
-                                :retriever "lexical"}))
-          packet (get-in response [:result :structuredContent])]
-      (is (= context/schema (:schema packet)))
-      (is (= "fixture" (:project-id packet)))
-      (is (= "where auth" (:query packet)))
-      (is (= context/schema
-             (:schema (json/read-json (get-in response [:result :content 0 :text])
-                                      :key-fn keyword)))))))
+  (let [summaries (atom [])]
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  evidence/summarize (fn [xtdb project opts]
+                                       (swap! summaries conj [xtdb project opts])
+                                       {:schema evidence/schema
+                                        :freshness {:status :current
+                                                    :counts {:indexed 4}}})
+                  context/context-packet (fn [xtdb query-text opts]
+                                           {:schema context/schema
+                                            :xtdb xtdb
+                                            :query query-text
+                                            :project-id (:project-id opts)
+                                            :retriever (name (:retriever opts))
+                                            :freshness (:freshness opts)})]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 7
+                                 "agraph_ask"
+                                 {:query "where auth"
+                                  :retriever "lexical"}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= context/schema (:schema packet)))
+        (is (= "fixture" (:project-id packet)))
+        (is (= "where auth" (:query packet)))
+        (is (= {:status :current
+                :counts {:indexed 4}}
+               (:freshness packet)))
+        (is (= [[:xtdb
+                 project-fixture
+                 {:map-overlay nil
+                  :config-path "project.edn"
+                  :map-path nil}]]
+               @summaries))
+        (is (= context/schema
+               (:schema (json/read-json (get-in response [:result :content 0 :text])
+                                        :key-fn keyword))))))))
 
 (deftest explore-tool-returns-primary-context-packet
   (with-redefs [project/read-project (constantly project-fixture)
