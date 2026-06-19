@@ -383,3 +383,522 @@
      :edges (vec (concat define-edges import-edges reference-edges))
      :chunks (into [chunk] definition-chunks)
      :diagnostics diagnostics}))
+
+(defn- groovy-module-name
+  [path content]
+  (or (some (fn [line]
+              (second (re-matches #"^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$"
+                                  line)))
+            (str/split-lines content))
+      (common/source-module-name path)))
+(defn- groovy-imports
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (when-let [[_ target]
+                          (re-matches #"^\s*import\s+(?:static\s+)?([A-Za-z_][A-Za-z0-9_.*]*)\s*$"
+                                      line)]
+                 {:target target
+                  :source-line (inc idx)})))
+       distinct
+       vec))
+(defn- groovy-type-line
+  [current-type idx line]
+  (when-let [[_ visibility kind name]
+             (re-matches
+              #"^\s*(?:(public|private|protected)\s+)?(?:(?:abstract|final|static)\s+)*(class|interface|enum|trait|@interface)\s+([A-Za-z_][A-Za-z0-9_]*)\b.*"
+              line)]
+    {:kind (case kind
+             "class" :class
+             "interface" :interface
+             "enum" :enum
+             "trait" :trait
+             "@interface" :annotation)
+     :name (if current-type
+             (str (:name current-type) "." name)
+             name)
+     :public? (not= "private" visibility)
+     :source-line (inc idx)}))
+(def ^:private groovy-method-exclusions
+  #{"catch" "for" "if" "return" "switch" "while"})
+(defn- groovy-member-line
+  [current-type idx line]
+  (or (when-let [[_ visibility name]
+                 (re-matches
+                  #"^\s*(?:(public|private|protected)\s+)?(?:(?:static|final|abstract|synchronized)\s+)*(?:def|[A-Za-z_][A-Za-z0-9_<>,?.\[\]]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:\{.*)?"
+                  line)]
+        (when-not (contains? groovy-method-exclusions name)
+          {:kind :method
+           :name (if current-type
+                   (str (:name current-type) "." name)
+                   name)
+           :public? (not= "private" visibility)
+           :source-line (inc idx)}))
+      (when-let [[_ visibility name]
+                 (re-matches
+                  #"^\s*(?:(public|private|protected)\s+)?(?:(?:static|final|volatile|transient)\s+)*(?:def|[A-Za-z_][A-Za-z0-9_<>,?.\[\]]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=.*)?"
+                  line)]
+        (when-not (contains? groovy-method-exclusions name)
+          {:kind :property
+           :name (if current-type
+                   (str (:name current-type) "." name)
+                   name)
+           :public? (not= "private" visibility)
+           :source-line (inc idx)}))))
+(defn- groovy-definition-forms
+  [content]
+  (let [lines (vec (str/split-lines content))
+        line-starts (common/line-start-offsets content)]
+    (loop [remaining (map-indexed vector lines)
+           depth 0
+           type-stack []
+           pending-type nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [type-stack (common/pop-closed-type-scopes type-stack depth)
+              current-type (last type-stack)
+              type-form (groovy-type-line current-type idx line)
+              member-form (when-not type-form
+                            (groovy-member-line current-type idx line))
+              forms (cond-> []
+                      type-form (conj type-form)
+                      member-form (conj member-form))
+              forms (mapv (fn [{:keys [source-line] :as form}]
+                            (let [start (+ (get line-starts idx 0)
+                                           (or (some->> [(:name form)]
+                                                        first
+                                                        (str/index-of line))
+                                               0))]
+                              (assoc form
+                                     :text (or (common/balanced-curly-block content start)
+                                               line)
+                                     :source-line source-line)))
+                          forms)
+              delta (common/curly-depth-delta line)
+              depth* (+ depth delta)
+              type-stack* (cond-> type-stack
+                            (and pending-type (pos? delta))
+                            (conj {:name (:name pending-type)
+                                   :end-depth depth*})
+
+                            (and type-form (pos? delta))
+                            (conj {:name (:name type-form)
+                                   :end-depth depth*}))
+              pending-type* (cond
+                              (and type-form (not (pos? delta))) type-form
+                              (and pending-type (pos? delta)) nil
+                              :else pending-type)]
+          (recur (rest remaining)
+                 depth*
+                 type-stack*
+                 pending-type*
+                 (into out forms)))
+        out))))
+(defn extract-groovy
+  "Extract bounded package, import, and declaration facts from Groovy source."
+  [run-id {:keys [id-scope file-id path content]}]
+  (let [module-name (groovy-module-name path content)
+        ns-node (common/namespace-node run-id id-scope file-id path module-name)
+        lines (vec (str/split-lines content))
+        def-forms (groovy-definition-forms content)
+        defs (mapv (fn [{:keys [kind name public? source-line]}]
+                     (let [label (str module-name "/" name)]
+                       {:xt/id (common/node-id id-scope :symbol label)
+                        :label label
+                        :kind kind
+                        :file-id file-id
+                        :path path
+                        :namespace module-name
+                        :name name
+                        :public? public?
+                        :source-line source-line
+                        :tokens (text/tokenize label)
+                        :active? true
+                        :run-id run-id}))
+                   def-forms)
+        define-edges (mapv #(common/edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           defs)
+        import-edges (mapv #(common/edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (common/node-id id-scope :namespace (:target %))
+                                      :imports
+                                      :extracted
+                                      (:source-line %))
+                           (groovy-imports lines))
+        chunk (common/source-text-chunk run-id
+                                 id-scope
+                                 file-id
+                                 path
+                                 :groovy-file
+                                 module-name
+                                 content
+                                 common/source-file-chunk-lines)
+        definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
+                                  (common/source-definition-chunk
+                                   run-id
+                                   id-scope
+                                   file-id
+                                   path
+                                   (str module-name "/" name)
+                                   kind
+                                   source-line
+                                   text))
+                                def-forms)
+        diagnostics (common/curly-balance-diagnostics run-id
+                                               file-id
+                                               path
+                                               content
+                                               "Groovy")]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges))
+     :chunks (into [chunk] definition-chunks)
+     :diagnostics diagnostics}))
+(defn- kotlin-module-name
+  [path content]
+  (or (some (fn [line]
+              (second (re-matches #"^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$"
+                                  line)))
+            (str/split-lines content))
+      (common/source-module-name path)))
+(defn- kotlin-imports
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (when-let [[_ target]
+                          (re-matches #"^\s*import\s+([A-Za-z_][A-Za-z0-9_.*]*)\s*$"
+                                      line)]
+                 {:target target
+                  :source-line (inc idx)})))
+       distinct
+       vec))
+(defn- kotlin-type-line
+  [current-type idx line]
+  (or (when-let [[_ visibility name]
+                 (re-matches
+                  #"^\s*(?:(public|private|protected|internal)\s+)?companion\s+object(?:\s+([A-Za-z_][A-Za-z0-9_]*))?\b.*"
+                  line)]
+        {:kind :object
+         :name (let [object-name (or name "Companion")]
+                 (if current-type
+                   (str (:name current-type) "." object-name)
+                   object-name))
+         :public? (not= "private" visibility)
+         :source-line (inc idx)})
+      (when-let [[_ visibility kind name]
+                 (re-matches
+                  #"^\s*(?:(public|private|protected|internal)\s+)?(?:(?:data|sealed|open|abstract|final|value|inner)\s+)*(class|interface|object|enum\s+class|annotation\s+class)\s+([A-Za-z_][A-Za-z0-9_]*)\b.*"
+                  line)]
+        {:kind (case kind
+                 "class" :class
+                 "interface" :interface
+                 "object" :object
+                 "enum class" :enum
+                 "annotation class" :annotation)
+         :name (if current-type
+                 (str (:name current-type) "." name)
+                 name)
+         :public? (not= "private" visibility)
+         :source-line (inc idx)})))
+(defn- kotlin-member-line
+  [current-type idx line]
+  (when-let [[_ visibility kind name]
+             (re-matches
+              #"^\s*(?:(public|private|protected|internal)\s+)?(?:(?:const|suspend|inline|operator|override|open|private|public|protected|internal)\s+)*(fun|val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\b.*"
+              line)]
+    {:kind (case kind
+             "fun" :function
+             "val" :property
+             "var" :property)
+     :name (if current-type
+             (str (:name current-type) "." name)
+             name)
+     :public? (not= "private" visibility)
+     :source-line (inc idx)}))
+(defn- kotlin-definition-forms
+  [content]
+  (let [lines (vec (str/split-lines content))
+        line-starts (common/line-start-offsets content)]
+    (loop [remaining (map-indexed vector lines)
+           depth 0
+           type-stack []
+           pending-type nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [type-stack (common/pop-closed-type-scopes type-stack depth)
+              current-type (last type-stack)
+              type-form (kotlin-type-line current-type idx line)
+              member-form (when-not type-form
+                            (kotlin-member-line current-type idx line))
+              forms (cond-> []
+                      type-form (conj type-form)
+                      member-form (conj member-form))
+              forms (mapv (fn [{:keys [source-line] :as form}]
+                            (let [start (+ (get line-starts idx 0)
+                                           (or (some->> [(:name form)]
+                                                        first
+                                                        (str/index-of line))
+                                               0))]
+                              (assoc form
+                                     :text (or (common/balanced-curly-block content start)
+                                               line)
+                                     :source-line source-line)))
+                          forms)
+              delta (common/curly-depth-delta line)
+              depth* (+ depth delta)
+              type-stack* (cond-> type-stack
+                            (and pending-type (pos? delta))
+                            (conj {:name (:name pending-type)
+                                   :end-depth depth*})
+
+                            (and type-form (pos? delta))
+                            (conj {:name (:name type-form)
+                                   :end-depth depth*}))
+              pending-type* (cond
+                              (and type-form (not (pos? delta))) type-form
+                              (and pending-type (pos? delta)) nil
+                              :else pending-type)]
+          (recur (rest remaining)
+                 depth*
+                 type-stack*
+                 pending-type*
+                 (into out forms)))
+        out))))
+(defn extract-kotlin
+  "Extract bounded package, import, and declaration facts from Kotlin source."
+  [run-id {:keys [id-scope file-id path content]}]
+  (let [module-name (kotlin-module-name path content)
+        ns-node (common/namespace-node run-id id-scope file-id path module-name)
+        lines (vec (str/split-lines content))
+        def-forms (kotlin-definition-forms content)
+        defs (mapv (fn [{:keys [kind name public? source-line]}]
+                     (let [label (str module-name "/" name)]
+                       {:xt/id (common/node-id id-scope :symbol label)
+                        :label label
+                        :kind kind
+                        :file-id file-id
+                        :path path
+                        :namespace module-name
+                        :name name
+                        :public? public?
+                        :source-line source-line
+                        :tokens (text/tokenize label)
+                        :active? true
+                        :run-id run-id}))
+                   def-forms)
+        define-edges (mapv #(common/edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           defs)
+        import-edges (mapv #(common/edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (common/node-id id-scope :namespace (:target %))
+                                      :imports
+                                      :extracted
+                                      (:source-line %))
+                           (kotlin-imports lines))
+        chunk (common/source-text-chunk run-id
+                                 id-scope
+                                 file-id
+                                 path
+                                 :kotlin-file
+                                 module-name
+                                 content
+                                 common/source-file-chunk-lines)
+        definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
+                                  (common/source-definition-chunk
+                                   run-id
+                                   id-scope
+                                   file-id
+                                   path
+                                   (str module-name "/" name)
+                                   kind
+                                   source-line
+                                   text))
+                                def-forms)
+        diagnostics (common/curly-balance-diagnostics run-id
+                                               file-id
+                                               path
+                                               content
+                                               "Kotlin")]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges))
+     :chunks (into [chunk] definition-chunks)
+     :diagnostics diagnostics}))
+(defn- swift-module-name
+  [path]
+  (common/source-module-name path))
+(defn- swift-imports
+  [lines]
+  (->> lines
+       (map-indexed vector)
+       (keep (fn [[idx line]]
+               (when-let [[_ target]
+                          (re-matches #"^\s*import\s+(?:struct|class|enum|protocol|func|var)?\s*([A-Za-z_][A-Za-z0-9_.]*)\s*$"
+                                      line)]
+                 {:target target
+                  :source-line (inc idx)})))
+       distinct
+       vec))
+(defn- swift-type-line
+  [idx line]
+  (when-let [[_ visibility kind name]
+             (re-matches
+              #"^\s*(?:(open|public|internal|fileprivate|private)\s+)?(?:(?:final|indirect)\s+)*(class|struct|enum|protocol|actor|extension)\s+([A-Za-z_][A-Za-z0-9_]*)\b.*"
+              line)]
+    {:kind (case kind
+             "class" :class
+             "struct" :struct
+             "enum" :enum
+             "protocol" :protocol
+             "actor" :actor
+             "extension" :extension)
+     :name name
+     :public? (contains? #{"open" "public"} visibility)
+     :source-line (inc idx)}))
+(defn- swift-member-line
+  [current-type idx line]
+  (or (when current-type
+        (when-let [[_ visibility]
+                   (re-matches
+                    #"^\s*(?:(open|public|internal|fileprivate|private)\s+)?(?:convenience\s+|required\s+|override\s+)*init\s*\(.*"
+                    line)]
+          {:kind :initializer
+           :name (str (:name current-type) ".init")
+           :public? (contains? #{"open" "public"} visibility)
+           :source-line (inc idx)}))
+      (when-let [[_ visibility kind name]
+                 (re-matches
+                  #"^\s*(?:(open|public|internal|fileprivate|private)\s+)?(?:(?:static|class|mutating|nonmutating|override|async|throws)\s+)*(func|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\b.*"
+                  line)]
+        {:kind (case kind
+                 "func" :function
+                 "let" :property
+                 "var" :property)
+         :name (if current-type
+                 (str (:name current-type) "." name)
+                 name)
+         :public? (contains? #{"open" "public"} visibility)
+         :source-line (inc idx)})))
+(defn- swift-definition-forms
+  [content]
+  (let [lines (vec (str/split-lines content))
+        line-starts (common/line-start-offsets content)]
+    (loop [remaining (map-indexed vector lines)
+           depth 0
+           type-stack []
+           pending-type nil
+           out []]
+      (if-let [[idx line] (first remaining)]
+        (let [type-stack (common/pop-closed-type-scopes type-stack depth)
+              current-type (last type-stack)
+              type-form (swift-type-line idx line)
+              member-form (when-not type-form
+                            (swift-member-line current-type idx line))
+              forms (cond-> []
+                      type-form (conj type-form)
+                      member-form (conj member-form))
+              forms (mapv (fn [{:keys [source-line] :as form}]
+                            (let [start (+ (get line-starts idx 0)
+                                           (or (some->> [(:name form)]
+                                                        first
+                                                        (str/index-of line))
+                                               0))]
+                              (assoc form
+                                     :text (or (common/balanced-curly-block content start)
+                                               line)
+                                     :source-line source-line)))
+                          forms)
+              delta (common/curly-depth-delta line)
+              depth* (+ depth delta)
+              type-stack* (cond-> type-stack
+                            (and pending-type (pos? delta))
+                            (conj {:name (:name pending-type)
+                                   :end-depth depth*})
+
+                            (and type-form (pos? delta))
+                            (conj {:name (:name type-form)
+                                   :end-depth depth*}))
+              pending-type* (cond
+                              (and type-form (not (pos? delta))) type-form
+                              (and pending-type (pos? delta)) nil
+                              :else pending-type)]
+          (recur (rest remaining)
+                 depth*
+                 type-stack*
+                 pending-type*
+                 (into out forms)))
+        out))))
+(defn extract-swift
+  "Extract bounded import and declaration facts from Swift source."
+  [run-id {:keys [id-scope file-id path content]}]
+  (let [module-name (swift-module-name path)
+        ns-node (common/namespace-node run-id id-scope file-id path module-name)
+        lines (vec (str/split-lines content))
+        def-forms (swift-definition-forms content)
+        defs (mapv (fn [{:keys [kind name public? source-line]}]
+                     (let [label (str module-name "/" name)]
+                       {:xt/id (common/node-id id-scope :symbol label)
+                        :label label
+                        :kind kind
+                        :file-id file-id
+                        :path path
+                        :namespace module-name
+                        :name name
+                        :public? public?
+                        :source-line source-line
+                        :tokens (text/tokenize label)
+                        :active? true
+                        :run-id run-id}))
+                   def-forms)
+        define-edges (mapv #(common/edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (:xt/id %)
+                                      :defines
+                                      :extracted
+                                      (:source-line %))
+                           defs)
+        import-edges (mapv #(common/edge-row run-id file-id path
+                                      (:xt/id ns-node)
+                                      (common/node-id id-scope :namespace (:target %))
+                                      :imports
+                                      :extracted
+                                      (:source-line %))
+                           (swift-imports lines))
+        chunk (common/source-text-chunk run-id
+                                 id-scope
+                                 file-id
+                                 path
+                                 :swift-file
+                                 module-name
+                                 content
+                                 common/source-file-chunk-lines)
+        definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
+                                  (common/source-definition-chunk
+                                   run-id
+                                   id-scope
+                                   file-id
+                                   path
+                                   (str module-name "/" name)
+                                   kind
+                                   source-line
+                                   text))
+                                def-forms)
+        diagnostics (common/curly-balance-diagnostics run-id
+                                               file-id
+                                               path
+                                               content
+                                               "Swift")]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges))
+     :chunks (into [chunk] definition-chunks)
+     :diagnostics diagnostics}))
