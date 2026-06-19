@@ -597,6 +597,7 @@
     "  plugin dry-run extractor <dir> <repo-root> <file> [--plugin ID] [--json]"
     "  plugin dry-run report <dir> [--plugin ID] [--json]"
     "  plugin input extractor <dir> <repo-root> <file> [--plugin ID] [--json]"
+    "  plugin input report <dir> [--plugin ID] [--json]"
     "  plugin install <project.edn> <git-url-or-path> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--force] [--json]"
     "  plugin update <project.edn> <package-id> [--ref REF] [--subdir DIR] [--cache-dir DIR] [--json]"
     "  plugin list <project.edn> [--json]"

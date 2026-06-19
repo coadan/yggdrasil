@@ -302,6 +302,11 @@
    :pluginPackages (:plugin-packages report)
    :artifacts artifacts})
 
+(defn build-plugin-input
+  "Build the JSON-compatible input packet sent to one report plugin."
+  [ctx plugin]
+  (plugin-input ctx plugin))
+
 (defn run-plugin
   "Run one external report plugin and return normalized panels/diagnostics."
   [ctx plugin]

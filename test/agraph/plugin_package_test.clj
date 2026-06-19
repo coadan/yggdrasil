@@ -274,6 +274,9 @@
           report-dry-run (plugin-package/dry-run-report
                           (.getPath package-dir)
                           {})
+          report-input-sample (plugin-package/sample-report-inputs
+                               (.getPath package-dir)
+                               {})
           report-context (#'plugin-package/report-dry-run-context
                           (.getPath package-dir)
                           (plugin-package/read-local-package (.getPath package-dir)))
@@ -448,6 +451,33 @@
       (is (= claim-authority
              (get-in report-dry-run
                      [:outputs 0 :output :panels 0 :plugin :packageClaimAuthority])))
+      (is (= plugin-package/input-sample-schema (:schema report-input-sample)))
+      (is (= :report (:kind report-input-sample)))
+      (is (= :passed (:status report-input-sample)))
+      (is (= {:kind :report
+              :available ["demo-plugin-report"]
+              :selected ["demo-plugin-report"]
+              :skipped []
+              :counts {:available 1
+                       :selected 1
+                       :skipped 0}}
+             (:selection report-input-sample)))
+      (is (= 1 (count (:inputs report-input-sample))))
+      (is (= "agraph.report-plugin.input/v1"
+             (get-in report-input-sample [:inputs 0 :schema])))
+      (is (= "demo-plugin-report"
+             (get-in report-input-sample [:inputs 0 :plugin :id])))
+      (is (= "demo-plugin"
+             (get-in report-input-sample [:inputs 0 :plugin :packageId])))
+      (is (= manifest-fingerprint
+             (get-in report-input-sample
+                     [:inputs 0 :plugin :packageManifestFingerprint])))
+      (is (= claim-authority
+             (get-in report-input-sample
+                     [:inputs 0 :plugin :packageClaimAuthority])))
+      (is (= "demo-plugin"
+             (get-in report-input-sample
+                     [:inputs 0 :pluginPackages :packages 0 :id])))
       (is (= 1 (get-in report-context [:report :plugin-packages :counts :packages])))
       (is (= 1 (get-in report-context [:report :plugin-packages :counts :unbenchmarked])))
       (is (= "demo-plugin"

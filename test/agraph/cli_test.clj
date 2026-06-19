@@ -74,6 +74,7 @@
     (is (str/includes? usage "plugin dry-run extractor <dir>"))
     (is (str/includes? usage "plugin dry-run report <dir>"))
     (is (str/includes? usage "plugin input extractor <dir>"))
+    (is (str/includes? usage "plugin input report <dir>"))
     (is (str/includes? usage "plugin install <project.edn>"))
     (is (str/includes? usage "plugin update <project.edn> <package-id>"))
     (is (str/includes? usage "plugin list <project.edn>"))
@@ -371,6 +372,30 @@
                      :diagnostics []
                      :inputs [{:schema "agraph.extractor-plugin.input/v1"
                                :plugin {:id "demo-extractor"}}]})
+                  plugin-package/sample-report-inputs
+                  (fn [dir opts]
+                    (swap! calls conj [:input-report dir opts])
+                    {:schema plugin-package/input-sample-schema
+                     :kind :report
+                     :status :passed
+                     :package {:id "demo"
+                               :version "0.1.0"
+                               :benchmark-status :unbenchmarked
+                               :claim-authority claim-authority
+                               :scope {:kind :project-local}}
+                     :plugins [{:id "demo-report"}]
+                     :selection {:kind :report
+                                 :requested-plugin-id "demo-report"
+                                 :available ["demo-report" "other-report"]
+                                 :selected ["demo-report"]
+                                 :skipped ["other-report"]
+                                 :counts {:available 2
+                                          :selected 1
+                                          :skipped 1}}
+                     :counts {:inputs 1}
+                     :diagnostics []
+                     :inputs [{:schema "agraph.report-plugin.input/v1"
+                               :plugin {:id "demo-report"}}]})
                   plugin-package/remove! (fn [config-path package-id]
                                            (swap! calls conj [:remove config-path package-id])
                                            {:schema plugin-package/remove-schema
@@ -441,7 +466,14 @@
                                         "report"
                                         ".dev/plugins/demo"
                                         "--plugin"
-                                        "demo-report"]))]
+                                        "demo-report"]))
+            report-input-out (with-out-str
+                               (cli/dispatch "plugin"
+                                             ["input"
+                                              "report"
+                                              ".dev/plugins/demo"
+                                              "--plugin"
+                                              "demo-report"]))]
         (is (str/includes? validate-out "claim-authority status=non-authoritative public-claims=false"))
         (is (str/includes? diagnose-out "claim-blockers project-local,unbenchmarked"))
         (is (str/includes? extractor-out "benchmark=unbenchmarked"))
@@ -465,7 +497,12 @@
         (is (str/includes?
              report-out
              "- selection available=demo-report,other-report selected=demo-report skipped=other-report"))
-        (is (str/includes? report-out "- requested-plugin demo-report")))
+        (is (str/includes? report-out "- requested-plugin demo-report"))
+        (is (str/includes? report-input-out "# Plugin Input Sample"))
+        (is (str/includes? report-input-out "- inputs 1"))
+        (is (str/includes?
+             report-input-out
+             "- selection available=demo-report,other-report selected=demo-report skipped=other-report")))
       (let [remove-out (with-out-str
                          (cli/dispatch "plugin"
                                        ["remove"
@@ -500,6 +537,7 @@
               [:dry-run ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]
               [:input ".dev/plugins/demo" "." "src/page.clj" {:plugin-id "demo-extractor"}]
               [:dry-run-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
+              [:input-report ".dev/plugins/demo" {:plugin-id "demo-report"}]
               [:remove "project.edn" "demo"]
               [:registry ".dev/plugins/registry.edn"]]
              @calls)))))
@@ -1337,7 +1375,6 @@
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
                @calls))))))
-
 
 
 

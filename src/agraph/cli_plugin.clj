@@ -234,7 +234,8 @@
                "")))
   (println "- plugins" (id-list (map :id plugins)))
   (print-plugin-selection selection)
-  (println "- core" core-counts)
+  (when core-counts
+    (println "- core" core-counts))
   (println "- inputs" (count inputs))
   (when (seq diagnostics)
     (println "## Diagnostics")
@@ -362,22 +363,28 @@
 (defn- plugin-input!
   [args]
   (let [[kind package-dir root file] (positional-args args)]
-    (when-not (= "extractor" kind)
+    (when-not (#{"extractor" "report"} kind)
       (throw (ex-info "Unsupported plugin input kind."
                       {:kind kind
-                       :supported ["extractor"]
+                       :supported ["extractor" "report"]
                        :usage (usage)})))
     (when-not package-dir
       (throw (ex-info "Missing plugin input package directory."
                       {:usage (usage)})))
-    (when-not (and root file)
+    (when (and (= "extractor" kind)
+               (not (and root file)))
       (throw (ex-info "Missing plugin input repo root or file."
                       {:usage (usage)})))
-    (let [result (plugin-package/sample-extractor-inputs
-                  package-dir
-                  root
-                  file
-                  {:plugin-id (option-value args "--plugin")})]
+    (let [opts {:plugin-id (option-value args "--plugin")}
+          result (case kind
+                   "extractor"
+                   (plugin-package/sample-extractor-inputs package-dir
+                                                           root
+                                                           file
+                                                           opts)
+
+                   "report"
+                   (plugin-package/sample-report-inputs package-dir opts))]
       (if (json-output? args)
         (print-json result)
         (print-plugin-input-sample result))

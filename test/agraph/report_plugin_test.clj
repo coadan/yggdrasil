@@ -67,7 +67,7 @@
                          :packages [{:id "datastar-hiccup"
                                      :benchmark-status :unbenchmarked
                                      :warnings ["unbenchmarked"]}]}
-        input (#'report-plugin/plugin-input
+        input (report-plugin/build-plugin-input
                {:project {:id "report-plugin-test"
                           :name "Report Plugin Test"
                           :path "project.edn"

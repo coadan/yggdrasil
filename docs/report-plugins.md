@@ -26,6 +26,10 @@ AGraph starts each plugin during `bb report`, writes a JSON packet to stdin, and
 expects a JSON result on stdout. Core AGraph dashboard panels use the same panel
 contract and are included in the same `report.plugins` registry.
 
+Use `bb plugin input report <package-dir> --json` to inspect the exact input
+packet AGraph will send to one selected package report plugin without executing
+the plugin command.
+
 Report plugins can also be distributed as git-shared plugin packages alongside
 extractor plugins. See [plugin-packages.md](plugin-packages.md) for manifest,
 install, pinning, and ecosystem rules.

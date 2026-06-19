@@ -215,7 +215,7 @@
                         :package-source {:type :git
                                          :url "https://example.test/datastar.git"
                                          :rev "abc123"}}))
-        input (#'extractor-plugin/plugin-input
+        input (extractor-plugin/build-plugin-input
                {:run-id "run:1"
                 :project-id "plugin-input-project"
                 :repo-id "app"

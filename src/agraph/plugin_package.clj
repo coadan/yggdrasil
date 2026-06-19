@@ -1342,6 +1342,17 @@
    :diagnostics diagnostics
    :inputs []})
 
+(defn- package-error-report-input-sample
+  [package diagnostics]
+  {:schema input-sample-schema
+   :kind :report
+   :status :failed
+   :package (package-summary package)
+   :plugins []
+   :counts {:inputs 0}
+   :diagnostics diagnostics
+   :inputs []})
+
 (defn- dry-run-plugin-summary
   [plugin]
   (select-keys plugin
@@ -1408,6 +1419,42 @@
          :selection selection
          :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
          :core-counts (counts core)
+         :diagnostics diagnostics
+         :inputs inputs}))))
+
+(declare report-dry-run-context)
+
+(defn sample-report-inputs
+  "Build report plugin input packets for one package without executing plugin commands."
+  [package-dir {:keys [plugin-id] :as opts}]
+  (let [package (read-local-package package-dir)
+        package-errors (local-use-error-diagnostics package)]
+    (cond
+      (seq package-errors)
+      (package-error-report-input-sample package package-errors)
+
+      :else
+      (let [available-plugins (report-plugins package)
+            plugins (select-plugin-configs :report available-plugins plugin-id)
+            selection (plugin-selection-summary :report
+                                                plugin-id
+                                                available-plugins
+                                                plugins)
+            diagnostics (if (empty? plugins)
+                          [(no-selected-plugins-diagnostic :report
+                                                           package
+                                                           (:plugin-id opts))]
+                          [])
+            ctx (report-dry-run-context package-dir package)
+            inputs (mapv #(report-plugin/build-plugin-input ctx %)
+                         plugins)]
+        {:schema input-sample-schema
+         :kind :report
+         :status (if (seq diagnostics) :failed :passed)
+         :package (package-summary package)
+         :plugins (mapv dry-run-plugin-summary plugins)
+         :selection selection
+         :counts {:inputs (count inputs)}
          :diagnostics diagnostics
          :inputs inputs}))))
 
