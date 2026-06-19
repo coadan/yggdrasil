@@ -477,11 +477,15 @@
         summary {:counts {:acceptedSystems 12
                           :candidateSystems 10
                           :boundaryEvidence 40
-                          :validationGaps 3}
+                          :validationGaps 3
+                          :warnings 2
+                          :nextActions 4}
                  :evidenceFamilyStatuses {"available" 4
                                           "missing" 2}
                  :validationGapStatuses {"missing" 2
-                                         "weak" 1}}
+                                         "weak" 1}
+                 :nextActionKinds {:inspect 3
+                                   :dependencies 1}}
         architecture {:basis "mechanical-plus-map"
                       :summary summary
                       :acceptedSystems (mapv (fn [idx]
@@ -741,11 +745,14 @@
                      :dependencyEvidence 1
                      :docs 1
                      :openDecisions 1
-                     :validationGaps 3}
+                     :validationGaps 3
+                     :warnings 1
+                     :nextActions 6}
             :evidenceFamilyStatuses {"available" 7}
             :validationGapStatuses {"missing" 1
                                     "unsupported" 1
-                                    "weak" 1}}
+                                    "weak" 1}
+            :nextActionKinds {:inspect 6}}
            (:summary section)))
     (is (= [{:family "source-structure"
              :status "available"

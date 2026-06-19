@@ -1368,6 +1368,14 @@
        frequencies
        (into (sorted-map))))
 
+(defn- kind-counts
+  [rows]
+  (->> rows
+       (map action-kind)
+       (remove nil?)
+       frequencies
+       (into (sorted-map))))
+
 (defn- architecture-summary
   [section]
   {:counts {:acceptedSystems (count (:acceptedSystems section))
@@ -1378,9 +1386,12 @@
             :dependencyEvidence (count (:dependencyEvidence section))
             :docs (count (:docs section))
             :openDecisions (count (:openDecisions section))
-            :validationGaps (count (:validationGaps section))}
+            :validationGaps (count (:validationGaps section))
+            :warnings (count (:warnings section))
+            :nextActions (count (:nextActions section))}
    :evidenceFamilyStatuses (status-counts (:evidenceFamilies section))
-   :validationGapStatuses (status-counts (:validationGaps section))})
+   :validationGapStatuses (status-counts (:validationGaps section))
+   :nextActionKinds (kind-counts (:nextActions section))})
 
 (defn- freshness-next-actions
   [freshness]
