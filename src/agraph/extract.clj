@@ -51,6 +51,7 @@
             [agraph.extract.source-clojure :as extract.source-clojure]
             [agraph.extract.db-config :as extract.db-config]
             [agraph.extract.parser-worker :as extract.parser-worker]
+            [agraph.extract.source-jvm-worker :as extract.source-jvm-worker]
             [clojure.string :as str]))
 
 
@@ -694,146 +695,9 @@
                        (str language
                             " extractor found unbalanced curly braces."))])))
 
-(defn- java-worker-definition-kind
-  [kind]
-  (case (keyword kind)
-    :class :class
-    :interface :interface
-    :enum :enum
-    :record :record
-    :annotation :annotation
-    :constructor :constructor
-    :method :method
-    :symbol))
 
-(defn- java-worker-source-name
-  [source definitions]
-  (let [source (str source)
-        names (set (map :name definitions))]
-    (or (some #(when (or (= source %)
-                         (str/ends-with? % (str "." source)))
-                 %)
-              names)
-        source)))
 
-(defn- java-worker-reference-target-name
-  [target]
-  (some-> target
-          str
-          (str/replace #"<.*$" "")
-          (str/replace #"\[\]$" "")
-          (str/split #"\.")
-          last
-          not-empty))
 
-(defn extract-java-worker
-  "Extract Java facts through the optional parser worker."
-  [run-id {:keys [id-scope file-id path content] :as file}]
-  (let [facts (parser-worker-facts file)
-        module-name (or (not-empty (str (:package facts)))
-                        (extract.source-jvm/java-module-name path content))
-        ns-node (namespace-node run-id id-scope file-id path module-name)
-        definitions (vec (:definitions facts))
-        imports (vec (:imports facts))
-        import-symbols (extract.source-jvm/java-import-symbols-by-simple-name imports)
-        defs (mapv (fn [{:keys [kind name line]}]
-                     (let [label (str module-name "/" name)]
-                       {:xt/id (node-id id-scope :symbol label)
-                        :label label
-                        :kind (java-worker-definition-kind kind)
-                        :file-id file-id
-                        :path path
-                        :namespace module-name
-                        :name name
-                        :public? true
-                        :source-line (or line 1)
-                        :tokens (text/tokenize label)
-                        :active? true
-                        :run-id run-id}))
-                   definitions)
-        defined-names (set (map :name definitions))
-        define-edges (mapv #(edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
-                           defs)
-        import-edges (->> imports
-                          (keep (fn [{:keys [target line]}]
-                                  (when-not (str/blank? (str target))
-                                    (edge-row run-id file-id path
-                                              (:xt/id ns-node)
-                                              (node-id id-scope
-                                                       :namespace
-                                                       (str target))
-                                              :imports
-                                              :extracted
-                                              (or line 1)))))
-                          vec)
-        reference-edges (->> (:references facts)
-                             (keep (fn [{:keys [source target line]}]
-                                     (let [source-name (java-worker-source-name
-                                                        source
-                                                        definitions)
-                                           target-name (java-worker-reference-target-name
-                                                        target)]
-                                       (when (and (seq source-name)
-                                                  (seq target-name)
-                                                  (contains? defined-names
-                                                             source-name)
-                                                  (not= (first (str/split source-name #"\."))
-                                                        target-name))
-                                         (edge-row
-                                          run-id
-                                          file-id
-                                          path
-                                          (node-id id-scope
-                                                   :symbol
-                                                   (str module-name "/" source-name))
-                                          (node-id id-scope
-                                                   :symbol
-                                                   (extract.source-jvm/java-reference-target-label
-                                                    module-name
-                                                    import-symbols
-                                                    target-name))
-                                          :references
-                                          :extracted
-                                          (or line 1))))))
-                             distinct
-                             vec)
-        chunk (source-text-chunk run-id
-                                 id-scope
-                                 file-id
-                                 path
-                                 :java-file
-                                 module-name
-                                 content
-                                 jvm-family-file-chunk-lines)
-        definition-chunks (mapv (fn [{:keys [kind name line endLine]}]
-                                  (source-definition-chunk
-                                   run-id
-                                   id-scope
-                                   file-id
-                                   path
-                                   (str module-name "/" name)
-                                   (java-worker-definition-kind kind)
-                                   (or line 1)
-                                   (source-range-text content
-                                                      (or line 1)
-                                                      (or endLine line))))
-                                definitions)
-        diagnostics (mapv #(diagnostic-row run-id
-                                           file-id
-                                           path
-                                           (:stage %)
-                                           (:line %)
-                                           (:message %))
-                          (:diagnostics facts))]
-    {:nodes (into [ns-node] defs)
-     :edges (vec (concat define-edges import-edges reference-edges))
-     :chunks (into [chunk] definition-chunks)
-     :diagnostics diagnostics}))
 
 
 
@@ -2087,7 +1951,10 @@
      :code (extract.source-clojure/extract-code run-id file)
      :go (extract.source-basic/extract-go run-id file)
      :java (if (parser-worker-enabled? :java)
-             (extract-java-worker run-id file)
+             (extract.source-jvm-worker/extract-java-worker
+              run-id
+              file
+              (parser-worker-facts file))
              (extract.source-jvm/extract-java run-id file))
      :groovy (extract.source-jvm/extract-groovy run-id file)
      :kotlin (extract.source-jvm/extract-kotlin run-id file)

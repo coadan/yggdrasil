@@ -700,6 +700,17 @@
       (pos? line-count) (assoc :end-line (+ (or source-line 1) line-count -1))
       (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
 
+(defn source-range-text
+  [content source-line end-line]
+  (let [lines (vec (str/split-lines (or content "")))
+        source-line (max 1 (long (or source-line 1)))
+        end-line (max source-line (long (or end-line source-line)))
+        start-idx (dec source-line)
+        end-idx (min (count lines) end-line)]
+    (if (< start-idx end-idx)
+      (str/join "\n" (subvec lines start-idx end-idx))
+      "")))
+
 (defn curly-depth-delta
   [line]
   (- (count (re-seq #"\{" line))
