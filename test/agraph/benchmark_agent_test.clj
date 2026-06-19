@@ -516,7 +516,12 @@
         _ (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
         _ (spit-file! root "src/db.clj" "(ns db)\n")
         packet {:query "broken app"
-                :drilldowns ["agraph ask 'broken app' --project fixture"]
+                :drilldowns [{:kind :explore
+                              :label "Continue primary graph exploration"
+                              :command "agraph ask 'broken app' --project fixture"
+                              :mcpTool "agraph_explore"
+                              :mcpArgs {:query "broken app"
+                                        :projectId "fixture"}}]
                 :warnings ["Context warning."]
                 :answerability {:next ["Run agraph packages --project fixture --json"]
                                 :nextActions [{:kind :dependencies

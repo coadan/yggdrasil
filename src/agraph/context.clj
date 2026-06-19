@@ -1105,12 +1105,41 @@
        " --map "
        (command/shell-token map-path)))
 
+(defn- drilldown
+  [kind label command mcp-tool mcp-args]
+  (cond-> {:kind kind
+           :label label
+           :command command}
+    mcp-tool (assoc :mcpTool mcp-tool)
+    (seq mcp-args) (assoc :mcpArgs mcp-args)))
+
 (defn- context-drilldowns
   [query-text project-id map-path]
-  (cond-> [(explore-command query-text project-id)
-           (project-command "view systems" project-id)
-           (project-command "status" project-id "--json")]
-    map-path (conj (docs-audit-command project-id map-path))))
+  (cond-> [(drilldown :explore
+                      "Continue primary graph exploration"
+                      (explore-command query-text project-id)
+                      "agraph_explore"
+                      (cond-> {:query query-text}
+                        project-id (assoc :projectId project-id)
+                        map-path (assoc :mapPath map-path)))
+           (drilldown :systems
+                      "Inspect project systems graph"
+                      (project-command "view systems" project-id)
+                      "agraph_systems"
+                      (cond-> {}
+                        project-id (assoc :projectId project-id)
+                        map-path (assoc :mapPath map-path)))
+           (drilldown :status
+                      "Inspect graph freshness and evidence status"
+                      (project-command "status" project-id "--json")
+                      "agraph_status"
+                      (cond-> {}
+                        map-path (assoc :mapPath map-path)))]
+    map-path (conj (drilldown :docs
+                              "Audit accepted documentation attachments"
+                              (docs-audit-command project-id map-path)
+                              nil
+                              nil))))
 
 (defn- sync-command
   [& args]

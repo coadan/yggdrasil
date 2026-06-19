@@ -321,10 +321,27 @@
               actions))))
 
 (deftest context-drilldowns-use-primary-agent-commands
-  (is (= ["agraph explore 'billing flow' --project 'fixture project' --json"
-          "agraph view systems --project 'fixture project'"
-          "agraph status --project 'fixture project' --json"
-          "agraph sync docs audit --project 'fixture project' --map 'maps/agraph map.json'"]
+  (is (= [{:kind :explore
+           :label "Continue primary graph exploration"
+           :command "agraph explore 'billing flow' --project 'fixture project' --json"
+           :mcpTool "agraph_explore"
+           :mcpArgs {:query "billing flow"
+                     :projectId "fixture project"
+                     :mapPath "maps/agraph map.json"}}
+          {:kind :systems
+           :label "Inspect project systems graph"
+           :command "agraph view systems --project 'fixture project'"
+           :mcpTool "agraph_systems"
+           :mcpArgs {:projectId "fixture project"
+                     :mapPath "maps/agraph map.json"}}
+          {:kind :status
+           :label "Inspect graph freshness and evidence status"
+           :command "agraph status --project 'fixture project' --json"
+           :mcpTool "agraph_status"
+           :mcpArgs {:mapPath "maps/agraph map.json"}}
+          {:kind :docs
+           :label "Audit accepted documentation attachments"
+           :command "agraph sync docs audit --project 'fixture project' --map 'maps/agraph map.json'"}]
          (#'context/context-drilldowns
           "billing flow"
           "fixture project"

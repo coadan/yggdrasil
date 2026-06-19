@@ -640,9 +640,14 @@
                  (:nextActions architecture)
                  (mapcat :nextActions (:validationGaps architecture)))
          next-action-commands)))
+(defn- drilldown-command
+  [drilldown]
+  (cond
+    (map? drilldown) (:command drilldown)
+    :else drilldown))
 (defn packet-commands
   [packet]
-  (->> (concat (:drilldowns packet)
+  (->> (concat (map drilldown-command (:drilldowns packet))
                (get-in packet [:answerability :next])
                (packet-next-action-commands packet))
        (remove blankish?)
