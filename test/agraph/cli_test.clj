@@ -282,7 +282,12 @@
       (is (= first-content (slurp agents)))
       (is (str/includes? first-content "Keep this line."))
       (is (str/includes? first-content "agraph ask \"<question>\" --project <project-id> --json"))
+      (is (str/includes? first-content "agraph explore search <cursor-id> \"<follow-up query>\""))
       (is (str/includes? first-content "agraph sync check <project.edn> --map agraph.map.json --enqueue"))
+      (is (str/includes? first-content "agraph sync work list --project <project-id> --status ready"))
+      (is (str/includes? first-content "agraph-mcp --config project.edn --map agraph.map.json"))
+      (is (str/includes? first-content "`agraph_explore_search`"))
+      (is (str/includes? first-content "`agraph_work_list`"))
       (is (str/includes? first-content "Use queued review packets"))
       (is (str/includes? first-content "Do not infer architecture from names")))))
 
