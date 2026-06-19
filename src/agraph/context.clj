@@ -2153,6 +2153,34 @@
        (when (seq args)
          (str " " (str/join " " (map command/shell-token args))))))
 
+(defn- project-command
+  [command-name project-id & args]
+  (str "agraph " command-name " --project " (command/shell-token (or project-id "<project-id>"))
+       (when (seq args)
+         (str " " (str/join " " (map command/shell-token args))))))
+
+(defn- explore-command
+  [query-text project-id]
+  (str "agraph explore "
+       (command/shell-token query-text)
+       " --project "
+       (command/shell-token (or project-id "<project-id>"))
+       " --json"))
+
+(defn- docs-audit-command
+  [project-id map-path]
+  (str "agraph sync docs audit --project "
+       (command/shell-token (or project-id "<project-id>"))
+       " --map "
+       (command/shell-token map-path)))
+
+(defn- context-drilldowns
+  [query-text project-id map-path]
+  (cond-> [(explore-command query-text project-id)
+           (project-command "view systems" project-id)
+           (project-command "status" project-id "--json")]
+    map-path (conj (docs-audit-command project-id map-path))))
+
 (defn- sync-command
   [& args]
   (str "agraph sync <project.edn>"
@@ -2352,10 +2380,7 @@
         warnings (cond-> []
                    (empty? entities)
                    (conj "no graph entities matched the query"))
-        drilldowns (cond-> [(str "agraph query " (pr-str query-text) " --project " project-id)
-                            (str "agraph graph export systems --project " project-id)]
-                     map-path
-                     (conj (str "agraph docs audit --project " project-id " --map " map-path)))
+        drilldowns (context-drilldowns query-text project-id map-path)
         docs (->> (concat (attached-docs overlay chunks snippet-chars targets)
                           (inferred-docs query-tokens results chunks entities snippet-chars))
                   (#(select-docs % results doc-limit)))

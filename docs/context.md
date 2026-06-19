@@ -169,6 +169,9 @@ a semantic classification.
 Plain `agraph explore` prints a concise answerability warning only when no query
 results are found. Use `agraph explore --json` for the full structured packet.
 `agraph ask --json` returns the same one-shot packet for compatibility.
+Packet `drilldowns` favor agent-facing follow-ups: repeat the primary
+`agraph explore ... --json` packet, inspect `agraph view systems`, check
+`agraph status --json`, and run `agraph sync docs audit` when a map is present.
 
 ## Source Coverage
 

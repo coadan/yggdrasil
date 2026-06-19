@@ -234,6 +234,16 @@
                   (:command %))
               actions))))
 
+(deftest context-drilldowns-use-primary-agent-commands
+  (is (= ["agraph explore 'billing flow' --project 'fixture project' --json"
+          "agraph view systems --project 'fixture project'"
+          "agraph status --project 'fixture project' --json"
+          "agraph sync docs audit --project 'fixture project' --map 'maps/agraph map.json'"]
+         (#'context/context-drilldowns
+          "billing flow"
+          "fixture project"
+          "maps/agraph map.json"))))
+
 (deftest answerability-next-actions-keep-coverage-when-capped
   (let [actions (#'context/next-actions
                  {:files 0
