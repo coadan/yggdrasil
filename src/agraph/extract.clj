@@ -10588,11 +10588,11 @@
 (defn- web-framework-config-kind
   [filename]
   (cond
-    (re-matches #"next\.config\.(?:js|cjs|mjs|ts)" filename) "next"
-    (re-matches #"vite\.config\.(?:js|cjs|mjs|ts)" filename) "vite"
-    (re-matches #"svelte\.config\.(?:js|cjs|mjs|ts)" filename) "sveltekit"
-    (re-matches #"nuxt\.config\.(?:js|cjs|mjs|ts)" filename) "nuxt"
-    (re-matches #"astro\.config\.(?:js|cjs|mjs|ts)" filename) "astro"
+    (re-matches #"next\.config\.(?:js|cjs|mjs|mts|cts|ts)" filename) "next"
+    (re-matches #"vite\.config\.(?:js|cjs|mjs|mts|cts|ts)" filename) "vite"
+    (re-matches #"svelte\.config\.(?:js|cjs|mjs|mts|cts|ts)" filename) "sveltekit"
+    (re-matches #"nuxt\.config\.(?:js|cjs|mjs|mts|cts|ts)" filename) "nuxt"
+    (re-matches #"astro\.config\.(?:js|cjs|mjs|mts|cts|ts)" filename) "astro"
     (= "angular.json" filename) "angular"
     :else nil))
 

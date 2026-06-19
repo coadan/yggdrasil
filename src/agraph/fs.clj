@@ -60,11 +60,11 @@
     "semantic-release.config.cjs" "semantic-release.config.mjs"
     "semantic-release.config.ts" "standard-version.json" ".versionrc"
     ".versionrc.json" ".versionrc.yaml" ".versionrc.yml"
-    "next.config.js" "next.config.cjs" "next.config.mjs" "next.config.ts"
-    "vite.config.js" "vite.config.cjs" "vite.config.mjs" "vite.config.ts"
-    "svelte.config.js" "svelte.config.cjs" "svelte.config.mjs" "svelte.config.ts"
-    "nuxt.config.js" "nuxt.config.cjs" "nuxt.config.mjs" "nuxt.config.ts"
-    "astro.config.js" "astro.config.cjs" "astro.config.mjs" "astro.config.ts"
+    "next.config.js" "next.config.cjs" "next.config.mjs" "next.config.mts" "next.config.cts" "next.config.ts"
+    "vite.config.js" "vite.config.cjs" "vite.config.mjs" "vite.config.mts" "vite.config.cts" "vite.config.ts"
+    "svelte.config.js" "svelte.config.cjs" "svelte.config.mjs" "svelte.config.mts" "svelte.config.cts" "svelte.config.ts"
+    "nuxt.config.js" "nuxt.config.cjs" "nuxt.config.mjs" "nuxt.config.mts" "nuxt.config.cts" "nuxt.config.ts"
+    "astro.config.js" "astro.config.cjs" "astro.config.mjs" "astro.config.mts" "astro.config.cts" "astro.config.ts"
     "angular.json"
     "dagster.yaml" "dagster.yml" "prefect.yaml" "prefect.yml"
     "dvc.yaml" "dvc.yml" "dvc.lock" "mlproject"
@@ -224,11 +224,11 @@
                      filename)
           (re-find #"(^|/)\.changeset/(?:config\.json|[^/]+\.md)$"
                    path-lower)) :release-config
-      (contains? #{"next.config.js" "next.config.cjs" "next.config.mjs" "next.config.ts"
-                   "vite.config.js" "vite.config.cjs" "vite.config.mjs" "vite.config.ts"
-                   "svelte.config.js" "svelte.config.cjs" "svelte.config.mjs" "svelte.config.ts"
-                   "nuxt.config.js" "nuxt.config.cjs" "nuxt.config.mjs" "nuxt.config.ts"
-                   "astro.config.js" "astro.config.cjs" "astro.config.mjs" "astro.config.ts"
+      (contains? #{"next.config.js" "next.config.cjs" "next.config.mjs" "next.config.mts" "next.config.cts" "next.config.ts"
+                   "vite.config.js" "vite.config.cjs" "vite.config.mjs" "vite.config.mts" "vite.config.cts" "vite.config.ts"
+                   "svelte.config.js" "svelte.config.cjs" "svelte.config.mjs" "svelte.config.mts" "svelte.config.cts" "svelte.config.ts"
+                   "nuxt.config.js" "nuxt.config.cjs" "nuxt.config.mjs" "nuxt.config.mts" "nuxt.config.cts" "nuxt.config.ts"
+                   "astro.config.js" "astro.config.cjs" "astro.config.mjs" "astro.config.mts" "astro.config.cts" "astro.config.ts"
                    "angular.json"}
                  filename) :web-framework
       (contains? #{"dagster.yaml" "dagster.yml" "prefect.yaml" "prefect.yml"}

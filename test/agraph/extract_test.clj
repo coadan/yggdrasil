@@ -3550,6 +3550,32 @@
     (is (some #(= :typescript-file (:kind %)) (:chunks result)))
     (is (empty? (:diagnostics result)))))
 
+(deftest extracts-typescript-module-web-framework-configs
+  (let [root (doto (java.io.File/createTempFile "agraph-web-config" "")
+               (.delete)
+               (.mkdirs)
+               (.deleteOnExit))
+        next-source (io/file root "next.config.mts")
+        vite-source (io/file root "vite.config.cts")
+        _ (spit next-source "import analyzer from '@next/bundle-analyzer';\nexport default { basePath: '/panels' };\n")
+        _ (spit vite-source "import react from '@vitejs/plugin-react';\nexport default { base: '/vite-panels', plugins: [react()] };\n")
+        result-for (fn [source]
+                     (extract/extract-file "run/test"
+                                           (fs/file-record (.getPath root)
+                                                           (.getPath source))))
+        next-file (fs/file-record (.getPath root) (.getPath next-source))
+        vite-file (fs/file-record (.getPath root) (.getPath vite-source))
+        next-labels (set (map :label (:nodes (result-for next-source))))
+        vite-labels (set (map :label (:nodes (result-for vite-source))))]
+    (is (= :web-framework (:kind next-file)))
+    (is (= :web-framework (:kind vite-file)))
+    (is (contains? next-labels "next"))
+    (is (contains? next-labels "@next/bundle-analyzer"))
+    (is (contains? next-labels "/panels"))
+    (is (contains? vite-labels "vite"))
+    (is (contains? vite-labels "@vitejs/plugin-react"))
+    (is (contains? vite-labels "/vite-panels"))))
+
 (deftest extracts-workflow-orchestration-facts
   (let [result-for (fn [path]
                      (extract/extract-file
