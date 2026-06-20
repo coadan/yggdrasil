@@ -521,7 +521,10 @@
                                 (get-in agent-run [:agraph :systemSummary]))
             :graph-expectations (:graphExpectations result)
             :expectations (:expectations result)
-            :hints (result-hints result)})))))
+            :hints (result-hints result)
+            :sync-inspect (or (:syncInspect result)
+                              (:syncInspect agent-run)
+                              (get-in agent-run [:agraph :syncInspect]))})))))
 
 (defn- preflight-status
   [preflight]

@@ -26,6 +26,7 @@
             [agraph.benchmark-check :as benchmark-check]
             [agraph.benchmark-compare :as benchmark-compare]
             [agraph.benchmark-system-improvement :as benchmark-system-improvement]
+            [agraph.evidence :as evidence]
             [clojure.string :as str]))
 
 (def suite-schema
@@ -206,6 +207,27 @@
 (defn- evaluate-graph-expectations
   [xtdb prepared]
   (benchmark-expectations/evaluate-graph-expectations xtdb prepared))
+
+(defn- sync-inspect-summary
+  [xtdb suite case prepared opts]
+  (let [project (agent-project prepared)
+        config-path (fs/canonical-path (benchmark-paths/agent-project-path suite case opts))]
+    (try
+      (assoc (select-keys (evidence/summarize xtdb
+                                              project
+                                              {:config-path config-path})
+                          [:schema
+                           :project-id
+                           :freshness
+                           :families
+                           :counts
+                           :nextActions])
+             :status "completed")
+      (catch Exception e
+        {:schema "agraph.benchmark.sync-inspect/v1"
+         :status "failed"
+         :project-id (:id project)
+         :error (.getMessage e)}))))
 
 (defn- benchmark-index-options
   [opts]
@@ -538,7 +560,8 @@
                                                                   (benchmark-index-options opts)))
                          :systemSummary (project/infer-project! xtdb bench-project)
                          :graphExpectations (evaluate-graph-expectations xtdb
-                                                                         prepared)}
+                                                                         prepared)
+                         :syncInspect (sync-inspect-summary xtdb suite case prepared opts)}
                 packet (context/context-packet xtdb
                                                (get-in prepared [:input :queryText])
                                                (agent-baseline-context-options
@@ -618,6 +641,17 @@
         (catch Exception _
           nil)))))
 
+(defn- score-agent-result-sync-inspect
+  [suite case prepared opts]
+  (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
+    (when (.exists (io/file xtdb-dir))
+      (try
+        (store/with-node xtdb-dir
+          (fn [xtdb]
+            (sync-inspect-summary xtdb suite case prepared opts)))
+        (catch Exception _
+          nil)))))
+
 (defn- score-agent-result-run-summary
   [suite case prepared agent-result result-file opts]
   (let [run (read-json-artifact (benchmark-paths/agent-run-path suite case opts))]
@@ -643,16 +677,23 @@
                                                                     case
                                                                     prepared
                                                                     artifact-opts)
+          sync-inspect (or (:syncInspect run-summary)
+                           (score-agent-result-sync-inspect suite
+                                                            case
+                                                            prepared
+                                                            artifact-opts))
           maintenance-preflight (when (or run-summary
                                           context-ranks
                                           hints
-                                          graph-expectations)
+                                          graph-expectations
+                                          sync-inspect)
                                   (benchmark-preflight/maintenance-preflight
                                    {:index-summary (:indexSummary run-summary)
                                     :system-summary (:systemSummary run-summary)
                                     :graph-expectations graph-expectations
                                     :expectations (:expectations prepared)
-                                    :hints hints}))]
+                                    :hints hints
+                                    :sync-inspect sync-inspect}))]
       (cond-> scored
         context-ranks
         (assoc :contextGroundTruthRanks context-ranks)
@@ -660,6 +701,8 @@
         (assoc :agraphHints {:diagnostics hint-diagnostics})
         graph-expectations
         (assoc :graphExpectations graph-expectations)
+        sync-inspect
+        (assoc :syncInspect sync-inspect)
         maintenance-preflight
         (assoc :maintenancePreflight maintenance-preflight)))
     scored))
@@ -718,7 +761,8 @@
                                   :system-summary (:systemSummary agraph-summary)
                                   :graph-expectations (:graphExpectations agraph-summary)
                                   :expectations (:expectations prepared)
-                                  :hints hints}))
+                                  :hints hints
+                                  :sync-inspect (:syncInspect agraph-summary)}))
         scored (cond-> (assoc (score-agent-result prepared agent-result)
                               :agentResultPath (fs/canonical-path result-path)
                               :parserWorker (parser-worker-profile opts))
@@ -728,6 +772,8 @@
                  (assoc :agraphHints {:diagnostics hint-diagnostics})
                  maintenance-preflight
                  (assoc :maintenancePreflight maintenance-preflight)
+                 (:syncInspect agraph-summary)
+                 (assoc :syncInspect (:syncInspect agraph-summary))
                  (:graphExpectations agraph-summary)
                  (assoc :graphExpectations (:graphExpectations agraph-summary)))
         status (if (:artifact-ok? read-result)
@@ -759,6 +805,7 @@
                                 :agentRunPath (fs/canonical-path run-path)}
                                logs)
              :agraph agraph-summary
+             :syncInspect (:syncInspect agraph-summary)
              :maintenancePreflight maintenance-preflight
              :graphExpectations (:graphExpectations agraph-summary)
              :scores (:scores scored)

@@ -80,22 +80,89 @@
   [hints]
   (vec (get-in hints [:architecture :validationGaps])))
 
+(defn- blocking-sync-plane?
+  [plane]
+  (contains? blocking-sync-planes (normalized-name plane)))
+
+(defn- blocking-sync-status?
+  [status]
+  (contains? blocking-sync-statuses (normalized-name status)))
+
 (defn blocking-validation-gap?
   [gap]
   (let [plane (normalized-name (:plane gap))
         status (normalized-name (:status gap))]
-    (and (contains? blocking-sync-planes plane)
-         (contains? blocking-sync-statuses status))))
+    (and (blocking-sync-plane? plane)
+         (blocking-sync-status? status))))
 
-(defn- sync-check
+(defn- family-action-kinds
+  [family]
+  (case (normalized-name family)
+    "dependencies" #{"dependencies" "dependency-review" "dependency-correction"}
+    "activity" #{"activity"}
+    "validation-history" #{"activity" "validation-history"}
+    "map-overlay" #{"map-overlay"}
+    #{}))
+
+(defn- matching-family-actions
+  [sync-inspect family]
+  (let [kinds (family-action-kinds family)]
+    (->> (:nextActions sync-inspect)
+         (filter #(contains? kinds (normalized-name (:kind %))))
+         (take 2)
+         vec)))
+
+(defn- family-validation-gap
+  [sync-inspect {:keys [family status counts]}]
+  (let [actions (matching-family-actions sync-inspect family)]
+    (cond-> {:plane (normalized-name family)
+             :status (normalized-name status)}
+      (seq counts) (assoc :counts counts)
+      (seq actions) (assoc :nextActions actions))))
+
+(defn- sync-inspect-validation-gaps
+  [sync-inspect]
+  (->> (:families sync-inspect)
+       (filter #(and (blocking-sync-plane? (:family %))
+                     (blocking-sync-status? (:status %))))
+       (mapv #(family-validation-gap sync-inspect %))))
+
+(defn- sync-check-from-inspect
+  [sync-inspect]
+  (let [blocking-gaps (sync-inspect-validation-gaps sync-inspect)]
+    (check (if (seq blocking-gaps) "failed" "passed")
+           {:source "sync-inspect"
+            :families (->> (:families sync-inspect)
+                           (filter #(blocking-sync-plane? (:family %)))
+                           (mapv #(select-keys % [:family :status :counts])))
+            :validationGaps blocking-gaps
+            :blockingValidationGaps blocking-gaps})))
+
+(defn- sync-check-from-hints
   [hints]
   (if (nil? hints)
     (check "not-run" {})
     (let [gaps (validation-gaps hints)
           blocking-gaps (filterv blocking-validation-gap? gaps)]
       (check (if (seq blocking-gaps) "failed" "passed")
-             {:validationGaps gaps
+             {:source "context-hints"
+              :validationGaps gaps
               :blockingValidationGaps blocking-gaps}))))
+
+(defn- sync-check
+  [hints sync-inspect]
+  (cond
+    (= "failed" (normalized-name (:status sync-inspect)))
+    (check "failed" (cond-> {:source "sync-inspect"
+                             :validationGaps []
+                             :blockingValidationGaps []}
+                      (:error sync-inspect) (assoc :error (:error sync-inspect))))
+
+    (seq (:families sync-inspect))
+    (sync-check-from-inspect sync-inspect)
+
+    :else
+    (sync-check-from-hints hints)))
 
 (defn- status-rank
   [status]
@@ -113,13 +180,13 @@
       :else "passed")))
 
 (defn maintenance-preflight
-  [{:keys [index-summary system-summary graph-expectations expectations hints]}]
+  [{:keys [index-summary system-summary graph-expectations expectations hints sync-inspect]}]
   (let [checks {:index (completed-summary-check index-summary)
                 :infer (completed-summary-check system-summary)
                 :graphExpectations (graph-expectation-check graph-expectations
                                                             expectations)
                 :hintDiagnostics (hint-diagnostic-check hints)
-                :syncCheck (sync-check hints)}]
+                :syncCheck (sync-check hints sync-inspect)}]
     {:schema maintenance-preflight-schema
      :status (overall-status checks)
      :checks checks}))
