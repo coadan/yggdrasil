@@ -66,6 +66,8 @@
    :file-facts
    :source-graph
    :dependencies
+   :runtime-config
+   :auth
    :docs
    :embeddings
    :system-evidence
@@ -83,6 +85,12 @@
                   :package-evidence-gaps
                   :package-conflicts
                   :unresolved-imports]
+   :runtime-config [:runtime-config-evidence]
+   :auth [:auth-references
+          :service-account-references
+          :secret-references
+          :private-key-references
+          :api-key-references]
    :docs [:chunks :search-docs]
    :embeddings [:embeddings]
    :system-evidence [:system-evidence]
@@ -105,7 +113,8 @@
 
 (defn- available
   [{:keys [files file-facts nodes edges chunks search-docs embeddings system-evidence
-           system-nodes system-edges activity-items activity-events packages map-overlay]
+           runtime-config-evidence auth-references system-nodes system-edges
+           activity-items activity-events packages map-overlay]
     :as counts}]
   (cond-> []
     (pos? files) (conj :source-files)
@@ -113,6 +122,8 @@
     (pos? (+ nodes edges)) (conj :source-graph)
     (pos? (+ chunks search-docs)) (conj :docs)
     (pos? embeddings) (conj :embeddings)
+    (pos? runtime-config-evidence) (conj :runtime-config)
+    (pos? auth-references) (conj :auth)
     (pos? system-evidence) (conj :system-evidence)
     (pos? (+ system-nodes system-edges)) (conj :system-graph)
     (pos? packages) (conj :dependencies)
@@ -151,6 +162,41 @@
       (positive-count? (:result-schema-mismatch-items counts))
       (positive-count? (:result-schema-missing-result-items counts))
       (positive-count? (:result-schema-unexpected-result-items counts))))
+
+(def ^:private runtime-config-evidence-kinds
+  #{"auth-reference"
+    "container-image-consumer"
+    "container-image-producer"
+    "env-var"
+    "k8s-config"
+    "k8s-ingress"
+    "k8s-service"
+    "k8s-workload"
+    "port"
+    "route"
+    "yaml-resource"})
+
+(defn- row-kind-name
+  [row]
+  (display (:kind row)))
+
+(defn- row-context-name
+  [row k]
+  (display (get row k)))
+
+(defn- runtime-config-evidence?
+  [row]
+  (or (contains? runtime-config-evidence-kinds (row-kind-name row))
+      (and (= "url" (row-kind-name row))
+           (= "runtime-config" (row-context-name row :url-context)))))
+
+(defn- auth-evidence?
+  [row]
+  (= "auth-reference" (row-kind-name row)))
+
+(defn- auth-context-count
+  [rows context]
+  (count (filter #(= context (row-context-name % :auth-context)) rows)))
 
 (defn- family-status
   [counts available-families family]
@@ -657,6 +703,8 @@
         search-docs (query/all-search-docs xtdb scope)
         embeddings (query/all-embeddings xtdb scope)
         system-evidence (query/all-system-evidence xtdb scope)
+        runtime-config-evidence (filter runtime-config-evidence? system-evidence)
+        auth-evidence (filter auth-evidence? system-evidence)
         system-nodes (query/all-system-nodes xtdb {:project-id (:id project)
                                                    :read-context read-context})
         system-edges (query/all-system-edges xtdb {:project-id (:id project)
@@ -678,6 +726,14 @@
                        :search-docs (count search-docs)
                        :embeddings (count embeddings)
                        :system-evidence (count system-evidence)
+                       :runtime-config-evidence (count runtime-config-evidence)
+                       :auth-references (count auth-evidence)
+                       :service-account-references (auth-context-count auth-evidence
+                                                                       "service-account")
+                       :secret-references (auth-context-count auth-evidence "secret")
+                       :private-key-references (auth-context-count auth-evidence
+                                                                   "private-key")
+                       :api-key-references (auth-context-count auth-evidence "api-key")
                        :system-nodes (count system-nodes)
                        :system-edges (count system-edges)
                        :packages (get-in package-report [:counts :packages] 0)

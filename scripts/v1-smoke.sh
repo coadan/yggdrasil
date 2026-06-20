@@ -60,6 +60,8 @@ test -x "$PREFIX/bin/agraph-mcp"
 
 cp -R "$REPO_DIR/test/fixtures/project-repo" "$FIXTURE_REPO"
 printf '\n[dependencies]\nserde = "1"\n' >> "$FIXTURE_REPO/services/api/Cargo.toml"
+mkdir -p "$FIXTURE_REPO/config"
+printf 'GOOGLE_APPLICATION_CREDENTIALS=/var/run/secrets/google.json\nSERVICE_ACCT=checkout-runtime-secret\n' > "$FIXTURE_REPO/config/runtime.env"
 
 pushd "$FIXTURE_REPO" >/dev/null
 export AGRAPH_XTDB_PATH="$WORK_DIR/xtdb"
@@ -117,11 +119,12 @@ for kind in ("dependencies", "audit-scope", "ask", "activity"):
     require(kind in next_kinds, f"inspect nextActions missing {kind}")
 
 available = set(inspect.get("evidence", {}).get("available", []))
-for family in ("source-files", "source-graph", "dependencies", "system-graph"):
+for family in ("source-files", "source-graph", "dependencies", "runtime-config", "auth", "system-graph"):
     require(family in available, f"inspect evidence missing {family}")
 family_statuses = {row.get("family"): row.get("status")
                    for row in inspect.get("evidence", {}).get("families", [])}
 require("dependencies" in family_statuses, "inspect evidence families missing dependencies")
+require(family_statuses.get("auth") == "available", "auth evidence family is not available")
 
 require(packages.get("schema") == "agraph.dependency.report/v1", "packages schema mismatch")
 require(packages.get("counts", {}).get("packages", 0) > 0, "packages report has no package evidence")
@@ -148,6 +151,7 @@ require(operator.get("freshness", {}).get("status") == "current", "operator fres
 require(operator.get("evidence-families"), "operator report missing evidence families")
 require(operator.get("audit-scopes"), "operator report missing audit scopes")
 require(operator.get("next-actions"), "operator report missing next actions")
+require("checkout-runtime-secret" not in json.dumps(report), "operator report leaked auth value")
 
 print(f"V1 smoke passed: {repo}")
 PY

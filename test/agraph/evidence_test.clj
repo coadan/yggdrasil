@@ -324,6 +324,16 @@
                                               :kind :env-var
                                               :label "DATABASE_URL"
                                               :normalized-value "database-url"
+                                              :active? true}
+                                             {:xt/id "evidence:service-account"
+                                              :project-id "fixture"
+                                              :repo-id "app"
+                                              :system-id "system:billing"
+                                              :path "config/runtime.env"
+                                              :kind :auth-reference
+                                              :label "GOOGLE_APPLICATION_CREDENTIALS"
+                                              :normalized-value "google-application-credentials"
+                                              :auth-context :service-account
                                               :active? true}])
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
@@ -333,24 +343,43 @@
                                       {})]
       (is (contains? (set (:available summary)) :file-facts))
       (is (contains? (set (:available summary)) :system-evidence))
-      (is (not (contains? (set (:available summary)) :runtime-config)))
+      (is (contains? (set (:available summary)) :runtime-config))
+      (is (contains? (set (:available summary)) :auth))
       (is (= {:family :file-facts
               :status :available
               :counts {:file-facts 2}}
              (some #(when (= :file-facts (:family %)) %)
                    (:families summary))))
+      (is (= {:family :runtime-config
+              :status :available
+              :counts {:runtime-config-evidence 2}}
+             (some #(when (= :runtime-config (:family %)) %)
+                   (:families summary))))
+      (is (= {:family :auth
+              :status :available
+              :counts {:auth-references 1
+                       :service-account-references 1
+                       :secret-references 0
+                       :private-key-references 0
+                       :api-key-references 0}}
+             (some #(when (= :auth (:family %)) %)
+                   (:families summary))))
       (is (= {:family :system-evidence
               :status :available
-              :counts {:system-evidence 1}}
+              :counts {:system-evidence 2}}
              (some #(when (= :system-evidence (:family %)) %)
                    (:families summary))))
       (is (= [{:kind :auth-reference :count 1}
               {:kind :url :count 1}]
              (get-in summary [:kinds :file-facts])))
-      (is (= [{:kind :env-var :count 1}]
+      (is (= [{:kind :auth-reference :count 1}
+              {:kind :env-var :count 1}]
              (get-in summary [:kinds :system-evidence])))
       (is (= 2 (get-in summary [:counts :file-facts])))
-      (is (= 1 (get-in summary [:counts :system-evidence]))))))
+      (is (= 2 (get-in summary [:counts :system-evidence])))
+      (is (= 2 (get-in summary [:counts :runtime-config-evidence])))
+      (is (= 1 (get-in summary [:counts :auth-references])))
+      (is (= 1 (get-in summary [:counts :service-account-references]))))))
 
 (deftest summarize-next-actions-quote-shell-paths
   (with-redefs [coverage/project-coverage (fn [& _]
