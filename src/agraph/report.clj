@@ -115,17 +115,37 @@
           target (io/file target-dir (.toString relative))]
       (copy-file! source target))))
 
+(defn- non-empty-string
+  [value]
+  (when (and (string? value)
+             (not (str/blank? value)))
+    value))
+
+(defn- agraph-home
+  []
+  (or (non-empty-string (System/getProperty "agraph.home"))
+      (non-empty-string (System/getenv "AGRAPH_HOME"))))
+
+(defn- report-ui-source-candidates
+  []
+  (let [home (agraph-home)]
+    (cond-> []
+      home (conj (io/file home report-ui-dir))
+      true (conj (io/file report-ui-dir)))))
+
 (defn- report-ui-source-dir
   []
-  (let [source-dir (io/file report-ui-dir)]
-    (when (.isDirectory source-dir)
-      source-dir)))
+  (some (fn [source-dir]
+          (when (.isDirectory source-dir)
+            source-dir))
+        (report-ui-source-candidates)))
 
 (defn- require-report-ui-source-dir!
   []
   (or (report-ui-source-dir)
       (throw (ex-info "Missing compiled report UI assets. Run bb report-ui:build."
-                      {:path report-ui-dir}))))
+                      {:path report-ui-dir
+                       :candidates (mapv #(.getPath %) (report-ui-source-candidates))}))))
 
 (defn- boot-script
   [boot]

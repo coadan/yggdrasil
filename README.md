@@ -70,6 +70,16 @@ Native macOS install from a clone:
 scripts/install-macos.sh --install-deps
 ```
 
+Local V1 smoke gate:
+
+```sh
+bb v1:smoke
+```
+
+The smoke gate installs the local wrapper, runs `agraph start .` in an isolated
+fixture repo, verifies `sync inspect` freshness, checks dependency evidence, and
+confirms the generated operator report artifacts.
+
 Docker:
 
 ```sh

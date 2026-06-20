@@ -161,7 +161,7 @@
 
 (def ignored-dirs
   #{".git" ".dev" ".cpcache" ".clj-kondo" "target" "node_modules"
-    ".shadow-cljs" ".calva" ".idea"})
+    ".shadow-cljs" ".calva" ".idea" "agraph-out"})
 
 (def ignored-filenames
   #{"bun.lockb"})

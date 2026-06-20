@@ -633,6 +633,8 @@
     (spit (io/file src-dir "scratch.secret.edn") "{:secret true}")
     (spit (io/file ignored-dir "ignored.clj") "(ns ignored)")
     (spit (io/file repo "package-lock.json") "{\"packages\":{}}")
+    (.mkdirs (io/file repo "agraph-out"))
+    (spit (io/file repo "agraph-out" "report.json") "{}")
     (.mkdirs (io/file repo ".clj-kondo"))
     (spit (io/file repo ".clj-kondo" "config.edn") "{:linters {}}")
     (.mkdirs (io/file repo ".workbench" "repos" "nested" "src"))
@@ -644,6 +646,7 @@
       (is (not (contains? paths "src/scratch.secret.edn")))
       (is (not (contains? paths "ignored/ignored.clj")))
       (is (contains? paths "package-lock.json"))
+      (is (not (contains? paths "agraph-out/report.json")))
       (is (not (contains? paths ".clj-kondo/config.edn")))
       (is (not (contains? paths ".workbench/repos/nested/src/ignored.clj"))))))
 

@@ -395,6 +395,29 @@
                                         :nodes []
                                         :edges []}))))))
 
+(deftest shared-viewer-assets-resolve-from-agraph-home
+  (let [root (temp-dir "agraph-report-home")
+        asset-dir (io/file root "resources" "agraph" "report-ui")
+        js-file (io/file asset-dir "assets" "app.js")
+        out-dir (temp-dir "agraph-report-home-out")
+        html-file (io/file out-dir "systems.html")]
+    (.mkdirs (.getParentFile js-file))
+    (spit (io/file asset-dir "index.html")
+          "<html><head></head><body><script src=\"./assets/app.js\"></script></body></html>")
+    (spit js-file "console.log('home assets');")
+    (with-redefs-fn {#'report/agraph-home (constantly root)}
+      (fn []
+        (let [html-path (report/write-graph-viewer! (.getPath html-file)
+                                                    {:schema graph/schema
+                                                     :title "Systems"
+                                                     :nodes []
+                                                     :edges []})
+              assets-dir (io/file out-dir "systems.assets")]
+          (is (= (.getPath html-file) html-path))
+          (is (.exists html-file))
+          (is (.exists (io/file assets-dir "assets" "app.js")))
+          (is (str/includes? (slurp html-file) "__AGRAPH_BOOT__")))))))
+
 (deftest output-file-conflicts-unless-forced
   (let [root (temp-dir "agraph-report-conflict")
         target (io/file root "project.clj")]
