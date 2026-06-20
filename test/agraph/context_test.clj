@@ -1300,6 +1300,16 @@
                                    :count 1}
                                   {:kind "unresolved-import"
                                    :count 1}]}
+              {:kind "dependency-auth-runtime"
+               :basis "selected-architecture-evidence"
+               :facts 3
+               :files 2
+               :topEvidenceTypes [{:kind "env-var"
+                                   :count 1}
+                                  {:kind "imports-package"
+                                   :count 1}
+                                  {:kind "unresolved-import"
+                                   :count 1}]}
               {:kind "runtime-config"
                :basis "selected-architecture-evidence"
                :facts 1
@@ -1360,9 +1370,35 @@
                :repo "app"
                :sourceLine 4
                :fileKind "clojure"
-               :section "runtimeEvidence"}]
+               :section "runtimeEvidence"}
+              {:kind "unresolved-import"
+               :relation "unresolved-import"
+               :path "src/worker/job.clj"
+               :target "node:namespace:jobs.queue"
+               :source "node:worker-job"
+               :repo "app"
+               :id "unresolved-import:node:worker-job:node:namespace:jobs.queue:src/worker/job.clj:7"
+               :sourceLine 7
+               :fileKind "clojure"
+               :section "dependencyEvidence"}
+              {:kind "package-import"
+               :relation "imports-package"
+               :path "src/billing/api.clj"
+               :id "node:pkg:stripe:import:src/billing/api.clj:9"
+               :sourceLine 9
+               :fileKind "clojure"
+               :section "dependencyEvidence"}]
              (mapv #(dissoc % :score)
                    (get-in packet [:auditScopes 3 :samples]))))
+      (is (= [{:id "evidence:billing-env"
+               :kind "env-var"
+               :path "src/billing/api.clj"
+               :repo "app"
+               :sourceLine 4
+               :fileKind "clojure"
+               :section "runtimeEvidence"}]
+             (mapv #(dissoc % :score)
+                   (get-in packet [:auditScopes 4 :samples]))))
       (is (> (get-in architecture [:runtimeEvidence 0 :score]) 2.0))
       (is (= [{:plane "dependencies"
                :status "missing"

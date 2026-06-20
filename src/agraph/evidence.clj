@@ -447,7 +447,7 @@
                   :label "Ask a graph-grounded implementation question"
                   :command (ask-command project-id)}))
          (distinct-by action-distinct-key)
-         (take 10)
+         (take 12)
          vec)))
 
 (defn- next-commands

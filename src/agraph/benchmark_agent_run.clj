@@ -55,20 +55,40 @@
 (defn- process-output-future
   [stream]
   (future (slurp stream)))
+(defn- invoke-no-arg-method
+  [target method-name]
+  (clojure.lang.Reflector/invokeInstanceMethod target method-name (object-array 0)))
+(defn- process-descendants
+  [^Process process]
+  (try
+    (let [handle (invoke-no-arg-method process "toHandle")
+          descendants-stream (invoke-no-arg-method handle "descendants")
+          iterator (invoke-no-arg-method descendants-stream "iterator")]
+      (->> (iterator-seq iterator)
+           reverse
+           vec))
+    (catch Exception _
+      [])))
+(defn- destroy-handle-forcibly!
+  [handle]
+  (try
+    (invoke-no-arg-method handle "destroyForcibly")
+    (catch Exception _
+      nil)))
+(defn- await-handle-exit!
+  [handle]
+  (try
+    (invoke-no-arg-method handle "onExit")
+    (catch Exception _
+      nil)))
 (defn- destroy-process-tree!
   [^Process process]
-  (let [handle (.toHandle process)
-        descendants (->> (.iterator (.descendants handle))
-                         iterator-seq
-                         reverse
-                         vec)]
+  (let [descendants (process-descendants process)]
     (doseq [descendant descendants]
-      (.destroyForcibly descendant))
+      (destroy-handle-forcibly! descendant))
     (.destroyForcibly process)
     (doseq [descendant descendants]
-      (try
-        (.onExit descendant)
-        (catch Exception _ nil)))))
+      (await-handle-exit! descendant))))
 (defn- wait-for-process
   [process timeout-ms]
   (let [finished? (.waitFor process timeout-ms TimeUnit/MILLISECONDS)]

@@ -179,6 +179,12 @@
                            ready-id
                            " --queue-dir "
                            "'" root "'")}
+            {:kind :validate
+             :label "Validate completed work result"
+             :command (str "agraph sync work validate "
+                           ready-id
+                           " --queue-dir "
+                           "'" root "'")}
             {:kind :apply
              :label "Apply completed work result to map"
              :command (str "agraph sync work apply "
