@@ -1021,19 +1021,22 @@
                 :allowedActions ["add-package-import" "none"]}
         valid-id (get-in (queue/enqueue! packet {:root root
                                                  :kind dependency-review/work-kind
-                                                 :project-id "fixture"})
+                                                 :project-id "fixture"
+                                                 :priority 100})
                          [:item :id])
         invalid-id (get-in (queue/enqueue! (assoc packet
                                                   :reviewId "dependency-review:invalid")
                                            {:root root
                                             :kind dependency-review/work-kind
-                                            :project-id "fixture"})
+                                            :project-id "fixture"
+                                            :priority 90})
                            [:item :id])
         ready-id (get-in (queue/enqueue! (assoc packet
                                                 :reviewId "dependency-review:ready")
                                          {:root root
                                           :kind dependency-review/work-kind
-                                          :project-id "fixture"})
+                                          :project-id "fixture"
+                                          :priority 10})
                          [:item :id])
         unsupported-id (get-in (queue/enqueue! {:schema "agraph.custom.work/v1"
                                                 :expectedResultSchema "custom.result/v1"
@@ -1124,6 +1127,141 @@
                :error "No validation handler for work item payload schema."
                :value "agraph.custom.work/v1"}]
              (:errors unsupported))))))
+(deftest sync-work-apply-runs-validation-before-map-write
+  (let [root (temp-dir "agraph-cli-work-apply-validation")
+        dir (temp-dir "agraph-cli-work-apply-validation-results")
+        valid-result-path (.getPath (io/file dir "valid.json"))
+        invalid-result-path (.getPath (io/file dir "invalid.json"))
+        valid-map-path (.getPath (io/file dir "valid-map.json"))
+        invalid-map-path (.getPath (io/file dir "invalid-map.json"))
+        ready-map-path (.getPath (io/file dir "ready-map.json"))
+        unsupported-map-path (.getPath (io/file dir "unsupported-map.json"))
+        evidence-id "dependency-evidence:test"
+        packet {:schema dependency-review/packet-schema
+                :reviewId "dependency-review:test"
+                :project-id "fixture"
+                :facts {:unresolvedImport {:repo-id "app"
+                                           :import "org.slf4j.Logger"
+                                           :path "App.java"
+                                           :line 1}
+                        :packages [{:ecosystem "maven"
+                                    :package-name "org.slf4j:slf4j-api"}]
+                        :evidence [{:id evidence-id}]}
+                :expectedResultSchema dependency-review/result-schema
+                :allowedActions ["add-package-import" "none"]}
+        valid-id (get-in (queue/enqueue! packet {:root root
+                                                 :kind dependency-review/work-kind
+                                                 :project-id "fixture"
+                                                 :priority 100})
+                         [:item :id])
+        invalid-id (get-in (queue/enqueue! (assoc packet
+                                                  :reviewId "dependency-review:invalid")
+                                           {:root root
+                                            :kind dependency-review/work-kind
+                                            :project-id "fixture"
+                                            :priority 90})
+                           [:item :id])
+        ready-id (get-in (queue/enqueue! (assoc packet
+                                                :reviewId "dependency-review:ready")
+                                         {:root root
+                                          :kind dependency-review/work-kind
+                                          :project-id "fixture"
+                                          :priority 10})
+                         [:item :id])
+        unsupported-id (get-in (queue/enqueue! {:schema "agraph.custom.work/v1"
+                                                :expectedResultSchema "custom.result/v1"
+                                                :project-id "fixture"}
+                                               {:root root
+                                                :kind "custom"
+                                                :project-id "fixture"})
+                               [:item :id])]
+    (spit valid-result-path
+          (json/write-json-str
+           {:schema dependency-review/result-schema
+            :reviewId "dependency-review:test"
+            :recommendation "add-package-import"
+            :confidence 0.86
+            :reason "The import prefix is provided by the declared package."
+            :mapPatch [{:op "add-package-import"
+                        :import "org.slf4j"
+                        :ecosystem "maven"
+                        :package "org.slf4j:slf4j-api"
+                        :evidence [evidence-id]
+                        :reason "Explicit package import mapping."}]}
+           {:indent-str "  "}))
+    (spit invalid-result-path
+          (json/write-json-str
+           {:schema dependency-review/result-schema
+            :reviewId "dependency-review:invalid"
+            :recommendation "maybe"
+            :reason "Invalid recommendation."
+            :mapPatch []}
+           {:indent-str "  "}))
+    (doseq [[id result-path kind] [[valid-id valid-result-path dependency-review/work-kind]
+                                   [invalid-id invalid-result-path dependency-review/work-kind]
+                                   [unsupported-id valid-result-path "custom"]]]
+      (queue/claim-next! root {:agent-id "codex"
+                               :project-id "fixture"
+                               :kind kind})
+      (with-out-str
+        (cli/dispatch "sync"
+                      ["work" "complete" id
+                       "--result" result-path
+                       "--queue-dir" root])))
+    (let [valid (read-json-output
+                 (with-out-str
+                   (cli/dispatch "sync"
+                                 ["work" "apply" valid-id
+                                  "--map" valid-map-path
+                                  "--queue-dir" root])))
+          invalid (read-json-output
+                   (with-out-str
+                     (cli/dispatch "sync"
+                                   ["work" "apply" invalid-id
+                                    "--map" invalid-map-path
+                                    "--queue-dir" root])))
+          not-done (read-json-output
+                    (with-out-str
+                      (cli/dispatch "sync"
+                                    ["work" "apply" ready-id
+                                     "--map" ready-map-path
+                                     "--queue-dir" root])))
+          unsupported (read-json-output
+                       (with-out-str
+                         (cli/dispatch "sync"
+                                       ["work" "apply" unsupported-id
+                                        "--map" unsupported-map-path
+                                        "--queue-dir" root])))]
+      (is (= "applied" (:status valid)))
+      (is (= "valid" (get-in valid [:validation :status])))
+      (is (= "org.slf4j"
+             (:import (first (:packageImports (graph-map/read-map valid-map-path))))))
+      (is (= dependency-review/apply-schema (:schema invalid)))
+      (is (= "failed" (:status invalid)))
+      (is (= "invalid" (get-in invalid [:validation :status])))
+      (is (= "failed" (get-in invalid [:item :status])))
+      (is (= [{:path ["result" "recommendation"]
+               :error "Result recommendation is required and must be supported."
+               :value "maybe"}]
+             (:errors invalid)))
+      (is (false? (graph-map/file-exists? invalid-map-path)))
+      (is (= "failed" (:status not-done)))
+      (is (= "not-done" (get-in not-done [:validation :status])))
+      (is (= "ready" (get-in not-done [:item :status])))
+      (is (= [{:path ["validation" "status"]
+               :error "Work result must validate before apply."
+               :value "not-done"}]
+             (:errors not-done)))
+      (is (false? (graph-map/file-exists? ready-map-path)))
+      (is (= "agraph.sync.work.apply/v1" (:schema unsupported)))
+      (is (= "failed" (:status unsupported)))
+      (is (= "unsupported" (get-in unsupported [:validation :status])))
+      (is (= "failed" (get-in unsupported [:item :status])))
+      (is (= [{:path ["payload" "schema"]
+               :error "No validation handler for work item payload schema."
+               :value "agraph.custom.work/v1"}]
+             (:errors unsupported)))
+      (is (false? (graph-map/file-exists? unsupported-map-path))))))
 (deftest infra-review-result-requires-supported-recommendation-and-reason
   (let [packet {:schema infra-review/packet-schema
                 :reviewId "infra-review:test"

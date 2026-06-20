@@ -173,27 +173,31 @@
       (throw (ex-info "Missing --map and agraph.map.json was not found."
                       {:usage (usage)}))))
 
-(defn- apply-work-result!
-  [root id map-path]
-  (let [found (or (queue/find-item root id)
-                  (throw (ex-info "Queue item not found." {:id id})))
-        payload-schema (get-in found [:item :payload :schema])]
-    (case payload-schema
-      "agraph.infra.review-packet/v1"
-      (infra-review/apply-work-result! root id map-path)
+(defn- apply-work-result-without-validation!
+  [root id map-path payload-schema]
+  (case payload-schema
+    "agraph.infra.review-packet/v1"
+    (infra-review/apply-work-result! root id map-path)
 
-      "agraph.dependency.review-packet/v1"
-      (dependency-review/apply-work-result! root id map-path)
+    "agraph.dependency.review-packet/v1"
+    (dependency-review/apply-work-result! root id map-path)
 
-      "agraph.maintenance.decision-packet/v1"
-      (decision-classifier/apply-work-result! root id map-path)
+    "agraph.maintenance.decision-packet/v1"
+    (decision-classifier/apply-work-result! root id map-path)
 
-      {:schema "agraph.sync.work.apply/v1"
-       :status "failed"
-       :errors [{:path [:payload :schema]
-                 :error "No apply handler for work item payload schema."
-                 :value payload-schema}]
-       :item (queue/item-summary found)})))
+    {:schema "agraph.sync.work.apply/v1"
+     :status "failed"
+     :errors [{:path [:payload :schema]
+               :error "No apply handler for work item payload schema."
+               :value payload-schema}]}))
+
+(defn- work-apply-schema
+  [payload-schema]
+  (case payload-schema
+    "agraph.infra.review-packet/v1" infra-review/apply-schema
+    "agraph.dependency.review-packet/v1" dependency-review/apply-schema
+    "agraph.maintenance.decision-packet/v1" decision-classifier/apply-schema
+    "agraph.sync.work.apply/v1"))
 
 (defn- validate-work-result
   [root id]
@@ -202,23 +206,25 @@
         item (:item found)
         payload-schema (get-in item [:payload :schema])
         result-schema (get-in item [:result :schema])
-        expected-result-schema (get-in item [:payload :expectedResultSchema])
         status (queue/status-name (:status item))
-        errors (case payload-schema
-                 "agraph.infra.review-packet/v1"
-                 (infra-review/validate-result item)
+        expected-result-schema (get-in item [:payload :expectedResultSchema])
+        raw-errors (case payload-schema
+                     "agraph.infra.review-packet/v1"
+                     (infra-review/validate-result item)
 
-                 "agraph.dependency.review-packet/v1"
-                 (dependency-review/validate-result item)
+                     "agraph.dependency.review-packet/v1"
+                     (dependency-review/validate-result item)
 
-                 "agraph.maintenance.decision-packet/v1"
-                 (decision-classifier/validate-result item)
+                     "agraph.maintenance.decision-packet/v1"
+                     (decision-classifier/validate-result item)
 
-                 nil)]
+                     nil)
+        errors (when (= "done" status)
+                 raw-errors)]
     (cond-> {:schema "agraph.sync.work.validation/v1"
              :status (cond
                        (not= "done" status) "not-done"
-                       (nil? errors) "unsupported"
+                       (nil? raw-errors) "unsupported"
                        (seq errors) "invalid"
                        :else "valid")
              :payload-schema payload-schema
@@ -226,9 +232,46 @@
       result-schema (assoc :result-schema result-schema)
       expected-result-schema (assoc :expected-result-schema expected-result-schema)
       (seq errors) (assoc :errors errors)
-      (nil? errors) (assoc :errors [{:path [:payload :schema]
-                                     :error "No validation handler for work item payload schema."
-                                     :value payload-schema}]))))
+      (and (= "done" status)
+           (nil? raw-errors))
+      (assoc :errors [{:path [:payload :schema]
+                       :error "No validation handler for work item payload schema."
+                       :value payload-schema}]))))
+
+(defn- validation-apply-errors
+  [validation]
+  (or (seq (:errors validation))
+      [{:path [:validation :status]
+        :error "Work result must validate before apply."
+        :value (:status validation)}]))
+
+(defn- failed-validated-apply-result
+  [root id validation]
+  (let [errors (vec (validation-apply-errors validation))
+        done? (= "done" (get-in validation [:item :status]))
+        failed (when done?
+                 (queue/fail! root
+                              id
+                              (str "Invalid sync work result: "
+                                   (str/join "; " (map :error errors)))))]
+    {:schema (work-apply-schema (:payload-schema validation))
+     :status "failed"
+     :errors errors
+     :validation validation
+     :item (if failed
+             (queue/item-summary failed)
+             (:item validation))}))
+
+(defn- apply-work-result!
+  [root id map-path]
+  (let [validation (validate-work-result root id)]
+    (if (= "valid" (:status validation))
+      (assoc (apply-work-result-without-validation! root
+                                                    id
+                                                    map-path
+                                                    (:payload-schema validation))
+             :validation validation)
+      (failed-validated-apply-result root id validation))))
 
 (defn- print-json
   [value]
