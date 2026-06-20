@@ -84,11 +84,14 @@ has written the result JSON and wants a non-mutating schema/evidence check.
 When the reviewer already knows the mapping, `agraph sync package import
 <import-prefix> <ecosystem>:<package> --map agraph.map.json` records the same
 accepted correction path directly.
-Packets include `facts.packageSelection` with the total package rows, included
-rows, packet limit, and truncation flag so reviewers can distinguish insufficient
-packet evidence from a true no-change result. Package candidates preserve
-manifest facts such as `version-range` and `dependency-scope` when those rows are
-indexed.
+Packets include `facts.packageSelection` with total package rows, included rows,
+packet limit, truncation flag, `matchingPackages`, and the mechanical selection
+basis. Candidate packages are ranked before the bound is applied using only
+concrete import/package strings from the unresolved import and package rows.
+Ranked package rows may include `candidateScore` and `candidateSignals`, such as
+an exact import or import-prefix match, so reviewers can see why a package was
+included. Package candidates preserve manifest facts such as `version-range` and
+`dependency-scope` when those rows are indexed.
 
 Use `agraph view deps <package-label>` for a package evidence graph. For package
 nodes, `deps` includes the declaring manifests, resolved lockfile versions,

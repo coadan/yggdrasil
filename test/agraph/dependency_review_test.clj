@@ -46,7 +46,9 @@
     (is (= {:totalPackages 1
             :includedPackages 1
             :packageLimit 40
-            :truncated false}
+            :truncated false
+            :selectionBasis "mechanical-import-package-string-signals"
+            :matchingPackages 1}
            (get-in packet [:facts :packageSelection])))
     (is (= {:id "package:maven:org.slf4j:slf4j-api"
             :label "maven:org.slf4j:slf4j-api"
@@ -54,7 +56,11 @@
             :package-name "org.slf4j:slf4j-api"
             :version-range "2.0.0"
             :dependency-scope :compile
-            :declared-by [{:path "pom.xml"}]}
+            :declared-by [{:path "pom.xml"}]
+            :candidateScore 90
+            :candidateSignals [{:kind "import-prefix"
+                                :value "org.slf4j"
+                                :score 90}]}
            (get-in packet [:facts :packages 0])))
     (is (= ["add-package-import" "none"] (:allowedActions packet)))
     (queue/claim-next! root {:agent-id "codex"
@@ -141,7 +147,14 @@
     (is (= {:totalPackages 45
             :includedPackages 40
             :packageLimit 40
-            :truncated true}
+            :truncated true
+            :selectionBasis "mechanical-import-package-string-signals"
+            :matchingPackages 1}
            (get-in packet [:facts :packageSelection])))
     (is (= 40 (count (get-in packet [:facts :packages]))))
-    (is (= "pkg-39" (get-in packet [:facts :packages 39 :package-name])))))
+    (is (= "pkg-44" (get-in packet [:facts :packages 0 :package-name])))
+    (is (= 100 (get-in packet [:facts :packages 0 :candidateScore])))
+    (is (= [{:kind "exact-import"
+             :value "pkg-44"
+             :score 100}]
+           (get-in packet [:facts :packages 0 :candidateSignals])))))

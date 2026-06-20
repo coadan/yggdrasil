@@ -34,6 +34,17 @@
     (nil? value) nil
     :else (str value)))
 
+(defn- lower-string
+  [value]
+  (some-> value s str/lower-case))
+
+(defn- normalized-token
+  [value]
+  (some-> value
+          lower-string
+          (str/replace #"[^a-z0-9]+" "-")
+          (str/replace #"(^-+|-+$)" "")))
+
 (defn- present?
   [value]
   (not (str/blank? (str value))))
@@ -80,16 +91,131 @@
 
 (defn- package-summary
   [package]
-  (select-keys package
-               [:id
-                :label
-                :ecosystem
-                :package-name
-                :version-range
-                :dependency-scope
-                :declared-by
-                :resolved-versions
-                :imported-by]))
+  (cond-> (select-keys package
+                       [:id
+                        :label
+                        :ecosystem
+                        :package-name
+                        :version-range
+                        :dependency-scope
+                        :declared-by
+                        :resolved-versions
+                        :imported-by])
+    (pos? (long (or (:candidateScore package) 0)))
+    (assoc :candidateScore (:candidateScore package))
+
+    (seq (:candidateSignals package))
+    (assoc :candidateSignals (:candidateSignals package))))
+
+(defn- stripped-label
+  [{:keys [ecosystem label]}]
+  (let [ecosystem (lower-string ecosystem)
+        label (s label)
+        label-lower (lower-string label)
+        prefix (str ecosystem ":")]
+    (cond
+      (str/blank? label) nil
+      (and (seq ecosystem)
+           (str/starts-with? label-lower prefix))
+      (subs label (count prefix))
+      :else label)))
+
+(defn- package-name-values
+  [package]
+  (->> [(:package-name package)
+        (stripped-label package)
+        (:label package)]
+       (keep s)
+       (remove str/blank?)
+       distinct
+       vec))
+
+(defn- package-name-prefixes
+  [package]
+  (->> (package-name-values package)
+       (mapcat (fn [package-name]
+                 (let [package-name (str/lower-case package-name)
+                       colon (.indexOf package-name ":")]
+                   (cond-> [package-name]
+                     (pos? colon) (conj (subs package-name 0 colon))))))
+       (remove str/blank?)
+       distinct
+       vec))
+
+(defn- import-prefix?
+  [candidate import-name]
+  (let [candidate (lower-string candidate)
+        import-name (lower-string import-name)]
+    (and (present? candidate)
+         (present? import-name)
+         (or (= candidate import-name)
+             (str/starts-with? import-name (str candidate "."))
+             (str/starts-with? import-name (str candidate "::"))
+             (str/starts-with? import-name (str candidate "/"))))))
+
+(defn- candidate-signal
+  [import-name prefix]
+  (let [import-name (lower-string import-name)
+        prefix (lower-string prefix)]
+    (cond
+      (= prefix import-name)
+      {:kind "exact-import"
+       :value prefix
+       :score 100}
+
+      (import-prefix? prefix import-name)
+      {:kind "import-prefix"
+       :value prefix
+       :score 90}
+
+      (= (normalized-token prefix) (normalized-token import-name))
+      {:kind "normalized-name"
+       :value prefix
+       :score 70})))
+
+(defn- distinct-signals
+  [signals]
+  (->> signals
+       (reduce (fn [out signal]
+                 (if (contains? (:seen out) [(:kind signal) (:value signal)])
+                   out
+                   (-> out
+                       (update :seen conj [(:kind signal) (:value signal)])
+                       (update :signals conj signal))))
+               {:seen #{}
+                :signals []})
+       :signals))
+
+(defn- package-candidate
+  [import-name idx package]
+  (let [signals (->> (package-name-prefixes package)
+                     (keep #(candidate-signal import-name %))
+                     distinct-signals)
+        score (reduce max 0 (map :score signals))]
+    (cond-> (assoc package
+                   :candidateScore score
+                   ::candidate-index idx)
+      (seq signals) (assoc :candidateSignals signals))))
+
+(defn- ranked-package-candidates
+  [unresolved packages]
+  (->> packages
+       (map-indexed #(package-candidate (:import unresolved) %1 %2))
+       (sort-by (juxt (comp - :candidateScore) ::candidate-index))
+       (mapv #(dissoc % ::candidate-index))))
+
+(defn- package-candidate-selection
+  [unresolved packages limit total-packages]
+  (let [ranked (ranked-package-candidates unresolved packages)
+        selected (vec (take limit ranked))]
+    {:packages selected
+     :selection {:totalPackages total-packages
+                 :includedPackages (count selected)
+                 :packageLimit limit
+                 :truncated (> total-packages (count selected))
+                 :selectionBasis "mechanical-import-package-string-signals"
+                 :matchingPackages (count (filter #(pos? (:candidateScore %))
+                                                  ranked))}}))
 
 (defn- packet-id
   [project-id basis unresolved package-ids]
@@ -157,20 +283,22 @@
   "Return bounded dependency-review packets from a package report."
   [{:keys [project-id basis package-report limit]
     :or {limit default-packet-limit}}]
-  (let [total-packages (long (or (get-in package-report [:counts :packages])
-                                 (count (:packages package-report))))
-        packages (vec (take default-package-limit (:packages package-report)))
-        package-selection {:totalPackages total-packages
-                           :includedPackages (count packages)
-                           :packageLimit default-package-limit
-                           :truncated (> total-packages (count packages))}]
+  (let [all-packages (vec (:packages package-report))
+        total-packages (long (or (get-in package-report [:counts :packages])
+                                 (count all-packages)))]
     (->> (:unresolved-imports package-report)
          (take limit)
-         (mapv #(review-packet {:project-id project-id
-                                :basis basis
-                                :unresolved %
-                                :packages packages
-                                :package-selection package-selection})))))
+         (mapv (fn [unresolved]
+                 (let [{:keys [packages selection]}
+                       (package-candidate-selection unresolved
+                                                    all-packages
+                                                    default-package-limit
+                                                    total-packages)]
+                   (review-packet {:project-id project-id
+                                   :basis basis
+                                   :unresolved unresolved
+                                   :packages packages
+                                   :package-selection selection})))))))
 
 (defn- payload
   [item]
@@ -203,17 +331,6 @@
        (map (fn [package]
               [(s (:ecosystem package)) (s (:package-name package))]))
        set))
-
-(defn- import-prefix?
-  [candidate import-name]
-  (let [candidate (s candidate)
-        import-name (s import-name)]
-    (and (present? candidate)
-         (present? import-name)
-         (or (= candidate import-name)
-             (str/starts-with? import-name (str candidate "."))
-             (str/starts-with? import-name (str candidate "::"))
-             (str/starts-with? import-name (str candidate "/"))))))
 
 (defn- patch-errors
   [packet patch idx]
