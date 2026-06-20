@@ -284,6 +284,30 @@
     resolution-source (assoc :resolution-source resolution-source)
     import-name (assoc :import-name import-name)))
 
+(defn- import-edge-key
+  [edge]
+  [(:source-id edge) (:target-id edge) (:path edge)])
+
+(defn- map-overlay-import-edges
+  [project-id packages-by-id files-by-path map-overlay source-edges imports]
+  (let [existing-keys (set (map import-edge-key imports))]
+    (->> source-edges
+         (keep (fn [edge]
+                 (when-let [result (resolve-map-import packages-by-id
+                                                       map-overlay
+                                                       (:repo-id edge)
+                                                       (namespace-target (:target-id edge)))]
+                   (let [derived (import-package-edge "report:map-overlay"
+                                                      project-id
+                                                      (:repo-id edge)
+                                                      (source-kind files-by-path (:path edge))
+                                                      edge
+                                                      result)]
+                     (when-not (contains? existing-keys (import-edge-key derived))
+                       derived)))))
+         distinct
+         vec)))
+
 (defn resolve-import-package-edges
   "Return mechanically resolved source-import to external-package edges."
   ([xtdb project-id repo-id run-id]
@@ -537,6 +561,13 @@
          source-edges (filter #(and (contains? #{:imports :uses} (:relation %))
                                     (package-import-candidate? files-by-path %))
                               edges)
+         report-imports (vec (concat imports
+                                     (map-overlay-import-edges project-id
+                                                               packages-by-id
+                                                               files-by-path
+                                                               map-overlay
+                                                               source-edges
+                                                               imports)))
          requires-by-package (group-by :target-id requires)
          resolves-by-version (group-by :target-id resolves)
          versions-by-package (->> version-of
@@ -546,7 +577,7 @@
                                   (reduce (fn [out [package-id version]]
                                             (update out package-id (fnil conj []) version))
                                           {}))
-         imports-by-package (group-by :target-id imports)
+         imports-by-package (group-by :target-id report-imports)
          entries (->> packages
                       (mapv #(package-entry % nodes-by-id
                                             requires-by-package
@@ -567,7 +598,7 @@
          filtered-versions (filter #(contains? filtered-version-ids (:xt/id %)) versions)
          filtered-requires (filter #(contains? filtered-package-ids (:target-id %)) requires)
          filtered-resolves (filter #(contains? filtered-version-ids (:target-id %)) resolves)
-         filtered-imports (filter #(contains? filtered-package-ids (:target-id %)) imports)
+         filtered-imports (filter #(contains? filtered-package-ids (:target-id %)) report-imports)
          declared-without-import-evidence (->> filtered-entries
                                                (filter #(and (seq (:declared-by %))
                                                              (empty? (:imported-by %))))

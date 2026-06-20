@@ -62,6 +62,19 @@ cp -R "$REPO_DIR/test/fixtures/project-repo" "$FIXTURE_REPO"
 printf '\n[dependencies]\nserde = "1"\n' >> "$FIXTURE_REPO/services/api/Cargo.toml"
 mkdir -p "$FIXTURE_REPO/config"
 printf 'GOOGLE_APPLICATION_CREDENTIALS=/var/run/secrets/google.json\nSERVICE_ACCT=checkout-runtime-secret\n' > "$FIXTURE_REPO/config/runtime.env"
+cat > "$FIXTURE_REPO/pyproject.toml" <<'EOF'
+[project]
+name = "v1-smoke"
+dependencies = ["google-cloud-storage>=2"]
+EOF
+mkdir -p "$FIXTURE_REPO/services/api/src"
+cat > "$FIXTURE_REPO/services/api/src/dependency_probe.py" <<'EOF'
+from google.cloud import storage
+
+
+def bucket_client():
+    return storage.Client()
+EOF
 
 pushd "$FIXTURE_REPO" >/dev/null
 export AGRAPH_XTDB_PATH="$WORK_DIR/xtdb"
@@ -77,6 +90,68 @@ export AGRAPH_XTDB_PATH="$WORK_DIR/xtdb"
 "$PREFIX/bin/agraph" packages \
   --project v1-smoke \
   --json > "$WORK_DIR/packages.json"
+"$PREFIX/bin/agraph" sync project.edn \
+  --check \
+  --map agraph.map.json \
+  --enqueue \
+  --json > "$WORK_DIR/sync-check.json"
+"$PREFIX/bin/agraph" sync work pull \
+  --project v1-smoke \
+  --kind dependency-review \
+  --agent v1-smoke > "$WORK_DIR/work-pull.json"
+WORK_ID="$(
+  python3 - "$WORK_DIR" <<'PY'
+import json
+import pathlib
+import sys
+
+work_dir = pathlib.Path(sys.argv[1])
+pull = json.loads((work_dir / "work-pull.json").read_text())
+if pull.get("status") == "empty":
+    raise AssertionError("dependency-review work queue was empty")
+item = pull["item"]
+packet = item["payload"]
+unresolved = packet["facts"]["unresolvedImport"]
+packages = packet["facts"]["packages"]
+evidence = packet["facts"]["evidence"]
+package = next((row for row in packages
+                if row.get("ecosystem") == "pypi"
+                and row.get("package-name") == "google-cloud-storage"), None)
+if package is None:
+    raise AssertionError("dependency-review packet missing google-cloud-storage package")
+if unresolved.get("import") != "google.cloud":
+    raise AssertionError(f"unexpected unresolved import {unresolved.get('import')!r}")
+if not evidence:
+    raise AssertionError("dependency-review packet missing evidence")
+result = {
+    "schema": "agraph.dependency.review-result/v1",
+    "reviewId": packet["reviewId"],
+    "recommendation": "add-package-import",
+    "confidence": 0.95,
+    "reason": "The import prefix is provided by the declared PyPI package.",
+    "mapPatch": [{
+        "op": "add-package-import",
+        "import": "google.cloud",
+        "ecosystem": "pypi",
+        "package": "google-cloud-storage",
+        "evidence": [evidence[0]["id"]],
+        "reason": "The package exposes the reviewed google.cloud import prefix."
+    }]
+}
+(work_dir / "work-result.json").write_text(json.dumps(result, indent=2) + "\n")
+print(item["id"])
+PY
+)"
+"$PREFIX/bin/agraph" sync work complete "$WORK_ID" \
+  --result "$WORK_DIR/work-result.json" > "$WORK_DIR/work-complete.json"
+"$PREFIX/bin/agraph" sync work validate "$WORK_ID" > "$WORK_DIR/work-validate.json"
+"$PREFIX/bin/agraph" sync work apply "$WORK_ID" \
+  --map agraph.map.json > "$WORK_DIR/work-apply.json"
+"$PREFIX/bin/agraph" packages \
+  --project v1-smoke \
+  --json > "$WORK_DIR/packages-after-apply.json"
+"$PREFIX/bin/agraph" sync activity project.edn \
+  --json > "$WORK_DIR/activity.json"
 popd >/dev/null
 
 python3 - "$WORK_DIR" "$REPO_DIR" <<'PY'
@@ -98,6 +173,13 @@ def require(condition, message):
 start = load_json("start.json")
 inspect = load_json("inspect.json")
 packages = load_json("packages.json")
+sync_check = load_json("sync-check.json")
+work_pull = load_json("work-pull.json")
+work_complete = load_json("work-complete.json")
+work_validate = load_json("work-validate.json")
+work_apply = load_json("work-apply.json")
+packages_after_apply = load_json("packages-after-apply.json")
+activity = load_json("activity.json")
 report = json.loads((repo / "agraph-out" / "report.json").read_text())
 
 require(start.get("schema") == "agraph.start/v1", "start schema mismatch")
@@ -132,6 +214,44 @@ require(family_statuses.get("auth") == "available", "auth evidence family is not
 
 require(packages.get("schema") == "agraph.dependency.report/v1", "packages schema mismatch")
 require(packages.get("counts", {}).get("packages", 0) > 0, "packages report has no package evidence")
+require(packages.get("counts", {}).get("unresolved-imports", 0) > 0,
+        "packages report has no unresolved import for dependency review")
+
+require(sync_check.get("schema") == "agraph.sync/v1", "sync check schema mismatch")
+enqueued = sync_check.get("enqueued", [])
+require(any(item.get("kind") == "dependency-review" for item in enqueued),
+        "sync check did not enqueue dependency-review work")
+require(work_pull.get("schema") == "agraph.queue.summary/v1", "work pull schema mismatch")
+require(work_pull.get("kind") == "dependency-review", "pulled work is not dependency-review")
+require(work_pull.get("status") == "claimed", "pulled work was not claimed")
+require(work_pull.get("expected-result-schema") == "agraph.dependency.review-result/v1",
+        "dependency-review work did not advertise expected result schema")
+require(work_complete.get("status") == "done", "work complete did not mark item done")
+require(work_validate.get("schema") == "agraph.sync.work.validation/v1",
+        "work validate schema mismatch")
+require(work_validate.get("status") == "valid", "work result did not validate")
+require(work_apply.get("schema") == "agraph.sync.work.apply/v1", "work apply schema mismatch")
+require(work_apply.get("status") == "applied", "work apply did not apply")
+require(work_apply.get("patchesApplied") == 1, "work apply did not apply exactly one patch")
+require(work_apply.get("validation", {}).get("status") == "valid",
+        "work apply did not revalidate before applying")
+
+map_data = json.loads((repo / "agraph.map.json").read_text())
+package_imports = map_data.get("packageImports", [])
+require(any(row.get("import") == "google.cloud"
+            and row.get("ecosystem") == "pypi"
+            and row.get("package") == "google-cloud-storage"
+            and row.get("status") == "accepted"
+            for row in package_imports),
+        "applied work did not persist accepted package import correction")
+package_by_name = {row.get("package-name"): row
+                   for row in packages_after_apply.get("packages", [])}
+storage_package = package_by_name.get("google-cloud-storage")
+require(storage_package, "packages after apply missing google-cloud-storage")
+require(storage_package.get("imported-by"),
+        "packages after apply did not use the accepted package import correction")
+require(activity.get("schema") == "agraph.activity.sync/v1", "activity sync schema mismatch")
+require(activity.get("counts", {}).get("items", 0) > 0, "activity sync did not import queue items")
 
 for relative in (
     "project.edn",

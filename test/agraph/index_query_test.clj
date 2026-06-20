@@ -803,6 +803,13 @@
                                              :ecosystem "maven"
                                              :package "org.slf4j:slf4j-api"
                                              :status "accepted"}]}
+              mapped-report-before-sync (dependency/package-report xtdb
+                                                                   {:project-id "jvm-dep-test"
+                                                                    :repo-id "app"}
+                                                                   {:map-overlay map-overlay})
+              mapped-before-package-by-label (into {}
+                                                   (map (juxt :label identity)
+                                                        (:packages mapped-report-before-sync)))
               mapped-summary (index/index-repo! xtdb
                                                 (.getPath repo)
                                                 {:project-id "jvm-dep-test"
@@ -838,6 +845,17 @@
                                        " --reason <reason>")}
                         %)
                     (:nextActions raw-report)))
+          (is (= 1 (get-in mapped-report-before-sync [:counts :imports-package])))
+          (is (empty? (:unresolved-imports mapped-report-before-sync)))
+          (is (empty? (:declared-without-import-evidence mapped-report-before-sync)))
+          (is (= ["src/main/java/demo/App.java"]
+                 (mapv :path
+                       (get-in mapped-before-package-by-label
+                               ["maven:org.slf4j:slf4j-api" :imported-by]))))
+          (is (= [:map-overlay]
+                 (mapv :resolution-source
+                       (get-in mapped-before-package-by-label
+                               ["maven:org.slf4j:slf4j-api" :imported-by]))))
           (is (= 1 (get-in mapped-summary [:stats :dependency-edges])))
           (is (= ["maven:org.slf4j:slf4j-api"]
                  (mapv (comp :label :target) package-edges)))
