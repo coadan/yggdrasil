@@ -25,10 +25,11 @@ Use the tracked headline suite to compare shell-only and AGraph-assisted agents
 on architecture-oriented tasks. Generated lane outputs stay under
 `.dev/agraph/headline-bench/` by default.
 
-The bounded headline claim is intentionally narrow:
+The bounded headline hypothesis is intentionally narrow; make it a claim only
+when the generated comparison report supports it for the named problem classes:
 
 > For architecture-class tasks involving dependencies, runtime/config, or
-> audit-scope evidence, AGraph helps agents find the right evidence with less
+> audit-scope evidence, AGraph may help agents find the right evidence with less
 > exploratory work than shell-only workflows.
 
 The checked-in suite has five fixed cases, not an open-ended benchmark program:
