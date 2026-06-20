@@ -818,11 +818,33 @@
                                                        {:map-overlay map-overlay})]
           (is (zero? (get-in raw-summary [:stats :dependency-edges])))
           (is (= ["org.slf4j.Logger"] (mapv :import (:unresolved-imports raw-report))))
+          (is (some #(= {:kind :dependency-review
+                         :label "Queue unresolved import review work"
+                         :count 1
+                         :command "agraph sync check <project.edn> --enqueue"}
+                        %)
+                    (:nextActions raw-report)))
+          (is (some #(= {:kind :dependency-review
+                         :label "Pull dependency review work"
+                         :count 1
+                         :command (str "agraph sync work pull --project jvm-dep-test"
+                                       " --kind dependency-review --agent <agent-id>")}
+                        %)
+                    (:nextActions raw-report)))
+          (is (some #(= {:kind :package-import
+                         :label "Record a reviewed import-package correction directly"
+                         :command (str "agraph sync package import <import-prefix>"
+                                       " <ecosystem>:<package> --map agraph.map.json"
+                                       " --reason <reason>")}
+                        %)
+                    (:nextActions raw-report)))
           (is (= 1 (get-in mapped-summary [:stats :dependency-edges])))
           (is (= ["maven:org.slf4j:slf4j-api"]
                  (mapv (comp :label :target) package-edges)))
           (is (= [:map-overlay] (mapv :resolution-source package-edges)))
-          (is (empty? (:unresolved-imports mapped-report))))))))
+          (is (empty? (:unresolved-imports mapped-report)))
+          (is (not-any? #(= :dependency-review (:kind %))
+                        (:nextActions mapped-report))))))))
 
 (deftest index-resolves-rust-underscore-crate-imports
   (let [xtdb-path (temp-dir "agraph-rust-dependency-xtdb")

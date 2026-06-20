@@ -218,7 +218,8 @@
                 ", imports " (count (:imported-by entry)) ")")))
 (defn print-package-report
   [{:keys [project-id repo-id counts ecosystems packages
-           declared-without-import-evidence unresolved-imports version-conflicts]}]
+           declared-without-import-evidence unresolved-imports version-conflicts
+           nextActions]}]
   (println "# Packages")
   (when project-id
     (println "- project" project-id))
@@ -259,6 +260,12 @@
                     (when line (str ":" line))
                     " " import
                     (when kind (str " [" (name kind) "]"))))))
+  (when (seq nextActions)
+    (println)
+    (println "Next:")
+    (doseq [{:keys [label command]} nextActions]
+      (println "-" label)
+      (println " " command)))
   (when (seq packages)
     (println)
     (println "Packages:")

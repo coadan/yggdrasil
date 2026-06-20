@@ -1,6 +1,7 @@
 (ns agraph.dependency
   "Derived external package dependency resolution."
-  (:require [agraph.hash :as hash]
+  (:require [agraph.command :as command]
+            [agraph.hash :as hash]
             [agraph.xtdb :as store]
             [clojure.string :as str]))
 
@@ -472,6 +473,48 @@
              :line (:source-line edge)}
       (:kind file) (assoc :kind (:kind file)))))
 
+(defn- package-command
+  [project-id & args]
+  (str "agraph packages --project "
+       (command/shell-token (or project-id "<project-id>"))
+       (when (seq args)
+         (str " " (str/join " " (map command/shell-token args))))))
+
+(defn- package-next-actions
+  [project-id counts]
+  (cond-> []
+    (pos? (long (or (:declared-without-import-evidence counts) 0)))
+    (conj {:kind :dependencies
+           :label "Inspect packages without source import evidence"
+           :count (:declared-without-import-evidence counts)
+           :command (package-command project-id "--without-import-evidence" "--json")})
+
+    (pos? (long (or (:version-conflicts counts) 0)))
+    (conj {:kind :dependencies
+           :label "Inspect package version conflicts"
+           :count (:version-conflicts counts)
+           :command (package-command project-id "--with-conflicts" "--json")})
+
+    (pos? (long (or (:unresolved-imports counts) 0)))
+    (conj {:kind :dependency-review
+           :label "Queue unresolved import review work"
+           :count (:unresolved-imports counts)
+           :command "agraph sync check <project.edn> --enqueue"})
+
+    (pos? (long (or (:unresolved-imports counts) 0)))
+    (conj {:kind :dependency-review
+           :label "Pull dependency review work"
+           :count (:unresolved-imports counts)
+           :command (str "agraph sync work pull --project "
+                         (command/shell-token (or project-id "<project-id>"))
+                         " --kind dependency-review --agent <agent-id>")})
+
+    (pos? (long (or (:unresolved-imports counts) 0)))
+    (conj {:kind :package-import
+           :label "Record a reviewed import-package correction directly"
+           :command (str "agraph sync package import <import-prefix> <ecosystem>:<package>"
+                         " --map agraph.map.json --reason <reason>")})))
+
 (defn package-report
   "Return a mechanical external package dependency report for a project/repo scope."
   ([xtdb scope] (package-report xtdb scope {}))
@@ -548,23 +591,27 @@
                                                                  files-by-path
                                                                  %))
                                    (sort-by (juxt :path :line :import))
-                                   vec))]
+                                   vec))
+         counts {:packages (count filtered-packages)
+                 :versions (count filtered-versions)
+                 :requires (count filtered-requires)
+                 :resolves (count filtered-resolves)
+                 :imports-package (count filtered-imports)
+                 :unresolved-imports (count unresolved-imports)
+                 :declared-without-import-evidence (count declared-without-import-evidence)
+                 :version-conflicts (count filtered-conflicts)}
+         next-actions (package-next-actions project-id counts)]
      {:schema "agraph.dependency.report/v1"
       :project-id project-id
       :repo-id repo-id
       :filters (select-keys opts [:ecosystem :package :with-conflicts? :without-import-evidence?])
-      :counts {:packages (count filtered-packages)
-               :versions (count filtered-versions)
-               :requires (count filtered-requires)
-               :resolves (count filtered-resolves)
-               :imports-package (count filtered-imports)
-               :unresolved-imports (count unresolved-imports)
-               :declared-without-import-evidence (count declared-without-import-evidence)
-               :version-conflicts (count filtered-conflicts)}
+      :counts counts
       :ecosystems (summarize-ecosystem filtered-packages filtered-versions filtered-imports)
       :packages (limit-report-entries filtered-entries limit)
       :declared-without-import-evidence (limit-report-entries
                                          declared-without-import-evidence
                                          limit)
       :unresolved-imports (limit-report-entries unresolved-imports limit)
-      :version-conflicts (limit-report-entries filtered-conflicts limit)})))
+      :version-conflicts (limit-report-entries filtered-conflicts limit)
+      :nextActions next-actions
+      :next (mapv :command next-actions)})))
