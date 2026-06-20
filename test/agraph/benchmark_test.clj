@@ -1,6 +1,7 @@
 (ns agraph.benchmark-test
   (:require [agraph.benchmark :as benchmark]
             [agraph.benchmark-classes :as benchmark-classes]
+            [agraph.benchmark-paths :as benchmark-paths]
             [agraph.benchmark-prepare :as benchmark-prepare]
             [agraph.benchmark-progress :as benchmark-progress]
             [agraph.benchmark-test-support :refer [commit!
@@ -1423,6 +1424,89 @@
                                      :contextGroundTruthRanks
                                      :agraphHints
                                      :maintenancePreflight])))))))
+
+(deftest benchmark-agent-activity-rows-record-schema-validation-only
+  (let [root (temp-dir "agraph-bench-activity-rows")
+        result-file (io/file root "result.json")
+        prepared {:project-id "suite-case-1"
+                  :case-id "case-1"
+                  :caseFingerprint "case-fingerprint"}
+        agent-result {:schema benchmark/agent-result-schema
+                      :agentId "codex"
+                      :mode "agraph"
+                      :agentInputFingerprint "agent-input-fingerprint"
+                      :suspectedFiles [{:path "src/answer.clj"}]}
+        rows (#'benchmark/benchmark-activity-rows prepared
+                                                  agent-result
+                                                  result-file
+                                                  {:agent-id "codex"}
+                                                  "passed"
+                                                  1000)
+        item (first (:items rows))
+        event (first (:events rows))]
+    (is (= :benchmark-codex (:source rows)))
+    (is (= "benchmark-agent-result" (:kind item)))
+    (is (= :done (:status item)))
+    (is (= benchmark/prepared-case-schema (:payload-schema item)))
+    (is (= benchmark/agent-result-schema (:expected-result-schema item)))
+    (is (= benchmark/agent-result-schema (:result-schema item)))
+    (is (= ["suite-case-1" "case-1" "case-fingerprint" "agent-input-fingerprint"]
+           (:target-ids item)))
+    (is (not (str/includes? (:summary item) "src/answer.clj")))
+    (is (= :validation (:event-kind event)))
+    (is (= "benchmark result-schema matching" (:summary event)))))
+
+(deftest benchmark-agent-activity-updates-sync-inspect-families
+  (let [root (temp-dir "agraph-bench-activity-sync")
+        worktree (io/file root "worktree")
+        _ (.mkdirs worktree)
+        result-file (io/file root "result.json")
+        suite {:id "suite"}
+        case {:id "case-1"}
+        opts {:out root
+              :agent-id "codex"
+              :now-ms 1000}
+        prepared {:suite-id "suite"
+                  :project-id "suite-case-1"
+                  :case-id "case-1"
+                  :caseFingerprint "case-fingerprint"
+                  :repo-id "repo"
+                  :worktreeRoot (.getPath worktree)}
+        agent-result {:schema benchmark/agent-result-schema
+                      :agentId "codex"
+                      :mode "agraph"
+                      :agentInputFingerprint "agent-input-fingerprint"}]
+    (store/with-node (benchmark-paths/xtdb-dir suite case opts)
+      (fn [_xtdb] nil))
+    (let [recorded (#'benchmark/record-benchmark-agent-activity-from-artifacts!
+                    suite
+                    case
+                    prepared
+                    opts
+                    agent-result
+                    result-file
+                    "passed")
+          family-by-name (into {}
+                               (map (juxt :family identity))
+                               (get-in recorded [:syncInspect :families]))]
+      (is (= {:items 1
+              :events 1
+              :deleted-items 0
+              :deleted-events 0}
+             (:activity recorded)))
+      (is (= :available (get-in family-by-name [:activity :status])))
+      (is (= {:activity-items 1
+              :activity-events 1}
+             (get-in family-by-name [:activity :counts])))
+      (is (= :available (get-in family-by-name [:validation-history :status])))
+      (is (= {:validation-events 1
+              :result-schema-status-items 1
+              :result-schema-matching-items 1
+              :result-schema-mismatch-items 0
+              :result-schema-missing-result-items 0
+              :result-schema-unexpected-result-items 0
+              :result-schema-mismatch-events 0}
+             (get-in family-by-name [:validation-history :counts]))))))
 
 (deftest context-ground-truth-ranks-show-context-misses-separately
   (let [root (temp-dir "agraph-bench-context-ground-truth")

@@ -1,13 +1,16 @@
 (ns agraph.benchmark
   "Issue replay benchmarks for AGraph retrieval quality."
-  (:require [agraph.benchmark-io :as benchmark-io]
+  (:require [agraph.activity :as activity]
+            [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
             [agraph.benchmark-preflight :as benchmark-preflight]
             [agraph.benchmark-score :as benchmark-score]
             [agraph.context :as context]
             [agraph.fs :as fs]
+            [agraph.hash :as hash]
             [agraph.project :as project]
             [agraph.query :as query]
+            [agraph.text :as text]
             [agraph.xtdb :as store]
             [clojure.java.io :as io]
             [agraph.benchmark-expectations :as benchmark-expectations]
@@ -228,6 +231,130 @@
          :status "failed"
          :project-id (:id project)
          :error (.getMessage e)}))))
+
+(defn- benchmark-activity-source
+  [agent-result opts]
+  (keyword (str "benchmark-"
+                (benchmark-paths/safe-id (or (:agentId agent-result)
+                                             (:agent-id opts)
+                                             "agent")))))
+
+(defn- benchmark-activity-source-id
+  [prepared agent-result result-file]
+  (str "benchmark-agent-result:"
+       (hash/short-hash [(:case-id prepared)
+                         (:agentInputFingerprint agent-result)
+                         (:agentId agent-result)
+                         (fs/canonical-path result-file)])))
+
+(defn- benchmark-activity-status
+  [run-status]
+  (if (= "failed" (str run-status)) :failed :done))
+
+(defn- benchmark-activity-summary
+  [prepared agent-result run-status]
+  (str/join " "
+            (remove blankish?
+                    ["benchmark-agent-result"
+                     (:case-id prepared)
+                     (:agentId agent-result)
+                     (:mode agent-result)
+                     (str "status=" run-status)
+                     (str "result-schema=" (:schema agent-result))])))
+
+(defn- benchmark-activity-rows
+  [prepared agent-result result-file opts run-status now-ms]
+  (let [source-id (benchmark-activity-source-id prepared agent-result result-file)
+        item-id (str "activity-item:" (hash/short-hash [source-id]))
+        run-id (str "activity-run:" (hash/short-hash [(:project-id prepared)
+                                                      source-id
+                                                      now-ms]))
+        summary (benchmark-activity-summary prepared agent-result run-status)
+        status (benchmark-activity-status run-status)
+        source (benchmark-activity-source agent-result opts)
+        target-ids (->> [(:project-id prepared)
+                         (:case-id prepared)
+                         (:caseFingerprint prepared)
+                         (:agentInputFingerprint agent-result)]
+                        (remove blankish?)
+                        distinct
+                        vec)
+        item {:xt/id item-id
+              :schema activity/item-schema
+              :project-id (:project-id prepared)
+              :source source
+              :source-id source-id
+              :source-path (fs/canonical-path result-file)
+              :kind "benchmark-agent-result"
+              :status status
+              :payload-schema prepared-case-schema
+              :expected-result-schema agent-result-schema
+              :result-schema (:schema agent-result)
+              :target-ids target-ids
+              :summary summary
+              :tokens (text/tokenize summary)
+              :created-at-ms now-ms
+              :updated-at-ms now-ms
+              :completed-at-ms now-ms
+              :active? true
+              :run-id run-id}
+        event {:xt/id (str "activity-event:"
+                           (hash/short-hash [source-id :validation now-ms]))
+               :schema activity/event-schema
+               :project-id (:project-id prepared)
+               :source source
+               :source-id source-id
+               :item-id item-id
+               :event-kind :validation
+               :status status
+               :agent-id (str (:agentId agent-result))
+               :target-ids target-ids
+               :summary (str "benchmark result-schema "
+                             (if (= agent-result-schema (:schema agent-result))
+                               "matching"
+                               "mismatch"))
+               :at-ms now-ms
+               :active? true
+               :run-id run-id}]
+    {:source source
+     :items [item]
+     :events [event]}))
+
+(defn- record-benchmark-agent-activity!
+  [xtdb suite case prepared opts agent-result result-file run-status]
+  (let [{:keys [source items events]}
+        (benchmark-activity-rows prepared
+                                 agent-result
+                                 result-file
+                                 opts
+                                 run-status
+                                 (long (or (:now-ms opts)
+                                           (System/currentTimeMillis))))
+        activity-result (activity/commit-activity! xtdb
+                                                   {:project-id (:project-id prepared)
+                                                    :source source
+                                                    :items items
+                                                    :events events})]
+    {:activity activity-result
+     :syncInspect (sync-inspect-summary xtdb suite case prepared opts)}))
+
+(defn- record-benchmark-agent-activity-from-artifacts!
+  [suite case prepared opts agent-result result-file run-status]
+  (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
+    (when (.exists (io/file xtdb-dir))
+      (try
+        (store/with-node xtdb-dir
+          (fn [xtdb]
+            (record-benchmark-agent-activity! xtdb
+                                              suite
+                                              case
+                                              prepared
+                                              opts
+                                              agent-result
+                                              result-file
+                                              run-status)))
+        (catch Exception _
+          nil)))))
 
 (defn- benchmark-index-options
   [opts]
@@ -677,11 +804,20 @@
                                                                     case
                                                                     prepared
                                                                     artifact-opts)
-          sync-inspect (or (:syncInspect run-summary)
+          benchmark-activity (record-benchmark-agent-activity-from-artifacts!
+                              suite
+                              case
+                              prepared
+                              artifact-opts
+                              agent-result
+                              result-file
+                              "passed")
+          sync-inspect (or (:syncInspect benchmark-activity)
                            (score-agent-result-sync-inspect suite
                                                             case
                                                             prepared
-                                                            artifact-opts))
+                                                            artifact-opts)
+                           (:syncInspect run-summary))
           maintenance-preflight (when (or run-summary
                                           context-ranks
                                           hints
@@ -701,6 +837,8 @@
         (assoc :agraphHints {:diagnostics hint-diagnostics})
         graph-expectations
         (assoc :graphExpectations graph-expectations)
+        benchmark-activity
+        (assoc :benchmarkActivity (:activity benchmark-activity))
         sync-inspect
         (assoc :syncInspect sync-inspect)
         maintenance-preflight
@@ -755,6 +893,23 @@
                        (get-in packet [:artifacts :agraphContextPath]))
         hints (read-agent-hints (get-in packet [:artifacts :agraphHintsPath]))
         hint-diagnostics (not-empty (vec (:diagnostics hints)))
+        status (if (:artifact-ok? read-result)
+                 "passed"
+                 "failed")
+        benchmark-activity (when agraph-summary
+                             (record-benchmark-agent-activity-from-artifacts!
+                              suite
+                              case
+                              prepared
+                              opts
+                              agent-result
+                              result-path
+                              status))
+        sync-inspect (or (:syncInspect benchmark-activity)
+                         (:syncInspect agraph-summary))
+        agraph-summary (cond-> agraph-summary
+                         sync-inspect
+                         (assoc :syncInspect sync-inspect))
         maintenance-preflight (when agraph-summary
                                 (benchmark-preflight/maintenance-preflight
                                  {:index-summary (:indexSummary agraph-summary)
@@ -762,7 +917,7 @@
                                   :graph-expectations (:graphExpectations agraph-summary)
                                   :expectations (:expectations prepared)
                                   :hints hints
-                                  :sync-inspect (:syncInspect agraph-summary)}))
+                                  :sync-inspect sync-inspect}))
         scored (cond-> (assoc (score-agent-result prepared agent-result)
                               :agentResultPath (fs/canonical-path result-path)
                               :parserWorker (parser-worker-profile opts))
@@ -772,13 +927,12 @@
                  (assoc :agraphHints {:diagnostics hint-diagnostics})
                  maintenance-preflight
                  (assoc :maintenancePreflight maintenance-preflight)
-                 (:syncInspect agraph-summary)
-                 (assoc :syncInspect (:syncInspect agraph-summary))
+                 benchmark-activity
+                 (assoc :benchmarkActivity (:activity benchmark-activity))
+                 sync-inspect
+                 (assoc :syncInspect sync-inspect)
                  (:graphExpectations agraph-summary)
                  (assoc :graphExpectations (:graphExpectations agraph-summary)))
-        status (if (:artifact-ok? read-result)
-                 "passed"
-                 "failed")
         run {:schema agent-run-schema
              :suite-id (:suite-id prepared)
              :case-id (:case-id prepared)
@@ -805,7 +959,8 @@
                                 :agentRunPath (fs/canonical-path run-path)}
                                logs)
              :agraph agraph-summary
-             :syncInspect (:syncInspect agraph-summary)
+             :benchmarkActivity (:activity benchmark-activity)
+             :syncInspect sync-inspect
              :maintenancePreflight maintenance-preflight
              :graphExpectations (:graphExpectations agraph-summary)
              :scores (:scores scored)
