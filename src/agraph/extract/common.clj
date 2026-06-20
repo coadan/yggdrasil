@@ -290,12 +290,16 @@
       (str/replace #"\.d\.ts$" "")
       (str/replace #"\.(astro|mjs|cjs|jsx|js|tsx|ts|scss|css|json|svelte|vue)$" "")))
 
+(defn- drop-resource-suffix
+  [value]
+  (str/replace (str value) #"[?#].*$" ""))
+
 (defn resolve-relative-source-target
   [path target]
   (let [base (->> (str/split path #"/")
                   drop-last
                   vec)]
-    (loop [parts (concat base (str/split target #"/"))
+    (loop [parts (concat base (str/split (drop-resource-suffix target) #"/"))
            out []]
       (if-let [part (first parts)]
         (case part
@@ -316,18 +320,28 @@
 
 (defn js-import-targets
   [idx path line]
-  (let [patterns [#"^\s*import\s+(?:type\s+)?(?:[^\"']+\s+from\s+)?[\"']([^\"']+)[\"'].*"
-                  #"^\s*export\s+(?:type\s+)?[^\"']+\s+from\s+[\"']([^\"']+)[\"'].*"
-                  #"\brequire\s*\(\s*[\"']([^\"']+)[\"']\s*\)"
-                  #"\bimport\s*\(\s*[\"']([^\"']+)[\"']\s*\)"]]
+  (let [patterns [{:re #"^\s*import\s+type\s+(?:[^\"']+\s+from\s+)?[\"']([^\"']+)[\"'].*"
+                   :import-kind :type}
+                  {:re #"^\s*import\s+(?!type\b)(?:[^\"']+\s+from\s+)?[\"']([^\"']+)[\"'].*"}
+                  {:re #"^\s*export\s+type\s+[^\"']+\s+from\s+[\"']([^\"']+)[\"'].*"
+                   :import-kind :type}
+                  {:re #"^\s*export\s+(?!type\b)[^\"']+\s+from\s+[\"']([^\"']+)[\"'].*"}
+                  {:re #"\brequire\s*\(\s*[\"']([^\"']+)[\"']\s*\)"}
+                  {:re #"\bimport\s*\(\s*[\"']([^\"']+)[\"']\s*\)"}]]
     (->> patterns
-         (mapcat #(re-seq % line))
-         (map second)
-         (remove str/blank?)
-         (map #(js-import-target path %))
-         (map (fn [target]
-                {:target target
-                 :source-line (inc idx)}))
+         (mapcat (fn [{:keys [re import-kind]}]
+                   (map (fn [match]
+                          {:target (second match)
+                           :import-kind import-kind})
+                        (re-seq re line))))
+         (remove #(str/includes? (str (:target %)) "${"))
+         (remove #(str/includes? (str (:target %)) "}"))
+         (map #(update % :target (partial js-import-target path)))
+         (remove #(str/blank? (:target %)))
+         (map (fn [{:keys [target import-kind]}]
+                (cond-> {:target target
+                         :source-line (inc idx)}
+                  import-kind (assoc :import-kind import-kind))))
          distinct)))
 
 (defn js-identifier

@@ -931,9 +931,13 @@
         result (extract/extract-file "run/test" file)
         labels (set (map :label (:nodes result)))
         relations (frequencies (map :relation (:edges result)))
+        import-edges (filter #(= :imports (:relation %)) (:edges result))
         import-targets (set (map :target-id
-                                 (filter #(= :imports (:relation %))
-                                         (:edges result))))]
+                                 import-edges))
+        types-import-edge (some #(when (= (extract/node-id :namespace "src.web.types")
+                                          (:target-id %))
+                                   %)
+                                import-edges)]
     (is (= :typescript (:kind file)))
     (is (contains? labels "src.web.app"))
     (is (contains? labels "src.web.app/helper"))
@@ -951,6 +955,7 @@
                    (extract/node-id :namespace "src.web.loader")))
     (is (contains? import-targets
                    (extract/node-id :namespace "src.web.data")))
+    (is (= :type (:import-kind types-import-edge)))
     (is (= 4 (get relations :defines 0)))
     (is (= [:typescript-file
             :code-definition
@@ -962,6 +967,19 @@
                     (str/includes? (:text %) "const helper"))
               (:chunks result)))
     (is (empty? (:diagnostics result)))))
+
+(deftest extracts-static-js-imports-with-resource-query
+  (let [file {:file-id "file:src/assets/stackblitz.js"
+              :path "src/assets/stackblitz.js"
+              :kind :javascript
+              :content (str "import snippetsContent from './partials/snippets.js?raw'\n"
+                            "const code = \"require('${runnerPath}')\"\n")}
+        result (extract/extract-file "run/test" file)
+        import-targets (set (map :target-id
+                                 (filter #(= :imports (:relation %))
+                                         (:edges result))))]
+    (is (= #{(extract/node-id :namespace "src.assets.partials.snippets")}
+           import-targets))))
 
 (deftest extracts-typescript-commonjs-module-files
   (let [file {:file-id "file:scripts/panel.cts"

@@ -67,6 +67,7 @@
    [:resolved-version {:optional true} string?]
    [:dependency-scope {:optional true} [:or keyword? string?]]
    [:import-name {:optional true} string?]
+   [:import-kind {:optional true} keyword?]
    [:resolution-source {:optional true} keyword?]
    [:file-id string?]
    [:path string?]

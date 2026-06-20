@@ -121,12 +121,17 @@
         import-edges (->> lines
                           (map-indexed #(common/js-import-targets %1 path %2))
                           (mapcat identity)
-                          (mapv #(common/edge-row run-id file-id path
-                                                  (:xt/id ns-node)
-                                                  (common/node-id id-scope :namespace (:target %))
-                                                  :imports
-                                                  :extracted
-                                                  (:source-line %))))
+                          (mapv #(cond-> (common/edge-row
+                                          run-id
+                                          file-id
+                                          path
+                                          (:xt/id ns-node)
+                                          (common/node-id id-scope :namespace (:target %))
+                                          :imports
+                                          :extracted
+                                          (:source-line %))
+                                   (:import-kind %)
+                                   (assoc :import-kind (:import-kind %)))))
         chunk-text (str/join "\n" (take 100 lines))
         chunk-kind (case kind
                      :typescript :typescript-file
