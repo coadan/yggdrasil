@@ -134,12 +134,41 @@
       (pos? filtered-count)
       (assoc :coverageFilteredCandidateFiles filtered-count))))
 
+(defn- blocking-hint-diagnostic?
+  [row]
+  (not= "info" (str (:severity row))))
+
+(defn- hint-diagnostics-by-kind
+  [rows]
+  (->> rows
+       (group-by :kind)
+       (map (fn [[kind kind-rows]]
+              {:kind kind
+               :runs (count kind-rows)
+               :cases (count (set (map :case-id kind-rows)))
+               :caseIds (->> kind-rows
+                             (map :case-id)
+                             distinct
+                             sort
+                             vec)}))
+       (sort-by :kind)
+       vec))
+
+(defn- hint-diagnostic-case-ids
+  [rows]
+  (->> rows
+       (map :case-id)
+       distinct
+       sort
+       vec))
+
 (defn- aggregate-hint-diagnostics
   [result-pairs]
   (let [rows (->> result-pairs
                   (mapcat (fn [[result diagnostic]]
                             (map #(assoc % :case-id (:case-id result))
-                                 (:hintDiagnostics diagnostic)))))]
+                                 (:hintDiagnostics diagnostic)))))
+        blocking-rows (filterv blocking-hint-diagnostic? rows)]
     {:hintDiagnosticRows (count rows)
      :hintDiagnosticRuns (count (filter (comp :hasHintDiagnostics second)
                                         result-pairs))
@@ -149,20 +178,11 @@
                                  distinct
                                  sort
                                  vec)
-     :hintDiagnosticsByKind (->> rows
-                                 (group-by :kind)
-                                 (map (fn [[kind kind-rows]]
-                                        {:kind kind
-                                         :runs (count kind-rows)
-                                         :cases (count (set (map :case-id
-                                                                 kind-rows)))
-                                         :caseIds (->> kind-rows
-                                                       (map :case-id)
-                                                       distinct
-                                                       sort
-                                                       vec)}))
-                                 (sort-by :kind)
-                                 vec)}))
+     :hintDiagnosticsByKind (hint-diagnostics-by-kind rows)
+     :blockingHintDiagnosticRows (count blocking-rows)
+     :blockingHintDiagnosticRuns (count (hint-diagnostic-case-ids blocking-rows))
+     :blockingHintDiagnosticCaseIds (hint-diagnostic-case-ids blocking-rows)
+     :blockingHintDiagnosticsByKind (hint-diagnostics-by-kind blocking-rows)}))
 (defn- aggregate-agent-diagnostics
   [results]
   (let [diagnostics (map agent-output-diagnostic results)
@@ -653,6 +673,10 @@
   [agent-diagnostics]
   (->> (:hintDiagnosticsByKind agent-diagnostics)
        (mapv #(select-keys % [:kind :runs :cases :caseIds]))))
+(defn- blocking-hint-diagnostic-details
+  [agent-diagnostics]
+  (->> (:blockingHintDiagnosticsByKind agent-diagnostics)
+       (mapv #(select-keys % [:kind :runs :cases :caseIds]))))
 (defn- hint-diagnostic-detail
   [hint-details kind]
   (first (filter #(= kind (:kind %)) hint-details)))
@@ -665,6 +689,7 @@
         graph-expectations (:graphExpectationDiagnostics report)
         artifacts (:artifactDiagnostics report)
         hint-details (hint-diagnostic-details agent-diagnostics)
+        blocking-hint-details (blocking-hint-diagnostic-details agent-diagnostics)
         audit-scope-trust-boundary (hint-diagnostic-detail
                                     hint-details
                                     "audit-scope-trust-boundary")
@@ -726,10 +751,10 @@
             (improvement-row
              {:kind "hint-diagnostics"
               :area "agent-context-quality"
-              :runs (:hintDiagnosticRuns agent-diagnostics)
-              :case-ids (:hintDiagnosticCaseIds agent-diagnostics)
-              :message "AGraph hints contained diagnostics that should be inspected before trusting benchmark outcomes."
-              :details hint-details})
+              :runs (:blockingHintDiagnosticRuns agent-diagnostics)
+              :case-ids (:blockingHintDiagnosticCaseIds agent-diagnostics)
+              :message "AGraph hints contained warning/error diagnostics that should be inspected before trusting benchmark outcomes."
+              :details blocking-hint-details})
             (improvement-row
              {:kind "audit-scope-trust-boundary"
               :area "audit-scope-quality"
@@ -746,12 +771,6 @@
               :message "Source coverage hints reported skipped files that should be reviewed before treating missing facts as absent."
               :details (when source-skipped-files
                          [source-skipped-files])})
-            (improvement-row
-             {:kind "coverage-filtered-candidates"
-              :area "agent-context-quality"
-              :runs (:coverageFilteredRuns agent-diagnostics)
-              :case-ids (:coverageFilteredCaseIds agent-diagnostics)
-              :message "Coverage declarations filtered candidate files out of the agent shortlist."})
             (improvement-row
              {:kind "graph-expectation-failures"
               :area "graph-fact-quality"

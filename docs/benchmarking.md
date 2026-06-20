@@ -246,8 +246,11 @@ generated output root.
   files, missing declared source kinds, and indexed source extraction
   diagnostics. Audit-scope counters with skipped files, extractor diagnostics,
   or unclassified extractor rows also produce hint diagnostics so benchmark
-  reports can distinguish audit-scope family gaps from ranking misses. Hints
-  and deterministic AGraph baseline results flatten context
+  reports can distinguish audit-scope family gaps from ranking misses. Hint
+  rows carry severity: info rows such as expected coverage filtering remain
+  telemetry, while warning/error rows feed the generic `hint-diagnostics`
+  improvement target. Hints and deterministic AGraph baseline results flatten
+  context
   drilldowns, legacy `answerability.next`, structured packet `nextActions`, and
   `architecture.validationGaps.nextActions` into `commands` so agents see
   bounded follow-up checks without inspecting nested context JSON.
@@ -277,7 +280,8 @@ generated output root.
   runs and candidate files, warning-bearing runs, and missing predicted paths so
   benchmark failures point to the next mechanical fix instead of only reporting
   a score. When AGraph-mode runs generated hint diagnostics, reports count
-  those rows by kind so help-quality issues are visible in aggregate.
+  all rows by kind, and separately count blocking warning/error rows for
+  result-health improvement targets.
   Reports also include `improvementSummary`, a compact ordered list of
   mechanically derived remediation targets such as extraction/retrieval gaps,
   ranking or context-budget misses, citation gaps, coverage declaration issues,
@@ -747,9 +751,12 @@ given.
   ground-truth files, and unsupported ground-truth files as lower-is-better
   regressions when reports are comparable.
 - `improvementSummary`: ordered remediation targets derived from the report
-  diagnostics. `agent-compare` sums their `runs` as `improvementTargetRuns`,
-  exposes `improvementTargetRunsByKind`, and treats total or per-kind increases
-  as lower-is-better regressions when reports are comparable.
+  diagnostics. Generic `hint-diagnostics` targets count only warning/error hint
+  rows; info-only rows such as ordinary coverage filtering stay in
+  `agentDiagnostics`. `agent-compare` sums `improvementSummary` `runs` as
+  `improvementTargetRuns`, exposes `improvementTargetRunsByKind`, and treats
+  total or per-kind increases as lower-is-better regressions when reports are
+  comparable.
 - `artifactDiagnostics`: aggregate score-artifact freshness counters.
   `agent-compare` treats increases in unverified score runs, obsolete score
   schema runs, obsolete agent-result schema runs, and stale score runs as

@@ -232,6 +232,13 @@
                                        :runs 1
                                        :cases 1
                                        :caseIds ["case-1"]}]
+              :blockingHintDiagnosticRows 1
+              :blockingHintDiagnosticRuns 1
+              :blockingHintDiagnosticCaseIds ["case-1"]
+              :blockingHintDiagnosticsByKind [{:kind "audit-scope-trust-boundary"
+                                               :runs 1
+                                               :cases 1
+                                               :caseIds ["case-1"]}]
               :warnings 1}
              (:agentDiagnostics report)))
       (is (= {:runs 2
@@ -251,21 +258,12 @@
               "hint-diagnostics"
               "audit-scope-trust-boundary"
               "source-skipped-files"
-              "coverage-filtered-candidates"
               "graph-expectation-failures"
               "commandless-runs"
               "warning-runs"
               "unverified-score-artifacts"]
              (mapv :kind (:improvementSummary report))))
       (is (= [{:kind "audit-scope-trust-boundary"
-               :runs 1
-               :cases 1
-               :caseIds ["case-1"]}
-              {:kind "coverage-filtered-candidate-files"
-               :runs 1
-               :cases 1
-               :caseIds ["case-1"]}
-              {:kind "source-skipped-files"
                :runs 1
                :cases 1
                :caseIds ["case-1"]}]
@@ -543,7 +541,6 @@
               "hint-diagnostics"
               "audit-scope-trust-boundary"
               "source-skipped-files"
-              "coverage-filtered-candidates"
               "graph-expectation-failures"
               "warning-runs"
               "unverified-score-artifacts"]
