@@ -63,6 +63,16 @@
     (when (pos? idx)
       (subs path 0 idx))))
 
+(defn- filename
+  [path]
+  (last (str/split (str path) #"/")))
+
+(defn- extension
+  [path]
+  (some-> (re-find #"\.([A-Za-z0-9]+)$" (str path))
+          second
+          str/lower-case))
+
 (defn- ancestor-paths
   [path filename]
   (loop [dir (dirname path)
@@ -74,6 +84,14 @@
 (defn- nearest-manifest
   [manifest-paths source-path filename]
   (some #(when (contains? manifest-paths %) %) (ancestor-paths source-path filename)))
+
+(defn- ancestor-dir?
+  [ancestor path]
+  (let [ancestor (or ancestor "")
+        dir (or (dirname path) "")]
+    (or (str/blank? ancestor)
+        (= ancestor dir)
+        (str/starts-with? dir (str ancestor "/")))))
 
 (defn- js-package-name
   [target]
@@ -105,6 +123,28 @@
        first
        :package-name))
 
+(def ^:private dotnet-manifest-extensions
+  #{"csproj" "fsproj" "vbproj" "props" "targets"})
+
+(def ^:private dotnet-manifest-filenames
+  #{"packages.config" "nuget.config"})
+
+(defn- dotnet-manifest?
+  [path]
+  (let [name (str/lower-case (filename path))]
+    (or (contains? dotnet-manifest-extensions (extension path))
+        (contains? dotnet-manifest-filenames name))))
+
+(defn- dotnet-packages-for-source
+  [packages-by-manifest source-path]
+  (->> packages-by-manifest
+       (filter (fn [[manifest-path _packages]]
+                 (and (dotnet-manifest? manifest-path)
+                      (ancestor-dir? (dirname manifest-path) source-path))))
+       (mapcat val)
+       (filter #(= :nuget (:ecosystem %)))
+       vec))
+
 (defn- package-by-manifest
   [nodes edges]
   (let [nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)]
@@ -131,6 +171,37 @@
   (let [matches (filter #(= package-name (:package-name %)) packages)]
     (when (= 1 (count matches))
       (first matches))))
+
+(defn- segment-prefix?
+  [prefix value]
+  (or (= prefix value)
+      (str/starts-with? value (str prefix "."))))
+
+(defn- dotnet-package-match-score
+  [target package-name]
+  (let [target (str/lower-case (str target))
+        package-name (str/lower-case (str package-name))]
+    (cond
+      (= target package-name) 3
+      (segment-prefix? package-name target) 2
+      (segment-prefix? target package-name) 1
+      :else nil)))
+
+(defn- dotnet-package
+  [packages target]
+  (let [matches (->> packages
+                     (keep (fn [package]
+                             (when-let [score (dotnet-package-match-score
+                                               target
+                                               (:package-name package))]
+                               (assoc package :match-score score))))
+                     (sort-by (juxt (comp - :match-score)
+                                    (comp - count :package-name)))
+                     vec)
+        best-score (:match-score (first matches))
+        best (filter #(= best-score (:match-score %)) matches)]
+    (when (= 1 (count best))
+      (dissoc (first best) :match-score))))
 
 (defn- import-prefix-match?
   [target import-name]
@@ -184,11 +255,18 @@
   [target]
   (first (str/split (str target) #"\.")))
 
+(defn- local-namespace-import?
+  [nodes-by-id edge]
+  (let [target (get nodes-by-id (:target-id edge))]
+    (and (= :namespace (:kind target))
+         (seq (:path target)))))
+
 (defn- package-import-candidate?
-  [files-by-path edge]
+  [files-by-path nodes-by-id edge]
   (let [target (namespace-target (:target-id edge))
         kind (source-kind files-by-path (:path edge))]
     (and target
+         (not (local-namespace-import? nodes-by-id edge))
          (contains? package-import-source-kinds kind)
          (case kind
            (:javascript :typescript :astro :vue :svelte)
@@ -218,7 +296,7 @@
        vec))
 
 (def ^:private directly-resolvable-import-ecosystems
-  #{:npm :cargo :go :pypi})
+  #{:npm :cargo :go :pypi :nuget})
 
 (defn- directly-resolvable-package?
   [package]
@@ -289,6 +367,11 @@
             (let [packages (packages-for packages-by-manifest manifest-path :pypi)]
               (package-by-import-name packages target)))
 
+          (= :dotnet kind)
+          (let [packages (dotnet-packages-for-source packages-by-manifest (:path edge))]
+            (package-result (dotnet-package packages target)
+                            :declared))
+
           :else nil))))
 
 (defn- dependency-edge-id
@@ -350,6 +433,7 @@
          nodes (active-scope-rows xtdb (:nodes store/tables) scope)
          requires-edges (active-scope-edge-rows xtdb scope #{:requires})
          files-by-path (into {} (map (juxt :path identity)) files)
+         nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
          packages-by-id (->> nodes
                              (filter package-node?)
                              (map (juxt :xt/id identity))
@@ -360,7 +444,9 @@
        []
        (let [source-edges (active-scope-edge-rows xtdb scope #{:imports :uses})
              candidate-edges (->> source-edges
-                                  (filter #(package-import-candidate? files-by-path %)))]
+                                  (filter #(package-import-candidate? files-by-path
+                                                                      nodes-by-id
+                                                                      %)))]
          (->> candidate-edges
               (keep (fn [edge]
                       (when-let [result (resolve-import packages-by-id
@@ -591,7 +677,9 @@
          imports (filter (partial relation? :imports-package) edges)
          source-edges (filter #(contains? #{:imports :uses} (:relation %))
                               edges)
-         candidate-source-edges (filter #(package-import-candidate? files-by-path %)
+         candidate-source-edges (filter #(package-import-candidate? files-by-path
+                                                                    nodes-by-id
+                                                                    %)
                                         source-edges)
          report-imports (vec (concat imports
                                      (map-overlay-import-edges project-id

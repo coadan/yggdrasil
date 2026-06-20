@@ -130,6 +130,82 @@
                                                    :import "org.slf4j"}]}})]
       (is (= [:java] (mapv :source-kind edges))))))
 
+(deftest import-package-resolution-resolves-dotnet-nuget-imports
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "tests/App.cs"
+                                          :kind :dotnet
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "manifest:tests:csproj"
+                                          :kind :manifest
+                                          :path "tests/App.csproj"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:nuget:BenchmarkDotNet"
+                                          :kind :external-package
+                                          :ecosystem :nuget
+                                          :package-name "BenchmarkDotNet"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:nuget:ef-sqlserver"
+                                          :kind :external-package
+                                          :ecosystem :nuget
+                                          :package-name "Microsoft.EntityFrameworkCore.SqlServer"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires
+                            [{:source-id "manifest:tests:csproj"
+                              :target-id "pkg:nuget:BenchmarkDotNet"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "manifest:tests:csproj"
+                              :target-id "pkg:nuget:ef-sqlserver"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:App"
+                              :target-id "node:namespace:BenchmarkDotNet.Attributes"
+                              :relation :imports
+                              :path "tests/App.cs"
+                              :source-line 1
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "node:namespace:App"
+                              :target-id "node:namespace:Microsoft.EntityFrameworkCore"
+                              :relation :imports
+                              :path "tests/App.cs"
+                              :source-line 2
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :uses []
+                            []))]
+    (let [edges (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})]
+      (is (= #{"BenchmarkDotNet" "Microsoft.EntityFrameworkCore.SqlServer"}
+             (set (map :package-name edges))))
+      (is (= #{:dotnet} (set (map :source-kind edges))))
+      (is (= #{:declared} (set (map :resolution-source edges)))))))
+
 (deftest package-report-ignores-ci-workflow-edges-as-package-import-candidates
   (with-redefs [store/rows-by-field (fn [_ table _ _]
                                       (case table
@@ -228,3 +304,51 @@
       (is (= 2 (get-in report [:counts :source-import-candidates])))
       (is (= ["Xunit" "requests"]
              (sort (map :import (:unresolved-imports report))))))))
+
+(deftest package-report-ignores-locally-defined-namespace-imports
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "src/App.cs"
+                                          :kind :dotnet
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "src/Local.cs"
+                                          :kind :dotnet
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "node:namespace:Acme.Local"
+                                          :kind :namespace
+                                          :path "src/Local.cs"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/edges
+                                        [{:source-id "node:namespace:App"
+                                          :target-id "node:namespace:Acme.Local"
+                                          :relation :imports
+                                          :path "src/App.cs"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:App"
+                                          :target-id "node:namespace:Xunit"
+                                          :relation :imports
+                                          :path "src/App.cs"
+                                          :source-line 2
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [& _] [])]
+    (let [report (dependency/package-report :xtdb
+                                            {:project-id "project-a"
+                                             :repo-id "repo-a"}
+                                            {})]
+      (is (= 1 (get-in report [:counts :source-import-candidates])))
+      (is (= ["Xunit"]
+             (mapv :import (:unresolved-imports report)))))))
