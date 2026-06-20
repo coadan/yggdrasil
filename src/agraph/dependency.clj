@@ -238,6 +238,15 @@
 (def ^:private rust-builtin-roots
   #{"alloc" "core" "crate" "self" "std" "super"})
 
+(def ^:private js-runtime-builtin-roots
+  #{"assert" "buffer" "child_process" "cluster" "console" "crypto" "dgram" "dns"
+    "domain" "events" "fs" "http" "http2" "https" "module" "net" "os" "path"
+    "perf_hooks" "process" "querystring" "readline" "stream" "string_decoder"
+    "timers" "tls" "tty" "url" "util" "v8" "vm" "worker_threads" "zlib"})
+
+(def ^:private js-runtime-virtual-prefixes
+  #{"astro:" "bun:" "node:"})
+
 (def ^:private python-stdlib-roots
   #{"argparse" "asyncio" "base64" "collections" "contextlib" "csv" "dataclasses"
     "datetime" "decimal" "enum" "functools" "gzip" "hashlib" "http" "importlib"
@@ -255,6 +264,15 @@
   [target]
   (first (str/split (str target) #"\.")))
 
+(defn- slash-import-root
+  [target]
+  (first (str/split (str target) #"/")))
+
+(defn- js-runtime-import?
+  [target]
+  (or (contains? js-runtime-builtin-roots (slash-import-root target))
+      (some #(str/starts-with? target %) js-runtime-virtual-prefixes)))
+
 (defn- local-namespace-import?
   [nodes-by-id edge]
   (let [target (get nodes-by-id (:target-id edge))]
@@ -271,7 +289,7 @@
          (case kind
            (:javascript :typescript :astro :vue :svelte)
            (and (not (str/starts-with? target "."))
-                (not (str/starts-with? target "node:")))
+                (not (js-runtime-import? target)))
 
            :rust
            (let [root (rust-import-root target)]

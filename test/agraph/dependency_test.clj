@@ -259,6 +259,16 @@
                                           :kind :dotnet
                                           :active? true
                                           :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "src/runtime.js"
+                                          :kind :javascript
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "src/View.astro"
+                                          :kind :astro
+                                          :active? true
+                                          :project-id "project-a"
                                           :repo-id "repo-a"}]
                                         :agraph/nodes
                                         []
@@ -294,6 +304,46 @@
                                           :source-line 2
                                           :active? true
                                           :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:runtime"
+                                          :target-id "node:namespace:fs"
+                                          :relation :imports
+                                          :path "src/runtime.js"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:runtime"
+                                          :target-id "node:namespace:node:path"
+                                          :relation :imports
+                                          :path "src/runtime.js"
+                                          :source-line 2
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:runtime"
+                                          :target-id "node:namespace:bun:test"
+                                          :relation :imports
+                                          :path "src/runtime.js"
+                                          :source-line 3
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:View"
+                                          :target-id "node:namespace:astro:content"
+                                          :relation :imports
+                                          :path "src/View.astro"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:View"
+                                          :target-id "node:namespace:react"
+                                          :relation :imports
+                                          :path "src/View.astro"
+                                          :source-line 2
+                                          :active? true
+                                          :project-id "project-a"
                                           :repo-id "repo-a"}]
                                         []))
                 store/q (fn [& _] [])]
@@ -301,8 +351,8 @@
                                             {:project-id "project-a"
                                              :repo-id "repo-a"}
                                             {})]
-      (is (= 2 (get-in report [:counts :source-import-candidates])))
-      (is (= ["Xunit" "requests"]
+      (is (= 3 (get-in report [:counts :source-import-candidates])))
+      (is (= ["Xunit" "react" "requests"]
              (sort (map :import (:unresolved-imports report))))))))
 
 (deftest package-report-ignores-locally-defined-namespace-imports
