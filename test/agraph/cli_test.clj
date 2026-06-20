@@ -1,25 +1,12 @@
 (ns agraph.cli-test
   (:require [agraph.affected :as affected]
             [agraph.agent-install :as agent-install]
-            [agraph.activity :as activity]
-            [agraph.audit-scope :as audit-scope]
             [agraph.benchmark :as benchmark]
             [agraph.cli :as cli]
-            [agraph.context :as context]
-            [agraph.coverage :as coverage]
-            [agraph.cursor :as cursor]
-            [agraph.dependency-review :as dependency-review]
-            [agraph.evidence :as evidence]
-            [agraph.graph :as graph]
+            [agraph.cli-bench :as cli-bench]
             [agraph.hook :as hook]
-            [agraph.init :as init]
-            [agraph.infra-review :as infra-review]
-            [agraph.map :as graph-map]
             [agraph.plugin-package :as plugin-package]
             [agraph.project :as project]
-            [agraph.queue :as queue]
-            [agraph.query :as query]
-            [agraph.system.decision-classifier :as decision-classifier]
             [agraph.report :as report]
             [agraph.watch :as watch]
             [agraph.xtdb :as store]
@@ -966,7 +953,7 @@
 
 (deftest benchmark-summary-prints-agent-baseline-scores
   (let [out (with-out-str
-              (#'cli/print-benchmark-summary
+              (cli-bench/print-benchmark-summary
                {:schema benchmark/agent-baselines-schema
                 :suite-id "suite"
                 :completed 1
@@ -1005,7 +992,7 @@
 
 (deftest benchmark-summary-prints-parser-worker-profiles
   (let [out (with-out-str
-              (#'cli/print-benchmark-summary
+              (cli-bench/print-benchmark-summary
                {:schema benchmark/agent-report-schema
                 :suite-id "suite"
                 :cases 1
@@ -1030,7 +1017,7 @@
                      :warningRuns 1
                      :warningCaseIds ["case-3"]}
         report-out (with-out-str
-                     (#'cli/print-benchmark-summary
+                     (cli-bench/print-benchmark-summary
                       {:schema benchmark/agent-report-schema
                        :suite-id "suite"
                        :cases 3
@@ -1041,7 +1028,7 @@
                                 :evidenceCitationRate 0.75}
                        :agentDiagnostics diagnostics}))
         check-out (with-out-str
-                    (#'cli/print-benchmark-summary
+                    (cli-bench/print-benchmark-summary
                      {:schema benchmark/agent-check-schema
                       :suite-id "suite"
                       :status "failed"
@@ -1073,7 +1060,7 @@
                      :staleScoreRuns 1
                      :staleScoreCaseIds ["case-2"]}
         report-out (with-out-str
-                     (#'cli/print-benchmark-summary
+                     (cli-bench/print-benchmark-summary
                       {:schema benchmark/agent-report-schema
                        :suite-id "suite"
                        :cases 2
@@ -1084,7 +1071,7 @@
                                 :evidenceCitationRate 0.75}
                        :artifactDiagnostics diagnostics}))
         check-out (with-out-str
-                    (#'cli/print-benchmark-summary
+                    (cli-bench/print-benchmark-summary
                      {:schema benchmark/agent-check-schema
                       :suite-id "suite"
                       :status "failed"
@@ -1111,7 +1098,7 @@
                          :measuredArchitectureClassTags []
                          :warnings ["No measured architecture-class groups."]}
         report-out (with-out-str
-                     (#'cli/print-benchmark-summary
+                     (cli-bench/print-benchmark-summary
                       {:schema benchmark/agent-report-schema
                        :suite-id "suite"
                        :cases 2
@@ -1122,7 +1109,7 @@
                                 :evidenceCitationRate 0.75}
                        :claimReadiness claim-readiness}))
         check-out (with-out-str
-                    (#'cli/print-benchmark-summary
+                    (cli-bench/print-benchmark-summary
                      {:schema benchmark/agent-check-schema
                       :suite-id "suite"
                       :status "failed"
@@ -1143,7 +1130,7 @@
 
 (deftest benchmark-summary-prints-compare-comparability
   (let [out (with-out-str
-              (#'cli/print-benchmark-summary
+              (cli-bench/print-benchmark-summary
                {:schema benchmark/agent-compare-schema
                 :suite-id "suite"
                 :status "passed"

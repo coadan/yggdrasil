@@ -1,45 +1,32 @@
 (ns agraph.cli
   "Command line interface."
-  (:require [agraph.affected :as affected]
-            [agraph.agent-install :as agent-install]
-            [agraph.activity :as activity]
+  (:require [agraph.agent-install :as agent-install]
             [agraph.audit-scope :as audit-scope]
             [agraph.cli-bench :as cli-bench]
-            [agraph.cli-options :refer [append-option
-                                        dry-run?
+            [agraph.cli-options :refer [dry-run?
                                         json-output?
                                         option-value
-                                        parse-case-ids
                                         parse-depth
                                         parse-double-option
                                         parse-limit
                                         parse-long-option
-                                        parse-optional-double
                                         parse-optional-long
                                         positional-args
                                         project-scope
-                                        remove-option
                                         system-path?]]
-            [agraph.command :as command]
             [agraph.cli-query :as cli-query]
             [agraph.cli-start :as cli-start]
             [agraph.cli-sync :as cli-sync]
             [agraph.context :as context]
-            [agraph.coverage :as coverage]
             [agraph.cursor :as cursor]
             [agraph.dependency :as dependency]
             [agraph.dependency-review :as dependency-review]
             [agraph.embedding :as embedding]
-            [agraph.embedding.openai :as openai]
-            [agraph.embedding.openrouter :as openrouter]
             [agraph.evidence :as evidence]
             [agraph.graph :as graph]
-            [agraph.hash :as hash]
             [agraph.hook :as hook]
             [agraph.index :as index]
-            [agraph.init :as init]
             [agraph.infra-review :as infra-review]
-            [agraph.llm.openai-compatible :as llm]
             [agraph.map :as graph-map]
             [agraph.metadata :as metadata]
             [agraph.mcp :as mcp]
@@ -552,10 +539,6 @@
   (binding [cli-query/*deps* (query-deps)]
     (cli-query/report! args)))
 
-(defn- print-benchmark-summary
-  [result]
-  (cli-bench/print-benchmark-summary result))
-
 (defn- bench!
   [args]
   (cli-bench/bench! args
@@ -588,14 +571,6 @@
                      :maintenance-report maintenance-report
                      :enqueue-sync-work! enqueue-sync-work!
                      :queue-root queue-root}))
-
-(defn- start-next-actions
-  [project-id config-path map-path report-out]
-  (cli-start/start-next-actions project-id config-path map-path report-out))
-
-(defn- start-next-commands
-  [actions]
-  (cli-start/start-next-commands actions))
 
 (defn- agent!
   [args]

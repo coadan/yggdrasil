@@ -1,23 +1,14 @@
 (ns agraph.benchmark
   "Issue replay benchmarks for AGraph retrieval quality."
-  (:require [agraph.benchmark-classes :as benchmark-classes]
-            [agraph.benchmark-io :as benchmark-io]
+  (:require [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
-            [agraph.benchmark-progress :as benchmark-progress]
             [agraph.benchmark-score :as benchmark-score]
             [agraph.context :as context]
-            [agraph.extract :as extract]
             [agraph.fs :as fs]
-            [agraph.hash :as hash]
             [agraph.project :as project]
             [agraph.query :as query]
-            [agraph.text :as text]
             [agraph.xtdb :as store]
-            [charred.api :as json]
-            [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.java.shell :as shell]
-            [clojure.set :as set]
             [agraph.benchmark-expectations :as benchmark-expectations]
             [agraph.benchmark-suite :as benchmark-suite]
             [agraph.benchmark-prepare :as benchmark-prepare]
@@ -25,7 +16,6 @@
             [agraph.benchmark-hints :as benchmark-hints]
             [agraph.benchmark-agent-score :as benchmark-agent-score]
             [agraph.benchmark-results :as benchmark-results]
-            [agraph.benchmark-command-telemetry :as benchmark-command-telemetry]
             [agraph.benchmark-agent-run :as benchmark-agent-run]
             [agraph.benchmark-agent-packet :as benchmark-agent-packet]
             [agraph.benchmark-local-vector :as benchmark-local-vector]
@@ -34,8 +24,7 @@
             [agraph.benchmark-report :as benchmark-report]
             [agraph.benchmark-check :as benchmark-check]
             [agraph.benchmark-compare :as benchmark-compare]
-            [clojure.string :as str])
-  (:import [java.util.concurrent TimeUnit]))
+            [clojure.string :as str]))
 
 (def suite-schema
   "agraph.benchmark.suite/v1")
@@ -57,15 +46,6 @@
 
 (def agent-score-schema
   "agraph.benchmark.agent-score/v3")
-
-(def ^:private agent-run-modes
-  ["agraph" "shell-only"])
-
-(def ^:private agent-run-mode-set
-  (set agent-run-modes))
-
-(def ^:private agent-result-modes
-  ["agraph" "shell-only" "local-vector"])
 
 (def agent-report-schema
   "agraph.benchmark.agent-report/v1")
@@ -94,9 +74,6 @@
 (def report-schema
   "agraph.benchmark.report/v1")
 
-(def ^:private suspected-files-scope-rule
-  "Only include files likely to require edits in suspectedFiles; cite comparison, example, generated, or read-only support files as evidence instead.")
-
 (def default-limit
   50)
 
@@ -112,23 +89,11 @@
 (def default-agent-baseline-suspect-limit
   20)
 
-(def ^:private problem-class-minimum-cases
-  2)
-
 (def default-local-vector-model
   "sentence-transformers/all-MiniLM-L6-v2")
 
 (def default-local-vector-command
   "python3 scripts/local-vector-baseline.py")
-
-(def ^:private rank-blocker-limit
-  5)
-
-(def ^:private aggregate-rank-blocker-limit
-  20)
-
-(def ^:private aggregate-ranked-file-diagnostic-limit
-  20)
 
 (def default-agent-run-timeout-ms
   600000)
@@ -139,19 +104,11 @@
 (def supported-agent-prompt-profiles
   ["standard" "fast"])
 
-(declare agent-baseline-suspect-limit agent-prompt-profile agent-result-contract)
-
-(defn- parser-worker-option
-  [opts]
-  (benchmark-agent-packet/parser-worker-option opts))
+(declare agent-prompt-profile)
 
 (defn- parser-worker-profile
   [opts]
   (benchmark-agent-packet/parser-worker-profile opts))
-
-(defn- normalize-parser-worker-profile
-  [profile]
-  (benchmark-agent-packet/normalize-parser-worker-profile profile))
 
 (defn- agent-score-parser-worker-profile
   [opts agent-result]
@@ -160,10 +117,6 @@
 (defn- with-benchmark-parser-worker
   [opts f]
   (benchmark-agent-packet/with-benchmark-parser-worker opts f))
-
-(defn- shell-quote
-  [value]
-  (benchmark-agent-packet/shell-quote value))
 
 (defn- agent-mode
   [opts]
@@ -201,25 +154,9 @@
   [suite selector]
   (benchmark-suite/selected-cases suite selector))
 
-(defn- repo-by-id
-  [suite]
-  (benchmark-suite/repo-by-id suite))
-
 (defn- case-selector
   [opts]
   (benchmark-suite/case-selector opts))
-
-(defn- normalize-case-tag
-  [tag]
-  (benchmark-suite/normalize-case-tag tag))
-
-(defn- case-tags
-  [case]
-  (benchmark-suite/case-tags case))
-
-(defn- case-expectations
-  [case]
-  (benchmark-suite/case-expectations case))
 
 (defn- agent-baseline-result-path
   [suite case opts]
@@ -229,26 +166,12 @@
   [suite case opts result-file]
   (benchmark-paths/agent-score-path suite case opts result-file))
 
-(defn- normalize-source-kind
-  [value]
-  (benchmark-prepare/normalize-source-kind value))
-
-(defn- path-source-kind
-  ([path]
-   (benchmark-prepare/path-source-kind path))
-  ([kind-by-path path]
-   (benchmark-prepare/path-source-kind kind-by-path path)))
-
-(defn- scanned-path-kinds
-  [root]
-  (benchmark-prepare/scanned-path-kinds root))
-
 (defn issue-text
   "Return the fair issue text used as benchmark query input."
   [case]
   (benchmark-prepare/issue-text case))
 
-(defn- case-fingerprint
+(defn case-fingerprint
   [suite case]
   (benchmark-prepare/case-fingerprint suite case))
 
@@ -267,11 +190,11 @@
   [result]
   (benchmark-score/score-result result))
 
-(defn- expected-row-results
+(defn expected-row-results
   [rows expectations summarize]
   (benchmark-expectations/expected-row-results rows expectations summarize))
 
-(defn- forbidden-row-results
+(defn forbidden-row-results
   [rows expectations summarize]
   (benchmark-expectations/forbidden-row-results rows expectations summarize))
 
@@ -283,7 +206,7 @@
   [opts]
   (benchmark-agent-baseline/benchmark-index-options opts))
 
-(defn- context-ground-truth-ranks
+(defn context-ground-truth-ranks
   [prepared packet]
   (benchmark-agent-baseline/context-ground-truth-ranks prepared packet))
 
@@ -384,7 +307,7 @@
     "local-vector"
     "agraph"))
 
-(defn- current-agent-score-artifacts
+(defn current-agent-score-artifacts
   [suite case opts match]
   (benchmark-score-artifacts/current-agent-score-artifacts suite case opts match))
 
@@ -436,10 +359,6 @@
 
 (declare score-agent-result)
 
-(defn- agent-result-json-schema
-  []
-  (benchmark-agent-score/agent-result-json-schema))
-
 (defn score-agent-result
   "Score an agent localization result against a prepared case artifact."
   [prepared agent-result]
@@ -455,10 +374,6 @@
    (benchmark-prediction/context-packet->agent-result packet))
   ([packet opts]
    (benchmark-prediction/context-packet->agent-result packet opts)))
-
-(defn- packet-commands
-  [packet]
-  (benchmark-prediction/packet-commands packet))
 
 (defn- normalize-agent-result-identity
   [agent-result prepared]
@@ -496,15 +411,11 @@
   [suite case opts process-result]
   (benchmark-agent-run/write-agent-run-logs! suite case opts process-result))
 
-(defn- agent-result-contract
-  []
-  (benchmark-agent-run/agent-result-contract))
-
 (defn- write-agent-output-schema!
   [suite case opts]
   (benchmark-agent-run/write-agent-output-schema! suite case opts))
 
-(defn- agent-run-prompt
+(defn agent-run-prompt
   [packet result-path output-schema-path opts]
   (benchmark-agent-run/agent-run-prompt packet result-path output-schema-path opts))
 
@@ -771,14 +682,6 @@
     (benchmark-io/write-json-file! (benchmark-paths/agent-score-path suite case opts result-file) scored)
     scored))
 
-(defn- progress-summary
-  [suite case opts]
-  (benchmark-results/progress-summary suite case opts))
-
-(defn- aggregate-progress
-  [summaries]
-  (benchmark-results/aggregate-progress summaries))
-
 (defn case-result
   "Read one case result when it exists."
   [suite case opts]
@@ -789,11 +692,7 @@
   [suite case-id opts]
   (benchmark-results/show-case suite case-id opts))
 
-(defn- agent-score-results
-  [suite case opts]
-  (benchmark-score-artifacts/agent-score-results suite case opts))
-
-(defn- agent-output-diagnostic
+(defn agent-output-diagnostic
   [result]
   (benchmark-report/agent-output-diagnostic result))
 

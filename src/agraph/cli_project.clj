@@ -1,6 +1,6 @@
 (ns agraph.cli-project
   (:require [agraph.affected :as affected]
-            [agraph.cli-options :refer [json-output? option-value parse-double-option positional-args]]
+            [agraph.cli-options :refer [json-output? option-value positional-args]]
             [agraph.evidence :as evidence]
             [agraph.index :as index]
             [agraph.map :as graph-map]

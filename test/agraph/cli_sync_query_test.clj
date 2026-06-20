@@ -3,6 +3,7 @@
             [agraph.audit-scope :as audit-scope]
             [agraph.benchmark :as benchmark]
             [agraph.cli :as cli]
+            [agraph.cli-start :as cli-start]
             [agraph.context :as context]
             [agraph.coverage :as coverage]
             [agraph.cursor :as cursor]
@@ -335,7 +336,7 @@
                          call))
                      @calls)))))))
 (deftest start-next-actions-quote-shell-sensitive-values
-  (let [actions (#'cli/start-next-actions
+  (let [actions (cli-start/start-next-actions
                  "fixture project"
                  "Project Files/project.edn"
                  "Maps/agraph map.json"
@@ -347,7 +348,7 @@
                    "agraph report 'Project Files/project.edn' --map 'Maps/agraph map.json' --out 'Report Output'"))
     (is (contains? commands
                    "agraph agent install --platform codex --project"))
-    (is (= commands (set (#'cli/start-next-commands actions))))))
+    (is (= commands (set (cli-start/start-next-commands actions))))))
 (deftest sync-runs-index-infer-and-optional-check
   (let [calls (atom [])]
     (with-redefs [project/read-project (fn [path]

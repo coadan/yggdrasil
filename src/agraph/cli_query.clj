@@ -1,7 +1,6 @@
 (ns agraph.cli-query
   (:require [agraph.cli-options :refer [json-output? option-value parse-double-option parse-limit positional-args project-scope remove-option]]
             [agraph.context :as context]
-            [agraph.dependency :as dependency]
             [agraph.embedding.openai :as openai]
             [agraph.embedding.openrouter :as openrouter]
             [agraph.graph :as graph]

@@ -1,7 +1,6 @@
 (ns agraph.extract-language-test
   (:require [agraph.extract :as extract]
             [agraph.fs :as fs]
-            [agraph.hash :as hash]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
