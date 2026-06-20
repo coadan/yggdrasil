@@ -37,7 +37,7 @@
     (is (str/includes? (nth lines 4) "--mode shell-only"))
     (is (str/includes? (nth lines 5) "--mode agraph"))
     (is (str/includes? (nth lines 6)
-                       "bb efficiency .dev/agraph/headline-bench/custom/shell-only/agent-report.json"))
+                       "bb efficiency .dev/agraph/headline-bench/custom/shell-only/\\*/agent-report.json"))
     (is (str/includes? (nth lines 6) "--markdown-out"))
     (is (str/includes? (nth lines 6)
                        ".dev/agraph/headline-bench/custom/REPORT.md"))

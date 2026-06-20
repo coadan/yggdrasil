@@ -143,10 +143,24 @@ reports() {
     --out "$out/agraph"
 }
 
+report_path() {
+  local lane="$1"
+  if [[ "$dry_run" == true ]]; then
+    printf '%s\n' "$out/$lane/*/agent-report.json"
+    return 0
+  fi
+  local paths=("$out/$lane"/*/agent-report.json)
+  if [[ ${#paths[@]} -ne 1 || ! -f "${paths[0]}" ]]; then
+    echo "Expected exactly one agent report under $out/$lane" >&2
+    return 1
+  fi
+  printf '%s\n' "${paths[0]}"
+}
+
 compare() {
   run bb efficiency \
-    "$out/shell-only/agent-report.json" \
-    "$out/agraph/agent-report.json" \
+    "$(report_path shell-only)" \
+    "$(report_path agraph)" \
     --out "$out/summary.json" \
     --markdown-out "$out/REPORT.md"
 }
