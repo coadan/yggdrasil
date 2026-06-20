@@ -557,6 +557,105 @@
              (.isFile (io/file hints-path)))
     (benchmark-io/read-json-file hints-path)))
 
+(defn- read-json-artifact
+  [path]
+  (when (and path (.isFile (io/file path)))
+    (try
+      (benchmark-io/read-json-file path)
+      (catch Exception _
+        nil))))
+
+(defn- result-file-run-id
+  [result-file]
+  (some-> result-file
+          io/file
+          .getName
+          (str/replace #"\.json$" "")
+          benchmark-paths/safe-id))
+
+(defn- scoring-artifact-opts
+  [opts agent-result result-file]
+  (assoc opts
+         :agent-id
+         (or (:agent-id opts)
+             (some-> (:agentId agent-result) benchmark-paths/safe-id)
+             (result-file-run-id result-file))))
+
+(defn- same-file?
+  [a b]
+  (and (not (blankish? a))
+       (not (blankish? b))
+       (= (fs/canonical-path a) (fs/canonical-path b))))
+
+(defn- compatible-agent-run?
+  [prepared agent-result result-file run]
+  (and (= "agraph" (str (:mode run)))
+       (= (:case-id prepared) (:case-id run))
+       (or (blankish? (:agentId run))
+           (blankish? (:agentId agent-result))
+           (= (str (:agentId agent-result)) (str (:agentId run))))
+       (or (blankish? (get-in run [:artifacts :agentResultPath]))
+           (same-file? result-file (get-in run [:artifacts :agentResultPath])))))
+
+(defn- score-agent-result-graph-expectations
+  [suite case prepared opts]
+  (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
+    (when (.exists (io/file xtdb-dir))
+      (try
+        (store/with-node xtdb-dir
+          (fn [xtdb]
+            (evaluate-graph-expectations xtdb prepared)))
+        (catch Exception _
+          nil)))))
+
+(defn- score-agent-result-run-summary
+  [suite case prepared agent-result result-file opts]
+  (let [run (read-json-artifact (benchmark-paths/agent-run-path suite case opts))]
+    (when (compatible-agent-run? prepared agent-result result-file run)
+      (:agraph run))))
+
+(defn- augment-agraph-score-from-artifacts
+  [suite case opts prepared agent-result result-file scored]
+  (if (= "agraph" (str (get-in scored [:agent :mode])))
+    (let [artifact-opts (scoring-artifact-opts opts agent-result result-file)
+          run-summary (score-agent-result-run-summary suite
+                                                      case
+                                                      prepared
+                                                      agent-result
+                                                      result-file
+                                                      artifact-opts)
+          context-ranks (context-ground-truth-ranks-from-path
+                         prepared
+                         (benchmark-paths/agent-run-context-path suite case artifact-opts))
+          hints (read-agent-hints (benchmark-paths/agent-run-hints-path suite
+                                                                        case
+                                                                        artifact-opts))
+          hint-diagnostics (not-empty (vec (:diagnostics hints)))
+          graph-expectations (score-agent-result-graph-expectations suite
+                                                                    case
+                                                                    prepared
+                                                                    artifact-opts)
+          maintenance-preflight (when (or run-summary
+                                          context-ranks
+                                          hints
+                                          graph-expectations)
+                                  (benchmark-preflight/maintenance-preflight
+                                   {:index-summary (:indexSummary run-summary)
+                                    :system-summary (:systemSummary run-summary)
+                                    :graph-expectations graph-expectations
+                                    :expectations (:expectations prepared)
+                                    :hints hints}))]
+      (cond-> scored
+        context-ranks
+        (assoc :contextGroundTruthRanks context-ranks)
+        hint-diagnostics
+        (assoc :agraphHints {:diagnostics hint-diagnostics})
+        graph-expectations
+        (assoc :graphExpectations graph-expectations)
+        maintenance-preflight
+        (assoc :maintenancePreflight maintenance-preflight)))
+    scored))
+
 (defn agent-run!
   "Run one external agent command against a benchmark packet, then score it."
   [suite case opts]
@@ -689,11 +788,17 @@
                                         {:case-id (:id case)})))
         prepared (prepare-case! suite case opts)
         agent-result (benchmark-io/read-json-file result-file)
-        scored (assoc (score-agent-result prepared agent-result)
-                      :parserWorker (agent-score-parser-worker-profile
-                                     opts
-                                     agent-result)
-                      :agentResultPath (fs/canonical-path result-file))]
+        scored (->> (assoc (score-agent-result prepared agent-result)
+                           :parserWorker (agent-score-parser-worker-profile
+                                          opts
+                                          agent-result)
+                           :agentResultPath (fs/canonical-path result-file))
+                    (augment-agraph-score-from-artifacts suite
+                                                         case
+                                                         opts
+                                                         prepared
+                                                         agent-result
+                                                         result-file))]
     (benchmark-io/write-json-file! (benchmark-paths/agent-score-path suite case opts result-file) scored)
     scored))
 

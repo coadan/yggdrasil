@@ -271,7 +271,10 @@ generated output root.
   bound long-running agents. Use `--skip-existing` to resume interrupted agent
   runs with the same current-score matching rules as `agent-baseline`.
 - `bench agent-score <suite.edn> --case <case-id> --result result.json` scores
-  one agent result JSON against hidden ground truth.
+  one agent result JSON against hidden ground truth. For AGraph-mode results,
+  rescoring also refreshes compatible sibling context ranks, hint diagnostics,
+  current graph expectations, and maintenance preflight from existing benchmark
+  artifacts when the result path matches the recorded agent run.
 - `bench agent-report <suite.edn>` aggregates existing agent score artifacts
   across selected cases. Use `--mode agraph` or `--mode shell-only` to compare
   one benchmark mode at a time, and `--agent <agent-id>` to target one

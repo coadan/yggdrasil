@@ -1286,6 +1286,116 @@
                 :source "agent-result"}
                (:parserWorker scored)))))))
 
+(deftest score-agent-result-refreshes-agraph-maintenance-artifacts
+  (let [root (temp-dir "agraph-bench-agent-score-agraph-artifacts")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        suite {:id "suite"}
+        case {:id "case-1"}
+        result-path (.getPath (io/file root
+                                       "suite"
+                                       "cases"
+                                       "case-1"
+                                       "agent-results"
+                                       "codex.json"))
+        score-path (.getPath (io/file root
+                                      "suite"
+                                      "cases"
+                                      "case-1"
+                                      "agent-scores"
+                                      "codex.score.json"))
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :agentInputFingerprint "sha256:test-input"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :expectations {:nodes [{:kind :namespace
+                                          :path "src/app.clj"}]}
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :caseId "case-1"
+                      :caseFingerprint "sha256:test-case"
+                      :agentInputFingerprint "sha256:test-input"
+                      :agentId "codex"
+                      :mode "agraph"
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.8
+                                        :reason "AGraph context identified the file."
+                                        :evidence ["context-doc:src/app.clj"]}]
+                      :suspectedSymbols []
+                      :commands ["bb ask app --project suite-case-1"]
+                      :warnings []
+                      :summary "Found the app file."}
+        hint-diagnostic {:kind "source-extraction-diagnostics"
+                         :severity "warning"
+                         :case-id "case-1"
+                         :message "extractor emitted diagnostics"}
+        graph-expectations {:schema benchmark/graph-expectations-schema
+                            :status "passed"
+                            :summary {:expectedNodes 1
+                                      :foundNodes 1
+                                      :missingNodes 0}}
+        context-ranks {:files [{:path "src/app.clj"
+                                :rank 1
+                                :found? true}]
+                       :selection {:candidateFiles 1}}]
+    (spit-json! root
+                "suite/cases/case-1/agent-results/codex.json"
+                agent-result)
+    (spit-json! root
+                "suite/cases/case-1/agent-runs/codex.json"
+                {:schema benchmark/agent-run-schema
+                 :case-id "case-1"
+                 :agentId "codex"
+                 :mode "agraph"
+                 :status "passed"
+                 :artifacts {:agentResultPath result-path}
+                 :agraph {:indexSummary {:files 1}
+                          :systemSummary {:systems 1}}})
+    (spit-json! root
+                "suite/cases/case-1/agent-contexts/codex.agraph-hints.json"
+                {:schema benchmark/agent-hints-schema
+                 :diagnostics [hint-diagnostic]
+                 :architecture {:validationGaps []}})
+    (with-redefs [benchmark/prepare-case! (fn [_suite _case _opts] prepared)
+                  benchmark/score-agent-result-graph-expectations
+                  (fn [_suite _case _prepared _opts]
+                    graph-expectations)
+                  benchmark/context-ground-truth-ranks-from-path
+                  (fn [_prepared _path]
+                    context-ranks)]
+      (let [scored (benchmark/score-agent-result! suite
+                                                  case
+                                                  {:out root
+                                                   :result-path result-path})
+            written (json/read-json (slurp score-path) :key-fn keyword)]
+        (is (= graph-expectations (:graphExpectations scored)))
+        (is (= context-ranks (:contextGroundTruthRanks scored)))
+        (is (= {:diagnostics [hint-diagnostic]} (:agraphHints scored)))
+        (is (= "failed" (get-in scored [:maintenancePreflight :status])))
+        (is (= "passed"
+               (get-in scored
+                       [:maintenancePreflight :checks :graphExpectations :status])))
+        (is (= "failed"
+               (get-in scored
+                       [:maintenancePreflight :checks :hintDiagnostics :status])))
+        (is (= "passed"
+               (get-in scored
+                       [:maintenancePreflight :checks :syncCheck :status])))
+        (is (= (select-keys scored [:graphExpectations
+                                    :contextGroundTruthRanks
+                                    :agraphHints
+                                    :maintenancePreflight])
+               (select-keys written [:graphExpectations
+                                     :contextGroundTruthRanks
+                                     :agraphHints
+                                     :maintenancePreflight])))))))
+
 (deftest context-ground-truth-ranks-show-context-misses-separately
   (let [root (temp-dir "agraph-bench-context-ground-truth")
         _ (spit-file! root "src/visible.clj" "(ns visible)\n")
