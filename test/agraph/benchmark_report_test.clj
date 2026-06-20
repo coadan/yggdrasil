@@ -31,12 +31,22 @@
                       :status "weak"
                       :diagnostics [{:reason :candidate-unresolved
                                      :count 2
-                                     :message "Source import candidates were extracted, but some did not resolve to package facts."}]}]
+                                     :blocking true
+                                     :message "Source import candidates were extracted, but some did not resolve to package facts."}
+                                    {:reason :package-version-conflict
+                                     :count 9
+                                     :blocking false
+                                     :message "Package version conflicts are present in indexed dependency facts."}]}]
     :blockingValidationGaps [{:plane "dependencies"
                               :status "weak"
                               :diagnostics [{:reason :candidate-unresolved
                                              :count 2
-                                             :message "Source import candidates were extracted, but some did not resolve to package facts."}]}]}))
+                                             :blocking true
+                                             :message "Source import candidates were extracted, but some did not resolve to package facts."}
+                                            {:reason :package-version-conflict
+                                             :count 9
+                                             :blocking false
+                                             :message "Package version conflicts are present in indexed dependency facts."}]}]}))
 
 (deftest reports-agent-score-artifacts
   (let [out (temp-dir "agraph-agent-report")

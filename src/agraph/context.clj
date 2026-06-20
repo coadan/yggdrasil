@@ -61,6 +61,7 @@
    :dependencies [:external-packages
                   :package-import-edges
                   :declared-packages
+                  :source-import-candidates
                   :unresolved-imports
                   :package-evidence-gaps
                   :package-conflicts]
@@ -823,6 +824,7 @@
       :external-packages (count (filter #(= :external-package (:kind %)) nodes))
       :package-import-edges (count (filter #(= :imports-package (:relation %)) edges))
       :declared-packages (get package-counts :packages 0)
+      :source-import-candidates (get package-counts :source-import-candidates 0)
       :unresolved-imports (get package-counts :unresolved-imports 0)
       :package-evidence-gaps (get package-counts :declared-without-import-evidence 0)
       :package-conflicts (get package-counts :version-conflicts 0)
@@ -920,8 +922,11 @@
       (conj :source-files)
 
       (or (pos? (:unresolved-imports counts 0))
-          (pos? (:package-evidence-gaps counts 0))
-          (pos? (:package-conflicts counts 0)))
+          (and (pos? (:source-import-candidates counts 0))
+               (zero? (:declared-packages counts 0)))
+          (and (pos? (:declared-packages counts 0))
+               (zero? (:package-import-edges counts 0))
+               (zero? (:source-import-candidates counts 0))))
       (conj :dependencies)
 
       (and (pos? (+ (:system-nodes counts) (:system-edges counts)))

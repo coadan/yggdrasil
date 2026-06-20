@@ -152,11 +152,15 @@
   [value]
   (pos? (long (or value 0))))
 
+(declare dependency-diagnostics)
+
+(defn- blocking-diagnostic?
+  [diagnostic]
+  (not= false (:blocking diagnostic)))
+
 (defn- dependencies-weak?
   [counts]
-  (or (positive-count? (:package-evidence-gaps counts))
-      (positive-count? (:package-conflicts counts))
-      (positive-count? (:unresolved-imports counts))))
+  (boolean (some blocking-diagnostic? (dependency-diagnostics counts))))
 
 (defn- dependencies-not-applicable?
   [counts]
@@ -165,10 +169,13 @@
        (zero? (long (or (:package-imports counts) 0)))))
 
 (defn- diagnostic
-  [reason count message]
-  {:reason reason
-   :count (long (or count 0))
-   :message message})
+  ([reason count message]
+   (diagnostic reason count message true))
+  ([reason count message blocking?]
+   {:reason reason
+    :count (long (or count 0))
+    :blocking (boolean blocking?)
+    :message message}))
 
 (defn- dependency-diagnostics
   [counts]
@@ -177,16 +184,8 @@
         source-import-candidates (:source-import-candidates counts 0)
         package-evidence-gaps (:package-evidence-gaps counts 0)
         package-conflicts (:package-conflicts counts 0)
-        unresolved-imports (:unresolved-imports counts 0)
-        source-coverage-issues (+ (:skipped-files counts 0)
-                                  (:diagnostics counts 0))]
+        unresolved-imports (:unresolved-imports counts 0)]
     (cond-> []
-      (positive-count? source-coverage-issues)
-      (conj (diagnostic
-             :source-coverage-needs-review
-             source-coverage-issues
-             "Skipped files or extractor diagnostics are present; inspect coverage before treating missing dependency facts as absent."))
-
       (and (positive-count? source-import-candidates)
            (zero? (long (or packages 0))))
       (conj (diagnostic
@@ -212,13 +211,15 @@
       (conj (diagnostic
              :package-without-import-evidence
              package-evidence-gaps
-             "Declared package facts exist without matching source import evidence."))
+             "Declared package facts exist without matching source import evidence."
+             false))
 
       (positive-count? package-conflicts)
       (conj (diagnostic
              :package-version-conflict
              package-conflicts
-             "Package version conflicts are present in indexed dependency facts.")))))
+             "Package version conflicts are present in indexed dependency facts."
+             false)))))
 
 (defn- source-files-weak?
   [counts]

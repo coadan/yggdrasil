@@ -18,6 +18,7 @@
                                                         :unresolved-imports 2}
                                                :diagnostics [{:reason :candidate-unresolved
                                                               :count 2
+                                                              :blocking true
                                                               :message "Source import candidates were extracted, but some did not resolve to package facts."}]}
                                               {:family :activity
                                                :status :available
@@ -47,6 +48,7 @@
                       :unresolved-imports 2}
              :diagnostics [{:reason :candidate-unresolved
                             :count 2
+                            :blocking true
                             :message "Source import candidates were extracted, but some did not resolve to package facts."}]
              :nextActions [{:kind :dependency-review
                             :command "agraph sync check project.edn --enqueue"}]}

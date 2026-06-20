@@ -595,6 +595,7 @@
               :counts {:external-packages 1
                        :package-import-edges 1
                        :declared-packages 1
+                       :source-import-candidates 0
                        :unresolved-imports 0
                        :package-evidence-gaps 0
                        :package-conflicts 0}}
@@ -903,7 +904,10 @@
                                   [{:xt/id "package:npm:react"
                                     :kind :external-package
                                     :active? true}])
-                query/all-edges (fn [& _] [])
+                query/all-edges (fn [& _]
+                                  [{:xt/id "edge:src.react"
+                                    :relation :imports-package
+                                    :active? true}])
                 query/all-chunks (fn [& _] [])
                 query/all-search-docs (fn [& _] [])
                 query/all-embeddings (fn [& _] [])
@@ -913,6 +917,7 @@
                 dependency/package-report (fn [& _]
                                             {:counts {:packages 1
                                                       :imports-package 0
+                                                      :source-import-candidates 1
                                                       :unresolved-imports 0
                                                       :declared-without-import-evidence 1
                                                       :version-conflicts 1}})
@@ -928,7 +933,8 @@
                           :doc-count 0
                           :activity-count 0
                           :validation-count 0})]
-      (is (contains? (set (:weak answerability)) :dependencies))
+      (is (not (contains? (set (:weak answerability)) :dependencies)))
+      (is (contains? (set (:available answerability)) :dependencies))
       (is (= 1 (get-in answerability [:counts :package-evidence-gaps])))
       (is (= 1 (get-in answerability [:counts :package-conflicts])))
       (is (some #{"Some declared packages have no source import evidence."}

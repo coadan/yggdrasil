@@ -568,7 +568,8 @@
           (let [case-id (:case-id result)]
             (mapcat
              (fn [gap]
-               (let [diagnostics (seq (:diagnostics gap))
+               (let [diagnostics (seq (filter #(not= false (:blocking %))
+                                              (:diagnostics gap)))
                      base {:caseId case-id
                            :plane (str (:plane gap))
                            :status (str (:status gap))}]

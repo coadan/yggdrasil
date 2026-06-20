@@ -205,14 +205,13 @@
                          :package-conflicts 0
                          :unresolved-imports 1}}
                (select-keys dependency-family [:family :status :counts])))
-        (is (= [{:reason :source-coverage-needs-review
-                 :count 2
-                 :message "Skipped files or extractor diagnostics are present; inspect coverage before treating missing dependency facts as absent."}
-                {:reason :candidate-unresolved
+        (is (= [{:reason :candidate-unresolved
                  :count 1
+                 :blocking true
                  :message "Source import candidates were extracted, but some did not resolve to package facts."}
                 {:reason :package-without-import-evidence
                  :count 1
+                 :blocking false
                  :message "Declared package facts exist without matching source import evidence."}]
                (:diagnostics dependency-family))))
       (is (= {:family :source-files
@@ -334,6 +333,24 @@
                      :command "agraph sync coverage project.edn --json"}
                     %)
                 (:nextActions summary))))))
+
+(deftest dependency-advisory-diagnostics-do-not-make-family-weak
+  (let [counts {:packages 2
+                :package-imports 1
+                :source-import-candidates 1
+                :package-evidence-gaps 1
+                :package-conflicts 1
+                :unresolved-imports 0}]
+    (is (false? (#'evidence/dependencies-weak? counts)))
+    (is (= [{:reason :package-without-import-evidence
+             :count 1
+             :blocking false
+             :message "Declared package facts exist without matching source import evidence."}
+            {:reason :package-version-conflict
+             :count 1
+             :blocking false
+             :message "Package version conflicts are present in indexed dependency facts."}]
+           (#'evidence/dependency-diagnostics counts)))))
 
 (deftest summarize-exposes-system-evidence-family-and-fact-kinds
   (with-redefs [coverage/project-coverage (fn [& _]
