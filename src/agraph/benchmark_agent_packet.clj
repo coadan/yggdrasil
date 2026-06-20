@@ -21,9 +21,6 @@
 (def ^:private agent-run-mode-set
   (set agent-run-modes))
 
-(def ^:private suspected-files-scope-rule
-  "Only include files likely to require edits in suspectedFiles; cite comparison, example, generated, or read-only support files as evidence instead.")
-
 (defn parser-worker-option
   [opts]
   (extract/normalize-parser-worker-mode (:parser-worker opts)))
@@ -172,7 +169,7 @@
                                        "needed to fix the issue from the base checkout.")
                        :rules ["Use only the base checkout and issue text in this packet."
                                "Return ranked suspected files before attempting a patch."
-                               suspected-files-scope-rule
+                               (str/join " " benchmark-agent-run/suspected-files-scope-rules)
                                "Keep reasoning evidence-based and cite commands or graph context used."
                                "Do not inspect the fixing diff, PR body, post-fix commits, or ground-truth artifacts."]
                        :expectedResultSchema agent-result-schema

@@ -74,8 +74,12 @@
           (is (str/starts-with? (:agentInputFingerprint packet) "sha256:"))
           (is (not= (:caseFingerprint packet)
                     (:agentInputFingerprint packet)))
-          (is (contains? (set (get-in packet [:task :rules]))
-                         "Only include files likely to require edits in suspectedFiles; cite comparison, example, generated, or read-only support files as evidence instead."))
+          (is (some #(str/includes? % "Only include files likely to require edits in suspectedFiles")
+                    (get-in packet [:task :rules])))
+          (is (some #(str/includes? % "coverageSourceKinds")
+                    (get-in packet [:task :rules])))
+          (is (some #(str/includes? % "runtime/config/setup file may need edits")
+                    (get-in packet [:task :rules])))
           (is (= {:mode "none|java|dotnet|all"
                   :source "option|env|default|agent-result|unknown"}
                  (get-in packet [:task :resultContract :parserWorker])))
@@ -218,7 +222,9 @@
     (is (str/includes? prompt
                        "`commands` as bounded follow-up checks"))
     (is (str/includes? prompt
-                       "`architecture.validationGaps.nextActions`"))))
+                       "`architecture.validationGaps.nextActions`"))
+    (is (str/includes? prompt "coverageSourceKinds"))
+    (is (str/includes? prompt "runtime/config/setup file may need edits"))))
 (deftest agraph-agent-run-builds-context-artifacts-after-indexing
   (let [out (temp-dir "agraph-bench-agent-run-context-order")
         worktree (temp-dir "agraph-bench-agent-run-context-worktree")
@@ -371,6 +377,10 @@
                              "final response"))
           (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
                              "Only include files likely to require edits in suspectedFiles"))
+          (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
+                             "coverageSourceKinds"))
+          (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
+                             "runtime/config/setup file may need edits"))
           (is (= ["schema"
                   "caseId"
                   "caseFingerprint"

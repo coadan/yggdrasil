@@ -18,8 +18,10 @@
 (def supported-agent-prompt-profiles
   ["standard" "fast"])
 
-(def ^:private suspected-files-scope-rule
-  "Only include files likely to require edits in suspectedFiles; cite comparison, example, generated, or read-only support files as evidence instead.")
+(def suspected-files-scope-rules
+  ["Only include files likely to require edits in suspectedFiles; cite comparison, example, generated, or clearly read-only support files as evidence instead."
+   "When AGraph hints expose coverageSourceKinds or coverage-filtered diagnostics, check those source-kind lanes before finalizing suspectedFiles."
+   "If a runtime/config/setup file may need edits for the issue or test path, include it as a suspectedFile rather than citing it only as supporting evidence."])
 
 (defn- blankish?
   [value]
@@ -178,7 +180,7 @@
             "- Inspect at most 12 files or snippets."
             "- Prefer `rg`, focused `sed`, and packet-provided AGraph ask/explore commands."
             "- Return the best 1-5 suspected files as soon as evidence is sufficient."
-            (str "- " suspected-files-scope-rule)
+            (str "- " (str/join "\n- " suspected-files-scope-rules))
             "- If structured output is active, make the final response the result JSON."
             "- Otherwise write JSON to `AGRAPH_BENCH_RESULT`; do not include prose outside JSON."
             ""]
@@ -224,7 +226,7 @@
        ""
        "Read the packet, inspect the checkout, and write the ranked localization result JSON."
        "Return files before proposing or applying a patch."
-       suspected-files-scope-rule
+       (str/join "\n" suspected-files-scope-rules)
        ""
        "## Result Contract"
        (str "Write JSON with schema `" agent-result-schema "` to `AGRAPH_BENCH_RESULT`.")
