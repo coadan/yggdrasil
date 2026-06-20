@@ -25,6 +25,21 @@ Use the tracked headline suite to compare shell-only and AGraph-assisted agents
 on architecture-oriented tasks. Generated lane outputs stay under
 `.dev/agraph/headline-bench/` by default.
 
+The bounded headline claim is intentionally narrow:
+
+> For architecture-class tasks involving dependencies, runtime/config, or
+> audit-scope evidence, AGraph helps agents find the right evidence with less
+> exploratory work than shell-only workflows.
+
+The checked-in suite has five fixed cases, not an open-ended benchmark program:
+docs route impact, dependency/config wiring, database runtime ownership,
+JavaScript runtime boundary, and Dapper JSONB dependency/container evidence. The
+Axios runtime-boundary case is tagged `:shell-sufficient-control` because it is
+expected to be comparatively easy for ordinary shell exploration; it keeps the
+comparison from only selecting cases where AGraph should obviously help. Add a
+regression or inconclusive control only when there is an observed candidate from
+real lane output, not as synthetic ballast.
+
 Repeatable helper workflow:
 
 ```sh
@@ -97,6 +112,8 @@ Read `Problem-class signals`, `Architecture-class signals`, and
 lanes share completed cases, architecture-class tags are measured, evidence
 quality is available, expected-evidence citation metrics are present, and the
 report remains claim-ready. In `--json` output, read
+`compactSummary.verdict` first for the bounded helped/regressed/inconclusive
+answer and `compactSummary.why` for the short reason list. Then inspect
 `classSignals.problemClasses` and `classSignals.architectureClasses`; a row with
 `measured: false` is useful context but does not count toward broad claim
 readiness. Use `classSignals.summary.measuredProblemClasses` and

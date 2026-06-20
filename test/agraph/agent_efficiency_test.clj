@@ -178,6 +178,18 @@
         categories-by-key (into {} (map (juxt :category identity)) (:byCategory comparison))]
     (is (= "agraph.agent-efficiency/v1" (:schema comparison)))
     (is (= "agraph-improved" (:status comparison)))
+    (is (= {:verdict "inconclusive"
+            :status "agraph-improved"
+            :claimStatus "not-supported"
+            :sharedCases 2
+            :minSharedCases 2
+            :improvedMetrics 20
+            :regressedMetrics 0
+            :unavailableMetrics 5
+            :why ["20 directional metric(s) improved."
+                  "5 metric(s) were unavailable."
+                  "Claim readiness is not supported; use the warnings before making the benchmark claim."]}
+           (:compactSummary comparison)))
     (is (= [:fileRecallAt10
             :noiseRatioAt20
             :evidenceCitationRate
@@ -1045,6 +1057,9 @@
     (is (= agraph-path (get-in written [:inputs :agraphReport])))
     (is (.contains markdown "# AGraph Agent Efficiency"))
     (is (.contains markdown "- Status: agraph-improved"))
+    (is (.contains markdown "- Verdict: inconclusive"))
+    (is (.contains markdown "## Compact Verdict"))
+    (is (.contains markdown "Claim readiness is not supported"))
     (is (.contains markdown "## Inputs"))
     (is (.contains markdown (str "- Shell-only report: " shell-path)))
     (is (.contains markdown (str "- AGraph report: " agraph-path)))
@@ -1104,6 +1119,8 @@
                                       agraph-path
                                       "--markdown-out"
                                       (.getPath (io/file root "REPORT.md"))))]
+    (is (.contains out "Verdict: helped"))
+    (is (.contains out "Compared lanes are claim-ready for the measured architecture slice."))
     (is (.contains out "Category signals:"))
     (is (.contains out "observed metrics: 1"))
     (is (.contains out

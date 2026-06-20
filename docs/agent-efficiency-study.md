@@ -75,6 +75,13 @@ prepared cases, worktrees, graph stores, and reports under `.dev/` via `--out`.
 Use it as the architecture-class slice alongside historical issue replay; do
 not treat a simple localization-only suite as representative proof for AGraph.
 
+For the bounded architecture benchmark improvement slice, use
+`benchmarks/headline.edn` as the fixed five-case selector. It covers dependency
+and audit-scope evidence, runtime/config evidence, architecture boundaries, and
+one `:shell-sufficient-control` case where AGraph should not be expected to win
+by construction. Stop after this fixed set produces one comparison report; do
+not keep adding cases to rescue a weak result.
+
 ## Commands
 
 Use separate generated output roots so artifacts cannot overwrite each other:
@@ -122,6 +129,22 @@ bb efficiency \
   --out .dev/agraph/agent-efficiency/summary.json \
   --json
 ```
+
+For headline runs, prefer the bounded helper:
+
+```sh
+bb headline all
+bb efficiency \
+  .dev/agraph/headline-bench/shell-only/agent-report.json \
+  .dev/agraph/headline-bench/agraph/agent-report.json \
+  --out .dev/reports/architecture-benchmark-improvement-summary.json \
+  --markdown-out .dev/reports/architecture-benchmark-improvement-summary.md
+```
+
+Read `compactSummary.verdict` as the compact result: `helped`, `regressed`, or
+`inconclusive`. The `why` rows are the minimum explanation that should appear in
+status updates or release notes. If the verdict is `inconclusive`, do not
+promote the bounded claim even when some individual metrics improved.
 
 ## Metrics
 

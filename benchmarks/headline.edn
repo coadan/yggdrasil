@@ -129,6 +129,7 @@
                  :problem-architecture
                  :architecture-runtime-boundary
                  :audit-scope-runtime-config
+                 :shell-sufficient-control
                  :runtime-config
                  :javascript]
           :base-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"

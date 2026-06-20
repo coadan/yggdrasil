@@ -154,7 +154,9 @@
                  "architecture-runtime-boundary"
                  "audit-scope-dependencies"
                  "docs-contracts"
-                 "runtime-config"]))
+                 "runtime-config"
+                 "shell-sufficient-control"]))
+    (is (= 1 (get tag-counts "shell-sufficient-control")))
     (is (= ["architecture-dependency-flow"
             "architecture-runtime-boundary"
             "audit-scope-dependencies"

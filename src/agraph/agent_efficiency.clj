@@ -841,6 +841,63 @@
                                      (mapv :key))}
            metric-fields)))
 
+(defn- compact-summary
+  [{:keys [summary comparable claim-readiness]}]
+  (let [requirements (:requirements claim-readiness)
+        shared-cases (long (:sharedCases comparable))
+        min-shared-cases (long (:minSharedCases summary))
+        improved (long (:improvedMetrics summary))
+        regressed (long (:regressedMetrics summary))
+        unavailable (long (:unavailableMetrics summary))
+        enough-cases? (true? (:enoughSharedCases requirements))
+        comparable? (and (true? (:sameSuite requirements))
+                         (true? (:sameCases requirements))
+                         (pos? shared-cases))
+        directional? (true? (:directionalMetrics requirements))
+        claim-ready? (= "supported" (:status claim-readiness))
+        verdict (cond
+                  (not comparable?) "inconclusive"
+                  (not enough-cases?) "inconclusive"
+                  (not directional?) "inconclusive"
+                  (and (pos? regressed) (zero? improved)) "regressed"
+                  (and (pos? improved) (zero? regressed) claim-ready?) "helped"
+                  :else "inconclusive")
+        why (cond-> []
+              (not comparable?)
+              (conj "Reports must use the same suite and completed case ids.")
+
+              (and comparable? (not enough-cases?))
+              (conj (str "Only " shared-cases
+                         " shared case(s); require at least "
+                         min-shared-cases "."))
+
+              (not directional?)
+              (conj "Directional metrics are unavailable.")
+
+              (pos? improved)
+              (conj (str improved " directional metric(s) improved."))
+
+              (pos? regressed)
+              (conj (str regressed " directional metric(s) regressed."))
+
+              (pos? unavailable)
+              (conj (str unavailable " metric(s) were unavailable."))
+
+              (and (= "helped" verdict) claim-ready?)
+              (conj "Compared lanes are claim-ready for the measured architecture slice.")
+
+              (and (= "inconclusive" verdict) (not claim-ready?))
+              (conj "Claim readiness is not supported; use the warnings before making the benchmark claim."))]
+    {:verdict verdict
+     :status (:signal summary)
+     :claimStatus (:status claim-readiness)
+     :sharedCases shared-cases
+     :minSharedCases min-shared-cases
+     :improvedMetrics improved
+     :regressedMetrics regressed
+     :unavailableMetrics unavailable
+     :why why}))
+
 (defn compare-reports
   "Return a shell-only vs AGraph efficiency comparison from two agent reports."
   ([shell-report agraph-report]
@@ -875,11 +932,16 @@
                                                  problem-coverage
                                                  shell-report
                                                  agraph-report)
-         headline-metrics (headline-metric-deltas-from-deltas deltas)]
+         headline-metrics (headline-metric-deltas-from-deltas deltas)
+         compact-summary-result (compact-summary
+                                 {:summary summary
+                                  :comparable comparable
+                                  :claim-readiness claim-readiness-result})]
      {:schema schema
       :status (:signal summary)
       :suiteId (or (:suite-id agraph-report)
                    (:suite-id shell-report))
+      :compactSummary compact-summary-result
       :summary summary
       :comparability comparable
       :shellOnly (report-summary shell-report)
@@ -1012,6 +1074,7 @@
   [comparison]
   (let [class-summary (get-in comparison [:classSignals :summary])
         inputs (:inputs comparison)
+        compact-summary (:compactSummary comparison)
         requirements (get-in comparison [:claimReadiness :requirements])
         warnings (get-in comparison [:claimReadiness :warnings])
         notes (get-in comparison [:claimReadiness :notes])
@@ -1031,6 +1094,7 @@
               ["# AGraph Agent Efficiency"
                ""
                (str "- Status: " (:status comparison))
+               (str "- Verdict: " (:verdict compact-summary))
                (str "- Suite: " (or (:suiteId comparison) "unknown"))
                (str "- Shared cases: "
                     (get-in comparison [:comparability :sharedCases]))
@@ -1042,6 +1106,9 @@
                     (get-in comparison [:summary :unavailableMetrics]))
                (str "- Claim readiness: "
                     (get-in comparison [:claimReadiness :status]))]
+              (when (seq (:why compact-summary))
+                (concat ["" "## Compact Verdict" ""]
+                        (map #(str "- " %) (:why compact-summary))))
               (when (seq inputs)
                 [""
                  "## Inputs"
@@ -1138,6 +1205,10 @@
         (println (json/write-json-str comparison {:indent-str "  "}))
         (do
           (println (str "Agent efficiency: " (:status comparison)))
+          (when-let [compact (:compactSummary comparison)]
+            (println (str "Verdict: " (:verdict compact)))
+            (doseq [reason (:why compact)]
+              (println (str "- " reason))))
           (println (str "Improved metrics: "
                         (get-in comparison [:summary :improvedMetrics])
                         ", regressed metrics: "
