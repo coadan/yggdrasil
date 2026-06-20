@@ -28,9 +28,15 @@
    [:checks :syncCheck]
    {:status "failed"
     :validationGaps [{:plane "dependencies"
-                      :status "weak"}]
+                      :status "weak"
+                      :diagnostics [{:reason :candidate-unresolved
+                                     :count 2
+                                     :message "Source import candidates were extracted, but some did not resolve to package facts."}]}]
     :blockingValidationGaps [{:plane "dependencies"
-                              :status "weak"}]}))
+                              :status "weak"
+                              :diagnostics [{:reason :candidate-unresolved
+                                             :count 2
+                                             :message "Source import candidates were extracted, but some did not resolve to package facts."}]}]}))
 
 (deftest reports-agent-score-artifacts
   (let [out (temp-dir "agraph-agent-report")
@@ -1036,7 +1042,14 @@
               :details [{:check "syncCheck"
                          :status "failed"
                          :failedRuns 1
-                         :failedCaseIds ["arch-deps-1"]}]}
+                         :failedCaseIds ["arch-deps-1"]
+                         :blockingReasons [{:plane "dependencies"
+                                            :status "weak"
+                                            :reason "candidate-unresolved"
+                                            :runs 1
+                                            :caseIds ["arch-deps-1"]
+                                            :message "Source import candidates were extracted, but some did not resolve to package facts."
+                                            :count 2}]}]}
              (->> (:improvementSummary report)
                   (filter #(= "sync-check-gaps" (:kind %)))
                   first))))))

@@ -164,6 +164,62 @@
        (zero? (long (or (:source-import-candidates counts) 0)))
        (zero? (long (or (:package-imports counts) 0)))))
 
+(defn- diagnostic
+  [reason count message]
+  {:reason reason
+   :count (long (or count 0))
+   :message message})
+
+(defn- dependency-diagnostics
+  [counts]
+  (let [packages (:packages counts 0)
+        package-imports (:package-imports counts 0)
+        source-import-candidates (:source-import-candidates counts 0)
+        package-evidence-gaps (:package-evidence-gaps counts 0)
+        package-conflicts (:package-conflicts counts 0)
+        unresolved-imports (:unresolved-imports counts 0)
+        source-coverage-issues (+ (:skipped-files counts 0)
+                                  (:diagnostics counts 0))]
+    (cond-> []
+      (positive-count? source-coverage-issues)
+      (conj (diagnostic
+             :source-coverage-needs-review
+             source-coverage-issues
+             "Skipped files or extractor diagnostics are present; inspect coverage before treating missing dependency facts as absent."))
+
+      (and (positive-count? source-import-candidates)
+           (zero? (long (or packages 0))))
+      (conj (diagnostic
+             :missing-package-facts
+             source-import-candidates
+             "Source import candidates were extracted, but no package facts are indexed for resolution."))
+
+      (and (positive-count? packages)
+           (zero? (long (or package-imports 0)))
+           (zero? (long (or source-import-candidates 0))))
+      (conj (diagnostic
+             :no-source-import-candidates
+             packages
+             "Package facts are indexed, but no source import candidates were emitted for package resolution."))
+
+      (positive-count? unresolved-imports)
+      (conj (diagnostic
+             :candidate-unresolved
+             unresolved-imports
+             "Source import candidates were extracted, but some did not resolve to package facts."))
+
+      (positive-count? package-evidence-gaps)
+      (conj (diagnostic
+             :package-without-import-evidence
+             package-evidence-gaps
+             "Declared package facts exist without matching source import evidence."))
+
+      (positive-count? package-conflicts)
+      (conj (diagnostic
+             :package-version-conflict
+             package-conflicts
+             "Package version conflicts are present in indexed dependency facts.")))))
+
 (defn- source-files-weak?
   [counts]
   (or (positive-count? (:skipped-files counts))
@@ -225,15 +281,23 @@
     (contains? available-families family) :available
     :else :missing))
 
+(defn- family-diagnostics
+  [counts family]
+  (case family
+    :dependencies (dependency-diagnostics counts)
+    []))
+
 (defn- evidence-families
   "Return compact project-level mechanical evidence-family readiness rows."
   [counts available-families]
   (let [available-families (set available-families)]
     (mapv (fn [family]
-            (let [counts (family-counts counts family)]
+            (let [family-counts (family-counts counts family)
+                  diagnostics (family-diagnostics counts family)]
               (cond-> {:family family
                        :status (family-status counts available-families family)}
-                (seq counts) (assoc :counts counts))))
+                (seq family-counts) (assoc :counts family-counts)
+                (seq diagnostics) (assoc :diagnostics diagnostics))))
           family-order)))
 
 (defn- kind-counts
@@ -261,7 +325,8 @@
   {:package-evidence-gaps (:package-evidence-gaps counts 0)
    :package-conflicts (:package-conflicts counts 0)
    :source-import-candidates (:source-import-candidates counts 0)
-   :unresolved-imports (:unresolved-imports counts 0)})
+   :unresolved-imports (:unresolved-imports counts 0)
+   :diagnostics (dependency-diagnostics counts)})
 
 (defn- evidence-state
   [freshness diagnostics counts]

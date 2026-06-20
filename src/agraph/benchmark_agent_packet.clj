@@ -48,7 +48,9 @@
   [opts agent-result]
   (or (when (parser-worker-option opts)
         (parser-worker-profile opts))
-      (normalize-parser-worker-profile (:parserWorker agent-result))
+      (let [profile (normalize-parser-worker-profile (:parserWorker agent-result))]
+        (when (not= "unknown" (:source profile))
+          profile))
       (parser-worker-profile opts)))
 (defn with-benchmark-parser-worker
   [opts f]

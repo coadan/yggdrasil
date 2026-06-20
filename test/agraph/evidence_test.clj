@@ -194,16 +194,27 @@
       (is (= evidence/schema (:schema summary)))
       (is (contains? (set (:available summary)) :dependencies))
       (is (not (contains? (set (:available summary)) :packages)))
-      (is (= {:family :dependencies
-              :status :weak
-              :counts {:packages 2
-                       :package-imports 1
-                       :source-import-candidates 0
-                       :package-evidence-gaps 1
-                       :package-conflicts 0
-                       :unresolved-imports 1}}
-             (some #(when (= :dependencies (:family %)) %)
-                   (:families summary))))
+      (let [dependency-family (some #(when (= :dependencies (:family %)) %)
+                                    (:families summary))]
+        (is (= {:family :dependencies
+                :status :weak
+                :counts {:packages 2
+                         :package-imports 1
+                         :source-import-candidates 0
+                         :package-evidence-gaps 1
+                         :package-conflicts 0
+                         :unresolved-imports 1}}
+               (select-keys dependency-family [:family :status :counts])))
+        (is (= [{:reason :source-coverage-needs-review
+                 :count 2
+                 :message "Skipped files or extractor diagnostics are present; inspect coverage before treating missing dependency facts as absent."}
+                {:reason :candidate-unresolved
+                 :count 1
+                 :message "Source import candidates were extracted, but some did not resolve to package facts."}
+                {:reason :package-without-import-evidence
+                 :count 1
+                 :message "Declared package facts exist without matching source import evidence."}]
+               (:diagnostics dependency-family))))
       (is (= {:family :source-files
               :status :weak
               :counts {:files 1

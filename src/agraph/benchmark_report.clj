@@ -553,6 +553,58 @@
        sort
        vec))
 
+(defn- reason-name
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (nil? value) "validation-gap"
+    :else (str value)))
+
+(defn- sync-check-gap-diagnostic-rows
+  [pairs]
+  (->> pairs
+       (mapcat
+        (fn [[result preflight]]
+          (let [case-id (:case-id result)]
+            (mapcat
+             (fn [gap]
+               (let [diagnostics (seq (:diagnostics gap))
+                     base {:caseId case-id
+                           :plane (str (:plane gap))
+                           :status (str (:status gap))}]
+                 (if diagnostics
+                   (map (fn [diagnostic]
+                          (cond-> (assoc base
+                                         :reason (reason-name
+                                                  (:reason diagnostic)))
+                            (:message diagnostic)
+                            (assoc :message (:message diagnostic))
+                            (number? (:count diagnostic))
+                            (assoc :count (:count diagnostic))))
+                        diagnostics)
+                   [(assoc base :reason "validation-gap")])))
+             (get-in preflight
+                     [:checks :syncCheck :blockingValidationGaps])))))
+       vec))
+
+(defn- sync-check-blocking-reasons
+  [pairs]
+  (->> (sync-check-gap-diagnostic-rows pairs)
+       (group-by (juxt :plane :status :reason :message))
+       (mapv
+        (fn [[[plane status reason message] rows]]
+          (let [case-ids (->> rows (map :caseId) distinct sort vec)
+                total-count (reduce + 0 (keep :count rows))]
+            (cond-> {:plane plane
+                     :status status
+                     :reason reason
+                     :runs (count case-ids)
+                     :caseIds case-ids}
+              message (assoc :message message)
+              (pos? total-count) (assoc :count total-count)))))
+       (sort-by (juxt :plane :status :reason))
+       vec))
+
 (defn- check-status-summary
   [pairs check-key]
   (let [status (fn [preflight]
@@ -565,18 +617,20 @@
                   (= "failed" (str (:status check))))
         not-run? (fn [check]
                    (= "not-run" (str (:status check))))]
-    {:check (name check-key)
-     :status (cond
-               (seq (get by-status "failed")) "failed"
-               (seq (get by-status "not-run")) "not-run"
-               :else "passed")
-     :passedRuns (count (filter (comp passed?
-                                      #(get-in % [1 :checks check-key]))
-                                pairs))
-     :failedRuns (count (get by-status "failed"))
-     :failedCaseIds (check-case-ids pairs check-key failed?)
-     :notRunRuns (count (get by-status "not-run"))
-     :notRunCaseIds (check-case-ids pairs check-key not-run?)}))
+    (cond-> {:check (name check-key)
+             :status (cond
+                       (seq (get by-status "failed")) "failed"
+                       (seq (get by-status "not-run")) "not-run"
+                       :else "passed")
+             :passedRuns (count (filter (comp passed?
+                                              #(get-in % [1 :checks check-key]))
+                                        pairs))
+             :failedRuns (count (get by-status "failed"))
+             :failedCaseIds (check-case-ids pairs check-key failed?)
+             :notRunRuns (count (get by-status "not-run"))
+             :notRunCaseIds (check-case-ids pairs check-key not-run?)}
+      (= :syncCheck check-key)
+      (assoc :blockingReasons (sync-check-blocking-reasons pairs)))))
 
 (defn- aggregate-maintenance-preflight
   [results]
@@ -976,7 +1030,8 @@
                                        [:check
                                         :status
                                         :failedRuns
-                                        :failedCaseIds])])})
+                                        :failedCaseIds
+                                        :blockingReasons])])})
             (improvement-row
              {:kind "commandless-runs"
               :area "agent-use-and-citation"

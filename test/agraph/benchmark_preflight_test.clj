@@ -15,7 +15,10 @@
                     :sync-inspect {:families [{:family :dependencies
                                                :status :weak
                                                :counts {:packages 3
-                                                        :unresolved-imports 2}}
+                                                        :unresolved-imports 2}
+                                               :diagnostics [{:reason :candidate-unresolved
+                                                              :count 2
+                                                              :message "Source import candidates were extracted, but some did not resolve to package facts."}]}
                                               {:family :activity
                                                :status :available
                                                :counts {:activity-items 1
@@ -42,6 +45,9 @@
              :status "weak"
              :counts {:packages 3
                       :unresolved-imports 2}
+             :diagnostics [{:reason :candidate-unresolved
+                            :count 2
+                            :message "Source import candidates were extracted, but some did not resolve to package facts."}]
              :nextActions [{:kind :dependency-review
                             :command "agraph sync check project.edn --enqueue"}]}
             {:plane "validation-history"

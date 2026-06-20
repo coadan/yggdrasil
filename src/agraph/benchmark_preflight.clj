@@ -113,11 +113,12 @@
          vec)))
 
 (defn- family-validation-gap
-  [sync-inspect {:keys [family status counts]}]
+  [sync-inspect {:keys [family status counts diagnostics]}]
   (let [actions (matching-family-actions sync-inspect family)]
     (cond-> {:plane (normalized-name family)
              :status (normalized-name status)}
       (seq counts) (assoc :counts counts)
+      (seq diagnostics) (assoc :diagnostics diagnostics)
       (seq actions) (assoc :nextActions actions))))
 
 (defn- sync-inspect-validation-gaps
@@ -134,7 +135,10 @@
            {:source "sync-inspect"
             :families (->> (:families sync-inspect)
                            (filter #(blocking-sync-plane? (:family %)))
-                           (mapv #(select-keys % [:family :status :counts])))
+                           (mapv #(select-keys % [:family
+                                                  :status
+                                                  :counts
+                                                  :diagnostics])))
             :validationGaps blocking-gaps
             :blockingValidationGaps blocking-gaps})))
 

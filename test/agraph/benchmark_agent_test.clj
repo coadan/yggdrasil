@@ -117,6 +117,12 @@
   (is (= {:mode "java"
           :source "option"}
          (#'benchmark/parser-worker-profile {:parser-worker "Java"})))
+  (is (= {:mode "none"
+          :source "default"}
+         (#'benchmark/agent-score-parser-worker-profile
+          {}
+          {:parserWorker {:mode "none"
+                          :source "unknown"}})))
   (extract/with-parser-worker-mode
     "dotnet"
     (is (= "java"
