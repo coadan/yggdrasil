@@ -402,3 +402,60 @@
       (is (= 1 (get-in report [:counts :source-import-candidates])))
       (is (= ["Xunit"]
              (mapv :import (:unresolved-imports report)))))))
+
+(deftest package-report-ignores-configured-module-path-alias-imports
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "site/src/App.astro"
+                                          :kind :astro
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "other/src/App.astro"
+                                          :kind :astro
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "node:module-path-alias:libs"
+                                          :kind :module-path-alias
+                                          :label "@libs/*=src/libs/*"
+                                          :path "site/tsconfig.json"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/edges
+                                        [{:source-id "node:namespace:site.App"
+                                          :target-id "node:namespace:@libs/path"
+                                          :relation :imports
+                                          :path "site/src/App.astro"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:site.App"
+                                          :target-id "node:namespace:react"
+                                          :relation :imports
+                                          :path "site/src/App.astro"
+                                          :source-line 2
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:other.App"
+                                          :target-id "node:namespace:@libs/path"
+                                          :relation :imports
+                                          :path "other/src/App.astro"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [& _] [])]
+    (let [report (dependency/package-report :xtdb
+                                            {:project-id "project-a"
+                                             :repo-id "repo-a"}
+                                            {})]
+      (is (= 2 (get-in report [:counts :source-import-candidates])))
+      (is (= ["@libs/path" "react"]
+             (sort (map :import (:unresolved-imports report))))))))

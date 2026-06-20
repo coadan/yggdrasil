@@ -394,6 +394,39 @@
           (mapcat renovate-package-rule-facts
                   (filter map? (renovate-array-values (:packageRules m))))))
     []))
+
+(defn- module-path-alias-patterns
+  [value]
+  (cond
+    (string? value) [value]
+    (vector? value) (filterv string? value)
+    :else []))
+
+(defn- module-path-alias-facts
+  [content]
+  (if-let [m (common/read-json-map content)]
+    (let [paths (get-in m [:compilerOptions :paths])]
+      (when (map? paths)
+        (->> paths
+             (mapcat (fn [[alias targets]]
+                       (map (fn [target]
+                              {:kind :module-path-alias
+                               :label (str (common/json-key-label alias)
+                                           "="
+                                           target)
+                               :source-line 1
+                               :relation :defines})
+                            (module-path-alias-patterns targets))))
+             distinct
+             vec)))
+    []))
+
+(defn- module-path-alias-config?
+  [filename]
+  (or (contains? #{"tsconfig.json" "jsconfig.json"} filename)
+      (re-matches #"tsconfig\.[a-z0-9_.-]+\.json" filename)
+      (re-matches #"jsconfig\.[a-z0-9_.-]+\.json" filename)))
+
 (defn- tool-config-facts
   [{:keys [path content] :as file}]
   (let [path-lower (str/replace (str/lower-case (str path)) "\\" "/")
@@ -405,6 +438,9 @@
                         (contains? #{"renovate.json" ".renovaterc" ".renovaterc.json"}
                                    filename)
                         (renovate-facts content)
+
+                        (module-path-alias-config? filename)
+                        (module-path-alias-facts content)
 
                         :else
                         [])]

@@ -990,7 +990,7 @@
                       (= 3 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "tool-config" (:kind %))
-                      (= "tool-config/v1" (:extractor-version %))
+                      (= "tool-config/v2" (:extractor-version %))
                       (= 8 (:files %)))
                 (:extractors report)))
       (is (some #(and (= "editor-config" (:kind %))

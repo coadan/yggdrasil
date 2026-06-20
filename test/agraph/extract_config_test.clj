@@ -333,10 +333,12 @@
         playwright-source (io/file root "playwright.config.cts")
         eslint-source (io/file root "eslint.config.mts")
         tailwind-source (io/file root "tailwind.config.cts")
+        tsconfig-source (io/file root "tsconfig.json")
         _ (spit jest-source "import base from 'jest-config';\nexport default {\n  testEnvironment: 'node',\n  reporters: ['default'],\n};\n")
         _ (spit playwright-source "import { defineConfig } from '@playwright/test';\nexport default defineConfig({\n  testDir: './e2e',\n});\n")
         _ (spit eslint-source "import js from '@eslint/js';\nexport default [\n  { rules: { semi: 'error' } },\n];\n")
         _ (spit tailwind-source "export default {\n  content: ['./src/**/*.tsx'],\n  theme: {},\n};\n")
+        _ (spit tsconfig-source "{\"compilerOptions\":{\"paths\":{\"@libs/*\":[\"src/libs/*\"],\"@components/*\":[\"src/components/*\"]}}}\n")
         result-for (fn [source]
                      (extract/extract-file "run/test"
                                            (fs/file-record (.getPath root)
@@ -348,7 +350,10 @@
         jest-labels (labels (result-for jest-source))
         playwright-labels (labels (result-for playwright-source))
         eslint-labels (labels (result-for eslint-source))
-        tailwind-labels (labels (result-for tailwind-source))]
+        tailwind-labels (labels (result-for tailwind-source))
+        tsconfig-result (result-for tsconfig-source)
+        tsconfig-labels (labels tsconfig-result)
+        tsconfig-kinds (frequencies (map :kind (:nodes tsconfig-result)))]
     (is (= :test-config (kind-for jest-source)))
     (is (= :test-config (kind-for playwright-source)))
     (is (= :tool-config (kind-for eslint-source)))
@@ -359,7 +364,10 @@
     (is (contains? playwright-labels "testDir=./e2e"))
     (is (contains? eslint-labels "@eslint/js"))
     (is (contains? tailwind-labels "content"))
-    (is (contains? tailwind-labels "theme"))))
+    (is (contains? tailwind-labels "theme"))
+    (is (= 2 (:module-path-alias tsconfig-kinds)))
+    (is (contains? tsconfig-labels "@libs/*=src/libs/*"))
+    (is (contains? tsconfig-labels "@components/*=src/components/*"))))
 (deftest extracts-editor-dev-environment-facts
   (let [editorconfig-result (extract/extract-file
                              "run/test"

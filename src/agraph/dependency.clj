@@ -203,6 +203,34 @@
     (when (= 1 (count best))
       (dissoc (first best) :match-score))))
 
+(defn- module-path-alias-node?
+  [node]
+  (= :module-path-alias (:kind node)))
+
+(defn- alias-pattern-prefix
+  [pattern]
+  (let [pattern (str pattern)]
+    (if-let [idx (str/index-of pattern "*")]
+      (subs pattern 0 idx)
+      pattern)))
+
+(defn- alias-pattern-match?
+  [pattern target]
+  (let [prefix (alias-pattern-prefix pattern)
+        target (str target)]
+    (if (str/includes? (str pattern) "*")
+      (str/starts-with? target prefix)
+      (or (= target prefix)
+          (str/starts-with? target (str prefix "/"))
+          (str/starts-with? target (str prefix "."))))))
+
+(defn- module-path-alias-match?
+  [alias-node edge target]
+  (when-let [[_ alias-pattern]
+             (re-matches #"^(.+?)=.*$" (str (:label alias-node)))]
+    (and (ancestor-dir? (dirname (:path alias-node)) (:path edge))
+         (alias-pattern-match? alias-pattern target))))
+
 (defn- import-prefix-match?
   [target import-name]
   (let [target (str target)
@@ -279,12 +307,18 @@
     (and (= :namespace (:kind target))
          (seq (:path target)))))
 
+(defn- local-path-alias-import?
+  [alias-nodes edge target]
+  (some #(module-path-alias-match? % edge target)
+        alias-nodes))
+
 (defn- package-import-candidate?
-  [files-by-path nodes-by-id edge]
+  [files-by-path alias-nodes nodes-by-id edge]
   (let [target (namespace-target (:target-id edge))
         kind (source-kind files-by-path (:path edge))]
     (and target
          (not (local-namespace-import? nodes-by-id edge))
+         (not (local-path-alias-import? alias-nodes edge target))
          (contains? package-import-source-kinds kind)
          (case kind
            (:javascript :typescript :astro :vue :svelte)
@@ -452,6 +486,7 @@
          requires-edges (active-scope-edge-rows xtdb scope #{:requires})
          files-by-path (into {} (map (juxt :path identity)) files)
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
+         alias-nodes (filterv module-path-alias-node? nodes)
          packages-by-id (->> nodes
                              (filter package-node?)
                              (map (juxt :xt/id identity))
@@ -463,6 +498,7 @@
        (let [source-edges (active-scope-edge-rows xtdb scope #{:imports :uses})
              candidate-edges (->> source-edges
                                   (filter #(package-import-candidate? files-by-path
+                                                                      alias-nodes
                                                                       nodes-by-id
                                                                       %)))]
          (->> candidate-edges
@@ -684,6 +720,7 @@
          edges (active-scope-rows xtdb (:edges store/tables) scope)
          files-by-path (into {} (map (juxt :path identity)) files)
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
+         alias-nodes (filterv module-path-alias-node? nodes)
          packages (->> nodes (filter package-node?) sorted-values)
          packages-by-id (into {} (map (juxt :xt/id identity)) packages)
          versions (->> nodes
@@ -696,6 +733,7 @@
          source-edges (filter #(contains? #{:imports :uses} (:relation %))
                               edges)
          candidate-source-edges (filter #(package-import-candidate? files-by-path
+                                                                    alias-nodes
                                                                     nodes-by-id
                                                                     %)
                                         source-edges)

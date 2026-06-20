@@ -58,7 +58,7 @@
    :build "build/v1"
    :test-config "test-config/v1"
    :quality-config "quality-config/v1"
-   :tool-config "tool-config/v1"
+   :tool-config "tool-config/v2"
    :javascript "javascript/v1"
    :typescript "typescript/v1"
    :python "python/v3"
