@@ -97,7 +97,7 @@ Every context packet reports `answerability`: a mechanical summary of which
 evidence planes were available for the query and which were missing, weak, or
 not supported by the current model.
 
-Project-level reports and `agraph status --json` expose the same mechanical
+Project-level reports and `agraph sync inspect <project.edn> --json` expose the same mechanical
 inventory as `agraph.evidence/v2`, including graph-basis freshness. Use that
 evidence surface when an agent needs to see what can be asked about at a glance.
 Its `families` field is a bounded readiness table for source files, file facts,
@@ -178,7 +178,8 @@ results are found. Use `agraph explore --json` for the full structured packet.
 `agraph ask --json` returns the same one-shot packet for compatibility.
 Packet `drilldowns` favor agent-facing follow-ups: repeat the primary
 `agraph explore ... --json` packet, inspect `agraph view systems`, check
-`agraph status --json`, and run `agraph sync docs audit` when a map is present.
+`agraph sync inspect <project.edn> --json`, and run `agraph sync docs audit`
+when a map is present.
 
 ## Source Coverage
 
@@ -204,7 +205,7 @@ unsupported source candidates. When active indexed diagnostics or isolated
 indexed files exist, `sourceCoverage.nextActions` points at the same coverage
 inspection command. Project evidence and report packets include compact
 `skipped-by-extension` and `skipped-by-reason` rows with bounded samples for
-first-pass triage. `agraph status --json` and `agraph sync inspect --json` also
+first-pass triage. `agraph sync inspect <project.edn> --json` also
 include bounded persisted extractor fingerprint groups under
 `coverage.extractorFingerprints` and diagnostic samples under
 `coverage.diagnostics.samples` when those rows are active, so agents can audit

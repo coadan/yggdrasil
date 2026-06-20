@@ -340,7 +340,7 @@
                      :mapPath "maps/agraph map.json"}}
           {:kind :status
            :label "Inspect graph freshness and evidence status"
-           :command "agraph status --project 'fixture project' --json"
+           :command "agraph sync inspect <project.edn> --map 'maps/agraph map.json' --json"
            :mcpTool "agraph_status"
            :mcpArgs {:mapPath "maps/agraph map.json"}}
           {:kind :docs

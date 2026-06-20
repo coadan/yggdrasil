@@ -1115,6 +1115,14 @@
        " --map "
        (command/shell-token map-path)))
 
+(defn- inspect-command
+  [map-path]
+  (apply command/command
+         (concat ["agraph" "sync" "inspect" "<project.edn>"]
+                 (when map-path
+                   ["--map" map-path])
+                 ["--json"])))
+
 (defn- drilldown
   [kind label command mcp-tool mcp-args]
   (cond-> {:kind kind
@@ -1141,7 +1149,7 @@
                         map-path (assoc :mapPath map-path)))
            (drilldown :status
                       "Inspect graph freshness and evidence status"
-                      (project-command "status" project-id "--json")
+                      (inspect-command map-path)
                       "agraph_status"
                       (cond-> {}
                         map-path (assoc :mapPath map-path)))]

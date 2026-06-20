@@ -26,9 +26,10 @@
     (is (str/includes? content "`architecture.summary` first"))
     (is (str/includes? content "bounded next-action samples"))
     (is (str/includes? content "detailed architecture rows are trimmed"))
+    (is (str/includes? content "agraph sync inspect <project.edn> --map agraph.map.json --json"))
     (is (str/includes? content "agraph audit-scope <project.edn> --map agraph.map.json --json"))
     (is (str/includes? content "Use it for architecture-class work"))
-    (is (str/includes? content "If `status` or `answerability` is `limited`, `empty`, `stale`, or `unsynced`"))
+    (is (str/includes? content "If `sync inspect` or `answerability` reports"))
     (is (str/includes? content "`nextActions` before concluding evidence does not exist"))
     (is (str/includes? content "`agraphCommandCount` as observed tool usage"))
     (is (str/includes? content "search/read/shell command reductions are the lower-is-better"))))
@@ -52,13 +53,13 @@
     (is (not (.exists agents)))
     (is (not (.exists hooks)))))
 
-(deftest codex-broad-search-hook-prefers-status-and-explore
+(deftest codex-broad-search-hook-prefers-inspect-and-explore
   (let [root (temp-dir "agraph-agent-hook")
         result (agent-install/install! "codex" {:root root
                                                 :project? true
                                                 :hooks? true})
         hook-json (json/read-json (slurp (:hooks result)) :key-fn keyword)
         command (get-in hook-json [:hooks 0 :hooks 0 :command])]
-    (is (str/includes? command "agraph status <project.edn> --json"))
+    (is (str/includes? command "agraph sync inspect <project.edn> --map agraph.map.json --json"))
     (is (str/includes? command "evidence.families"))
     (is (str/includes? command "agraph explore"))))

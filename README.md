@@ -133,7 +133,7 @@ relationships, metadata, or accepted corrections give them project meaning.
 ```
 
 ```sh
-agraph status project.edn
+agraph sync inspect project.edn --map agraph.map.json
 agraph sync add-repo project.edn /path/to/another-repo --repo cli --role tooling
 agraph sync project.edn --map agraph.map.json --check
 agraph sync coverage project.edn
@@ -246,7 +246,7 @@ operators. Core report panels use the same plugin bundle contract. See
 [docs/report-plugins.md](docs/report-plugins.md).
 
 Agent usage should follow progressive disclosure. A fresh agent should start
-with `agraph status` to check graph-basis freshness and evidence planes,
+with `agraph sync inspect` to check graph-basis freshness and evidence planes,
 `agraph sync check`, and a compact system view, then
 drill into `agraph ask`, `agraph explore`, graph slices, and evidence only for
 the subsystem or task it is actively working on.
