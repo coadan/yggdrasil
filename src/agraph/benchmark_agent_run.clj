@@ -55,6 +55,20 @@
 (defn- process-output-future
   [stream]
   (future (slurp stream)))
+(defn- destroy-process-tree!
+  [^Process process]
+  (let [handle (.toHandle process)
+        descendants (->> (.iterator (.descendants handle))
+                         iterator-seq
+                         reverse
+                         vec)]
+    (doseq [descendant descendants]
+      (.destroyForcibly descendant))
+    (.destroyForcibly process)
+    (doseq [descendant descendants]
+      (try
+        (.onExit descendant)
+        (catch Exception _ nil)))))
 (defn- wait-for-process
   [process timeout-ms]
   (let [finished? (.waitFor process timeout-ms TimeUnit/MILLISECONDS)]
@@ -62,7 +76,8 @@
       {:exit (.exitValue process)
        :timedOut false}
       (do
-        (.destroyForcibly process)
+        (destroy-process-tree! process)
+        (.waitFor process 1000 TimeUnit/MILLISECONDS)
         {:exit -1
          :timedOut true}))))
 (defn run-process!
@@ -74,13 +89,24 @@
     (doseq [[k v] env]
       (.put process-env k (str v)))
     (let [process (.start process-builder)
-          out-future (process-output-future (.getInputStream process))
-          err-future (process-output-future (.getErrorStream process))
+          out-stream (.getInputStream process)
+          err-stream (.getErrorStream process)
+          out-future (process-output-future out-stream)
+          err-future (process-output-future err-stream)
           result (wait-for-process process timeout-ms)]
+      (when (:timedOut result)
+        (doseq [stream [out-stream err-stream]]
+          (try
+            (.close stream)
+            (catch Exception _ nil))))
       (assoc result
              :durationMs (- (System/currentTimeMillis) started-at)
-             :stdout @out-future
-             :stderr @err-future))))
+             :stdout (deref out-future
+                            1000
+                            "<stdout unavailable after process timeout>\n")
+             :stderr (deref err-future
+                            1000
+                            "<stderr unavailable after process timeout>\n")))))
 (defn write-agent-run-logs!
   [suite case opts process-result]
   (let [stdout-path (benchmark-paths/agent-run-log-path suite case opts "stdout")

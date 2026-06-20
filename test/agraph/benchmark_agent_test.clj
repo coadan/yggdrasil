@@ -1,5 +1,6 @@
 (ns agraph.benchmark-agent-test
   (:require [agraph.benchmark :as benchmark]
+            [agraph.benchmark-agent-run :as benchmark-agent-run]
             [agraph.benchmark-test-support :refer [commit! git! sh! spit-file! spit-json! temp-dir]]
             [agraph.context :as context]
             [agraph.extract :as extract]
@@ -10,6 +11,18 @@
             [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
+
+(deftest agent-run-timeout-kills-child-processes
+  (let [started-at (System/currentTimeMillis)
+        result (benchmark-agent-run/run-process!
+                "sleep 10"
+                "."
+                {}
+                100)
+        elapsed (- (System/currentTimeMillis) started-at)]
+    (is (:timedOut result))
+    (is (= -1 (:exit result)))
+    (is (< elapsed 3000))))
 
 (deftest writes-agent-packet-without-ground-truth
   (let [root (temp-dir "agraph-bench-agent-repo")
