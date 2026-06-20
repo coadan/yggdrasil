@@ -144,6 +144,7 @@
   {:schema agent-result-schema
    :caseId "case id from the packet"
    :caseFingerprint "case fingerprint from the packet"
+   :agentInputFingerprint "agent input fingerprint from the packet"
    :agentId "stable id for the agent run"
    :mode "agraph, shell-only, or local-vector"
    :selection {:rawCandidateFiles 0
@@ -274,6 +275,7 @@
   (cond-> {"AGRAPH_BENCH_SUITE_ID" (:suite-id packet)
            "AGRAPH_BENCH_CASE_ID" (:case-id packet)
            "AGRAPH_BENCH_CASE_FINGERPRINT" (:caseFingerprint packet)
+           "AGRAPH_BENCH_AGENT_INPUT_FINGERPRINT" (:agentInputFingerprint packet)
            "AGRAPH_BENCH_REPO_ID" (:repo-id packet)
            "AGRAPH_BENCH_PROJECT_ID" (:project-id packet)
            "AGRAPH_BENCH_MODE" (:mode packet)

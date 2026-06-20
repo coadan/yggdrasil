@@ -477,6 +477,7 @@
   {:schema agent-result-schema
    :caseId (:case-id prepared)
    :caseFingerprint (:caseFingerprint prepared)
+   :agentInputFingerprint (:agentInputFingerprint prepared)
    :agentId (:agent-id opts)
    :mode (agent-mode opts)
    :suspectedFiles []

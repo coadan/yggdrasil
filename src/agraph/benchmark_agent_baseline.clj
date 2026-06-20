@@ -141,6 +141,7 @@
                                :mode "agraph"
                                :case-id (:case-id prepared)
                                :caseFingerprint (:caseFingerprint prepared)
+                               :agentInputFingerprint (:agentInputFingerprint prepared)
                                :root (:worktreeRoot prepared)
                                :coverage (:coverage prepared)
                                :limit (agent-baseline-suspect-limit opts)})
@@ -176,6 +177,7 @@
                         :repo-id (:repo-id prepared)
                         :project-id (:project-id prepared)
                         :caseFingerprint (:caseFingerprint prepared)
+                        :agentInputFingerprint (:agentInputFingerprint prepared)
                         :agentId agent-id
                         :mode "agraph"
                         :retriever (name (keyword (or (:retriever opts)

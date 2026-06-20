@@ -157,6 +157,7 @@
                 :suite-id (:suite-id prepared)
                 :case-id (:case-id prepared)
                 :caseFingerprint (:caseFingerprint prepared)
+                :agentInputFingerprint (:agentInputFingerprint prepared)
                 :repo-id (:repo-id prepared)
                 :project-id (:project-id prepared)
                 :mode mode

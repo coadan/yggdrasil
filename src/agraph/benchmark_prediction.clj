@@ -675,7 +675,7 @@
   truth or fix artifacts."
   ([packet]
    (context-packet->agent-result packet {}))
-  ([packet {:keys [agent-id mode case-id caseFingerprint root limit coverage]}]
+  ([packet {:keys [agent-id mode case-id caseFingerprint agentInputFingerprint root limit coverage]}]
    (let [query-tokens (text/tokenize-all (:query packet))
          source-kinds (coverage-source-kinds coverage)
          kind-by-path (if (or (empty? source-kinds)
@@ -727,4 +727,5 @@
                             " suspected files from "
                             (count candidate-files)
                             " context packet file candidates.")}
-       caseFingerprint (assoc :caseFingerprint caseFingerprint)))))
+       caseFingerprint (assoc :caseFingerprint caseFingerprint)
+       agentInputFingerprint (assoc :agentInputFingerprint agentInputFingerprint)))))

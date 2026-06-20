@@ -249,12 +249,31 @@
    :coverage {:source-kinds (declared-source-kinds case)}
    :expectations (case-expectations case)
    :ground-truth (:ground-truth case)})
-(defn case-fingerprint
+
+(defn agent-input-fingerprint-input
   [suite case]
+  {:schema "agraph.benchmark.agent-input-fingerprint-input/v1"
+   :suite-id (:id suite)
+   :case-id (:id case)
+   :repo-id (:repo-id case)
+   :base-sha (:base-sha case)
+   :query-text (issue-text case)
+   :coverage {:source-kinds (declared-source-kinds case)}})
+
+(defn- fingerprint
+  [input]
   (str "sha256:"
        (hash/sha256-hex
-        (pr-str (canonical-fingerprint-value
-                 (case-fingerprint-input suite case))))))
+        (pr-str (canonical-fingerprint-value input)))))
+
+(defn case-fingerprint
+  [suite case]
+  (fingerprint (case-fingerprint-input suite case)))
+
+(defn agent-input-fingerprint
+  [suite case]
+  (fingerprint (agent-input-fingerprint-input suite case)))
+
 (defn input-hints
   [input-text truth]
   (let [text (str input-text)
@@ -269,7 +288,8 @@
 (defn prepared-case
   [suite case repo worktree-root truth]
   (let [input-text (issue-text case)
-        fingerprint (case-fingerprint suite case)
+        score-fingerprint (case-fingerprint suite case)
+        agent-input-fingerprint (agent-input-fingerprint suite case)
         unsupported (unsupported-ground-truth-files worktree-root
                                                     (:changedFiles truth))
         truth (assoc truth :unsupportedGroundTruthFiles unsupported)
@@ -280,7 +300,8 @@
      :case-id (:id case)
      :repo-id (:id repo)
      :project-id (str (:project-id suite) "-" (:id case))
-     :caseFingerprint fingerprint
+     :caseFingerprint score-fingerprint
+     :agentInputFingerprint agent-input-fingerprint
      :tags (case-tags case)
      :expectations (case-expectations case)
      :baseSha (:base-sha case)

@@ -536,6 +536,7 @@ Agents should return JSON shaped like this:
   "schema": "agraph.benchmark.agent-result/v2",
   "caseId": "penpot-example",
   "caseFingerprint": "sha256:...",
+  "agentInputFingerprint": "sha256:...",
   "agentId": "codex",
   "mode": "agraph",
   "selection": {
@@ -562,6 +563,12 @@ Agents should return JSON shaped like this:
 }
 ```
 
+`caseFingerprint` identifies the full score contract, including hidden ground
+truth and graph expectations. `agentInputFingerprint` identifies the visible
+agent input. New results should include both; the scorer accepts legacy results
+that only include `caseFingerprint`, but hidden expectation-only edits can make
+those legacy results report identity warnings until the agent run is refreshed.
+
 `mode` is one of `agraph`, `shell-only`, or `local-vector`. `agent-run` only
 uses `agraph` and `shell-only`; `local-vector` is reserved for the optional
 local semantic-vector baseline lane.
@@ -578,9 +585,9 @@ AGraph-generated baseline evidence uses compact mechanical rows such as
 `context-doc:<path>`, `graph-entity:<label>`, and
 `candidate-file:<path> rank=<n> ... components=<score-components>` so candidate
 files remain traceable even when snippets are trimmed from the context packet.
-Scoring warns when an agent result has the wrong schema, case id, or
-case fingerprint; use `--max-warning-runs 0` when stale or misrouted artifacts
-must fail the benchmark run.
+Scoring warns when an agent result has the wrong schema, case id, or available
+fingerprint identity; use `--max-warning-runs 0` when stale or misrouted
+artifacts must fail the benchmark run.
 It also warns when ranked file or symbol rows contain non-positive ranks or
 confidence values outside the `0..1` range, or when ranks are duplicated within
 the same ranked section. Repeated `suspectedFiles.path` rows are warned and the

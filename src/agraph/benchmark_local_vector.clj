@@ -38,6 +38,7 @@
   {:schema "agraph.benchmark.local-vector-request/v1"
    :caseId (:case-id prepared)
    :caseFingerprint (:caseFingerprint prepared)
+   :agentInputFingerprint (:agentInputFingerprint prepared)
    :agentId agent-id
    :mode "local-vector"
    :worktreeRoot (:worktreeRoot prepared)
@@ -74,10 +75,13 @@
     (assoc m k v)))
 (defn normalize-agent-result-identity
   [agent-result prepared]
-  (-> agent-result
-      (assoc-if-missing :schema agent-result-schema)
-      (assoc-if-missing :caseId (:case-id prepared))
-      (assoc-if-missing :caseFingerprint (:caseFingerprint prepared))))
+  (let [missing-case-fingerprint? (not (contains? agent-result :caseFingerprint))]
+    (cond-> (-> agent-result
+                (assoc-if-missing :schema agent-result-schema)
+                (assoc-if-missing :caseId (:case-id prepared))
+                (assoc-if-missing :caseFingerprint (:caseFingerprint prepared)))
+      missing-case-fingerprint?
+      (assoc-if-missing :agentInputFingerprint (:agentInputFingerprint prepared)))))
 (defn- normalize-local-vector-result
   [agent-result prepared agent-id]
   (assoc (normalize-agent-result-identity agent-result prepared)
@@ -145,6 +149,7 @@
                     :repo-id (:repo-id prepared)
                     :project-id (:project-id prepared)
                     :caseFingerprint (:caseFingerprint prepared)
+                    :agentInputFingerprint (:agentInputFingerprint prepared)
                     :agentId agent-id
                     :mode "local-vector"
                     :retriever "local-vector"

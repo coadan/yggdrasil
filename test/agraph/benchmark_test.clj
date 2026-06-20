@@ -1,6 +1,7 @@
 (ns agraph.benchmark-test
   (:require [agraph.benchmark :as benchmark]
             [agraph.benchmark-classes :as benchmark-classes]
+            [agraph.benchmark-prepare :as benchmark-prepare]
             [agraph.benchmark-progress :as benchmark-progress]
             [agraph.benchmark-test-support :refer [commit!
                                                    git!
@@ -265,6 +266,27 @@
     (is (= 2 (:localizationFiles scores)))
     (is (= 2 (:scoreableChangedFiles scores)))))
 
+(deftest agent-input-fingerprint-excludes-hidden-scoring-contract
+  (let [suite {:id "suite"}
+        base-case {:id "case-1"
+                   :repo-id "repo"
+                   :base-sha "base"
+                   :fix-sha "fix"
+                   :coverage {:source-kinds [:clojure]}
+                   :ground-truth {:localization-files ["src/app.clj"]}
+                   :expectations {:nodes [{:kind :service
+                                           :path "src/app.clj"}]}
+                   :issue {:title "Broken app"
+                           :body "Find the route."}}
+        changed-expectations (assoc base-case
+                                    :expectations
+                                    {:nodes [{:kind :service
+                                              :path "src/other.clj"}]})]
+    (is (not= (benchmark-prepare/case-fingerprint suite base-case)
+              (benchmark-prepare/case-fingerprint suite changed-expectations)))
+    (is (= (benchmark-prepare/agent-input-fingerprint suite base-case)
+           (benchmark-prepare/agent-input-fingerprint suite changed-expectations)))))
+
 (deftest matches-graph-expectation-rows-with-explicit-fields
   (let [evidence [{:kind :auth-reference
                    :path "config/app.yml"
@@ -459,6 +481,9 @@
               progress (json/read-json (slurp progress-path) :key-fn keyword)]
           (is (= benchmark/prepared-case-schema (:schema prepared)))
           (is (str/starts-with? (:caseFingerprint prepared) "sha256:"))
+          (is (str/starts-with? (:agentInputFingerprint prepared) "sha256:"))
+          (is (not= (:caseFingerprint prepared)
+                    (:agentInputFingerprint prepared)))
           (is (= ["auth" "runtime-config"] (:tags prepared)))
           (is (= {:evidence [{:kind :auth-reference
                               :path "src/app.clj"}]
@@ -860,6 +885,7 @@
                   :repo-id "repo"
                   :project-id "suite-case-1"
                   :caseFingerprint "sha256:test-case"
+                  :agentInputFingerprint "sha256:test-input"
                   :baseSha "base"
                   :fixSha "fix"
                   :worktreeRoot root
@@ -894,6 +920,7 @@
         scored (benchmark/score-agent-result prepared agent-result)]
     (is (= benchmark/agent-score-schema (:schema scored)))
     (is (= "sha256:test-case" (:caseFingerprint scored)))
+    (is (= "sha256:test-input" (:agentInputFingerprint scored)))
     (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
     (is (= 0.5 (get-in scored [:scores :meanReciprocalRankFile])))
     (is (= 0.5 (get-in scored [:scores :expectedEvidenceCitationRate])))
@@ -1172,6 +1199,42 @@
            (get-in scored [:agent :warnings])))
     (is (= {:identityWarnings (get-in scored [:agent :warnings])
             :hasIdentityMismatch true}
+           (select-keys diagnostic [:identityWarnings :hasIdentityMismatch])))))
+
+(deftest score-agent-result-prefers-agent-input-fingerprint-for-identity
+  (let [root (temp-dir "agraph-bench-agent-score-input-identity")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:new-score-contract"
+                  :agentInputFingerprint "sha256:visible-input"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :caseId "case-1"
+                      :caseFingerprint "sha256:old-score-contract"
+                      :agentInputFingerprint "sha256:visible-input"
+                      :agentId "codex"
+                      :mode "agraph"
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.8
+                                        :reason "AGraph context identified the file."
+                                        :evidence ["context-doc:src/app.clj"]}]
+                      :suspectedSymbols []
+                      :commands []
+                      :warnings []
+                      :summary "Found the changed file."}
+        scored (benchmark/score-agent-result prepared agent-result)
+        diagnostic (#'benchmark/agent-output-diagnostic scored)]
+    (is (= [] (get-in scored [:agent :warnings])))
+    (is (= {:identityWarnings []
+            :hasIdentityMismatch false}
            (select-keys diagnostic [:identityWarnings :hasIdentityMismatch])))))
 
 (deftest score-agent-result-writes-parser-worker-provenance

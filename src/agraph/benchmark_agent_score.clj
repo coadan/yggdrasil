@@ -89,6 +89,7 @@
                            "enum" [agent-result-schema]}
                  "caseId" {"type" "string"}
                  "caseFingerprint" {"type" "string"}
+                 "agentInputFingerprint" {"type" "string"}
                  "agentId" {"type" "string"}
                  "mode" {"type" "string"
                          "enum" agent-result-modes}
@@ -490,19 +491,26 @@
 (defn- agent-result-identity-warnings
   [prepared agent-result]
   (vec
-   (keep identity
-         [(mismatched-field-warning agent-result
-                                    :schema
-                                    agent-result-schema
-                                    "schema")
-          (mismatched-field-warning agent-result
-                                    :caseId
-                                    (:case-id prepared)
-                                    "case")
-          (mismatched-field-warning agent-result
-                                    :caseFingerprint
-                                    (:caseFingerprint prepared)
-                                    "case fingerprint")])))
+   (let [fingerprint-warning
+         (if (contains? agent-result :agentInputFingerprint)
+           (mismatched-field-warning agent-result
+                                     :agentInputFingerprint
+                                     (:agentInputFingerprint prepared)
+                                     "agent input fingerprint")
+           (mismatched-field-warning agent-result
+                                     :caseFingerprint
+                                     (:caseFingerprint prepared)
+                                     "case fingerprint"))]
+     (keep identity
+           [(mismatched-field-warning agent-result
+                                      :schema
+                                      agent-result-schema
+                                      "schema")
+            (mismatched-field-warning agent-result
+                                      :caseId
+                                      (:case-id prepared)
+                                      "case")
+            fingerprint-warning]))))
 (defn- missing-predicted-files
   [root predictions]
   (->> predictions
@@ -538,6 +546,7 @@
      :repo-id (:repo-id prepared)
      :project-id (:project-id prepared)
      :caseFingerprint (:caseFingerprint prepared)
+     :agentInputFingerprint (:agentInputFingerprint prepared)
      :tags (:tags prepared)
      :expectations (:expectations prepared)
      :baseSha (:baseSha prepared)

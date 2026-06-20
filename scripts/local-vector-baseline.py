@@ -179,6 +179,8 @@ def main(argv: list[str]) -> int:
             f"from {len(files)} readable candidates."
         ),
     }
+    if request.get("agentInputFingerprint"):
+        result["agentInputFingerprint"] = request.get("agentInputFingerprint")
     write_json(result_path, result)
     return 0
 

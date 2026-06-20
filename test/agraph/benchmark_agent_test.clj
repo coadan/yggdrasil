@@ -70,6 +70,10 @@
           (is (= benchmark/agent-packet-schema (:schema packet)))
           (is (= benchmark/agent-result-schema
                  (get-in packet [:task :expectedResultSchema])))
+          (is (str/starts-with? (:caseFingerprint packet) "sha256:"))
+          (is (str/starts-with? (:agentInputFingerprint packet) "sha256:"))
+          (is (not= (:caseFingerprint packet)
+                    (:agentInputFingerprint packet)))
           (is (contains? (set (get-in packet [:task :rules]))
                          "Only include files likely to require edits in suspectedFiles; cite comparison, example, generated, or read-only support files as evidence instead."))
           (is (= {:mode "none|java|dotnet|all"
@@ -310,6 +314,7 @@
                    "grep -q 'suspectedFiles' \"$AGRAPH_BENCH_OUTPUT_SCHEMA\"\n"
                    "test \"$AGRAPH_BENCH_CASE_ID\" = case-1\n"
                    "test -n \"$AGRAPH_BENCH_CASE_FINGERPRINT\"\n"
+                   "test -n \"$AGRAPH_BENCH_AGENT_INPUT_FINGERPRINT\"\n"
                    "cat > \"$AGRAPH_BENCH_RESULT\" <<'JSON'\n"
                    "{\"schema\":\"" benchmark/agent-result-schema "\","
                    "\"suspectedFiles\":[{\"path\":\"src/app.clj\","
@@ -381,6 +386,11 @@
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
                           :key-fn keyword)
                          [:properties :caseFingerprint])))
+          (is (= {:type "string"}
+                 (get-in (json/read-json
+                          (slurp (get-in run [:artifacts :outputSchemaPath]))
+                          :key-fn keyword)
+                         [:properties :agentInputFingerprint])))
           (is (= {:type "string"
                   :enum ["agraph" "shell-only" "local-vector"]}
                  (get-in (json/read-json
@@ -1302,11 +1312,13 @@
                      (str "#!/bin/sh\n"
                           "case_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"caseId\"])' \"$1\")\n"
                           "case_fingerprint=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"caseFingerprint\"])' \"$1\")\n"
+                          "agent_input_fingerprint=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"agentInputFingerprint\"])' \"$1\")\n"
                           "agent_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"agentId\"])' \"$1\")\n"
                           "cat > \"$2\" <<JSON\n"
                           "{\"schema\":\"agraph.benchmark.agent-result/v2\","
                           "\"caseId\":\"$case_id\","
                           "\"caseFingerprint\":\"$case_fingerprint\","
+                          "\"agentInputFingerprint\":\"$agent_input_fingerprint\","
                           "\"agentId\":\"$agent_id\","
                           "\"mode\":\"local-vector\","
                           "\"suspectedFiles\":[{\"path\":\"src/app.clj\",\"rank\":1,"
@@ -1368,6 +1380,8 @@
           (is (= 1.0 (get-in baseline [:scores :meanReciprocalRankFile])))
           (is (= "agraph.benchmark.local-vector-request/v1" (:schema request)))
           (is (= (:caseFingerprint baseline) (:caseFingerprint request)))
+          (is (= (:agentInputFingerprint baseline)
+                 (:agentInputFingerprint request)))
           (is (= "fake-local-model" (:model request)))
           (is (not (contains? request :groundTruth)))
           (is (= benchmark/agent-result-schema (get-in scored [:agent :schema])))
@@ -1390,6 +1404,7 @@
                       {:schema "agraph.benchmark.local-vector-request/v1"
                        :caseId "case-1"
                        :caseFingerprint "sha256:case-1"
+                       :agentInputFingerprint "sha256:case-input"
                        :agentId "agraph-baseline-local-vector"
                        :mode "local-vector"
                        :worktreeRoot repo
@@ -1427,6 +1442,7 @@
           (is (= benchmark/agent-result-schema (:schema result)))
           (is (= "case-1" (:caseId result)))
           (is (= "sha256:case-1" (:caseFingerprint result)))
+          (is (= "sha256:case-input" (:agentInputFingerprint result)))
           (is (= "agraph-baseline-local-vector" (:agentId result)))
           (is (= "local-vector" (:mode result)))
           (is (= ["src/app.clj" "docs/readme.md"]
