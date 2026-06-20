@@ -80,6 +80,15 @@ The smoke gate installs the local wrapper, runs `agraph start .` in an isolated
 fixture repo, verifies `sync inspect` freshness, checks dependency evidence, and
 confirms the generated operator report artifacts.
 
+Full V1 gate:
+
+```sh
+bb v1:gate
+```
+
+The full gate runs Clojure tests, lint, format check, report UI tests/build, and
+the install/start smoke path.
+
 Docker:
 
 ```sh
@@ -345,4 +354,7 @@ Agent efficiency comparisons are documented in
 bb test
 bb lint
 bb format:check
+bb report-ui:test
+bb report-ui:build
+bb v1:smoke
 ```

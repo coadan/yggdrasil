@@ -37,6 +37,15 @@
             :task (apply shell "bash" "scripts/v1-smoke.sh"
                          *command-line-args*)}
 
+  v1:gate {:doc "Run the V1 release-readiness gate: test, lint, format, report UI, and install/start smoke."
+           :task (do
+                   (shell "clojure -M:test")
+                   (shell "clojure -M:lint")
+                   (shell "clojure -M:format/check")
+                   (shell {:dir "report-ui"} "npm test")
+                   (shell {:dir "report-ui"} "npm run build")
+                   (shell "bash scripts/v1-smoke.sh"))}
+
   efficiency {:doc "Compare shell-only and AGraph agent reports. Usage: bb efficiency <shell-agent-report.json> <agraph-agent-report.json> [--out report.json] [--json] [--min-shared-cases N]"
               :task (apply shell "clojure" "-M:run" "-m" "agraph.agent-efficiency"
                            *command-line-args*)}
