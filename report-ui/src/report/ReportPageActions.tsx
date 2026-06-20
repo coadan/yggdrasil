@@ -17,6 +17,29 @@ export function firstCommandMatching(commands: string[], pattern: RegExp): strin
   return commands.find((command) => pattern.test(command));
 }
 
+function reportOperator(report: AGraphReport): Record<string, unknown> {
+  return (report.operator && typeof report.operator === "object" ? report.operator : {}) as Record<string, unknown>;
+}
+
+function asActionRows(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((row): row is Record<string, unknown> => row !== null && typeof row === "object") : [];
+}
+
+function actionRowsByCommand(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = displayValue(row.command || row.label || row.kind);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function operatorNextActionRows(report: AGraphReport, fallbackRows: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
+  const operatorRows = asActionRows(reportOperator(report)["next-actions"] || reportOperator(report).nextActions);
+  return actionRowsByCommand(operatorRows.length > 0 ? operatorRows : fallbackRows);
+}
+
 export function enqueueWorkCommand(commands: string[]): string | undefined {
   const explicit = firstCommandMatching(commands, /\bsync\s+.*--check\b.*--enqueue\b|\bsync\s+.*--enqueue\b.*--check\b/);
   if (explicit) return explicit;
@@ -26,46 +49,56 @@ export function enqueueWorkCommand(commands: string[]): string | undefined {
 
 export function reportActionCommands(report: AGraphReport): ReportActionCommand[] {
   const commands = report.commands || [];
+  const operatorRows = operatorNextActionRows(report);
+  const operatorCommands = operatorRows.map((row) => displayValue(row.command)).filter((command): command is string => Boolean(command));
+  const allCommands = [...commands, ...operatorCommands];
   const rows = [
+    {
+      id: "inspect-health",
+      label: "Inspect health",
+      description: "Open the current freshness, evidence-family, caveat, and next-action health packet.",
+      command: firstCommandMatching(allCommands, /\bsync\s+inspect\b/),
+      targetTab: "evidence" as const
+    },
     {
       id: "regenerate-report",
       label: "Regenerate report",
       description: "Rebuild the static report from the same project config and map overlay.",
-      command: firstCommandMatching(commands, /\breport\s+/)
+      command: firstCommandMatching(allCommands, /\breport\s+/)
     },
     {
       id: "refresh-graph",
       label: "Refresh graph basis",
       description: "Run sync checks against the indexed graph basis before trusting stale rows.",
-      command: firstCommandMatching(commands, /\bsync\s+.*--check/),
+      command: firstCommandMatching(allCommands, /\bsync\s+.*--check/),
       targetTab: "evidence" as const
     },
     {
       id: "enqueue-review-work",
       label: "Enqueue review work",
       description: "Turn current maintenance, dependency, and external review evidence into queue work items.",
-      command: enqueueWorkCommand(commands),
+      command: enqueueWorkCommand(allCommands),
       targetTab: "maintenance" as const
     },
     {
       id: "review-work-queue",
       label: "Review work queue",
       description: "Inspect queued maintenance or correction work before applying map changes.",
-      command: firstCommandMatching(commands, /\bsync\s+work\s+list\b/),
+      command: firstCommandMatching(allCommands, /\bsync\s+work\s+list\b/),
       targetTab: "maintenance" as const
     },
     {
       id: "apply-completed-work",
       label: "Apply completed work",
       description: "Apply a validated work result into the map overlay.",
-      command: firstCommandMatching(commands, /\bsync\s+work\s+apply\b/),
+      command: firstCommandMatching(allCommands, /\bsync\s+work\s+apply\b/),
       targetTab: "maintenance" as const
     },
     {
       id: "ask-cli",
       label: "Ask with CLI",
       description: "Run the equivalent graph question through the CLI when report-local Ask is too narrow.",
-      command: firstCommandMatching(commands, /\bask\s+/),
+      command: firstCommandMatching(allCommands, /\bask\s+/),
       targetTab: "ask" as const
     }
   ];
@@ -181,6 +214,8 @@ export function nextActionTarget(action: Record<string, unknown>): ActionTarget 
     case "coverage":
       return { tab: "evidence" };
     case "activity":
+    case "validation-history":
+    case "map-overlay":
       return { tab: "evidence" };
     case "ask":
       return { tab: "ask" };
@@ -261,7 +296,7 @@ export function OperatorNextActions({
                     onClick={() =>
                       onAsk({
                         label,
-                        source: `atlas.next-actions.${displayValue(row.kind) || index}`,
+                        source: `operator.next-actions.${displayValue(row.kind) || index}`,
                         question: `What should I do for ${label}?`,
                         evidenceRows: [row]
                       })

@@ -174,12 +174,18 @@ export function reportAtlas(report: AGraphReport, graph: AGraphGraph): Record<st
   };
 }
 
+function operatorNextRows(report: AGraphReport, fallbackRows: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
+  const operator = asRecord(report.operator);
+  const rows = asRows(operator["next-actions"] || operator.nextActions);
+  return rows.length > 0 ? rows : fallbackRows;
+}
+
 export function overviewAnswer(report: AGraphReport, graph: AGraphGraph): AskAnswer {
   const atlas = reportAtlas(report, graph);
   const evidence = asRecord(atlas.evidence);
   const systems = asRecord(atlas.systems);
   const dependencies = asRecord(atlas.dependencies);
-  const nextActions = asRows(atlas["next-actions"] || atlas.nextActions);
+  const nextActions = operatorNextRows(report, asRows(atlas["next-actions"] || atlas.nextActions));
 
   return {
     title: "Project overview",
@@ -227,8 +233,8 @@ export function graphNodeCount(graph: AGraphGraph, kinds: string[], tags: string
   }).length;
 }
 
-export function inventoryRelatedRows(report: AGraphReport, graph: AGraphGraph): Array<Record<string, unknown>> {
-  const inventoryKinds = new Set([
+export function auditScopeRelatedRows(report: AGraphReport, graph: AGraphGraph): Array<Record<string, unknown>> {
+  const auditScopeKinds = new Set([
     "route",
     "url",
     "external-api",
@@ -243,7 +249,7 @@ export function inventoryRelatedRows(report: AGraphReport, graph: AGraphGraph): 
   ]);
   const graphRows = graph.nodes
     .filter((node) => {
-      if (node.kind && inventoryKinds.has(node.kind)) return true;
+      if (node.kind && auditScopeKinds.has(node.kind)) return true;
       return Array.isArray(node.tags) && (node.tags.includes("config") || node.tags.includes("auth"));
     })
     .slice(0, 12)
@@ -257,7 +263,7 @@ export function inventoryRelatedRows(report: AGraphReport, graph: AGraphGraph): 
   return [...graphRows, ...freshnessSampleRows(report).slice(0, 8)];
 }
 
-export function inventoryAnswer(report: AGraphReport, graph: AGraphGraph): AskAnswer {
+export function auditScopeAnswer(report: AGraphReport, graph: AGraphGraph): AskAnswer {
   const packages = asRecord(report.packages);
   const packageCounts = asRecord(packages.counts);
   const freshness = asRecord(report.evidence.freshness);
@@ -274,7 +280,7 @@ export function inventoryAnswer(report: AGraphReport, graph: AGraphGraph): AskAn
   return {
     title: "Project audit scope",
     summary: [
-      `${report.project.name || report.project.id} contains ${report.repos.length} repo(s), ${numericCount(report, "files")} indexed file(s), ${graph.nodes.length} graph node(s), and ${graph.edges.length} graph edge(s) in the loaded artifacts.`,
+      `${report.project.name || report.project.id} has ${report.repos.length} repo(s), ${numericCount(report, "files")} indexed file(s), ${graph.nodes.length} graph node(s), and ${graph.edges.length} graph edge(s) in the loaded audit artifacts.`,
       `The report includes ${countValue(packageCounts, "packages")} package(s), ${manifests} manifest evidence row(s), ${routes} route row(s), ${urls} URL/external row(s), ${configs} config row(s), ${auth} auth row(s), and ${generated} generated artifact row(s).`,
       `Freshness state has ${freshnessGaps} gap(s): ${countValue(freshnessCounts, "changed")} changed, ${countValue(freshnessCounts, "missing")} missing, and ${countValue(freshnessCounts, "unindexed")} unindexed.`
     ],
@@ -287,7 +293,7 @@ export function inventoryAnswer(report: AGraphReport, graph: AGraphGraph): AskAn
       { source: "evidence.kinds", finding: "Auth surfaces", count: auth },
       { source: "evidence.freshness", finding: "Freshness gaps", count: freshnessGaps }
     ],
-    related: inventoryRelatedRows(report, graph),
+    related: auditScopeRelatedRows(report, graph),
     relatedTitle: "Audit Evidence Rows"
   };
 }
@@ -416,7 +422,7 @@ export function coverageAnswer(report: AGraphReport): AskAnswer {
 export function answerReportQuestion(report: AGraphReport, graph: AGraphGraph, question: string): AskAnswer {
   const normalized = question.trim().toLowerCase();
   if (/\b(made of|inventory|contain|contains|routes?|auth|config|generated|manifest|freshness|stale|missing)\b/.test(normalized)) {
-    return inventoryAnswer(report, graph);
+    return auditScopeAnswer(report, graph);
   }
   if (/\b(depend\w*|package|import|version|conflict|npm|cargo|go|maven)\b/.test(normalized)) {
     return dependencyAnswer(report);

@@ -39,6 +39,23 @@
   []
   (System/currentTimeMillis))
 
+(defn- action-key
+  [action]
+  (or (:command action)
+      [(:kind action) (:label action)]))
+
+(defn- distinct-actions
+  [actions]
+  (loop [remaining (seq actions)
+         seen #{}
+         out []]
+    (if-let [action (first remaining)]
+      (let [k (action-key action)]
+        (if (contains? seen k)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen k) (conj out action))))
+      out)))
+
 (defn- absolute-path
   [file]
   (.getAbsolutePath (io/file file)))
@@ -504,6 +521,9 @@
      (concat
       [(str "agraph sync " (command/shell-token config-path) " --check"
             (when map-path (str " --map " (command/shell-token map-path))))
+       (str "agraph sync inspect " (command/shell-token config-path)
+            (when map-path (str " --map " (command/shell-token map-path)))
+            " --json")
        (str "agraph ask \"where is this handled?\" --project "
             (command/shell-token project-id)
             " --json")
@@ -555,23 +575,24 @@
 
 (defn- operator-summary
   [project evidence package-report maintenance audit-report]
-  {:schema "agraph.report.operator/v1"
-   :project-id (:id project)
-   :freshness (:freshness evidence)
-   :evidence-families (:families evidence)
-   :audit-scopes (:scopes audit-report)
-   :caveats (operator-caveats evidence package-report maintenance)
-   :next-actions (vec (take 12
-                            (distinct
-                             (concat (:nextActions audit-report)
-                                     (get-in (atlas-summary {:project project
-                                                             :graph-data {:nodes [] :edges []}
-                                                             :systems-data {:nodes [] :edges []}
-                                                             :coverage {}
-                                                             :maintenance maintenance
-                                                             :evidence evidence
-                                                             :package-report package-report})
-                                             [:next-actions])))))})
+  (let [atlas (atlas-summary {:project project
+                              :graph-data {:nodes [] :edges []}
+                              :systems-data {:nodes [] :edges []}
+                              :coverage {}
+                              :maintenance maintenance
+                              :evidence evidence
+                              :package-report package-report})]
+    {:schema "agraph.report.operator/v1"
+     :project-id (:id project)
+     :freshness (:freshness evidence)
+     :evidence-families (:families evidence)
+     :audit-scopes (:scopes audit-report)
+     :caveats (operator-caveats evidence package-report maintenance)
+     :next-actions (vec (take 12
+                              (distinct-actions
+                               (concat (:nextActions evidence)
+                                       (:nextActions audit-report)
+                                       (:next-actions atlas)))))}))
 
 (defn report-data
   "Return the canonical project report packet for a generated report bundle."

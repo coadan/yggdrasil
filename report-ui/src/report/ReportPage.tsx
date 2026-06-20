@@ -19,6 +19,7 @@ import {
   correctionCompleteCommands,
   correctionResultTemplate,
   inferredColumns,
+  operatorNextActionRows,
   pluginArtifactRefs,
   pluginPanelActions,
   projectMapPath,
@@ -293,7 +294,7 @@ function AtlasTab({
   const maintenance = asRecord(atlas.maintenance);
   const queue = asRecord(maintenance.queue);
   const externalApi = asRecord(maintenance["external-api-review"] || maintenance.externalApiReview);
-  const nextActions = asRows(atlas["next-actions"] || atlas.nextActions);
+  const nextActions = operatorNextActionRows(report, asRows(atlas["next-actions"] || atlas.nextActions));
   const reviewRows = reviewQueueRows(report);
 
   return (
@@ -982,7 +983,7 @@ function DashboardTab({
   const panels = pluginPanels(report);
   const reviewRows = reviewQueueRows(report);
   const atlas = reportAtlas(report, graph);
-  const nextActions = asRows(atlas["next-actions"] || atlas.nextActions);
+  const nextActions = operatorNextActionRows(report, asRows(atlas["next-actions"] || atlas.nextActions));
   const actions = pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab });
   if (panels.length === 0) {
     return (

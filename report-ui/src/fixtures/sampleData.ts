@@ -43,9 +43,9 @@ export const fixtureGraph: AGraphGraph = {
   ]
 };
 
-export const inventoryGraph: AGraphGraph = {
+export const auditScopeGraph: AGraphGraph = {
   ...fixtureGraph,
-  title: "Inventory Fixture Graph",
+  title: "Audit Scope Fixture Graph",
   nodes: [
     ...fixtureGraph.nodes,
     {
@@ -429,6 +429,7 @@ export const fixtureReport: AGraphReport = {
   },
   commands: [
     "agraph sync project.edn --check --map agraph.map.json",
+    "agraph sync inspect project.edn --map agraph.map.json --json",
     "agraph report project.edn --map agraph.map.json --out agraph-out",
     "agraph packages --project fixture --json",
     "agraph ask \"where is this handled?\" --project fixture --json",

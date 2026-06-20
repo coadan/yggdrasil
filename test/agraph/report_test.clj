@@ -78,7 +78,11 @@
                                      :result-schema-mismatch-events 1}
                             :freshness {:status :current}
                             :families [{:family :dependencies
-                                        :status :weak}]}
+                                        :status :weak}]
+                            :nextActions [{:kind :validation-history
+                                           :label "Run sync work validation loop"
+                                           :command (str "agraph sync check project.edn"
+                                                         " --map agraph.map.json --enqueue")}]}
                  :package-report {:counts {:packages 2
                                            :unresolved-imports 1
                                            :declared-without-import-evidence 1
@@ -153,6 +157,15 @@
            (get-in packet [:operator :evidence-families])))
     (is (some #(= :dependencies (:kind %))
               (get-in packet [:operator :caveats])))
+    (is (some #(= {:kind :validation-history
+                   :label "Run sync work validation loop"
+                   :command "agraph sync check project.edn --map agraph.map.json --enqueue"}
+                  %)
+              (get-in packet [:operator :next-actions])))
+    (is (some #(= {:kind :dependencies
+                   :command "agraph packages --project fixture --json"}
+                  %)
+              (get-in packet [:operator :next-actions])))
     (is (= report-plugin/bundle-schema (get-in packet [:plugins :schema])))
     (is (empty? (get-in packet [:plugins :panels])))
     (is (= {:packages 1
@@ -237,6 +250,7 @@
                  :package-report {}
                  :artifacts {}})
         commands (set (:commands packet))]
+    (is (contains? commands "agraph sync inspect project.edn --map agraph.map.json --json"))
     (is (contains? commands "agraph sync work list --project fixture"))
     (is (contains? commands "agraph sync work show <work-id>"))
     (is (contains? commands "agraph sync work pull --project fixture --agent <agent-id>"))
@@ -272,6 +286,8 @@
         atlas-commands (set (map :command (get-in packet [:atlas :next-actions])))]
     (is (contains? commands
                    "agraph sync 'Project Files/project.edn' --check --map 'Maps/agraph map.json'"))
+    (is (contains? commands
+                   "agraph sync inspect 'Project Files/project.edn' --map 'Maps/agraph map.json' --json"))
     (is (contains? commands
                    "agraph packages --project 'fixture project' --json"))
     (is (contains? commands

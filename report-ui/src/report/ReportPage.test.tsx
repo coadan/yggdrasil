@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { emptyGraph, emptyReport, fixtureGraph, fixtureReport, inventoryGraph, sourceDocsSystemReport } from "../fixtures/sampleData";
+import { auditScopeGraph, emptyGraph, emptyReport, fixtureGraph, fixtureReport, sourceDocsSystemReport } from "../fixtures/sampleData";
 import { ReportPage } from "./ReportPage";
 
 vi.mock("../graph/GraphPanel", () => ({
@@ -34,7 +34,7 @@ vi.mock("../graph/GraphPanel", () => ({
 
 describe("ReportPage", () => {
   it("renders evidence counts and commands", () => {
-    render(<ReportPage report={fixtureReport} graph={inventoryGraph} />);
+    render(<ReportPage report={fixtureReport} graph={auditScopeGraph} />);
 
     expect(screen.getByText("Fixture")).toBeInTheDocument();
     expect(screen.getByText("Project Atlas")).toBeInTheDocument();
@@ -46,6 +46,7 @@ describe("ReportPage", () => {
     expect(screen.getAllByText("system-evidence").length).toBeGreaterThan(0);
     expect(screen.getAllByText("evidence.kinds.file-facts").length).toBeGreaterThan(0);
     expect(screen.getByText("Operator Review Queue")).toBeInTheDocument();
+    expect(screen.getByText("Inspect health")).toBeInTheDocument();
     expect(screen.getByText("Refresh indexed graph basis")).toBeInTheDocument();
     expect(screen.getByText("Report Actions")).toBeInTheDocument();
     expect(screen.getByText("Regenerate report")).toBeInTheDocument();
@@ -74,9 +75,9 @@ describe("ReportPage", () => {
     expect(screen.getByText("What should I know before I run Regenerate report?")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
-    const inventory = screen.getByText("Audit Scopes").closest("section");
-    expect(inventory).toBeTruthy();
-    fireEvent.click(within(inventory as HTMLElement).getByRole("button", { name: "Ask" }));
+    const auditScopes = screen.getByText("Audit Scopes").closest("section");
+    expect(auditScopes).toBeTruthy();
+    fireEvent.click(within(auditScopes as HTMLElement).getByRole("button", { name: "Ask" }));
     expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
       "aria-current",
       "page"
@@ -84,8 +85,8 @@ describe("ReportPage", () => {
     expect(screen.getByText("What audit evidence does this report contain?")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
-    const inventoryThird = screen.getByText("Audit Scopes").closest("section");
-    fireEvent.click(within(inventoryThird as HTMLElement).getByRole("button", { name: "Open evidence" }));
+    const auditScopesThird = screen.getByText("Audit Scopes").closest("section");
+    fireEvent.click(within(auditScopesThird as HTMLElement).getByRole("button", { name: "Open evidence" }));
     expect(screen.getByRole("button", { name: "Evidence" })).toHaveAttribute("aria-current", "page");
 
     fireEvent.click(screen.getByRole("button", { name: "Plugins" }));
@@ -320,7 +321,7 @@ describe("ReportPage", () => {
   });
 
   it("answers report-local questions from loaded artifacts", () => {
-    render(<ReportPage report={fixtureReport} graph={inventoryGraph} />);
+    render(<ReportPage report={fixtureReport} graph={auditScopeGraph} />);
 
     const askTab = screen.getAllByRole("button", { name: "Ask" }).find((button) => button.closest("nav"));
     expect(askTab).toBeTruthy();
