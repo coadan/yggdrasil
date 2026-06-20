@@ -267,7 +267,7 @@
 
 (defn- action-distinct-key
   [action]
-  (if (contains? #{:coverage :system-evidence} (:kind action))
+  (if (contains? #{:coverage :system-evidence :validation-history} (:kind action))
     [(:kind action) (:label action) (:command action)]
     [(:command action)]))
 
@@ -288,6 +288,18 @@
   (str "agraph sync " subcommand " " (command/shell-token (or config-path "<project.edn>"))
        (when (seq args)
          (str " " (str/join " " (map command/shell-token args))))))
+
+(defn- sync-work-command
+  [action & args]
+  (apply command/command "agraph" "sync" "work" action args))
+
+(defn- sync-work-list-command
+  [project-id & args]
+  (apply sync-work-command
+         "list"
+         "--project"
+         (or project-id "<project-id>")
+         args))
 
 (defn- view-systems-command
   [project-id]
@@ -313,6 +325,35 @@
        (command/shell-token (or config-path "<project.edn>"))
        " --out "
        (command/shell-token (or map-path "agraph.map.json"))))
+
+(defn- canonical-work-loop-commands
+  [project-id config-path map-path]
+  (let [check-command (str (sync-subcommand "check" config-path)
+                           (when map-path
+                             (str " --map " (command/shell-token map-path)))
+                           " --enqueue")]
+    [check-command
+     (sync-work-list-command project-id "--status" "ready")
+     (sync-work-command "pull"
+                        "--project"
+                        (or project-id "<project-id>")
+                        "--agent"
+                        "<agent-id>")
+     (sync-work-command "complete" "<work-id>" "--result" "result.json")
+     (sync-work-command "validate" "<work-id>")
+     (sync-work-command "apply"
+                        "<work-id>"
+                        "--map"
+                        (or map-path "agraph.map.json"))
+     (sync-subcommand "activity" config-path "--json")]))
+
+(defn- validation-history-action
+  [project-id config-path map-path]
+  (let [commands (canonical-work-loop-commands project-id config-path map-path)]
+    {:kind :validation-history
+     :label "Run sync work validation loop"
+     :command (first commands)
+     :commands commands}))
 
 (defn- extractor-plugin-gap-command
   []
@@ -446,6 +487,9 @@
                          :command (sync-subcommand "activity" config-path "--json")}
                         (when config-path
                           {:mcpArgs {:configPath config-path}})))
+
+           (zero? (validation-history-count counts))
+           (conj (validation-history-action project-id config-path map-path))
 
            (pos? result-schema-mismatch-events)
            (conj (merge {:kind :activity

@@ -422,6 +422,20 @@
       (is (some #(= "agraph packages --project 'fixture project' --json"
                     (:command %))
                 (:nextActions summary)))
+      (is (some #(= {:kind :validation-history
+                     :label "Run sync work validation loop"
+                     :command (str "agraph sync check 'Project Files/project.edn'"
+                                   " --map 'Maps/agraph map.json' --enqueue")
+                     :commands [(str "agraph sync check 'Project Files/project.edn'"
+                                     " --map 'Maps/agraph map.json' --enqueue")
+                                "agraph sync work list --project 'fixture project' --status ready"
+                                "agraph sync work pull --project 'fixture project' --agent <agent-id>"
+                                "agraph sync work complete <work-id> --result result.json"
+                                "agraph sync work validate <work-id>"
+                                "agraph sync work apply <work-id> --map 'Maps/agraph map.json'"
+                                "agraph sync activity 'Project Files/project.edn' --json"]}
+                    %)
+                (:nextActions summary)))
       (is (some #(= {:kind :system-evidence
                      :label "Inspect system evidence coverage"
                      :command "agraph sync coverage 'Project Files/project.edn' --json"
