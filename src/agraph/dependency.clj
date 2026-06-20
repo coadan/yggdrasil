@@ -73,6 +73,45 @@
           second
           str/lower-case))
 
+(def ^:private js-local-source-kinds
+  #{:javascript :typescript :astro :vue :svelte})
+
+(def ^:private js-local-file-extensions
+  ["" ".js" ".jsx" ".ts" ".tsx" ".mjs" ".cjs" ".mts" ".cts"])
+
+(defn- strip-resource-suffix
+  [target]
+  (str/replace (str target) #"[?#].*$" ""))
+
+(defn- js-local-file-candidates
+  [path]
+  (let [path (strip-resource-suffix path)]
+    (if (extension path)
+      [path]
+      (vec (concat
+            (map #(str path %) js-local-file-extensions)
+            (map #(str path "/index" %) js-local-file-extensions))))))
+
+(defn- candidate-local-import-paths
+  [source-path target]
+  (let [target (strip-resource-suffix target)
+        source-dir (dirname source-path)
+        target-parts (vec (remove str/blank? (str/split target #"/")))
+        target-suffix (when (< 1 (count target-parts))
+                        (str/join "/" (rest target-parts)))]
+    (->> (cond-> []
+           (seq target)
+           (conj target)
+
+           (and (seq source-dir) (seq target))
+           (conj (str source-dir "/" target))
+
+           (and (seq source-dir) (seq target-suffix))
+           (conj (str source-dir "/" target-suffix)))
+         (mapcat js-local-file-candidates)
+         distinct
+         vec)))
+
 (defn- ancestor-paths
   [path filename]
   (loop [dir (dirname path)
@@ -342,6 +381,15 @@
   (some #(module-path-alias-match? % edge target)
         alias-nodes))
 
+(defn- local-file-import?
+  [files-by-path edge target kind]
+  (and (contains? js-local-source-kinds kind)
+       (not (str/starts-with? target "."))
+       (not (str/starts-with? target "@"))
+       (str/includes? target "/")
+       (some #(contains? files-by-path %)
+             (candidate-local-import-paths (:path edge) target))))
+
 (defn- package-import-candidate?
   [files-by-path alias-nodes nodes-by-id edge]
   (let [target (namespace-target (:target-id edge))
@@ -349,6 +397,7 @@
     (and target
          (not (local-namespace-import? nodes-by-id edge))
          (not (local-path-alias-import? alias-nodes edge target))
+         (not (local-file-import? files-by-path edge target kind))
          (contains? package-import-source-kinds kind)
          (case kind
            (:javascript :typescript :astro :vue :svelte)

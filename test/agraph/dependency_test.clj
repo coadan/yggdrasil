@@ -606,3 +606,37 @@
       (is (= 2 (get-in report [:counts :source-import-candidates])))
       (is (= ["@libs/path" "react"]
              (sort (map :import (:unresolved-imports report))))))))
+
+(deftest package-report-ignores-local-non-relative-js-path-imports
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "site/src/assets/snippets.js"
+                                          :kind :javascript
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "site/src/assets/partials/snippets.js"
+                                          :kind :javascript
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        []
+                                        :agraph/edges
+                                        [{:source-id "node:namespace:site.src.assets.snippets"
+                                          :target-id "node:namespace:js/partials/snippets.js"
+                                          :relation :imports
+                                          :path "site/src/assets/snippets.js"
+                                          :source-line 12
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [& _] [])]
+    (let [report (dependency/package-report :xtdb
+                                            {:project-id "project-a"
+                                             :repo-id "repo-a"}
+                                            {})]
+      (is (zero? (get-in report [:counts :source-import-candidates])))
+      (is (empty? (:unresolved-imports report))))))
