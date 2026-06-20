@@ -105,10 +105,10 @@
   "Extract bounded task runner task, recipe, dependency, and command facts."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :task-runner-file
-                        :task-runner-file
-                        (task-runner-facts file)))
+                               file
+                               :task-runner-file
+                               :task-runner-file
+                               (task-runner-facts file)))
 (defn- version-file-tool
   [filename]
   (case filename
@@ -216,7 +216,7 @@
   "Extract bounded tool and version declarations."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :tool-version-config-file
-                        :tool-version-config-file
-                        (tool-version-facts file)))
+                               file
+                               :tool-version-config-file
+                               :tool-version-config-file
+                               (tool-version-facts file)))

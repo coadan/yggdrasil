@@ -66,7 +66,7 @@
   "Extract bounded Dev Container configuration facts."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :devcontainer-file
-                        :devcontainer-file
-                        (devcontainer-facts (:content file))))
+                               file
+                               :devcontainer-file
+                               :devcontainer-file
+                               (devcontainer-facts (:content file))))

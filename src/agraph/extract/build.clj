@@ -206,17 +206,17 @@
               (map (fn [dep]
                      (let [dep-label (bazel-dep-label dep)]
                        (common/edge-row run-id
-                                 file-id
-                                 path
-                                 (common/node-id id-scope :build-target label)
-                                 (common/node-id id-scope
-                                          (if (contains? target-labels dep-label)
-                                            :build-target
-                                            :build-reference)
-                                          dep-label)
-                                 :requires
-                                 :extracted
-                                 source-line)))
+                                        file-id
+                                        path
+                                        (common/node-id id-scope :build-target label)
+                                        (common/node-id id-scope
+                                                        (if (contains? target-labels dep-label)
+                                                          :build-target
+                                                          :build-reference)
+                                                        dep-label)
+                                        :requires
+                                        :extracted
+                                        source-line)))
                    (remove #{label} deps)))))
          distinct
          vec)))
@@ -281,7 +281,7 @@
          (remove str/blank?)
          distinct
          (mapv #(common/generic-node run-id id-scope file-id path
-                              :build-reference % 1)))))
+                                     :build-reference % 1)))))
 (defn extract-build
   "Extract declared build targets and explicit target dependencies."
   [run-id {:keys [id-scope file-id path content] :as file}]
@@ -294,57 +294,57 @@
                           (filter #(= :build-target (:kind %)))
                           (mapv (fn [{:keys [label source-line]}]
                                   (common/generic-node run-id
-                                                id-scope
-                                                file-id
-                                                path
-                                                :build-target
-                                                label
-                                                source-line))))
+                                                       id-scope
+                                                       file-id
+                                                       path
+                                                       :build-target
+                                                       label
+                                                       source-line))))
         target-fact-nodes (mapv (fn [{:keys [kind label source-line]}]
                                   (common/generic-node run-id
-                                                id-scope
-                                                file-id
-                                                path
-                                                kind
-                                                label
-                                                source-line))
+                                                       id-scope
+                                                       file-id
+                                                       path
+                                                       kind
+                                                       label
+                                                       source-line))
                                 target-facts)
         file-fact-nodes (mapv (fn [{:keys [kind label source-line]}]
                                 (common/generic-node run-id
-                                              id-scope
-                                              file-id
-                                              path
-                                              kind
-                                              label
-                                              source-line))
+                                                     id-scope
+                                                     file-id
+                                                     path
+                                                     kind
+                                                     label
+                                                     source-line))
                               file-facts)
         reference-nodes (build-reference-nodes run-id id-scope file-id path targets)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id build-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id build-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            target-nodes)
         target-fact-edges (mapv (fn [{:keys [source kind label source-line relation]}]
                                   (common/edge-row run-id
-                                            file-id
-                                            path
-                                            (common/node-id id-scope :build-target source)
-                                            (common/node-id id-scope kind label)
-                                            relation
-                                            :extracted
-                                            source-line))
+                                                   file-id
+                                                   path
+                                                   (common/node-id id-scope :build-target source)
+                                                   (common/node-id id-scope kind label)
+                                                   relation
+                                                   :extracted
+                                                   source-line))
                                 target-facts)
         file-fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                                 (common/edge-row run-id
-                                          file-id
-                                          path
-                                          (:xt/id build-node)
-                                          (common/node-id id-scope kind label)
-                                          relation
-                                          :extracted
-                                          source-line))
+                                                 file-id
+                                                 path
+                                                 (:xt/id build-node)
+                                                 (common/node-id id-scope kind label)
+                                                 relation
+                                                 :extracted
+                                                 source-line))
                               file-facts)
         reference-edges (build-reference-edges run-id id-scope file-id path targets)
         chunk-result (common/extract-text-source run-id file :build-file)]

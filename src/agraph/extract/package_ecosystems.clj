@@ -40,8 +40,8 @@
   (->> (yaml-section-keys content ["dependencies" "dev_dependencies"])
        (mapv (fn [{:keys [label source-line]}]
                (common/package-fact {:ecosystem :pub
-                              :package-name label
-                              :source-line source-line})))))
+                                     :package-name label
+                                     :source-line source-line})))))
 (defn sbt-project-name
   [content path]
   (or (some-> (re-find #"(?m)^\s*name\s*:=\s*\"([^\"]+)\"" content)
@@ -55,8 +55,8 @@
                (when-let [[_ group artifact]
                           (re-find #"\"([^\"]+)\"\s*%%?\s*\"([^\"]+)\"\s*%" line)]
                  (common/package-fact {:ecosystem :maven
-                                :package-name (str group ":" artifact)
-                                :source-line (inc idx)}))))
+                                       :package-name (str group ":" artifact)
+                                       :source-line (inc idx)}))))
        distinct
        vec))
 (defn mix-project-name
@@ -73,8 +73,8 @@
                (when-let [[_ dep-name]
                           (re-find #"\{\s*:([A-Za-z_][A-Za-z0-9_]*)\s*,\s*\"" line)]
                  (common/package-fact {:ecosystem :hex
-                                :package-name dep-name
-                                :source-line (inc idx)}))))
+                                       :package-name dep-name
+                                       :source-line (inc idx)}))))
        distinct
        vec))
 (defn rebar-dependencies
@@ -85,8 +85,8 @@
                (when-let [[_ dep-name]
                           (re-find #"\{\s*([a-z_][A-Za-z0-9_]*)\s*,\s*\{" line)]
                  (common/package-fact {:ecosystem :hex
-                                :package-name dep-name
-                                :source-line (inc idx)}))))
+                                       :package-name dep-name
+                                       :source-line (inc idx)}))))
        distinct
        vec))
 (defn- field-value
@@ -114,9 +114,9 @@
                         (remove #{"R"})
                         (map (fn [package-name]
                                (common/package-fact {:ecosystem :cran
-                                              :package-name package-name
-                                              :dependency-scope dependency-scope
-                                              :source-line 1})))))))
+                                                     :package-name package-name
+                                                     :dependency-scope dependency-scope
+                                                     :source-line 1})))))))
        (remove nil?)
        distinct
        vec))
@@ -128,8 +128,8 @@
                (or (when-let [[_ package-name]
                               (re-matches #"^\s*import(?:From)?\(([A-Za-z_][A-Za-z0-9_.]*).*\)\s*$" line)]
                      (common/package-fact {:ecosystem :cran
-                                    :package-name package-name
-                                    :source-line (inc idx)}))
+                                           :package-name package-name
+                                           :source-line (inc idx)}))
                    (when-let [[_ export-name]
                               (re-matches #"^\s*export\(([A-Za-z_][A-Za-z0-9_.]*)\)\s*$" line)]
                      {:kind :export
@@ -163,8 +163,8 @@
                    (cond-> out
                      package-name
                      (conj (common/package-fact {:ecosystem :julia
-                                          :package-name package-name
-                                          :source-line (inc idx)})))))
+                                                 :package-name package-name
+                                                 :source-line (inc idx)})))))
 
           :else
           (recur (rest remaining) in-deps? out)))
@@ -177,8 +177,8 @@
                (when-let [[_ package-name]
                           (re-matches #"^\s*requires\s+['\"]([^'\"]+)['\"].*" line)]
                  (common/package-fact {:ecosystem :cpan
-                                :package-name package-name
-                                :source-line (inc idx)}))))
+                                       :package-name package-name
+                                       :source-line (inc idx)}))))
        distinct
        vec))
 (defn cabal-package-name
@@ -195,8 +195,8 @@
                             (re-matches #"(?i)^\s*build-depends:\s*(.+)$" line)]
                    (map (fn [package-name]
                           (common/package-fact {:ecosystem :hackage
-                                         :package-name package-name
-                                         :source-line (inc idx)}))
+                                                :package-name package-name
+                                                :source-line (inc idx)}))
                         (comma-package-names deps)))))
        (remove nil?)
        distinct

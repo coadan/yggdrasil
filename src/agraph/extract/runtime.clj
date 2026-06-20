@@ -209,29 +209,29 @@
                               (:xt/id root-node)))
         fact-edges (mapv (fn [{:keys [kind label source-line relation] :as fact}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (if (= :docker-stage kind)
-                                       (:xt/id root-node)
-                                       (stage-edge-source fact))
-                                     (common/node-id id-scope kind label)
-                                     (or relation :defines)
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (if (= :docker-stage kind)
+                                              (:xt/id root-node)
+                                              (stage-edge-source fact))
+                                            (common/node-id id-scope kind label)
+                                            (or relation :defines)
+                                            :extracted
+                                            source-line))
                          facts)
         stage-dependency-edges (mapv (fn [{:keys [source target source-line]}]
                                        (common/edge-row run-id
-                                                 file-id
-                                                 path
-                                                 (common/node-id id-scope
-                                                          :docker-stage
-                                                          source)
-                                                 (common/node-id id-scope
-                                                          :docker-stage
-                                                          target)
-                                                 :depends-on
-                                                 :extracted
-                                                 source-line))
+                                                        file-id
+                                                        path
+                                                        (common/node-id id-scope
+                                                                        :docker-stage
+                                                                        source)
+                                                        (common/node-id id-scope
+                                                                        :docker-stage
+                                                                        target)
+                                                        :depends-on
+                                                        :extracted
+                                                        source-line))
                                      (docker-stage-dependencies stages))
         file-chunk (:chunks (common/extract-text-source run-id file :docker-file))]
     {:nodes (vec (distinct (into [root-node] fact-nodes)))
@@ -266,42 +266,42 @@
         processes (procfile-processes content)
         process-nodes (mapv (fn [{:keys [label source-line]}]
                               (common/generic-node run-id
-                                            id-scope
-                                            file-id
-                                            path
-                                            :runtime-process
-                                            label
-                                            source-line))
+                                                   id-scope
+                                                   file-id
+                                                   path
+                                                   :runtime-process
+                                                   label
+                                                   source-line))
                             processes)
         command-nodes (mapv (fn [{:keys [label command source-line]}]
                               (common/generic-node run-id
-                                            id-scope
-                                            file-id
-                                            path
-                                            :runtime-command
-                                            (str label ":" command)
-                                            source-line))
+                                                   id-scope
+                                                   file-id
+                                                   path
+                                                   :runtime-command
+                                                   (str label ":" command)
+                                                   source-line))
                             processes)
         process-edges (mapv #(common/edge-row run-id
-                                       file-id
-                                       path
-                                       (:xt/id root-node)
-                                       (:xt/id %)
-                                       :defines
-                                       :extracted
-                                       (:source-line %))
+                                              file-id
+                                              path
+                                              (:xt/id root-node)
+                                              (:xt/id %)
+                                              :defines
+                                              :extracted
+                                              (:source-line %))
                             process-nodes)
         command-edges (mapv (fn [{:keys [label command source-line]}]
                               (common/edge-row run-id
-                                        file-id
-                                        path
-                                        (common/node-id id-scope :runtime-process label)
-                                        (common/node-id id-scope
-                                                 :runtime-command
-                                                 (str label ":" command))
-                                        :defines
-                                        :extracted
-                                        source-line))
+                                               file-id
+                                               path
+                                               (common/node-id id-scope :runtime-process label)
+                                               (common/node-id id-scope
+                                                               :runtime-command
+                                                               (str label ":" command))
+                                               :defines
+                                               :extracted
+                                               source-line))
                             processes)
         file-chunk (:chunks (common/extract-text-source run-id file :procfile))
         process-chunks (mapv (fn [{:keys [label command source-line]}]

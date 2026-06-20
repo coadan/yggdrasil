@@ -42,31 +42,31 @@
                       vec)
         element-nodes (mapv (fn [{:keys [label source-line]}]
                               (common/generic-node run-id
-                                            id-scope
-                                            file-id
-                                            path
-                                            :xml-element
-                                            label
-                                            source-line))
+                                                   id-scope
+                                                   file-id
+                                                   path
+                                                   :xml-element
+                                                   label
+                                                   source-line))
                             elements)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id xml-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id xml-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            element-nodes)
         reference-edges (->> elements
                              (mapcat (fn [{:keys [label element source-line]}]
                                        (map (fn [reference]
                                               (common/edge-row run-id
-                                                        file-id
-                                                        path
-                                                        (common/node-id id-scope :xml-element label)
-                                                        (common/node-id id-scope :xml-reference reference)
-                                                        :references
-                                                        :extracted
-                                                        source-line))
+                                                               file-id
+                                                               path
+                                                               (common/node-id id-scope :xml-element label)
+                                                               (common/node-id id-scope :xml-reference reference)
+                                                               :references
+                                                               :extracted
+                                                               source-line))
                                             (xml-reference-values element))))
                              distinct
                              vec)
@@ -100,13 +100,13 @@
                             settings)
         setting-edges (mapv (fn [{:keys [kind label source-line relation]}]
                               (common/edge-row run-id
-                                        file-id
-                                        path
-                                        (:xt/id config-node)
-                                        (common/node-id id-scope kind label)
-                                        relation
-                                        :extracted
-                                        source-line))
+                                               file-id
+                                               path
+                                               (:xt/id config-node)
+                                               (common/node-id id-scope kind label)
+                                               relation
+                                               :extracted
+                                               source-line))
                             settings)
         chunk-result (common/extract-text-source run-id file :apple-config-file)]
     {:nodes (into [config-node] setting-nodes)

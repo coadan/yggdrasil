@@ -226,13 +226,13 @@
                          facts)
         fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id helm-node)
-                                     (common/node-id id-scope kind label)
-                                     (or relation :defines)
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (:xt/id helm-node)
+                                            (common/node-id id-scope kind label)
+                                            (or relation :defines)
+                                            :extracted
+                                            source-line))
                          facts)
         chunk-result (common/extract-text-source run-id file :helm-file)]
     {:nodes (into [helm-node] fact-nodes)

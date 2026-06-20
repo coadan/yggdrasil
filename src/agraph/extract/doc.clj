@@ -134,17 +134,17 @@
         facts (doc-structure-facts path lines)
         fact-nodes (mapv (fn [{:keys [kind label source-line]}]
                            (common/generic-node run-id id-scope file-id path
-                                         kind label source-line))
+                                                kind label source-line))
                          facts)
         fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id doc-node)
-                                     (common/node-id id-scope kind label)
-                                     relation
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (:xt/id doc-node)
+                                            (common/node-id id-scope kind label)
+                                            relation
+                                            :extracted
+                                            source-line))
                          facts)
         close-chunk (fn [out current end-line]
                       (if (seq (:lines current))

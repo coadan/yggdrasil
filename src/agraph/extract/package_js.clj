@@ -22,10 +22,10 @@
                    (when (map? deps)
                      (map (fn [[dep-name version]]
                             (common/package-fact {:ecosystem :npm
-                                           :package-name (common/json-key-label dep-name)
-                                           :version-range (when (string? version) version)
-                                           :dependency-scope (dependency-scope k)
-                                           :source-line 1}))
+                                                  :package-name (common/json-key-label dep-name)
+                                                  :version-range (when (string? version) version)
+                                                  :dependency-scope (dependency-scope k)
+                                                  :source-line 1}))
                           deps)))))
        (remove nil?)
        distinct
@@ -187,9 +187,9 @@
             (when (map? imports)
               (map (fn [[alias target]]
                      (common/package-fact {:ecosystem :deno
-                                    :package-name (common/json-key-label alias)
-                                    :version-range (str target)
-                                    :source-line 1}))
+                                           :package-name (common/json-key-label alias)
+                                           :version-range (str target)
+                                           :source-line 1}))
                    imports))
             (when (map? tasks)
               (map (fn [[task _command]]

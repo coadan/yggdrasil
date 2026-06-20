@@ -316,27 +316,27 @@
                         :run-id run-id}))
                    def-forms)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         using-edges (mapv #(common/edge-row run-id file-id path
-                                     (:xt/id ns-node)
-                                     (common/node-id id-scope :namespace (:target %))
-                                     :imports
-                                     :extracted
-                                     (:source-line %))
+                                            (:xt/id ns-node)
+                                            (common/node-id id-scope :namespace (:target %))
+                                            :imports
+                                            :extracted
+                                            (:source-line %))
                           (dotnet-usings lines))
         chunk (common/source-text-chunk run-id
-                                 id-scope
-                                 file-id
-                                 path
-                                 :dotnet-file
-                                 module-name
-                                 content
-                                 common/source-file-chunk-lines)
+                                        id-scope
+                                        file-id
+                                        path
+                                        :dotnet-file
+                                        module-name
+                                        content
+                                        common/source-file-chunk-lines)
         definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
                                   (common/source-definition-chunk
                                    run-id
@@ -349,10 +349,10 @@
                                    text))
                                 def-forms)
         diagnostics (common/curly-balance-diagnostics run-id
-                                               file-id
-                                               path
-                                               content
-                                               ".NET")]
+                                                      file-id
+                                                      path
+                                                      content
+                                                      ".NET")]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges using-edges))
      :chunks (into [chunk] definition-chunks)

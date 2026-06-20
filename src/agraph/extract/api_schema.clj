@@ -247,61 +247,61 @@
         spec-node (common/generic-node run-id id-scope file-id path :api-spec path 1)
         server-nodes (mapv (fn [{:keys [url source-line]}]
                              (common/generic-node run-id id-scope file-id (:path file)
-                                           :api-server url source-line))
+                                                  :api-server url source-line))
                            (:servers facts))
         path-nodes (mapv (fn [{:keys [path source-line]}]
                            (common/generic-node run-id id-scope file-id (:path file)
-                                         :api-path path source-line))
+                                                :api-path path source-line))
                          (:paths facts))
         operation-nodes (mapv (fn [{:keys [path method operation-id source-line]}]
                                 (common/generic-node run-id id-scope file-id (:path file)
-                                              :api-operation
-                                              (openapi-operation-label
-                                               {:path path
-                                                :method method
-                                                :operation-id operation-id})
-                                              source-line))
+                                                     :api-operation
+                                                     (openapi-operation-label
+                                                      {:path path
+                                                       :method method
+                                                       :operation-id operation-id})
+                                                     source-line))
                               (:operations facts))
         schema-nodes (mapv (fn [{:keys [name source-line]}]
                              (common/generic-node run-id id-scope file-id (:path file)
-                                           :api-schema name source-line))
+                                                  :api-schema name source-line))
                            (:schemas facts))
         path-edges (mapv #(common/edge-row run-id file-id path
-                                    (:xt/id spec-node)
-                                    (:xt/id %)
-                                    :defines
-                                    :extracted
-                                    (:source-line %))
+                                           (:xt/id spec-node)
+                                           (:xt/id %)
+                                           :defines
+                                           :extracted
+                                           (:source-line %))
                          path-nodes)
         server-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id spec-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id spec-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            server-nodes)
         path-id-by-label (into {} (map (juxt :label :xt/id)) path-nodes)
         operation-edges (mapv (fn [{:keys [path method operation-id source-line]}]
                                 (common/edge-row run-id
-                                          file-id
-                                          (:path file)
-                                          (get path-id-by-label path)
-                                          (common/node-id id-scope
-                                                   :api-operation
-                                                   (openapi-operation-label
-                                                    {:path path
-                                                     :method method
-                                                     :operation-id operation-id}))
-                                          :defines
-                                          :extracted
-                                          source-line))
+                                                 file-id
+                                                 (:path file)
+                                                 (get path-id-by-label path)
+                                                 (common/node-id id-scope
+                                                                 :api-operation
+                                                                 (openapi-operation-label
+                                                                  {:path path
+                                                                   :method method
+                                                                   :operation-id operation-id}))
+                                                 :defines
+                                                 :extracted
+                                                 source-line))
                               (:operations facts))
         schema-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id spec-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id spec-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            schema-nodes)
         schema-id-by-label (into {} (map (juxt :label :xt/id)) schema-nodes)
         ref-edges (->> (concat (:operation-refs facts) (:schema-refs facts))
@@ -309,22 +309,22 @@
                                (when-let [schema-name (openapi-ref-schema-name ref)]
                                  (when-let [target-id (get schema-id-by-label schema-name)]
                                    (common/edge-row run-id
-                                             file-id
-                                             path
-                                             (common/node-id id-scope source-kind source-label)
-                                             target-id
-                                             :references
-                                             :extracted
-                                             source-line)))))
+                                                    file-id
+                                                    path
+                                                    (common/node-id id-scope source-kind source-label)
+                                                    target-id
+                                                    :references
+                                                    :extracted
+                                                    source-line)))))
                        distinct
                        vec)
         chunk-result (common/extract-text-source run-id file :openapi-file)
         diagnostics (mapv #(common/diagnostic-row run-id
-                                           file-id
-                                           path
-                                           (:stage %)
-                                           (:line %)
-                                           (:message %))
+                                                  file-id
+                                                  path
+                                                  (:stage %)
+                                                  (:line %)
+                                                  (:message %))
                           (:diagnostics facts))]
     {:nodes (vec (concat [spec-node] server-nodes path-nodes operation-nodes schema-nodes))
      :edges (vec (concat server-edges path-edges operation-edges schema-edges ref-edges))
@@ -562,50 +562,50 @@
         spec-node (common/generic-node run-id id-scope file-id path :asyncapi-spec path 1)
         server-nodes (mapv (fn [{:keys [label source-line]}]
                              (common/generic-node run-id id-scope file-id path
-                                           :asyncapi-server label source-line))
+                                                  :asyncapi-server label source-line))
                            (:servers facts))
         channel-nodes (mapv (fn [{:keys [label source-line]}]
                               (common/generic-node run-id id-scope file-id path
-                                            :asyncapi-channel label source-line))
+                                                   :asyncapi-channel label source-line))
                             (:channels facts))
         operation-nodes (mapv (fn [{:keys [label source-line]}]
                                 (common/generic-node run-id id-scope file-id path
-                                              :asyncapi-operation label source-line))
+                                                     :asyncapi-operation label source-line))
                               (:operations facts))
         message-nodes (mapv (fn [{:keys [label source-line]}]
                               (common/generic-node run-id id-scope file-id path
-                                            :asyncapi-message label source-line))
+                                                   :asyncapi-message label source-line))
                             (:messages facts))
         schema-nodes (mapv (fn [{:keys [label source-line]}]
                              (common/generic-node run-id id-scope file-id path
-                                           :asyncapi-schema label source-line))
+                                                  :asyncapi-schema label source-line))
                            (:schemas facts))
         trait-nodes (mapv (fn [{:keys [label source-line]}]
                             (common/generic-node run-id id-scope file-id path
-                                          :asyncapi-operation-trait
-                                          label
-                                          source-line))
+                                                 :asyncapi-operation-trait
+                                                 label
+                                                 source-line))
                           (:operation-traits facts))
         binding-nodes (mapv (fn [{:keys [label source-line]}]
                               (common/generic-node run-id id-scope file-id path
-                                            :asyncapi-binding label source-line))
+                                                   :asyncapi-binding label source-line))
                             (:bindings facts))
         header-nodes (mapv (fn [{:keys [label source-line]}]
                              (common/generic-node run-id id-scope file-id path
-                                           :asyncapi-header label source-line))
+                                                  :asyncapi-header label source-line))
                            (remove nil? (:headers facts)))
         correlation-id-nodes (mapv (fn [{:keys [label source-line]}]
                                      (common/generic-node run-id id-scope file-id path
-                                                   :asyncapi-correlation-id
-                                                   label
-                                                   source-line))
+                                                          :asyncapi-correlation-id
+                                                          label
+                                                          source-line))
                                    (remove nil? (:correlation-ids facts)))
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id spec-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id spec-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            (concat server-nodes
                                    channel-nodes
                                    message-nodes
@@ -617,13 +617,13 @@
         channel-id-by-label (into {} (map (juxt :label :xt/id)) channel-nodes)
         operation-edges (mapv (fn [{:keys [channel label source-line]}]
                                 (common/edge-row run-id
-                                          file-id
-                                          path
-                                          (get channel-id-by-label channel)
-                                          (common/node-id id-scope :asyncapi-operation label)
-                                          :defines
-                                          :extracted
-                                          source-line))
+                                                 file-id
+                                                 path
+                                                 (get channel-id-by-label channel)
+                                                 (common/node-id id-scope :asyncapi-operation label)
+                                                 :defines
+                                                 :extracted
+                                                 source-line))
                               (:operations facts))
         reference-edges (->> (:operations facts)
                              (mapcat
@@ -632,31 +632,31 @@
                                 (concat
                                  (map (fn [target]
                                         (common/edge-row run-id
-                                                  file-id
-                                                  path
-                                                  (common/node-id id-scope
-                                                           :asyncapi-operation
-                                                           label)
-                                                  (common/node-id id-scope
-                                                           :asyncapi-message
-                                                           target)
-                                                  :references
-                                                  :extracted
-                                                  source-line))
+                                                         file-id
+                                                         path
+                                                         (common/node-id id-scope
+                                                                         :asyncapi-operation
+                                                                         label)
+                                                         (common/node-id id-scope
+                                                                         :asyncapi-message
+                                                                         target)
+                                                         :references
+                                                         :extracted
+                                                         source-line))
                                       message-refs)
                                  (map (fn [target]
                                         (common/edge-row run-id
-                                                  file-id
-                                                  path
-                                                  (common/node-id id-scope
-                                                           :asyncapi-operation
-                                                           label)
-                                                  (common/node-id id-scope
-                                                           :asyncapi-operation-trait
-                                                           target)
-                                                  :references
-                                                  :extracted
-                                                  source-line))
+                                                         file-id
+                                                         path
+                                                         (common/node-id id-scope
+                                                                         :asyncapi-operation
+                                                                         label)
+                                                         (common/node-id id-scope
+                                                                         :asyncapi-operation-trait
+                                                                         target)
+                                                         :references
+                                                         :extracted
+                                                         source-line))
                                       trait-refs))))
                              distinct
                              vec)
@@ -674,25 +674,25 @@
                                                     (get schema-id-by-label
                                                          schema-name)]
                                            (common/edge-row run-id
-                                                     file-id
-                                                     path
-                                                     (common/node-id id-scope
-                                                              (or source-kind
-                                                                  :asyncapi-message)
-                                                              source-label)
-                                                     target-id
-                                                     :references
-                                                     :extracted
-                                                     source-line)))))
+                                                            file-id
+                                                            path
+                                                            (common/node-id id-scope
+                                                                            (or source-kind
+                                                                                :asyncapi-message)
+                                                                            source-label)
+                                                            target-id
+                                                            :references
+                                                            :extracted
+                                                            source-line)))))
                                     distinct
                                     vec)
         chunk-result (common/extract-text-source run-id file :asyncapi-file)
         diagnostics (mapv #(common/diagnostic-row run-id
-                                           file-id
-                                           path
-                                           (:stage %)
-                                           (:line %)
-                                           (:message %))
+                                                  file-id
+                                                  path
+                                                  (:stage %)
+                                                  (:line %)
+                                                  (:message %))
                           (:diagnostics facts))]
     {:nodes (vec (concat [spec-node]
                          server-nodes
@@ -743,48 +743,48 @@
   [run-id {:keys [id-scope file-id path content] :as file}]
   (let [facts (json-schema-facts content path)
         schema-node (common/generic-node run-id id-scope file-id path
-                                  :json-schema
-                                  (:root-label facts)
-                                  1)
+                                         :json-schema
+                                         (:root-label facts)
+                                         1)
         definition-nodes (mapv (fn [{:keys [label source-line]}]
                                  (common/generic-node run-id id-scope file-id path
-                                               :json-schema-definition
-                                               label
-                                               source-line))
+                                                      :json-schema-definition
+                                                      label
+                                                      source-line))
                                (:definitions facts))
         property-nodes (mapv (fn [{:keys [label source-line]}]
                                (common/generic-node run-id id-scope file-id path
-                                             :json-schema-property
-                                             label
-                                             source-line))
+                                                    :json-schema-property
+                                                    label
+                                                    source-line))
                              (:properties facts))
         reference-nodes (mapv (fn [{:keys [label source-line]}]
                                 (common/generic-node run-id id-scope file-id path
-                                              :json-schema-reference
-                                              label
-                                              source-line))
+                                                     :json-schema-reference
+                                                     label
+                                                     source-line))
                               (:references facts))
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id schema-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id schema-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            (concat definition-nodes property-nodes))
         reference-edges (mapv #(common/edge-row run-id file-id path
-                                         (:xt/id schema-node)
-                                         (:xt/id %)
-                                         :references
-                                         :extracted
-                                         (:source-line %))
+                                                (:xt/id schema-node)
+                                                (:xt/id %)
+                                                :references
+                                                :extracted
+                                                (:source-line %))
                               reference-nodes)
         chunk-result (common/extract-text-source run-id file :json-schema-file)
         diagnostics (mapv #(common/diagnostic-row run-id
-                                           file-id
-                                           path
-                                           (:stage %)
-                                           (:line %)
-                                           (:message %))
+                                                  file-id
+                                                  path
+                                                  (:stage %)
+                                                  (:line %)
+                                                  (:message %))
                           (:diagnostics facts))]
     {:nodes (vec (concat [schema-node]
                          definition-nodes

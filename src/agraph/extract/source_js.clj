@@ -112,21 +112,21 @@
                              :active? true
                              :run-id run-id}))))
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (->> lines
                           (map-indexed #(common/js-import-targets %1 path %2))
                           (mapcat identity)
                           (mapv #(common/edge-row run-id file-id path
-                                           (:xt/id ns-node)
-                                           (common/node-id id-scope :namespace (:target %))
-                                           :imports
-                                           :extracted
-                                           (:source-line %))))
+                                                  (:xt/id ns-node)
+                                                  (common/node-id id-scope :namespace (:target %))
+                                                  :imports
+                                                  :extracted
+                                                  (:source-line %))))
         chunk-text (str/join "\n" (take 100 lines))
         chunk-kind (case kind
                      :typescript :typescript-file

@@ -94,8 +94,8 @@
                                      (re-matches #"^\s*pod\s+['\"]([^'\"]+)['\"].*"
                                                  line)]
                             (common/package-fact {:ecosystem :cocoapods
-                                           :package-name pod-name
-                                           :source-line (inc idx)}))))
+                                                  :package-name pod-name
+                                                  :source-line (inc idx)}))))
                   vec)]
     (vec (concat targets pods))))
 (defn swift-package-name
@@ -112,8 +112,8 @@
                                              (re-find #"\.package\s*\(\s*url:\s*\"([^\"]+)\""
                                                       line)]
                                     (common/package-fact {:ecosystem :swiftpm
-                                                   :package-name url
-                                                   :source-line (inc idx)}))))
+                                                          :package-name url
+                                                          :source-line (inc idx)}))))
                           vec)
         targets (->> lines
                      (map-indexed vector)
@@ -149,8 +149,8 @@
                                              (re-matches #"^\s*repositoryURL\s*=\s*\"([^\"]+)\";\s*$"
                                                          line)]
                                     (common/package-fact {:ecosystem :swiftpm
-                                                   :package-name url
-                                                   :source-line (inc idx)}))))
+                                                          :package-name url
+                                                          :source-line (inc idx)}))))
                           distinct
                           vec)]
     (vec (concat products package-urls))))

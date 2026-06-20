@@ -137,60 +137,60 @@
                       (common/generic-node run-id id-scope file-id path :avro-file path 1))
         schema-nodes (mapv (fn [{:keys [kind label source-line]}]
                              (common/generic-node run-id id-scope file-id path
-                                           kind
-                                           label
-                                           source-line))
+                                                  kind
+                                                  label
+                                                  source-line))
                            (:schemas facts))
         field-nodes (mapv (fn [{:keys [label source-line]}]
                             (common/generic-node run-id id-scope file-id path
-                                          :avro-field
-                                          label
-                                          source-line))
+                                                 :avro-field
+                                                 label
+                                                 source-line))
                           (:fields facts))
         reference-nodes (->> (:references facts)
                              (map :target-label)
                              distinct
                              (mapv #(common/generic-node run-id id-scope file-id path
-                                                  :avro-reference
-                                                  %
-                                                  1)))
+                                                         :avro-reference
+                                                         %
+                                                         1)))
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id root-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id root-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            schema-nodes)
         schema-id-by-label (into {} (map (juxt :label :xt/id)) schema-nodes)
         field-edges (mapv (fn [{:keys [record-label label source-line]}]
                             (common/edge-row run-id
-                                      file-id
-                                      path
-                                      (get schema-id-by-label record-label)
-                                      (common/node-id id-scope :avro-field label)
-                                      :defines
-                                      :extracted
-                                      source-line))
+                                             file-id
+                                             path
+                                             (get schema-id-by-label record-label)
+                                             (common/node-id id-scope :avro-field label)
+                                             :defines
+                                             :extracted
+                                             source-line))
                           (:fields facts))
         reference-edges (mapv (fn [{:keys [source-label target-label source-line]}]
                                 (common/edge-row run-id
-                                          file-id
-                                          path
-                                          (common/node-id id-scope :avro-field source-label)
-                                          (common/node-id id-scope
-                                                   :avro-reference
-                                                   target-label)
-                                          :references
-                                          :extracted
-                                          source-line))
+                                                 file-id
+                                                 path
+                                                 (common/node-id id-scope :avro-field source-label)
+                                                 (common/node-id id-scope
+                                                                 :avro-reference
+                                                                 target-label)
+                                                 :references
+                                                 :extracted
+                                                 source-line))
                               (:references facts))
         chunk-result (common/extract-text-source run-id file :avro-file)
         diagnostics (mapv #(common/diagnostic-row run-id
-                                           file-id
-                                           path
-                                           (:stage %)
-                                           (:line %)
-                                           (:message %))
+                                                  file-id
+                                                  path
+                                                  (:stage %)
+                                                  (:line %)
+                                                  (:message %))
                           (:diagnostics facts))]
     {:nodes (vec (concat [root-node] schema-nodes field-nodes reference-nodes))
      :edges (vec (concat define-edges field-edges reference-edges))

@@ -19,10 +19,10 @@
                                   (re-matches #"^\s*([A-Za-z0-9_.-]+)\s*=\s*(?:\"([^\"]+)\"|\{.*?version\s*=\s*\"([^\"]+)\".*\}).*"
                                               line)]
                          (common/package-fact {:ecosystem :cargo
-                                        :package-name package-name
-                                        :version-range (or quoted-version map-version)
-                                        :dependency-scope section
-                                        :source-line (inc idx)}))))))
+                                               :package-name package-name
+                                               :version-range (or quoted-version map-version)
+                                               :dependency-scope section
+                                               :source-line (inc idx)}))))))
         deps (->> ["dependencies" "dev-dependencies" "build-dependencies"
                    "workspace.dependencies"]
                   (mapcat dependency-section-facts)
@@ -84,9 +84,9 @@
                      (cond-> out
                        package-name
                        (conj (common/package-fact {:ecosystem :go
-                                            :package-name package-name
-                                            :version-range version
-                                            :source-line (inc idx)})))))))
+                                                   :package-name package-name
+                                                   :version-range version
+                                                   :source-line (inc idx)})))))))
         (vec (distinct out))))))
 (defn go-mod-extra-facts
   [content]

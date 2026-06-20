@@ -348,8 +348,8 @@
          (mapcat
           (fn [panel]
             (let [panel-title (common/json-label (or (:title panel)
-                                              (:id panel)
-                                              "panel"))
+                                                     (:id panel)
+                                                     "panel"))
                   panel-label (str title ":" panel-title)
                   datasource (or (some-> (get-in panel [:datasource :uid]) common/json-label)
                                  (some-> (get-in panel [:datasource :type]) common/json-label))]
@@ -465,13 +465,13 @@
        (keep (fn [{:keys [source-kind source kind label relation source-line]}]
                (when (and source-kind (seq source) (seq label))
                  (common/edge-row run-id
-                           file-id
-                           path
-                           (common/node-id id-scope source-kind source)
-                           (common/node-id id-scope kind label)
-                           (or relation :references)
-                           :extracted
-                           source-line))))
+                                  file-id
+                                  path
+                                  (common/node-id id-scope source-kind source)
+                                  (common/node-id id-scope kind label)
+                                  (or relation :references)
+                                  :extracted
+                                  source-line))))
        distinct
        vec))
 (defn extract-observability-config
@@ -479,10 +479,10 @@
   [run-id {:keys [id-scope file-id path] :as file}]
   (let [facts (observability-facts file)
         result (common/extract-format-facts run-id
-                                     file
-                                     :observability-file
-                                     :observability-file
-                                     facts)
+                                            file
+                                            :observability-file
+                                            :observability-file
+                                            facts)
         reference-edges (observability-reference-edges run-id
                                                        id-scope
                                                        file-id

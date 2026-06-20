@@ -113,21 +113,21 @@
         document-label (when kind (sbom-document-label m path))
         document-node (when document-label
                         (common/generic-node run-id
-                                      id-scope
-                                      file-id
-                                      path
-                                      :sbom-document
-                                      document-label
-                                      1))
+                                             id-scope
+                                             file-id
+                                             path
+                                             :sbom-document
+                                             document-label
+                                             1))
         package-nodes (->> package-records
                            (map (fn [{:keys [package label ref]}]
                                   (cond-> (common/generic-node run-id
-                                                        id-scope
-                                                        file-id
-                                                        path
-                                                        :sbom-package
-                                                        label
-                                                        1)
+                                                               id-scope
+                                                               file-id
+                                                               path
+                                                               :sbom-package
+                                                               label
+                                                               1)
                                     (sbom-clean-label (:name package))
                                     (assoc :package-name
                                            (sbom-clean-label (:name package)))
@@ -146,75 +146,75 @@
                             distinct
                             vec)
         license-nodes (mapv #(common/generic-node run-id
-                                           id-scope
-                                           file-id
-                                           path
-                                           :license-id
-                                           %
-                                           1)
+                                                  id-scope
+                                                  file-id
+                                                  path
+                                                  :license-id
+                                                  %
+                                                  1)
                             license-labels)
         root-node (common/generic-node run-id id-scope file-id path :sbom-file path 1)
         root-id (:xt/id root-node)
         root->document (when document-node
                          [(common/edge-row run-id
-                                    file-id
-                                    path
-                                    root-id
-                                    (:xt/id document-node)
-                                    :defines
-                                    1.0
-                                    1)])
+                                           file-id
+                                           path
+                                           root-id
+                                           (:xt/id document-node)
+                                           :defines
+                                           1.0
+                                           1)])
         root->packages (mapv #(common/edge-row run-id
-                                        file-id
-                                        path
-                                        root-id
-                                        (:xt/id %)
-                                        :defines
-                                        1.0
-                                        (:source-line %))
+                                               file-id
+                                               path
+                                               root-id
+                                               (:xt/id %)
+                                               :defines
+                                               1.0
+                                               (:source-line %))
                              package-nodes)
         root->licenses (mapv #(common/edge-row run-id
-                                        file-id
-                                        path
-                                        root-id
-                                        (:xt/id %)
-                                        :defines
-                                        1.0
-                                        (:source-line %))
+                                               file-id
+                                               path
+                                               root-id
+                                               (:xt/id %)
+                                               :defines
+                                               1.0
+                                               (:source-line %))
                              license-nodes)
         package->licenses (->> package-records
                                (mapcat
                                 (fn [{:keys [label licenses]}]
                                   (map (fn [license-label]
                                          (common/edge-row run-id
-                                                   file-id
-                                                   path
-                                                   (common/node-id id-scope
-                                                            :sbom-package
-                                                            label)
-                                                   (common/node-id id-scope
-                                                            :license-id
-                                                            license-label)
-                                                   :licenses
-                                                   1.0
-                                                   1))
+                                                          file-id
+                                                          path
+                                                          (common/node-id id-scope
+                                                                          :sbom-package
+                                                                          label)
+                                                          (common/node-id id-scope
+                                                                          :license-id
+                                                                          license-label)
+                                                          :licenses
+                                                          1.0
+                                                          1))
                                        licenses)))
                                distinct
                                vec)
         dependency-edges (->> (sbom-dependency-edges kind m ref->label)
                               (mapv (fn [{:keys [source-label target-label]}]
                                       (common/edge-row run-id
-                                                file-id
-                                                path
-                                                (common/node-id id-scope
-                                                         :sbom-package
-                                                         source-label)
-                                                (common/node-id id-scope
-                                                         :sbom-package
-                                                         target-label)
-                                                :depends-on
-                                                1.0
-                                                1))))
+                                                       file-id
+                                                       path
+                                                       (common/node-id id-scope
+                                                                       :sbom-package
+                                                                       source-label)
+                                                       (common/node-id id-scope
+                                                                       :sbom-package
+                                                                       target-label)
+                                                       :depends-on
+                                                       1.0
+                                                       1))))
         chunk-result (common/extract-text-source run-id file :sbom-file)]
     {:nodes (vec (distinct (concat [root-node]
                                    (when document-node [document-node])

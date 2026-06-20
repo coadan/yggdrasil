@@ -107,7 +107,7 @@
   "Extract bounded repository governance and GitHub template facts."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :governance-config-file
-                        :governance-config-file
-                        (governance-facts file)))
+                               file
+                               :governance-config-file
+                               :governance-config-file
+                               (governance-facts file)))

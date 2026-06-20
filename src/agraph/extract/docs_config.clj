@@ -103,10 +103,10 @@
   "Extract bounded Storybook config and story facts."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :storybook-file
-                        :storybook-file
-                        (storybook-facts file)))
+                               file
+                               :storybook-file
+                               :storybook-file
+                               (storybook-facts file)))
 (defn docs-config-property-values
   [content property-name]
   (->> (re-seq (re-pattern (str "\\b"
@@ -613,7 +613,7 @@
   "Extract deterministic docs/content-system configuration facts."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :docs-config
-                        :docs-config-file
-                        (docs-config-facts file)))
+                               file
+                               :docs-config
+                               :docs-config-file
+                               (docs-config-facts file)))

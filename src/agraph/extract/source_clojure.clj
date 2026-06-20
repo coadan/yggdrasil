@@ -165,13 +165,13 @@
           def-forms (definition-forms content)
           defs (mapv #(definition-node run-id id-scope file-id path ns-name %) def-forms)
           contains-edges (mapv #(common/edge-row run-id file-id path
-                                          (:xt/id ns-node) (:xt/id %)
-                                          :defines :extracted (:source-line %))
+                                                 (:xt/id ns-node) (:xt/id %)
+                                                 :defines :extracted (:source-line %))
                                defs)
           require-edges (mapv #(common/edge-row run-id file-id path
-                                         (:xt/id ns-node)
-                                         (common/node-id id-scope :namespace (:target %))
-                                         :requires :extracted 1)
+                                                (:xt/id ns-node)
+                                                (common/node-id id-scope :namespace (:target %))
+                                                :requires :extracted 1)
                               require-specs)
           chunk-text (common/bounded-lines content code-file-chunk-lines)
           chunk {:xt/id (common/chunk-id id-scope path ns-name 1)

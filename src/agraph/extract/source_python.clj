@@ -142,11 +142,11 @@
                               (contains? #{"async-function" "async-method"} kind)
                               (assoc :async? true))))))
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (->> (:imports facts)
                           (keep (fn [{:keys [target line]}]
@@ -155,18 +155,18 @@
                                                                      target)]
                                     (when-not (str/blank? (str target))
                                       (common/edge-row run-id file-id path
-                                                (:xt/id ns-node)
-                                                (common/node-id id-scope :namespace target)
-                                                :imports
-                                                :extracted
-                                                (or line 1))))))
+                                                       (:xt/id ns-node)
+                                                       (common/node-id id-scope :namespace target)
+                                                       :imports
+                                                       :extracted
+                                                       (or line 1))))))
                           vec)
         diagnostics (mapv #(common/diagnostic-row run-id
-                                           file-id
-                                           path
-                                           (:stage %)
-                                           (:line %)
-                                           (:message %))
+                                                  file-id
+                                                  path
+                                                  (:stage %)
+                                                  (:line %)
+                                                  (:message %))
                           (:diagnostics facts))
         chunk-text (str/join "\n" (take 100 (str/split-lines content)))
         chunk {:xt/id (common/chunk-id id-scope path module-name 1)

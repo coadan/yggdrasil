@@ -54,11 +54,11 @@
   (when-let [[_ module-name]
              (re-matches #"^\s*(?:pub\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;.*" line)]
     (common/edge-row run-id file-id path
-              ns-id
-              (common/node-id id-scope :namespace (rust-declared-module-name path module-name))
-              :declares-module
-              :extracted
-              (inc idx))))
+                     ns-id
+                     (common/node-id id-scope :namespace (rust-declared-module-name path module-name))
+                     :declares-module
+                     :extracted
+                     (inc idx))))
 (defn- rust-use-edge
   [run-id id-scope file-id path ns-id idx line]
   (when-let [[_ target]
@@ -67,11 +67,11 @@
                            (str/replace #"\s+" "")
                            (str/replace #"\{.*" ""))]
       (common/edge-row run-id file-id path
-                ns-id
-                (common/node-id id-scope :namespace clean-target)
-                :uses
-                :extracted
-                (inc idx)))))
+                       ns-id
+                       (common/node-id id-scope :namespace clean-target)
+                       :uses
+                       :extracted
+                       (inc idx)))))
 (defn- rust-call-edges
   [run-id file-id path defs content]
   (let [defs-by-name (into {} (map (fn [node] [(:name node) (:xt/id node)])) defs)
@@ -89,11 +89,11 @@
                            (when-let [target-id (get defs-by-name callee)]
                              (when (not= target-id (:xt/id source))
                                (common/edge-row run-id file-id path
-                                         (:xt/id source)
-                                         target-id
-                                         :calls
-                                         :inferred
-                                         (:source-line source))))))))))
+                                                (:xt/id source)
+                                                target-id
+                                                :calls
+                                                :inferred
+                                                (:source-line source))))))))))
          distinct
          vec)))
 (defn- rust-definition-text
@@ -156,11 +156,11 @@
                         :run-id run-id}))
                    defs-with-text)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         module-edges (keep-indexed #(rust-module-edge run-id
                                                       id-scope
@@ -348,11 +348,11 @@
                            (when-let [target-id (get defs-by-name callee)]
                              (when (not= target-id (:xt/id source))
                                (common/edge-row run-id file-id path
-                                         (:xt/id source)
-                                         target-id
-                                         :calls
-                                         :inferred
-                                         (:source-line source))))))))))
+                                                (:xt/id source)
+                                                target-id
+                                                :calls
+                                                :inferred
+                                                (:source-line source))))))))))
          distinct
          vec)))
 (defn extract-go
@@ -382,18 +382,18 @@
                              :active? true
                              :run-id run-id}))))
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            (go-imports lines))
         call-edges (go-call-edges run-id file-id path defs content)
         chunk-text (str/join "\n" (take go-file-chunk-lines lines))

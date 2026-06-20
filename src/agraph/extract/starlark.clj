@@ -46,7 +46,7 @@
   "Extract bounded Starlark load, function, and rule facts."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :starlark-file
-                        :starlark-file
-                        (starlark-facts (:content file))))
+                               file
+                               :starlark-file
+                               :starlark-file
+                               (starlark-facts (:content file))))

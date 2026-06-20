@@ -422,7 +422,7 @@
   [content]
   (let [project-name (common/yaml-top-level-value content "name")
         deployments (common/yaml-top-section-blocks (str/split-lines content)
-                                             "deployments")]
+                                                    "deployments")]
     (vec
      (concat
       [{:kind :workflow-framework
@@ -518,13 +518,13 @@
        (keep (fn [{:keys [source target source-line relation]}]
                (when (and (seq source) (seq target))
                  (common/edge-row run-id
-                           file-id
-                           path
-                           (common/node-id id-scope :workflow-task source)
-                           (common/node-id id-scope :workflow-task target)
-                           (or relation :requires)
-                           :extracted
-                           source-line))))
+                                  file-id
+                                  path
+                                  (common/node-id id-scope :workflow-task source)
+                                  (common/node-id id-scope :workflow-task target)
+                                  (or relation :requires)
+                                  :extracted
+                                  source-line))))
        distinct
        vec))
 (defn extract-workflow-orchestration
@@ -532,10 +532,10 @@
   [run-id {:keys [id-scope file-id path content] :as file}]
   (let [facts (workflow-facts file)
         workflow-result (common/extract-format-facts run-id
-                                              file
-                                              :workflow-file
-                                              :workflow-file
-                                              facts)
+                                                     file
+                                                     :workflow-file
+                                                     :workflow-file
+                                                     facts)
         source-dependencies (when (= ".py" (fs/extension path))
                               (workflow-source-dependencies content))
         dependency-edges (workflow-dependency-edges run-id

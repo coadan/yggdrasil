@@ -116,11 +116,11 @@
   [run-id {:keys [id-scope file-id path content] :as file}]
   (if-not (odin-source-file? path)
     (common/extract-format-facts run-id file :odin-config-file :odin-config-file
-                          (odin-config-facts content path))
+                                 (odin-config-facts content path))
     (let [module-name (odin-module-name path content)
           ns-node (common/namespace-node run-id id-scope file-id path module-name)
           package-node (common/generic-node run-id id-scope file-id path
-                                     :odin-package module-name 1)
+                                            :odin-package module-name 1)
           lines (vec (str/split-lines content))
           def-forms (->> lines
                          (map-indexed odin-definition-line)
@@ -144,45 +144,45 @@
           foreign-imports (odin-foreign-imports lines)
           foreign-nodes (mapv (fn [{:keys [name target source-line]}]
                                 (common/generic-node run-id
-                                              id-scope
-                                              file-id
-                                              path
-                                              :foreign-import
-                                              (str name ":" target)
-                                              source-line))
+                                                     id-scope
+                                                     file-id
+                                                     path
+                                                     :foreign-import
+                                                     (str name ":" target)
+                                                     source-line))
                               foreign-imports)
           define-edges (mapv #(common/edge-row run-id file-id path
-                                        (:xt/id ns-node)
-                                        (:xt/id %)
-                                        :defines
-                                        :extracted
-                                        (:source-line %))
+                                               (:xt/id ns-node)
+                                               (:xt/id %)
+                                               :defines
+                                               :extracted
+                                               (:source-line %))
                              (concat [package-node] defs foreign-nodes))
           import-edges (mapv #(common/edge-row run-id file-id path
-                                        (:xt/id ns-node)
-                                        (common/node-id id-scope :namespace (:target %))
-                                        :imports
-                                        :extracted
-                                        (:source-line %))
+                                               (:xt/id ns-node)
+                                               (common/node-id id-scope :namespace (:target %))
+                                               :imports
+                                               :extracted
+                                               (:source-line %))
                              (odin-imports lines))
           foreign-edges (mapv (fn [{:keys [name target source-line]}]
                                 (common/edge-row run-id
-                                          file-id
-                                          path
-                                          (common/node-id id-scope :foreign-import (str name ":" target))
-                                          (common/node-id id-scope :namespace target)
-                                          :imports
-                                          :extracted
-                                          source-line))
+                                                 file-id
+                                                 path
+                                                 (common/node-id id-scope :foreign-import (str name ":" target))
+                                                 (common/node-id id-scope :namespace target)
+                                                 :imports
+                                                 :extracted
+                                                 source-line))
                               foreign-imports)
           chunk (common/source-text-chunk run-id
-                                   id-scope
-                                   file-id
-                                   path
-                                   :odin-file
-                                   module-name
-                                   content
-                                   common/source-file-chunk-lines)
+                                          id-scope
+                                          file-id
+                                          path
+                                          :odin-file
+                                          module-name
+                                          content
+                                          common/source-file-chunk-lines)
           definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
                                     (common/source-definition-chunk
                                      run-id
@@ -258,27 +258,27 @@
                         :run-id run-id}))
                    def-forms)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            (zig-imports lines))
         chunk (common/source-text-chunk run-id
-                                 id-scope
-                                 file-id
-                                 path
-                                 :zig-file
-                                 module-name
-                                 content
-                                 common/source-file-chunk-lines)
+                                        id-scope
+                                        file-id
+                                        path
+                                        :zig-file
+                                        module-name
+                                        content
+                                        common/source-file-chunk-lines)
         definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
                                   (common/source-definition-chunk
                                    run-id

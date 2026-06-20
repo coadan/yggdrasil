@@ -56,13 +56,13 @@
                  (mapcat (fn [[offset line]]
                            (map (fn [target]
                                   (common/edge-row run-id
-                                            file-id
-                                            path
-                                            source-id
-                                            (common/node-id id-scope :table target)
-                                            :references
-                                            :extracted
-                                            (+ start-idx offset 1)))
+                                                   file-id
+                                                   path
+                                                   source-id
+                                                   (common/node-id id-scope :table target)
+                                                   :references
+                                                   :extracted
+                                                   (+ start-idx offset 1)))
                                 (sql-reference-targets line))))))))
        distinct
        vec))
@@ -103,17 +103,17 @@
     (let [sql-node (common/generic-node run-id id-scope file-id path :dbt-sql-file path 1)
           ref-nodes (mapv (fn [{:keys [kind label source-line]}]
                             (common/generic-node run-id id-scope file-id path
-                                          kind label source-line))
+                                                 kind label source-line))
                           refs)
           ref-edges (mapv (fn [{:keys [kind label source-line]}]
                             (common/edge-row run-id
-                                      file-id
-                                      path
-                                      (:xt/id sql-node)
-                                      (common/node-id id-scope kind label)
-                                      :references
-                                      :extracted
-                                      source-line))
+                                             file-id
+                                             path
+                                             (:xt/id sql-node)
+                                             (common/node-id id-scope kind label)
+                                             :references
+                                             :extracted
+                                             source-line))
                           refs)]
       {:nodes (into [sql-node] ref-nodes)
        :edges ref-edges})))
@@ -290,12 +290,12 @@
   "Extract bounded database migration facts."
   [run-id {:keys [id-scope file-id path] :as file}]
   (let [migration-node (common/generic-node run-id id-scope file-id path
-                                     :db-migration path 1)
+                                            :db-migration path 1)
         facts (migration-facts file)
         fact-nodes (->> facts
                         (map (fn [{:keys [kind label source-line]}]
                                (common/generic-node run-id id-scope file-id path
-                                             kind label source-line)))
+                                                    kind label source-line)))
                         (reduce (fn [acc node]
                                   (assoc acc (:xt/id node) node))
                                 {})
@@ -303,13 +303,13 @@
                         vec)
         fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id migration-node)
-                                     (common/node-id id-scope kind label)
-                                     relation
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (:xt/id migration-node)
+                                            (common/node-id id-scope kind label)
+                                            relation
+                                            :extracted
+                                            source-line))
                          facts)
         chunk-result (common/extract-text-source run-id file :db-migration-file)]
     {:nodes (into [migration-node] fact-nodes)

@@ -273,31 +273,31 @@
             (flush)))))))
 (defn sync-index-project!
   ([xtdb project args]
-  (let [map-path (default-map-path args)
-        progress-fn (sync-progress-fn args)
-        opts (cond-> {:dry-run? (dry-run? args)
-                      :index-profile (sync-index-profile args)
-                      :map-overlay (when map-path
-                                     (graph-map/read-map map-path))}
-               progress-fn (assoc :progress-fn progress-fn))]
-    (if-let [repo-id (option-value args "--repo")]
-      (let [run (project/index-project-repo! xtdb project repo-id opts)]
-        {:project-id (:id project)
-         :status (:status run)
-         :repos [(repo-run-summary run)]})
-      (project/index-project! xtdb project opts))))
+   (let [map-path (default-map-path args)
+         progress-fn (sync-progress-fn args)
+         opts (cond-> {:dry-run? (dry-run? args)
+                       :index-profile (sync-index-profile args)
+                       :map-overlay (when map-path
+                                      (graph-map/read-map map-path))}
+                progress-fn (assoc :progress-fn progress-fn))]
+     (if-let [repo-id (option-value args "--repo")]
+       (let [run (project/index-project-repo! xtdb project repo-id opts)]
+         {:project-id (:id project)
+          :status (:status run)
+          :repos [(repo-run-summary run)]})
+       (project/index-project! xtdb project opts))))
   ([xtdb project args deps]
    (binding [*deps* deps]
      (sync-index-project! xtdb project args))))
 (defn maintenance-report
   ([xtdb project args]
-  (let [map-path (default-map-path args)]
-    (project/maintain-project
-     xtdb
-     project
-     {:low-confidence-threshold (parse-double-option args "--min-confidence" 0.60)
-      :map-overlay (when map-path
-                     (graph-map/read-map map-path))})))
+   (let [map-path (default-map-path args)]
+     (project/maintain-project
+      xtdb
+      project
+      {:low-confidence-threshold (parse-double-option args "--min-confidence" 0.60)
+       :map-overlay (when map-path
+                      (graph-map/read-map map-path))})))
   ([xtdb project args deps]
    (binding [*deps* deps]
      (maintenance-report xtdb project args))))
@@ -339,11 +339,11 @@
    packets))
 (defn enqueue-sync-work!
   ([args report]
-  (vec
-   (concat
-    (enqueue-maintenance-decisions! args (:decision-queue report))
-    (enqueue-infra-review-packets! args (:infra-review-queue report))
-    (enqueue-dependency-review-packets! args (:dependency-review-queue report)))))
+   (vec
+    (concat
+     (enqueue-maintenance-decisions! args (:decision-queue report))
+     (enqueue-infra-review-packets! args (:infra-review-queue report))
+     (enqueue-dependency-review-packets! args (:dependency-review-queue report)))))
   ([args report deps]
    (binding [*deps* deps]
      (enqueue-sync-work! args report))))
@@ -644,44 +644,44 @@
                                                     :usage (usage)})))))
 (defn sync-dispatch!
   ([args]
-  (let [action-name (first args)
-        action (keyword action-name)
-        action-args (vec (rest args))]
-    (case action
-      :inspect
-      (let [config-path (first (positional-args action-args))]
-        (print-project-status! config-path action-args))
+   (let [action-name (first args)
+         action (keyword action-name)
+         action-args (vec (rest args))]
+     (case action
+       :inspect
+       (let [config-path (first (positional-args action-args))]
+         (print-project-status! config-path action-args))
 
-      :add-repo
-      (sync-add-repo! action-args)
+       :add-repo
+       (sync-add-repo! action-args)
 
-      :check
-      (sync-check! action-args)
+       :check
+       (sync-check! action-args)
 
-      :coverage
-      (sync-coverage! action-args)
+       :coverage
+       (sync-coverage! action-args)
 
-      :activity
-      (sync-activity! action-args)
+       :activity
+       (sync-activity! action-args)
 
-      :work
-      (sync-work! action-args)
+       :work
+       (sync-work! action-args)
 
-      :docs
-      (sync-docs! action-args)
+       :docs
+       (sync-docs! action-args)
 
-      :meta
-      (dispatch "meta" action-args)
+       :meta
+       (dispatch "meta" action-args)
 
-      :view
-      (dispatch "views" action-args)
+       :view
+       (dispatch "views" action-args)
 
-      (:init :propose :explain :set-kind :include :ignore :package)
-      (sync-map-command! action action-args)
+       (:init :propose :explain :set-kind :include :ignore :package)
+       (sync-map-command! action action-args)
 
-      (if action-name
-        (sync-project! args)
-        (throw (ex-info "Missing sync project config path." {:usage (usage)}))))))
+       (if action-name
+         (sync-project! args)
+         (throw (ex-info "Missing sync project config path." {:usage (usage)}))))))
   ([args deps]
    (binding [*deps* deps]
      (sync-dispatch! args))))

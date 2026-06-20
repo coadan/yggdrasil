@@ -53,13 +53,13 @@
                          facts)
         fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id root-node)
-                                     (common/node-id id-scope kind label)
-                                     relation
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (:xt/id root-node)
+                                            (common/node-id id-scope kind label)
+                                            relation
+                                            :extracted
+                                            source-line))
                          facts)
         sanitized-text (str/join "\n" (cons path (map :label facts)))]
     {:nodes (into [root-node] fact-nodes)
@@ -154,44 +154,44 @@
                          (str path "/" name))
         function-nodes (mapv (fn [{:keys [source-line] :as function}]
                                (common/generic-node run-id
-                                             id-scope
-                                             file-id
-                                             path
-                                             :shell-function
-                                             (function-label function)
-                                             source-line))
+                                                    id-scope
+                                                    file-id
+                                                    path
+                                                    :shell-function
+                                                    (function-label function)
+                                                    source-line))
                              functions)
         function-edges (mapv (fn [{:keys [source-line] :as function}]
                                (common/edge-row run-id
-                                         file-id
-                                         path
-                                         (:xt/id file-node)
-                                         (common/node-id id-scope
-                                                  :shell-function
-                                                  (function-label function))
-                                         :defines
-                                         :extracted
-                                         source-line))
+                                                file-id
+                                                path
+                                                (:xt/id file-node)
+                                                (common/node-id id-scope
+                                                                :shell-function
+                                                                (function-label function))
+                                                :defines
+                                                :extracted
+                                                source-line))
                              functions)
         call-edges (mapv (fn [{:keys [name source-line]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id file-node)
-                                     (common/node-id id-scope :shell-function name)
-                                     :calls
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (:xt/id file-node)
+                                            (common/node-id id-scope :shell-function name)
+                                            :calls
+                                            :extracted
+                                            source-line))
                          calls)
         function-chunks (mapv (fn [{:keys [source-line text] :as function}]
                                 (common/source-definition-chunk run-id
-                                                         id-scope
-                                                         file-id
-                                                         path
-                                                         (function-label function)
-                                                         :function
-                                                         source-line
-                                                         text))
+                                                                id-scope
+                                                                file-id
+                                                                path
+                                                                (function-label function)
+                                                                :function
+                                                                source-line
+                                                                text))
                               functions)]
     {:nodes (into [file-node] function-nodes)
      :edges (vec (concat function-edges call-edges))
@@ -327,17 +327,17 @@
         rule-ranges (style-rule-ranges lines)
         fact-nodes (mapv (fn [{:keys [kind label source-line]}]
                            (common/generic-node run-id id-scope file-id path
-                                         kind label source-line))
+                                                kind label source-line))
                          (concat section-ranges rule-ranges variable-facts))
         fact-edges (mapv (fn [{:keys [kind label source-line]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id root-node)
-                                     (common/node-id id-scope kind label)
-                                     :defines
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (:xt/id root-node)
+                                            (common/node-id id-scope kind label)
+                                            :defines
+                                            :extracted
+                                            source-line))
                          (concat section-ranges rule-ranges variable-facts))
         section-chunks (mapv #(style-section-chunk :style-section
                                                    run-id

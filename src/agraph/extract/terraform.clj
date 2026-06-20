@@ -186,7 +186,7 @@
                     graph-blocks)
         fact-nodes (mapv (fn [{:keys [target-kind target-label source-line]}]
                            (common/generic-node run-id id-scope file-id path
-                                         target-kind target-label source-line))
+                                                target-kind target-label source-line))
                          block-facts)
         all-nodes (->> (concat nodes fact-nodes)
                        (reduce (fn [acc node]
@@ -197,13 +197,13 @@
         node-by-name (into {} (map (juxt :label :xt/id)) all-nodes)
         define-edges (mapv (fn [{:keys [kind name source-line]}]
                              (common/edge-row run-id
-                                       file-id
-                                       path
-                                       (:xt/id file-node)
-                                       (common/node-id id-scope kind name)
-                                       :defines
-                                       :extracted
-                                       source-line))
+                                              file-id
+                                              path
+                                              (:xt/id file-node)
+                                              (common/node-id id-scope kind name)
+                                              :defines
+                                              :extracted
+                                              source-line))
                            graph-blocks)
         reference-edges (->> graph-blocks
                              (mapcat (fn [{:keys [kind name lines]}]
@@ -212,26 +212,26 @@
                                                  (when-let [target-id (hcl-reference-target-id node-by-name target)]
                                                    (when (not= source-id target-id)
                                                      (common/edge-row run-id
-                                                               file-id
-                                                               path
-                                                               source-id
-                                                               target-id
-                                                               :references
-                                                               :extracted
-                                                               source-line))))
+                                                                      file-id
+                                                                      path
+                                                                      source-id
+                                                                      target-id
+                                                                      :references
+                                                                      :extracted
+                                                                      source-line))))
                                                (hcl-reference-targets lines)))))
                              distinct
                              vec)
         fact-edges (mapv (fn [{:keys [source-kind source-name target-kind target-label
                                       relation source-line]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (common/node-id id-scope source-kind source-name)
-                                     (common/node-id id-scope target-kind target-label)
-                                     relation
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (common/node-id id-scope source-kind source-name)
+                                            (common/node-id id-scope target-kind target-label)
+                                            relation
+                                            :extracted
+                                            source-line))
                          block-facts)
         chunk-result (common/extract-text-source run-id file :terraform-file)
         chunks (vec (concat (:chunks chunk-result)

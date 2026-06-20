@@ -37,18 +37,18 @@
          string-dep
          (let [[_ scope group-id artifact-id version] string-dep]
            [(common/package-fact {:ecosystem :maven
-                           :package-name (str group-id ":" artifact-id)
-                           :version-range version
-                           :dependency-scope scope
-                           :source-line source-line})])
+                                  :package-name (str group-id ":" artifact-id)
+                                  :version-range version
+                                  :dependency-scope scope
+                                  :source-line source-line})])
 
          map-dep
          (let [[_ scope group-id artifact-id version] map-dep]
            [(common/package-fact {:ecosystem :maven
-                           :package-name (str group-id ":" artifact-id)
-                           :version-range version
-                           :dependency-scope scope
-                           :source-line source-line})])
+                                  :package-name (str group-id ":" artifact-id)
+                                  :version-range version
+                                  :dependency-scope scope
+                                  :source-line source-line})])
 
          project-dep
          (let [[_ scope project-path] project-dep]

@@ -32,9 +32,9 @@
                                            (common/json-key-label package-path)))
                          version (:version package)]
                      (common/package-version-fact {:ecosystem :npm
-                                            :package-name package-name
-                                            :resolved-version version
-                                            :source-line 1})))))
+                                                   :package-name package-name
+                                                   :resolved-version version
+                                                   :source-line 1})))))
          distinct
          vec)
     []))
@@ -45,9 +45,9 @@
                (let [package-name (package-toml/toml-string-value block "name")
                      version (package-toml/toml-string-value block "version")]
                  (common/package-version-fact {:ecosystem :cargo
-                                        :package-name package-name
-                                        :resolved-version version
-                                        :source-line 1}))))
+                                               :package-name package-name
+                                               :resolved-version version
+                                               :source-line 1}))))
        distinct
        vec))
 (defn- go-sum-version-facts
@@ -58,9 +58,9 @@
                (when-let [[_ package-name version]
                           (re-matches #"^(\S+)\s+(\S+)(?:/go\.mod)?\s+h1:.*$" line)]
                  (common/package-version-fact {:ecosystem :go
-                                        :package-name package-name
-                                        :resolved-version version
-                                        :source-line (inc idx)}))))
+                                               :package-name package-name
+                                               :resolved-version version
+                                               :source-line (inc idx)}))))
        distinct
        vec))
 (defn- package-key-name-version
@@ -83,9 +83,9 @@
        (keep (fn [[_ package-key]]
                (when-let [{:keys [package-name version]} (package-key-name-version package-key)]
                  (common/package-version-fact {:ecosystem :npm
-                                        :package-name package-name
-                                        :resolved-version version
-                                        :source-line 1}))))
+                                               :package-name package-name
+                                               :resolved-version version
+                                               :source-line 1}))))
        distinct
        vec))
 (defn- yarn-selector-package-name
@@ -128,9 +128,9 @@
              (re-find #"^\s+version\s+" line))
         (let [[_ version] (re-find #"^\s+version\s+['\"]([^'\"]+)['\"]" line)
               facts (keep #(common/package-version-fact {:ecosystem :npm
-                                                  :package-name %
-                                                  :resolved-version version
-                                                  :source-line (inc idx)})
+                                                         :package-name %
+                                                         :resolved-version version
+                                                         :source-line (inc idx)})
                           package-names)]
           (recur (rest remaining) [] (into out facts)))
 
@@ -145,9 +145,9 @@
                (when-let [[_ package-name version]
                           (re-matches #"^\s{4}([A-Za-z0-9_.-]+)\s+\(([^)\s]+).*" line)]
                  (common/package-version-fact {:ecosystem :rubygems
-                                        :package-name package-name
-                                        :resolved-version version
-                                        :source-line (inc idx)}))))
+                                               :package-name package-name
+                                               :resolved-version version
+                                               :source-line (inc idx)}))))
        distinct
        vec))
 (defn- toml-package-version-facts
@@ -157,9 +157,9 @@
                (let [package-name (package-toml/toml-string-value block "name")
                      version (package-toml/toml-string-value block "version")]
                  (common/package-version-fact {:ecosystem ecosystem
-                                        :package-name package-name
-                                        :resolved-version version
-                                        :source-line 1}))))
+                                               :package-name package-name
+                                               :resolved-version version
+                                               :source-line 1}))))
        distinct
        vec))
 (defn- pubspec-lock-version-facts
@@ -189,9 +189,9 @@
          (keep (fn [package]
                  (when (map? package)
                    (common/package-version-fact {:ecosystem :composer
-                                          :package-name (:name package)
-                                          :resolved-version (:version package)
-                                          :source-line 1}))))
+                                                 :package-name (:name package)
+                                                 :resolved-version (:version package)
+                                                 :source-line 1}))))
          distinct
          vec)
     []))
@@ -206,9 +206,9 @@
          (keep (fn [[package-name package]]
                  (when (map? package)
                    (common/package-version-fact {:ecosystem :pypi
-                                          :package-name (common/json-key-label package-name)
-                                          :resolved-version (pipfile-lock-version package)
-                                          :source-line 1}))))
+                                                 :package-name (common/json-key-label package-name)
+                                                 :resolved-version (pipfile-lock-version package)
+                                                 :source-line 1}))))
          distinct
          vec)
     []))
@@ -221,9 +221,9 @@
                           (re-find #"\"([^\"]+)\"\s*:\s*\{:\w+,\s*:?\w+,\s*\"([^\"]+)\""
                                    line)]
                  (common/package-version-fact {:ecosystem :hex
-                                        :package-name package-name
-                                        :resolved-version version
-                                        :source-line (inc idx)}))))
+                                               :package-name package-name
+                                               :resolved-version version
+                                               :source-line (inc idx)}))))
        distinct
        vec))
 (defn- requirements-version-facts
@@ -236,9 +236,9 @@
                             (re-matches #"(?i)^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?==([^;\s]+).*$"
                                         line)]
                    (common/package-version-fact {:ecosystem :pypi
-                                          :package-name package-name
-                                          :resolved-version version
-                                          :source-line (inc idx)})))))
+                                                 :package-name package-name
+                                                 :resolved-version version
+                                                 :source-line (inc idx)})))))
        distinct
        vec))
 (defn- bun-lock-version-facts
@@ -249,15 +249,15 @@
                      (cond
                        (string? package)
                        (common/package-version-fact {:ecosystem :npm
-                                              :package-name (common/json-key-label package-name)
-                                              :resolved-version package
-                                              :source-line 1})
+                                                     :package-name (common/json-key-label package-name)
+                                                     :resolved-version package
+                                                     :source-line 1})
 
                        (map? package)
                        (common/package-version-fact {:ecosystem :npm
-                                              :package-name (common/json-key-label package-name)
-                                              :resolved-version (:version package)
-                                              :source-line 1})
+                                                     :package-name (common/json-key-label package-name)
+                                                     :resolved-version (:version package)
+                                                     :source-line 1})
 
                        :else nil)))
              distinct
@@ -284,9 +284,9 @@
 (defn version-package-fact
   [{:keys [ecosystem package-name source-line]}]
   (common/package-fact {:ecosystem ecosystem
-                 :package-name package-name
-                 :source-line source-line
-                 :relation :version-of}))
+                        :package-name package-name
+                        :source-line source-line
+                        :relation :version-of}))
 (defn version-of-edge
   [run-id file-id path id-scope version-fact]
   (let [package-fact (version-package-fact version-fact)]

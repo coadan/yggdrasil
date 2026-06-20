@@ -43,7 +43,7 @@
         rules (codeowners-rules content)
         rule-nodes (mapv (fn [{:keys [pattern source-line]}]
                            (common/generic-node run-id id-scope file-id path
-                                         :codeowner-rule pattern source-line))
+                                                :codeowner-rule pattern source-line))
                          rules)
         owners (->> rules
                     (mapcat (fn [{:keys [owners source-line]}]
@@ -55,7 +55,7 @@
                     vec)
         owner-nodes (mapv (fn [{:keys [label source-line]}]
                             (common/generic-node run-id id-scope file-id path
-                                          :codeowner label source-line))
+                                                 :codeowner label source-line))
                           owners)
         pattern-syntaxes (->> rules
                               (mapcat (fn [{:keys [pattern source-line]}]
@@ -67,9 +67,9 @@
                               vec)
         pattern-syntax-nodes (mapv (fn [{:keys [label source-line]}]
                                      (common/generic-node run-id id-scope file-id path
-                                                   :codeowner-pattern-syntax
-                                                   label
-                                                   source-line))
+                                                          :codeowner-pattern-syntax
+                                                          label
+                                                          source-line))
                                    pattern-syntaxes)
         owner-syntaxes (->> owners
                             (map (fn [{:keys [label source-line]}]
@@ -79,64 +79,64 @@
                             vec)
         owner-syntax-nodes (mapv (fn [{:keys [label source-line]}]
                                    (common/generic-node run-id id-scope file-id path
-                                                 :codeowner-owner-syntax
-                                                 label
-                                                 source-line))
+                                                        :codeowner-owner-syntax
+                                                        label
+                                                        source-line))
                                  owner-syntaxes)
         define-edges (mapv (fn [{:keys [pattern source-line]}]
                              (common/edge-row run-id
-                                       file-id
-                                       path
-                                       (:xt/id file-node)
-                                       (common/node-id id-scope :codeowner-rule pattern)
-                                       :defines
-                                       :extracted
-                                       source-line))
+                                              file-id
+                                              path
+                                              (:xt/id file-node)
+                                              (common/node-id id-scope :codeowner-rule pattern)
+                                              :defines
+                                              :extracted
+                                              source-line))
                            rules)
         pattern-syntax-edges (mapcat
                               (fn [{:keys [pattern source-line]}]
                                 (map (fn [label]
                                        (common/edge-row run-id
-                                                 file-id
-                                                 path
-                                                 (common/node-id id-scope
-                                                          :codeowner-rule
-                                                          pattern)
-                                                 (common/node-id id-scope
-                                                          :codeowner-pattern-syntax
-                                                          label)
-                                                 :describes
-                                                 :extracted
-                                                 source-line))
+                                                        file-id
+                                                        path
+                                                        (common/node-id id-scope
+                                                                        :codeowner-rule
+                                                                        pattern)
+                                                        (common/node-id id-scope
+                                                                        :codeowner-pattern-syntax
+                                                                        label)
+                                                        :describes
+                                                        :extracted
+                                                        source-line))
                                      (codeowner-pattern-syntax-labels pattern)))
                               rules)
         owner-syntax-edges (mapv
                             (fn [{:keys [label source-line]}]
                               (common/edge-row run-id
-                                        file-id
-                                        path
-                                        (common/node-id id-scope :codeowner label)
-                                        (common/node-id id-scope
-                                                 :codeowner-owner-syntax
-                                                 (codeowner-owner-syntax-label label))
-                                        :describes
-                                        :extracted
-                                        source-line))
+                                               file-id
+                                               path
+                                               (common/node-id id-scope :codeowner label)
+                                               (common/node-id id-scope
+                                                               :codeowner-owner-syntax
+                                                               (codeowner-owner-syntax-label label))
+                                               :describes
+                                               :extracted
+                                               source-line))
                             owners)
         assign-edges (mapv (fn [{:keys [pattern owners source-line]}]
                              (mapv (fn [owner]
                                      (common/edge-row run-id
-                                               file-id
-                                               path
-                                               (common/node-id id-scope
-                                                        :codeowner-rule
-                                                        pattern)
-                                               (common/node-id id-scope
-                                                        :codeowner
-                                                        owner)
-                                               :assigns
-                                               :extracted
-                                               source-line))
+                                                      file-id
+                                                      path
+                                                      (common/node-id id-scope
+                                                                      :codeowner-rule
+                                                                      pattern)
+                                                      (common/node-id id-scope
+                                                                      :codeowner
+                                                                      owner)
+                                                      :assigns
+                                                      :extracted
+                                                      source-line))
                                    owners))
                            rules)
         chunk-result (common/extract-text-source run-id file :codeowners-file)]

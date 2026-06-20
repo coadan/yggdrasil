@@ -63,23 +63,23 @@
                    definitions)
         defined-names (set (map :name definitions))
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (->> imports
                           (keep (fn [{:keys [target line]}]
                                   (when-not (str/blank? (str target))
                                     (common/edge-row run-id file-id path
-                                              (:xt/id ns-node)
-                                              (common/node-id id-scope
-                                                       :namespace
-                                                       (str target))
-                                              :imports
-                                              :extracted
-                                              (or line 1)))))
+                                                     (:xt/id ns-node)
+                                                     (common/node-id id-scope
+                                                                     :namespace
+                                                                     (str target))
+                                                     :imports
+                                                     :extracted
+                                                     (or line 1)))))
                           vec)
         reference-edges (->> (:references facts)
                              (keep (fn [{:keys [source target line]}]
@@ -98,27 +98,27 @@
                                           file-id
                                           path
                                           (common/node-id id-scope
-                                                   :symbol
-                                                   (str module-name "/" source-name))
+                                                          :symbol
+                                                          (str module-name "/" source-name))
                                           (common/node-id id-scope
-                                                   :symbol
-                                                   (source-jvm/java-reference-target-label
-                                                    module-name
-                                                    import-symbols
-                                                    target-name))
+                                                          :symbol
+                                                          (source-jvm/java-reference-target-label
+                                                           module-name
+                                                           import-symbols
+                                                           target-name))
                                           :references
                                           :extracted
                                           (or line 1))))))
                              distinct
                              vec)
         chunk (common/source-text-chunk run-id
-                                 id-scope
-                                 file-id
-                                 path
-                                 :dotnet-file
-                                 module-name
-                                 content
-                                 common/source-file-chunk-lines)
+                                        id-scope
+                                        file-id
+                                        path
+                                        :dotnet-file
+                                        module-name
+                                        content
+                                        common/source-file-chunk-lines)
         definition-chunks (mapv (fn [{:keys [kind name line endLine]}]
                                   (common/source-definition-chunk
                                    run-id
@@ -129,15 +129,15 @@
                                    (dotnet-worker-definition-kind kind)
                                    (or line 1)
                                    (common/source-range-text content
-                                                      (or line 1)
-                                                      (or endLine line))))
+                                                             (or line 1)
+                                                             (or endLine line))))
                                 definitions)
         diagnostics (mapv #(common/diagnostic-row run-id
-                                           file-id
-                                           path
-                                           (:stage %)
-                                           (:line %)
-                                           (:message %))
+                                                  file-id
+                                                  path
+                                                  (:stage %)
+                                                  (:line %)
+                                                  (:message %))
                           (:diagnostics facts))]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges import-edges reference-edges))

@@ -13,8 +13,8 @@
                            #"^\s*(?:gem|spec\.add_(?:runtime_)?dependency|spec\.add_development_dependency)\s+['\"]([^'\"]+)['\"].*"
                            line)]
                  (common/package-fact {:ecosystem :rubygems
-                                :package-name gem-name
-                                :source-line (inc idx)}))))
+                                       :package-name gem-name
+                                       :source-line (inc idx)}))))
        distinct
        vec))
 (defn gemspec-name
@@ -41,11 +41,11 @@
               (when (map? deps)
                 (map (fn [[package-name version]]
                        (common/package-fact {:ecosystem :composer
-                                      :package-name (common/json-key-label package-name)
-                                      :version-range (when (string? version)
-                                                       version)
-                                      :dependency-scope (composer-dependency-scope k)
-                                      :source-line 1}))
+                                             :package-name (common/json-key-label package-name)
+                                             :version-range (when (string? version)
+                                                              version)
+                                             :dependency-scope (composer-dependency-scope k)
+                                             :source-line 1}))
                      deps)))))
          (remove nil?)
          distinct
@@ -65,16 +65,16 @@
                    (cond
                      (:mvn/version spec)
                      (common/package-fact {:ecosystem :maven
-                                    :package-name (str dep-name)
-                                    :version-range (:mvn/version spec)
-                                    :source-line 1})
+                                           :package-name (str dep-name)
+                                           :version-range (:mvn/version spec)
+                                           :source-line 1})
 
                      (:git/url spec)
                      (common/package-fact {:ecosystem :git
-                                    :package-name (:git/url spec)
-                                    :version-range (or (:git/sha spec)
-                                                       (:git/tag spec))
-                                    :source-line 1})
+                                           :package-name (:git/url spec)
+                                           :version-range (or (:git/sha spec)
+                                                              (:git/tag spec))
+                                           :source-line 1})
 
                      :else nil)))
            distinct

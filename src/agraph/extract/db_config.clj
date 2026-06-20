@@ -60,30 +60,30 @@
   [run-id file]
   (let [facts (db-config-facts file)
         config-node (common/generic-node run-id
-                                  (:id-scope file)
-                                  (:file-id file)
-                                  (:path file)
-                                  :db-config
-                                  (:path file)
-                                  1)
-        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
-                           (common/generic-node run-id
                                          (:id-scope file)
                                          (:file-id file)
                                          (:path file)
-                                         kind
-                                         label
-                                         source-line))
+                                         :db-config
+                                         (:path file)
+                                         1)
+        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
+                           (common/generic-node run-id
+                                                (:id-scope file)
+                                                (:file-id file)
+                                                (:path file)
+                                                kind
+                                                label
+                                                source-line))
                          facts)
         fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                            (common/edge-row run-id
-                                     (:file-id file)
-                                     (:path file)
-                                     (:xt/id config-node)
-                                     (common/node-id (:id-scope file) kind label)
-                                     relation
-                                     :extracted
-                                     source-line))
+                                            (:file-id file)
+                                            (:path file)
+                                            (:xt/id config-node)
+                                            (common/node-id (:id-scope file) kind label)
+                                            relation
+                                            :extracted
+                                            source-line))
                          facts)
         chunk-result (common/extract-text-source run-id file :db-config-file)]
     {:nodes (into [config-node] fact-nodes)

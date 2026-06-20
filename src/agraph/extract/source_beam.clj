@@ -87,27 +87,27 @@
                         :run-id run-id}))
                    def-forms)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            (elixir-imports lines))
         chunk (common/source-text-chunk run-id
-                                 id-scope
-                                 file-id
-                                 path
-                                 :elixir-file
-                                 module-name
-                                 content
-                                 common/source-file-chunk-lines)
+                                        id-scope
+                                        file-id
+                                        path
+                                        :elixir-file
+                                        module-name
+                                        content
+                                        common/source-file-chunk-lines)
         definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
                                   (common/source-definition-chunk
                                    run-id
@@ -203,27 +203,27 @@
                         :run-id run-id}))
                    def-forms)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            (erlang-imports lines))
         chunk (common/source-text-chunk run-id
-                                 id-scope
-                                 file-id
-                                 path
-                                 :erlang-file
-                                 module-name
-                                 content
-                                 common/source-file-chunk-lines)
+                                        id-scope
+                                        file-id
+                                        path
+                                        :erlang-file
+                                        module-name
+                                        content
+                                        common/source-file-chunk-lines)
         definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
                                   (common/source-definition-chunk
                                    run-id

@@ -315,25 +315,25 @@
                         :run-id run-id}))
                    def-forms)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            imports)
         reference-edges (->> def-forms
                              (mapcat
                               (fn [{:keys [name source-line text]}]
                                 (let [source-id (common/node-id id-scope
-                                                         :symbol
-                                                         (str module-name "/" name))
+                                                                :symbol
+                                                                (str module-name "/" name))
                                       source-type (first (str/split name #"\."))
                                       target-names (java-type-position-reference-names text)]
                                   (->> target-names
@@ -345,24 +345,24 @@
                                                path
                                                source-id
                                                (common/node-id id-scope
-                                                        :symbol
-                                                        (java-reference-target-label
-                                                         module-name
-                                                         import-symbols
-                                                         target-name))
+                                                               :symbol
+                                                               (java-reference-target-label
+                                                                module-name
+                                                                import-symbols
+                                                                target-name))
                                                :references
                                                :extracted
                                                source-line)))))))
                              distinct
                              vec)
         chunk (common/source-text-chunk run-id
-                                 id-scope
-                                 file-id
-                                 path
-                                 :java-file
-                                 module-name
-                                 content
-                                 common/source-file-chunk-lines)
+                                        id-scope
+                                        file-id
+                                        path
+                                        :java-file
+                                        module-name
+                                        content
+                                        common/source-file-chunk-lines)
         definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
                                   (common/source-definition-chunk
                                    run-id
@@ -375,10 +375,10 @@
                                    text))
                                 def-forms)
         diagnostics (common/curly-balance-diagnostics run-id
-                                               file-id
-                                               path
-                                               content
-                                               "Java")]
+                                                      file-id
+                                                      path
+                                                      content
+                                                      "Java")]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges import-edges reference-edges))
      :chunks (into [chunk] definition-chunks)
@@ -518,27 +518,27 @@
                         :run-id run-id}))
                    def-forms)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            (groovy-imports lines))
         chunk (common/source-text-chunk run-id
-                                 id-scope
-                                 file-id
-                                 path
-                                 :groovy-file
-                                 module-name
-                                 content
-                                 common/source-file-chunk-lines)
+                                        id-scope
+                                        file-id
+                                        path
+                                        :groovy-file
+                                        module-name
+                                        content
+                                        common/source-file-chunk-lines)
         definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
                                   (common/source-definition-chunk
                                    run-id
@@ -551,10 +551,10 @@
                                    text))
                                 def-forms)
         diagnostics (common/curly-balance-diagnostics run-id
-                                               file-id
-                                               path
-                                               content
-                                               "Groovy")]
+                                                      file-id
+                                                      path
+                                                      content
+                                                      "Groovy")]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges import-edges))
      :chunks (into [chunk] definition-chunks)
@@ -693,27 +693,27 @@
                         :run-id run-id}))
                    def-forms)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            (kotlin-imports lines))
         chunk (common/source-text-chunk run-id
-                                 id-scope
-                                 file-id
-                                 path
-                                 :kotlin-file
-                                 module-name
-                                 content
-                                 common/source-file-chunk-lines)
+                                        id-scope
+                                        file-id
+                                        path
+                                        :kotlin-file
+                                        module-name
+                                        content
+                                        common/source-file-chunk-lines)
         definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
                                   (common/source-definition-chunk
                                    run-id
@@ -726,10 +726,10 @@
                                    text))
                                 def-forms)
         diagnostics (common/curly-balance-diagnostics run-id
-                                               file-id
-                                               path
-                                               content
-                                               "Kotlin")]
+                                                      file-id
+                                                      path
+                                                      content
+                                                      "Kotlin")]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges import-edges))
      :chunks (into [chunk] definition-chunks)
@@ -861,27 +861,27 @@
                         :run-id run-id}))
                    def-forms)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            (swift-imports lines))
         chunk (common/source-text-chunk run-id
-                                 id-scope
-                                 file-id
-                                 path
-                                 :swift-file
-                                 module-name
-                                 content
-                                 common/source-file-chunk-lines)
+                                        id-scope
+                                        file-id
+                                        path
+                                        :swift-file
+                                        module-name
+                                        content
+                                        common/source-file-chunk-lines)
         definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
                                   (common/source-definition-chunk
                                    run-id
@@ -894,10 +894,10 @@
                                    text))
                                 def-forms)
         diagnostics (common/curly-balance-diagnostics run-id
-                                               file-id
-                                               path
-                                               content
-                                               "Swift")]
+                                                      file-id
+                                                      path
+                                                      content
+                                                      "Swift")]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges import-edges))
      :chunks (into [chunk] definition-chunks)

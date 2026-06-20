@@ -10,9 +10,9 @@
 (defn- kustomize-facts
   [content]
   (let [items (common/yaml-section-items content
-                                  (into kustomize-reference-sections
-                                        (conj kustomize-generator-sections
-                                              "images")))]
+                                         (into kustomize-reference-sections
+                                               (conj kustomize-generator-sections
+                                                     "images")))]
     (->> items
          (keep (fn [{:keys [section value source-line]}]
                  (when (seq value)
@@ -40,10 +40,10 @@
   "Extract bounded Kustomize resources, patches, images, and generators."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :kustomize-file
-                        :kustomize-file
-                        (kustomize-facts (:content file))))
+                               file
+                               :kustomize-file
+                               :kustomize-file
+                               (kustomize-facts (:content file))))
 (defn- pre-commit-facts
   [content]
   (->> (str/split-lines content)
@@ -76,7 +76,7 @@
   "Extract bounded pre-commit repository, revision, and hook facts."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :pre-commit-config-file
-                        :pre-commit-config-file
-                        (pre-commit-facts (:content file))))
+                               file
+                               :pre-commit-config-file
+                               :pre-commit-config-file
+                               (pre-commit-facts (:content file))))

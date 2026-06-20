@@ -161,15 +161,15 @@
         (fn [{:keys [label source-line references]}]
           (map (fn [target]
                  (common/edge-row run-id
-                           file-id
-                           path
-                           (common/node-id id-scope
-                                    :protobuf-field
-                                    (str package-name "/" label))
-                           (common/node-id id-scope :protobuf-reference target)
-                           :references
-                           :extracted
-                           source-line))
+                                  file-id
+                                  path
+                                  (common/node-id id-scope
+                                                  :protobuf-field
+                                                  (str package-name "/" label))
+                                  (common/node-id id-scope :protobuf-reference target)
+                                  :references
+                                  :extracted
+                                  source-line))
                references)))
        distinct
        vec))
@@ -179,40 +179,40 @@
                          (mapcat
                           (fn [{:keys [kind name] :as definition}]
                             (let [source-id (common/node-id id-scope
-                                                     kind
-                                                     (str package-name "/" name))]
+                                                            kind
+                                                            (str package-name "/" name))]
                               (map (fn [{:keys [target source-line]}]
                                      (common/edge-row run-id
-                                               file-id
-                                               path
-                                               source-id
-                                               (common/node-id id-scope :protobuf-reference target)
-                                               :references
-                                               :extracted
-                                               source-line))
+                                                      file-id
+                                                      path
+                                                      source-id
+                                                      (common/node-id id-scope :protobuf-reference target)
+                                                      :references
+                                                      :extracted
+                                                      source-line))
                                    (protobuf-field-reference-targets definition))))))
         rpc-edges (->> rpcs
                        (mapcat
                         (fn [{:keys [name request response source-line]}]
                           (let [source-id (common/node-id id-scope
-                                                   :protobuf-rpc
-                                                   (str package-name "/" name))]
+                                                          :protobuf-rpc
+                                                          (str package-name "/" name))]
                             [(common/edge-row run-id
-                                       file-id
-                                       path
-                                       source-id
-                                       (common/node-id id-scope :protobuf-reference request)
-                                       :references
-                                       :extracted
-                                       source-line)
+                                              file-id
+                                              path
+                                              source-id
+                                              (common/node-id id-scope :protobuf-reference request)
+                                              :references
+                                              :extracted
+                                              source-line)
                              (common/edge-row run-id
-                                       file-id
-                                       path
-                                       source-id
-                                       (common/node-id id-scope :protobuf-reference response)
-                                       :references
-                                       :extracted
-                                       source-line)]))))]
+                                              file-id
+                                              path
+                                              source-id
+                                              (common/node-id id-scope :protobuf-reference response)
+                                              :references
+                                              :extracted
+                                              source-line)]))))]
     (->> (concat field-edges rpc-edges)
          distinct
          vec)))
@@ -231,39 +231,39 @@
         enum-value-facts (protobuf-enum-value-facts definitions)
         definition-nodes (mapv (fn [{:keys [kind name source-line]}]
                                  (common/generic-node run-id
+                                                      id-scope
+                                                      file-id
+                                                      path
+                                                      kind
+                                                      (str package-name "/" name)
+                                                      source-line))
+                               definitions)
+        rpc-nodes (mapv (fn [{:keys [kind name source-line]}]
+                          (common/generic-node run-id
                                                id-scope
                                                file-id
                                                path
                                                kind
                                                (str package-name "/" name)
                                                source-line))
-                               definitions)
-        rpc-nodes (mapv (fn [{:keys [kind name source-line]}]
-                          (common/generic-node run-id
-                                        id-scope
-                                        file-id
-                                        path
-                                        kind
-                                        (str package-name "/" name)
-                                        source-line))
                         rpcs)
         field-nodes (mapv (fn [{:keys [label source-line]}]
                             (common/generic-node run-id
-                                          id-scope
-                                          file-id
-                                          path
-                                          :protobuf-field
-                                          (str package-name "/" label)
-                                          source-line))
+                                                 id-scope
+                                                 file-id
+                                                 path
+                                                 :protobuf-field
+                                                 (str package-name "/" label)
+                                                 source-line))
                           field-facts)
         enum-value-nodes (mapv (fn [{:keys [label source-line]}]
                                  (common/generic-node run-id
-                                               id-scope
-                                               file-id
-                                               path
-                                               :protobuf-enum-value
-                                               (str package-name "/" label)
-                                               source-line))
+                                                      id-scope
+                                                      file-id
+                                                      path
+                                                      :protobuf-enum-value
+                                                      (str package-name "/" label)
+                                                      source-line))
                                enum-value-facts)
         reference-nodes (->> (concat (mapcat :references field-facts)
                                      (mapcat (fn [{:keys [request response]}]
@@ -278,54 +278,54 @@
                              (map protobuf-normalize-reference-target)
                              distinct
                              (mapv #(common/generic-node run-id
-                                                  id-scope
-                                                  file-id
-                                                  path
-                                                  :protobuf-reference
-                                                  %
-                                                  1)))
+                                                         id-scope
+                                                         file-id
+                                                         path
+                                                         :protobuf-reference
+                                                         %
+                                                         1)))
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id package-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id package-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            (concat definition-nodes rpc-nodes))
         definition-id-by-label (into {} (map (juxt :label :xt/id)) definition-nodes)
         field-define-edges (mapv (fn [{:keys [parent-label label source-line]}]
                                    (common/edge-row run-id
-                                             file-id
-                                             path
-                                             (get definition-id-by-label
-                                                  (str package-name "/" parent-label))
-                                             (common/node-id id-scope
-                                                      :protobuf-field
-                                                      (str package-name "/" label))
-                                             :defines
-                                             :extracted
-                                             source-line))
+                                                    file-id
+                                                    path
+                                                    (get definition-id-by-label
+                                                         (str package-name "/" parent-label))
+                                                    (common/node-id id-scope
+                                                                    :protobuf-field
+                                                                    (str package-name "/" label))
+                                                    :defines
+                                                    :extracted
+                                                    source-line))
                                  field-facts)
         enum-value-define-edges (mapv (fn [{:keys [parent-label label source-line]}]
                                         (common/edge-row run-id
-                                                  file-id
-                                                  path
-                                                  (get definition-id-by-label
-                                                       (str package-name "/"
-                                                            parent-label))
-                                                  (common/node-id id-scope
-                                                           :protobuf-enum-value
-                                                           (str package-name "/"
-                                                                label))
-                                                  :defines
-                                                  :extracted
-                                                  source-line))
+                                                         file-id
+                                                         path
+                                                         (get definition-id-by-label
+                                                              (str package-name "/"
+                                                                   parent-label))
+                                                         (common/node-id id-scope
+                                                                         :protobuf-enum-value
+                                                                         (str package-name "/"
+                                                                              label))
+                                                         :defines
+                                                         :extracted
+                                                         source-line))
                                       enum-value-facts)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id package-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id package-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            (protobuf-imports lines))
         reference-edges (protobuf-reference-edges run-id
                                                   id-scope
@@ -353,10 +353,10 @@
                                    (str/join "\n" (map second lines))))
                                 definitions)
         diagnostics (common/curly-balance-diagnostics run-id
-                                               file-id
-                                               path
-                                               content
-                                               "Protobuf")]
+                                                      file-id
+                                                      path
+                                                      content
+                                                      "Protobuf")]
     {:nodes (vec (concat [package-node]
                          definition-nodes
                          rpc-nodes

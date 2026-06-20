@@ -172,15 +172,15 @@
           (fn [{:keys [name kind] :as block}]
             (map (fn [{:keys [target source-line]}]
                    (common/edge-row run-id
-                             file-id
-                             path
-                             (common/node-id id-scope kind name)
-                             (common/node-id id-scope
-                                      (get block-kind-by-label target :prisma-reference)
-                                      target)
-                             :references
-                             :extracted
-                             source-line))
+                                    file-id
+                                    path
+                                    (common/node-id id-scope kind name)
+                                    (common/node-id id-scope
+                                                    (get block-kind-by-label target :prisma-reference)
+                                                    target)
+                                    :references
+                                    :extracted
+                                    source-line))
                  (prisma-field-references block))))
          distinct
          vec)))
@@ -193,27 +193,27 @@
                             (common/generic-node run-id id-scope file-id path kind name source-line))
                           blocks)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id schema-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id schema-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            block-nodes)
         fact-rows (prisma-block-facts blocks)
         fact-nodes (mapv (fn [{:keys [kind label source-line]}]
                            (common/generic-node run-id id-scope file-id path
-                                         kind label source-line))
+                                                kind label source-line))
                          fact-rows)
         fact-edges (mapv (fn [{:keys [block-kind block-name kind label
                                       source-line relation]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (common/node-id id-scope block-kind block-name)
-                                     (common/node-id id-scope kind label)
-                                     (or relation :defines)
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (common/node-id id-scope block-kind block-name)
+                                            (common/node-id id-scope kind label)
+                                            (or relation :defines)
+                                            :extracted
+                                            source-line))
                          fact-rows)
         reference-edges (prisma-reference-edges run-id id-scope file-id path blocks)
         chunk-result (common/extract-text-source run-id file :prisma-file)
@@ -284,8 +284,8 @@
                             (or (re-matches #"^\s*-\s+package:\s+(.+?)\s*$" line)
                                 (re-matches #"^\s*-\s+git:\s+(.+?)\s*$" line))]
                    (common/package-fact {:ecosystem :dbt
-                                  :package-name (common/strip-yaml-scalar package-name)
-                                  :source-line (inc idx)}))))
+                                         :package-name (common/strip-yaml-scalar package-name)
+                                         :source-line (inc idx)}))))
          distinct
          vec)))
 (defn- dbt-profile-facts
@@ -410,28 +410,28 @@
           :schema (dbt-schema-facts content path)
           (dbt-project-facts content path))
         project-node (common/generic-node run-id id-scope file-id path
-                                   :dbt-project project-label 1)
+                                          :dbt-project project-label 1)
         fact-nodes (mapv (fn [{:keys [kind label source-line]}]
                            (common/generic-node run-id id-scope file-id path
-                                         kind label source-line))
+                                                kind label source-line))
                          facts)
         fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id project-node)
-                                     (common/node-id id-scope kind label)
-                                     relation
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (:xt/id project-node)
+                                            (common/node-id id-scope kind label)
+                                            relation
+                                            :extracted
+                                            source-line))
                          facts)
         chunk-result (common/extract-text-source run-id file :dbt-file)
         diagnostic-rows (mapv #(common/diagnostic-row run-id
-                                               file-id
-                                               path
-                                               (:stage %)
-                                               (:line %)
-                                               (:message %))
+                                                      file-id
+                                                      path
+                                                      (:stage %)
+                                                      (:line %)
+                                                      (:message %))
                               diagnostics)]
     {:nodes (into [project-node] fact-nodes)
      :edges fact-edges

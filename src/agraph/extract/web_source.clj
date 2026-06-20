@@ -28,11 +28,11 @@
                      distinct
                      vec)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            imports)
         chunk-result (common/extract-text-source run-id file :astro-file)]
     {:nodes [ns-node]
@@ -145,26 +145,26 @@
                         :run-id run-id}))
                    (sfc-script-definitions scripts))
         component-edge (common/edge-row run-id
-                                 file-id
-                                 path
-                                 (:xt/id ns-node)
-                                 (:xt/id component-node)
-                                 :defines
-                                 :extracted
-                                 1)
+                                        file-id
+                                        path
+                                        (:xt/id ns-node)
+                                        (:xt/id component-node)
+                                        :defines
+                                        :extracted
+                                        1)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id component-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id component-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         import-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope :namespace (:target %))
-                                      :imports
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope :namespace (:target %))
+                                             :imports
+                                             :extracted
+                                             (:source-line %))
                            (sfc-script-imports path scripts))
         chunk-kind (case kind
                      :vue :vue-file
@@ -367,40 +367,40 @@
                         :run-id run-id}))
                    def-forms)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id ns-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            defs)
         use-edges (mapv #(common/edge-row run-id file-id path
-                                   (:xt/id ns-node)
-                                   (common/node-id id-scope :namespace (:target %))
-                                   :imports
-                                   :extracted
-                                   (:source-line %))
+                                          (:xt/id ns-node)
+                                          (common/node-id id-scope :namespace (:target %))
+                                          :imports
+                                          :extracted
+                                          (:source-line %))
                         (php-use-targets lines))
         include-edges (mapv #(common/edge-row run-id file-id path
-                                       (:xt/id ns-node)
-                                       (common/node-id id-scope :file (:target %))
-                                       :uses
-                                       :extracted
-                                       (:source-line %))
+                                              (:xt/id ns-node)
+                                              (common/node-id id-scope :file (:target %))
+                                              :uses
+                                              :extracted
+                                              (:source-line %))
                             (php-include-targets lines))
         route-facts (php-route-facts lines)
         route-nodes (mapv (fn [{:keys [kind label source-line]}]
                             (common/generic-node run-id id-scope file-id path
-                                          kind label source-line))
+                                                 kind label source-line))
                           route-facts)
         route-edges (mapv (fn [{:keys [kind label source-line relation]}]
                             (common/edge-row run-id
-                                      file-id
-                                      path
-                                      (:xt/id ns-node)
-                                      (common/node-id id-scope kind label)
-                                      relation
-                                      :extracted
-                                      source-line))
+                                             file-id
+                                             path
+                                             (:xt/id ns-node)
+                                             (common/node-id id-scope kind label)
+                                             relation
+                                             :extracted
+                                             source-line))
                           route-facts)
         chunk-result (common/extract-text-source run-id file :php-file)
         definition-chunks (mapv (fn [{:keys [kind name source-line text]}]
@@ -415,10 +415,10 @@
                                    text))
                                 def-forms)
         diagnostics (common/curly-balance-diagnostics run-id
-                                               file-id
-                                               path
-                                               content
-                                               "PHP")]
+                                                      file-id
+                                                      path
+                                                      content
+                                                      "PHP")]
     {:nodes (vec (concat [ns-node] defs route-nodes))
      :edges (vec (concat define-edges use-edges include-edges route-edges))
      :chunks (vec (concat (:chunks chunk-result) definition-chunks))

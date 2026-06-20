@@ -935,9 +935,9 @@
                          (conj (let [chunk-label (str label " command " (inc idx))
                                      text (common/strip-yaml-scalar command)]
                                  {:xt/id (common/chunk-id id-scope
-                                                   path
-                                                   chunk-label
-                                                   (inc idx))
+                                                          path
+                                                          chunk-label
+                                                          (inc idx))
                                   :file-id file-id
                                   :path path
                                   :kind :ci-command
@@ -974,12 +974,12 @@
                                  (ci-template-facts config-kind lines)))
         job-nodes (mapv (fn [{:keys [label source-line] :as job}]
                           (common/generic-node run-id
-                                        id-scope
-                                        file-id
-                                        path
-                                        (ci-job-kind job)
-                                        label
-                                        source-line))
+                                               id-scope
+                                               file-id
+                                               path
+                                               (ci-job-kind job)
+                                               label
+                                               source-line))
                         jobs)
         declared-facts (concat workflow-facts (mapcat ci-job-declared-facts jobs))
         declared-node-facts (distinct-facts-by-kind-label declared-facts)
@@ -987,33 +987,33 @@
                                (common/generic-node run-id id-scope file-id path kind label source-line))
                              declared-node-facts)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id workflow-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id workflow-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            job-nodes)
         workflow-fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                                     (common/edge-row run-id
-                                              file-id
-                                              path
-                                              (:xt/id workflow-node)
-                                              (common/node-id id-scope kind label)
-                                              (or relation :uses)
-                                              :extracted
-                                              source-line))
+                                                     file-id
+                                                     path
+                                                     (:xt/id workflow-node)
+                                                     (common/node-id id-scope kind label)
+                                                     (or relation :uses)
+                                                     :extracted
+                                                     source-line))
                                   workflow-facts)
         need-edges (->> jobs
                         (mapcat (fn [{:keys [label] :as job}]
                                   (map (fn [{:keys [target source-line]}]
                                          (common/edge-row run-id
-                                                   file-id
-                                                   path
-                                                   (common/node-id id-scope (ci-job-kind job) label)
-                                                   (common/node-id id-scope (ci-job-kind job) target)
-                                                   :requires
-                                                   :extracted
-                                                   source-line))
+                                                          file-id
+                                                          path
+                                                          (common/node-id id-scope (ci-job-kind job) label)
+                                                          (common/node-id id-scope (ci-job-kind job) target)
+                                                          :requires
+                                                          :extracted
+                                                          source-line))
                                        (ci-job-needs job))))
                         distinct
                         vec)
@@ -1021,26 +1021,26 @@
                               :circleci
                               (mapv (fn [{:keys [source target source-line]}]
                                       (common/edge-row run-id
-                                                file-id
-                                                path
-                                                (common/node-id id-scope :ci-job source)
-                                                (common/node-id id-scope :ci-job target)
-                                                :requires
-                                                :extracted
-                                                source-line))
+                                                       file-id
+                                                       path
+                                                       (common/node-id id-scope :ci-job source)
+                                                       (common/node-id id-scope :ci-job target)
+                                                       :requires
+                                                       :extracted
+                                                       source-line))
                                     (ci-circleci-workflow-needs lines))
                               [])
         declared-edges (->> jobs
                             (mapcat (fn [{job-label :label :as job}]
                                       (map (fn [{:keys [kind label source-line]}]
                                              (common/edge-row run-id
-                                                       file-id
-                                                       path
-                                                       (common/node-id id-scope (ci-job-kind job) job-label)
-                                                       (common/node-id id-scope kind label)
-                                                       :uses
-                                                       :extracted
-                                                       source-line))
+                                                              file-id
+                                                              path
+                                                              (common/node-id id-scope (ci-job-kind job) job-label)
+                                                              (common/node-id id-scope kind label)
+                                                              :uses
+                                                              :extracted
+                                                              source-line))
                                            (ci-job-declared-facts job))))
                             distinct
                             vec)

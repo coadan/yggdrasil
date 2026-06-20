@@ -39,10 +39,10 @@
                      scope (first (xml-tag-values dependency "scope"))]
                  (when (and group-id artifact-id)
                    (common/package-fact {:ecosystem :maven
-                                  :package-name (str group-id ":" artifact-id)
-                                  :version-range version
-                                  :dependency-scope scope
-                                  :source-line 1})))))
+                                         :package-name (str group-id ":" artifact-id)
+                                         :version-range version
+                                         :dependency-scope scope
+                                         :source-line 1})))))
        distinct
        vec))
 (defn- maven-coordinate-fact
@@ -143,9 +143,9 @@
        (keep (fn [element]
                (when-let [package (xml-attr-value element "Include")]
                  (common/package-fact {:ecosystem :nuget
-                                :package-name package
-                                :version-range (xml-attr-value element "Version")
-                                :source-line 1}))))
+                                       :package-name package
+                                       :version-range (xml-attr-value element "Version")
+                                       :source-line 1}))))
        distinct
        vec))
 (defn dotnet-project-references

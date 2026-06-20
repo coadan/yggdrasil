@@ -67,29 +67,29 @@
                          (concat metadata-facts cell-facts))
         fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id notebook-node)
-                                     (common/node-id id-scope kind label)
-                                     relation
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (:xt/id notebook-node)
+                                            (common/node-id id-scope kind label)
+                                            relation
+                                            :extracted
+                                            source-line))
                          (concat metadata-facts cell-facts))
         cell-chunks (mapv (fn [{:keys [label cell-type cell-source]}]
                             (common/source-text-chunk run-id
-                                               id-scope
-                                               file-id
-                                               path
-                                               (if (= "code" cell-type)
-                                                 :notebook-code-cell
-                                                 :notebook-markdown-cell)
-                                               label
-                                               cell-source
-                                               120))
+                                                      id-scope
+                                                      file-id
+                                                      path
+                                                      (if (= "code" cell-type)
+                                                        :notebook-code-cell
+                                                        :notebook-markdown-cell)
+                                                      label
+                                                      cell-source
+                                                      120))
                           cell-facts)
         diagnostic (when-not (map? parsed)
                      [(common/diagnostic-row run-id file-id path :parse 1
-                                      "Notebook JSON could not be parsed.")])]
+                                             "Notebook JSON could not be parsed.")])]
     {:nodes (into [notebook-node] fact-nodes)
      :edges fact-edges
      :chunks cell-chunks

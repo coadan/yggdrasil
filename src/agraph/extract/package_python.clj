@@ -48,26 +48,26 @@
       (keep (fn [dep]
               (when-let [dep-name (python-dependency-name dep)]
                 (common/package-fact {:ecosystem :pypi
-                               :package-name dep-name
-                               :version-range dep
-                               :import-names (get import-name-map dep-name)
-                               :source-line 1})))
+                                      :package-name dep-name
+                                      :version-range dep
+                                      :import-names (get import-name-map dep-name)
+                                      :source-line 1})))
             inline-deps)
       (map (fn [[dep-name version]]
              (common/package-fact {:ecosystem :pypi
-                            :package-name dep-name
-                            :version-range version
-                            :import-names (get import-name-map dep-name)
-                            :source-line 1}))
+                                   :package-name dep-name
+                                   :version-range version
+                                   :import-names (get import-name-map dep-name)
+                                   :source-line 1}))
            poetry-deps)
       (keep (fn [[group dep]]
               (when-let [dep-name (python-dependency-name dep)]
                 (common/package-fact {:ecosystem :pypi
-                               :package-name dep-name
-                               :version-range dep
-                               :dependency-scope group
-                               :import-names (get import-name-map dep-name)
-                               :source-line 1})))
+                                      :package-name dep-name
+                                      :version-range dep
+                                      :dependency-scope group
+                                      :import-names (get import-name-map dep-name)
+                                      :source-line 1})))
             optional-deps)))))
 (defn setup-cfg-name
   [content path]
@@ -122,9 +122,9 @@
        (keep (fn [dep]
                (when-let [dep-name (python-dependency-name dep)]
                  (common/package-fact {:ecosystem :pypi
-                                :package-name dep-name
-                                :version-range dep
-                                :source-line 1}))))
+                                       :package-name dep-name
+                                       :version-range dep
+                                       :source-line 1}))))
        distinct
        vec))
 (defn pipfile-dependencies
@@ -138,10 +138,10 @@
                        (when-let [[_ dep-name version]
                                   (re-matches #"^\s*([A-Za-z0-9_.-]+)\s*=\s*(.+?)\s*$" line)]
                          (common/package-fact {:ecosystem :pypi
-                                        :package-name dep-name
-                                        :version-range (str/replace (str/trim version)
-                                                                    #"^['\"]|['\"]$" "")
-                                        :dependency-scope section
-                                        :source-line (inc idx)})))))))
+                                               :package-name dep-name
+                                               :version-range (str/replace (str/trim version)
+                                                                           #"^['\"]|['\"]$" "")
+                                               :dependency-scope section
+                                               :source-line (inc idx)})))))))
        distinct
        vec))

@@ -412,13 +412,13 @@
        (keep (fn [{:keys [source-kind source kind label relation source-line]}]
                (when (and source-kind (seq source) (seq label))
                  (common/edge-row run-id
-                           file-id
-                           path
-                           (common/node-id id-scope source-kind source)
-                           (common/node-id id-scope kind label)
-                           (or relation :references)
-                           :extracted
-                           source-line))))
+                                  file-id
+                                  path
+                                  (common/node-id id-scope source-kind source)
+                                  (common/node-id id-scope kind label)
+                                  (or relation :references)
+                                  :extracted
+                                  source-line))))
        distinct
        vec))
 (defn extract-data-science
@@ -426,10 +426,10 @@
   [run-id {:keys [id-scope file-id path] :as file}]
   (let [facts (data-science-facts file)
         result (common/extract-format-facts run-id
-                                     file
-                                     :data-science-file
-                                     :data-science-file
-                                     facts)
+                                            file
+                                            :data-science-file
+                                            :data-science-file
+                                            facts)
         base-result (data-science-base-result run-id file)
         reference-edges (data-science-reference-edges run-id
                                                       id-scope

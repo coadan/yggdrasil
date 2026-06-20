@@ -15,7 +15,7 @@
                                                 (:xt/id manifest-node)
                                                 id-scope
                                                 %)
-                          facts)
+                         facts)
         chunk-result (common/extract-text-source run-id file :manifest-file)]
     {:nodes (into [manifest-node] fact-nodes)
      :edges fact-edges
@@ -39,7 +39,7 @@
                                                    (:xt/id lock-node)
                                                    id-scope
                                                    %)
-                             facts)
+                            facts)
         version-edges (mapv #(package-lock/version-of-edge run-id file-id path id-scope %) facts)
         chunk-result (common/extract-text-source run-id file :dependency-lock-file)]
     {:nodes (into [lock-node] fact-nodes)

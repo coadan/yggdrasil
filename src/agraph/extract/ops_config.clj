@@ -848,28 +848,28 @@
         config-node (common/generic-node run-id id-scope file-id path :ops-config path 1)
         fact-nodes (mapv (fn [{:keys [kind label source-line]}]
                            (common/generic-node run-id id-scope file-id path
-                                         kind label source-line))
+                                                kind label source-line))
                          facts)
         define-edges (mapv (fn [{:keys [kind label source-line relation]}]
                              (common/edge-row run-id
-                                       file-id
-                                       path
-                                       (:xt/id config-node)
-                                       (common/node-id id-scope kind label)
-                                       relation
-                                       :extracted
-                                       source-line))
+                                              file-id
+                                              path
+                                              (:xt/id config-node)
+                                              (common/node-id id-scope kind label)
+                                              relation
+                                              :extracted
+                                              source-line))
                            facts)
         reference-edges (mapv (fn [{:keys [source-kind source-label target-kind
                                            target-label source-line]}]
                                 (common/edge-row run-id
-                                          file-id
-                                          path
-                                          (common/node-id id-scope source-kind source-label)
-                                          (common/node-id id-scope target-kind target-label)
-                                          :references
-                                          :extracted
-                                          source-line))
+                                                 file-id
+                                                 path
+                                                 (common/node-id id-scope source-kind source-label)
+                                                 (common/node-id id-scope target-kind target-label)
+                                                 :references
+                                                 :extracted
+                                                 source-line))
                               refs)
         chunk-result (common/extract-text-source run-id file :ops-config-file)]
     {:nodes (into [config-node] fact-nodes)

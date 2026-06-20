@@ -204,10 +204,10 @@
   "Extract bounded coverage and static-analysis configuration facts."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :quality-config
-                        :quality-config-file
-                        (quality-config-facts file)))
+                               file
+                               :quality-config
+                               :quality-config-file
+                               (quality-config-facts file)))
 (defn- dependabot-update-blocks
   [content]
   (loop [remaining (map-indexed vector (str/split-lines content))
@@ -413,7 +413,7 @@
   "Extract bounded lint/format/tool configuration facts."
   [run-id file]
   (common/extract-format-facts run-id
-                        file
-                        :tool-config
-                        :tool-config-file
-                        (tool-config-facts file)))
+                               file
+                               :tool-config
+                               :tool-config-file
+                               (tool-config-facts file)))

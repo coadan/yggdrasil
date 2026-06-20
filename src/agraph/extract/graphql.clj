@@ -118,13 +118,13 @@
                                   (mapcat (comp graphql-reference-targets second)))]
             (map (fn [target]
                    (common/edge-row run-id
-                             file-id
-                             path
-                             source-id
-                             (common/node-id id-scope :graphql-reference target)
-                             :references
-                             :extracted
-                             source-line))
+                                    file-id
+                                    path
+                                    source-id
+                                    (common/node-id id-scope :graphql-reference target)
+                                    :references
+                                    :extracted
+                                    source-line))
                  (distinct (concat inline-targets line-targets))))))
        distinct
        vec))
@@ -181,13 +181,13 @@
         (fn [{:keys [label source-line references]}]
           (map (fn [target]
                  (common/edge-row run-id
-                           file-id
-                           path
-                           (common/node-id id-scope :graphql-field label)
-                           (common/node-id id-scope :graphql-reference target)
-                           :references
-                           :extracted
-                           source-line))
+                                  file-id
+                                  path
+                                  (common/node-id id-scope :graphql-field label)
+                                  (common/node-id id-scope :graphql-reference target)
+                                  :references
+                                  :extracted
+                                  source-line))
                references)))
        distinct
        vec))
@@ -201,30 +201,30 @@
         enum-value-facts (graphql-enum-value-facts definitions)
         definition-nodes (mapv (fn [{:keys [kind name source-line]}]
                                  (common/generic-node run-id
-                                               id-scope
-                                               file-id
-                                               path
-                                               kind
-                                               name
-                                               source-line))
+                                                      id-scope
+                                                      file-id
+                                                      path
+                                                      kind
+                                                      name
+                                                      source-line))
                                definitions)
         field-nodes (mapv (fn [{:keys [label source-line]}]
                             (common/generic-node run-id
-                                          id-scope
-                                          file-id
-                                          path
-                                          :graphql-field
-                                          label
-                                          source-line))
+                                                 id-scope
+                                                 file-id
+                                                 path
+                                                 :graphql-field
+                                                 label
+                                                 source-line))
                           field-facts)
         enum-value-nodes (mapv (fn [{:keys [label source-line]}]
                                  (common/generic-node run-id
-                                               id-scope
-                                               file-id
-                                               path
-                                               :graphql-enum-value
-                                               label
-                                               source-line))
+                                                      id-scope
+                                                      file-id
+                                                      path
+                                                      :graphql-enum-value
+                                                      label
+                                                      source-line))
                                enum-value-facts)
         reference-nodes (->> (concat (mapcat :references field-facts)
                                      (mapcat (fn [{:keys [target lines]}]
@@ -235,41 +235,41 @@
                                              definitions))
                              distinct
                              (mapv #(common/generic-node run-id
-                                                  id-scope
-                                                  file-id
-                                                  path
-                                                  :graphql-reference
-                                                  %
-                                                  1)))
+                                                         id-scope
+                                                         file-id
+                                                         path
+                                                         :graphql-reference
+                                                         %
+                                                         1)))
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id spec-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id spec-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            definition-nodes)
         definition-id-by-label (into {} (map (juxt :label :xt/id)) definition-nodes)
         field-define-edges (mapv (fn [{:keys [parent-label label source-line]}]
                                    (common/edge-row run-id
-                                             file-id
-                                             path
-                                             (get definition-id-by-label parent-label)
-                                             (common/node-id id-scope :graphql-field label)
-                                             :defines
-                                             :extracted
-                                             source-line))
+                                                    file-id
+                                                    path
+                                                    (get definition-id-by-label parent-label)
+                                                    (common/node-id id-scope :graphql-field label)
+                                                    :defines
+                                                    :extracted
+                                                    source-line))
                                  field-facts)
         enum-value-define-edges (mapv (fn [{:keys [parent-label label source-line]}]
                                         (common/edge-row run-id
-                                                  file-id
-                                                  path
-                                                  (get definition-id-by-label parent-label)
-                                                  (common/node-id id-scope
-                                                           :graphql-enum-value
-                                                           label)
-                                                  :defines
-                                                  :extracted
-                                                  source-line))
+                                                         file-id
+                                                         path
+                                                         (get definition-id-by-label parent-label)
+                                                         (common/node-id id-scope
+                                                                         :graphql-enum-value
+                                                                         label)
+                                                         :defines
+                                                         :extracted
+                                                         source-line))
                                       enum-value-facts)
         reference-edges (graphql-reference-edges run-id id-scope file-id path definitions)
         field-reference-edges (graphql-field-reference-edges run-id
@@ -290,10 +290,10 @@
                                    (str/join "\n" (map second lines))))
                                 definitions)
         diagnostics (common/curly-balance-diagnostics run-id
-                                               file-id
-                                               path
-                                               content
-                                               "GraphQL")]
+                                                      file-id
+                                                      path
+                                                      content
+                                                      "GraphQL")]
     {:nodes (vec (concat [spec-node]
                          definition-nodes
                          field-nodes

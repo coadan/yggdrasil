@@ -156,21 +156,21 @@
                                 (common/generic-node run-id id-scope file-id path kind target source-line))
                               reference-node-facts)
         define-edges (mapv #(common/edge-row run-id file-id path
-                                      (:xt/id compose-node)
-                                      (:xt/id %)
-                                      :defines
-                                      :extracted
-                                      (:source-line %))
+                                             (:xt/id compose-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
                            service-nodes)
         reference-edges (mapv (fn [{:keys [source target kind source-line relation]}]
                                 (common/edge-row run-id
-                                          file-id
-                                          path
-                                          (common/node-id id-scope :compose-service source)
-                                          (common/node-id id-scope kind target)
-                                          relation
-                                          :extracted
-                                          source-line))
+                                                 file-id
+                                                 path
+                                                 (common/node-id id-scope :compose-service source)
+                                                 (common/node-id id-scope kind target)
+                                                 relation
+                                                 :extracted
+                                                 source-line))
                               reference-facts)
         chunk-result (common/extract-text-source run-id file :compose-file)]
     {:nodes (vec (concat [compose-node] service-nodes reference-nodes))

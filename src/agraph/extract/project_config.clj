@@ -239,13 +239,13 @@
               (let [task-label (editor-task-label idx task)]
                 (map (fn [dependency]
                        (common/edge-row run-id
-                                 file-id
-                                 path
-                                 (common/node-id id-scope :editor-task task-label)
-                                 (common/node-id id-scope :editor-task (common/json-label dependency))
-                                 :depends-on
-                                 :extracted
-                                 1))
+                                        file-id
+                                        path
+                                        (common/node-id id-scope :editor-task task-label)
+                                        (common/node-id id-scope :editor-task (common/json-label dependency))
+                                        :depends-on
+                                        :extracted
+                                        1))
                      (editor-task-dependencies task))))))
          (remove nil?)
          distinct
@@ -260,13 +260,13 @@
                          facts)
         fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id root-node)
-                                     (common/node-id id-scope kind label)
-                                     (or relation :defines)
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (:xt/id root-node)
+                                            (common/node-id id-scope kind label)
+                                            (or relation :defines)
+                                            :extracted
+                                            source-line))
                          facts)
         chunk-result (common/extract-text-source run-id file :editor-config-file)]
     {:nodes (vec (distinct (into [root-node] fact-nodes)))
@@ -619,13 +619,13 @@
                          facts)
         fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
                            (common/edge-row run-id
-                                     file-id
-                                     path
-                                     (:xt/id root-node)
-                                     (common/node-id id-scope kind label)
-                                     (or relation :defines)
-                                     :extracted
-                                     source-line))
+                                            file-id
+                                            path
+                                            (:xt/id root-node)
+                                            (common/node-id id-scope kind label)
+                                            (or relation :defines)
+                                            :extracted
+                                            source-line))
                          facts)
         chunk-result (common/extract-text-source run-id file :release-config-file)]
     {:nodes (vec (distinct (into [root-node] fact-nodes)))

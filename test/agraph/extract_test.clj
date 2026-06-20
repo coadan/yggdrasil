@@ -798,7 +798,6 @@
     (is (contains? sidebar-labels "Intro"))
     (is (contains? sidebar-labels "intro"))))
 
-
 (deftest extracts-frontend-single-file-components
   (let [vue-result (extract/extract-file
                     "run/test"
