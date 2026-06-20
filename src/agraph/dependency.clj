@@ -85,6 +85,10 @@
   [manifest-paths source-path filename]
   (some #(when (contains? manifest-paths %) %) (ancestor-paths source-path filename)))
 
+(defn- ancestor-manifest-paths
+  [manifest-paths source-path filename]
+  (filterv #(contains? manifest-paths %) (ancestor-paths source-path filename)))
+
 (defn- ancestor-dir?
   [ancestor path]
   (let [ancestor (or ancestor "")
@@ -102,7 +106,7 @@
           (str (first parts) "/" (second parts)))
         (first parts)))))
 
-(declare package-by-name)
+(declare package-by-name package-result)
 
 (defn- rust-import-root
   [target]
@@ -171,6 +175,14 @@
   (let [matches (filter #(= package-name (:package-name %)) packages)]
     (when (= 1 (count matches))
       (first matches))))
+
+(defn- package-by-ancestor-manifest
+  [packages-by-manifest manifest-paths ecosystem package-name]
+  (some (fn [manifest-path]
+          (package-by-name
+           (packages-for packages-by-manifest manifest-path ecosystem)
+           package-name))
+        manifest-paths))
 
 (defn- segment-prefix?
   [prefix value]
@@ -254,6 +266,24 @@
                          (sort-by count >)
                          first)
        :resolution-source :manifest-import-name})))
+
+(defn- js-package-result
+  [packages-by-manifest manifest-paths source-path target]
+  (let [package-name (js-package-name target)]
+    (or (package-result
+         (package-by-ancestor-manifest
+          packages-by-manifest
+          (ancestor-manifest-paths manifest-paths source-path "deno.json")
+          :deno
+          package-name)
+         :deno-import-map)
+        (package-result
+         (package-by-ancestor-manifest
+          packages-by-manifest
+          (ancestor-manifest-paths manifest-paths source-path "package.json")
+          :npm
+          package-name)
+         :declared))))
 
 (defn- source-kind
   [files-by-path path]
@@ -348,7 +378,7 @@
        vec))
 
 (def ^:private directly-resolvable-import-ecosystems
-  #{:npm :cargo :go :pypi :nuget})
+  #{:npm :cargo :go :pypi :nuget :deno})
 
 (defn- directly-resolvable-package?
   [package]
@@ -397,10 +427,10 @@
     (or (resolve-map-import packages-by-id map-overlay repo-id target)
         (cond
           (contains? #{:javascript :typescript :astro :vue :svelte} kind)
-          (when-let [manifest-path (nearest-manifest manifest-paths (:path edge) "package.json")]
-            (let [packages (packages-for packages-by-manifest manifest-path :npm)]
-              (package-result (package-by-name packages (js-package-name target))
-                              :declared)))
+          (js-package-result packages-by-manifest
+                             manifest-paths
+                             (:path edge)
+                             target)
 
           (= :rust kind)
           (when-let [manifest-path (nearest-manifest manifest-paths (:path edge) "Cargo.toml")]

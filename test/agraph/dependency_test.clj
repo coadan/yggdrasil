@@ -130,6 +130,153 @@
                                                    :import "org.slf4j"}]}})]
       (is (= [:java] (mapv :source-kind edges))))))
 
+(deftest import-package-resolution-uses-ancestor-package-manifests
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "tests/smoke/esm/tests/basic.test.js"
+                                          :kind :javascript
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "manifest:root"
+                                          :kind :manifest
+                                          :path "package.json"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "manifest:nested"
+                                          :kind :manifest
+                                          :path "tests/smoke/esm/package.json"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:npm:axios"
+                                          :kind :external-package
+                                          :ecosystem :npm
+                                          :package-name "axios"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:npm:vitest"
+                                          :kind :external-package
+                                          :ecosystem :npm
+                                          :package-name "vitest"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires
+                            [{:source-id "manifest:root"
+                              :target-id "pkg:npm:axios"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "manifest:nested"
+                              :target-id "pkg:npm:vitest"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:smoke"
+                              :target-id "node:namespace:axios"
+                              :relation :imports
+                              :path "tests/smoke/esm/tests/basic.test.js"
+                              :source-line 1
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :uses []
+                            []))]
+    (let [edges (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})]
+      (is (= ["axios"] (mapv :package-name edges)))
+      (is (= [:declared] (mapv :resolution-source edges))))))
+
+(deftest import-package-resolution-uses-deno-import-map-facts
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "tests/smoke/deno/tests/import.test.ts"
+                                          :kind :typescript
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "manifest:deno"
+                                          :kind :manifest
+                                          :path "tests/smoke/deno/deno.json"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:deno:assert"
+                                          :kind :external-package
+                                          :ecosystem :deno
+                                          :package-name "@std/assert"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:deno:axios"
+                                          :kind :external-package
+                                          :ecosystem :deno
+                                          :package-name "axios"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires
+                            [{:source-id "manifest:deno"
+                              :target-id "pkg:deno:assert"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "manifest:deno"
+                              :target-id "pkg:deno:axios"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:deno"
+                              :target-id "node:namespace:@std/assert"
+                              :relation :imports
+                              :path "tests/smoke/deno/tests/import.test.ts"
+                              :source-line 1
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "node:namespace:deno"
+                              :target-id "node:namespace:axios"
+                              :relation :imports
+                              :path "tests/smoke/deno/tests/import.test.ts"
+                              :source-line 2
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :uses []
+                            []))]
+    (let [edges (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})]
+      (is (= #{"@std/assert" "axios"} (set (map :package-name edges))))
+      (is (= #{:deno} (set (map :ecosystem edges))))
+      (is (= #{:deno-import-map} (set (map :resolution-source edges)))))))
+
 (deftest import-package-resolution-resolves-dotnet-nuget-imports
   (with-redefs [store/rows-by-field (fn [_ table _ _]
                                       (case table
