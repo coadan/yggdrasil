@@ -7,6 +7,7 @@
             [agraph.benchmark-score :as benchmark-score]
             [agraph.context :as context]
             [agraph.fs :as fs]
+            [agraph.map :as graph-map]
             [agraph.hash :as hash]
             [agraph.project :as project]
             [agraph.query :as query]
@@ -211,14 +212,29 @@
   [xtdb prepared]
   (benchmark-expectations/evaluate-graph-expectations xtdb prepared))
 
+(defn- ensure-agent-map!
+  [suite case prepared opts]
+  (let [path (benchmark-paths/agent-map-path suite case opts)]
+    (when-not (graph-map/file-exists? path)
+      (graph-map/write-map! path (graph-map/empty-map (:project-id prepared))))
+    (fs/canonical-path path)))
+
+(defn- agent-map-overlay
+  [map-path]
+  (when (graph-map/file-exists? map-path)
+    (graph-map/read-map map-path)))
+
 (defn- sync-inspect-summary
   [xtdb suite case prepared opts]
   (let [project (agent-project prepared)
-        config-path (fs/canonical-path (benchmark-paths/agent-project-path suite case opts))]
+        config-path (fs/canonical-path (benchmark-paths/agent-project-path suite case opts))
+        map-path (fs/canonical-path (benchmark-paths/agent-map-path suite case opts))]
     (try
       (assoc (select-keys (evidence/summarize xtdb
                                               project
-                                              {:config-path config-path})
+                                              {:config-path config-path
+                                               :map-path map-path
+                                               :map-overlay (agent-map-overlay map-path)})
                           [:schema
                            :project-id
                            :freshness
@@ -342,6 +358,7 @@
   [suite case prepared opts agent-result result-file run-status]
   (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
     (when (.exists (io/file xtdb-dir))
+      (ensure-agent-map! suite case prepared opts)
       (try
         (store/with-node xtdb-dir
           (fn [xtdb]
@@ -676,7 +693,9 @@
   [suite case prepared opts]
   (when (= "agraph" (agent-mode opts))
     (let [context-path (benchmark-paths/agent-run-context-path suite case opts)
-          hints-path (benchmark-paths/agent-run-hints-path suite case opts)]
+          hints-path (benchmark-paths/agent-run-hints-path suite case opts)
+          map-path (ensure-agent-map! suite case prepared opts)
+          map-overlay (agent-map-overlay map-path)]
       (store/with-node (benchmark-paths/xtdb-dir suite case opts)
         (fn [xtdb]
           (let [bench-project (agent-project prepared)
@@ -684,16 +703,19 @@
                                          opts
                                          #(project/index-project! xtdb
                                                                   bench-project
-                                                                  (benchmark-index-options opts)))
+                                                                  (assoc (benchmark-index-options opts)
+                                                                         :map-overlay map-overlay)))
                          :systemSummary (project/infer-project! xtdb bench-project)
                          :graphExpectations (evaluate-graph-expectations xtdb
                                                                          prepared)
                          :syncInspect (sync-inspect-summary xtdb suite case prepared opts)}
                 packet (context/context-packet xtdb
                                                (get-in prepared [:input :queryText])
-                                               (agent-baseline-context-options
-                                                prepared
-                                                opts))
+                                               (assoc (agent-baseline-context-options
+                                                       prepared
+                                                       opts)
+                                                      :map-path map-path
+                                                      :map-overlay map-overlay))
                 hints (context-packet->agent-hints prepared packet opts)]
             (benchmark-io/write-json-file! context-path packet)
             (benchmark-io/write-json-file! hints-path hints)
@@ -772,6 +794,7 @@
   [suite case prepared opts]
   (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
     (when (.exists (io/file xtdb-dir))
+      (ensure-agent-map! suite case prepared opts)
       (try
         (store/with-node xtdb-dir
           (fn [xtdb]

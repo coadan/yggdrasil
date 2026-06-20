@@ -52,9 +52,15 @@
         (take limit)
         vec)))
 
+(defn- map-exists?
+  [map-path]
+  (when (seq (str map-path))
+    (.exists (io/file map-path))))
+
 (defn- overlay-counts
-  [overlay]
-  {:systems (count (:systems overlay))
+  [overlay map-path]
+  {:map-file (if (map-exists? map-path) 1 0)
+   :systems (count (:systems overlay))
    :docs (count (:docs overlay))
    :edges (count (:edges overlay))
    :rejects (count (:reject overlay))
@@ -103,7 +109,7 @@
                         :result-schema-missing-result-items
                         :result-schema-unexpected-result-items
                         :result-schema-mismatch-events]
-   :map-overlay [:systems :docs :edges :rejects :package-imports]})
+   :map-overlay [:map-file :systems :docs :edges :rejects :package-imports]})
 
 (defn- validation-history-count
   [counts]
@@ -475,7 +481,7 @@
                                        {:config-path config-path
                                         :map-path map-path}))
 
-           (zero? (reduce + 0 (vals (or map-overlay {}))))
+           (zero? (long (or (:map-file map-overlay) 0)))
            (conj {:kind :map-overlay
                   :label "Initialize editable graph map"
                   :command (map-init-command config-path map-path)})
@@ -710,11 +716,6 @@
     :partial
     status))
 
-(defn- map-exists?
-  [map-path]
-  (when (seq (str map-path))
-    (.exists (io/file map-path))))
-
 (defn- annotate-freshness
   [freshness counts {:keys [config-path map-path]}]
   (cond-> (assoc freshness
@@ -794,7 +795,7 @@
                        :result-schema-mismatch-events (count result-schema-mismatch-events)
                        :diagnostics (get-in coverage-report [:diagnostics :total] 0)
                        :skipped-files (get-in coverage-report [:totals :skipped] 0)
-                       :map-overlay (overlay-counts map-overlay)}
+                       :map-overlay (overlay-counts map-overlay map-path)}
                       (activity/result-schema-counts activity-items))
         freshness (annotate-freshness freshness counts opts)
         available-families (available counts)

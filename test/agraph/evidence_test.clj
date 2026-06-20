@@ -802,6 +802,18 @@
         (is (= "project.edn" (get-in summary [:freshness :projectConfig])))
         (is (= map-path (get-in summary [:freshness :map])))
         (is (= true (get-in summary [:freshness :mapExists])))
+        (is (= {:family :map-overlay
+                :status :available
+                :counts {:map-file 1
+                         :systems 0
+                         :docs 0
+                         :edges 0
+                         :rejects 0
+                         :package-imports 0}}
+               (some #(when (= :map-overlay (:family %)) %)
+                     (:families summary))))
+        (is (not-any? #(= :map-overlay (:kind %))
+                      (:nextActions summary)))
         (is (some #(= {:kind :docs
                        :label "Build query index"
                        :command "agraph sync project.edn --query-index"}

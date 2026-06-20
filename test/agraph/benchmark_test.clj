@@ -1506,7 +1506,10 @@
               :result-schema-missing-result-items 0
               :result-schema-unexpected-result-items 0
               :result-schema-mismatch-events 0}
-             (get-in family-by-name [:validation-history :counts]))))))
+             (get-in family-by-name [:validation-history :counts])))
+      (is (= :available (get-in family-by-name [:map-overlay :status])))
+      (is (= 1 (get-in family-by-name [:map-overlay :counts :map-file])))
+      (is (.isFile (io/file (benchmark-paths/agent-map-path suite case opts)))))))
 
 (deftest context-ground-truth-ranks-show-context-misses-separately
   (let [root (temp-dir "agraph-bench-context-ground-truth")
