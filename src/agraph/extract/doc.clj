@@ -1,5 +1,6 @@
 (ns agraph.extract.doc
   (:require [agraph.extract.common :as common]
+            [agraph.extract.package-python :as package-python]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
             [agraph.text :as text]
@@ -110,6 +111,8 @@
   [path lines]
   (vec (concat (markdown-heading-facts lines)
                (markdown-link-facts lines)
+               (package-python/pip-install-dependencies
+                (str/join "\n" lines))
                (when (= ".rst" (fs/extension path))
                  (rst-toctree-facts lines))
                (when (= ".mdx" (fs/extension path))
@@ -132,19 +135,16 @@
         mdx? (= ".mdx" (fs/extension path))
         doc-node (common/generic-node run-id id-scope file-id path :doc-file path 1)
         facts (doc-structure-facts path lines)
-        fact-nodes (mapv (fn [{:keys [kind label source-line]}]
-                           (common/generic-node run-id id-scope file-id path
-                                                kind label source-line))
+        fact-nodes (mapv (fn [fact]
+                           (common/fact-node run-id id-scope file-id path fact))
                          facts)
-        fact-edges (mapv (fn [{:keys [kind label source-line relation]}]
-                           (common/edge-row run-id
-                                            file-id
-                                            path
-                                            (:xt/id doc-node)
-                                            (common/node-id id-scope kind label)
-                                            relation
-                                            :extracted
-                                            source-line))
+        fact-edges (mapv (fn [fact]
+                           (common/fact-edge-row run-id
+                                                 file-id
+                                                 path
+                                                 (:xt/id doc-node)
+                                                 id-scope
+                                                 fact))
                          facts)
         close-chunk (fn [out current end-line]
                       (if (seq (:lines current))

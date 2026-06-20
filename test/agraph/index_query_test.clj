@@ -770,6 +770,55 @@
           (is (= [:manifest-import-name] (mapv :resolution-source package-edges)))
           (is (empty? (:unresolved-imports report))))))))
 
+(deftest index-resolves-python-imports-through-doc-pip-install-evidence
+  (let [xtdb-path (temp-dir "agraph-python-doc-dependency-xtdb")
+        repo (io/file (temp-dir "agraph-python-doc-dependency-repo"))
+        testinfra-dir (io/file repo "testinfra")]
+    (.mkdirs testinfra-dir)
+    (spit (io/file testinfra-dir "README.md")
+          (str "# Testinfra\n\n"
+               "pip3 install boto3 ec2instanceconnectcli "
+               "pytest-testinfra[paramiko,docker] requests\n"))
+    (spit (io/file testinfra-dir "test_ami_nix.py")
+          (str "import boto3\n"
+               "import requests\n"
+               "import testinfra\n"
+               "from ec2instanceconnectcli.EC2InstanceConnectKey "
+               "import EC2InstanceConnectKey\n"))
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [summary (index/index-repo! xtdb
+                                         (.getPath repo)
+                                         {:project-id "py-doc-dep-test"
+                                          :repo-id "app"})
+              deps (query/deps xtdb
+                               "testinfra.test_ami_nix"
+                               {:project-id "py-doc-dep-test"
+                                :repo-id "app"})
+              package-edges (filter #(= :imports-package (:relation %))
+                                    (:outgoing deps))
+              report (dependency/package-report xtdb
+                                                {:project-id "py-doc-dep-test"
+                                                 :repo-id "app"}
+                                                {})
+              corrected-report (dependency/package-report
+                                xtdb
+                                {:project-id "py-doc-dep-test"
+                                 :repo-id "app"}
+                                {:map-overlay
+                                 {:packageImports
+                                  [{:repo "app"
+                                    :import "testinfra"
+                                    :ecosystem "pypi"
+                                    :package-name "pytest-testinfra"}]}})]
+          (is (= 3 (get-in summary [:stats :dependency-edges])))
+          (is (= #{"pypi:boto3" "pypi:ec2instanceconnectcli" "pypi:requests"}
+                 (set (map (comp :label :target) package-edges))))
+          (is (= #{:package-name}
+                 (set (map :resolution-source package-edges))))
+          (is (= ["testinfra"] (mapv :import (:unresolved-imports report))))
+          (is (empty? (:unresolved-imports corrected-report))))))))
+
 (deftest index-resolves-jvm-imports-through-map-corrections
   (let [xtdb-path (temp-dir "agraph-jvm-dependency-xtdb")
         repo (io/file (temp-dir "agraph-jvm-dependency-repo"))

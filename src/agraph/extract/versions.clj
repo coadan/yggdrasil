@@ -86,7 +86,7 @@
    :opaque-asset "asset/v1"
    :secret-material "secret-material/v1"
    :gettext-binary "gettext-binary/v1"
-   :doc "markdown/v1"
+   :doc "markdown/v2"
    :edn "edn/v1"
    :config "config/v1"
    :unknown "unknown/v1"

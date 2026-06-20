@@ -451,6 +451,42 @@
     (is (string? (:content-sha chunk)))
     (is (empty? (:diagnostics result)))))
 
+(deftest extracts-pip-install-package-facts-from-docs
+  (let [result (extract/extract-file
+                "run/test"
+                {:file-id "file:testinfra/README.md"
+                 :id-scope "fixture"
+                 :path "testinfra/README.md"
+                 :kind :doc
+                 :content (str "# Testinfra\n\n"
+                               "pip3 install boto3 \"boto3-stubs[essential]\" "
+                               "docker ec2instanceconnectcli pytest "
+                               "\"pytest-testinfra[paramiko,docker]\" requests\n")})
+        package-nodes (->> (:nodes result)
+                           (filter #(= :external-package (:kind %))))
+        package-labels (set (map :label package-nodes))
+        boto3-node (some #(when (= "pypi:boto3" (:label %)) %) package-nodes)
+        boto3-edge (some #(when (= (extract/node-id "fixture"
+                                                    :external-package
+                                                    "pypi:boto3")
+                                   (:target-id %))
+                            %)
+                         (:edges result))]
+    (is (= #{"pypi:boto3"
+             "pypi:boto3-stubs"
+             "pypi:docker"
+             "pypi:ec2instanceconnectcli"
+             "pypi:pytest"
+             "pypi:pytest-testinfra"
+             "pypi:requests"}
+           package-labels))
+    (is (= :pypi (:ecosystem boto3-node)))
+    (is (= "boto3" (:package-name boto3-node)))
+    (is (= "pip-install-command" (:dependency-scope boto3-node)))
+    (is (= :requires (:relation boto3-edge)))
+    (is (= :pypi (:ecosystem boto3-edge)))
+    (is (= "boto3" (:package-name boto3-edge)))))
+
 (deftest extracts-large-markdown-sections-as-bounded-chunks
   (let [body (str/join "\n" (map #(str "line " %) (range 1 251)))
         result (extract/extract-file

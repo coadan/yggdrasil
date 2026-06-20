@@ -14,6 +14,101 @@
   [value]
   (some-> (re-find #"^\s*([A-Za-z0-9_.-]+)" value)
           second))
+
+(def ^:private pip-install-pattern
+  #"(?i)(?:^|[`$>({;\s])(?:python(?:\d+(?:\.\d+)?)?\s+-m\s+)?pip\d*\s+install\s+(.+)$")
+
+(def ^:private shell-token-pattern
+  #"'([^']*)'|\"([^\"]*)\"|(\S+)")
+
+(def ^:private pip-options-with-values
+  #{"-c" "--constraint" "-r" "--requirement" "-i" "--index-url"
+    "--extra-index-url" "-f" "--find-links" "--trusted-host" "--proxy"
+    "--cert" "--client-cert" "--cache-dir" "--target" "--platform"
+    "--python-version" "--implementation" "--abi" "--root" "--prefix"
+    "--src" "--upgrade-strategy" "--config-settings" "-C"})
+
+(defn- shell-token-value
+  [[_ single-quoted double-quoted bare]]
+  (or single-quoted double-quoted bare))
+
+(defn- trim-markdown-token
+  [token]
+  (-> (str token)
+      (str/replace #"^`+" "")
+      (str/replace #"[`.,:;)]*$" "")))
+
+(defn- command-tail
+  [value]
+  (-> (str value)
+      (str/split #"\s*(?:&&|\|\||;|\|)\s*" 2)
+      first
+      (str/split #"\s+#" 2)
+      first))
+
+(defn- shell-tokens
+  [value]
+  (->> (re-seq shell-token-pattern (command-tail value))
+       (map shell-token-value)
+       (map trim-markdown-token)
+       (remove str/blank?)
+       vec))
+
+(defn- option-with-value?
+  [token]
+  (let [token (str token)]
+    (or (contains? pip-options-with-values token)
+        (some #(str/starts-with? token (str % "="))
+              pip-options-with-values))))
+
+(defn- package-token?
+  [token]
+  (let [token (str token)]
+    (and (seq token)
+         (not (str/starts-with? token "-"))
+         (not (str/starts-with? token "."))
+         (not (str/starts-with? token "/"))
+         (not (str/starts-with? token "$"))
+         (not (str/includes? token "://")))))
+
+(defn pip-install-dependencies
+  "Return PyPI package facts from explicit pip install command lines."
+  [content]
+  (->> (str/split-lines content)
+       (map-indexed vector)
+       (mapcat (fn [[idx line]]
+                 (when-let [[_ args] (re-find pip-install-pattern line)]
+                   (loop [tokens (shell-tokens args)
+                          skip-next? false
+                          out []]
+                     (if-let [token (first tokens)]
+                       (cond
+                         skip-next?
+                         (recur (rest tokens) false out)
+
+                         (option-with-value? token)
+                         (recur (rest tokens)
+                                (not (str/includes? token "="))
+                                out)
+
+                         (str/starts-with? token "-")
+                         (recur (rest tokens) false out)
+
+                         :else
+                         (recur (rest tokens)
+                                false
+                                (cond-> out
+                                  (and (package-token? token)
+                                       (python-dependency-name token))
+                                  (conj (common/package-fact
+                                         {:ecosystem :pypi
+                                          :package-name (python-dependency-name token)
+                                          :version-range token
+                                          :dependency-scope "pip-install-command"
+                                          :source-line (inc idx)})))))
+                       out)))))
+       distinct
+       vec))
 (defn- pyproject-import-name-map
   [content]
   (->> (package-toml/toml-section-lines content "tool.agraph.import-names")
