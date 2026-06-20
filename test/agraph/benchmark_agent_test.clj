@@ -1039,6 +1039,24 @@
             :matchedTokenCount 3
             :definitionKinds ["env-var"]}
            (get-in files [0 :metrics])))))
+
+(deftest file-ranking-uses-architecture-deploy-evidence
+  (let [root (temp-dir "agraph-bench-architecture-deploy")
+        _ (spit-file! root "tests/docker-compose.yml" "services:\n  db:\n    image: postgres:alpine\n")
+        packet {:query "postgres container runtime setup"
+                :architecture {:deployEvidence [{:id "evidence:postgres-container"
+                                                 :path "tests/docker-compose.yml"
+                                                 :kind "container-image-consumer"
+                                                 :fileKind "compose"
+                                                 :label "postgres:alpine"
+                                                 :normalizedValue "container-image:postgres"
+                                                 :score 1.4}]}}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["tests/docker-compose.yml"]
+           (mapv :path files)))
+    (is (= ["architecture-evidence:deployEvidence:tests/docker-compose.yml kind=container-image-consumer fileKind=compose label=\"postgres:alpine\" score=1.4"]
+           (get-in files [0 :evidence])))))
 (deftest file-ranking-requires-lexical-support-for-graph-neighbor-boost
   (let [root (temp-dir "agraph-bench-candidate-graph-support")
         _ (spit-file! root "src/thin.clj" "(ns thin)\n")

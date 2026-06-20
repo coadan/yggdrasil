@@ -94,6 +94,7 @@
                  :web-framework-plugin
                  :manifest-package
                  :env-var
+                 :sql-security
                  :container-image-consumer]))
     (is (every? node-kinds
                 [:web-framework-route :web-framework-import :web-framework-plugin :external-package]))
@@ -148,6 +149,7 @@
                  :web-framework-plugin
                  :manifest-package
                  :env-var
+                 :sql-security
                  :container-image-consumer]))
     (is (every? node-kinds
                 [:web-framework-route :web-framework-import :web-framework-plugin :external-package]))

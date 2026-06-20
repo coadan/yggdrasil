@@ -26,6 +26,21 @@
     (is (= 3 (:source-line (first (:route by-kind)))))
     (is (= 4 (:source-line (first (:port by-kind)))))))
 
+(deftest facts-for-file-does-not-read-sql-security-as-env-var
+  (let [rows (facts (str "create function extensions.grant_access()\n"
+                         "returns event_trigger\n"
+                         "security definer\n"
+                         "as $$ select 1 $$;\n")
+                    :sql)
+        by-kind (group-by :kind rows)]
+    (is (empty? (:env-var by-kind)))
+    (is (= [{:kind :sql-security
+             :label "SECURITY DEFINER"
+             :normalized-value "security-definer"
+             :source-line 3}]
+           (mapv #(select-keys % [:kind :label :normalized-value :source-line])
+                 (:sql-security by-kind))))))
+
 (deftest url-facts-tag-doc-links-as-references
   (let [rows (facts "- https://docs.example.com/sdk\n" :doc)
         url-row (first (filter #(= :url (:kind %)) rows))]

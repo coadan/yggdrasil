@@ -360,7 +360,13 @@
                                                  %1
                                                  "dependencyEvidence"
                                                  %2)
-                  (get-in packet [:architecture :dependencyEvidence])))))
+                  (get-in packet [:architecture :dependencyEvidence]))
+    (keep-indexed #(architecture-file-prediction root
+                                                 query-tokens
+                                                 %1
+                                                 "deployEvidence"
+                                                 %2)
+                  (get-in packet [:architecture :deployEvidence])))))
 (defn- ranked-file-predictions
   [rows]
   (let [combine-rows (fn [path grouped-rows]

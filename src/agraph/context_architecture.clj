@@ -387,8 +387,30 @@
       {:basis "selected-mechanical-edges"
        :downstream downstream
        :upstream upstream})))
+(defn- evidence-value-key
+  [row]
+  (when (and (:kind row) (:normalized-value row))
+    [(:kind row) (:normalized-value row)]))
+
+(defn- selected-evidence-value-file-kinds
+  [selected-paths evidence]
+  (->> evidence
+       (filter #(contains? selected-paths (:path %)))
+       (keep (fn [row]
+               (when-let [k (evidence-value-key row)]
+                 [k (:file-kind row)])))
+       (reduce (fn [out [k file-kind]]
+                 (update out k (fnil conj #{}) file-kind))
+               {})))
+
+(defn- shared-selected-evidence-value?
+  [selected-value-file-kinds selected-paths row]
+  (when-let [file-kinds (get selected-value-file-kinds (evidence-value-key row))]
+    (and (not (contains? selected-paths (:path row)))
+         (not (contains? file-kinds (:file-kind row))))))
+
 (defn- system-evidence-score
-  [query-tokens selected-system-ids selected-paths row]
+  [query-tokens selected-system-ids selected-paths selected-value-file-kinds row]
   (let [path-score (if (contains? selected-paths (:path row)) 1.0 0.0)
         token-score (capped-token-score query-tokens
                                         (compact (:kind row)
@@ -396,9 +418,27 @@
                                                  (:label row)
                                                  (:normalized-value row)
                                                  (:path row)))
+        fact-token-score (capped-token-score query-tokens
+                                             (compact (:kind row)
+                                                      (:label row)
+                                                      (:normalized-value row)))
+        shared-value-score (if (shared-selected-evidence-value?
+                                selected-value-file-kinds
+                                selected-paths
+                                row)
+                             0.65
+                             0.0)
         system-score (if (contains? selected-system-ids (:system-id row)) 0.75 0.0)]
-    (if (or (pos? path-score) (pos? token-score) (pos? system-score))
-      (+ path-score system-score (* 0.5 token-score))
+    (if (or (pos? path-score)
+            (pos? token-score)
+            (pos? fact-token-score)
+            (pos? shared-value-score)
+            (pos? system-score))
+      (+ path-score
+         shared-value-score
+         system-score
+         (* 0.5 token-score)
+         (* 0.8 fact-token-score))
       0.0)))
 (defn- system-evidence-row
   [score row]
@@ -424,6 +464,60 @@
 (defn- runtime-evidence-path-key
   [row]
   [(:repo row) (:path row)])
+
+(defn- runtime-evidence-file-kind-key
+  [row]
+  (:fileKind row))
+
+(defn- runtime-evidence-file-kind-counts
+  [rows]
+  (frequencies (keep runtime-evidence-file-kind-key rows)))
+
+(defn- selected-runtime-evidence-ids
+  [rows]
+  (set (keep :id rows)))
+
+(defn- runtime-evidence-file-kind-replacement-index
+  [rows]
+  (let [counts (runtime-evidence-file-kind-counts rows)]
+    (->> rows
+         (map-indexed vector)
+         reverse
+         (some (fn [[idx row]]
+                 (let [file-kind (runtime-evidence-file-kind-key row)]
+                   (when (< 1 (long (or (get counts file-kind) 0)))
+                     idx)))))))
+
+(defn- best-runtime-evidence-file-kind-candidate
+  [rows selected-ids file-kind]
+  (->> rows
+       (filter #(= file-kind (runtime-evidence-file-kind-key %)))
+       (remove #(contains? selected-ids (:id %)))
+       first))
+
+(defn- preserve-runtime-evidence-file-kind-diversity
+  [rows selected]
+  (let [file-kinds (->> rows
+                        (keep runtime-evidence-file-kind-key)
+                        distinct
+                        vec)]
+    (loop [selected (vec selected)
+           missing-kinds (->> file-kinds
+                              (remove (set (keys (runtime-evidence-file-kind-counts
+                                                  selected))))
+                              vec)]
+      (if-let [file-kind (first missing-kinds)]
+        (let [selected-ids (selected-runtime-evidence-ids selected)
+              candidate (best-runtime-evidence-file-kind-candidate rows
+                                                                   selected-ids
+                                                                   file-kind)
+              replace-idx (runtime-evidence-file-kind-replacement-index selected)]
+          (recur (if (and candidate replace-idx)
+                   (assoc selected replace-idx candidate)
+                   selected)
+                 (subvec missing-kinds 1)))
+        selected))))
+
 (defn- runtime-evidence-selectable?
   [path-counts system-counts enforce-system-limit? row]
   (let [path-count (long (get path-counts (runtime-evidence-path-key row) 0))
@@ -468,16 +562,19 @@
         filled-state (if (< (count (:out diverse-state)) limit)
                        (take-system-evidence-pass rows limit diverse-state false)
                        diverse-state)]
-    (:out filled-state)))
+    (preserve-runtime-evidence-file-kind-diversity rows (:out filled-state))))
 (defn select-system-evidence
   [query-tokens selected-system-ids results evidence limit]
   (let [selected-system-ids (set selected-system-ids)
-        selected-paths (set (ranked-result-paths results runtime-evidence-result-path-limit))]
+        selected-paths (set (ranked-result-paths results runtime-evidence-result-path-limit))
+        selected-value-file-kinds (selected-evidence-value-file-kinds selected-paths
+                                                                      evidence)]
     (->> evidence
          (map (fn [row]
                 (let [score (system-evidence-score query-tokens
                                                    selected-system-ids
                                                    selected-paths
+                                                   selected-value-file-kinds
                                                    row)]
                   (when (pos? score)
                     (system-evidence-row score row)))))

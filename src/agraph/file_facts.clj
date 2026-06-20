@@ -6,6 +6,7 @@
 (def fact-kinds
   #{:url
     :env-var
+    :sql-security
     :auth-reference
     :port
     :route
@@ -69,9 +70,17 @@
 
 (defn- env-values
   [line]
-  (->> (re-seq #"\b[A-Z][A-Z0-9_]*(?:URL|URI|HOST|PORT|ENDPOINT|QUEUE|TOPIC|TASK_QUEUE|DATABASE|DB)[A-Z0-9_]*\b"
+  (->> (re-seq #"\b[A-Z][A-Z0-9_]*(?:URL|URI|HOST|PORT|ENDPOINT|QUEUE|TOPIC|TASK_QUEUE|DATABASE|DB)\b"
                line)
        distinct))
+
+(defn- sql-security-values
+  [file line]
+  (when (contains? #{:sql :db-migration} (:kind file))
+    (->> (re-seq #"(?i)\bSECURITY\s+(DEFINER|INVOKER)\b" line)
+         (map first)
+         (map str/upper-case)
+         distinct)))
 
 (def service-account-type-pattern
   #"(?i)(?:^|[{\s,])['\"]?type['\"]?\s*:\s*['\"]service_account['\"]")
@@ -420,6 +429,8 @@
           (url-values line))
      (map #(fact-row run-id project-id repo-id file :env-var line-no % (normalize-token %) 0.65)
           (env-values line))
+     (map #(fact-row run-id project-id repo-id file :sql-security line-no % (normalize-token %) 0.68)
+          (sql-security-values file line))
      (map #(fact-row run-id
                      project-id
                      repo-id

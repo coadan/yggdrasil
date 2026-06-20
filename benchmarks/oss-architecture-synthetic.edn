@@ -108,9 +108,9 @@
           :expectations {:evidence [{:kind :env-var
                                      :path "migrations/.env"
                                      :label "DATABASE_URL"}
-                                    {:kind :env-var
+                                    {:kind :sql-security
                                      :path "migrations/db/init-scripts/00000000000003-post-setup.sql"
-                                     :label "SECURITY"}]}
+                                     :label "SECURITY DEFINER"}]}
           :issue {:id "synthetic-supabase-trigger-ownership-flow"
                   :url "local:synthetic/supabase-postgres/trigger-ownership-flow"
                   :title "Trace event trigger ownership through database initialization"

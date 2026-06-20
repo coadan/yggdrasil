@@ -75,6 +75,7 @@
    "env-var" #{"dependency-auth-runtime" "runtime-config"}
    "route" #{"dependency-auth-runtime" "runtime-config"}
    "runtime-command" #{"dependency-auth-runtime" "runtime-config"}
+   "sql-security" #{"dependency-auth-runtime" "runtime-config"}
    "terraform-data-source" #{"infra"}
    "terraform-module" #{"infra"}
    "terraform-module-source" #{"infra"}

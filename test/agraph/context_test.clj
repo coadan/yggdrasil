@@ -1586,6 +1586,92 @@
     (is (> (:score (last runtime-evidence))
            (:score (nth runtime-evidence 2))))))
 
+(deftest runtime-evidence-keeps-file-kind-diversity
+  (let [runtime-evidence (#'context/select-system-evidence
+                          ["database" "runtime" "config" "env"]
+                          ["system:db"]
+                          []
+                          [{:xt/id "evidence:sql-security-1"
+                            :system-id "system:db"
+                            :repo-id "app"
+                            :path "db/schema.sql"
+                            :file-kind :sql
+                            :kind :sql-security
+                            :label "SECURITY DEFINER"
+                            :normalized-value "security-definer"
+                            :source-line 10
+                            :confidence 0.65}
+                           {:xt/id "evidence:sql-security-2"
+                            :system-id "system:db"
+                            :repo-id "app"
+                            :path "db/schema.sql"
+                            :file-kind :sql
+                            :kind :sql-security
+                            :label "SECURITY DEFINER"
+                            :normalized-value "security-definer"
+                            :source-line 11
+                            :confidence 0.65}
+                           {:xt/id "evidence:env-database-url"
+                            :system-id "system:db"
+                            :repo-id "app"
+                            :path "migrations/.env"
+                            :file-kind :env
+                            :kind :env-var
+                            :label "DATABASE_URL"
+                            :normalized-value "database-url"
+                            :source-line 2
+                            :confidence 0.65}]
+                          2)]
+    (is (= ["evidence:env-database-url"
+            "evidence:sql-security-1"]
+           (mapv :id runtime-evidence)))))
+
+(deftest runtime-evidence-boosts-files-sharing-selected-fact-values
+  (let [runtime-evidence (#'context/select-system-evidence
+                          ["database" "runtime" "config" "env"]
+                          []
+                          [{:repo-id "app"
+                            :path "scripts/migrate.sh"
+                            :score 2.0}]
+                          [{:xt/id "evidence:runner-database-url"
+                            :system-id "system:runner"
+                            :repo-id "app"
+                            :path "scripts/migrate.sh"
+                            :file-kind :shell
+                            :kind :env-var
+                            :label "DATABASE_URL"
+                            :normalized-value "database-url"
+                            :source-line 12
+                            :confidence 0.65}
+                           {:xt/id "evidence:matched-env-database-url"
+                            :system-id "system:env"
+                            :repo-id "app"
+                            :path "config/.env"
+                            :file-kind :env
+                            :kind :env-var
+                            :label "DATABASE_URL"
+                            :normalized-value "database-url"
+                            :source-line 1
+                            :confidence 0.65}
+                           {:xt/id "evidence:other-env-host"
+                            :system-id "system:other-env"
+                            :repo-id "app"
+                            :path "tests/.env"
+                            :file-kind :env
+                            :kind :env-var
+                            :label "POSTGRES_HOST"
+                            :normalized-value "postgres-host"
+                            :source-line 1
+                            :confidence 0.65}]
+                          3)
+        scores-by-id (into {} (map (juxt :id :score) runtime-evidence))]
+    (is (= ["evidence:matched-env-database-url"
+            "evidence:runner-database-url"
+            "evidence:other-env-host"]
+           (mapv :id runtime-evidence)))
+    (is (> (get scores-by-id "evidence:matched-env-database-url")
+           (get scores-by-id "evidence:other-env-host")))))
+
 (deftest candidate-files-preserve-query-score-components
   (with-redefs [query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
