@@ -151,6 +151,27 @@
              :run-id run-id}]
    :diagnostics []})
 
+(def ^:private sensitive-assignment-key-pattern
+  "(?i)[A-Za-z_][A-Za-z0-9_.-]*(?:secret|token|password|api[-_]?key|private[-_]?key|credential|credentials|creds|service[-_]?account|service[-_]?acct|svc[-_]?account|svc[-_]?acct|acct)[A-Za-z0-9_.-]*")
+
+(def ^:private sensitive-assignment-pattern
+  (re-pattern (str "\\b(" sensitive-assignment-key-pattern ")\\s*=\\s*"
+                   "(\"[^\"]*\"|'[^']*'|[^\\s#]+)")))
+
+(def ^:private sensitive-yaml-assignment-pattern
+  (re-pattern (str "(?m)^(\\s*[\"']?(" sensitive-assignment-key-pattern ")[\"']?\\s*:\\s*)"
+                   "(\"[^\"]*\"|'[^']*'|[^\\s#]+)")))
+
+(defn redact-sensitive-values
+  "Redact values from mechanical runtime/config assignment text.
+
+  The key name remains searchable; the assigned value is intentionally not
+  stored in graph chunks or runtime-command labels."
+  [text]
+  (-> (str text)
+      (str/replace sensitive-assignment-pattern "$1=<redacted>")
+      (str/replace sensitive-yaml-assignment-pattern "$1<redacted>")))
+
 (defn extract-format-facts
   [run-id {:keys [id-scope file-id path] :as file} root-kind chunk-kind facts]
   (let [root-node (generic-node run-id id-scope file-id path root-kind path 1)

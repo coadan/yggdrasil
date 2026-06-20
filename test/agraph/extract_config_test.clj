@@ -687,6 +687,41 @@
     (is (= 4 (:defines (relations procfile))))
     (is (= [:procfile :runtime-process :runtime-process]
            (mapv :kind (:chunks procfile))))))
+
+(deftest runtime-config-extractors-redact-sensitive-assignment-values
+  (let [extract-inline (fn [path kind content]
+                         (extract/extract-file
+                          "run/test"
+                          {:file-id (str "file:" path)
+                           :id-scope "fixture"
+                           :path path
+                           :kind kind
+                           :content content}))
+        docker (extract-inline "runtime/Dockerfile"
+                               :docker
+                               (str "FROM alpine:3.20\n"
+                                    "ENV SERVICE_ACCT=checkout-runtime-secret\n"
+                                    "CMD SERVICE_ACCT=checkout-runtime-secret bin/start\n"))
+        procfile (extract-inline "runtime/Procfile"
+                                 :procfile
+                                 "web: CLIENT_SECRET=client-secret-value bin/web\n")
+        compose (extract-inline "compose.yaml"
+                                :compose
+                                (str "services:\n"
+                                     "  api:\n"
+                                     "    image: demo:latest\n"
+                                     "    environment:\n"
+                                     "      SERVICE_ACCT: checkout-runtime-secret\n"
+                                     "      API_TOKEN: token-value\n"))
+        exposed (pr-str (for [result [docker procfile compose]]
+                          {:labels (mapv :label (:nodes result))
+                           :chunks (mapv :text (:chunks result))}))]
+    (is (re-find #"SERVICE_ACCT|CLIENT_SECRET|API_TOKEN" exposed))
+    (is (not (re-find #"checkout-runtime-secret|client-secret-value|token-value" exposed)))
+    (is (re-find #"SERVICE_ACCT=<redacted>" exposed))
+    (is (re-find #"CLIENT_SECRET=<redacted>" exposed))
+    (is (re-find #"API_TOKEN: <redacted>" exposed))))
+
 (deftest extracts-cloud-iac-and-framework-route-facts
   (let [result-for (fn [path]
                      (extract/extract-file

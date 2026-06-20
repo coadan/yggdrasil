@@ -148,7 +148,7 @@
                              :stage-label stage-label}]
                   (when (contains? docker-command-instructions instruction)
                     [{:kind :runtime-command
-                      :label (str instruction " " value)
+                      :label (str instruction " " (common/redact-sensitive-values value))
                       :source-line source-line
                       :relation :defines
                       :stage-label stage-label}])))
@@ -180,7 +180,7 @@
                   text-lines (subvec lines
                                      (dec start-line)
                                      end-line)
-                  text (str/join "\n" text-lines)]
+                  text (common/redact-sensitive-values (str/join "\n" text-lines))]
               {:xt/id (common/chunk-id id-scope path label start-line)
                :file-id file-id
                :path path
@@ -233,7 +233,11 @@
                                                         :extracted
                                                         source-line))
                                      (docker-stage-dependencies stages))
-        file-chunk (:chunks (common/extract-text-source run-id file :docker-file))]
+        file-chunk (:chunks (common/extract-text-source run-id
+                                                        (update file
+                                                                :content
+                                                                common/redact-sensitive-values)
+                                                        :docker-file))]
     {:nodes (vec (distinct (into [root-node] fact-nodes)))
      :edges (vec (distinct (concat fact-edges stage-dependency-edges)))
      :chunks (vec (concat file-chunk
@@ -274,13 +278,14 @@
                                                    source-line))
                             processes)
         command-nodes (mapv (fn [{:keys [label command source-line]}]
-                              (common/generic-node run-id
-                                                   id-scope
-                                                   file-id
-                                                   path
-                                                   :runtime-command
-                                                   (str label ":" command)
-                                                   source-line))
+                              (let [command (common/redact-sensitive-values command)]
+                                (common/generic-node run-id
+                                                     id-scope
+                                                     file-id
+                                                     path
+                                                     :runtime-command
+                                                     (str label ":" command)
+                                                     source-line)))
                             processes)
         process-edges (mapv #(common/edge-row run-id
                                               file-id
@@ -292,30 +297,36 @@
                                               (:source-line %))
                             process-nodes)
         command-edges (mapv (fn [{:keys [label command source-line]}]
-                              (common/edge-row run-id
-                                               file-id
-                                               path
-                                               (common/node-id id-scope :runtime-process label)
-                                               (common/node-id id-scope
-                                                               :runtime-command
-                                                               (str label ":" command))
-                                               :defines
-                                               :extracted
-                                               source-line))
+                              (let [command (common/redact-sensitive-values command)]
+                                (common/edge-row run-id
+                                                 file-id
+                                                 path
+                                                 (common/node-id id-scope :runtime-process label)
+                                                 (common/node-id id-scope
+                                                                 :runtime-command
+                                                                 (str label ":" command))
+                                                 :defines
+                                                 :extracted
+                                                 source-line)))
                             processes)
-        file-chunk (:chunks (common/extract-text-source run-id file :procfile))
+        file-chunk (:chunks (common/extract-text-source run-id
+                                                        (update file
+                                                                :content
+                                                                common/redact-sensitive-values)
+                                                        :procfile))
         process-chunks (mapv (fn [{:keys [label command source-line]}]
-                               {:xt/id (common/chunk-id id-scope path label source-line)
-                                :file-id file-id
-                                :path path
-                                :kind :runtime-process
-                                :label label
-                                :text command
-                                :tokens (text/tokenize (str label "\n" command))
-                                :source-line source-line
-                                :content-sha (hash/sha256-hex command)
-                                :active? true
-                                :run-id run-id})
+                               (let [command (common/redact-sensitive-values command)]
+                                 {:xt/id (common/chunk-id id-scope path label source-line)
+                                  :file-id file-id
+                                  :path path
+                                  :kind :runtime-process
+                                  :label label
+                                  :text command
+                                  :tokens (text/tokenize (str label "\n" command))
+                                  :source-line source-line
+                                  :content-sha (hash/sha256-hex command)
+                                  :active? true
+                                  :run-id run-id}))
                              processes)]
     {:nodes (vec (concat [root-node] process-nodes command-nodes))
      :edges (vec (concat process-edges command-edges))

@@ -172,7 +172,11 @@
                                                  :extracted
                                                  source-line))
                               reference-facts)
-        chunk-result (common/extract-text-source run-id file :compose-file)]
+        chunk-result (common/extract-text-source run-id
+                                                 (update file
+                                                         :content
+                                                         common/redact-sensitive-values)
+                                                 :compose-file)]
     {:nodes (vec (concat [compose-node] service-nodes reference-nodes))
      :edges (vec (concat define-edges reference-edges))
      :chunks (:chunks chunk-result)
