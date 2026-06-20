@@ -528,6 +528,45 @@
           (assoc row :rank (inc idx)))
         (range)
         rows))
+(defn- row-source-kind
+  [kind-by-path row]
+  (path-source-kind kind-by-path (:path row)))
+(defn- first-row-by-source-kind
+  [kind-by-path rows source-kind excluded-paths]
+  (some #(when (and (= source-kind (row-source-kind kind-by-path %))
+                    (not (contains? excluded-paths (:path %))))
+           %)
+        rows))
+(defn- prioritize-coverage-source-lanes
+  [source-kinds kind-by-path candidate-files]
+  (if (or (empty? source-kinds)
+          (empty? kind-by-path)
+          (empty? candidate-files))
+    candidate-files
+    (let [head-row (first candidate-files)
+          head-kind (row-source-kind kind-by-path head-row)
+          remaining-kinds (->> source-kinds
+                               sort
+                               (remove #{head-kind}))
+          prioritized (loop [source-kinds (seq remaining-kinds)
+                             selected [head-row]
+                             selected-paths #{(:path head-row)}]
+                        (if-let [source-kind (first source-kinds)]
+                          (if-let [row (first-row-by-source-kind
+                                        kind-by-path
+                                        candidate-files
+                                        source-kind
+                                        selected-paths)]
+                            (recur (next source-kinds)
+                                   (conj selected row)
+                                   (conj selected-paths (:path row)))
+                            (recur (next source-kinds) selected selected-paths))
+                          selected))
+          prioritized-paths (set (map :path prioritized))]
+      (->> (concat prioritized
+                   (remove #(contains? prioritized-paths (:path %))
+                           candidate-files))
+           vec))))
 (defn- candidate-file-only-row?
   [row]
   (let [metrics (:metrics row)]
@@ -701,6 +740,8 @@
                               (filter #(keep-coverage-source-kind? source-kinds
                                                                    kind-by-path
                                                                    %))
+                              (prioritize-coverage-source-lanes source-kinds
+                                                                kind-by-path)
                               renumber-file-ranks
                               vec)
          filtered-files (- (count raw-candidate-files)

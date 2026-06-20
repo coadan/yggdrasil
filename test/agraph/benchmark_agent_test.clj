@@ -732,6 +732,42 @@
             :limit nil
             :coverageSourceKinds ["code"]}
            (:selection filtered)))))
+(deftest context-packet-agent-result-prioritizes-declared-source-lanes
+  (let [root (temp-dir "agraph-bench-source-lane-priority")
+        _ (spit-file! root "src/first.clj" "(ns first)\n")
+        _ (spit-file! root "src/second.clj" "(ns second)\n")
+        _ (spit-file! root "config/.env" "DATABASE_URL=postgres://example\n")
+        packet {:query "runtime configuration"
+                :docs [{:source {:path "src/first.clj"
+                                 :heading "runtime configuration"}
+                        :score 4.0
+                        :snippet "runtime configuration"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/second.clj"
+                                 :heading "configuration helper"}
+                        :score 3.5
+                        :snippet "runtime configuration"
+                        :provenance "retrieved-doc"}]
+                :architecture {:runtimeEvidence [{:id "evidence:database-url"
+                                                  :path "config/.env"
+                                                  :kind "env-var"
+                                                  :fileKind "env"
+                                                  :label "DATABASE_URL"
+                                                  :score 1.0}]}}
+        result (benchmark/context-packet->agent-result
+                packet
+                {:root root
+                 :coverage {:declaredSourceKinds ["code" "env"]}})]
+    (is (= ["src/first.clj" "config/.env" "src/second.clj"]
+           (mapv :path (:suspectedFiles result))))
+    (is (= [1 2 3]
+           (mapv :rank (:suspectedFiles result))))
+    (is (= {:rawCandidateFiles 3
+            :candidateFiles 3
+            :coverageFilteredCandidateFiles 0
+            :limit nil
+            :coverageSourceKinds ["code" "env"]}
+           (:selection result)))))
 (deftest context-packet-agent-hints-respect-declared-source-coverage
   (let [root (temp-dir "agraph-bench-hints-source-coverage")
         _ (spit-file! root ".github/ISSUE_TEMPLATE/bug_report.md" "bug report\n")
