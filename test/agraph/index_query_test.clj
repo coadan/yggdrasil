@@ -1,6 +1,7 @@
 (ns agraph.index-query-test
   (:require [agraph.dependency :as dependency]
             [agraph.extract :as extract]
+            [agraph.file-facts :as file-facts]
             [agraph.fs :as fs]
             [agraph.graph :as graph]
             [agraph.index :as index]
@@ -1008,3 +1009,20 @@
               (is (= 1 (get-in third-summary [:stats :files-indexed])))
               (is (= "extractor:test-changed"
                      (:extractor-fingerprint changed-row))))))))))
+
+(deftest index-reindexes-when-file-facts-contract-changes
+  (let [xtdb-path (temp-dir "agraph-index-file-facts-fingerprint-xtdb")
+        repo (io/file (temp-dir "agraph-index-file-facts-fingerprint-repo"))]
+    (.mkdirs repo)
+    (spit (io/file repo ".env") "DATABASE_URL=postgres://example\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [first-summary (index/index-repo! xtdb (.getPath repo) {})
+              second-summary (index/index-repo! xtdb (.getPath repo) {})]
+          (is (= 1 (get-in first-summary [:stats :files-indexed])))
+          (is (= 1 (get-in second-summary [:stats :files-skipped])))
+          (with-redefs [file-facts/facts-contract-version "agraph.file-facts/test-changed"]
+            (let [third-summary (index/index-repo! xtdb (.getPath repo) {})
+                  changed-row (store/file-row xtdb ".env")]
+              (is (= 1 (get-in third-summary [:stats :files-indexed])))
+              (is (string? (:extractor-fingerprint changed-row))))))))))

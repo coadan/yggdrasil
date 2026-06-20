@@ -190,7 +190,7 @@
     :uses})
 
 (def indexing-contract-version
-  "agraph.index/v7")
+  "agraph.index/v8")
 
 (def index-profiles
   "Supported persistence profiles.
@@ -225,6 +225,7 @@
           (hash/short-hash [indexing-contract-version
                             index-profile
                             (extract/extractor-fingerprint file)
+                            file-facts/facts-contract-version
                             (extractor-plugin/applicable-fingerprints
                              extractor-plugins
                              file)

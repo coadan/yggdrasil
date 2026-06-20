@@ -3,6 +3,9 @@
   (:require [agraph.hash :as hash]
             [clojure.string :as str]))
 
+(def facts-contract-version
+  "agraph.file-facts/v2")
+
 (def fact-kinds
   #{:url
     :env-var
