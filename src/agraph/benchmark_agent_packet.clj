@@ -170,6 +170,8 @@
                        :rules ["Use only the base checkout and issue text in this packet."
                                "Return ranked suspected files before attempting a patch."
                                (str/join " " benchmark-agent-run/suspected-files-scope-rules)
+                               (str/join " " benchmark-agent-run/evidence-citation-rules)
+                               (str/join " " benchmark-agent-run/result-integrity-rules)
                                "Keep reasoning evidence-based and cite commands or graph context used."
                                "Do not inspect the fixing diff, PR body, post-fix commits, or ground-truth artifacts."]
                        :expectedResultSchema agent-result-schema

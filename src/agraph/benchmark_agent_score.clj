@@ -114,6 +114,7 @@
                                                                         "maximum" 1}
                                                           "reason" {"type" "string"}
                                                           "evidence" {"type" "array"
+                                                                      "description" "Each suspected file needs at least one evidence string containing its exact repo-relative path."
                                                                       "items" {"type" "string"}}
                                                           "metrics" (agent-result-file-metrics-json-schema)}}}
                  "suspectedSymbols" {"type" "array"
@@ -136,6 +137,7 @@
                                                                           "maximum" 1}
                                                             "reason" {"type" "string"}
                                                             "evidence" {"type" "array"
+                                                                        "description" "Evidence should cite exact repo-relative paths when a path is available."
                                                                         "items" {"type" "string"}}}}}
                  "commands" {"type" "array"
                              "items" {"type" "string"}}

@@ -80,6 +80,12 @@
                     (get-in packet [:task :rules])))
           (is (some #(str/includes? % "runtime/config/setup file may need edits")
                     (get-in packet [:task :rules])))
+          (is (some #(str/includes? % "exact repo-relative path")
+                    (get-in packet [:task :rules])))
+          (is (some #(str/includes? % "caseId, caseFingerprint, and agentInputFingerprint")
+                    (get-in packet [:task :rules])))
+          (is (some #(str/includes? % "do not carry over stale graph-health text")
+                    (get-in packet [:task :rules])))
           (is (= {:mode "none|java|dotnet|all"
                   :source "option|env|default|agent-result|unknown"}
                  (get-in packet [:task :resultContract :parserWorker])))
@@ -224,7 +230,11 @@
     (is (str/includes? prompt
                        "`architecture.validationGaps.nextActions`"))
     (is (str/includes? prompt "coverageSourceKinds"))
-    (is (str/includes? prompt "runtime/config/setup file may need edits"))))
+    (is (str/includes? prompt "runtime/config/setup file may need edits"))
+    (is (str/includes? prompt "exact repo-relative path"))
+    (is (str/includes? prompt "exact evidence path and label"))
+    (is (str/includes? prompt "caseId, caseFingerprint, and agentInputFingerprint"))
+    (is (str/includes? prompt "do not carry over stale graph-health text"))))
 (deftest agraph-agent-run-builds-context-artifacts-after-indexing
   (let [out (temp-dir "agraph-bench-agent-run-context-order")
         worktree (temp-dir "agraph-bench-agent-run-context-worktree")
@@ -381,6 +391,10 @@
                              "coverageSourceKinds"))
           (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
                              "runtime/config/setup file may need edits"))
+          (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
+                             "exact repo-relative path"))
+          (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
+                             "caseId, caseFingerprint, and agentInputFingerprint"))
           (is (= ["schema"
                   "caseId"
                   "caseFingerprint"
@@ -431,6 +445,17 @@
                              :items
                              :properties])
                     :metrics)))
+          (is (str/includes?
+               (get-in (json/read-json
+                        (slurp (get-in run [:artifacts :outputSchemaPath]))
+                        :key-fn keyword)
+                       [:properties
+                        :suspectedFiles
+                        :items
+                        :properties
+                        :evidence
+                        :description])
+               "exact repo-relative path"))
           (let [selection-schema (get-in (json/read-json
                                           (slurp (get-in run [:artifacts :outputSchemaPath]))
                                           :key-fn keyword)

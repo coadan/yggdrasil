@@ -23,6 +23,14 @@
    "When AGraph hints expose coverageSourceKinds or coverage-filtered diagnostics, check those source-kind lanes before finalizing suspectedFiles."
    "If a runtime/config/setup file may need edits for the issue or test path, include it as a suspectedFile rather than citing it only as supporting evidence."])
 
+(def evidence-citation-rules
+  ["For every suspectedFiles row, include at least one evidence string containing that row's exact repo-relative path."
+   "When citing expected evidence from AGraph hints, include the exact evidence path and label when available; do not rely on basenames."])
+
+(def result-integrity-rules
+  ["Copy caseId, caseFingerprint, and agentInputFingerprint from the current packet or AGRAPH_BENCH_* environment variables."
+   "Use warnings only for current result-validity blockers verified in this run; do not carry over stale graph-health text from older results."])
+
 (defn- blankish?
   [value]
   (str/blank? (str value)))
@@ -160,7 +168,7 @@
                      :rank 1
                      :confidence 0.0
                      :reason "short evidence-based reason"
-                     :evidence []}]
+                     :evidence ["path=repo-relative/path.ext command-or-graph citation"]}]
    :suspectedSymbols []
    :commands []
    :warnings []
@@ -181,6 +189,8 @@
             "- Prefer `rg`, focused `sed`, and packet-provided AGraph ask/explore commands."
             "- Return the best 1-5 suspected files as soon as evidence is sufficient."
             (str "- " (str/join "\n- " suspected-files-scope-rules))
+            (str "- " (str/join "\n- " evidence-citation-rules))
+            (str "- " (str/join "\n- " result-integrity-rules))
             "- If structured output is active, make the final response the result JSON."
             "- Otherwise write JSON to `AGRAPH_BENCH_RESULT`; do not include prose outside JSON."
             ""]
@@ -227,6 +237,8 @@
        "Read the packet, inspect the checkout, and write the ranked localization result JSON."
        "Return files before proposing or applying a patch."
        (str/join "\n" suspected-files-scope-rules)
+       (str/join "\n" evidence-citation-rules)
+       (str/join "\n" result-integrity-rules)
        ""
        "## Result Contract"
        (str "Write JSON with schema `" agent-result-schema "` to `AGRAPH_BENCH_RESULT`.")
