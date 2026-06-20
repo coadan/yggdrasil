@@ -123,7 +123,9 @@
         source-kinds (set (mapcat #(get-in % [:coverage :source-kinds]) cases))
         repo-ids (set (map :repo-id cases))
         evidence-kinds (set (mapcat #(map :kind (get-in % [:expectations :evidence])) cases))
-        node-kinds (set (mapcat #(map :kind (get-in % [:expectations :nodes])) cases))]
+        node-kinds (set (mapcat #(map :kind (get-in % [:expectations :nodes])) cases))
+        dapper-case (first (filter #(= "headline-dapper-jsonb-test-stack" (:id %))
+                                   cases))]
     (is (= "headline-architecture" (:id suite)))
     (is (<= 5 (count cases) 10))
     (is (every? #(contains? (set (:tags %)) "headline") cases))
@@ -148,6 +150,11 @@
                  :container-image-consumer]))
     (is (every? node-kinds
                 [:web-framework-route :web-framework-import :web-framework-plugin :external-package]))
+    (is (= [:dotnet :compose]
+           (get-in dapper-case [:coverage :source-kinds])))
+    (is (some #(and (= :external-package (:kind %))
+                    (= "tests/Dapper.Tests/Dapper.Tests.csproj" (:path %)))
+              (get-in dapper-case [:expectations :nodes])))
     (is (every? tags
                 ["architecture-cross-system-impact"
                  "architecture-dependency-flow"
@@ -1314,6 +1321,11 @@
                   :worktreeRoot root
                   :expectations {:nodes [{:kind :namespace
                                           :path "src/app.clj"}]}
+                  :coverage {:declaredSourceKinds ["code"]
+                             :scoreableSourceKinds ["code"]
+                             :scoreableFilesByKind [{:kind "code"
+                                                     :files 1}]
+                             :missingDeclaredSourceKinds []}
                   :groundTruth {:changedFiles ["src/app.clj"]
                                 :unsupportedGroundTruthFiles []}}
         agent-result {:schema benchmark/agent-result-schema
@@ -1362,6 +1374,15 @@
                 {:schema benchmark/agent-hints-schema
                  :diagnostics [hint-diagnostic]
                  :architecture {:validationGaps []}})
+    (spit-json! root
+                "suite/cases/case-1/agent-contexts/codex.agraph-context.json"
+                {:query "app"
+                 :docs [{:source {:path "src/app.clj"
+                                  :heading "app"
+                                  :kind "code"}
+                         :score 1.0
+                         :snippet "app"
+                         :provenance "retrieved-doc"}]})
     (with-redefs [benchmark/prepare-case! (fn [_suite _case _opts] prepared)
                   benchmark/score-agent-result-graph-expectations
                   (fn [_suite _case _prepared _opts]
@@ -1373,15 +1394,22 @@
                                                   case
                                                   {:out root
                                                    :result-path result-path})
-            written (json/read-json (slurp score-path) :key-fn keyword)]
+            written (json/read-json (slurp score-path) :key-fn keyword)
+            written-hints (json/read-json
+                           (slurp (io/file root
+                                           "suite/cases/case-1/agent-contexts/codex.agraph-hints.json"))
+                           :key-fn keyword)]
         (is (= graph-expectations (:graphExpectations scored)))
         (is (= context-ranks (:contextGroundTruthRanks scored)))
-        (is (= {:diagnostics [hint-diagnostic]} (:agraphHints scored)))
-        (is (= "failed" (get-in scored [:maintenancePreflight :status])))
+        (is (nil? (:agraphHints scored)))
+        (is (= ["code"]
+               (get-in written-hints [:selection :coverageSourceKinds])))
+        (is (empty? (:diagnostics written-hints)))
+        (is (= "passed" (get-in scored [:maintenancePreflight :status])))
         (is (= "passed"
                (get-in scored
                        [:maintenancePreflight :checks :graphExpectations :status])))
-        (is (= "failed"
+        (is (= "passed"
                (get-in scored
                        [:maintenancePreflight :checks :hintDiagnostics :status])))
         (is (= "passed"

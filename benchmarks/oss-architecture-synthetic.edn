@@ -139,7 +139,7 @@
 
          {:id "dapper-synthetic-jsonb-test-stack"
           :repo-id "dapper"
-          :coverage {:source-kinds [:dotnet :manifest :compose]}
+          :coverage {:source-kinds [:dotnet :compose]}
           :tags [:synthetic
                  :problem-architecture
                  :architecture-dependency-flow

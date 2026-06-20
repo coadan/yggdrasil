@@ -148,7 +148,7 @@
 
          {:id "headline-dapper-jsonb-test-stack"
           :repo-id "dapper"
-          :coverage {:source-kinds [:dotnet :manifest :compose]}
+          :coverage {:source-kinds [:dotnet :compose]}
           :tags [:headline
                  :synthetic
                  :problem-architecture

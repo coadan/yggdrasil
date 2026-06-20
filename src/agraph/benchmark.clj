@@ -565,6 +565,16 @@
       (catch Exception _
         nil))))
 
+(defn- refresh-agent-hints-from-context!
+  [suite case opts prepared]
+  (let [context-path (benchmark-paths/agent-run-context-path suite case opts)
+        hints-path (benchmark-paths/agent-run-hints-path suite case opts)]
+    (if-let [packet (read-json-artifact context-path)]
+      (let [hints (context-packet->agent-hints prepared packet opts)]
+        (benchmark-io/write-json-file! hints-path hints)
+        hints)
+      (read-agent-hints hints-path))))
+
 (defn- result-file-run-id
   [result-file]
   (some-> result-file
@@ -627,9 +637,7 @@
           context-ranks (context-ground-truth-ranks-from-path
                          prepared
                          (benchmark-paths/agent-run-context-path suite case artifact-opts))
-          hints (read-agent-hints (benchmark-paths/agent-run-hints-path suite
-                                                                        case
-                                                                        artifact-opts))
+          hints (refresh-agent-hints-from-context! suite case artifact-opts prepared)
           hint-diagnostics (not-empty (vec (:diagnostics hints)))
           graph-expectations (score-agent-result-graph-expectations suite
                                                                     case

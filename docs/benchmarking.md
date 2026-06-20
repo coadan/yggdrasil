@@ -688,6 +688,13 @@ changelogs, or generated fixtures that a first-pass coding agent should not be
 expected to identify from the original issue. `:changed-files` remains the full
 audit trail for the commit; `:localization-files` is the scored target set.
 
+Do not add a source kind to `:coverage` only because the case expects audit
+evidence from that family. Dependency manifests, service configuration, auth
+configuration, or container files belong in `:coverage` only when they are
+scored localization targets. Otherwise, keep them in `:expectations`; this lets
+reports verify the evidence family without turning a non-target file kind into a
+missing coverage diagnostic.
+
 ## Scores
 
 The core scores are mechanical. Recall and MRR use scoreable localization files:
