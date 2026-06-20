@@ -426,6 +426,7 @@ agraph sync work pull --project sample --agent codex
 agraph sync work heartbeat queue:abc123 --agent codex --lease-minutes 30
 agraph sync work complete queue:abc123 --result result.json
 agraph sync activity project.edn
+agraph sync work validate queue:abc123
 agraph sync work apply queue:abc123 --map agraph.map.json
 ```
 
@@ -447,8 +448,9 @@ work, and mismatches direct agents to inspect activity before trusting the prior
 result. The `sync activity --json` result also includes a bounded
 `result-schema-mismatches` list with the work source id, item id, expected
 schema, actual schema, status, summary, and timestamps for direct audit.
-`sync work apply` validates supported result schemas before writing accepted
-changes to `agraph.map.json`.
+`sync work validate` checks supported result schemas without mutating the map.
+`sync work apply` revalidates before writing accepted changes to
+`agraph.map.json`.
 
 ## Explore Packets
 

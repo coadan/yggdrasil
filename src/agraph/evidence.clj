@@ -261,6 +261,13 @@
          (str " --map " (command/shell-token map-path)))
        " --json"))
 
+(defn- map-init-command
+  [config-path map-path]
+  (str "agraph sync init "
+       (command/shell-token (or config-path "<project.edn>"))
+       " --out "
+       (command/shell-token (or map-path "agraph.map.json"))))
+
 (defn- extractor-plugin-gap-command
   []
   "bb plugin gap extractor <package-dir> <repo-root> <file> --json")
@@ -326,7 +333,15 @@
       (conj {:kind :dependency-review
              :label "Queue unresolved import review work"
              :count unresolved-imports
-             :command (str check-command " --enqueue")}))))
+             :command (str check-command " --enqueue")})
+
+      (positive-count? unresolved-imports)
+      (conj {:kind :dependency-correction
+             :label "Apply accepted import-to-package correction"
+             :count unresolved-imports
+             :command (str "agraph sync package import <import-prefix> <ecosystem>:<package>"
+                           (when map-path
+                             (str " --map " (command/shell-token map-path))))}))))
 
 (defn- refresh-command
   [config-path map-path]
@@ -340,7 +355,7 @@
                 activity-events result-schema-mismatch-events
                 result-schema-missing-result-items result-schema-unexpected-result-items
                 diagnostics skipped-files
-                system-evidence]}
+                system-evidence map-overlay]}
         counts
         project-id (:id project)
         stale-count (+ (get-in freshness [:counts :changed] 0)
@@ -372,6 +387,11 @@
            (into (package-next-actions project-id counts
                                        {:config-path config-path
                                         :map-path map-path}))
+
+           (zero? (reduce + 0 (vals (or map-overlay {}))))
+           (conj {:kind :map-overlay
+                  :label "Initialize editable graph map"
+                  :command (map-init-command config-path map-path)})
 
            (zero? (+ activity-items activity-events))
            (conj (merge {:kind :activity

@@ -1,6 +1,7 @@
 (ns agraph.report
   "Human-readable local report bundles for AGraph projects."
-  (:require [agraph.command :as command]
+  (:require [agraph.audit-scope :as audit-scope]
+            [agraph.command :as command]
             [agraph.context :as context]
             [agraph.coverage :as coverage]
             [agraph.dependency :as dependency]
@@ -357,6 +358,12 @@
              :count (get package-counts :unresolved-imports 0)
              :command (package-command project "--json")})
 
+      (pos? (long (get package-counts :unresolved-imports 0)))
+      (conj {:kind :dependency-correction
+             :label "Apply accepted import-to-package correction"
+             :count (get package-counts :unresolved-imports 0)
+             :command "agraph sync package import <import-prefix> <ecosystem>:<package>"})
+
       (pos? (long (get package-counts :version-conflicts 0)))
       (conj {:kind :dependency-review
              :label "Review package version conflicts"
@@ -488,75 +495,142 @@
             " --out " default-output-dir)]
       (maintenance-work-commands project-id map-path maintenance)))))
 
+(defn- operator-caveats
+  [evidence package-report maintenance]
+  (let [counts (:counts evidence)
+        package-counts (:counts package-report)
+        freshness (:freshness evidence)
+        freshness-counts (:counts freshness)
+        queue (queue-summary maintenance)]
+    (cond-> []
+      (contains? #{:stale "stale" :unsynced "unsynced" :partial "partial"} (:status freshness))
+      (conj {:kind :freshness
+             :label "Graph basis needs refresh or query-index completion"
+             :counts freshness-counts})
+
+      (pos? (long (or (:diagnostics counts) 0)))
+      (conj {:kind :coverage
+             :label "Extractor diagnostics are present"
+             :count (:diagnostics counts)})
+
+      (pos? (long (or (:skipped-files counts) 0)))
+      (conj {:kind :coverage
+             :label "Some files were skipped"
+             :count (:skipped-files counts)})
+
+      (pos? (long (or (:unresolved-imports package-counts) 0)))
+      (conj {:kind :dependencies
+             :label "Unresolved source imports need package review"
+             :count (:unresolved-imports package-counts)})
+
+      (pos? (long (or (:version-conflicts package-counts) 0)))
+      (conj {:kind :dependencies
+             :label "Package version conflicts need review"
+             :count (:version-conflicts package-counts)})
+
+      (some pos? (vals queue))
+      (conj {:kind :work-queue
+             :label "Completed maintenance loop requires queue processing"
+             :counts queue}))))
+
+(defn- operator-summary
+  [project evidence package-report maintenance audit-report]
+  {:schema "agraph.report.operator/v1"
+   :project-id (:id project)
+   :freshness (:freshness evidence)
+   :evidence-families (:families evidence)
+   :audit-scopes (:scopes audit-report)
+   :caveats (operator-caveats evidence package-report maintenance)
+   :next-actions (vec (take 12
+                            (distinct
+                             (concat (:nextActions audit-report)
+                                     (get-in (atlas-summary {:project project
+                                                             :graph-data {:nodes [] :edges []}
+                                                             :systems-data {:nodes [] :edges []}
+                                                             :coverage {}
+                                                             :maintenance maintenance
+                                                             :evidence evidence
+                                                             :package-report package-report})
+                                             [:next-actions])))))})
+
 (defn report-data
   "Return the canonical project report packet for a generated report bundle."
   [{:keys [project map-path detail generated-at-ms graph-data systems-data coverage
-           maintenance context-example evidence package-report artifacts report-plugins]}]
-  {:schema schema
-   :project {:id (:id project)
-             :name (:name project)
-             :config-path (:path project)
-             :map-path map-path
-             :detail (name detail)}
-   :basis (cond-> {:generated-at-ms generated-at-ms}
-            (get-in maintenance [:graph-basis :hash])
-            (assoc :graph-basis-hash (get-in maintenance [:graph-basis :hash])))
-   :repos (mapv compact-repo (:repos project))
-   :evidence evidence
-   :atlas (atlas-summary {:project project
-                          :graph-data graph-data
-                          :systems-data systems-data
-                          :coverage coverage
-                          :maintenance maintenance
-                          :evidence evidence
-                          :package-report package-report})
-   :coverage {:totals (:totals coverage)
-              :top-file-kinds (vec (take 12 (:files-by-kind coverage)))
-              :skipped-by-extension (vec (take 8 (:skipped-by-extension coverage)))
-              :skipped-by-reason (vec (take 8 (:skipped-by-reason coverage)))
-              :extractors (vec (take 20 (:extractors coverage)))
-              :extractor-fingerprints (vec (take 20 (:extractor-fingerprints
-                                                     coverage)))
-              :diagnostics (select-keys (:diagnostics coverage)
-                                        [:total :by-stage :by-extractor])}
-   :graphs {:overview (assoc (graph-counts graph-data)
-                             :artifact "graph.json")
-            :systems (assoc (graph-counts systems-data)
-                            :artifact "systems.json")}
-   :packages {:counts (:counts package-report)
-              :ecosystems (:ecosystems package-report)
-              :declared-without-import-evidence (mapv compact-declared-package
-                                                      (take report-package-diagnostic-limit
-                                                            (:declared-without-import-evidence
-                                                             package-report)))
-              :unresolved-imports (mapv compact-unresolved-import
-                                        (take report-package-diagnostic-limit
-                                              (:unresolved-imports package-report)))
-              :version-conflicts (mapv compact-version-conflict
-                                       (take report-package-diagnostic-limit
-                                             (:version-conflicts package-report)))
-              :artifact "report.json"}
-   :plugin-packages (plugin-package-summary project)
-   :maintenance {:counts (:counts maintenance)
-                 :external-api-review (:external-api-review maintenance)
-                 :top-hubs (vec (take 10 (or (get-in maintenance [:graph-health :high-degree-hubs])
-                                             (get-in maintenance [:scale :top-hubs]))))
-                 :visible-connections (->> (:semantic-connections maintenance)
-                                           (remove #(= "noise" (:visibility %)))
-                                           (take 20)
-                                           vec)
-                 :orphaned-candidates (vec (take 20 (:orphaned-systems maintenance)))
-                 :queue (queue-summary maintenance)
-                 :decision-summary (:decision-summary maintenance)
-                 :decision-queue (vec (take 20 (:decision-queue maintenance)))
-                 :infra-review-queue (vec (take 20 (:infra-review-queue maintenance)))
-                 :dependency-review-queue (vec (take 20 (:dependency-review-queue
-                                                         maintenance)))}
-   :context-example {:artifact "context-example.json"
-                     :answerability (:answerability context-example)}
-   :plugins (or report-plugins empty-plugin-bundle)
-   :artifacts artifacts
-   :commands (suggested-commands project map-path maintenance)})
+           maintenance context-example evidence package-report audit-report artifacts report-plugins]}]
+  (let [audit-report (or audit-report
+                         {:schema audit-scope/report-schema
+                          :project-id (:id project)
+                          :basis "not-generated"
+                          :coverage {}
+                          :scopes []})
+        atlas (atlas-summary {:project project
+                              :graph-data graph-data
+                              :systems-data systems-data
+                              :coverage coverage
+                              :maintenance maintenance
+                              :evidence evidence
+                              :package-report package-report})]
+    {:schema schema
+     :project {:id (:id project)
+               :name (:name project)
+               :config-path (:path project)
+               :map-path map-path
+               :detail (name detail)}
+     :basis (cond-> {:generated-at-ms generated-at-ms}
+              (get-in maintenance [:graph-basis :hash])
+              (assoc :graph-basis-hash (get-in maintenance [:graph-basis :hash])))
+     :repos (mapv compact-repo (:repos project))
+     :evidence evidence
+     :audit audit-report
+     :operator (operator-summary project evidence package-report maintenance audit-report)
+     :atlas atlas
+     :coverage {:totals (:totals coverage)
+                :top-file-kinds (vec (take 12 (:files-by-kind coverage)))
+                :skipped-by-extension (vec (take 8 (:skipped-by-extension coverage)))
+                :skipped-by-reason (vec (take 8 (:skipped-by-reason coverage)))
+                :extractors (vec (take 20 (:extractors coverage)))
+                :extractor-fingerprints (vec (take 20 (:extractor-fingerprints
+                                                       coverage)))
+                :diagnostics (select-keys (:diagnostics coverage)
+                                          [:total :by-stage :by-extractor])}
+     :graphs {:overview (assoc (graph-counts graph-data)
+                               :artifact "graph.json")
+              :systems (assoc (graph-counts systems-data)
+                              :artifact "systems.json")}
+     :packages {:counts (:counts package-report)
+                :ecosystems (:ecosystems package-report)
+                :declared-without-import-evidence (mapv compact-declared-package
+                                                        (take report-package-diagnostic-limit
+                                                              (:declared-without-import-evidence
+                                                               package-report)))
+                :unresolved-imports (mapv compact-unresolved-import
+                                          (take report-package-diagnostic-limit
+                                                (:unresolved-imports package-report)))
+                :version-conflicts (mapv compact-version-conflict
+                                         (take report-package-diagnostic-limit
+                                               (:version-conflicts package-report)))
+                :artifact "report.json"}
+     :plugin-packages (plugin-package-summary project)
+     :maintenance {:counts (:counts maintenance)
+                   :external-api-review (:external-api-review maintenance)
+                   :top-hubs (vec (take 10 (or (get-in maintenance [:graph-health :high-degree-hubs])
+                                               (get-in maintenance [:scale :top-hubs]))))
+                   :visible-connections (->> (:semantic-connections maintenance)
+                                             (remove #(= "noise" (:visibility %)))
+                                             (take 20)
+                                             vec)
+                   :orphaned-candidates (vec (take 20 (:orphaned-systems maintenance)))
+                   :queue (queue-summary maintenance)
+                   :decision-summary (:decision-summary maintenance)
+                   :decision-queue (vec (take 20 (:decision-queue maintenance)))
+                   :infra-review-queue (vec (take 20 (:infra-review-queue maintenance)))
+                   :dependency-review-queue (vec (take 20 (:dependency-review-queue
+                                                           maintenance)))}
+     :context-example {:artifact "context-example.json"
+                       :answerability (:answerability context-example)}
+     :plugins (or report-plugins empty-plugin-bundle)
+     :artifacts artifacts
+     :commands (suggested-commands project map-path maintenance)}))
 
 (defn- hub-line
   [{:keys [label kind repo-id degree salience] :as hub}]
@@ -728,6 +802,11 @@
                                              {:map-overlay overlay
                                               :config-path (:path project)
                                               :map-path map-path})
+        audit-report (audit-scope/report xtdb
+                                         project
+                                         {:map-overlay overlay
+                                          :config-path (:path project)
+                                          :map-path map-path})
         artifacts {:index (artifact "index.html")
                    :report (artifact "REPORT.mdx")
                    :report-data (artifact "report.json")
@@ -746,6 +825,7 @@
                                          :context-example ctx
                                          :evidence evidence-summary
                                          :package-report package-report
+                                         :audit-report audit-report
                                          :artifacts artifacts
                                          :report-plugins empty-plugin-bundle})
         plugin-bundle (report-plugin/bundle {:project project

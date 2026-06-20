@@ -105,7 +105,7 @@ function ExternalApiReview({ report }: { report: AGraphReport }) {
   );
 }
 
-function ProjectInventory({
+function ProjectAuditScopes({
   report,
   onAsk,
   onOpenTab
@@ -115,6 +115,8 @@ function ProjectInventory({
   onOpenTab: (tab: ReportTab) => void;
 }) {
   const families = asRows(report.evidence.families);
+  const audit = asRecord(report.audit);
+  const auditScopes = asRows(audit.scopes);
   const kinds = asRecord(report.evidence.kinds);
   const state = asRecord(report.evidence.state);
   const freshness = asRecord(state.freshness || report.evidence.freshness);
@@ -131,6 +133,14 @@ function ProjectInventory({
       source: "evidence.families"
     };
   });
+  const scopeRows = auditScopes.map((row) => ({
+    scope: String(row.kind || ""),
+    files: countValue(row, "supportedFiles"),
+    facts: countValue(row, "facts"),
+    diagnostics: countValue(row, "diagnostics"),
+    caveats: countValue(row, "skippedFiles") + countValue(row, "diagnostics"),
+    source: "report.audit.scopes"
+  }));
   const kindRows = Object.entries(kinds).flatMap(([family, value]) => {
     const rows = asRows(value);
     if (rows.length > 0) {
@@ -166,6 +176,7 @@ function ProjectInventory({
   ];
   const askRows = [
     ...familyRows.map((row) => ({ axis: "family", ...row })),
+    ...scopeRows.map((row) => ({ axis: "audit-scope", ...row })),
     ...kindRows.map((row) => ({ axis: "kind", ...row })),
     ...stateRows.map((row) => ({ axis: "state", ...row }))
   ];
@@ -174,17 +185,17 @@ function ProjectInventory({
     <section className="panel span-2">
       <div className="panel-header">
         <div>
-          <h2>Evidence Inventory</h2>
-          <p className="muted">Concrete evidence families, fact kinds, and evidence state from the current report packet.</p>
+          <h2>Audit Scopes</h2>
+          <p className="muted">Audit scopes, evidence families, fact kinds, freshness, and caveats from the current report packet.</p>
         </div>
         <div className="action-row-buttons">
           <button
             type="button"
             onClick={() =>
               onAsk({
-                label: "Evidence Inventory",
+                label: "Audit Scopes",
                 source: "report.evidence",
-                question: "What evidence does this report contain?",
+                question: "What audit evidence does this report contain?",
                 evidenceRows: askRows
               })
             }
@@ -196,6 +207,26 @@ function ProjectInventory({
           </button>
         </div>
       </div>
+      <MetricStrip
+        items={(scopeRows.length > 0 ? scopeRows : familyRows).map((row) => ({
+          label: "scope" in row ? row.scope : row.family,
+          value: "facts" in row ? row.facts : row.count,
+          tone: "caveats" in row && row.caveats > 0 ? "warn" : "status" in row && row.status === "weak" ? "warn" : undefined
+        }))}
+      />
+      {scopeRows.length > 0 ? (
+        <InlineTable
+          title="Audit Scopes"
+          rows={scopeRows}
+          columns={[
+            { key: "scope", label: "Scope" },
+            { key: "files", label: "Files" },
+            { key: "facts", label: "Facts" },
+            { key: "diagnostics", label: "Diagnostics" },
+            { key: "source", label: "Source" }
+          ]}
+        />
+      ) : null}
       <MetricStrip
         items={familyRows.map((row) => ({
           label: row.family,
@@ -285,7 +316,7 @@ function AtlasTab({
         />
       </section>
 
-      <ProjectInventory report={report} onAsk={onAsk} onOpenTab={onOpenTab} />
+      <ProjectAuditScopes report={report} onAsk={onAsk} onOpenTab={onOpenTab} />
       <ReportActions
         report={report}
         copiedKey={copiedActionKey}
@@ -973,7 +1004,7 @@ function DashboardTab({
         <p className="eyebrow">Report Dashboard</p>
         <h2>{report.project.name || report.project.id}</h2>
       </section>
-            <ProjectInventory report={report} onAsk={onAsk} onOpenTab={onOpenTab} />
+            <ProjectAuditScopes report={report} onAsk={onAsk} onOpenTab={onOpenTab} />
       <ReportActions
         report={report}
         copiedKey={copiedActionKey}

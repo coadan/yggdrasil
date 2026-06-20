@@ -81,6 +81,17 @@ export type AGraphReport = {
   basis?: Record<string, unknown>;
   repos: Array<{ id: string; root: string; role?: string }>;
   evidence: EvidenceSurface;
+  audit?: {
+    schema?: string;
+    coverage?: Record<string, unknown>;
+    scopes?: Array<Record<string, unknown>>;
+    registryDiagnostics?: Array<Record<string, unknown>>;
+    registry_diagnostics?: Array<Record<string, unknown>>;
+    nextActions?: Array<Record<string, unknown>>;
+    next_actions?: Array<Record<string, unknown>>;
+    [key: string]: unknown;
+  };
+  operator?: Record<string, unknown>;
   atlas?: Record<string, unknown>;
   coverage?: Record<string, unknown>;
   graphs: {

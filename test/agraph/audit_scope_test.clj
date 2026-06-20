@@ -51,7 +51,13 @@
                             :role "overview"
                             :status "accepted"
                             :source {:path "docs/billing.md"}}]})]
-    (is (= ["source-structure" "map-corrections" "dependencies" "runtime-config" "containers" "docs"]
+    (is (= ["source-structure"
+            "map-corrections"
+            "dependencies"
+            "dependency-auth-runtime"
+            "runtime-config"
+            "containers"
+            "docs"]
            (mapv :kind summaries)))
     (is (= [{:kind "source-structure"
              :basis "selected-architecture-evidence"
@@ -110,6 +116,25 @@
              :topEvidenceTypes [{:kind "imports-package"
                                  :count 1}]
              :samples [{:id "edge:billing-next"
+                        :relation "imports-package"
+                        :target "package:npm:next"
+                        :source "system:billing"
+                        :section "dependencyEvidence"}]}
+            {:kind "dependency-auth-runtime"
+             :basis "selected-architecture-evidence"
+             :facts 2
+             :files 1
+             :topEvidenceTypes [{:kind "env-var"
+                                 :count 1}
+                                {:kind "imports-package"
+                                 :count 1}]
+             :samples [{:id "evidence:env"
+                        :kind "env-var"
+                        :path "config/runtime.env"
+                        :sourceLine 3
+                        :fileKind "env"
+                        :section "runtimeEvidence"}
+                       {:id "edge:billing-next"
                         :relation "imports-package"
                         :target "package:npm:next"
                         :source "system:billing"
@@ -264,6 +289,18 @@
                                       :label "DATABASE_URL"
                                       :normalized-value "database-url"
                                       :source-line 1
+                                      :active? true}
+                                     {:xt/id "fact:auth"
+                                      :project-id "fixture"
+                                      :repo-id "app"
+                                      :file-id "file:env"
+                                      :path ".env"
+                                      :file-kind :env
+                                      :kind :auth-reference
+                                      :label "OPENAI_API_KEY"
+                                      :normalized-value "auth:openai-api-key"
+                                      :auth-context :api-key
+                                      :source-line 2
                                       :active? true}]
                         :system-evidence [{:xt/id "evidence:image"
                                            :project-id "fixture"
@@ -289,6 +326,7 @@
     (is (= ["source"
             "docs"
             "dependencies"
+            "dependency-auth-runtime"
             "runtime-config"
             "containers"
             "assets"
@@ -308,7 +346,14 @@
             {:kind "manifest"
              :files 1}]
            (get-in scopes-by-kind ["dependencies" :topFileKinds])))
-    (is (= 1 (get-in scopes-by-kind ["runtime-config" :facts])))
+    (is (= 3 (get-in scopes-by-kind ["dependency-auth-runtime" :facts])))
+    (is (= [{:kind "api-key"
+             :count 1}]
+           (get-in scopes-by-kind ["dependency-auth-runtime" :authContexts])))
+    (is (= 2 (get-in scopes-by-kind ["runtime-config" :facts])))
+    (is (= [{:kind "api-key"
+             :count 1}]
+           (get-in scopes-by-kind ["runtime-config" :authContexts])))
     (is (= [{:kind "env"
              :files 1}]
            (get-in scopes-by-kind ["runtime-config" :topFileKinds])))

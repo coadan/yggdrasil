@@ -79,6 +79,11 @@ present. Agents should prefer `nextActions` because each row carries a bounded
 correction to `agraph.map.json`; the result must cite packet evidence and choose
 one package from the packet. Applied corrections retain the dependency review id,
 rules source, evidence ids, reason, and result or patch confidence for audit.
+Use `agraph sync work validate <work-id>` before `apply` when a human or agent
+has written the result JSON and wants a non-mutating schema/evidence check.
+When the reviewer already knows the mapping, `agraph sync package import
+<import-prefix> <ecosystem>:<package> --map agraph.map.json` records the same
+accepted correction path directly.
 Packets include `facts.packageSelection` with the total package rows, included
 rows, packet limit, and truncation flag so reviewers can distinguish insufficient
 packet evidence from a true no-change result. Package candidates preserve

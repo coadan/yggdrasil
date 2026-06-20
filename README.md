@@ -43,6 +43,7 @@ For separate steps:
 ```sh
 agraph init . --project my-project --out project.edn
 agraph sync project.edn --check --map agraph.map.json
+agraph sync inspect project.edn --map agraph.map.json --json
 agraph ask "where is auth handled" --project my-project --json
 agraph explore create "where is auth handled" --project my-project --map agraph.map.json
 agraph view systems --project my-project --format json
@@ -302,6 +303,7 @@ agraph sync work show queue:abc123
 agraph sync work pull --project sample --agent codex --lease-minutes 30
 agraph sync work heartbeat queue:abc123 --agent codex --lease-minutes 30
 agraph sync work complete queue:abc123 --result result.json
+agraph sync work validate queue:abc123
 agraph sync work apply queue:abc123 --map agraph.map.json
 agraph sync work release queue:abc123 --reason "needs broader scope"
 ```
@@ -310,6 +312,7 @@ Queue item schema is `agraph.queue.item/v1`. The embedded `payload` is left
 unchanged so the consumer can be Codex, another LLM, a script, CI, or a human
 review tool. Semantic results should come back as explicit JSON patches or
 findings. `sync work complete` records that result on the queue item. `sync work
+validate` checks supported result schemas without mutating the map. `sync work
 apply` is the explicit mutation step for result schemas AGraph can validate.
 Supported apply paths include infrastructure review results, dependency review
 results, and maintenance decision classifications. These can add or override

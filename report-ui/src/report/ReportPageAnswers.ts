@@ -272,7 +272,7 @@ export function inventoryAnswer(report: AGraphReport, graph: AGraphGraph): AskAn
     countValue(freshnessCounts, "changed") + countValue(freshnessCounts, "missing") + countValue(freshnessCounts, "unindexed");
 
   return {
-    title: "Project inventory",
+    title: "Project audit scope",
     summary: [
       `${report.project.name || report.project.id} contains ${report.repos.length} repo(s), ${numericCount(report, "files")} indexed file(s), ${graph.nodes.length} graph node(s), and ${graph.edges.length} graph edge(s) in the loaded artifacts.`,
       `The report includes ${countValue(packageCounts, "packages")} package(s), ${manifests} manifest evidence row(s), ${routes} route row(s), ${urls} URL/external row(s), ${configs} config row(s), ${auth} auth row(s), and ${generated} generated artifact row(s).`,
@@ -288,7 +288,7 @@ export function inventoryAnswer(report: AGraphReport, graph: AGraphGraph): AskAn
       { source: "evidence.freshness", finding: "Freshness gaps", count: freshnessGaps }
     ],
     related: inventoryRelatedRows(report, graph),
-    relatedTitle: "Inventory Evidence Rows"
+    relatedTitle: "Audit Evidence Rows"
   };
 }
 

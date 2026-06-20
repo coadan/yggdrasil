@@ -75,7 +75,10 @@
                  :evidence {:counts {:activity-items 3
                                      :activity-events 4
                                      :validation-events 1
-                                     :result-schema-mismatch-events 1}}
+                                     :result-schema-mismatch-events 1}
+                            :freshness {:status :current}
+                            :families [{:family :dependencies
+                                        :status :weak}]}
                  :package-report {:counts {:packages 2
                                            :unresolved-imports 1
                                            :declared-without-import-evidence 1
@@ -109,6 +112,16 @@
                                     :package-name "react"
                                     :versions ["18.3.1" "19.1.0"]
                                     :declared-by [{:path "package.json"}]}]}
+                 :audit-report {:schema "agraph.audit-scopes.report/v1"
+                                :project-id "fixture"
+                                :basis "indexed-graph"
+                                :coverage {:files 2}
+                                :scopes [{:kind "dependency-auth-runtime"
+                                          :facts 3
+                                          :authContexts [{:kind "api-key"
+                                                          :count 1}]}]
+                                :nextActions [{:kind :dependencies
+                                               :command "agraph packages --project fixture --json"}]}
                  :artifacts {}})]
     (is (= [{:id "package:npm:lodash"
              :label "npm:lodash"
@@ -132,6 +145,14 @@
              :versions ["18.3.1" "19.1.0"]}]
            (get-in packet [:packages :version-conflicts])))
     (is (= "agraph.report.atlas/v1" (get-in packet [:atlas :schema])))
+    (is (= "agraph.audit-scopes.report/v1" (get-in packet [:audit :schema])))
+    (is (= "dependency-auth-runtime" (get-in packet [:audit :scopes 0 :kind])))
+    (is (= "agraph.report.operator/v1" (get-in packet [:operator :schema])))
+    (is (= [{:family :dependencies
+             :status :weak}]
+           (get-in packet [:operator :evidence-families])))
+    (is (some #(= :dependencies (:kind %))
+              (get-in packet [:operator :caveats])))
     (is (= report-plugin/bundle-schema (get-in packet [:plugins :schema])))
     (is (empty? (get-in packet [:plugins :panels])))
     (is (= {:packages 1
@@ -183,6 +204,7 @@
             :result-schema-mismatch-events 1}
            (get-in packet [:atlas :activity])))
     (is (= #{"agraph packages --project fixture --json"
+             "agraph sync package import <import-prefix> <ecosystem>:<package>"
              "agraph packages --project fixture --with-conflicts --json"
              "agraph sync coverage project.edn --json"
              "agraph sync activity project.edn --json"}

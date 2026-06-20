@@ -36,6 +36,7 @@
 (defn- queue-lease-ms [args] (call-dep :queue-lease-ms args))
 (defn- required-map-path [args] (call-dep :required-map-path args))
 (defn- apply-work-result! [root id map-path] (call-dep :apply-work-result! root id map-path))
+(defn- validate-work-result [root id] (call-dep :validate-work-result root id))
 (defn- dispatch [command args] (call-dep :dispatch command args))
 (defn- print-project-status! [config-path args] (call-dep :print-project-status! config-path args))
 
@@ -525,6 +526,14 @@
         (print-json
          (queue/item-summary
           (queue/complete! root id (queue/read-json-file result-path)))))
+
+      :validate
+      (let [id (first positional)]
+        (when-not id
+          (throw (ex-info "Missing sync work id."
+                          {:usage (usage)})))
+        (print-json
+         (validate-work-result root id)))
 
       :apply
       (let [id (first positional)

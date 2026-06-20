@@ -195,6 +195,41 @@
                  :value payload-schema}]
        :item (queue/item-summary found)})))
 
+(defn- validate-work-result
+  [root id]
+  (let [found (or (queue/find-item root id)
+                  (throw (ex-info "Queue item not found." {:id id})))
+        item (:item found)
+        payload-schema (get-in item [:payload :schema])
+        result-schema (get-in item [:result :schema])
+        expected-result-schema (get-in item [:payload :expectedResultSchema])
+        status (queue/status-name (:status item))
+        errors (case payload-schema
+                 "agraph.infra.review-packet/v1"
+                 (infra-review/validate-result item)
+
+                 "agraph.dependency.review-packet/v1"
+                 (dependency-review/validate-result item)
+
+                 "agraph.maintenance.decision-packet/v1"
+                 (decision-classifier/validate-result item)
+
+                 nil)]
+    (cond-> {:schema "agraph.sync.work.validation/v1"
+             :status (cond
+                       (not= "done" status) "not-done"
+                       (nil? errors) "unsupported"
+                       (seq errors) "invalid"
+                       :else "valid")
+             :payload-schema payload-schema
+             :item (queue/item-summary found)}
+      result-schema (assoc :result-schema result-schema)
+      expected-result-schema (assoc :expected-result-schema expected-result-schema)
+      (seq errors) (assoc :errors errors)
+      (nil? errors) (assoc :errors [{:path [:payload :schema]
+                                     :error "No validation handler for work item payload schema."
+                                     :value payload-schema}]))))
+
 (defn- print-json
   [value]
   (println (json/write-json-str value {:indent-str "  "})))
@@ -401,6 +436,7 @@
    :queue-lease-ms queue-lease-ms
    :required-map-path required-map-path
    :apply-work-result! apply-work-result!
+   :validate-work-result validate-work-result
    :dispatch dispatch
    :print-project-status! print-project-status!})
 
@@ -577,6 +613,7 @@
     "  sync work pull [--queue-dir DIR] [--project ID] [--kind KIND] [--agent ID] [--lease-minutes N]"
     "  sync work show <work-id> [--queue-dir DIR]"
     "  sync work complete <work-id> --result result.json [--queue-dir DIR]"
+    "  sync work validate <work-id> [--queue-dir DIR]"
     "  sync work apply <work-id> --map agraph.map.json [--queue-dir DIR]"
     "  sync work reject <work-id> --reason TEXT [--queue-dir DIR]"
     "  sync work release <work-id> [--reason TEXT] [--queue-dir DIR]"

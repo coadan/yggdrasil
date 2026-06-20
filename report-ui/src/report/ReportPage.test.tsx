@@ -39,7 +39,7 @@ describe("ReportPage", () => {
     expect(screen.getByText("Fixture")).toBeInTheDocument();
     expect(screen.getByText("Project Atlas")).toBeInTheDocument();
     expect(screen.queryByText("agraph-core-report")).not.toBeInTheDocument();
-    expect(screen.getByText("Evidence Inventory")).toBeInTheDocument();
+    expect(screen.getByText("Audit Scopes")).toBeInTheDocument();
     expect(screen.getByText("Evidence Families")).toBeInTheDocument();
     expect(screen.getByText("Evidence Kinds")).toBeInTheDocument();
     expect(screen.getByText("Evidence State")).toBeInTheDocument();
@@ -74,17 +74,17 @@ describe("ReportPage", () => {
     expect(screen.getByText("What should I know before I run Regenerate report?")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
-    const inventory = screen.getByText("Evidence Inventory").closest("section");
+    const inventory = screen.getByText("Audit Scopes").closest("section");
     expect(inventory).toBeTruthy();
     fireEvent.click(within(inventory as HTMLElement).getByRole("button", { name: "Ask" }));
     expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
       "aria-current",
       "page"
     );
-    expect(screen.getByText("What evidence does this report contain?")).toBeInTheDocument();
+    expect(screen.getByText("What audit evidence does this report contain?")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
-    const inventoryThird = screen.getByText("Evidence Inventory").closest("section");
+    const inventoryThird = screen.getByText("Audit Scopes").closest("section");
     fireEvent.click(within(inventoryThird as HTMLElement).getByRole("button", { name: "Open evidence" }));
     expect(screen.getByRole("button", { name: "Evidence" })).toHaveAttribute("aria-current", "page");
 
@@ -332,9 +332,9 @@ describe("ReportPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "What is this project made of?" }));
 
-    expect(screen.getByText("Project inventory")).toBeInTheDocument();
+    expect(screen.getByText("Project audit scope")).toBeInTheDocument();
     expect(screen.getByText("Auth surfaces")).toBeInTheDocument();
-    expect(screen.getByText("Inventory Evidence Rows")).toBeInTheDocument();
+    expect(screen.getByText("Audit Evidence Rows")).toBeInTheDocument();
     expect(screen.getByText("generated/graphql-client.ts")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Copy answer JSON" }));
     expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();

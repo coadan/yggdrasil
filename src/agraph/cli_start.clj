@@ -133,7 +133,28 @@
        :project (project/read-project (:config result))})))
 (defn start-next-actions
   [project-id config-path map-path report-out]
-  (cond-> [{:kind :ask
+  (cond-> [{:kind :inspect
+            :label "Inspect freshness and evidence planes"
+            :command (str "agraph sync inspect " (command/shell-token config-path)
+                          (when map-path
+                            (str " --map " (command/shell-token map-path)))
+                          " --json")}
+           {:kind :activity
+            :label "Import local work and validation activity"
+            :command (str "agraph sync activity " (command/shell-token config-path)
+                          " --json")}
+           {:kind :audit-scope
+            :label "Inspect audit scopes and caveats"
+            :command (str "agraph audit-scope " (command/shell-token config-path)
+                          (when map-path
+                            (str " --map " (command/shell-token map-path)))
+                          " --json")}
+           {:kind :dependencies
+            :label "Inspect package dependency evidence"
+            :command (str "agraph packages --project "
+                          (command/shell-token project-id)
+                          " --json")}
+           {:kind :ask
             :label "Ask a graph-grounded implementation question"
             :command (str "agraph ask \"where is this handled?\" --project "
                           (command/shell-token project-id)

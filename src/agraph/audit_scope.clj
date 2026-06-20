@@ -26,37 +26,40 @@
   {"source-structure" 0
    "map-corrections" 1
    "dependencies" 2
-   "runtime-config" 3
-   "containers" 4
-   "infra" 5
-   "docs" 6
-   "assets" 7
-   "unknown-text" 8
+   "dependency-auth-runtime" 3
+   "runtime-config" 4
+   "containers" 5
+   "infra" 6
+   "docs" 7
+   "assets" 8
+   "unknown-text" 9
    "unclassified-extractor" 99})
 
 (def ^:private report-scope-order
   {"source" 0
    "docs" 1
    "dependencies" 2
-   "runtime-config" 3
-   "containers" 4
-   "infra" 5
-   "assets" 6
-   "unknown-text" 7
+   "dependency-auth-runtime" 3
+   "runtime-config" 4
+   "containers" 5
+   "infra" 6
+   "assets" 7
+   "unknown-text" 8
    "source-structure" 8
    "unclassified-extractor" 99})
 
 (def ^:private dependency-relations
-  {"declared-without-import-evidence" #{"dependencies"}
-   "imports-package" #{"dependencies"}
-   "requires" #{"dependencies"}
-   "version-of" #{"dependencies"}
-   "resolves" #{"dependencies"}
-   "unresolved-import" #{"dependencies"}
-   "version-conflict" #{"dependencies"}})
+  {"declared-without-import-evidence" #{"dependencies" "dependency-auth-runtime"}
+   "imports-package" #{"dependencies" "dependency-auth-runtime"}
+   "requires" #{"dependencies" "dependency-auth-runtime"}
+   "version-of" #{"dependencies" "dependency-auth-runtime"}
+   "resolves" #{"dependencies" "dependency-auth-runtime"}
+   "unresolved-import" #{"dependencies" "dependency-auth-runtime"}
+   "version-conflict" #{"dependencies" "dependency-auth-runtime"}})
 
 (def ^:private fact-kind-scopes
-  {"container-image" #{"containers"}
+  {"auth-reference" #{"dependency-auth-runtime" "runtime-config"}
+   "container-image" #{"containers"}
    "container-image-producer" #{"containers"}
    "container-image-consumer" #{"containers"}
    "container-port" #{"containers" "runtime-config"}
@@ -69,9 +72,9 @@
    "docker-label" #{"containers" "runtime-config"}
    "docker-stage" #{"containers"}
    "docker-workdir" #{"containers"}
-   "env-var" #{"runtime-config"}
-   "route" #{"runtime-config"}
-   "runtime-command" #{"runtime-config"}
+   "env-var" #{"dependency-auth-runtime" "runtime-config"}
+   "route" #{"dependency-auth-runtime" "runtime-config"}
+   "runtime-command" #{"dependency-auth-runtime" "runtime-config"}
    "terraform-data-source" #{"infra"}
    "terraform-module" #{"infra"}
    "terraform-module-source" #{"infra"}
@@ -80,7 +83,7 @@
    "terraform-provider-alias" #{"infra"}
    "terraform-resource" #{"infra"}
    "terraform-variable" #{"infra"}
-   "url" #{"runtime-config"}})
+   "url" #{"dependency-auth-runtime" "runtime-config"}})
 
 (def ^:private file-kind-scopes
   {"archive-asset" #{"assets"}
@@ -497,6 +500,19 @@
        (take evidence-type-limit)
        vec))
 
+(defn- report-auth-context-counts
+  [rows]
+  (->> rows
+       (keep (fn [{:keys [row]}]
+               (normalize-key (:auth-context row))))
+       frequencies
+       (map (fn [[context n]]
+              {:kind context
+               :count n}))
+       (sort-by (juxt (comp - long :count) :kind))
+       (take evidence-type-limit)
+       vec))
+
 (defn- report-sample-rows
   [rows]
   (->> rows
@@ -524,6 +540,7 @@
         overlays (count (filter :overlay? rows))
         evidence-types (report-evidence-type-counts rows)
         file-kinds (report-file-kind-counts rows)
+        auth-contexts (report-auth-context-counts rows)
         samples (report-sample-rows rows)]
     (cond-> {:kind scope
              :basis "indexed-graph"
@@ -534,6 +551,7 @@
              :overlayCount overlays}
       (seq evidence-types) (assoc :topEvidenceTypes evidence-types)
       (seq file-kinds) (assoc :topFileKinds file-kinds)
+      (seq auth-contexts) (assoc :authContexts auth-contexts)
       (seq samples) (assoc :samples samples))))
 
 (defn- registry-diagnostic-row

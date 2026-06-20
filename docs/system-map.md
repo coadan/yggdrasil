@@ -164,6 +164,7 @@ agraph sync work pull --project sample --agent codex
 agraph sync work show queue:abc123
 agraph sync work heartbeat queue:abc123 --agent codex --lease-minutes 30
 agraph sync work complete queue:abc123 --result result.json
+agraph sync work validate queue:abc123
 agraph sync work apply queue:abc123 --map agraph.map.json
 ```
 
@@ -178,9 +179,10 @@ Infrastructure gaps use the same queue. `sync check --enqueue` can emit
 `agraph.infra.review-packet/v1` items when mechanical evidence finds bounded
 producer/consumer fact gaps, such as a container image build fact with no known
 deployment consumer. The agent returns `agraph.infra.review-result/v1`.
-`sync work complete` records that result; `sync work apply` validates that patch
-operations reference only ids and evidence from the packet before adding reviewed
-edges to `agraph.map.json`.
+`sync work complete` records that result; `sync work validate` checks supported
+result schemas without mutating `agraph.map.json`; `sync work apply` revalidates
+that patch operations reference only ids and evidence from the packet before
+adding reviewed edges to `agraph.map.json`.
 
 The map does not need to be perfect. It should be correct where the agent has
 done enough research to know the answer, and explicit about rejected mistakes so

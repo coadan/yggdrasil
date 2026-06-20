@@ -177,7 +177,10 @@
              :command (work-command found "reject" id "--reason" "not applicable")})
 
       (= "done" status)
-      (conj {:kind :apply
+      (conj {:kind :validate
+             :label "Validate completed work result"
+             :command (work-command found "validate" id)}
+            {:kind :apply
              :label "Apply completed work result to map"
              :command (work-command found "apply" id "--map" "agraph.map.json")}))))
 

@@ -141,6 +141,7 @@
        "agraph sync work heartbeat <work-id> --agent codex --lease-minutes 30\n"
        "agraph sync work complete <work-id> --result result.json\n"
        "agraph sync activity <project.edn>\n"
+       "agraph sync work validate <work-id>\n"
        "agraph sync work apply <work-id> --map agraph.map.json\n"
        "```\n\n"
        "For MCP clients, run `agraph-mcp --config project.edn --map agraph.map.json` "
