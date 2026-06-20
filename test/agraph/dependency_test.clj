@@ -129,3 +129,102 @@
                                                    :package-name "org.slf4j:slf4j-api"
                                                    :import "org.slf4j"}]}})]
       (is (= [:java] (mapv :source-kind edges))))))
+
+(deftest package-report-ignores-ci-workflow-edges-as-package-import-candidates
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path ".github/workflows/ci.yml"
+                                          :kind :ci
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "node:ci:job"
+                                          :kind :ci-job
+                                          :label "ci"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "node:namespace:actions/checkout@v4"
+                                          :kind :namespace
+                                          :label "actions/checkout@v4"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/edges
+                                        [{:source-id "node:ci:job"
+                                          :target-id "node:namespace:actions/checkout@v4"
+                                          :relation :imports
+                                          :path ".github/workflows/ci.yml"
+                                          :source-line 12
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [& _] [])]
+    (let [report (dependency/package-report :xtdb
+                                            {:project-id "project-a"
+                                             :repo-id "repo-a"}
+                                            {})]
+      (is (zero? (get-in report [:counts :source-import-candidates])))
+      (is (empty? (:unresolved-imports report))))))
+
+(deftest package-report-ignores-language-runtime-import-roots
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "src/app.py"
+                                          :kind :python
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "src/App.cs"
+                                          :kind :dotnet
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        []
+                                        :agraph/edges
+                                        [{:source-id "node:namespace:app"
+                                          :target-id "node:namespace:json"
+                                          :relation :imports
+                                          :path "src/app.py"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:app"
+                                          :target-id "node:namespace:requests"
+                                          :relation :imports
+                                          :path "src/app.py"
+                                          :source-line 2
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:App"
+                                          :target-id "node:namespace:System.Data"
+                                          :relation :imports
+                                          :path "src/App.cs"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:App"
+                                          :target-id "node:namespace:Xunit"
+                                          :relation :imports
+                                          :path "src/App.cs"
+                                          :source-line 2
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [& _] [])]
+    (let [report (dependency/package-report :xtdb
+                                            {:project-id "project-a"
+                                             :repo-id "repo-a"}
+                                            {})]
+      (is (= 2 (get-in report [:counts :source-import-candidates])))
+      (is (= ["Xunit" "requests"]
+             (sort (map :import (:unresolved-imports report))))))))

@@ -88,6 +88,7 @@
    :source-graph [:nodes :edges]
    :dependencies [:packages
                   :package-imports
+                  :source-import-candidates
                   :package-evidence-gaps
                   :package-conflicts
                   :unresolved-imports]
@@ -157,6 +158,12 @@
       (positive-count? (:package-conflicts counts))
       (positive-count? (:unresolved-imports counts))))
 
+(defn- dependencies-not-applicable?
+  [counts]
+  (and (zero? (long (or (:packages counts) 0)))
+       (zero? (long (or (:source-import-candidates counts) 0)))
+       (zero? (long (or (:package-imports counts) 0)))))
+
 (defn- source-files-weak?
   [counts]
   (or (positive-count? (:skipped-files counts))
@@ -210,6 +217,8 @@
     (and (= :source-files family)
          (source-files-weak? counts)) :weak
     (and (= :dependencies family)
+         (dependencies-not-applicable? counts)) :not-applicable
+    (and (= :dependencies family)
          (dependencies-weak? counts)) :weak
     (and (= :validation-history family)
          (validation-history-weak? counts)) :weak
@@ -251,6 +260,7 @@
   [counts]
   {:package-evidence-gaps (:package-evidence-gaps counts 0)
    :package-conflicts (:package-conflicts counts 0)
+   :source-import-candidates (:source-import-candidates counts 0)
    :unresolved-imports (:unresolved-imports counts 0)})
 
 (defn- evidence-state
@@ -393,16 +403,24 @@
          (status-mcp config-path map-path)))
 
 (defn- package-next-actions
-  [project-id {:keys [packages package-evidence-gaps unresolved-imports package-conflicts]}
+  [project-id {:keys [packages package-evidence-gaps unresolved-imports package-conflicts
+                      source-import-candidates]}
    {:keys [config-path map-path]}]
   (let [check-command (str (sync-subcommand "check" config-path)
                            (when map-path
                              (str " --map " (command/shell-token map-path))))]
     (cond-> []
-      (zero? (long (or packages 0)))
+      (and (zero? (long (or packages 0)))
+           (positive-count? source-import-candidates))
       (conj {:kind :dependencies
              :label "Inspect package graph facts"
              :command (package-command project-id "--json")})
+
+      (and (zero? (long (or packages 0)))
+           (zero? (long (or source-import-candidates 0))))
+      (conj {:kind :dependencies
+             :label "No package manifests or source package imports found"
+             :command (sync-subcommand "coverage" config-path "--json")})
 
       (positive-count? package-evidence-gaps)
       (conj {:kind :dependencies
@@ -784,6 +802,9 @@
                        :packages (get-in package-report [:counts :packages] 0)
                        :package-versions (get-in package-report [:counts :versions] 0)
                        :package-imports (get-in package-report [:counts :imports-package] 0)
+                       :source-import-candidates (get-in package-report
+                                                         [:counts :source-import-candidates]
+                                                         0)
                        :package-conflicts (get-in package-report [:counts :version-conflicts] 0)
                        :package-evidence-gaps (get-in package-report
                                                       [:counts :declared-without-import-evidence]

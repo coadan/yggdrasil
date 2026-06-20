@@ -160,25 +160,56 @@
   [files-by-path path]
   (:kind (get files-by-path path)))
 
+(def ^:private package-import-source-kinds
+  #{:javascript :typescript :astro :vue :svelte
+    :rust :go :python :java :dotnet})
+
 (def ^:private rust-builtin-roots
   #{"alloc" "core" "crate" "self" "std" "super"})
+
+(def ^:private python-stdlib-roots
+  #{"argparse" "asyncio" "base64" "collections" "contextlib" "csv" "dataclasses"
+    "datetime" "decimal" "enum" "functools" "gzip" "hashlib" "http" "importlib"
+    "inspect" "itertools" "json" "logging" "math" "os" "pathlib" "re" "socket"
+    "sqlite3" "statistics" "string" "subprocess" "sys" "tempfile" "time" "typing"
+    "unittest" "urllib" "uuid" "xml"})
+
+(def ^:private dotnet-builtin-roots
+  #{"System"})
+
+(def ^:private java-builtin-roots
+  #{"java" "javax"})
+
+(defn- dotted-import-root
+  [target]
+  (first (str/split (str target) #"\.")))
 
 (defn- package-import-candidate?
   [files-by-path edge]
   (let [target (namespace-target (:target-id edge))
         kind (source-kind files-by-path (:path edge))]
-    (case kind
-      (:javascript :typescript :astro :vue :svelte)
-      (and target
-           (not (str/starts-with? target "."))
-           (not (str/starts-with? target "node:")))
+    (and target
+         (contains? package-import-source-kinds kind)
+         (case kind
+           (:javascript :typescript :astro :vue :svelte)
+           (and (not (str/starts-with? target "."))
+                (not (str/starts-with? target "node:")))
 
-      :rust
-      (let [root (rust-import-root target)]
-        (and (seq root)
-             (not (contains? rust-builtin-roots root))))
+           :rust
+           (let [root (rust-import-root target)]
+             (and (seq root)
+                  (not (contains? rust-builtin-roots root))))
 
-      true)))
+           :python
+           (not (contains? python-stdlib-roots (dotted-import-root target)))
+
+           :dotnet
+           (not (contains? dotnet-builtin-roots (dotted-import-root target)))
+
+           :java
+           (not (contains? java-builtin-roots (dotted-import-root target)))
+
+           true))))
 
 (defn- mapping-entries
   [map-overlay]
@@ -558,15 +589,16 @@
          resolves (filter (partial relation? :resolves) edges)
          version-of (filter (partial relation? :version-of) edges)
          imports (filter (partial relation? :imports-package) edges)
-         source-edges (filter #(and (contains? #{:imports :uses} (:relation %))
-                                    (package-import-candidate? files-by-path %))
+         source-edges (filter #(contains? #{:imports :uses} (:relation %))
                               edges)
+         candidate-source-edges (filter #(package-import-candidate? files-by-path %)
+                                        source-edges)
          report-imports (vec (concat imports
                                      (map-overlay-import-edges project-id
                                                                packages-by-id
                                                                files-by-path
                                                                map-overlay
-                                                               source-edges
+                                                               candidate-source-edges
                                                                imports)))
          requires-by-package (group-by :target-id requires)
          resolves-by-version (group-by :target-id resolves)
@@ -610,7 +642,7 @@
          packages-by-manifest (package-by-manifest nodes edges)
          unresolved-imports (if (or ecosystem package with-conflicts? without-import-evidence?)
                               []
-                              (->> source-edges
+                              (->> candidate-source-edges
                                    (filter #(nil? (resolve-import packages-by-id
                                                                   packages-by-manifest
                                                                   manifest-paths
@@ -628,6 +660,7 @@
                  :requires (count filtered-requires)
                  :resolves (count filtered-resolves)
                  :imports-package (count filtered-imports)
+                 :source-import-candidates (count candidate-source-edges)
                  :unresolved-imports (count unresolved-imports)
                  :declared-without-import-evidence (count declared-without-import-evidence)
                  :version-conflicts (count filtered-conflicts)}

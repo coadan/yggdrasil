@@ -198,6 +198,7 @@
               :status :weak
               :counts {:packages 2
                        :package-imports 1
+                       :source-import-candidates 0
                        :package-evidence-gaps 1
                        :package-conflicts 0
                        :unresolved-imports 1}}
@@ -265,6 +266,61 @@
       (is (some #(= {:kind :audit-scope
                      :label "Inspect project audit scopes"
                      :command "agraph audit-scope <project.edn> --json"}
+                    %)
+                (:nextActions summary))))))
+
+(deftest summarize-marks-dependencies-not-applicable-without-package-inputs
+  (with-redefs [coverage/project-coverage (fn [& _]
+                                            {:totals {:skipped 0}
+                                             :files-by-kind []
+                                             :extractors []
+                                             :indexedConnectivity {:indexedFiles 0
+                                                                   :nodes 0
+                                                                   :edges 0
+                                                                   :connectedFiles 0
+                                                                   :crossFileConnectedFiles 0
+                                                                   :isolatedFiles 0
+                                                                   :byKind []}
+                                             :skipped-by-extension []
+                                             :skipped-by-reason []
+                                             :diagnostics {:total 0}})
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :versions 0
+                                                      :imports-package 0
+                                                      :source-import-candidates 0
+                                                      :version-conflicts 0
+                                                      :declared-without-import-evidence 0
+                                                      :unresolved-imports 0}
+                                             :ecosystems []})
+                store/all-rows (fn [& _] [])
+                query/all-nodes (fn [& _] [])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                activity/all-items (fn [& _] [])
+                activity/all-events (fn [& _] [])]
+    (let [summary (evidence/summarize :xtdb
+                                      {:id "fixture"
+                                       :repos []}
+                                      {:config-path "project.edn"})]
+      (is (= {:family :dependencies
+              :status :not-applicable
+              :counts {:packages 0
+                       :package-imports 0
+                       :source-import-candidates 0
+                       :package-evidence-gaps 0
+                       :package-conflicts 0
+                       :unresolved-imports 0}}
+             (some #(when (= :dependencies (:family %)) %)
+                   (:families summary))))
+      (is (some #(= {:kind :dependencies
+                     :label "No package manifests or source package imports found"
+                     :command "agraph sync coverage project.edn --json"}
                     %)
                 (:nextActions summary))))))
 
@@ -419,8 +475,10 @@
       (is (some #(= "agraph sync 'Project Files/project.edn' --check --map 'Maps/agraph map.json'"
                     (:command %))
                 (:nextActions summary)))
-      (is (some #(= "agraph packages --project 'fixture project' --json"
-                    (:command %))
+      (is (some #(= {:kind :dependencies
+                     :label "No package manifests or source package imports found"
+                     :command "agraph sync coverage 'Project Files/project.edn' --json"}
+                    %)
                 (:nextActions summary)))
       (is (some #(= {:kind :validation-history
                      :label "Run sync work validation loop"

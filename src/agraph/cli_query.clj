@@ -228,6 +228,7 @@
   (println "- packages" (:packages counts))
   (println "- versions" (:versions counts))
   (println "- import evidence" (:imports-package counts))
+  (println "- source import candidates" (:source-import-candidates counts))
   (println "- unresolved imports" (:unresolved-imports counts))
   (println "- declared without import evidence"
            (:declared-without-import-evidence counts))
