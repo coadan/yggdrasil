@@ -40,6 +40,7 @@
                                     {:kind :web-framework-import
                                      :path "site/src/pages/docs/[version]/examples/index.astro"
                                      :label "theme import"}]
+                         :graph-evidence []
                          :nodes [{:kind :web-framework-route
                                   :path "site/src/pages/index.astro"}
                                  {:kind :web-framework-route
@@ -81,6 +82,7 @@
                                     {:kind :manifest-package
                                      :path "package.json"
                                      :label "astro dependency"}]
+                         :graph-evidence []
                          :nodes [{:kind :web-framework
                                   :label "astro"}
                                  {:kind :web-framework-import

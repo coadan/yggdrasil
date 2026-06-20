@@ -460,6 +460,13 @@ inference. `agent-report` aggregates those checks under
 `--max-graph-expectation-failures 0` when the suite should fail on missing
 evidence or forbidden graph edges.
 
+The `:expectations :evidence` vector is also used for expected evidence citation
+scoring. Graph validation treats it as `system-evidence` expectations by
+default. When a case needs citation targets that are stored as nodes or source
+chunks instead, set `:graph-evidence []` or provide a separate
+`:graph-evidence [...]` vector so citation scoring and graph validation stay
+explicit.
+
 Architecture-class agent-efficiency cases may be synthetic when the OSS corpus
 has useful structure but no historical issue that asks the architectural
 question directly. Keep them replayable: use a real OSS base checkout, write

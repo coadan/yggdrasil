@@ -389,6 +389,33 @@
                  :end-line 18}]
                (get-in result [:expectedChunks 0 :matches])))))))
 
+(deftest separates-citation-evidence-from-graph-evidence
+  (let [prepared {:project-id "fixture"
+                  :expectations {:evidence [{:kind :web-framework-route
+                                             :path "site/src/pages/index.astro"
+                                             :label "citation target"}]
+                                 :graph-evidence []
+                                 :nodes [{:kind :web-framework-route
+                                          :path "site/src/pages/index.astro"}]}}
+        node {:xt/id "node:index-route"
+              :kind :web-framework-route
+              :path "site/src/pages/index.astro"
+              :label "/"
+              :project-id "fixture"}]
+    (with-redefs [store/rows-by-field
+                  (fn [_ table _field _value]
+                    (cond
+                      (= table (:nodes store/tables)) [node]
+                      (= table (:system-evidence store/tables)) []
+                      (= table (:chunks store/tables)) []
+                      (= table (:system-edges store/tables)) []
+                      :else []))]
+      (let [result (#'benchmark/evaluate-graph-expectations nil prepared)]
+        (is (= "passed" (:status result)))
+        (is (= 0 (get-in result [:summary :expectedEvidence])))
+        (is (= 1 (get-in result [:summary :expectedNodes])))
+        (is (= true (get-in result [:expectedNodes 0 :found?])))))))
+
 (deftest prepares-issue-replay-case-from-git-diff
   (let [root (temp-dir "agraph-bench-repo")
         out (temp-dir "agraph-bench-out")

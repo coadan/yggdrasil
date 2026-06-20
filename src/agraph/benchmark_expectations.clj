@@ -79,6 +79,19 @@
       {:relation expectation}
 
       :else {})))
+
+(defn- evidence-expectations
+  [expectations]
+  (cond
+    (contains? expectations :graph-evidence)
+    (vec (:graph-evidence expectations))
+
+    (contains? expectations :graphEvidence)
+    (vec (:graphEvidence expectations))
+
+    :else
+    (vec (:evidence expectations))))
+
 (defn- row-matches-expectation?
   [row expectation]
   (and (seq expectation)
@@ -179,7 +192,7 @@
 (defn evaluate-graph-expectations
   [xtdb prepared]
   (let [expectations (:expectations prepared)
-        evidence-expectations (vec (:evidence expectations))
+        evidence-expectations (evidence-expectations expectations)
         node-expectations (vec (:nodes expectations))
         chunk-expectations (vec (:chunks expectations))
         edge-expectations (vec (:edges expectations))
