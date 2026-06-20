@@ -189,6 +189,7 @@
                        :mode "agraph"
                        :case-id (:case-id prepared)
                        :caseFingerprint (:caseFingerprint prepared)
+                       :agentInputFingerprint (:agentInputFingerprint prepared)
                        :root (:worktreeRoot prepared)
                        :limit limit
                        :coverage (:coverage prepared)})

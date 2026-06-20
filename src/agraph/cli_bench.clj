@@ -344,6 +344,32 @@
                                   "stale-score-runs"
                                   :staleScoreRuns
                                   :staleScoreCaseIds)))
+(defn- print-maintenance-preflight-summary
+  [preflight]
+  (when (and preflight (:requiredForClaim preflight))
+    (println "- maintenance-preflight"
+             (:status preflight)
+             "blocked"
+             (long (or (:blockedRuns preflight) 0))
+             "cases"
+             (str/join "," (:blockedCaseIds preflight)))
+    (doseq [check (:checks preflight)
+            :let [failed-runs (long (or (:failedRuns check) 0))
+                  not-run-runs (long (or (:notRunRuns check) 0))
+                  case-ids (->> (concat (:failedCaseIds check)
+                                        (:notRunCaseIds check))
+                                distinct
+                                sort)]
+            :when (pos? (+ failed-runs not-run-runs))]
+      (println "- maintenance-preflight-check"
+               (:check check)
+               (:status check)
+               "failed"
+               failed-runs
+               "not-run"
+               not-run-runs
+               "cases"
+               (str/join "," case-ids)))))
 (defn- print-claim-readiness
   [claim-readiness]
   (when claim-readiness
@@ -416,6 +442,7 @@
       (print-parser-worker-summary (:parserWorkers result))
       (print-agent-diagnostics-summary (:agentDiagnostics result))
       (print-artifact-diagnostics-summary (:artifactDiagnostics result))
+      (print-maintenance-preflight-summary (:maintenancePreflightDiagnostics result))
       (print-claim-readiness (:claimReadiness result))
       (when-let [blocker (first (get-in result
                                         [:localizationDiagnostics
@@ -446,6 +473,23 @@
                    "ms")))
       (when (seq (:missing result))
         (println "- missing" (str/join "," (:missing result)))))
+
+    (= benchmark/system-improvement-report-schema (:schema result))
+    (do
+      (println "- source-runs" (get-in result [:sourceReport :runs]))
+      (println "- claim-ready" (:claimReady? result))
+      (println "- signals" (count (:systemImprovementSignals result)))
+      (doseq [lane (:lanes result)]
+        (println "-"
+                 (:lane lane)
+                 "owner"
+                 (:suggestedOwnerArea lane)
+                 "cases"
+                 (:affectedCases lane)
+                 "runs"
+                 (:runs lane)
+                 "confidence"
+                 (:confidence lane))))
 
     (:cases result)
     (doseq [case (:cases result)]
@@ -483,6 +527,9 @@
       (print-parser-worker-summary (get-in result [:report :parserWorkers]))
       (print-agent-diagnostics-summary (get-in result [:report :agentDiagnostics]))
       (print-artifact-diagnostics-summary (get-in result [:report :artifactDiagnostics]))
+      (print-maintenance-preflight-summary (get-in result
+                                                   [:report
+                                                    :maintenancePreflightDiagnostics]))
       (print-claim-readiness (get-in result [:report :claimReadiness]))
       (println "- noise@20"
                (format "%.2f" (double (get-in result
@@ -573,6 +620,7 @@
                    :run (benchmark/run-suite! suite opts)
                    :report (benchmark/report-suite suite opts)
                    :agent-report (benchmark/report-agent-suite suite opts)
+                   :improve (benchmark/improve-agent-suite suite opts)
                    :agent-baseline (benchmark/agent-baselines! suite opts)
                    :agent-run (benchmark/agent-runs! suite opts)
                    :agent-check (benchmark/check-agent-suite suite opts)

@@ -25,7 +25,7 @@
             :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "packages"
                          *command-line-args*)}
 
-  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-baseline|agent-run|agent-score|agent-report|agent-check|run|report|show <benchmark.edn>"
+  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-baseline|agent-run|agent-score|agent-report|agent-check|improve|run|report|show <benchmark.edn>"
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "bench"
                       *command-line-args*)}
 

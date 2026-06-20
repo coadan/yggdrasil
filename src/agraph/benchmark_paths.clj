@@ -113,6 +113,9 @@
 (defn agent-compare-path
   [suite opts]
   (io/file (output-root suite opts) "agent-compare.json"))
+(defn system-improvement-report-path
+  [suite opts]
+  (io/file (output-root suite opts) "system-improvement-report.json"))
 (defn progress-path
   [suite case opts]
   (io/file (case-output-dir suite case opts) "progress.json"))

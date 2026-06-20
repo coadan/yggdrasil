@@ -2,6 +2,7 @@
   "Issue replay benchmarks for AGraph retrieval quality."
   (:require [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
+            [agraph.benchmark-preflight :as benchmark-preflight]
             [agraph.benchmark-score :as benchmark-score]
             [agraph.context :as context]
             [agraph.fs :as fs]
@@ -24,6 +25,7 @@
             [agraph.benchmark-report :as benchmark-report]
             [agraph.benchmark-check :as benchmark-check]
             [agraph.benchmark-compare :as benchmark-compare]
+            [agraph.benchmark-system-improvement :as benchmark-system-improvement]
             [clojure.string :as str]))
 
 (def suite-schema
@@ -58,6 +60,9 @@
 
 (def agent-compare-schema
   "agraph.benchmark.agent-compare/v1")
+
+(def system-improvement-report-schema
+  "agraph.benchmark.system-improvement-report/v1")
 
 (def agent-baseline-schema
   "agraph.benchmark.agent-baseline/v1")
@@ -546,12 +551,11 @@
              :artifacts {:context-path (fs/canonical-path context-path)
                          :hints-path (fs/canonical-path hints-path)}}))))))
 
-(defn- read-agent-hints-diagnostics
+(defn- read-agent-hints
   [hints-path]
   (when (and (not (blankish? hints-path))
              (.isFile (io/file hints-path)))
-    (let [hints (benchmark-io/read-json-file hints-path)]
-      (not-empty (vec (:diagnostics hints))))))
+    (benchmark-io/read-json-file hints-path)))
 
 (defn agent-run!
   "Run one external agent command against a benchmark packet, then score it."
@@ -599,8 +603,15 @@
         context-ranks (context-ground-truth-ranks-from-path
                        prepared
                        (get-in packet [:artifacts :agraphContextPath]))
-        hint-diagnostics (read-agent-hints-diagnostics
-                          (get-in packet [:artifacts :agraphHintsPath]))
+        hints (read-agent-hints (get-in packet [:artifacts :agraphHintsPath]))
+        hint-diagnostics (not-empty (vec (:diagnostics hints)))
+        maintenance-preflight (when agraph-summary
+                                (benchmark-preflight/maintenance-preflight
+                                 {:index-summary (:indexSummary agraph-summary)
+                                  :system-summary (:systemSummary agraph-summary)
+                                  :graph-expectations (:graphExpectations agraph-summary)
+                                  :expectations (:expectations prepared)
+                                  :hints hints}))
         scored (cond-> (assoc (score-agent-result prepared agent-result)
                               :agentResultPath (fs/canonical-path result-path)
                               :parserWorker (parser-worker-profile opts))
@@ -608,6 +619,8 @@
                  (assoc :contextGroundTruthRanks context-ranks)
                  hint-diagnostics
                  (assoc :agraphHints {:diagnostics hint-diagnostics})
+                 maintenance-preflight
+                 (assoc :maintenancePreflight maintenance-preflight)
                  (:graphExpectations agraph-summary)
                  (assoc :graphExpectations (:graphExpectations agraph-summary)))
         status (if (:artifact-ok? read-result)
@@ -639,6 +652,7 @@
                                 :agentRunPath (fs/canonical-path run-path)}
                                logs)
              :agraph agraph-summary
+             :maintenancePreflight maintenance-preflight
              :graphExpectations (:graphExpectations agraph-summary)
              :scores (:scores scored)
              :warnings (get-in scored [:agent :warnings])}]
@@ -701,6 +715,14 @@
   "Aggregate existing agent score artifacts."
   [suite opts]
   (benchmark-report/report-agent-suite suite opts))
+
+(defn improve-agent-suite
+  "Analyze benchmark diagnostics as dev-time system improvement guidance."
+  [suite opts]
+  (benchmark-system-improvement/write-system-improvement-report!
+   suite
+   opts
+   (report-agent-suite suite opts)))
 
 (defn check-agent-report
   "Return a pass/fail check over an agent benchmark report."

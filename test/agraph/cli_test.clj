@@ -89,6 +89,7 @@
     (is (str/includes? usage "bench agent-score"))
     (is (str/includes? usage "bench agent-score <benchmark.edn> --case ID --result result.json [--parser-worker none|java|dotnet|all]"))
     (is (str/includes? usage "bench agent-report"))
+    (is (str/includes? usage "bench improve"))
     (is (str/includes? usage "bench agent-check"))
     (is (str/includes? usage "bench agent-compare"))
     (is (str/includes? usage "sync work heartbeat"))
@@ -1128,6 +1129,52 @@
       (is (str/includes? out "## Claim Readiness Warnings"))
       (is (str/includes? out "- No measured architecture-class groups.")))))
 
+(deftest benchmark-summary-prints-maintenance-preflight
+  (let [preflight {:status "failed"
+                   :requiredForClaim true
+                   :blockedRuns 2
+                   :blockedCaseIds ["case-1" "case-2"]
+                   :checks [{:check "index"
+                             :status "passed"
+                             :passedRuns 2
+                             :failedRuns 0
+                             :notRunRuns 0}
+                            {:check "syncCheck"
+                             :status "failed"
+                             :passedRuns 0
+                             :failedRuns 1
+                             :failedCaseIds ["case-1"]
+                             :notRunRuns 1
+                             :notRunCaseIds ["case-2"]}]}
+        report-out (with-out-str
+                     (cli-bench/print-benchmark-summary
+                      {:schema benchmark/agent-report-schema
+                       :suite-id "suite"
+                       :cases 2
+                       :completed 2
+                       :runs 2
+                       :scores {:fileRecallAt10 0.5
+                                :meanReciprocalRankFile 0.25
+                                :evidenceCitationRate 0.75}
+                       :maintenancePreflightDiagnostics preflight}))
+        check-out (with-out-str
+                    (cli-bench/print-benchmark-summary
+                     {:schema benchmark/agent-check-schema
+                      :suite-id "suite"
+                      :status "failed"
+                      :report {:cases 2
+                               :completed 2
+                               :runs 2
+                               :scores {:fileRecallAt10 0.5
+                                        :meanReciprocalRankFile 0.25
+                                        :evidenceCitationRate 0.75
+                                        :noiseRatioAt20 0.5}
+                               :maintenancePreflightDiagnostics preflight}
+                      :failures []}))]
+    (doseq [out [report-out check-out]]
+      (is (str/includes? out "- maintenance-preflight failed blocked 2 cases case-1,case-2"))
+      (is (str/includes? out "- maintenance-preflight-check syncCheck failed failed 1 not-run 1 cases case-1,case-2")))))
+
 (deftest benchmark-summary-prints-compare-comparability
   (let [out (with-out-str
               (cli-bench/print-benchmark-summary
@@ -1606,6 +1653,40 @@
                   :out nil
                   :retriever nil
                   :parser-worker "all"
+                  :mode "agraph"
+                  :agent-id "codex"
+                  :result-path nil
+                  :command nil}]]
+               @calls))))))
+
+(deftest bench-improve-dispatches-to-system-improvement-reporter
+  (let [calls (atom [])]
+    (with-redefs [benchmark/read-suite (fn [path]
+                                         (swap! calls conj [:read path])
+                                         {:id "suite"})
+                  benchmark/improve-agent-suite (fn [suite opts]
+                                                  (swap! calls conj [:improve suite opts])
+                                                  {:schema benchmark/system-improvement-report-schema
+                                                   :suite-id (:id suite)
+                                                   :sourceReport {:runs 1}
+                                                   :claimReady? false
+                                                   :systemImprovementSignals []
+                                                   :lanes []})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["improve" "benchmark.edn"
+                                 "--mode" "agraph"
+                                 "--agent" "codex"
+                                 "--out" ".dev/reports/bench"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= benchmark/system-improvement-report-schema (:schema parsed)))
+        (is (= [[:read "benchmark.edn"]
+                [:improve {:id "suite"}
+                 {:case-id nil
+                  :out ".dev/reports/bench"
+                  :retriever nil
+                  :parser-worker nil
                   :mode "agraph"
                   :agent-id "codex"
                   :result-path nil

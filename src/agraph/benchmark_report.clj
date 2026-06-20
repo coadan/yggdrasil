@@ -3,12 +3,15 @@
             [agraph.benchmark-command-telemetry :as benchmark-command-telemetry]
             [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
+            [agraph.benchmark-preflight :as benchmark-preflight]
             [agraph.benchmark-prepare :as benchmark-prepare]
             [agraph.benchmark-results :as benchmark-results]
             [agraph.benchmark-score :as benchmark-score]
             [agraph.benchmark-score-artifacts :as benchmark-score-artifacts]
             [agraph.benchmark-suite :as benchmark-suite]
+            [agraph.benchmark-system-improvement :as benchmark-system-improvement]
             [clojure.set :as set]
+            [clojure.java.io :as io]
             [clojure.string :as str]))
 
 (def agent-result-schema
@@ -97,7 +100,8 @@
         hint-diagnostics (vec (get-in result [:agraphHints :diagnostics]))
         identity-warnings (filterv #(or (str/starts-with? % "agent result schema ")
                                         (str/starts-with? % "agent result caseId ")
-                                        (str/starts-with? % "agent result caseFingerprint "))
+                                        (str/starts-with? % "agent result caseFingerprint ")
+                                        (str/starts-with? % "agent result agentInputFingerprint "))
                                    warnings)
         missing-files (vec (get-in result [:agent :missingPredictedFiles]))
         commands (vec (get-in result [:agent :commands]))
@@ -461,6 +465,148 @@
      :notRunRuns (count (get by-status "not-run"))
      :notRunCaseIds (case-ids "not-run")}))
 
+(def ^:private preflight-checks
+  [:index :infer :graphExpectations :hintDiagnostics :syncCheck])
+
+(defn- agraph-result?
+  [result]
+  (= "agraph" (str (get-in result [:agent :mode]))))
+
+(defn- read-json-artifact
+  [file]
+  (when (and file (.isFile (io/file file)))
+    (try
+      (benchmark-io/read-json-file file)
+      (catch Exception _
+        nil))))
+
+(defn- case-artifact-dir
+  [result]
+  (when-let [result-path (some-> (:agentResultPath result) io/file)]
+    (some-> result-path .getParentFile .getParentFile)))
+
+(defn- sibling-artifact
+  [result dir suffix]
+  (when-let [case-dir (case-artifact-dir result)]
+    (io/file case-dir
+             dir
+             (str (benchmark-paths/safe-id (or (get-in result [:agent :agentId])
+                                               "agent"))
+                  suffix))))
+
+(defn- sibling-agent-hints
+  [result]
+  (read-json-artifact (sibling-artifact result
+                                        "agent-contexts"
+                                        ".agraph-hints.json")))
+
+(defn- sibling-agent-run
+  [result]
+  (read-json-artifact (sibling-artifact result "agent-runs" ".json")))
+
+(defn- result-hints
+  [result]
+  (or (sibling-agent-hints result)
+      (:agraphHints result)))
+
+(defn- result-maintenance-preflight
+  [result]
+  (or (:maintenancePreflight result)
+      (when (agraph-result? result)
+        (let [agent-run (sibling-agent-run result)]
+          (benchmark-preflight/maintenance-preflight
+           {:index-summary (or (get-in result [:agraph :indexSummary])
+                               (get-in agent-run [:agraph :indexSummary]))
+            :system-summary (or (get-in result [:agraph :systemSummary])
+                                (get-in agent-run [:agraph :systemSummary]))
+            :graph-expectations (:graphExpectations result)
+            :expectations (:expectations result)
+            :hints (result-hints result)})))))
+
+(defn- preflight-status
+  [preflight]
+  (str (or (:status preflight) "not-run")))
+
+(defn- preflight-pass?
+  [preflight]
+  (= "passed" (preflight-status preflight)))
+
+(defn- preflight-case-ids
+  [pairs status]
+  (->> pairs
+       (filter #(= status (preflight-status (second %))))
+       (map (comp :case-id first))
+       distinct
+       sort
+       vec))
+
+(defn- check-case-ids
+  [pairs check-key pred]
+  (->> pairs
+       (filter (fn [[_ preflight]]
+                 (pred (get-in preflight [:checks check-key]))))
+       (map (comp :case-id first))
+       distinct
+       sort
+       vec))
+
+(defn- check-status-summary
+  [pairs check-key]
+  (let [status (fn [preflight]
+                 (str (or (get-in preflight [:checks check-key :status])
+                          "not-run")))
+        by-status (group-by (comp status second) pairs)
+        passed? (fn [check]
+                  (benchmark-preflight/check-passed? check))
+        failed? (fn [check]
+                  (= "failed" (str (:status check))))
+        not-run? (fn [check]
+                   (= "not-run" (str (:status check))))]
+    {:check (name check-key)
+     :status (cond
+               (seq (get by-status "failed")) "failed"
+               (seq (get by-status "not-run")) "not-run"
+               :else "passed")
+     :passedRuns (count (filter (comp passed?
+                                      #(get-in % [1 :checks check-key]))
+                                pairs))
+     :failedRuns (count (get by-status "failed"))
+     :failedCaseIds (check-case-ids pairs check-key failed?)
+     :notRunRuns (count (get by-status "not-run"))
+     :notRunCaseIds (check-case-ids pairs check-key not-run?)}))
+
+(defn- aggregate-maintenance-preflight
+  [results]
+  (let [pairs (->> results
+                   (filter agraph-result?)
+                   (map (fn [result]
+                          [result (result-maintenance-preflight result)]))
+                   vec)
+        by-status (group-by (comp preflight-status second) pairs)
+        required? (seq pairs)
+        status (cond
+                 (not required?) "not-applicable"
+                 (seq (get by-status "failed")) "failed"
+                 (seq (get by-status "not-run")) "not-run"
+                 :else "passed")
+        blocked-pairs (remove (comp preflight-pass? second) pairs)]
+    {:status status
+     :requiredForClaim (boolean required?)
+     :runs (count pairs)
+     :passedRuns (count (get by-status "passed"))
+     :passedCaseIds (preflight-case-ids pairs "passed")
+     :failedRuns (count (get by-status "failed"))
+     :failedCaseIds (preflight-case-ids pairs "failed")
+     :notRunRuns (count (get by-status "not-run"))
+     :notRunCaseIds (preflight-case-ids pairs "not-run")
+     :blockedRuns (count blocked-pairs)
+     :blockedCaseIds (->> blocked-pairs
+                          (map (comp :case-id first))
+                          distinct
+                          sort
+                          vec)
+     :checks (mapv #(check-status-summary pairs %) preflight-checks)}))
+
 (defn- expected-evidence-count
   [result]
   (count (get-in result [:expectations :evidence])))
@@ -517,6 +663,8 @@
                          :expectationDiagnostics (aggregate-expectation-diagnostics
                                                   rows)
                          :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
+                         :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
+                                                           rows)
                          :localizationDiagnostics (aggregate-localization-diagnostics rows)
                          :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                          :artifactDiagnostics (aggregate-artifact-diagnostics
@@ -550,6 +698,8 @@
                          :expectationDiagnostics (aggregate-expectation-diagnostics
                                                   rows)
                          :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
+                         :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
+                                                           rows)
                          :localizationDiagnostics (aggregate-localization-diagnostics rows)
                          :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                          :artifactDiagnostics (aggregate-artifact-diagnostics
@@ -625,6 +775,9 @@
                                 (map? (get-in report
                                               [:agentDiagnostics
                                                :commandTelemetry])))
+        maintenance-preflight (:maintenancePreflightDiagnostics report)
+        maintenance-preflight? (or (not (:requiredForClaim maintenance-preflight))
+                                   (= "passed" (:status maintenance-preflight)))
         requirements {:completedCases completed?
                       :hasRuns has-runs?
                       :measuredProblemClasses (boolean (seq measured-problem-tags))
@@ -632,7 +785,8 @@
                                                     (seq measured-architecture-tags))
                       :evidenceCitationMetrics evidence-metrics?
                       :expectedEvidenceCitationMetrics expected-evidence-metrics?
-                      :commandTelemetry command-telemetry?}
+                      :commandTelemetry command-telemetry?
+                      :maintenancePreflight maintenance-preflight?}
         supported? (every? true? (vals requirements))]
     {:status (if supported? "supported" "not-supported")
      :broadArchitectureClaimSupported supported?
@@ -659,7 +813,10 @@
                  (conj "Expected-evidence citation metrics are unavailable or incomplete; non-code help quality is unproven.")
 
                  (not command-telemetry?)
-                 (conj "Command telemetry is unavailable; shell/search/read-loop costs are unproven."))}))
+                 (conj "Command telemetry is unavailable; shell/search/read-loop costs are unproven.")
+
+                 (not maintenance-preflight?)
+                 (conj "AGraph maintenance preflight did not pass; index, inference, graph expectations, hint diagnostics, and sync/check-equivalent status must pass before making maintained-graph claims."))}))
 (defn- improvement-row
   [{:keys [kind area runs case-ids message details]}]
   (when (pos? (long (or runs 0)))
@@ -680,6 +837,25 @@
 (defn- hint-diagnostic-detail
   [hint-details kind]
   (first (filter #(= kind (:kind %)) hint-details)))
+
+(defn- blocking-preflight-checks
+  [maintenance-preflight]
+  (->> (:checks maintenance-preflight)
+       (filter (fn [{:keys [failedRuns notRunRuns]}]
+                 (pos? (+ (long (or failedRuns 0))
+                          (long (or notRunRuns 0))))))
+       (mapv #(select-keys % [:check
+                              :status
+                              :failedRuns
+                              :failedCaseIds
+                              :notRunRuns
+                              :notRunCaseIds]))))
+
+(defn- preflight-check
+  [maintenance-preflight check-name]
+  (first (filter #(= check-name (:check %))
+                 (:checks maintenance-preflight))))
+
 (defn- report-improvement-summary
   [report]
   (let [agent-diagnostics (:agentDiagnostics report)
@@ -687,6 +863,8 @@
         localization (:localizationDiagnostics report)
         coverage (:coverageDiagnostics report)
         graph-expectations (:graphExpectationDiagnostics report)
+        maintenance-preflight (:maintenancePreflightDiagnostics report)
+        sync-check (preflight-check maintenance-preflight "syncCheck")
         artifacts (:artifactDiagnostics report)
         hint-details (hint-diagnostic-details agent-diagnostics)
         blocking-hint-details (blocking-hint-diagnostic-details agent-diagnostics)
@@ -778,6 +956,25 @@
               :case-ids (:failedCaseIds graph-expectations)
               :message "Configured graph expectations failed for these benchmark runs."})
             (improvement-row
+             {:kind "maintenance-preflight"
+              :area "graph-maintenance"
+              :runs (:blockedRuns maintenance-preflight)
+              :case-ids (:blockedCaseIds maintenance-preflight)
+              :message "AGraph maintenance preflight did not pass for these benchmark runs."
+              :details (blocking-preflight-checks maintenance-preflight)})
+            (improvement-row
+             {:kind "sync-check-gaps"
+              :area "graph-maintenance"
+              :runs (:failedRuns sync-check)
+              :case-ids (:failedCaseIds sync-check)
+              :message "AGraph sync/check-equivalent validation gaps block maintained-graph claims."
+              :details (when sync-check
+                         [(select-keys sync-check
+                                       [:check
+                                        :status
+                                        :failedRuns
+                                        :failedCaseIds])])})
+            (improvement-row
              {:kind "commandless-runs"
               :area "agent-use-and-citation"
               :runs (:commandlessRuns agent-diagnostics)
@@ -812,6 +1009,8 @@
                                                         rows)
                                :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
                                                              rows)
+                               :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
+                                                                 rows)
                                :localizationDiagnostics (aggregate-localization-diagnostics rows)
                                :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                                :artifactDiagnostics (aggregate-artifact-diagnostics
@@ -1177,6 +1376,8 @@
                                               results)
                      :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
                                                    results)
+                     :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
+                                                       results)
                      :localizationDiagnostics (aggregate-localization-diagnostics results)
                      :coverageDiagnostics (aggregate-coverage-diagnostics results)
                      :artifactDiagnostics (aggregate-artifact-diagnostics
@@ -1210,6 +1411,7 @@
                                                             :caseFingerprint
                                                             :tags
                                                             :expectations
+                                                            :maintenancePreflight
                                                             :graphExpectations
                                                             :inputHints
                                                             :coverage
@@ -1222,12 +1424,18 @@
                                             (localization-diagnostic %)
                                             :agentOutput
                                             (agent-output-diagnostic %)
+                                            :maintenancePreflight
+                                            (result-maintenance-preflight %)
                                             :artifact
                                             (artifact-diagnostic expected-fingerprints %))
                                     results)}
         report-base (assoc report-base
                            :improvementSummary
                            (report-improvement-summary report-base))
+        report-base (assoc report-base
+                           :systemImprovementSignals
+                           (benchmark-system-improvement/report->system-improvement-signals
+                            report-base))
         report (assoc report-base
                       :claimReadiness (report-claim-readiness report-base))]
     (benchmark-io/write-json-file! (benchmark-paths/agent-report-path suite opts) report)

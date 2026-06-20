@@ -2,8 +2,10 @@
   (:require [agraph.benchmark-agent-packet :as benchmark-agent-packet]
             [agraph.benchmark-agent-score :as benchmark-agent-score]
             [agraph.benchmark-expectations :as benchmark-expectations]
+            [agraph.benchmark-hints :as benchmark-hints]
             [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
+            [agraph.benchmark-preflight :as benchmark-preflight]
             [agraph.benchmark-prediction :as benchmark-prediction]
             [agraph.benchmark-prepare :as benchmark-prepare]
             [agraph.benchmark-progress :as benchmark-progress]
@@ -130,6 +132,14 @@
                          :entities (count (:entities packet))
                          :edges (count (:edges packet))
                          :warnings (count (:warnings packet))}))
+              hints (benchmark-hints/context-packet->agent-hints prepared packet opts)
+              hint-diagnostics (not-empty (vec (:diagnostics hints)))
+              maintenance-preflight (benchmark-preflight/maintenance-preflight
+                                     {:index-summary index-summary
+                                      :system-summary system-summary
+                                      :graph-expectations graph-expectations
+                                      :expectations (:expectations prepared)
+                                      :hints hints})
               agent-result (benchmark-progress/progress-stage!
                             suite
                             case
@@ -161,6 +171,10 @@
                                       :contextGroundTruthRanks (context-ground-truth-ranks
                                                                 prepared
                                                                 packet))
+                         maintenance-preflight
+                         (assoc :maintenancePreflight maintenance-preflight)
+                         hint-diagnostics
+                         (assoc :agraphHints {:diagnostics hint-diagnostics})
                          graph-expectations
                          (assoc :graphExpectations graph-expectations))
                       (fn [scored]
@@ -191,6 +205,7 @@
                                     :progressPath (fs/canonical-path progress-path)}
                         :agraph {:indexSummary index-summary
                                  :systemSummary system-summary}
+                        :maintenancePreflight maintenance-preflight
                         :graphExpectations graph-expectations
                         :scores (:scores scored)}]
           (benchmark-progress/progress-stage!

@@ -1,9 +1,36 @@
 (ns agraph.benchmark-report-test
   (:require [agraph.benchmark :as benchmark]
             [agraph.benchmark-command-telemetry :as benchmark-command-telemetry]
+            [agraph.benchmark-preflight :as benchmark-preflight]
             [agraph.benchmark-report :as benchmark-report]
             [agraph.benchmark-test-support :refer [spit-json! temp-dir]]
             [clojure.test :refer [deftest is]]))
+
+(def passing-maintenance-preflight
+  {:schema benchmark-preflight/maintenance-preflight-schema
+   :status "passed"
+   :checks {:index {:status "passed"
+                    :summary {:files 1}}
+            :infer {:status "passed"
+                    :summary {:systems 1}}
+            :graphExpectations {:status "not-configured"}
+            :hintDiagnostics {:status "passed"
+                              :rows 0
+                              :blockingRows 0
+                              :blockingKinds []}
+            :syncCheck {:status "passed"
+                        :validationGaps []
+                        :blockingValidationGaps []}}})
+
+(def failing-sync-maintenance-preflight
+  (assoc-in
+   (assoc passing-maintenance-preflight :status "failed")
+   [:checks :syncCheck]
+   {:status "failed"
+    :validationGaps [{:plane "dependencies"
+                      :status "weak"}]
+    :blockingValidationGaps [{:plane "dependencies"
+                              :status "weak"}]}))
 
 (deftest reports-agent-score-artifacts
   (let [out (temp-dir "agraph-agent-report")
@@ -259,6 +286,7 @@
               "audit-scope-trust-boundary"
               "source-skipped-files"
               "graph-expectation-failures"
+              "maintenance-preflight"
               "commandless-runs"
               "warning-runs"
               "unverified-score-artifacts"]
@@ -287,6 +315,21 @@
                   (filter #(= "source-skipped-files" (:kind %)))
                   first
                   :details)))
+      (is (= "retrieval-gap"
+             (->> (:systemImprovementSignals report)
+                  (filter #(= "missed-files-present-in-context" (:kind %)))
+                  first
+                  :lane)))
+      (is (= "extractor-gap"
+             (->> (:systemImprovementSignals report)
+                  (filter #(= "source-skipped-files" (:kind %)))
+                  first
+                  :lane)))
+      (is (= "agent-protocol-gap"
+             (->> (:systemImprovementSignals report)
+                  (filter #(= "unverified-score-artifacts" (:kind %)))
+                  first
+                  :lane)))
       (is (= {:configuredRuns 1
               :passedRuns 0
               :passedCaseIds []
@@ -542,6 +585,7 @@
               "audit-scope-trust-boundary"
               "source-skipped-files"
               "graph-expectation-failures"
+              "maintenance-preflight"
               "warning-runs"
               "unverified-score-artifacts"]
              (mapv :kind
@@ -734,6 +778,7 @@
                          :case-id case-id
                          :repo-id "repo"
                          :tags tags
+                         :maintenancePreflight passing-maintenance-preflight
                          :expectations {:evidence [{:kind "architecture-reference"
                                                     :path (str case-id ".clj")}]}
                          :agent {:agentId "codex"
@@ -827,7 +872,8 @@
                              :measuredArchitectureClasses false
                              :evidenceCitationMetrics true
                              :expectedEvidenceCitationMetrics true
-                             :commandTelemetry true}
+                             :commandTelemetry true
+                             :maintenancePreflight true}
               :warnings ["No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent."]}
              (:claimReadiness report))))))
 (deftest agent-report-claim-readiness-recognizes-measured-architecture-coverage
@@ -854,6 +900,7 @@
                          :case-id case-id
                          :repo-id "repo"
                          :tags tags
+                         :maintenancePreflight passing-maintenance-preflight
                          :expectations {:evidence [{:kind "architecture-reference"
                                                     :path (str case-id ".clj")}]}
                          :agent {:agentId "codex"
@@ -905,6 +952,95 @@
              (get-in report [:claimReadiness :measuredArchitectureClassTags])))
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))
+
+(deftest agent-report-claim-readiness-requires-maintenance-preflight
+  (let [out (temp-dir "agraph-agent-report-maintenance-preflight")
+        suite {:id "suite"
+               :cases [{:id "arch-deps-1"
+                        :tags [:problem-architecture
+                               :architecture-dependency-flow]}
+                       {:id "arch-deps-2"
+                        :tags [:problem-architecture
+                               :architecture-dependency-flow]}
+                       {:id "audit-docs-1"
+                        :tags [:problem-architecture
+                               :audit-scope-docs]}
+                       {:id "audit-docs-2"
+                        :tags [:problem-architecture
+                               :audit-scope-docs]}]}
+        write-score! (fn [case-id tags maintenance-preflight]
+                       (spit-json!
+                        out
+                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
+                        {:schema benchmark/agent-score-schema
+                         :suite-id "suite"
+                         :case-id case-id
+                         :repo-id "repo"
+                         :tags tags
+                         :maintenancePreflight maintenance-preflight
+                         :expectations {:evidence [{:kind "architecture-reference"
+                                                    :path (str case-id ".clj")}]}
+                         :agent {:agentId "codex"
+                                 :mode "agraph"
+                                 :topFiles [{:path (str case-id ".clj")
+                                             :rank 1
+                                             :evidence ["architecture-evidence"]}]
+                                 :commands ["bb ask architecture --project fixture"]}
+                         :groundTruth {:changedFiles [(str case-id ".clj")]
+                                       :scoreableFiles [(str case-id ".clj")]
+                                       :unsupportedGroundTruthFiles []}
+                         :groundTruthRanks {:files [{:path (str case-id ".clj")
+                                                     :rank 1
+                                                     :found? true}]}
+                         :scores {:fileRecallAt5 1.0
+                                  :fileRecallAt10 1.0
+                                  :fileRecallAt20 1.0
+                                  :meanReciprocalRankFile 1.0
+                                  :noiseRatioAt20 0.0
+                                  :evidenceCitationRate 1.0
+                                  :pathEvidenceCitationRate 1.0
+                                  :expectedEvidenceCitationRate 1.0
+                                  :expectedEvidenceCitations 1
+                                  :expectedEvidenceCitationTargets 1
+                                  :changedFiles 1
+                                  :scoreableChangedFiles 1
+                                  :unsupportedGroundTruthFiles 0}}))]
+    (write-score! "arch-deps-1"
+                  ["problem-architecture" "architecture-dependency-flow"]
+                  failing-sync-maintenance-preflight)
+    (write-score! "arch-deps-2"
+                  ["problem-architecture" "architecture-dependency-flow"]
+                  passing-maintenance-preflight)
+    (write-score! "audit-docs-1"
+                  ["problem-architecture" "audit-scope-docs"]
+                  passing-maintenance-preflight)
+    (write-score! "audit-docs-2"
+                  ["problem-architecture" "audit-scope-docs"]
+                  passing-maintenance-preflight)
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= "not-supported" (get-in report [:claimReadiness :status])))
+      (is (= false
+             (get-in report
+                     [:claimReadiness :requirements :maintenancePreflight])))
+      (is (= "failed" (get-in report [:maintenancePreflightDiagnostics :status])))
+      (is (= ["arch-deps-1"]
+             (get-in report [:maintenancePreflightDiagnostics :failedCaseIds])))
+      (is (= ["AGraph maintenance preflight did not pass; index, inference, graph expectations, hint diagnostics, and sync/check-equivalent status must pass before making maintained-graph claims."]
+             (get-in report [:claimReadiness :warnings])))
+      (is (= {:kind "sync-check-gaps"
+              :area "graph-maintenance"
+              :runs 1
+              :caseIds ["arch-deps-1"]
+              :message "AGraph sync/check-equivalent validation gaps block maintained-graph claims."
+              :details [{:check "syncCheck"
+                         :status "failed"
+                         :failedRuns 1
+                         :failedCaseIds ["arch-deps-1"]}]}
+             (->> (:improvementSummary report)
+                  (filter #(= "sync-check-gaps" (:kind %)))
+                  first))))))
+
 (deftest agent-report-claim-readiness-requires-scored-expected-evidence
   (let [out (temp-dir "agraph-agent-report-expected-evidence-readiness")
         suite {:id "suite"
@@ -929,6 +1065,7 @@
                          :case-id case-id
                          :repo-id "repo"
                          :tags tags
+                         :maintenancePreflight passing-maintenance-preflight
                          :expectations {:evidence [{:kind "architecture-reference"
                                                     :path (str case-id ".clj")}]}
                          :agent {:agentId "codex"

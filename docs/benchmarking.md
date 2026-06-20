@@ -156,6 +156,7 @@ bb bench agent-baseline benchmark.edn --case penpot-example --retriever local-ve
 bb bench agent-run benchmark.edn --agent codex --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' --mode agraph --prompt-profile fast --timeout-ms 120000
 bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
 bb bench agent-report benchmark.edn
+bb bench improve benchmark.edn --mode agraph --agent agraph-baseline-lexical --out .dev/reports/bench
 bb bench agent-check benchmark.edn --mode agraph --agent agraph-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
 bb bench agent-compare benchmark.edn --baseline-report .dev/agraph/bench-before/agent-report.json --candidate-report .dev/agraph/bench-after/agent-report.json
 bb bench run benchmark.edn
@@ -207,6 +208,15 @@ generated output root.
   when exactly one current score artifact already matches the case fingerprint,
   agent id, mode, and result path; stale, duplicate, or missing artifacts are
   rerun.
+- `bench improve <suite.edn>` reads the same agent score artifacts as
+  `bench agent-report`, writes an updated `agent-report.json`, and writes
+  `system-improvement-report.json`. The report is dev-time guidance, not a
+  repair workflow: it does not enqueue `sync work`, does not patch
+  `agraph.map.json`, and does not waive benchmark failures. It groups benchmark
+  diagnostics into `maintenance-emitter-gap`, `indexing-gap`, `extractor-gap`,
+  `retrieval-gap`, `benchmark-suite-gap`, and `agent-protocol-gap` lanes with
+  affected cases, declared problem/architecture class rollups, evidence,
+  owner area, confidence, and a recommended system change.
 - `bench agent-run <suite.edn> --agent <id> --command <cmd>` prepares the same
   packet contract, runs an external coding-agent command from the base
   worktree, and scores the JSON result written to `$AGRAPH_BENCH_RESULT`. The
@@ -282,10 +292,17 @@ generated output root.
   a score. When AGraph-mode runs generated hint diagnostics, reports count
   all rows by kind, and separately count blocking warning/error rows for
   result-health improvement targets.
+  AGraph-mode reports also include `maintenancePreflightDiagnostics`, which
+  records whether each run had completed index and inference summaries,
+  configured graph expectations where required, clean warning/error hint
+  diagnostics, and a sync/check-equivalent validation-gaps status. Shell-only
+  reports mark this preflight as `not-applicable`; AGraph reports must pass it
+  before the lane is claim-ready for maintained-graph claims.
   Reports also include `improvementSummary`, a compact ordered list of
   mechanically derived remediation targets such as extraction/retrieval gaps,
   ranking or context-budget misses, citation gaps, coverage declaration issues,
-  graph expectation failures, and artifact hygiene.
+  graph expectation failures, graph maintenance preflight gaps, and artifact
+  hygiene.
   Reports also include `artifactDiagnostics`, which classifies score artifacts
   as current, legacy, or stale against the current score schema and suite case
   fingerprint so old scores cannot silently stand in for changed issue text,
@@ -771,6 +788,12 @@ given.
   `improvementTargetRuns`, exposes `improvementTargetRunsByKind`, and treats
   total or per-kind increases as lower-is-better regressions when reports are
   comparable.
+- `maintenancePreflightDiagnostics`: AGraph-mode claim gate for maintained
+  graph runs. It aggregates per-run index, inference, graph expectation, hint
+  diagnostic, and sync/check-equivalent checks from the score artifact or
+  sibling agent artifacts. Failed or missing checks mark the AGraph lane
+  claim-ready `false`; the paired `improvementSummary` rows
+  `maintenance-preflight` and `sync-check-gaps` point at the affected cases.
 - `artifactDiagnostics`: aggregate score-artifact freshness counters.
   `agent-compare` treats increases in unverified score runs, obsolete score
   schema runs, obsolete agent-result schema runs, and stale score runs as
