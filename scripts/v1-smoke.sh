@@ -106,6 +106,10 @@ require(start.get("readiness", {}).get("status") == "ready", "start readiness is
 require(start.get("config") == "project.edn", "start config path should stay caller-relative")
 require(start.get("map") == "agraph.map.json", "start map path should stay caller-relative")
 require(start.get("report", {}).get("files", {}).get("index"), "start did not report index artifact")
+start_actions = {action.get("kind"): action.get("command")
+                 for action in start.get("nextActions", [])}
+require(start_actions.get("inspect") == "agraph sync inspect project.edn --map agraph.map.json --json",
+        "start nextActions did not make sync inspect canonical")
 
 require(inspect.get("schema") == "agraph.project.inspect/v1", "inspect schema mismatch")
 freshness = inspect.get("freshness", {})
@@ -115,7 +119,7 @@ require(freshness.get("missingQueryIndex") is False, "query index is missing")
 require(freshness.get("counts", {}).get("unindexed") == 0, "freshness has unindexed files")
 
 next_kinds = {action.get("kind") for action in inspect.get("nextActions", [])}
-for kind in ("dependencies", "audit-scope", "ask", "activity"):
+for kind in ("dependencies", "audit-scope", "ask", "activity", "validation-history"):
     require(kind in next_kinds, f"inspect nextActions missing {kind}")
 
 available = set(inspect.get("evidence", {}).get("available", []))
