@@ -9,6 +9,9 @@
 (def agent-score-schema
   "agraph.benchmark.agent-score/v3")
 
+(def agent-result-contract-version
+  "agraph.benchmark.agent-result-contract/exact-path-evidence-v1")
+
 (def agent-result-modes
   ["agraph" "shell-only" "local-vector"])
 
@@ -543,6 +546,7 @@
                                            (get-in result-shape [:groundTruth]))
                                           top-files)})]
     {:schema agent-score-schema
+     :agentResultContractVersion agent-result-contract-version
      :suite-id (:suite-id prepared)
      :case-id (:case-id prepared)
      :repo-id (:repo-id prepared)
@@ -558,6 +562,9 @@
      :coverage (:coverage prepared)
      :groundTruth (:groundTruth prepared)
      :agent {:schema (:schema agent-result)
+             :caseId (:caseId agent-result)
+             :caseFingerprint (:caseFingerprint agent-result)
+             :agentInputFingerprint (:agentInputFingerprint agent-result)
              :agentId (:agentId agent-result)
              :mode (:mode agent-result)
              :topFiles top-files

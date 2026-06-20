@@ -155,11 +155,15 @@
         result-path (#'benchmark/agent-baseline-result-path suite case java-opts)
         score-path (#'benchmark/agent-score-path suite case java-opts result-path)
         score {:schema benchmark/agent-score-schema
+               :agentResultContractVersion
+               benchmark/agent-result-contract-version
                :case-id "case-1"
                :caseFingerprint (#'benchmark/case-fingerprint suite case)
+               :agentInputFingerprint (#'benchmark/agent-input-fingerprint suite case)
                :agent {:agentId "agraph-baseline-lexical"
                        :schema benchmark/agent-result-schema
-                       :mode "agraph"}
+                       :mode "agraph"
+                       :agentInputFingerprint (#'benchmark/agent-input-fingerprint suite case)}
                :agentResultPath (.getCanonicalPath (io/file result-path))
                :parserWorker {:mode "dotnet"
                               :source "option"}
@@ -530,7 +534,8 @@
                                                    :prompt-profile "fast"
                                                    :command (str "sh " script-path)})
               report (benchmark/report-agent-suite suite {:out out
-                                                          :agent-id "identity-agent"})
+                                                          :agent-id "identity-agent"
+                                                          :allow-unverified-scores? true})
               warnings (get-in report [:results 0 :agentOutput :identityWarnings])]
           (is (= 1 (:completed result)))
           (is (= ["agent result caseId case-2 does not match expected case case-1"

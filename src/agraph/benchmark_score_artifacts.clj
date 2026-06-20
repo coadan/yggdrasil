@@ -1,5 +1,6 @@
 (ns agraph.benchmark-score-artifacts
   (:require [agraph.benchmark-agent-packet :as benchmark-agent-packet]
+            [agraph.benchmark-agent-score :as benchmark-agent-score]
             [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
             [agraph.benchmark-prepare :as benchmark-prepare]
@@ -24,6 +25,9 @@
   [suite case opts {:keys [agent-id mode result-path]}]
   (let [dir (benchmark-paths/agent-score-dir suite case opts)
         expected-fingerprint (benchmark-prepare/case-fingerprint suite case)
+        expected-agent-input-fingerprint (benchmark-prepare/agent-input-fingerprint
+                                          suite
+                                          case)
         expected-result-path (some-> result-path fs/canonical-path)
         expected-parser-worker-mode (:mode (benchmark-agent-packet/parser-worker-profile opts))
         parser-worker-match? (fn [score]
@@ -44,6 +48,10 @@
                                 (= agent-result-schema (get-in score [:agent :schema]))
                                 (= (:id case) (:case-id score))
                                 (= expected-fingerprint (:caseFingerprint score))
+                                (= expected-agent-input-fingerprint
+                                   (get-in score [:agent :agentInputFingerprint]))
+                                (= benchmark-agent-score/agent-result-contract-version
+                                   (:agentResultContractVersion score))
                                 (= agent-id (get-in score [:agent :agentId]))
                                 (= mode (get-in score [:agent :mode]))
                                 (= expected-result-path (:agentResultPath score))

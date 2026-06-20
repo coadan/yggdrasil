@@ -54,6 +54,9 @@
 (def agent-score-schema
   "agraph.benchmark.agent-score/v3")
 
+(def agent-result-contract-version
+  benchmark-agent-score/agent-result-contract-version)
+
 (def agent-report-schema
   "agraph.benchmark.agent-report/v1")
 
@@ -184,6 +187,10 @@
 (defn case-fingerprint
   [suite case]
   (benchmark-prepare/case-fingerprint suite case))
+
+(defn agent-input-fingerprint
+  [suite case]
+  (benchmark-prepare/agent-input-fingerprint suite case))
 
 (defn prepare-case!
   "Prepare one benchmark case and write its prepared JSON artifact."

@@ -403,6 +403,12 @@
               :obsoleteAgentResultSchemaCaseIds ["case-1"]
               :obsoleteAgentResultSchemas []
               :expectedAgentResultSchema benchmark/agent-result-schema
+              :obsoleteAgentResultContractRuns 2
+              :obsoleteAgentResultContractCaseIds ["case-1"]
+              :obsoleteAgentResultContractVersions []
+              :expectedAgentResultContractVersion benchmark/agent-result-contract-version
+              :staleAgentInputRuns 0
+              :staleAgentInputCaseIds []
               :staleScoreRuns 0
               :staleScoreCaseIds []
               :unverifiedScoreRuns 2
@@ -1187,6 +1193,12 @@
               :obsoleteAgentResultSchemaCaseIds ["case-1"]
               :obsoleteAgentResultSchemas []
               :expectedAgentResultSchema benchmark/agent-result-schema
+              :obsoleteAgentResultContractRuns 1
+              :obsoleteAgentResultContractCaseIds ["case-1"]
+              :obsoleteAgentResultContractVersions []
+              :expectedAgentResultContractVersion benchmark/agent-result-contract-version
+              :staleAgentInputRuns 0
+              :staleAgentInputCaseIds []
               :staleScoreRuns 0
               :staleScoreCaseIds []
               :unverifiedScoreRuns 1

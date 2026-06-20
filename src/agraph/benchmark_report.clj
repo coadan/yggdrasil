@@ -1,6 +1,7 @@
 (ns agraph.benchmark-report
   (:require [agraph.benchmark-classes :as benchmark-classes]
             [agraph.benchmark-command-telemetry :as benchmark-command-telemetry]
+            [agraph.benchmark-agent-score :as benchmark-agent-score]
             [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
             [agraph.benchmark-preflight :as benchmark-preflight]
@@ -301,18 +302,31 @@
        (sort-by (juxt :mode :source))
        vec))
 (defn- artifact-diagnostic
-  [expected-fingerprints result]
+  [expected-fingerprints expected-agent-input-fingerprints result]
   (let [expected (get expected-fingerprints (:case-id result))
+        expected-agent-input (get expected-agent-input-fingerprints
+                                  (:case-id result))
         actual (:caseFingerprint result)
         actual-schema (:schema result)
         schema-current? (= agent-score-schema actual-schema)
         agent-result-schema-value (get-in result [:agent :schema])
         agent-result-schema-current? (= agent-result-schema
                                         agent-result-schema-value)
+        contract-version (:agentResultContractVersion result)
+        contract-current? (= benchmark-agent-score/agent-result-contract-version
+                             contract-version)
+        agent-input-fingerprint (get-in result [:agent :agentInputFingerprint])
+        agent-input-status (cond
+                             (not contract-current?) "legacy"
+                             (blankish? agent-input-fingerprint) "stale"
+                             (= expected-agent-input agent-input-fingerprint) "current"
+                             :else "stale")
         status (cond
                  (not schema-current?) "legacy"
                  (not agent-result-schema-current?) "legacy"
+                 (not contract-current?) "legacy"
                  (blankish? actual) "legacy"
+                 (not= "current" agent-input-status) "stale"
                  (= actual expected) "current"
                  :else "stale")]
     (cond-> {:fingerprintStatus status
@@ -321,20 +335,33 @@
              :agentResultSchemaStatus (if agent-result-schema-current?
                                         "current"
                                         "legacy")
-             :expectedAgentResultSchema agent-result-schema}
+             :expectedAgentResultSchema agent-result-schema
+             :agentResultContractStatus (if contract-current? "current" "legacy")
+             :expectedAgentResultContractVersion
+             benchmark-agent-score/agent-result-contract-version
+             :agentInputFingerprintStatus agent-input-status}
       actual-schema (assoc :scoreSchema actual-schema)
       agent-result-schema-value (assoc :agentResultSchema agent-result-schema-value)
+      contract-version (assoc :agentResultContractVersion contract-version)
+      agent-input-fingerprint (assoc :agentInputFingerprint agent-input-fingerprint)
+      expected-agent-input (assoc :expectedAgentInputFingerprint expected-agent-input)
       actual (assoc :caseFingerprint actual)
       expected (assoc :expectedCaseFingerprint expected))))
 (defn- aggregate-artifact-diagnostics
-  [expected-fingerprints results]
+  [expected-fingerprints expected-agent-input-fingerprints results]
   (let [result-pairs (map (fn [result]
-                            [result (artifact-diagnostic expected-fingerprints result)])
+                            [result (artifact-diagnostic expected-fingerprints
+                                                         expected-agent-input-fingerprints
+                                                         result)])
                           results)
         by-status (group-by (comp :fingerprintStatus second) result-pairs)
         by-schema-status (group-by (comp :scoreSchemaStatus second) result-pairs)
         by-agent-result-schema-status (group-by (comp :agentResultSchemaStatus second)
                                                 result-pairs)
+        by-contract-status (group-by (comp :agentResultContractStatus second)
+                                     result-pairs)
+        by-agent-input-status (group-by (comp :agentInputFingerprintStatus second)
+                                        result-pairs)
         case-ids (fn [status]
                    (->> (get by-status status)
                         (map (comp :case-id first))
@@ -359,12 +386,30 @@
                                             distinct
                                             sort
                                             vec))
+        contract-case-ids (fn [status]
+                            (->> (get by-contract-status status)
+                                 (map (comp :case-id first))
+                                 distinct
+                                 sort
+                                 vec))
+        agent-input-case-ids (fn [status]
+                               (->> (get by-agent-input-status status)
+                                    (map (comp :case-id first))
+                                    distinct
+                                    sort
+                                    vec))
         agent-result-schemas (->> (get by-agent-result-schema-status "legacy")
                                   (map (comp :agentResultSchema second))
                                   (filter some?)
                                   distinct
                                   sort
-                                  vec)]
+                                  vec)
+        agent-result-contracts (->> (get by-contract-status "legacy")
+                                    (map (comp :agentResultContractVersion second))
+                                    (filter some?)
+                                    distinct
+                                    sort
+                                    vec)]
     {:currentScoreRuns (count (get by-status "current"))
      :legacyScoreRuns (count (get by-status "legacy"))
      :legacyScoreCaseIds (case-ids "legacy")
@@ -377,6 +422,13 @@
      :obsoleteAgentResultSchemaCaseIds (agent-result-schema-case-ids "legacy")
      :obsoleteAgentResultSchemas agent-result-schemas
      :expectedAgentResultSchema agent-result-schema
+     :obsoleteAgentResultContractRuns (count (get by-contract-status "legacy"))
+     :obsoleteAgentResultContractCaseIds (contract-case-ids "legacy")
+     :obsoleteAgentResultContractVersions agent-result-contracts
+     :expectedAgentResultContractVersion
+     benchmark-agent-score/agent-result-contract-version
+     :staleAgentInputRuns (count (get by-agent-input-status "stale"))
+     :staleAgentInputCaseIds (agent-input-case-ids "stale")
      :staleScoreRuns (count (get by-status "stale"))
      :staleScoreCaseIds (case-ids "stale")
      :unverifiedScoreRuns (+ (count (get by-status "legacy"))
@@ -385,8 +437,11 @@
                                          (set (case-ids "legacy"))
                                          (set (case-ids "stale")))))}))
 (defn- current-score-artifact?
-  [expected-fingerprints result]
-  (= "current" (:fingerprintStatus (artifact-diagnostic expected-fingerprints result))))
+  [expected-fingerprints expected-agent-input-fingerprints result]
+  (= "current"
+     (:fingerprintStatus (artifact-diagnostic expected-fingerprints
+                                              expected-agent-input-fingerprints
+                                              result))))
 (defn- ranked-outside-blockers
   [ranks blockers-before n]
   (->> ranks
@@ -399,7 +454,8 @@
                   :blockingFileCount (count blocking-files)
                   :blockingFiles blocking-files})))))
 (defn- artifact-policy
-  [expected-fingerprints raw-results included-results allow-unverified?]
+  [expected-fingerprints expected-agent-input-fingerprints raw-results included-results
+   allow-unverified?]
   (let [included (set included-results)
         excluded (remove included raw-results)]
     {:allowUnverifiedScores (boolean allow-unverified?)
@@ -413,6 +469,7 @@
                            vec)
      :excludedUnverifiedRuns (count (remove #(current-score-artifact?
                                               expected-fingerprints
+                                              expected-agent-input-fingerprints
                                               %)
                                             raw-results))}))
 (defn- expectation-configured?
@@ -709,7 +766,7 @@
          report-improvement-summary)
 
 (defn- group-agent-scores
-  [expected-fingerprints results key-path]
+  [expected-fingerprints expected-agent-input-fingerprints results key-path]
   (->> results
        (group-by #(or (get-in % key-path) "unknown"))
        (map (fn [[k rows]]
@@ -727,6 +784,7 @@
                          :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                          :artifactDiagnostics (aggregate-artifact-diagnostics
                                                expected-fingerprints
+                                               expected-agent-input-fingerprints
                                                rows)}]
                 (assoc row :improvementSummary (report-improvement-summary row)))))
        (sort-by :key)
@@ -739,7 +797,7 @@
        sort
        vec))
 (defn- group-agent-scores-by-filtered-tag
-  [expected-fingerprints results include-tag?]
+  [expected-fingerprints expected-agent-input-fingerprints results include-tag?]
   (->> results
        (mapcat (fn [result]
                  (map (fn [tag] [tag result])
@@ -762,13 +820,15 @@
                          :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                          :artifactDiagnostics (aggregate-artifact-diagnostics
                                                expected-fingerprints
+                                               expected-agent-input-fingerprints
                                                rows)}]
                 (assoc row :improvementSummary (report-improvement-summary row)))))
        (sort-by :key)
        vec))
 (defn- group-agent-scores-by-tag
-  [expected-fingerprints results]
+  [expected-fingerprints expected-agent-input-fingerprints results]
   (group-agent-scores-by-filtered-tag expected-fingerprints
+                                      expected-agent-input-fingerprints
                                       results
                                       (constantly true)))
 (defn- add-problem-class-claim-status
@@ -779,15 +839,17 @@
                         "measured"
                         "insufficient-cases")))
 (defn- problem-class-summary
-  [expected-fingerprints results]
+  [expected-fingerprints expected-agent-input-fingerprints results]
   {:minimumCasesForClassClaim problem-class-minimum-cases
    :classes (mapv add-problem-class-claim-status
                   (group-agent-scores-by-filtered-tag expected-fingerprints
+                                                      expected-agent-input-fingerprints
                                                       results
                                                       benchmark-classes/problem-class-tag?))
    :architectureClasses (mapv add-problem-class-claim-status
                               (group-agent-scores-by-filtered-tag
                                expected-fingerprints
+                               expected-agent-input-fingerprints
                                results
                                benchmark-classes/architecture-class-tag?))})
 (defn- measured-class-tags
@@ -1052,7 +1114,7 @@
               :case-ids (:unverifiedScoreCaseIds artifacts)
               :message "Score artifacts were stale or legacy relative to current benchmark fingerprints."})]))))
 (defn- group-agent-scores-by-parser-worker
-  [expected-fingerprints results]
+  [expected-fingerprints expected-agent-input-fingerprints results]
   (->> results
        (group-by (comp parser-worker-profile-key parser-worker-result-profile))
        (map (fn [[[_mode _source] rows]]
@@ -1074,6 +1136,7 @@
                                :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                                :artifactDiagnostics (aggregate-artifact-diagnostics
                                                      expected-fingerprints
+                                                     expected-agent-input-fingerprints
                                                      rows))]
                 (assoc row :improvementSummary (report-improvement-summary row)))))
        (sort-by (juxt :mode :source))
@@ -1401,6 +1464,13 @@
                                     (map (fn [case]
                                            [(:id case) (benchmark-prepare/case-fingerprint suite case)]))
                                     cases)
+        expected-agent-input-fingerprints (into {}
+                                                (map (fn [case]
+                                                       [(:id case)
+                                                        (benchmark-prepare/agent-input-fingerprint
+                                                         suite
+                                                         case)]))
+                                                cases)
         progress (->> cases
                       (keep #(benchmark-results/progress-summary suite % opts))
                       vec)
@@ -1415,7 +1485,9 @@
         allow-unverified? (:allow-unverified-scores? opts)
         results (if allow-unverified?
                   raw-results
-                  (filter #(current-score-artifact? expected-fingerprints %)
+                  (filter #(current-score-artifact? expected-fingerprints
+                                                    expected-agent-input-fingerprints
+                                                    %)
                           raw-results))
         completed-cases (set (map :case-id results))
         missing (->> cases
@@ -1441,27 +1513,34 @@
                      :coverageDiagnostics (aggregate-coverage-diagnostics results)
                      :artifactDiagnostics (aggregate-artifact-diagnostics
                                            expected-fingerprints
+                                           expected-agent-input-fingerprints
                                            raw-results)
                      :artifactPolicy (artifact-policy expected-fingerprints
+                                                      expected-agent-input-fingerprints
                                                       raw-results
                                                       results
                                                       allow-unverified?)
                      :coverage (aggregate-coverage results)
                      :tags (aggregate-case-tags cases)
                      :problemClasses (problem-class-summary expected-fingerprints
+                                                            expected-agent-input-fingerprints
                                                             results)
                      :timings (benchmark-results/aggregate-progress progress)
                      :caseProgress progress
                      :byMode (group-agent-scores expected-fingerprints
+                                                 expected-agent-input-fingerprints
                                                  results
                                                  [:agent :mode])
                      :byAgent (group-agent-scores expected-fingerprints
+                                                  expected-agent-input-fingerprints
                                                   results
                                                   [:agent :agentId])
                      :byParserWorker (group-agent-scores-by-parser-worker
                                       expected-fingerprints
+                                      expected-agent-input-fingerprints
                                       results)
                      :byTag (group-agent-scores-by-tag expected-fingerprints
+                                                       expected-agent-input-fingerprints
                                                        results)
                      :results (mapv #(assoc (select-keys % [:case-id
                                                             :repo-id
@@ -1486,7 +1565,9 @@
                                             :maintenancePreflight
                                             (result-maintenance-preflight %)
                                             :artifact
-                                            (artifact-diagnostic expected-fingerprints %))
+                                            (artifact-diagnostic expected-fingerprints
+                                                                 expected-agent-input-fingerprints
+                                                                 %))
                                     results)}
         report-base (assoc report-base
                            :improvementSummary
