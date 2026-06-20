@@ -31,7 +31,7 @@
 
 (defn- agent-result-json-schema
   []
-  (benchmark-agent-score/agent-result-json-schema))
+  (benchmark-agent-score/agent-result-output-json-schema))
 
 (defn agent-run-command
   [opts]
@@ -109,6 +109,7 @@
     (doseq [[k v] env]
       (.put process-env k (str v)))
     (let [process (.start process-builder)
+          _ (.close (.getOutputStream process))
           out-stream (.getInputStream process)
           err-stream (.getErrorStream process)
           out-future (process-output-future out-stream)

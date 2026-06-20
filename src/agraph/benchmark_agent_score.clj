@@ -141,6 +141,50 @@
                  "warnings" {"type" "array"
                              "items" {"type" "string"}}
                  "summary" {"type" "string"}}})
+
+(defn agent-result-output-selection-json-schema
+  []
+  {"type" "object"
+   "additionalProperties" false
+   "required" ["rawCandidateFiles"
+               "candidateFiles"
+               "coverageFilteredCandidateFiles"
+               "limit"
+               "coverageSourceKinds"]
+   "properties" {"rawCandidateFiles" {"type" "integer"
+                                      "minimum" 0}
+                 "candidateFiles" {"type" "integer"
+                                   "minimum" 0}
+                 "coverageFilteredCandidateFiles" {"type" "integer"
+                                                   "minimum" 0}
+                 "limit" {"type" ["integer" "null"]
+                          "minimum" 0}
+                 "coverageSourceKinds" {"type" "array"
+                                        "items" {"type" "string"}}}})
+
+(defn agent-result-output-json-schema
+  []
+  (-> (agent-result-json-schema)
+      (assoc "required" ["schema"
+                         "caseId"
+                         "caseFingerprint"
+                         "agentId"
+                         "mode"
+                         "selection"
+                         "parserWorker"
+                         "suspectedFiles"
+                         "suspectedSymbols"
+                         "commands"
+                         "warnings"
+                         "summary"])
+      (assoc-in ["properties" "selection"]
+                (agent-result-output-selection-json-schema))
+      (assoc-in ["properties" "parserWorker" "required"]
+                ["mode" "source"])
+      (update-in ["properties" "suspectedFiles" "items" "properties"]
+                 dissoc
+                 "metrics")))
+
 (defn- parse-long-safe
   [value]
   (cond

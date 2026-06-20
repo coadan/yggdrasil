@@ -24,6 +24,18 @@
     (is (= -1 (:exit result)))
     (is (< elapsed 3000))))
 
+(deftest agent-run-closes-child-stdin
+  (let [started-at (System/currentTimeMillis)
+        result (benchmark-agent-run/run-process!
+                "cat >/dev/null"
+                "."
+                {}
+                3000)
+        elapsed (- (System/currentTimeMillis) started-at)]
+    (is (false? (:timedOut result)))
+    (is (= 0 (:exit result)))
+    (is (< elapsed 1000))))
+
 (deftest writes-agent-packet-without-ground-truth
   (let [root (temp-dir "agraph-bench-agent-repo")
         out (temp-dir "agraph-bench-agent-out")
@@ -353,6 +365,8 @@
                   "caseFingerprint"
                   "agentId"
                   "mode"
+                  "selection"
+                  "parserWorker"
                   "suspectedFiles"
                   "suspectedSymbols"
                   "commands"
@@ -375,36 +389,33 @@
                          [:properties :mode])))
           (is (= {:type "object"
                   :additionalProperties false
+                  :required ["mode" "source"]
                   :properties {:mode {:type "string"}
                                :source {:type "string"}}}
                  (get-in (json/read-json
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
                           :key-fn keyword)
                          [:properties :parserWorker])))
-          (let [metrics-schema (get-in (json/read-json
-                                        (slurp (get-in run [:artifacts :outputSchemaPath]))
-                                        :key-fn keyword)
-                                       [:properties
-                                        :suspectedFiles
-                                        :items
-                                        :properties
-                                        :metrics])]
-            (is (= false (:additionalProperties metrics-schema)))
-            (is (= {:type "number"
-                    :minimum -1
-                    :maximum 1}
-                   (get-in metrics-schema [:properties :cosine])))
-            (is (= {:type "number"}
-                   (get-in metrics-schema [:properties :rankScore])))
-            (is (= {:type "integer"
-                    :minimum 0}
-                   (get-in metrics-schema
-                           [:properties :matchedIdentityCompoundTokenPairCount]))))
+          (is (not (contains?
+                    (get-in (json/read-json
+                             (slurp (get-in run [:artifacts :outputSchemaPath]))
+                             :key-fn keyword)
+                            [:properties
+                             :suspectedFiles
+                             :items
+                             :properties])
+                    :metrics)))
           (let [selection-schema (get-in (json/read-json
                                           (slurp (get-in run [:artifacts :outputSchemaPath]))
                                           :key-fn keyword)
                                          [:properties :selection])]
             (is (= false (:additionalProperties selection-schema)))
+            (is (= ["rawCandidateFiles"
+                    "candidateFiles"
+                    "coverageFilteredCandidateFiles"
+                    "limit"
+                    "coverageSourceKinds"]
+                   (:required selection-schema)))
             (is (= {:type "integer"
                     :minimum 0}
                    (get-in selection-schema [:properties :rawCandidateFiles])))
