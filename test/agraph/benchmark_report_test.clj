@@ -1351,7 +1351,7 @@
             :area "agent-protocol"
             :runs 2
             :caseIds ["case-a" "case-b"]
-            :message "Score artifacts were produced before the current agent-result contract; rerun and rescore the agent lane before making benchmark claims."
+            :message "Score artifacts were produced before the current agent-result contract; use `bench agent-rerun` to rerun and rescore affected cases before making benchmark claims."
             :details [{:expectedAgentResultContractVersion "current-contract"
                        :obsoleteAgentResultContractVersions ["old-contract"]}]}
            (get rows "obsolete-agent-result-contract")))
@@ -1359,7 +1359,7 @@
             :area "agent-protocol"
             :runs 1
             :caseIds ["case-b"]
-            :message "Score artifacts do not match the current agent input fingerprints; rerun the affected agent packets before making benchmark claims."}
+            :message "Score artifacts do not match the current agent input fingerprints; use `bench agent-rerun` to rerun affected cases before making benchmark claims."}
            (get rows "stale-agent-input-fingerprints")))))
 
 (deftest checks-agent-report-thresholds

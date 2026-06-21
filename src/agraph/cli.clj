@@ -685,6 +685,7 @@
     "  bench agent-packet <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--parser-worker none|java|dotnet|all] [--enqueue] [--queue-dir DIR] [--out DIR] [--json]"
     "  bench agent-baseline <benchmark.edn> [--case ID] [--cases ID,ID] [--retriever auto|hybrid|lexical|semantic|local-vector] [--limit N] [--doc-limit N] [--retrieval-limit N] [--vector-model MODEL] [--vector-command CMD] [--parser-worker none|java|dotnet|all] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
     "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--parser-worker none|java|dotnet|all] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
+    "  bench agent-rerun <benchmark.edn> --agent ID --command CMD [--agent-report agent-report.json] [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--parser-worker none|java|dotnet|all] [--index-timeout-ms N] [--out DIR] [--json]"
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--parser-worker none|java|dotnet|all] [--out DIR] [--json]"
     "  bench agent-report <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--allow-unverified-scores] [--out DIR] [--json]"
     "  bench improve <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--allow-unverified-scores] [--out DIR] [--json]"

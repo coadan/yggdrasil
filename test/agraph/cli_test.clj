@@ -86,6 +86,7 @@
     (is (str/includes? usage "bench agent-packet"))
     (is (str/includes? usage "bench agent-baseline"))
     (is (str/includes? usage "bench agent-run"))
+    (is (str/includes? usage "bench agent-rerun"))
     (is (str/includes? usage "bench agent-score"))
     (is (str/includes? usage "bench agent-score <benchmark.edn> --case ID --result result.json [--parser-worker none|java|dotnet|all]"))
     (is (str/includes? usage "bench agent-report"))
@@ -1620,6 +1621,48 @@
                   :prompt-profile "fast"
                   :timeout-ms 120000
                   :skip-existing? true}]]
+               @calls))))))
+
+(deftest bench-agent-rerun-dispatches-to-benchmark-rerunner
+  (let [calls (atom [])]
+    (with-redefs [benchmark/read-suite (fn [path]
+                                         (swap! calls conj [:read path])
+                                         {:id "suite"})
+                  benchmark/rerun-agent-lane! (fn [suite opts]
+                                                (swap! calls conj [:rerun-agent suite opts])
+                                                {:schema benchmark/agent-runs-schema
+                                                 :suite-id (:id suite)
+                                                 :completed 1
+                                                 :failed 0
+                                                 :skipped 0
+                                                 :runs []
+                                                 :rerunLane {:caseIds ["case-1"]}})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["agent-rerun" "benchmark.edn"
+                                 "--agent-report" "agent-report.json"
+                                 "--case" "case-1"
+                                 "--mode" "agraph"
+                                 "--agent" "codex"
+                                 "--command" "codex exec --json"
+                                 "--prompt-profile" "fast"
+                                 "--timeout-ms" "120000"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= benchmark/agent-runs-schema (:schema parsed)))
+        (is (= [[:read "benchmark.edn"]
+                [:rerun-agent {:id "suite"}
+                 {:case-id "case-1"
+                  :out nil
+                  :retriever nil
+                  :parser-worker nil
+                  :mode "agraph"
+                  :result-path nil
+                  :command "codex exec --json"
+                  :agent-report-path "agent-report.json"
+                  :agent-id "codex"
+                  :prompt-profile "fast"
+                  :timeout-ms 120000}]]
                @calls))))))
 
 (deftest bench-agent-report-dispatches-to-benchmark-reporter

@@ -84,6 +84,11 @@
 (def report-schema
   "agraph.benchmark.report/v1")
 
+(def ^:private agent-rerun-improvement-kinds
+  #{"obsolete-agent-result-contract"
+    "stale-agent-input-fingerprints"
+    "unverified-score-artifacts"})
+
 (def default-limit
   50)
 
@@ -860,6 +865,69 @@
      :completed (count runs)
      :failed (count (filter #(= "failed" (:status %)) runs))
      :skipped (count (filter #(= "skipped" (:status %)) runs))}))
+
+(defn- agent-rerun-report-path
+  [suite opts]
+  (fs/canonical-path
+   (or (:agent-report-path opts)
+       (benchmark-paths/agent-report-path suite opts))))
+
+(defn- agent-rerun-improvement-rows
+  [report]
+  (->> (:improvementSummary report)
+       (filter #(contains? agent-rerun-improvement-kinds (:kind %)))
+       vec))
+
+(defn- explicit-agent-rerun-case-ids
+  [opts]
+  (cond
+    (seq (:case-ids opts)) (vec (:case-ids opts))
+    (:case-id opts) [(:case-id opts)]))
+
+(defn- agent-rerun-case-ids
+  [rows]
+  (->> rows
+       (mapcat :caseIds)
+       distinct
+       sort
+       vec))
+
+(defn rerun-agent-lane!
+  "Rerun and rescore agent-lane cases flagged by an existing agent report."
+  [suite opts]
+  (ensure-agent-run-id! opts)
+  (let [report-path (agent-rerun-report-path suite opts)
+        explicit-case-ids (explicit-agent-rerun-case-ids opts)
+        rows (if (seq explicit-case-ids)
+               []
+               (agent-rerun-improvement-rows
+                (benchmark-io/read-json-file report-path)))
+        case-ids (or (not-empty explicit-case-ids)
+                     (agent-rerun-case-ids rows))
+        run-opts (-> opts
+                     (assoc :case-ids case-ids)
+                     (dissoc :case-id
+                             :agent-report-path
+                             :skip-existing?))
+        result (if (seq case-ids)
+                 (agent-runs! suite run-opts)
+                 {:schema agent-runs-schema
+                  :suite-id (:id suite)
+                  :runs []
+                  :completed 0
+                  :failed 0
+                  :skipped 0})]
+    (assoc result
+           :rerunLane {:sourceReportPath report-path
+                       :selection (if (seq explicit-case-ids)
+                                    "explicit"
+                                    "improvement-summary")
+                       :sourceKinds (->> rows
+                                         (map :kind)
+                                         distinct
+                                         sort
+                                         vec)
+                       :caseIds (vec case-ids)})))
 
 (defn score-agent-result!
   "Read, score, and write one agent localization result artifact."

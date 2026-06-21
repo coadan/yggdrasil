@@ -31,6 +31,8 @@
            :result-path (option-value args "--result")
            :command (option-value args "--command")}
     (parse-case-ids args) (assoc :case-ids (parse-case-ids args))
+    (option-value args "--agent-report") (assoc :agent-report-path
+                                                (option-value args "--agent-report"))
     (option-value args "--baseline-report") (assoc :baseline-report
                                                    (option-value args "--baseline-report"))
     (option-value args "--candidate-report") (assoc :candidate-report
@@ -395,6 +397,11 @@
       (println "- completed" (:completed result))
       (println "- failed" (:failed result))
       (println "- skipped" (:skipped result 0))
+      (when-let [rerun-lane (:rerunLane result)]
+        (println "- rerun-selection"
+                 (:selection rerun-lane)
+                 "cases"
+                 (str/join "," (:caseIds rerun-lane))))
       (doseq [run (:runs result)]
         (println "-"
                  (:case-id run)
@@ -623,6 +630,7 @@
                    :improve (benchmark/improve-agent-suite suite opts)
                    :agent-baseline (benchmark/agent-baselines! suite opts)
                    :agent-run (benchmark/agent-runs! suite opts)
+                   :agent-rerun (benchmark/rerun-agent-lane! suite opts)
                    :agent-check (benchmark/check-agent-suite suite opts)
                    :agent-compare (benchmark/compare-agent-report-files! suite opts)
                    :show (benchmark/show-case suite

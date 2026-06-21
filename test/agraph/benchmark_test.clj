@@ -33,6 +33,74 @@
                           #"Benchmark case not found"
                           (benchmark/selected-cases suite ["case-1" "missing"])))))
 
+(deftest rerun-agent-lane-selects-affected-cases-from-agent-report
+  (let [root (temp-dir "agraph-bench-agent-rerun")
+        report-path (spit-json! root
+                                "agent-report.json"
+                                {:improvementSummary
+                                 [{:kind "stale-agent-input-fingerprints"
+                                   :caseIds ["case-b" "case-a"]}
+                                  {:kind "obsolete-agent-result-contract"
+                                   :caseIds ["case-a"]}
+                                  {:kind "missing-context-ranks"
+                                   :caseIds ["case-c"]}]})
+        suite {:id "suite"
+               :cases [{:id "case-a"}
+                       {:id "case-b"}
+                       {:id "case-c"}]}
+        calls (atom [])]
+    (with-redefs [benchmark/agent-runs! (fn [suite opts]
+                                          (swap! calls conj [suite opts])
+                                          {:schema benchmark/agent-runs-schema
+                                           :suite-id (:id suite)
+                                           :completed 2
+                                           :failed 0
+                                           :skipped 0
+                                           :runs []})]
+      (let [result (benchmark/rerun-agent-lane!
+                    suite
+                    {:agent-id "codex"
+                     :command "codex exec --json"
+                     :agent-report-path report-path
+                     :skip-existing? true})]
+        (is (= ["case-a" "case-b"]
+               (get-in result [:rerunLane :caseIds])))
+        (is (= ["obsolete-agent-result-contract"
+                "stale-agent-input-fingerprints"]
+               (get-in result [:rerunLane :sourceKinds])))
+        (is (= "improvement-summary"
+               (get-in result [:rerunLane :selection])))
+        (is (= [[suite {:agent-id "codex"
+                        :command "codex exec --json"
+                        :case-ids ["case-a" "case-b"]}]]
+               @calls))))))
+
+(deftest rerun-agent-lane-honors-explicit-case-selection-without-reading-report
+  (let [suite {:id "suite"
+               :cases [{:id "case-a"}
+                       {:id "case-b"}]}
+        calls (atom [])]
+    (with-redefs [benchmark/agent-runs! (fn [suite opts]
+                                          (swap! calls conj [suite opts])
+                                          {:schema benchmark/agent-runs-schema
+                                           :suite-id (:id suite)
+                                           :completed 1
+                                           :failed 0
+                                           :skipped 0
+                                           :runs []})]
+      (let [result (benchmark/rerun-agent-lane!
+                    suite
+                    {:agent-id "codex"
+                     :command "codex exec --json"
+                     :agent-report-path "/missing/agent-report.json"
+                     :case-id "case-b"})]
+        (is (= ["case-b"] (get-in result [:rerunLane :caseIds])))
+        (is (= "explicit" (get-in result [:rerunLane :selection])))
+        (is (= [[suite {:agent-id "codex"
+                        :command "codex exec --json"
+                        :case-ids ["case-b"]}]]
+               @calls))))))
+
 (deftest read-suite-rejects-ambiguous-or-invalid-ids
   (let [suite-dir (temp-dir "agraph-bench-suite-shape")
         suite-path (.getPath (io/file suite-dir "benchmark.edn"))]
