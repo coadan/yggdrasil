@@ -323,6 +323,17 @@
             budget))
     (is (= minimal-architecture (:architecture trimmed)))
     (is (<= (context/estimate-tokens trimmed) budget))))
+
+(deftest compacted-architecture-keeps-selected-dependency-evidence-window
+  (let [architecture {:dependencyEvidence (mapv (fn [idx]
+                                                  {:id (str "dependency:" idx)
+                                                   :kind "package-import"
+                                                   :path (str "src/importer_" idx ".clj")})
+                                                (range 12))}
+        compact (#'context-budget/compact-architecture architecture)]
+    (is (= (mapv #(str "dependency:" %) (range 8))
+           (mapv :id (:dependencyEvidence compact))))))
+
 (deftest architecture-section-keeps-accepted-systems-auditable
   (let [section (#'context/architecture-section
                  {:overlay {:systems [{:id "system:billing"

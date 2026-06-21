@@ -60,12 +60,19 @@
        (mapcat camel-token-parts)
        (remove #(= (str/lower-case token) %))))
 
+(def ^:private token-aliases
+  {"env" ["environment"]
+   "environment" ["env"]
+   "var" ["variable"]
+   "variable" ["var"]})
+
 (defn- expanded-token
   [token]
-  (let [token (str token)]
-    (distinct (cons (str/lower-case token)
-                    (concat (token-parts token)
-                            (camel-compound-parts token))))))
+  (let [token (str token)
+        base (cons (str/lower-case token)
+                   (concat (token-parts token)
+                           (camel-compound-parts token)))]
+    (distinct (mapcat #(cons % (get token-aliases %)) base))))
 
 (defn- keep-token?
   [token]

@@ -36,6 +36,18 @@
           ["lts" "argon"]]
          (text/compound-token-pairs "nvm_remote_version lts/argon should not"))))
 
+(deftest tokenization-expands-env-var-abbreviations
+  (is (= ["environment-variable"
+          "environment"
+          "env"
+          "variable"
+          "var"
+          "process.env.http_proxy"
+          "process"
+          "http"
+          "proxy"]
+         (text/tokenize "environment-variable process.env.HTTP_PROXY"))))
+
 (deftest tokenization-expands-camel-and-pascal-identifiers
   (is (= ["typehandlertests"
           "type"

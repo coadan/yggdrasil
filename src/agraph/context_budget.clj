@@ -138,7 +138,7 @@
         (update :candidateSystems #(vec (take 5 %)))
         (update :rejectedCorrections #(vec (take 5 %)))
         (update :boundaryEvidence #(vec (take 8 %)))
-        (update :dependencyEvidence #(vec (take 5 %)))
+        (update :dependencyEvidence #(vec (take 8 %)))
         (update :deployEvidence #(vec (take 5 %)))
         (update :evidenceFamilies #(vec (take 8 %)))
         (update :docs #(vec (take 5 %)))

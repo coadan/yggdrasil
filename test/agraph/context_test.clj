@@ -1,5 +1,6 @@
 (ns agraph.context-test
   (:require [agraph.context :as context]
+            [agraph.context-architecture :as context-architecture]
             [agraph.activity :as activity]
             [agraph.coverage :as coverage]
             [agraph.dependency :as dependency]
@@ -1671,6 +1672,91 @@
            (mapv :id runtime-evidence)))
     (is (> (get scores-by-id "evidence:matched-env-database-url")
            (get scores-by-id "evidence:other-env-host")))))
+
+(deftest dependency-evidence-includes-query-matched-package-import-sources
+  (let [dependency-report (assoc (empty-dependency-report)
+                                 :packages
+                                 [{:id "node:pkg:proxy-from-env"
+                                   :package-name "proxy-from-env"
+                                   :label "npm:proxy-from-env"
+                                   :ecosystem :npm
+                                   :imported-by [{:path "lib/adapters/http.js"
+                                                  :line 5
+                                                  :kind :javascript
+                                                  :import-name "proxy-from-env"
+                                                  :resolution-source :declared}]}])
+        rows (#'context-architecture/dependency-report-evidence
+              ["proxy" "env"]
+              []
+              []
+              []
+              dependency-report)]
+    (is (= [{:kind "package-import"
+             :id "node:pkg:proxy-from-env:import:lib/adapters/http.js:5"
+             :packageId "node:pkg:proxy-from-env"
+             :package "proxy-from-env"
+             :label "npm:proxy-from-env"
+             :ecosystem "npm"
+             :relation "imports-package"
+             :path "lib/adapters/http.js"
+             :sourceLine 5
+             :fileKind "javascript"
+             :importName "proxy-from-env"
+             :resolutionSource "declared"}]
+           (mapv #(dissoc % :score) rows)))
+    (is (< 1.0 (:score (first rows))))))
+
+(deftest context-packet-scores-dependencies-before-display-limiting
+  (with-redefs [query/search-report (fn [_ query-text opts]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:dependencies"
+                                       :query-text query-text
+                                       :retriever-requested (:retriever opts)
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 0
+                                                         :returned-count 0}
+                                       :results []})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report
+                (fn [_ _ opts]
+                  (if (contains? opts :limit)
+                    (assoc (empty-dependency-report)
+                           :packages
+                           [{:id "node:pkg:axios"
+                             :package-name "axios"
+                             :label "npm:axios"
+                             :ecosystem :npm
+                             :imported-by [{:path "tests/smoke/deno/tests/cancel.smoke.test.ts"
+                                            :line 2
+                                            :kind :typescript
+                                            :resolution-source :deno-import-map}]}])
+                    (assoc (empty-dependency-report)
+                           :packages
+                           [{:id "node:pkg:proxy-from-env"
+                             :package-name "proxy-from-env"
+                             :label "npm:proxy-from-env"
+                             :ecosystem :npm
+                             :imported-by [{:path "lib/adapters/http.js"
+                                            :line 5
+                                            :kind :javascript
+                                            :import-name "proxy-from-env"
+                                            :resolution-source :declared}]}])))
+                activity/select-activity (fn [& _] [])
+                context/answerability (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "proxy env"
+                                         {:project-id "fixture"
+                                          :retriever :lexical})]
+      (is (= ["lib/adapters/http.js"]
+             (mapv :path (get-in packet [:architecture :dependencyEvidence])))))))
 
 (deftest candidate-files-preserve-query-score-components
   (with-redefs [query/search-report (fn [_ _ _]

@@ -638,10 +638,37 @@
 (defn- dependency-query-match?
   [query-tokens row]
   (pos? (dependency-token-score query-tokens row)))
+(def ^:private package-import-source-limit
+  4)
+(defn- package-import-source-score
+  [query-tokens package source]
+  (dependency-token-score query-tokens
+                          (assoc package
+                                 :kind "package-import"
+                                 :path (:path source)
+                                 :import (:import-name source))))
+(defn- package-import-sources
+  [selection query-tokens package]
+  (let [package-match? (dependency-query-match? query-tokens package)]
+    (->> (:imported-by package)
+         (keep
+          (fn [source]
+            (let [source-selected? (source-path-selected? selection source)]
+              (when (or source-selected? package-match?)
+                (assoc source
+                       :source-selected? source-selected?
+                       :source-score (package-import-source-score query-tokens
+                                                                  package
+                                                                  source))))))
+         (sort-by (juxt (comp - #(double (or (:source-score %) 0.0)))
+                        (comp not :source-selected?)
+                        :path
+                        :line))
+         (take package-import-source-limit)
+         vec)))
 (defn- package-import-evidence-rows
   [selection query-tokens package]
-  (let [sources (filter #(source-path-selected? selection %)
-                        (:imported-by package))]
+  (let [sources (package-import-sources selection query-tokens package)]
     (mapv (fn [source]
             (cond-> {:kind "package-import"
                      :id (str (:id package) ":import:" (:path source) ":" (:line source))
@@ -654,10 +681,7 @@
                      :sourceLine (:line source)
                      :score (+ 1.0
                                (* 0.25
-                                  (dependency-token-score query-tokens
-                                                          (assoc package
-                                                                 :kind "package-import"
-                                                                 :path (:path source)))))}
+                                  (:source-score source)))}
               (:kind source) (assoc :fileKind (display-name (:kind source)))
               (:import-name source) (assoc :importName (:import-name source))
               (:resolution-source source) (assoc :resolutionSource (display-name (:resolution-source source)))))

@@ -1437,8 +1437,7 @@
         dependency-report (dependency/package-report xtdb
                                                      {:project-id project-id
                                                       :repo-id repo-id}
-                                                     {:limit 12
-                                                      :map-overlay overlay})
+                                                     {:map-overlay overlay})
         selected-system-ids (concat (map :id entities)
                                     (map :id accepted-systems))
         runtime-evidence (select-system-evidence query-tokens
