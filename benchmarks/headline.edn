@@ -110,6 +110,11 @@
                  :database]
           :base-sha "948b5feb51b9605babc6820475b5ccff44f29552"
           :fix-sha "948b5feb51b9605babc6820475b5ccff44f29552"
+          :map-overlay {:packageImports [{:repo "supabase-postgres"
+                                           :import "testinfra"
+                                           :ecosystem "pypi"
+                                           :package "pytest-testinfra"
+                                           :reason "The testinfra benchmark imports the testinfra module from the declared pytest-testinfra package."}]}
           :ground-truth {:localization-files ["migrations/db/init-scripts/00000000000003-post-setup.sql"
                                               "migrations/.env"]}
           :expectations {:evidence [{:kind :env-var
