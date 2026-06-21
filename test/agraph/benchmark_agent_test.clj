@@ -1174,10 +1174,43 @@
             :retrievedSourceCount 0
             :exactPathSourceCount 0
             :maxConfidence 1.0
-            :rankScore 1.62
+            :rankScore 1.2000000000000002
             :matchedTokenCount 3
             :definitionKinds ["env-var"]}
            (get-in files [0 :metrics])))))
+
+(deftest file-ranking-normalizes-architecture-evidence-families
+  (let [root (temp-dir "agraph-bench-architecture-evidence-family-score")
+        _ (spit-file! root "lib/adapters/http.js" "import proxyFromEnv from 'proxy-from-env';\n")
+        _ (spit-file! root "tests/unit/adapters/fetch.test.js" "process.env.SERVER_PORT = '3000';\n")
+        packet {:query (str "Locate the boundary between Node native proxy handling and Axios "
+                            "proxy rewriting. Return the adapter and tests and cite "
+                            "environment-variable evidence.")
+                :architecture {:runtimeEvidence [{:id "evidence:server-port"
+                                                  :path "tests/unit/adapters/fetch.test.js"
+                                                  :kind "env-var"
+                                                  :fileKind "javascript"
+                                                  :label "SERVER_PORT"
+                                                  :normalizedValue "server-port"
+                                                  :score 5.35}]
+                               :dependencyEvidence [{:id "node:pkg:proxy-from-env:import:lib/adapters/http.js:5"
+                                                     :path "lib/adapters/http.js"
+                                                     :kind "package-import"
+                                                     :fileKind "javascript"
+                                                     :package "proxy-from-env"
+                                                     :label "npm:proxy-from-env"
+                                                     :ecosystem "npm"
+                                                     :relation "imports-package"
+                                                     :sourceLine 5
+                                                     :score 1.75}]}}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["lib/adapters/http.js" "tests/unit/adapters/fetch.test.js"]
+           (mapv :path files)))
+    (is (= ["architecture-evidence:dependencyEvidence:lib/adapters/http.js kind=package-import fileKind=javascript relation=imports-package label=\"npm:proxy-from-env\" score=1.75"]
+           (get-in files [0 :evidence])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
 
 (deftest file-ranking-uses-architecture-deploy-evidence
   (let [root (temp-dir "agraph-bench-architecture-deploy")

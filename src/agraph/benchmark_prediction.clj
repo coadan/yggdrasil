@@ -67,6 +67,12 @@
   (if-let [score (parse-double-safe value)]
     (max 0.0 (min 1.0 score))
     0.0))
+(defn- field-name
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (nil? value) nil
+    :else (str value)))
 (defn- line-label
   [source]
   (when-let [lines (seq (:lines source))]
@@ -319,6 +325,38 @@
          (str " label=" (pr-str label)))
        (when-some [score (:score row)]
          (str " score=" score))))
+(def ^:private architecture-evidence-score-weights
+  {"runtimeEvidence" 0.35
+   "boundaryEvidence" 0.7
+   "dependencyEvidence" 0.9
+   "deployEvidence" 0.7})
+
+(def ^:private architecture-evidence-score-caps
+  {"runtimeEvidence" 1.0
+   "boundaryEvidence" 1.6
+   "dependencyEvidence" 2.4
+   "deployEvidence" 1.6})
+
+(defn- architecture-evidence-score
+  [query-tokens section row]
+  (let [raw-score (double (or (parse-double-safe (:score row)) 0.0))
+        weight (double (get architecture-evidence-score-weights section 0.7))
+        cap (double (get architecture-evidence-score-caps section 1.6))
+        package-identity-token-count (if (and (= "dependencyEvidence" section)
+                                              (= "package-import" (field-name (:kind row))))
+                                       (count (token-matches
+                                               query-tokens
+                                               (identity-text (:label row)
+                                                              (:package row)
+                                                              (:import row)
+                                                              (:normalizedValue row))))
+                                       0)
+        package-identity-boost (if (>= package-identity-token-count 2)
+                                 0.35
+                                 0.0)]
+    (min cap (+ (* weight raw-score)
+                package-identity-boost))))
+
 (defn- architecture-file-prediction
   [root query-tokens idx section row]
   (let [path (:path row)]
@@ -327,7 +365,7 @@
         {:path path
          :source-rank (+ 700 (inc idx))
          :confidence (bounded-confidence (:score row))
-         :evidence-score (* 0.7 (double (or (parse-double-safe (:score row)) 0.0)))
+         :evidence-score (architecture-evidence-score query-tokens section row)
          :evidence-kind :candidate-file
          :retrieved-source? false
          :exact-path-source? false
