@@ -23,6 +23,8 @@
   1.00)
 (def ^:private rank-score-candidate-only-graph-weight
   3.0)
+(def ^:private rank-score-doc-supported-graph-weight
+  0.5)
 (def ^:private rank-score-graph-support-min
   0.5)
 (def ^:private rank-score-graph-lexical-support-min
@@ -110,9 +112,11 @@
             (* retrieved-source-rank-bonus-step
                (dec first-source-rank))))
     0.0))
-(defn- candidate-only-graph-boost
-  [graph-score evidence-score]
-  (* rank-score-candidate-only-graph-weight
+(defn- graph-neighbor-boost
+  [doc-count graph-score evidence-score]
+  (* (if (zero? (long doc-count))
+       rank-score-candidate-only-graph-weight
+       rank-score-doc-supported-graph-weight)
      (double graph-score)
      (min 1.0 (double evidence-score))))
 (defn- doc-prediction
@@ -221,6 +225,8 @@
          (str " targetKind=" target-kind))
        (when-let [label (not-empty (str (:label candidate)))]
          (str " label=" (pr-str label)))
+       (when-let [support-labels (seq (:supportLabels candidate))]
+         (str " supportLabels=" (pr-str (vec support-labels))))
        (when-some [score (:score candidate)]
          (str " score=" score))
        (score-component-evidence score-components)))
@@ -228,18 +234,23 @@
   [root query-tokens idx candidate]
   (let [path (:path candidate)]
     (when (existing-file-path? root path)
-      (let [evidence-text (str (:path candidate)
-                               "\n"
-                               (:label candidate))
+      (let [support-labels (vec (:supportLabels candidate))
+            evidence-text (str/join "\n"
+                                    (remove benchmark-util/blankish?
+                                            (concat [(:path candidate)
+                                                     (:label candidate)]
+                                                    support-labels)))
             matched-tokens (token-matches query-tokens evidence-text)
             matched-token-pairs (compact-token-pair-matches query-tokens evidence-text)
             matched-compound-token-pairs (compact-compound-token-pair-matches
                                           query-tokens
                                           evidence-text)
-            matched-identity-compound-token-pairs (identity-compound-token-pair-matches
+            matched-identity-compound-token-pairs (apply
+                                                   identity-compound-token-pair-matches
                                                    query-tokens
                                                    (:path candidate)
-                                                   (:label candidate))
+                                                   (:label candidate)
+                                                   support-labels)
             score-components (or (:scoreComponents candidate)
                                  (:score-components candidate))
             graph-score (double (or (parse-double-safe (:graph score-components))
@@ -405,9 +416,6 @@
                                                          0.0
                                                          (keep :graph-neighbor-score
                                                                ordered))
-                             candidate-only-graph-score (if (zero? doc-count)
-                                                          graph-neighbor-score
-                                                          0.0)
                              candidate-only-compound-pair-count (if (zero? doc-count)
                                                                   (count matched-compound-token-pairs)
                                                                   0)
@@ -421,8 +429,9 @@
                              source-rank-score (retrieved-source-rank-score
                                                 retrieved-source-count
                                                 (:source-rank best-row))
-                             graph-neighbor-boost (candidate-only-graph-boost
-                                                   candidate-only-graph-score
+                             graph-neighbor-boost (graph-neighbor-boost
+                                                   doc-count
+                                                   graph-neighbor-score
                                                    max-evidence-score)
                              rank-score (+ max-evidence-score
                                            source-rank-score

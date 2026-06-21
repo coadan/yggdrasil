@@ -1073,6 +1073,24 @@
     (is (= "AGraph retrieved candidate file src/adjacent.clj lines 2-4 from result rank 3."
            (get-in files [0 :reason])))))
 
+(deftest candidate-file-support-labels-contribute-to-file-ranking
+  (let [root (temp-dir "agraph-bench-candidate-support-labels")
+        _ (spit-file! root "src/candidate.cs" "namespace Demo.Tests;\n")
+        packet {:query "type handler regression"
+                :candidateFiles [{:path "src/candidate.cs"
+                                  :rank 3
+                                  :score 0.5
+                                  :targetKind "node"
+                                  :label "Demo.Tests"
+                                  :supportLabels ["Demo.Tests/TypeHandlerTests.Regression"]}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        row (first (:suspectedFiles result))]
+    (is (= "src/candidate.cs" (:path row)))
+    (is (= 3 (get-in row [:metrics :matchedTokenCount])))
+    (is (= 1 (get-in row [:metrics :matchedCompoundTokenPairCount])))
+    (is (str/includes? (first (:evidence row))
+                       "supportLabels=[\"Demo.Tests/TypeHandlerTests.Regression\"]"))))
+
 (deftest file-ranking-caps-repeated-file-support-bonus
   (let [root (temp-dir "agraph-bench-repeated-file-support")
         _ (spit-file! root "src/early.tf" "resource \"demo\" \"early\" {}\n")

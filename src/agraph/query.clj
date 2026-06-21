@@ -12,6 +12,7 @@
 (def default-semantic-candidates 100)
 (def default-lexical-candidates 100)
 (def default-kind-candidates 50)
+(def default-path-token-candidates 100)
 (def default-seed-count 20)
 (def lexical-graph-weight 0.25)
 (def hybrid-graph-weight 0.20)
@@ -345,6 +346,26 @@
          (filter #(exact-path-mentioned? query (:path %)))
          (mapv :target-id))))
 
+(defn- matching-query-token-count
+  [query-tokens text]
+  (let [query-token-set (set query-tokens)
+        text-token-set (set (text/tokenize text))]
+    (count (filter text-token-set query-token-set))))
+
+(defn- path-token-candidate-ids
+  [query-tokens docs n]
+  (->> docs
+       (keep (fn [doc]
+               (let [matches (matching-query-token-count query-tokens (:path doc))]
+                 (when (pos? matches)
+                   {:target-id (:target-id doc)
+                    :matches matches
+                    :path (:path doc)
+                    :label (:label doc)}))))
+       (sort-by (juxt (comp - :matches) :path :label))
+       (take n)
+       (mapv :target-id)))
+
 (def relation-graph-weights
   {:references 1.0
    :calls 0.9
@@ -393,14 +414,18 @@
   [query-text query-tokens doc]
   (let [query (str/lower-case (str/trim query-text))
         label (str/lower-case (:label doc))
-        token-set (set query-tokens)]
+        label-token-match? (pos? (matching-query-token-count query-tokens (:label doc)))
+        path-token-boost (min 0.15
+                              (* 0.05
+                                 (double (matching-query-token-count query-tokens
+                                                                     (:path doc)))))]
     (cond
       (exact-path-mentioned? query (:path doc)) 2.0
 
       (and (not (str/blank? query)) (= query label)) 0.25
       (and (not (str/blank? query)) (str/includes? label query)) 0.15
-      (some token-set (text/tokenize (:label doc))) 0.05
-      :else 0.0)))
+      label-token-match? (+ 0.05 path-token-boost)
+      :else path-token-boost)))
 
 (defn- ranked-candidates
   [{:keys [query-text query-tokens docs lexical semantic neighbor-scores retriever]}]
@@ -414,19 +439,26 @@
                                                     docs
                                                     default-kind-candidates))
         exact-path-candidates (exact-path-candidate-ids query-text docs)
+        path-token-candidates (path-token-candidate-ids query-tokens
+                                                        docs
+                                                        default-path-token-candidates)
         candidates (case retriever
                      :semantic (set (concat semantic-candidates
-                                            exact-path-candidates))
+                                            exact-path-candidates
+                                            path-token-candidates))
                      :lexical (set (concat lexical-candidates
                                            exact-path-candidates
+                                           path-token-candidates
                                            (keys neighbor-scores)))
                      (set (concat semantic-candidates
                                   lexical-candidates
                                   exact-path-candidates
+                                  path-token-candidates
                                   (keys neighbor-scores))))]
     {:semantic-candidates (set semantic-candidates)
      :lexical-candidates (set lexical-candidates)
      :exact-path-candidates (set exact-path-candidates)
+     :path-token-candidates (set path-token-candidates)
      :candidates (set candidates)
      :ranked (->> candidates
                   (keep docs-by-target)
@@ -552,6 +584,7 @@
                                :same-label-seed-count (count (:same-label-ids seed-data))
                                :neighbor-count (count neighbor-scores)
                                :exact-path-candidates (count (:exact-path-candidates ranked-data))
+                               :path-token-candidates (count (:path-token-candidates ranked-data))
                                :candidate-count (count (:candidates ranked-data))
                                :candidates-by-kind (rows-by-kind candidate-docs)
                                :ranked-count (count ranked-all)

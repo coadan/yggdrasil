@@ -1761,6 +1761,7 @@
                :score 0.8
                :targetKind "node"
                :label "demo/caller"
+               :supportLabels ["demo/caller body"]
                :sourceLine 12
                :endLine 18}]
              (:candidateFiles packet))))))

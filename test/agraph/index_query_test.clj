@@ -112,6 +112,49 @@
           (is (= "src/hidden/file.clj" (:path first-result)))
           (is (= 2.0 (get-in first-result [:score-components :exact]))))))))
 
+(deftest query-token-path-overlap-boosts-search-docs
+  (store/with-node (temp-dir "agraph-query-path-token-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:consumer"
+                       :target-id "node:consumer"
+                       :target-kind :node
+                       :file-id "file:consumer"
+                       :path "consumer/consumer.go"
+                       :kind :namespace
+                       :label "go.opentelemetry.io/collector/internal"
+                       :text "contracts"
+                       :tokens ["contracts"]
+                       :input-sha "consumer"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:other"
+                       :target-id "node:other"
+                       :target-kind :node
+                       :file-id "file:other"
+                       :path "other/other.go"
+                       :kind :namespace
+                       :label "go.opentelemetry.io/collector/internal"
+                       :text "contracts"
+                       :tokens ["contracts"]
+                       :input-sha "other"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})])
+      (with-redefs [query/default-lexical-candidates 0
+                    query/default-kind-candidates 0]
+        (let [results (query/semantic-query xtdb
+                                            "consumer contracts"
+                                            {:retriever :lexical
+                                             :limit 2})
+              first-result (first results)]
+          (is (= ["consumer/consumer.go"] (mapv :path results)))
+          (is (= 0.05 (get-in first-result [:score-components :exact]))))))))
+
 (deftest search-report-includes-instrumentation-and-persists-query-run
   (store/with-node (temp-dir "agraph-query-report-xtdb")
     (fn [xtdb]

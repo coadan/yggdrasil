@@ -383,6 +383,7 @@
                 :score
                 :targetKind
                 :label
+                :supportLabels
                 :sourceLine
                 :resultKind
                 :scoreComponents]))
