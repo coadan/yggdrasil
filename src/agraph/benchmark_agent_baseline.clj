@@ -11,12 +11,12 @@
             [agraph.benchmark-prepare :as benchmark-prepare]
             [agraph.benchmark-progress :as benchmark-progress]
             [agraph.benchmark-score :as benchmark-score]
+            [agraph.benchmark-util :as benchmark-util]
             [agraph.context :as context]
             [agraph.fs :as fs]
             [agraph.project :as project]
             [agraph.xtdb :as store]
-            [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [clojure.java.io :as io]))
 
 (def agent-baseline-schema
   "agraph.benchmark.agent-baseline/v1")
@@ -35,10 +35,6 @@
 
 (def default-index-timeout-ms
   600000)
-
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
 
 (defn- index-timeout-ms
   [opts]
@@ -63,7 +59,7 @@
      :selection (:selection context-result)}))
 (defn context-ground-truth-ranks-from-path
   [prepared path]
-  (when (and (not (blankish? path))
+  (when (and (not (benchmark-util/blankish? path))
              (.isFile (io/file path)))
     (context-ground-truth-ranks prepared (benchmark-io/read-json-file path))))
 (defn agent-baseline-context-options

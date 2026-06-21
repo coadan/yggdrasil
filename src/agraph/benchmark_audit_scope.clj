@@ -5,6 +5,7 @@
   and top-ranked file citations so operators can read each case as an
   audit scope instead of a flat diagnostic."
   (:require [agraph.benchmark-score :as benchmark-score]
+            [agraph.benchmark-util :as benchmark-util]
             [clojure.string :as str]))
 
 (def audit-scope-schema
@@ -13,14 +14,10 @@
 (def ^:private top-ranked-limit
   10)
 
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
-
 (defn- evidence-cited?
   [row]
   (->> (:evidence row)
-       (some #(not (blankish? %)))
+       (some #(not (benchmark-util/blankish? %)))
        boolean))
 
 (defn- path-evidence-cited?

@@ -1,16 +1,12 @@
 (ns agraph.benchmark-suite
   (:require [agraph.benchmark-paths :as benchmark-paths]
+            [agraph.benchmark-util :as benchmark-util]
             [agraph.fs :as fs]
             [clojure.edn :as edn]
-            [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [clojure.java.io :as io]))
 
 (def suite-schema
   "agraph.benchmark.suite/v1")
-
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
 
 (defn- canonical-or-relative
   [base path]
@@ -26,7 +22,7 @@
 (defn- normalize-repo
   [base repo]
   (let [repo-id (some-> (:id repo) str)]
-    (when (blankish? repo-id)
+    (when (benchmark-util/blankish? repo-id)
       (throw (ex-info "Benchmark repo is missing :id." {:repo repo})))
     (when-not (:root repo)
       (throw (ex-info "Benchmark repo is missing :root." {:repo repo})))
@@ -53,9 +49,9 @@
   [case]
   (let [case-id (some-> (:id case) str)
         repo-id (some-> (:repo-id case) str)]
-    (when (blankish? case-id)
+    (when (benchmark-util/blankish? case-id)
       (throw (ex-info "Benchmark case is missing :id." {:case case})))
-    (when (blankish? repo-id)
+    (when (benchmark-util/blankish? repo-id)
       (throw (ex-info "Benchmark case is missing :repo-id."
                       {:case-id case-id})))
     (assoc case
@@ -133,10 +129,10 @@
   [suite selector]
   (let [cases (:cases suite)
         case-ids (cond
-                   (blankish? selector) []
+                   (benchmark-util/blankish? selector) []
                    (sequential? selector) (->> selector
                                                (map str)
-                                               (remove blankish?)
+                                               (remove benchmark-util/blankish?)
                                                vec)
                    :else [(str selector)])]
     (if (empty? case-ids)

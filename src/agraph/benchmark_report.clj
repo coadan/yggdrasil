@@ -12,6 +12,7 @@
             [agraph.benchmark-score-artifacts :as benchmark-score-artifacts]
             [agraph.benchmark-suite :as benchmark-suite]
             [agraph.benchmark-system-improvement :as benchmark-system-improvement]
+            [agraph.benchmark-util :as benchmark-util]
             [clojure.set :as set]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -36,10 +37,6 @@
 
 (def ^:private aggregate-ranked-file-diagnostic-limit
   20)
-
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
 
 (defn- average
   [values]
@@ -329,14 +326,14 @@
         agent-input-fingerprint (get-in result [:agent :agentInputFingerprint])
         agent-input-status (cond
                              (not contract-current?) "legacy"
-                             (blankish? agent-input-fingerprint) "stale"
+                             (benchmark-util/blankish? agent-input-fingerprint) "stale"
                              (= expected-agent-input agent-input-fingerprint) "current"
                              :else "stale")
         status (cond
                  (not schema-current?) "legacy"
                  (not agent-result-schema-current?) "legacy"
                  (not contract-current?) "legacy"
-                 (blankish? actual) "legacy"
+                 (benchmark-util/blankish? actual) "legacy"
                  (not= "current" agent-input-status) "stale"
                  (= actual expected) "current"
                  :else "stale")]

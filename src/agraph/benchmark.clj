@@ -27,6 +27,7 @@
             [agraph.benchmark-check :as benchmark-check]
             [agraph.benchmark-compare :as benchmark-compare]
             [agraph.benchmark-system-improvement :as benchmark-system-improvement]
+            [agraph.benchmark-util :as benchmark-util]
             [clojure.string :as str]))
 
 (def suite-schema
@@ -148,10 +149,6 @@
   "Write agent localization packets for selected benchmark cases."
   [suite opts]
   (benchmark-agent-packet/agent-packets! suite opts))
-
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
 
 (defn read-suite
   "Read and normalize a benchmark suite EDN file."
@@ -572,7 +569,7 @@
 
 (defn- read-agent-hints
   [hints-path]
-  (when (and (not (blankish? hints-path))
+  (when (and (not (benchmark-util/blankish? hints-path))
              (.isFile (io/file hints-path)))
     (benchmark-io/read-json-file hints-path)))
 
@@ -612,18 +609,18 @@
 
 (defn- same-file?
   [a b]
-  (and (not (blankish? a))
-       (not (blankish? b))
+  (and (not (benchmark-util/blankish? a))
+       (not (benchmark-util/blankish? b))
        (= (fs/canonical-path a) (fs/canonical-path b))))
 
 (defn- compatible-agent-run?
   [prepared agent-result result-file run]
   (and (= "agraph" (str (:mode run)))
        (= (:case-id prepared) (:case-id run))
-       (or (blankish? (:agentId run))
-           (blankish? (:agentId agent-result))
+       (or (benchmark-util/blankish? (:agentId run))
+           (benchmark-util/blankish? (:agentId agent-result))
            (= (str (:agentId agent-result)) (str (:agentId run))))
-       (or (blankish? (get-in run [:artifacts :agentResultPath]))
+       (or (benchmark-util/blankish? (get-in run [:artifacts :agentResultPath]))
            (same-file? result-file (get-in run [:artifacts :agentResultPath])))))
 
 (defn- score-agent-result-graph-expectations

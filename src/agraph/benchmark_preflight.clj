@@ -1,5 +1,5 @@
 (ns agraph.benchmark-preflight
-  (:require [clojure.string :as str]))
+  (:require [agraph.benchmark-util :as benchmark-util]))
 
 (def maintenance-preflight-schema
   "agraph.benchmark.maintenance-preflight/v1")
@@ -13,13 +13,9 @@
 (def pass-statuses
   #{"passed" "not-applicable" "not-configured"})
 
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
-
 (defn- normalized-name
   [value]
-  (when-not (blankish? value)
+  (when-not (benchmark-util/blankish? value)
     (name (keyword value))))
 
 (defn- check

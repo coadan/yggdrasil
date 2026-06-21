@@ -4,6 +4,7 @@
             [agraph.benchmark-progress :as benchmark-progress]
             [agraph.benchmark-score :as benchmark-score]
             [agraph.benchmark-suite :as benchmark-suite]
+            [agraph.benchmark-util :as benchmark-util]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
             [clojure.java.io :as io]
@@ -12,10 +13,6 @@
 
 (def prepared-case-schema
   "agraph.benchmark.prepared-case/v1")
-
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
 
 (defn- repo-by-id
   [suite]
@@ -120,7 +117,7 @@
          vec)))
 (defn normalize-source-kind
   [value]
-  (when-not (blankish? value)
+  (when-not (benchmark-util/blankish? value)
     (name (keyword value))))
 (defn declared-source-kinds
   [case]
@@ -278,7 +275,7 @@
   [input-text truth]
   (let [text (str input-text)
         mentioned-files (->> (:changedFiles truth)
-                             (filter #(and (not (blankish? %))
+                             (filter #(and (not (benchmark-util/blankish? %))
                                            (str/includes? text %)))
                              vec)]
     {:hinted (boolean (seq mentioned-files))

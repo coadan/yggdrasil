@@ -1,5 +1,6 @@
 (ns agraph.benchmark-prediction
   (:require [agraph.benchmark-prepare :as benchmark-prepare]
+            [agraph.benchmark-util :as benchmark-util]
             [agraph.text :as text]
             [clojure.java.io :as io]
             [clojure.set :as set]
@@ -36,13 +37,10 @@
   0.55)
 (def ^:private retrieved-source-rank-bonus-step
   0.025)
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
 (defn- parse-double-safe
   [value]
   (try
-    (when-not (blankish? value)
+    (when-not (benchmark-util/blankish? value)
       (Double/parseDouble (str value)))
     (catch Exception _
       nil)))
@@ -59,7 +57,7 @@
   (benchmark-prepare/scanned-path-kinds root))
 (defn- existing-file-path?
   [root path]
-  (and (not (blankish? path))
+  (and (not (benchmark-util/blankish? path))
        (or (nil? root)
            (.isFile (io/file root path)))))
 (defn- bounded-confidence
@@ -74,7 +72,7 @@
 (defn- evidence-text
   [doc]
   (str/join "\n"
-            (remove blankish?
+            (remove benchmark-util/blankish?
                     [(get-in doc [:source :path])
                      (get-in doc [:source :heading])
                      (:snippet doc)])))
@@ -98,7 +96,7 @@
     (set/intersection query-pairs evidence-pairs)))
 (defn- identity-text
   [& values]
-  (str/join "\n" (remove blankish? values)))
+  (str/join "\n" (remove benchmark-util/blankish? values)))
 (defn- identity-compound-token-pair-matches
   [query-tokens & values]
   (compact-compound-token-pair-matches query-tokens (apply identity-text values)))
@@ -282,7 +280,7 @@
 (defn- architecture-evidence-text
   [row]
   (str/join "\n"
-            (remove blankish?
+            (remove benchmark-util/blankish?
                     [(:path row)
                      (:kind row)
                      (:fileKind row)
@@ -394,7 +392,7 @@
                                                                         set)
                              evidence (->> ordered
                                            (mapcat :evidence)
-                                           (remove blankish?)
+                                           (remove benchmark-util/blankish?)
                                            distinct
                                            vec)
                              doc-count (count (filter #(= :doc (:evidence-kind %))
@@ -688,7 +686,7 @@
   [actions]
   (keep (fn [action]
           (let [command (:command action)]
-            (when-not (blankish? command)
+            (when-not (benchmark-util/blankish? command)
               command)))
         actions))
 (defn- packet-next-action-commands
@@ -712,7 +710,7 @@
   (->> (concat (map drilldown-command (:drilldowns packet))
                (get-in packet [:answerability :next])
                (packet-next-action-commands packet))
-       (remove blankish?)
+       (remove benchmark-util/blankish?)
        distinct
        vec))
 (defn context-packet->agent-result

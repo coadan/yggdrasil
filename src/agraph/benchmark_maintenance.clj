@@ -5,6 +5,7 @@
             [agraph.benchmark-agent-score :as benchmark-agent-score]
             [agraph.benchmark-paths :as benchmark-paths]
             [agraph.benchmark-prepare :as benchmark-prepare]
+            [agraph.benchmark-util :as benchmark-util]
             [agraph.evidence :as evidence]
             [agraph.fs :as fs]
             [agraph.hash :as hash]
@@ -13,10 +14,6 @@
             [agraph.xtdb :as store]
             [clojure.java.io :as io]
             [clojure.string :as str]))
-
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
 
 (defn- normalize-package-import
   [package-import]
@@ -32,7 +29,7 @@
     (let [value (if (= :ecosystem field)
                   (name value)
                   (str value))]
-      (when-not (blankish? value)
+      (when-not (benchmark-util/blankish? value)
         value))))
 
 (defn- validate-package-import!
@@ -141,7 +138,7 @@
 (defn- benchmark-activity-summary
   [prepared agent-result run-status]
   (str/join " "
-            (remove blankish?
+            (remove benchmark-util/blankish?
                     ["benchmark-agent-result"
                      (:case-id prepared)
                      (:agentId agent-result)
@@ -164,7 +161,7 @@
                          (:case-id prepared)
                          (:caseFingerprint prepared)
                          (:agentInputFingerprint agent-result)]
-                        (remove blankish?)
+                        (remove benchmark-util/blankish?)
                         distinct
                         vec)
         item {:xt/id item-id

@@ -4,6 +4,7 @@
             [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
             [agraph.benchmark-prepare :as benchmark-prepare]
+            [agraph.benchmark-util :as benchmark-util]
             [agraph.fs :as fs]
             [clojure.string :as str]))
 
@@ -12,10 +13,6 @@
 
 (def agent-score-schema
   "agraph.benchmark.agent-score/v3")
-
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
 
 (defn- score-json-file?
   [file]
@@ -79,14 +76,14 @@
   [suite case opts]
   (let [expected-parser-worker-mode (benchmark-agent-packet/parser-worker-option opts)
         parser-worker-match? (fn [score]
-                               (or (blankish? expected-parser-worker-mode)
+                               (or (benchmark-util/blankish? expected-parser-worker-mode)
                                    (= expected-parser-worker-mode
                                       (get-in score [:parserWorker :mode]))))]
     (->> (agent-score-files suite case opts)
          (map benchmark-io/read-json-file)
-         (filter #(or (blankish? (:mode opts))
+         (filter #(or (benchmark-util/blankish? (:mode opts))
                       (= (:mode opts) (get-in % [:agent :mode]))))
-         (filter #(or (blankish? (:agent-id opts))
+         (filter #(or (benchmark-util/blankish? (:agent-id opts))
                       (= (:agent-id opts) (get-in % [:agent :agentId]))))
          (filter parser-worker-match?)
          vec)))

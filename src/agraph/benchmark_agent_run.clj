@@ -2,6 +2,7 @@
   (:require [agraph.benchmark-agent-score :as benchmark-agent-score]
             [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
+            [agraph.benchmark-util :as benchmark-util]
             [agraph.extract :as extract]
             [agraph.fs :as fs]
             [charred.api :as json]
@@ -31,10 +32,6 @@
   ["Copy caseId, caseFingerprint, and agentInputFingerprint from the current packet or AGRAPH_BENCH_* environment variables."
    "Use warnings only for current result-validity blockers verified in this run; do not carry over stale graph-health text from older results."])
 
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
-
 (defn- parser-worker-option
   [opts]
   (extract/normalize-parser-worker-mode (:parser-worker opts)))
@@ -60,7 +57,7 @@
     profile))
 (defn ensure-agent-run-id!
   [opts]
-  (when (blankish? (:agent-id opts))
+  (when (benchmark-util/blankish? (:agent-id opts))
     (throw (ex-info "Missing benchmark agent id." {:option "--agent"}))))
 (defn- process-output-future
   [stream]

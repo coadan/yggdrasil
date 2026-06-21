@@ -1,13 +1,10 @@
 (ns agraph.benchmark-score
-  (:require [clojure.set :as set]
+  (:require [agraph.benchmark-util :as benchmark-util]
+            [clojure.set :as set]
             [clojure.string :as str]))
 
 (def recall-limits
   [5 10 20])
-
-(defn- blankish?
-  [value]
-  (str/blank? (str value)))
 
 (defn target-ground-truth-files
   [truth]
@@ -15,7 +12,7 @@
 (defn- file-row
   [rank result]
   (when (and (#{:node :chunk} (:target-kind result))
-             (not (blankish? (:path result))))
+             (not (benchmark-util/blankish? (:path result))))
     {:path (:path result)
      :rank rank
      :score (:score result)
@@ -117,7 +114,7 @@
 (defn evidence-cited?
   [row]
   (->> (:evidence row)
-       (some #(not (blankish? %)))
+       (some #(not (benchmark-util/blankish? %)))
        boolean))
 (defn- evidence-citation-rate
   [top-files]
@@ -142,7 +139,7 @@
   [top-files]
   (->> top-files
        (mapcat :evidence)
-       (remove blankish?)
+       (remove benchmark-util/blankish?)
        (map str)
        vec))
 (defn- expected-evidence-cited?
