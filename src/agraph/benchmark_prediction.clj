@@ -134,6 +134,9 @@
        :matched-compound-token-pairs (compact-compound-token-pair-matches
                                       query-tokens
                                       (evidence-text doc))
+       :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
+                                               query-tokens
+                                               path)
        :evidence [(str "context-doc:"
                        path
                        (line-label source)

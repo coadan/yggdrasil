@@ -1328,6 +1328,29 @@
     (is (= 1 (get-in files [0 :metrics :matchedIdentityCompoundTokenPairCount])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-uses-doc-identity-compound-token-pairs
+  (let [root (temp-dir "agraph-bench-doc-identity-compound-token-pairs")
+        _ (spit-file! root "tests/Demo/TypeHandlerTests.cs" "class TypeHandlerTests {}\n")
+        _ (spit-file! root "tests/Demo/MiscTests.cs" "class MiscTests {}\n")
+        packet {:query "type handler regression tests"
+                :docs [{:source {:path "tests/Demo/MiscTests.cs"
+                                 :heading "handler regression"}
+                        :score 1.4
+                        :snippet "handler regression"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "tests/Demo/TypeHandlerTests.cs"
+                                 :heading "RecordingTypeHandler.ParseWasCalled"}
+                        :score 0.8
+                        :snippet "parse was called"
+                        :provenance "retrieved-doc"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["tests/Demo/TypeHandlerTests.cs" "tests/Demo/MiscTests.cs"]
+           (mapv :path files)))
+    (is (= 1 (get-in files [0 :metrics :matchedIdentityCompoundTokenPairCount])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
   (let [root (temp-dir "agraph-bench-candidate-file-quota")
         _ (doseq [path ["src/doc-1.clj" "src/doc-2.clj" "src/doc-3.clj"
