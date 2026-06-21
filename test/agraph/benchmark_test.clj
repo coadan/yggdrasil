@@ -176,6 +176,47 @@
             "audit-scope-runtime-config"]
            measured-architecture-tags))))
 
+(deftest architecture-coverage-suite-expands-measured-classes
+  (let [suite (benchmark/read-suite "benchmarks/architecture-coverage.edn")
+        cases (:cases suite)
+        tags (set (mapcat :tags cases))
+        tag-counts (frequencies (mapcat :tags cases))
+        measured-architecture-tags (->> tag-counts
+                                        (filter (fn [[tag count]]
+                                                  (and (benchmark-classes/architecture-class-tag?
+                                                        tag)
+                                                       (<= 2 count))))
+                                        (mapv first)
+                                        sort)
+        source-kinds (set (mapcat #(get-in % [:coverage :source-kinds]) cases))
+        repo-ids (set (map :repo-id cases))
+        node-kinds (set (mapcat #(map :kind (get-in % [:expectations :nodes])) cases))]
+    (is (= "architecture-coverage" (:id suite)))
+    (is (= 4 (count cases)))
+    (is (every? #(contains? (set (:tags %)) "synthetic") cases))
+    (is (every? #(contains? (set (:tags %)) "problem-architecture") cases))
+    (is (every? #(seq (get-in % [:coverage :source-kinds])) cases))
+    (is (every? #(seq (get-in % [:ground-truth :localization-files])) cases))
+    (is (every? #(or (seq (get-in % [:expectations :evidence]))
+                     (seq (get-in % [:expectations :nodes]))
+                     (seq (get-in % [:expectations :chunks]))
+                     (seq (get-in % [:expectations :edges])))
+                 cases))
+    (is (every? repo-ids ["opentelemetry-collector" "terraform-aws-vpc"
+                          "flask" "junit-framework"]))
+    (is (every? source-kinds [:go :terraform :python :java]))
+    (is (every? node-kinds [:interface :terraform-resource :terraform-variable :class]))
+    (is (every? tags
+                ["architecture-cross-system-impact"
+                 "architecture-data-ownership"]))
+    (is (= ["architecture-cross-system-impact"
+            "architecture-data-ownership"
+            "audit-scope-dependencies"
+            "audit-scope-runtime-config"]
+           measured-architecture-tags))
+    (is (<= 2 (get tag-counts "architecture-cross-system-impact")))
+    (is (<= 2 (get tag-counts "architecture-data-ownership")))))
+
 (deftest scores-file-localization
   (let [result {:groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]
                               :unsupportedGroundTruthFiles []}
