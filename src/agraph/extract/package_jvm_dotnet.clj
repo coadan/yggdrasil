@@ -163,7 +163,11 @@
       (str/starts-with? (str reference-name) "System.")))
 
 (defn dotnet-assembly-references
-  "Extract explicit non-System assembly references from MSBuild project files."
+  "Extract explicit non-System `<Reference Include=...>` assembly facts from
+  MSBuild XML. The regex is intentionally shallow: it captures complete
+  self-closing or paired Reference elements, reads only the Include attribute,
+  strips assembly metadata after the first comma, and ignores path/property
+  references plus System.* runtime assemblies."
   [content]
   (->> (re-seq #"(?is)<Reference\b[^>]*(?:/>|>.*?</Reference>)"
                content)
@@ -183,7 +187,10 @@
        vec))
 
 (defn dotnet-nuget-root-references
-  "Extract package facts from explicit $(NuGetPackageRoot) file references."
+  "Extract NuGet package facts from explicit `$(NuGetPackageRoot)` file paths
+  embedded in Include/Update attributes. This covers MSBuild assets that point
+  directly into the local NuGet cache, deriving package and version from the two
+  path segments immediately after `$(NuGetPackageRoot)`."
   [content]
   (->> (re-seq #"(?is)\b(?:Include|Update)\s*=\s*['\"][^'\"]*\$\(\s*NuGetPackageRoot\s*\)[\\/]+([^\\/\"']+)[\\/]+([^\\/\"']+)"
                content)
