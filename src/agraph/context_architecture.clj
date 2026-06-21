@@ -35,13 +35,17 @@
   [query-tokens text]
   (min 4 (token-score query-tokens text)))
 
-(defn- ranked-result-paths
+(defn- ranked-result-path-order
   [results n]
   (->> results
        (keep :path)
        distinct
        (take n)
-       set))
+       vec))
+
+(defn- ranked-result-paths
+  [results n]
+  (set (ranked-result-path-order results n)))
 
 (defn- accepted-system-row
   [system]
@@ -469,6 +473,10 @@
   [row]
   (:fileKind row))
 
+(defn- runtime-evidence-lane-key
+  [row]
+  [(:kind row) (:fileKind row)])
+
 (defn- runtime-evidence-file-kind-counts
   [rows]
   (frequencies (keep runtime-evidence-file-kind-key rows)))
@@ -494,6 +502,71 @@
        (filter #(= file-kind (runtime-evidence-file-kind-key %)))
        (remove #(contains? selected-ids (:id %)))
        first))
+
+(defn- runtime-evidence-path-covered?
+  [rows path]
+  (boolean (some #(= path (:path %)) rows)))
+
+(defn- best-runtime-evidence-path-candidate
+  [rows selected-ids path]
+  (->> rows
+       (filter #(= path (:path %)))
+       (remove #(contains? selected-ids (:id %)))
+       first))
+
+(defn- replaceable-runtime-evidence-path-row?
+  [file-kind-counts protected-paths candidate row]
+  (let [file-kind (runtime-evidence-file-kind-key row)
+        protected? (contains? protected-paths (:path row))
+        same-lane? (= (runtime-evidence-lane-key candidate)
+                      (runtime-evidence-lane-key row))
+        stronger-lane-candidate? (and same-lane?
+                                      (< (double (or (:score row) 0.0))
+                                         (double (or (:score candidate) 0.0))))]
+    (or (and protected?
+             stronger-lane-candidate?)
+        (and (not protected?)
+             (or (= (runtime-evidence-file-kind-key candidate) file-kind)
+                 (< 1 (long (or (get file-kind-counts file-kind) 0))))))))
+
+(defn- runtime-evidence-path-replacement-index
+  [selected protected-paths candidate]
+  (let [file-kind-counts (runtime-evidence-file-kind-counts selected)]
+    (->> selected
+         (map-indexed vector)
+         reverse
+         (some (fn [[idx row]]
+                 (when (replaceable-runtime-evidence-path-row?
+                        file-kind-counts
+                        protected-paths
+                        candidate
+                        row)
+                   idx))))))
+
+(defn- preserve-runtime-evidence-result-path-coverage
+  [rows selected selected-path-order]
+  (loop [selected (vec selected)
+         missing-paths (vec selected-path-order)
+         protected-paths #{}]
+    (if-let [path (first missing-paths)]
+      (let [protected-paths (if (runtime-evidence-path-covered? selected path)
+                              (conj protected-paths path)
+                              protected-paths)
+            selected-ids (selected-runtime-evidence-ids selected)
+            candidate (best-runtime-evidence-path-candidate rows selected-ids path)
+            replace-idx (runtime-evidence-path-replacement-index selected
+                                                                 protected-paths
+                                                                 candidate)]
+        (recur (if (and candidate
+                        replace-idx
+                        (not (runtime-evidence-path-covered? selected path)))
+                 (assoc selected replace-idx candidate)
+                 selected)
+               (subvec missing-paths 1)
+               (if candidate
+                 (conj protected-paths path)
+                 protected-paths)))
+      selected)))
 
 (defn- preserve-runtime-evidence-file-kind-diversity
   [rows selected]
@@ -553,7 +626,7 @@
           state
           rows))
 (defn- take-diverse-system-evidence
-  [rows limit]
+  [rows limit selected-path-order]
   (let [initial-state {:seen-ids #{}
                        :path-counts {}
                        :system-counts {}
@@ -561,12 +634,19 @@
         diverse-state (take-system-evidence-pass rows limit initial-state true)
         filled-state (if (< (count (:out diverse-state)) limit)
                        (take-system-evidence-pass rows limit diverse-state false)
-                       diverse-state)]
-    (preserve-runtime-evidence-file-kind-diversity rows (:out filled-state))))
+                       diverse-state)
+        file-kind-selected (preserve-runtime-evidence-file-kind-diversity
+                            rows
+                            (:out filled-state))]
+    (preserve-runtime-evidence-result-path-coverage rows
+                                                    file-kind-selected
+                                                    selected-path-order)))
 (defn select-system-evidence
   [query-tokens selected-system-ids results evidence limit]
   (let [selected-system-ids (set selected-system-ids)
-        selected-paths (set (ranked-result-paths results runtime-evidence-result-path-limit))
+        selected-path-order (ranked-result-path-order results
+                                                      runtime-evidence-result-path-limit)
+        selected-paths (set selected-path-order)
         selected-value-file-kinds (selected-evidence-value-file-kinds selected-paths
                                                                       evidence)]
     (->> evidence
@@ -586,7 +666,7 @@
                         :sourceLine
                         :kind
                         :label))
-         (#(take-diverse-system-evidence % limit))
+         (#(take-diverse-system-evidence % limit selected-path-order))
          vec)))
 (def dependency-relations
   #{"imports-package" "requires" "version-of" "resolves"})

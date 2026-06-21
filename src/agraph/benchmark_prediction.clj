@@ -19,6 +19,8 @@
   0.45)
 (def ^:private rank-score-compound-pair-weight
   0.35)
+(def ^:private rank-score-doc-compound-pair-weight
+  0.12)
 (def ^:private rank-score-identity-compound-pair-weight
   1.00)
 (def ^:private rank-score-candidate-only-graph-weight
@@ -475,6 +477,9 @@
                              candidate-only-compound-pair-count (if (zero? doc-count)
                                                                   (count matched-compound-token-pairs)
                                                                   0)
+                             doc-supported-compound-pair-count (if (pos? doc-count)
+                                                                 (count matched-compound-token-pairs)
+                                                                 0)
                              retrieved-source-count (count (filter :retrieved-source?
                                                                    ordered))
                              exact-path-source-count (count (filter :exact-path-source?
@@ -499,6 +504,9 @@
                                            (* rank-score-compound-pair-weight
                                               (min rank-score-ordered-pair-cap
                                                    candidate-only-compound-pair-count))
+                                           (* rank-score-doc-compound-pair-weight
+                                              (min rank-score-ordered-pair-cap
+                                                   doc-supported-compound-pair-count))
                                            (* rank-score-identity-compound-pair-weight
                                               (min rank-score-ordered-pair-cap
                                                    (count matched-identity-compound-token-pairs)))

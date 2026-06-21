@@ -1627,6 +1627,67 @@
             "evidence:sql-security-1"]
            (mapv :id runtime-evidence)))))
 
+(deftest runtime-evidence-keeps-ranked-result-path-coverage
+  (let [runtime-evidence (#'context/select-system-evidence
+                          ["trigger" "owner" "security" "setup"]
+                          ["system:ops"]
+                          [{:repo-id "app"
+                            :path "db/init.sql"
+                            :score 1.0}
+                           {:repo-id "app"
+                            :path "ops/auth.sql"
+                            :score 0.9}]
+                          [{:xt/id "evidence:ops-security"
+                            :system-id "system:ops"
+                            :repo-id "app"
+                            :path "ops/auth.sql"
+                            :file-kind :sql
+                            :kind :sql-security
+                            :label "SECURITY DEFINER owner trigger setup"
+                            :normalized-value "security-definer"
+                            :source-line 10
+                            :confidence 0.68}
+                           {:xt/id "evidence:ops-route"
+                            :system-id "system:ops"
+                            :repo-id "app"
+                            :path "ops/route.txt"
+                            :file-kind :text
+                            :kind :route
+                            :label "trigger owner security setup route"
+                            :normalized-value "trigger-owner-security-setup-route"
+                            :source-line 11
+                            :confidence 0.55}
+                           {:xt/id "evidence:ops-trace"
+                            :system-id "system:ops"
+                            :repo-id "app"
+                            :path "ops/trace.txt"
+                            :file-kind :text
+                            :kind :route
+                            :label "trigger owner security setup trace"
+                            :normalized-value "trigger-owner-security-setup-trace"
+                            :source-line 12
+                            :confidence 0.55}
+                           {:xt/id "evidence:init-security"
+                            :system-id "system:db"
+                            :repo-id "app"
+                            :path "db/init.sql"
+                            :file-kind :sql
+                            :kind :sql-security
+                            :label "SECURITY DEFINER"
+                            :normalized-value "security-definer"
+                            :source-line 13
+                            :confidence 0.68}]
+                          3)]
+    (is (contains? (set (map :id runtime-evidence))
+                   "evidence:ops-security"))
+    (is (contains? (set (map :id runtime-evidence))
+                   "evidence:init-security"))
+    (is (= #{"db/init.sql" "ops/auth.sql"}
+           (->> runtime-evidence
+                (map :path)
+                (filter #(#{"db/init.sql" "ops/auth.sql"} %))
+                set)))))
+
 (deftest runtime-evidence-boosts-files-sharing-selected-fact-values
   (let [runtime-evidence (#'context/select-system-evidence
                           ["database" "runtime" "config" "env"]

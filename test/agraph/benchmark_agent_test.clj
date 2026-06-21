@@ -1402,6 +1402,32 @@
     (is (= 1 (get-in files [0 :metrics :matchedIdentityCompoundTokenPairCount])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-uses-doc-supported-compound-token-pairs
+  (let [root (temp-dir "agraph-bench-doc-compound-token-pairs")
+        _ (spit-file! root "migrations/schema.sql" "-- schema\n")
+        _ (spit-file! root "migrations/db/init-scripts/post-setup.sql" "-- setup\n")
+        packet {:query "post setup"
+                :docs [{:source {:path "migrations/schema.sql"
+                                 :heading "setup"}
+                        :score 1.0
+                        :snippet "setup"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "migrations/db/init-scripts/post-setup.sql"
+                                 :heading "post setup"}
+                        :score 0.85
+                        :snippet "post setup"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["migrations/db/init-scripts/post-setup.sql"
+            "migrations/schema.sql"]
+           (mapv :path files)))
+    (is (= 1 (get-in files [0 :metrics :matchedCompoundTokenPairCount])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
   (let [root (temp-dir "agraph-bench-candidate-file-quota")
         _ (doseq [path ["src/doc-1.clj" "src/doc-2.clj" "src/doc-3.clj"
