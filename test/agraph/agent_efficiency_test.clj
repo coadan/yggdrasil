@@ -1136,3 +1136,73 @@
     (is (.contains out "Claim readiness: supported"))
     (is (.contains out "Claim readiness notes:"))
     (is (.contains out "Wrote "))))
+
+(deftest case-deltas-include-audit-scope-summaries-when-present
+  (let [shell (assoc-in shell-report
+                        [:results 0 :auditScope]
+                        {:groundTruthSummary {:total 3
+                                              :found 2
+                                              :missed 1
+                                              :presentInContextButMissed 0}
+                         :graphExpectationSummary {:expectedEvidence 2
+                                                   :foundEvidence 2}})
+        agraph (assoc-in agraph-report
+                         [:results 0 :auditScope]
+                         {:groundTruthSummary {:total 3
+                                               :found 3
+                                               :missed 0
+                                               :presentInContextButMissed 0}
+                          :graphExpectationSummary {:expectedEvidence 2
+                                                    :foundEvidence 2}})
+        comparison (agent-efficiency/compare-reports shell agraph)
+        case-1 (first (:caseDeltas comparison))]
+    (is (= "case-1" (:caseId case-1)))
+    (is (= {:groundTruth {:total 3
+                          :found 2
+                          :missed 1
+                          :presentInContextButMissed 0}
+            :graphExpectations {:expectedEvidence 2
+                                :foundEvidence 2}}
+           (:shellOnlyAuditScope case-1)))
+    (is (= {:groundTruth {:total 3
+                          :found 3
+                          :missed 0
+                          :presentInContextButMissed 0}
+            :graphExpectations {:expectedEvidence 2
+                                :foundEvidence 2}}
+           (:agraphAuditScope case-1)))))
+
+(deftest case-deltas-omit-audit-scope-when-absent
+  (let [comparison (agent-efficiency/compare-reports shell-report agraph-report)
+        case-1 (first (:caseDeltas comparison))]
+    (is (nil? (:shellOnlyAuditScope case-1)))
+    (is (nil? (:agraphAuditScope case-1)))))
+
+(deftest markdown-report-includes-case-audit-scopes-when-present
+  (let [shell (assoc-in shell-report
+                        [:results 0 :auditScope]
+                        {:groundTruthSummary {:total 3
+                                              :found 2
+                                              :missed 1
+                                              :presentInContextButMissed 1}
+                         :graphExpectationSummary {:expectedEvidence 2
+                                                   :foundEvidence 1}})
+        agraph (assoc-in agraph-report
+                         [:results 0 :auditScope]
+                         {:groundTruthSummary {:total 3
+                                               :found 3
+                                               :missed 0
+                                               :presentInContextButMissed 0}
+                          :graphExpectationSummary {:expectedEvidence 2
+                                                    :foundEvidence 2}})
+        comparison (agent-efficiency/compare-reports shell agraph)
+        markdown (agent-efficiency/markdown-report comparison)]
+    (is (.contains markdown "## Case Audit Scopes"))
+    (is (.contains markdown "case-1:"))
+    (is (.contains markdown "shell: ground-truth 2/3 found, 1 present-in-context, graph-evidence 1/2"))
+    (is (.contains markdown "agraph: ground-truth 3/3 found, graph-evidence 2/2"))))
+
+(deftest markdown-report-omits-case-audit-scopes-when-absent
+  (let [comparison (agent-efficiency/compare-reports shell-report agraph-report)
+        markdown (agent-efficiency/markdown-report comparison)]
+    (is (not (.contains markdown "## Case Audit Scopes")))))

@@ -794,6 +794,18 @@
               (not token-cost-metrics?)
               (conj "Token/cost telemetry is unavailable; token and cost deltas are not part of this claim."))}))
 
+(defn- case-audit-scope-summary
+  "Extract a compact audit-scope summary from one case result."
+  [result]
+  (let [audit-scope (:auditScope result)]
+    (when (map? audit-scope)
+      (let [gt (:groundTruthSummary audit-scope)
+            ge (:graphExpectationSummary audit-scope)]
+        (not-empty
+         (cond-> {}
+           gt (assoc :groundTruth gt)
+           ge (assoc :graphExpectations ge)))))))
+
 (defn- case-deltas
   [shell-report agraph-report]
   (let [shell-by-case (result-by-case shell-report)
@@ -802,13 +814,19 @@
                              (filter #(contains? agraph-by-case %))
                              sort)]
     (mapv (fn [case-id]
-            (let [deltas (mapv #(metric-delta (get shell-by-case case-id)
-                                              (get agraph-by-case case-id)
+            (let [shell-result (get shell-by-case case-id)
+                  agraph-result (get agraph-by-case case-id)
+                  deltas (mapv #(metric-delta shell-result
+                                              agraph-result
                                               %)
-                               case-score-specs)]
-              {:caseId case-id
-               :summary (aggregate-summary deltas {:sharedCases 1})
-               :deltas deltas}))
+                               case-score-specs)
+                  shell-audit (case-audit-scope-summary shell-result)
+                  agraph-audit (case-audit-scope-summary agraph-result)]
+              (cond-> {:caseId case-id
+                       :summary (aggregate-summary deltas {:sharedCases 1})
+                       :deltas deltas}
+                shell-audit (assoc :shellOnlyAuditScope shell-audit)
+                agraph-audit (assoc :agraphAuditScope agraph-audit))))
           shared-case-ids)))
 
 (defn- headline-metric-deltas-from-deltas
@@ -1036,6 +1054,34 @@
        ", regressed: " (:regressedMetrics summary)
        ", unavailable: " (:unavailableMetrics summary) ")"))
 
+(defn- audit-scope-line
+  [label summary]
+  (let [gt (:groundTruth summary)
+        ge (:graphExpectations summary)]
+    (str label ": "
+         (when gt
+           (str "ground-truth " (:found gt 0) "/" (:total gt 0)
+                " found"
+                (when (pos? (long (:presentInContextButMissed gt 0)))
+                  (str ", " (:presentInContextButMissed gt 0)
+                       " present-in-context"))))
+         (when ge
+           (str (when gt ", ")
+                "graph-evidence " (:foundEvidence ge 0) "/" (:expectedEvidence ge 0))))))
+
+(defn- case-audit-scope-line
+  [case-delta]
+  (let [shell-audit (:shellOnlyAuditScope case-delta)
+        agraph-audit (:agraphAuditScope case-delta)]
+    (when (or shell-audit agraph-audit)
+      (str "- " (:caseId case-delta) ":\n"
+           "  - " (if shell-audit
+                    (audit-scope-line "shell" shell-audit)
+                    "shell: no audit scope")
+           "\n  - " (if agraph-audit
+                      (audit-scope-line "agraph" agraph-audit)
+                      "agraph: no audit scope")))))
+
 (defn- format-metric-value
   [value]
   (if (some? value)
@@ -1167,6 +1213,9 @@
               (when (seq case-deltas)
                 (concat ["" "## Case Signals" ""]
                         (map case-delta-line case-deltas)))
+              (when-let [audit-lines (seq (keep case-audit-scope-line case-deltas))]
+                (concat ["" "## Case Audit Scopes" ""]
+                        audit-lines))
               (when (seq problem-groups)
                 (concat ["" "## Problem-Class Signals" ""]
                         (map tag-group-line problem-groups)))
