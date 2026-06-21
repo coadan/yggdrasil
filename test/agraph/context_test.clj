@@ -1975,3 +1975,39 @@
                       :provenance "retrieved-doc"
                       :lines [20 21]}]}]
            (:snippets fitted)))))
+
+(deftest fit-budget-reserves-candidate-file-budget-when-entities-consume-budget
+  (let [fit-budget @#'context/fit-budget
+        big-entity {:id "system:large"
+                    :label (apply str (repeat 500 "entity-token "))
+                    :kind "candidate-system"
+                    :path "src/main"
+                    :why "retrieval match"
+                    :candidateEvidence [{:type "path-cluster"
+                                         :path "src/main/file.clj"
+                                         :label (apply str (repeat 100 "evidence "))}]}
+        packet {:schema context/schema
+                :query "find test engine"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 4000}
+                :entities [big-entity big-entity big-entity]
+                :edges []
+                :activity []
+                :warnings []
+                :drilldowns []
+                :candidateFiles (mapv (fn [idx]
+                                        {:path (str "src/file_" idx ".clj")
+                                         :rank (inc idx)
+                                         :score 0.9
+                                         :targetKind "chunk"
+                                         :label (str "file " idx)})
+                                      (range 10))
+                :docs []}
+        fitted (fit-budget packet [] 4000)]
+    (is (seq (:candidateFiles fitted))
+        "candidate files should survive even when entities consume most of the budget")
+    (is (= "src/file_0.clj" (:path (first (:candidateFiles fitted)))))
+    (is (<= (context/estimate-tokens fitted) 4000))))

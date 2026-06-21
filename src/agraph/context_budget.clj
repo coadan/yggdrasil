@@ -171,6 +171,36 @@
   (if (contains? packet :systems)
     (update packet :systems compact-systems)
     packet))
+(def ^:private compact-entity-label-chars
+  160)
+
+(defn- compact-string
+  [value limit]
+  (when (some? value)
+    (let [s (str value)]
+      (if (< limit (count s))
+        (str (subs s 0 limit) "...")
+        s))))
+
+(defn- compact-entity
+  [entity]
+  (cond-> (select-keys entity [:id
+                               :kind
+                               :path
+                               :repo
+                               :status
+                               :rank
+                               :score
+                               :attrs
+                               :metrics])
+    (contains? entity :label)
+    (assoc :label (compact-string (:label entity)
+                                  compact-entity-label-chars))))
+(defn- compact-entities-in-packet
+  [packet]
+  (if (contains? packet :entities)
+    (update packet :entities #(mapv compact-entity %))
+    packet))
 (defn- compact-audit-scope
   [scope]
   (cond-> (select-keys scope [:kind
@@ -227,6 +257,7 @@
                     #(dissoc % :sourceCoverage)
                     compact-architecture-in-packet
                     compact-systems-in-packet
+                    compact-entities-in-packet
                     compact-audit-scopes-in-packet
                     compact-relationships-in-packet
                     compact-blast-radius-in-packet
@@ -367,6 +398,15 @@
         (if (<= (estimate-tokens trimmed) budget)
           (recur (inc mid) hi mid)
           (recur lo (dec mid) best))))))
+(def ^:private candidate-file-reserve-fraction
+  0.25)
+
+(defn- candidate-file-reserve
+  [budget candidate-count]
+  (if (pos? (long candidate-count))
+    (long (* (double budget) candidate-file-reserve-fraction))
+    0))
+
 (defn- fit-candidate-files
   [packet budget]
   (let [candidates (vec (:candidateFiles packet))
@@ -377,7 +417,13 @@
       packet
 
       :else
-      (let [compact-candidates (mapv compact-candidate-file candidates)
+      (let [reserve (candidate-file-reserve budget total)
+            candidate-context-budget (long (- budget reserve))
+            packet (-> packet
+                       (assoc :candidateFiles [])
+                       (trim-optional-context-metadata candidate-context-budget)
+                       (assoc :candidateFiles candidates))
+            compact-candidates (mapv compact-candidate-file candidates)
             keep-count (fitting-candidate-prefix packet compact-candidates budget)]
         (if (pos? keep-count)
           (-> packet
@@ -396,6 +442,7 @@
               (add-warning-with-budget
                "candidate files omitted to fit context budget"
                budget)))))))
+
 (defn fit-budget
   [packet docs budget]
   (let [candidate-files (vec (:candidateFiles packet))
