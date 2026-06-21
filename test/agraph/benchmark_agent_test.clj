@@ -1635,3 +1635,73 @@
                  (mapv :path (:suspectedFiles result))))
           (is (every? #(seq (:evidence %)) (:suspectedFiles result)))
           (is (seq (:commands result))))))))
+
+(deftest deepseek-worker-emits-current-agent-result-contract
+  (let [repo (temp-dir "agraph-bench-deepseek-worker-repo")
+        request-dir (temp-dir "agraph-bench-deepseek-worker-request")
+        prompt-path (spit-file! request-dir
+                                "prompt.md"
+                                "# Prompt\nFind the broken app file.\n")
+        context-path (spit-json!
+                      request-dir
+                      "context.json"
+                      {:candidateFiles [{:path "src/app.clj"}]
+                       :coverage {:sourceKinds ["code"]}})
+        mock-response-path (spit-json!
+                            request-dir
+                            "deepseek-response.json"
+                            {:usage {:input_tokens 11
+                                     :output_tokens 7}
+                             :stop_reason "tool_use"
+                             :content [{:type "tool_use"
+                                        :id "toolu_1"
+                                        :name "write_result"
+                                        :input {:result
+                                                {:suspectedFiles
+                                                 [{:path "src/app.clj"
+                                                   :rank 1
+                                                   :confidence 0.9
+                                                   :reason "Mock DeepSeek result."
+                                                   :evidence ["src/app.clj contains the app entry."]}]
+                                                 :summary "Mocked DeepSeek localization."}}}]})
+        result-path (.getPath (io/file request-dir "result.json"))]
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (let [{:keys [exit err]} (shell/sh "env"
+                                       (str "AGRAPH_BENCH_PROMPT=" prompt-path)
+                                       (str "AGRAPH_BENCH_RESULT=" result-path)
+                                       (str "AGRAPH_BENCH_WORKTREE=" repo)
+                                       "AGRAPH_BENCH_CASE_ID=case-1"
+                                       "AGRAPH_BENCH_CASE_FINGERPRINT=sha256:case-1"
+                                       "AGRAPH_BENCH_AGENT_INPUT_FINGERPRINT=sha256:case-input"
+                                       "AGRAPH_BENCH_AGENT_ID=deepseek-test"
+                                       "AGRAPH_BENCH_MODE=agraph"
+                                       "AGRAPH_BENCH_PARSER_WORKER=dotnet"
+                                       (str "AGRAPH_BENCH_AGRAPH_CONTEXT=" context-path)
+                                       (str "DEEPSEEK_MOCK_RESPONSE=" mock-response-path)
+                                       "python3"
+                                       "scripts/deepseek-agent.py")]
+      (is (zero? exit) err)
+      (when (zero? exit)
+        (let [result (json/read-json (slurp result-path) :key-fn keyword)]
+          (is (= benchmark/agent-result-schema (:schema result)))
+          (is (= "case-1" (:caseId result)))
+          (is (= "sha256:case-1" (:caseFingerprint result)))
+          (is (= "sha256:case-input" (:agentInputFingerprint result)))
+          (is (= "deepseek-test" (:agentId result)))
+          (is (= "agraph" (:mode result)))
+          (is (= {:rawCandidateFiles 1
+                  :candidateFiles 1
+                  :coverageFilteredCandidateFiles 1
+                  :limit nil
+                  :coverageSourceKinds ["code"]}
+                 (:selection result)))
+          (is (= {:mode "dotnet"
+                  :source "env"}
+                 (:parserWorker result)))
+          (is (= ["src/app.clj"] (mapv :path (:suspectedFiles result))))
+          (is (= {:inputTokens 11
+                  :outputTokens 7
+                  :totalTokens 18
+                  :costUsd 0.0
+                  :source "deepseek-agent"}
+                 (:tokenUsage result))))))))

@@ -104,6 +104,30 @@ bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --out .dev/agraph/agent-efficiency/agraph
 ```
 
+DeepSeek v4 Pro can be run through the productized benchmark worker in
+`scripts/deepseek-agent.py`. Set `DEEPSEEK_API_KEY` directly or point
+`DEEPSEEK_ENV_FILE` at a local env file that contains it. Keep the same
+`--agent`, `--command`, prompt profile, timeout, and parser-worker settings for
+both lanes:
+
+```sh
+bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
+  --agent deepseek-v4-pro \
+  --command 'python3 scripts/deepseek-agent.py' \
+  --mode shell-only \
+  --prompt-profile fast \
+  --timeout-ms 600000 \
+  --out .dev/agraph/agent-efficiency/deepseek-shell-only
+
+bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
+  --agent deepseek-v4-pro \
+  --command 'python3 scripts/deepseek-agent.py' \
+  --mode agraph \
+  --prompt-profile fast \
+  --timeout-ms 600000 \
+  --out .dev/agraph/agent-efficiency/deepseek-agraph
+```
+
 Summarize each lane with existing reports:
 
 ```sh
