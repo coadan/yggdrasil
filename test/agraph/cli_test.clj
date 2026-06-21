@@ -85,6 +85,9 @@
     (is (str/includes? usage "bench show"))
     (is (str/includes? usage "bench agent-packet"))
     (is (str/includes? usage "bench agent-baseline"))
+    (is (str/includes? usage "--retriever auto|hybrid|lexical|semantic|local-vector|codebase-memory"))
+    (is (str/includes? usage "--codebase-memory-command CMD"))
+    (is (str/includes? usage "--codebase-memory-bin PATH"))
     (is (str/includes? usage "bench agent-run"))
     (is (str/includes? usage "bench agent-rerun"))
     (is (str/includes? usage "bench agent-score"))
@@ -1553,6 +1556,9 @@
                                  "--retrieval-limit" "80"
                                  "--vector-command" "fake-vector-worker"
                                  "--vector-model" "fake-vector-model"
+                                 "--codebase-memory-command" "fake-codebase-memory-worker"
+                                 "--codebase-memory-bin" "fake-codebase-memory-bin"
+                                 "--codebase-memory-cache-dir" ".dev/fake-cbm-cache"
                                  "--parser-worker" "java"
                                  "--index-timeout-ms" "1234"
                                  "--skip-existing"
@@ -1570,6 +1576,9 @@
                   :command nil
                   :vector-command "fake-vector-worker"
                   :vector-model "fake-vector-model"
+                  :codebase-memory-command "fake-codebase-memory-worker"
+                  :codebase-memory-bin "fake-codebase-memory-bin"
+                  :codebase-memory-cache-dir ".dev/fake-cbm-cache"
                   :limit 3
                   :doc-limit 12
                   :retrieval-limit 80

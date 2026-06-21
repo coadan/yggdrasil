@@ -48,5 +48,40 @@
   (let [result (run-headline "--help")]
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result)
-                       "baseline|shell-only|agraph|agents|reports|compare|all"))
+                       "baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|all"))
     (is (str/includes? (:out result) "--dry-run"))))
+
+(deftest dry-run-prints-codebase-memory-workflow
+  (let [result (run-headline "codebase-memory"
+                             "--dry-run"
+                             "--suite" "benchmarks/custom-headline.edn"
+                             "--out" ".dev/agraph/headline-bench/custom"
+                             "--codebase-memory-bin" "fake-codebase-memory-mcp"
+                             "--codebase-memory-command" "fake-codebase-memory-worker")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 2 (count lines)))
+    (is (str/includes? (nth lines 0)
+                       "bb bench agent-baseline benchmarks/custom-headline.edn"))
+    (is (str/includes? (nth lines 0) "--retriever codebase-memory"))
+    (is (str/includes? (nth lines 0) "--codebase-memory-bin fake-codebase-memory-mcp"))
+    (is (str/includes? (nth lines 0)
+                       "--codebase-memory-command fake-codebase-memory-worker"))
+    (is (str/includes? (nth lines 1)
+                       "bb bench agent-report benchmarks/custom-headline.edn"))
+    (is (str/includes? (nth lines 1) "--mode codebase-memory"))
+    (is (str/includes? (nth lines 1) "--agent agraph-baseline-codebase-memory"))))
+
+(deftest dry-run-prints-external-baseline-workflow
+  (let [result (run-headline "external-baselines"
+                             "--dry-run"
+                             "--suite" "benchmarks/custom-headline.edn"
+                             "--out" ".dev/agraph/headline-bench/custom")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 4 (count lines)))
+    (is (str/includes? (nth lines 0)
+                       "bb bench agent-baseline benchmarks/custom-headline.edn"))
+    (is (str/includes? (nth lines 1) "--agent agraph-baseline-lexical"))
+    (is (str/includes? (nth lines 2) "--retriever codebase-memory"))
+    (is (str/includes? (nth lines 3) "--mode codebase-memory"))))

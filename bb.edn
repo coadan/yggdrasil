@@ -29,7 +29,7 @@
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "bench"
                       *command-line-args*)}
 
-  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|shell-only|agraph|agents|reports|compare|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
+  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
             :task (apply shell "bash" "scripts/headline-bench.sh"
                          *command-line-args*)}
 

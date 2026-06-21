@@ -13,7 +13,7 @@
   "agraph.benchmark.agent-result-contract/exact-path-evidence-v1")
 
 (def agent-result-modes
-  ["agraph" "shell-only" "local-vector"])
+  ["agraph" "shell-only" "local-vector" "codebase-memory"])
 
 (defn agent-result-file-metrics-json-schema
   []

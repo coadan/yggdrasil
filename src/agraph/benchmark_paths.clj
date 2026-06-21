@@ -57,6 +57,14 @@
   (io/file (case-output-dir suite case opts)
            "agent-results"
            (str (safe-id (agent-baseline-id opts)) ".request.json")))
+(defn codebase-memory-request-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-results"
+           (str (safe-id (agent-baseline-id opts)) ".request.json")))
+(defn codebase-memory-cache-dir
+  [suite case opts]
+  (io/file (case-output-dir suite case opts) "codebase-memory-cache"))
 (defn agent-run-id
   [opts]
   (or (some-> (:agent-id opts) safe-id not-empty)

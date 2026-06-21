@@ -41,6 +41,16 @@
                                                   (option-value args "--vector-command"))
     (option-value args "--vector-model") (assoc :vector-model
                                                 (option-value args "--vector-model"))
+    (option-value args "--codebase-memory-command") (assoc :codebase-memory-command
+                                                           (option-value args
+                                                                         "--codebase-memory-command"))
+    (option-value args "--codebase-memory-bin") (assoc :codebase-memory-bin
+                                                       (option-value args
+                                                                     "--codebase-memory-bin"))
+    (option-value args "--codebase-memory-cache-dir") (assoc :codebase-memory-cache-dir
+                                                             (option-value
+                                                              args
+                                                              "--codebase-memory-cache-dir"))
     (option-value args "--agent") (assoc :agent-id (option-value args "--agent"))
     (option-value args "--prompt-profile") (assoc :prompt-profile
                                                   (option-value args "--prompt-profile"))

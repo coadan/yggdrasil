@@ -20,6 +20,7 @@
             [agraph.benchmark-agent-run :as benchmark-agent-run]
             [agraph.benchmark-agent-packet :as benchmark-agent-packet]
             [agraph.benchmark-local-vector :as benchmark-local-vector]
+            [agraph.benchmark-codebase-memory :as benchmark-codebase-memory]
             [agraph.benchmark-maintenance :as benchmark-maintenance]
             [agraph.benchmark-score-artifacts :as benchmark-score-artifacts]
             [agraph.benchmark-agent-baseline :as benchmark-agent-baseline]
@@ -318,8 +319,9 @@
 
 (defn- agent-baseline-mode
   [opts]
-  (if (= :local-vector (keyword (or (:retriever opts) :lexical)))
-    "local-vector"
+  (case (keyword (or (:retriever opts) :lexical))
+    :local-vector "local-vector"
+    :codebase-memory "codebase-memory"
     "agraph"))
 
 (defn current-agent-score-artifacts
@@ -350,7 +352,16 @@
                        :progressPath (fs/canonical-path (benchmark-paths/progress-path suite case opts))}
                 (= "local-vector" (get-in score [:agent :mode]))
                 (assoc :localVectorRequestPath
-                       (fs/canonical-path (benchmark-paths/local-vector-request-path suite case opts))))
+                       (fs/canonical-path (benchmark-paths/local-vector-request-path suite case opts)))
+                (= "codebase-memory" (get-in score [:agent :mode]))
+                (assoc :codebaseMemoryRequestPath
+                       (fs/canonical-path (benchmark-paths/codebase-memory-request-path suite case opts))
+                       :codebaseMemoryCacheDir
+                       (fs/canonical-path (or (:codebase-memory-cache-dir opts)
+                                              (benchmark-paths/codebase-memory-cache-dir
+                                               suite
+                                               case
+                                               opts)))))
    :scores (:scores score)})
 
 (defn- skipped-agent-run
@@ -401,6 +412,11 @@
   keeps vector dependencies outside AGraph core."
   [suite case opts]
   (benchmark-local-vector/local-vector-baseline! suite case opts))
+
+(defn codebase-memory-baseline!
+  "Generate, write, and score one Codebase Memory MCP benchmark baseline."
+  [suite case opts]
+  (benchmark-codebase-memory/codebase-memory-baseline! suite case opts))
 
 (defn- agent-run-command
   [opts]
@@ -463,10 +479,16 @@
                                                           opts)}
                                            (reusable-agent-score suite case opts)
                                            (skipped-agent-baseline suite case opts)))
-                                (if (= :local-vector (keyword (or (:retriever opts)
-                                                                  :lexical)))
-                                  (local-vector-baseline! suite case opts)
-                                  (agent-baseline! suite case opts))))
+                                (let [retriever (keyword (or (:retriever opts) :lexical))]
+                                  (cond
+                                    (= :local-vector retriever)
+                                    (local-vector-baseline! suite case opts)
+
+                                    (= :codebase-memory retriever)
+                                    (codebase-memory-baseline! suite case opts)
+
+                                    :else
+                                    (agent-baseline! suite case opts)))))
         baselines (mapv baseline-for-case
                         (selected-cases suite (case-selector opts)))]
     {:schema agent-baselines-schema

@@ -8,7 +8,7 @@ DEFAULT_COMMAND='codex -a never exec --sandbox read-only --output-schema "$AGRAP
 
 usage() {
   cat <<'EOF'
-Usage: bb headline baseline|shell-only|agraph|agents|reports|compare|all [options]
+Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|all [options]
 
 Options:
   --suite PATH            Benchmark suite EDN. Default: benchmarks/headline.edn
@@ -17,10 +17,18 @@ Options:
   --command CMD           External agent command.
   --prompt-profile NAME   Prompt profile for agent-run. Default: fast
   --timeout-ms N          Timeout passed to agent-run.
+  --codebase-memory-bin PATH
+                          codebase-memory-mcp binary for the external baseline.
+  --codebase-memory-command CMD
+                          Codebase Memory benchmark worker command.
   --dry-run               Print commands without running them.
 
 Commands:
   baseline    Run deterministic AGraph baseline and report.
+  codebase-memory
+              Run Codebase Memory MCP baseline and report.
+  external-baselines
+              Run deterministic AGraph and Codebase Memory baseline reports.
   shell-only  Run the external shell-only lane.
   agraph      Run the external AGraph lane.
   agents      Run both external lanes.
@@ -44,6 +52,8 @@ agent="codex"
 agent_command="$DEFAULT_COMMAND"
 prompt_profile="fast"
 timeout_ms=""
+codebase_memory_bin=""
+codebase_memory_command=""
 dry_run=false
 
 while [[ $# -gt 0 ]]; do
@@ -70,6 +80,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --timeout-ms)
       timeout_ms="$2"
+      shift 2
+      ;;
+    --codebase-memory-bin)
+      codebase_memory_bin="$2"
+      shift 2
+      ;;
+    --codebase-memory-command)
+      codebase_memory_command="$2"
       shift 2
       ;;
     --dry-run)
@@ -123,6 +141,29 @@ baseline() {
     --out "$out/agraph-baseline"
 }
 
+codebase_memory() {
+  local args=(bench agent-baseline "$suite"
+    --retriever codebase-memory
+    --out "$out/codebase-memory")
+  if [[ -n "$codebase_memory_bin" ]]; then
+    args+=(--codebase-memory-bin "$codebase_memory_bin")
+  fi
+  if [[ -n "$codebase_memory_command" ]]; then
+    args+=(--codebase-memory-command "$codebase_memory_command")
+  fi
+  run bb "${args[@]}"
+
+  run bb bench agent-report "$suite" \
+    --mode codebase-memory \
+    --agent agraph-baseline-codebase-memory \
+    --out "$out/codebase-memory"
+}
+
+external_baselines() {
+  baseline
+  codebase_memory
+}
+
 shell_only() {
   agent_run shell-only "$out/shell-only"
 }
@@ -168,6 +209,12 @@ compare() {
 case "$action" in
   baseline)
     baseline
+    ;;
+  codebase-memory)
+    codebase_memory
+    ;;
+  external-baselines)
+    external_baselines
     ;;
   shell-only)
     shell_only

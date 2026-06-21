@@ -471,7 +471,7 @@
                           :key-fn keyword)
                          [:properties :agentInputFingerprint])))
           (is (= {:type "string"
-                  :enum ["agraph" "shell-only" "local-vector"]}
+                  :enum ["agraph" "shell-only" "local-vector" "codebase-memory"]}
                  (get-in (json/read-json
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
                           :key-fn keyword)
@@ -1635,6 +1635,199 @@
                  (mapv :path (:suspectedFiles result))))
           (is (every? #(seq (:evidence %)) (:suspectedFiles result)))
           (is (seq (:commands result))))))))
+
+(deftest codebase-memory-baseline-shells-out-and-scores-agent-result
+  (let [repo (temp-dir "agraph-bench-codebase-memory-repo")
+        out (temp-dir "agraph-bench-codebase-memory-out")
+        suite-dir (temp-dir "agraph-bench-codebase-memory-suite")
+        worker-dir (temp-dir "agraph-bench-codebase-memory-worker")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))
+        worker-path (spit-file!
+                     worker-dir
+                     "fake-codebase-memory-worker.sh"
+                     (str "#!/bin/sh\n"
+                          "case_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"caseId\"])' \"$1\")\n"
+                          "case_fingerprint=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"caseFingerprint\"])' \"$1\")\n"
+                          "agent_input_fingerprint=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"agentInputFingerprint\"])' \"$1\")\n"
+                          "agent_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"agentId\"])' \"$1\")\n"
+                          "cat > \"$2\" <<JSON\n"
+                          "{\"schema\":\"agraph.benchmark.agent-result/v2\","
+                          "\"caseId\":\"$case_id\","
+                          "\"caseFingerprint\":\"$case_fingerprint\","
+                          "\"agentInputFingerprint\":\"$agent_input_fingerprint\","
+                          "\"agentId\":\"$agent_id\","
+                          "\"mode\":\"codebase-memory\","
+                          "\"suspectedFiles\":[{\"path\":\"src/app.clj\",\"rank\":1,"
+                          "\"confidence\":0.9,\"reason\":\"fake codebase memory match\","
+                          "\"evidence\":[\"fake-codebase-memory path=src/app.clj\"]}],"
+                          "\"suspectedSymbols\":[],\"commands\":[\"fake-codebase-memory-worker\"],"
+                          "\"warnings\":[],\"summary\":\"fake codebase memory result\","
+                          "\"tokenUsage\":{\"inputTokens\":0,\"outputTokens\":0,"
+                          "\"totalTokens\":0,\"costUsd\":0.0,"
+                          "\"source\":\"codebase-memory-baseline\"}}\n"
+                          "JSON\n"))]
+    (.setExecutable (io/file worker-path) true)
+    (sh! "git" "init" repo)
+    (git! repo "config" "user.email" "bench@example.test")
+    (git! repo "config" "user.name" "Benchmark Test")
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (let [base (commit! repo "base")]
+      (spit-file! repo "src/app.clj" "(ns app)\n(defn broken [] :new)\n")
+      (let [fix (commit! repo "fix")]
+        (spit-file!
+         suite-dir
+         "benchmark.edn"
+         (pr-str {:id "fixture"
+                  :repos [{:id "repo" :root repo}]
+                  :cases [{:id "case-1"
+                           :repo-id "repo"
+                           :base-sha base
+                           :fix-sha fix
+                           :issue {:id 1
+                                   :title "broken app"
+                                   :body "The app returns the old value."}}]}))
+        (let [suite (benchmark/read-suite suite-path)
+              result (benchmark/agent-baselines!
+                      suite
+                      {:out out
+                       :case-id "case-1"
+                       :retriever "codebase-memory"
+                       :codebase-memory-command worker-path
+                       :codebase-memory-bin "fake-codebase-memory-mcp"})
+              baseline (first (:baselines result))
+              request (json/read-json
+                       (slurp (get-in baseline [:artifacts :codebaseMemoryRequestPath]))
+                       :key-fn keyword)
+              scored (json/read-json
+                      (slurp (get-in baseline [:artifacts :agentScorePath]))
+                      :key-fn keyword)
+              resumed (benchmark/agent-baselines!
+                       suite
+                       {:out out
+                        :case-id "case-1"
+                        :retriever "codebase-memory"
+                        :codebase-memory-command "missing-codebase-memory-worker"
+                        :codebase-memory-bin "fake-codebase-memory-mcp"
+                        :skip-existing? true})
+              skipped (first (:baselines resumed))]
+          (is (= benchmark/agent-baselines-schema (:schema result)))
+          (is (= "agraph-baseline-codebase-memory" (:agentId baseline)))
+          (is (= "codebase-memory" (:mode baseline)))
+          (is (= "codebase-memory" (:retriever baseline)))
+          (is (= "fake-codebase-memory-mcp" (get-in baseline [:codebaseMemory :binary])))
+          (is (= 1.0 (get-in baseline [:scores :fileRecallAt5])))
+          (is (= 1.0 (get-in baseline [:scores :meanReciprocalRankFile])))
+          (is (= "agraph.benchmark.codebase-memory-request/v1" (:schema request)))
+          (is (= (:caseFingerprint baseline) (:caseFingerprint request)))
+          (is (= (:agentInputFingerprint baseline)
+                 (:agentInputFingerprint request)))
+          (is (= "fake-codebase-memory-mcp" (get-in request [:codebaseMemory :binary])))
+          (is (str/ends-with? (get-in request [:codebaseMemory :cacheDir])
+                              "codebase-memory-cache"))
+          (is (not (contains? request :groundTruth)))
+          (is (= benchmark/agent-result-schema (get-in scored [:agent :schema])))
+          (is (= "codebase-memory" (get-in scored [:agent :mode])))
+          (is (empty? (get-in scored [:agent :warnings])))
+          (is (= 1.0 (get-in scored [:scores :evidenceCitationRate])))
+          (is (= ["src/app.clj"]
+                 (mapv :path (get-in scored [:agent :topFiles]))))
+          (is (= 1 (:skipped resumed)))
+          (is (= "skipped" (:status skipped)))
+          (is (= "current-score-artifact" (:skipReason skipped)))
+          (is (= (:scores baseline) (:scores skipped))))))))
+
+(deftest codebase-memory-worker-emits-current-agent-result-contract
+  (let [repo (temp-dir "agraph-bench-codebase-memory-worker-repo")
+        bin-dir (temp-dir "agraph-bench-codebase-memory-worker-bin")
+        request-dir (temp-dir "agraph-bench-codebase-memory-worker-request")
+        binary-path (spit-file!
+                     bin-dir
+                     "fake-codebase-memory-mcp"
+                     (str "#!/usr/bin/env python3\n"
+                          "import json, sys\n"
+                          "tool = sys.argv[2] if len(sys.argv) > 2 else ''\n"
+                          "if tool == 'index_repository':\n"
+                          "    print(json.dumps({'indexed': True, 'path': 'src/app.clj'}))\n"
+                          "elif tool == 'semantic_query':\n"
+                          "    print(json.dumps({'results': [{'path': 'src/app.clj', 'score': 0.9}]}))\n"
+                          "elif tool == 'search_code':\n"
+                          "    print(json.dumps({'matches': [{'file_path': 'docs/readme.md', 'count': 1}]}))\n"
+                          "elif tool == 'get_architecture':\n"
+                          "    print(json.dumps({'hotspots': [{'relative_path': 'src/app.clj'}]}))\n"
+                          "else:\n"
+                          "    print(json.dumps({'error': tool}))\n"
+                          "    sys.exit(1)\n"))
+        cache-dir (.getPath (io/file request-dir "cache"))
+        request-path (spit-json!
+                      request-dir
+                      "request.json"
+                      {:schema "agraph.benchmark.codebase-memory-request/v1"
+                       :caseId "case-1"
+                       :caseFingerprint "sha256:case-1"
+                       :agentInputFingerprint "sha256:case-input"
+                       :agentId "agraph-baseline-codebase-memory"
+                       :mode "codebase-memory"
+                       :worktreeRoot repo
+                       :input {:title "broken app"
+                               :body "The app returns the old value."}
+                       :limit 2
+                       :codebaseMemory {:binary binary-path
+                                        :cacheDir cache-dir}})
+        result-path (.getPath (io/file request-dir "result.json"))]
+    (.setExecutable (io/file binary-path) true)
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (spit-file! repo "docs/readme.md" "The app behavior is documented here.\n")
+    (let [{:keys [exit err]} (shell/sh "python3"
+                                       "scripts/codebase-memory-baseline.py"
+                                       request-path
+                                       result-path)]
+      (is (zero? exit) err)
+      (when (zero? exit)
+        (let [result (json/read-json (slurp result-path) :key-fn keyword)]
+          (is (= benchmark/agent-result-schema (:schema result)))
+          (is (= "case-1" (:caseId result)))
+          (is (= "sha256:case-1" (:caseFingerprint result)))
+          (is (= "sha256:case-input" (:agentInputFingerprint result)))
+          (is (= "agraph-baseline-codebase-memory" (:agentId result)))
+          (is (= "codebase-memory" (:mode result)))
+          (is (= ["src/app.clj" "docs/readme.md"]
+                 (mapv :path (:suspectedFiles result))))
+          (is (every? #(seq (:evidence %)) (:suspectedFiles result)))
+          (is (= "codebase-memory-baseline" (get-in result [:tokenUsage :source])))
+          (is (empty? (:warnings result)))
+          (is (= 4 (count (:commands result)))))))))
+
+(deftest codebase-memory-worker-emits-warned-empty-result-when-binary-is-missing
+  (let [repo (temp-dir "agraph-bench-codebase-memory-missing-repo")
+        request-dir (temp-dir "agraph-bench-codebase-memory-missing-request")
+        request-path (spit-json!
+                      request-dir
+                      "request.json"
+                      {:schema "agraph.benchmark.codebase-memory-request/v1"
+                       :caseId "case-1"
+                       :caseFingerprint "sha256:case-1"
+                       :agentInputFingerprint "sha256:case-input"
+                       :agentId "agraph-baseline-codebase-memory"
+                       :mode "codebase-memory"
+                       :worktreeRoot repo
+                       :input {:title "broken app"}
+                       :limit 2
+                       :codebaseMemory {:binary (.getPath
+                                                 (io/file request-dir "missing-cbm"))}})
+        result-path (.getPath (io/file request-dir "result.json"))]
+    (spit-file! repo "src/app.clj" "(ns app)\n")
+    (let [{:keys [exit err]} (shell/sh "python3"
+                                       "scripts/codebase-memory-baseline.py"
+                                       request-path
+                                       result-path)]
+      (is (zero? exit) err)
+      (when (zero? exit)
+        (let [result (json/read-json (slurp result-path) :key-fn keyword)]
+          (is (= benchmark/agent-result-schema (:schema result)))
+          (is (= "codebase-memory" (:mode result)))
+          (is (empty? (:suspectedFiles result)))
+          (is (seq (:warnings result)))
+          (is (= "codebase-memory-baseline" (get-in result [:tokenUsage :source]))))))))
 
 (deftest deepseek-worker-emits-current-agent-result-contract
   (let [repo (temp-dir "agraph-bench-deepseek-worker-repo")

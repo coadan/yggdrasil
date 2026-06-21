@@ -45,6 +45,8 @@ Repeatable helper workflow:
 
 ```sh
 bb headline baseline
+bb headline codebase-memory
+bb headline external-baselines
 bb headline agents
 bb headline reports
 bb headline compare
@@ -68,6 +70,19 @@ bb bench agent-report benchmarks/headline.edn \
   --mode agraph \
   --agent agraph-baseline-lexical \
   --out .dev/agraph/headline-bench/agraph-baseline
+```
+
+Codebase Memory MCP comparison baseline:
+
+```sh
+bb bench agent-baseline benchmarks/headline.edn \
+  --retriever codebase-memory \
+  --out .dev/agraph/headline-bench/codebase-memory
+
+bb bench agent-report benchmarks/headline.edn \
+  --mode codebase-memory \
+  --agent agraph-baseline-codebase-memory \
+  --out .dev/agraph/headline-bench/codebase-memory
 ```
 
 External agent lanes:
@@ -153,6 +168,7 @@ bb bench prepare benchmark.edn
 bb bench agent-packet benchmark.edn --case penpot-example --json
 bb bench agent-baseline benchmark.edn --case penpot-example
 bb bench agent-baseline benchmark.edn --case penpot-example --retriever local-vector --vector-model sentence-transformers/all-MiniLM-L6-v2
+bb bench agent-baseline benchmark.edn --case penpot-example --retriever codebase-memory --codebase-memory-bin /path/to/codebase-memory-mcp
 bb bench agent-run benchmark.edn --agent codex --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' --mode agraph --prompt-profile fast --timeout-ms 120000
 bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
 bb bench agent-report benchmark.edn
@@ -204,7 +220,17 @@ generated output root.
   benchmark diagnosis: if it beats the graph baseline, inspect whether AGraph is
   missing extractor facts, ranking useful facts poorly, or losing on vocabulary
   mismatch. It does not make AGraph core depend on a vector provider. Use
-  `--skip-existing` to resume an interrupted suite run. A case is skipped only
+  `--retriever codebase-memory` to run a Codebase Memory MCP comparison lane.
+  AGraph does not install or configure Codebase Memory; provide an installed
+  binary through `CODEBASE_MEMORY_MCP_BIN` or `--codebase-memory-bin`. The
+  default worker is `python3 scripts/codebase-memory-baseline.py`; override it
+  with `--codebase-memory-command <cmd>` when testing worker changes. Generated
+  Codebase Memory cache files stay under the benchmark output root by default,
+  or under `--codebase-memory-cache-dir <dir>` when set. This lane measures
+  Codebase Memory's structural retrieval/localization as a deterministic
+  benchmark baseline. It is not the same as giving an LLM the Codebase Memory
+  MCP tools during an agent run. Use `--skip-existing` to resume an interrupted
+  suite run. A case is skipped only
   when exactly one current score artifact already matches the case fingerprint,
   agent id, mode, and result path; stale, duplicate, or missing artifacts are
   rerun.
@@ -589,9 +615,10 @@ agent input. New results should include both; the scorer accepts legacy results
 that only include `caseFingerprint`, but hidden expectation-only edits can make
 those legacy results report identity warnings until the agent run is refreshed.
 
-`mode` is one of `agraph`, `shell-only`, or `local-vector`. `agent-run` only
-uses `agraph` and `shell-only`; `local-vector` is reserved for the optional
-local semantic-vector baseline lane.
+`mode` is one of `agraph`, `shell-only`, `local-vector`, or
+`codebase-memory`. `agent-run` only uses `agraph` and `shell-only`;
+`local-vector` and `codebase-memory` are reserved for optional deterministic
+baseline lanes.
 
 Recall, MRR, and noise use `suspectedFiles.path` and rank. The citation score
 uses the presence of non-empty `suspectedFiles[].evidence` rows. Reasons,

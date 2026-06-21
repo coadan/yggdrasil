@@ -128,6 +128,33 @@ bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --out .dev/agraph/agent-efficiency/deepseek-agraph
 ```
 
+Codebase Memory MCP can be run as a deterministic comparison baseline, not as a
+same-agent MCP-assisted lane. Install or build `codebase-memory-mcp` separately,
+then point AGraph at the binary:
+
+```sh
+bb bench agent-baseline benchmarks/headline.edn \
+  --retriever codebase-memory \
+  --codebase-memory-bin /path/to/codebase-memory-mcp \
+  --out .dev/agraph/headline-bench/codebase-memory
+
+bb bench agent-report benchmarks/headline.edn \
+  --mode codebase-memory \
+  --agent agraph-baseline-codebase-memory \
+  --out .dev/agraph/headline-bench/codebase-memory
+```
+
+For the bounded helper workflow, `bb headline codebase-memory` runs only that
+lane and `bb headline external-baselines` runs both deterministic baseline
+reports. Use this to compare structural retrieval/localization behavior before
+making a broader same-agent MCP plan.
+
+Treat AGraph's multi-repo model and plugin ecosystem as explicit benchmark
+hypotheses. Good comparison suites should include cross-repo ownership,
+dependency-flow, service-boundary, and plugin-covered project shapes where a
+generic structural graph may miss domain-specific facts. Claim an advantage only
+when the reports show where those classes improved, stayed neutral, or regressed.
+
 Summarize each lane with existing reports:
 
 ```sh

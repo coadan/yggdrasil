@@ -153,7 +153,7 @@
    :caseFingerprint "case fingerprint from the packet"
    :agentInputFingerprint "agent input fingerprint from the packet"
    :agentId "stable id for the agent run"
-   :mode "agraph, shell-only, or local-vector"
+   :mode "agraph, shell-only, local-vector, or codebase-memory"
    :selection {:rawCandidateFiles 0
                :candidateFiles 0
                :coverageFilteredCandidateFiles 0
