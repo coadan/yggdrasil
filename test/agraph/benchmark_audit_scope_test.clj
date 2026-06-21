@@ -120,6 +120,20 @@
     (is (:evidenceCited? app-row))
     (is (not (:evidenceCited? util-row)))))
 
+(deftest case-audit-scope-rejects-near-miss-path-evidence
+  (let [scope (benchmark-audit-scope/case-audit-scope
+               (result :agent {:topFiles [{:path "src/app.clj"
+                                           :rank 1
+                                           :evidence ["near miss src/app.cljs"
+                                                      "prefixed xsrc/app.clj"]}]}))
+        app-ground-truth (first (filter #(= "src/app.clj" (:path %))
+                                        (:groundTruthFiles scope)))
+        app-top-file (first (:topRankedFiles scope))]
+    (is (:evidenceCited? app-ground-truth))
+    (is (not (:pathEvidenceCited? app-ground-truth)))
+    (is (:evidenceCited? app-top-file))
+    (is (not (:pathEvidenceCited? app-top-file)))))
+
 (deftest case-audit-scope-includes-graph-expectation-summary
   (let [summary (:graphExpectationSummary
                  (benchmark-audit-scope/case-audit-scope (result)))]

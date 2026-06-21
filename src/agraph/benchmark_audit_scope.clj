@@ -5,8 +5,7 @@
   and top-ranked file citations so operators can read each case as an
   audit scope instead of a flat diagnostic."
   (:require [agraph.benchmark-score :as benchmark-score]
-            [agraph.benchmark-util :as benchmark-util]
-            [clojure.string :as str]))
+            [agraph.benchmark-util :as benchmark-util]))
 
 (def audit-scope-schema
   "agraph.benchmark.audit-scope/v1")
@@ -19,14 +18,6 @@
   (->> (:evidence row)
        (some #(not (benchmark-util/blankish? %)))
        boolean))
-
-(defn- path-evidence-cited?
-  [row]
-  (let [path (not-empty (str (:path row)))]
-    (boolean
-     (and path
-          (some #(str/includes? (str %) path)
-                (:evidence row))))))
 
 (defn- ground-truth-file-row
   [rank-row context-rank-by-path top-file-by-path scoreable-file-set]
@@ -49,7 +40,7 @@
 
       top-file
       (assoc :evidenceCited? (evidence-cited? top-file)
-             :pathEvidenceCited? (path-evidence-cited? top-file)))))
+             :pathEvidenceCited? (benchmark-score/path-evidence-cited? top-file)))))
 
 (defn- ground-truth-files
   [result]
@@ -98,7 +89,7 @@
      :rank (:rank ranked-file)
      :isGroundTruth? (contains? scoreable-file-set path)
      :evidenceCited? (evidence-cited? ranked-file)
-     :pathEvidenceCited? (path-evidence-cited? ranked-file)}))
+     :pathEvidenceCited? (benchmark-score/path-evidence-cited? ranked-file)}))
 
 (defn- top-ranked-files
   [result]

@@ -306,7 +306,7 @@
                                      :evidence ["context-doc:src/app.clj"]}
                                     {:path "src/other.clj"
                                      :rank 2
-                                     :evidence ["rg broken"]}
+                                     :evidence ["near miss src/other.cljs"]}
                                     {:path "src/more.clj"
                                      :rank 3
                                      :evidence []}]}}

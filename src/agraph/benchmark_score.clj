@@ -122,12 +122,28 @@
     (/ (double (count (filter evidence-cited? top-files)))
        (double (count top-files)))
     0.0))
+
+(def ^:private path-token-chars
+  "A-Za-z0-9_./@+~=-")
+
+(defn- path-citation-pattern
+  [path]
+  (re-pattern (str "(^|[^" path-token-chars "])"
+                   (java.util.regex.Pattern/quote path)
+                   "($|[^" path-token-chars "])")))
+
+(defn- path-cited-in-text?
+  [path text]
+  (boolean
+   (and path
+        (re-find (path-citation-pattern path) (str text)))))
+
 (defn path-evidence-cited?
   [row]
   (let [path (not-empty (str (:path row)))]
     (boolean
      (and path
-          (some #(str/includes? (str %) path)
+          (some #(path-cited-in-text? path %)
                 (:evidence row))))))
 (defn- path-evidence-citation-rate
   [top-files]
