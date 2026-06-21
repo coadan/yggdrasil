@@ -148,6 +148,55 @@
                                        :source-line 1}))))
        distinct
        vec))
+
+(defn- dotnet-reference-name
+  [value]
+  (some-> value
+          str/trim
+          (str/split #",")
+          first
+          str/trim))
+
+(defn- dotnet-system-reference?
+  [reference-name]
+  (or (= "System" reference-name)
+      (str/starts-with? (str reference-name) "System.")))
+
+(defn dotnet-assembly-references
+  "Extract explicit non-System assembly references from MSBuild project files."
+  [content]
+  (->> (re-seq #"(?is)<Reference\b[^>]*(?:/>|>.*?</Reference>)"
+               content)
+       (keep (fn [element]
+               (let [reference-name (dotnet-reference-name
+                                     (xml-attr-value element "Include"))]
+                 (when (and (seq reference-name)
+                            (not (str/includes? reference-name "\\"))
+                            (not (str/includes? reference-name "/"))
+                            (not (str/includes? reference-name "$("))
+                            (not (dotnet-system-reference? reference-name)))
+                   (common/package-fact {:ecosystem :dotnet-assembly
+                                         :package-name reference-name
+                                         :dependency-scope "assembly-reference"
+                                         :source-line 1})))))
+       distinct
+       vec))
+
+(defn dotnet-nuget-root-references
+  "Extract package facts from explicit $(NuGetPackageRoot) file references."
+  [content]
+  (->> (re-seq #"(?is)\b(?:Include|Update)\s*=\s*['\"][^'\"]*\$\(\s*NuGetPackageRoot\s*\)[\\/]+([^\\/\"']+)[\\/]+([^\\/\"']+)"
+               content)
+       (keep (fn [[_ package version]]
+               (when (and (seq package) (seq version))
+                 (common/package-fact {:ecosystem :nuget
+                                       :package-name package
+                                       :version-range version
+                                       :dependency-scope "nuget-root-reference"
+                                       :source-line 1}))))
+       distinct
+       vec))
+
 (defn dotnet-project-references
   [content]
   (->> (re-seq #"(?is)<ProjectReference\b[^>]*(?:/>|>.*?</ProjectReference>)"

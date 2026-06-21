@@ -178,6 +178,9 @@
     (or (contains? dotnet-manifest-extensions (extension path))
         (contains? dotnet-manifest-filenames name))))
 
+(def ^:private dotnet-dependency-ecosystems
+  #{:nuget :dotnet-assembly})
+
 (defn- dotnet-packages-for-source
   [packages-by-manifest source-path]
   (->> packages-by-manifest
@@ -185,7 +188,7 @@
                  (and (dotnet-manifest? manifest-path)
                       (ancestor-dir? (dirname manifest-path) source-path))))
        (mapcat val)
-       (filter #(= :nuget (:ecosystem %)))
+       (filter #(contains? dotnet-dependency-ecosystems (:ecosystem %)))
        vec))
 
 (def ^:private package-evidence-source-kinds
@@ -249,6 +252,18 @@
   (or (= prefix value)
       (str/starts-with? value (str prefix "."))))
 
+(defn- normalized-dotnet-name
+  [value]
+  (str/replace (str/lower-case (str value)) #"[^a-z0-9]" ""))
+
+(defn- normalized-prefix?
+  [prefix value]
+  (let [prefix (normalized-dotnet-name prefix)
+        value (normalized-dotnet-name value)]
+    (and (seq prefix)
+         (or (= prefix value)
+             (str/starts-with? value prefix)))))
+
 (defn- dotnet-package-match-score
   [target package-name]
   (let [target (str/lower-case (str target))
@@ -257,6 +272,8 @@
       (= target package-name) 3
       (segment-prefix? package-name target) 2
       (segment-prefix? target package-name) 1
+      (normalized-prefix? package-name target) 1
+      (normalized-prefix? target package-name) 1
       :else nil)))
 
 (defn- dotnet-package
@@ -397,6 +414,10 @@
   (or (contains? js-runtime-builtin-roots (slash-import-root target))
       (some #(str/starts-with? target %) js-runtime-virtual-prefixes)))
 
+(defn- dotnet-runtime-import?
+  [target]
+  (contains? dotnet-builtin-roots (dotted-import-root target)))
+
 (defn- local-namespace-import?
   [nodes-by-id edge]
   (let [target (get nodes-by-id (:target-id edge))]
@@ -440,7 +461,7 @@
            (not (contains? python-stdlib-roots (dotted-import-root target)))
 
            :dotnet
-           (not (contains? dotnet-builtin-roots (dotted-import-root target)))
+           (not (dotnet-runtime-import? target))
 
            :java
            (not (contains? java-builtin-roots (dotted-import-root target)))
@@ -454,7 +475,7 @@
        vec))
 
 (def ^:private directly-resolvable-import-ecosystems
-  #{:npm :cargo :go :pypi :nuget :deno})
+  #{:npm :cargo :go :pypi :nuget :deno :dotnet-assembly})
 
 (defn- directly-resolvable-package?
   [package]

@@ -353,6 +353,87 @@
       (is (= #{:dotnet} (set (map :source-kind edges))))
       (is (= #{:declared} (set (map :resolution-source edges)))))))
 
+(deftest import-package-resolution-resolves-dotnet-normalized-and-assembly-imports
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "tests/App.cs"
+                                          :kind :dotnet
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "manifest:tests:csproj"
+                                          :kind :manifest
+                                          :path "tests/App.csproj"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "manifest:tests:props"
+                                          :kind :manifest
+                                          :path "tests/Directory.Build.props"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:nuget:belgrade"
+                                          :kind :external-package
+                                          :ecosystem :nuget
+                                          :package-name "Belgrade.Sql.Client"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:assembly:microsoft-csharp"
+                                          :kind :external-package
+                                          :ecosystem :dotnet-assembly
+                                          :package-name "Microsoft.CSharp"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires
+                            [{:source-id "manifest:tests:csproj"
+                              :target-id "pkg:nuget:belgrade"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "manifest:tests:props"
+                              :target-id "pkg:assembly:microsoft-csharp"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:App"
+                              :target-id "node:namespace:Belgrade.SqlClient.SqlDb"
+                              :relation :imports
+                              :path "tests/App.cs"
+                              :source-line 1
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "node:namespace:App"
+                              :target-id "node:namespace:Microsoft.CSharp.RuntimeBinder"
+                              :relation :imports
+                              :path "tests/App.cs"
+                              :source-line 2
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :uses []
+                            []))]
+    (let [edges (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})]
+      (is (= #{"Belgrade.Sql.Client" "Microsoft.CSharp"}
+             (set (map :package-name edges))))
+      (is (= #{:nuget :dotnet-assembly} (set (map :ecosystem edges)))))))
+
 (deftest package-report-ignores-ci-workflow-edges-as-package-import-candidates
   (with-redefs [store/rows-by-field (fn [_ table _ _]
                                       (case table

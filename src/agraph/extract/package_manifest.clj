@@ -34,6 +34,8 @@
                           (first (package-jvm-dotnet/xml-tag-values content "PackageId"))
                           path)
        :facts (vec (concat (package-jvm-dotnet/dotnet-package-references content)
+                           (package-jvm-dotnet/dotnet-assembly-references content)
+                           (package-jvm-dotnet/dotnet-nuget-root-references content)
                            (package-jvm-dotnet/dotnet-project-references content)
                            (package-jvm-dotnet/dotnet-target-frameworks content)))}
 

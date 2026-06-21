@@ -964,6 +964,31 @@
     (is (contains? (labels setup-py-result) "pypi:fastapi"))
     (is (contains? (labels setup-py-result) "pypi:uvicorn"))
     (is (contains? (labels deps-result) "maven:org.clojure/data.json"))))
+
+(deftest extracts-dotnet-assembly-and-nuget-root-references
+  (let [result (extract/extract-file
+                "run/test"
+                {:file-id "file:Tests.csproj"
+                 :path "tests/Tests.csproj"
+                 :kind :manifest
+                 :content (str "<Project>\n"
+                               "  <ItemGroup>\n"
+                               "    <Reference Include=\"Microsoft.CSharp\" />\n"
+                               "    <Reference Include=\"System.Data\" />\n"
+                               "    <Content Include=\"$(NuGetPackageRoot)\\microsoft.sqlserver.types\\14.0.1016.290\\nativeBinaries\\**\\*.dll\" />\n"
+                               "  </ItemGroup>\n"
+                               "</Project>\n")})
+        package-node (fn [label]
+                       (some #(when (= label (:label %)) %) (:nodes result)))
+        labels (set (map :label (:nodes result)))]
+    (is (contains? labels "dotnet-assembly:Microsoft.CSharp"))
+    (is (not (contains? labels "dotnet-assembly:System.Data")))
+    (is (contains? labels "nuget:microsoft.sqlserver.types"))
+    (is (= "assembly-reference"
+           (:dependency-scope (package-node "dotnet-assembly:Microsoft.CSharp"))))
+    (is (= "14.0.1016.290"
+           (:version-range (package-node "nuget:microsoft.sqlserver.types"))))))
+
 (deftest extracts-dependency-lock-version-facts
   (let [package-lock-result (extract/extract-file
                              "run/test"
