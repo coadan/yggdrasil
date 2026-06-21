@@ -1,0 +1,105 @@
+{:id "architecture-coverage"
+ :project-id "architecture-coverage"
+ :description "Architecture-class coverage cases for under-sampled tags, using repos not in the headline suite."
+ :repos [{:id "opentelemetry-collector"
+          :root "../.dev/oss-test-cases/repos/opentelemetry-collector"
+          :role :library}
+         {:id "terraform-aws-vpc"
+          :root "../.dev/oss-test-cases/repos/terraform-aws-vpc"
+          :role :application}
+         {:id "flask"
+          :root "../.dev/oss-test-cases/repos/flask"
+          :role :library}
+         {:id "junit-framework"
+          :root "../.dev/oss-test-cases/repos/junit-framework"
+          :role :library}]
+ :cases [{:id "otel-connector-consumer-component-flow"
+          :repo-id "opentelemetry-collector"
+          :coverage {:source-kinds [:go]}
+          :tags [:synthetic
+                 :problem-architecture
+                 :architecture-cross-system-impact
+                 :audit-scope-dependencies
+                 :go
+                 :otel]
+          :base-sha "5a9e6074d2d890ee1db3cf990e414831d068bcdb"
+          :fix-sha "5a9e6074d2d890ee1db3cf990e414831d068bcdb"
+          :ground-truth {:localization-files ["connector/connector.go"
+                                              "consumer/consumer.go"
+                                              "component/component.go"]}
+          :expectations {:nodes [{:kind :interface
+                                  :path "connector/connector.go"}
+                                 {:kind :interface
+                                  :path "component/component.go"}]}
+          :issue {:id "otel-connector-consumer-component-flow"
+                  :url "local:coverage/opentelemetry-collector/connector-consumer-component-flow"
+                  :title "Trace connector interface changes through consumer and component contracts"
+                  :body "The connector package defines Traces/Metrics/Logs interfaces that feed consumer pipelines and extend the component lifecycle. Before changing a connector interface contract, identify the connector interface file, the consumer package it feeds, and the component package it extends. Return only the files likely to need edits; cite Go interface/type evidence from the graph instead of ranking them as suspected edit files."}}
+
+         {:id "terraform-vpc-flow-log-data-ownership"
+          :repo-id "terraform-aws-vpc"
+          :coverage {:source-kinds [:terraform]}
+          :tags [:synthetic
+                 :problem-architecture
+                 :architecture-data-ownership
+                 :audit-scope-runtime-config
+                 :audit-scope-dependencies
+                 :terraform
+                 :aws]
+          :base-sha "3ffbd46fb1c7733e1b34d8666893280454e27436"
+          :fix-sha "3ffbd46fb1c7733e1b34d8666893280454e27436"
+          :ground-truth {:localization-files ["vpc-flow-logs.tf"
+                                              "main.tf"
+                                              "variables.tf"]}
+          :expectations {:nodes [{:kind :terraform-resource
+                                  :path "vpc-flow-logs.tf"}
+                                 {:kind :terraform-variable
+                                  :path "variables.tf"}]}
+          :issue {:id "terraform-vpc-flow-log-data-ownership"
+                  :url "local:coverage/terraform-aws-vpc/vpc-flow-log-data-ownership"
+                  :title "Trace VPC flow log data ownership through IAM roles and log destinations"
+                  :body "Before changing VPC flow log data ownership, identify the flow log configuration file that declares the aws_flow_log resource and its destination, the main VPC resource file that the flow log attaches to, and the variables file that controls the destination type and IAM role. Return only the files likely to need edits; cite Terraform resource/variable evidence from the graph."}}
+
+         {:id "flask-request-context-cross-system-flow"
+          :repo-id "flask"
+          :coverage {:source-kinds [:python]}
+          :tags [:synthetic
+                 :problem-architecture
+                 :architecture-cross-system-impact
+                 :audit-scope-runtime-config
+                 :python
+                 :flask]
+          :base-sha "36e4a824f340fdee7ed50937ba8e7f6bc7d17f81"
+          :fix-sha "36e4a824f340fdee7ed50937ba8e7f6bc7d17f81"
+          :ground-truth {:localization-files ["src/flask/app.py"
+                                              "src/flask/ctx.py"
+                                              "src/flask/globals.py"]}
+          :expectations {:nodes [{:kind :class
+                                  :path "src/flask/app.py"}
+                                 {:kind :class
+                                  :path "src/flask/ctx.py"}]}
+          :issue {:id "flask-request-context-cross-system-flow"
+                  :url "local:coverage/flask/request-context-cross-system-flow"
+                  :title "Trace request context changes through Flask app, context, and globals proxies"
+                  :body "Flask's request context flows from the Flask app class through AppContext/RequestContext and into the globals proxy objects that expose request and app state to view functions. Before changing context lifecycle handling, identify the app class file that creates contexts, the context file that manages their lifecycle, and the globals file that proxies them. Return only the files likely to need edits; cite Python class evidence from the graph."}}
+
+         {:id "junit-test-engine-lifecycle-ownership"
+          :repo-id "junit-framework"
+          :coverage {:source-kinds [:java]}
+          :tags [:synthetic
+                 :problem-architecture
+                 :architecture-data-ownership
+                 :audit-scope-dependencies
+                 :java
+                 :junit]
+          :base-sha "b040e97f4890dc914f41d86ee2caddb2df6b1f68"
+          :fix-sha "b040e97f4890dc914f41d86ee2caddb2df6b1f68"
+          :ground-truth {:localization-files ["junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/JupiterTestEngine.java"
+                                              "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/execution/JupiterEngineExecutionContext.java"
+                                              "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/descriptor/JupiterEngineDescriptor.java"]}
+          :expectations {:nodes [{:kind :class
+                                  :path "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/JupiterTestEngine.java"}]}
+          :issue {:id "junit-test-engine-lifecycle-ownership"
+                  :url "local:coverage/junit-framework/test-engine-lifecycle-ownership"
+                  :title "Trace test instance lifecycle ownership through the Jupiter test engine"
+                  :body "The JupiterTestEngine owns the test execution lifecycle: it creates the JupiterEngineExecutionContext and uses JupiterEngineDescriptor to drive test discovery and execution. Before changing test instance lifecycle ownership, identify the engine class that orchestrates execution, the execution context that stores per-execution state, and the descriptor that represents the engine node. Return only the files likely to need edits; cite Java class evidence from the graph."}}]}
