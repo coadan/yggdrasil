@@ -43,7 +43,7 @@
     (is (= [[(:files store/tables) :repo-id "repo-a"]
             [(:nodes store/tables) :repo-id "repo-a"]]
            @row-queries))
-    (is (= #{:requires}
+    (is (= #{:requires :resolves :version-of}
            (set (map last @xtql-queries))))))
 
 (deftest import-package-resolution-reads-source-edges-when-map-overlay-can-resolve
@@ -71,7 +71,7 @@
                                                    :ecosystem :maven
                                                    :package-name "org.junit.jupiter"
                                                    :import "org.junit.jupiter"}]}}))))
-    (is (= #{:requires :imports :uses}
+    (is (= #{:imports :requires :resolves :uses :version-of}
            (set (map last @xtql-queries))))))
 
 (deftest import-package-resolution-preserves-source-kind
@@ -201,6 +201,178 @@
                  {})]
       (is (= ["axios"] (mapv :package-name edges)))
       (is (= [:declared] (mapv :resolution-source edges))))))
+
+(deftest import-package-resolution-uses-ancestor-npm-lock-packages
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "site/src/libs/prism.ts"
+                                          :kind :typescript
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "lock:npm"
+                                          :kind :dependency-lock
+                                          :path "package-lock.json"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "version:npm:prismjs"
+                                          :kind :external-package-version
+                                          :label "npm:prismjs@1.30.0"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "version:npm:prismjs:duplicate-lock-entry"
+                                          :kind :external-package-version
+                                          :label "npm:prismjs@1.30.0"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:npm:prismjs"
+                                          :kind :external-package
+                                          :ecosystem :npm
+                                          :package-name "prismjs"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires []
+                            :resolves
+                            [{:source-id "lock:npm"
+                              :target-id "version:npm:prismjs"
+                              :relation :resolves
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "lock:npm"
+                              :target-id "version:npm:prismjs:duplicate-lock-entry"
+                              :relation :resolves
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :version-of
+                            [{:source-id "version:npm:prismjs"
+                              :target-id "pkg:npm:prismjs"
+                              :relation :version-of
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "version:npm:prismjs:duplicate-lock-entry"
+                              :target-id "pkg:npm:prismjs"
+                              :relation :version-of
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:site.src.libs.prism"
+                              :target-id "node:namespace:prismjs"
+                              :relation :imports
+                              :path "site/src/libs/prism.ts"
+                              :source-line 1
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :uses []
+                            []))]
+    (let [edges (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})]
+      (is (= ["prismjs"] (mapv :package-name edges)))
+      (is (= [:dependency-lock] (mapv :resolution-source edges))))))
+
+(deftest import-package-resolution-uses-types-package-for-type-imports
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "site/src/libs/rehype.ts"
+                                          :kind :typescript
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "lock:npm"
+                                          :kind :dependency-lock
+                                          :path "package-lock.json"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "version:npm:@types/hast"
+                                          :kind :external-package-version
+                                          :label "npm:@types/hast@3.0.4"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "version:npm:@types/hast:duplicate-lock-entry"
+                                          :kind :external-package-version
+                                          :label "npm:@types/hast@3.0.4"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:npm:@types/hast"
+                                          :kind :external-package
+                                          :ecosystem :npm
+                                          :package-name "@types/hast"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires []
+                            :resolves
+                            [{:source-id "lock:npm"
+                              :target-id "version:npm:@types/hast"
+                              :relation :resolves
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "lock:npm"
+                              :target-id "version:npm:@types/hast:duplicate-lock-entry"
+                              :relation :resolves
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :version-of
+                            [{:source-id "version:npm:@types/hast"
+                              :target-id "pkg:npm:@types/hast"
+                              :relation :version-of
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "version:npm:@types/hast:duplicate-lock-entry"
+                              :target-id "pkg:npm:@types/hast"
+                              :relation :version-of
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:site.src.libs.rehype"
+                              :target-id "node:namespace:hast"
+                              :relation :imports
+                              :import-kind :type
+                              :path "site/src/libs/rehype.ts"
+                              :source-line 1
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :uses []
+                            []))]
+    (let [edges (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})]
+      (is (= ["@types/hast"] (mapv :package-name edges)))
+      (is (= ["hast"] (mapv :import-name edges)))
+      (is (= [:type-dependency-lock] (mapv :resolution-source edges))))))
 
 (deftest import-package-resolution-uses-deno-import-map-facts
   (with-redefs [store/rows-by-field (fn [_ table _ _]

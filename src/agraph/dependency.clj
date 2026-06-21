@@ -194,18 +194,43 @@
 (def ^:private package-evidence-source-kinds
   #{:manifest :doc-file})
 
+(def ^:private npm-lock-filenames
+  ["package-lock.json" "pnpm-lock.yaml" "yarn.lock" "bun.lock"])
+
+(defn- package-source-entries
+  [nodes-by-id edges]
+  (->> edges
+       (filter #(= :requires (:relation %)))
+       (keep (fn [edge]
+               (let [source (get nodes-by-id (:source-id edge))
+                     target (get nodes-by-id (:target-id edge))]
+                 (when (and (contains? package-evidence-source-kinds
+                                       (:kind source))
+                            (package-node? target))
+                   [(:path source) target]))))))
+
+(defn- lock-package-source-entries
+  [nodes-by-id edges]
+  (let [version-package-edges (group-by :source-id
+                                        (filter #(= :version-of (:relation %))
+                                                edges))]
+    (->> edges
+         (filter #(= :resolves (:relation %)))
+         (mapcat
+          (fn [edge]
+            (let [source (get nodes-by-id (:source-id edge))]
+              (when (= :dependency-lock (:kind source))
+                (keep (fn [version-edge]
+                        (let [package (get nodes-by-id (:target-id version-edge))]
+                          (when (package-node? package)
+                            [(:path source) package])))
+                      (get version-package-edges (:target-id edge))))))))))
+
 (defn- package-by-source
   [nodes edges]
   (let [nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)]
-    (->> edges
-         (filter #(= :requires (:relation %)))
-         (keep (fn [edge]
-                 (let [source (get nodes-by-id (:source-id edge))
-                       target (get nodes-by-id (:target-id edge))]
-                   (when (and (contains? package-evidence-source-kinds
-                                         (:kind source))
-                              (package-node? target))
-                     [(:path source) target]))))
+    (->> (concat (package-source-entries nodes-by-id edges)
+                 (lock-package-source-entries nodes-by-id edges))
          (reduce (fn [out [source-path package]]
                    (update out source-path (fnil conj []) package))
                  {}))))
@@ -235,7 +260,9 @@
 
 (defn- package-by-name
   [packages package-name]
-  (let [matches (filter #(= package-name (:package-name %)) packages)]
+  (let [matches (->> packages
+                     (filter #(= package-name (:package-name %)))
+                     distinct-packages)]
     (when (= 1 (count matches))
       (first matches))))
 
@@ -246,6 +273,16 @@
            (packages-for packages-by-manifest manifest-path ecosystem)
            package-name))
         manifest-paths))
+
+(defn- package-by-ancestor-npm-lock
+  [packages-by-manifest manifest-paths source-path package-name]
+  (some (fn [filename]
+          (package-by-ancestor-manifest
+           packages-by-manifest
+           (ancestor-manifest-paths manifest-paths source-path filename)
+           :npm
+           package-name))
+        npm-lock-filenames))
 
 (defn- segment-prefix?
   [prefix value]
@@ -362,9 +399,20 @@
     (when (= 1 (count packages))
       (first matches))))
 
+(defn- npm-types-package-name
+  [package-name]
+  (when (and (seq package-name)
+             (not (str/starts-with? package-name "@")))
+    (str "@types/" package-name)))
+
+(defn- type-import?
+  [edge]
+  (= :type (:import-kind edge)))
+
 (defn- js-package-result
-  [packages-by-source manifest-paths source-path target]
-  (let [package-name (js-package-name target)]
+  [packages-by-source manifest-paths source-path target edge]
+  (let [package-name (js-package-name target)
+        types-package-name (npm-types-package-name package-name)]
     (or (package-result
          (package-by-ancestor-manifest
           packages-by-source
@@ -378,7 +426,31 @@
           (ancestor-manifest-paths manifest-paths source-path "package.json")
           :npm
           package-name)
-         :declared))))
+         :declared)
+        (package-result
+         (package-by-ancestor-npm-lock
+          packages-by-source
+          manifest-paths
+          source-path
+          package-name)
+         :dependency-lock)
+        (when (type-import? edge)
+          (or (package-result
+               (package-by-ancestor-manifest
+                packages-by-source
+                (ancestor-manifest-paths manifest-paths source-path "package.json")
+                :npm
+                types-package-name)
+               :type-declaration
+               package-name)
+              (package-result
+               (package-by-ancestor-npm-lock
+                packages-by-source
+                manifest-paths
+                source-path
+                types-package-name)
+               :type-dependency-lock
+               package-name))))))
 
 (defn- source-kind
   [files-by-path path]
@@ -524,10 +596,13 @@
        first))
 
 (defn- package-result
-  [package resolution-source]
-  (when package
-    {:package package
-     :resolution-source resolution-source}))
+  ([package resolution-source]
+   (package-result package resolution-source nil))
+  ([package resolution-source import-name]
+   (when package
+     (cond-> {:package package
+              :resolution-source resolution-source}
+       import-name (assoc :import-name import-name)))))
 
 (defn- resolve-import
   [packages-by-id packages-by-source manifest-paths files-by-path map-overlay repo-id edge]
@@ -539,7 +614,8 @@
           (js-package-result packages-by-source
                              manifest-paths
                              (:path edge)
-                             target)
+                             target
+                             edge)
 
           (= :rust kind)
           (when-let [manifest-path (nearest-manifest manifest-paths (:path edge) "Cargo.toml")]
@@ -623,7 +699,11 @@
                 :repo-id repo-id}
          files (active-scope-rows xtdb (:files store/tables) scope)
          nodes (active-scope-rows xtdb (:nodes store/tables) scope)
-         requires-edges (active-scope-edge-rows xtdb scope #{:requires})
+         dependency-source-edges (active-scope-edge-rows xtdb
+                                                         scope
+                                                         #{:requires
+                                                           :resolves
+                                                           :version-of})
          files-by-path (into {} (map (juxt :path identity)) files)
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
          alias-nodes (filterv module-path-alias-node? nodes)
@@ -631,7 +711,7 @@
                              (filter package-node?)
                              (map (juxt :xt/id identity))
                              (into {}))
-         packages-by-source (package-by-source nodes requires-edges)
+         packages-by-source (package-by-source nodes dependency-source-edges)
          manifest-paths (set (keys packages-by-source))]
      (if-not (can-resolve-import-packages? packages-by-source map-overlay)
        []
