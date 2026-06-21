@@ -27,6 +27,9 @@
                  [:max-noise-at-20 :maxNoiseRatioAt20]
                  [:min-evidence-citation-rate :minEvidenceCitationRate]
                  [:min-path-evidence-citation-rate :minPathEvidenceCitationRate]
+                 [:min-decision-f1 :minDecisionF1]
+                 [:min-decision-evidence-citation-rate
+                  :minDecisionEvidenceCitationRate]
                  [:min-case-file-recall-at-5 :minCaseFileRecallAt5]
                  [:min-case-file-recall-at-10 :minCaseFileRecallAt10]
                  [:min-case-file-recall-at-20 :minCaseFileRecallAt20]
@@ -34,6 +37,7 @@
                  [:min-case-evidence-citation-rate :minCaseEvidenceCitationRate]
                  [:min-case-path-evidence-citation-rate
                   :minCasePathEvidenceCitationRate]
+                 [:min-case-decision-f1 :minCaseDecisionF1]
                  [:max-case-noise-at-20 :maxCaseNoiseRatioAt20]
                  [:max-input-hinted-cases :maxInputHintedCases]
                  [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
@@ -42,6 +46,7 @@
                   :maxMissingPredictedFileRuns]
                  [:max-commandless-runs :maxCommandlessRuns]
                  [:max-warning-runs :maxWarningRuns]
+                 [:max-missing-decision-runs :maxMissingDecisionRuns]
                  [:max-hint-diagnostic-runs :maxHintDiagnosticRuns]
                  [:max-identity-mismatch-runs :maxIdentityMismatchRuns]
                  [:max-unverified-score-runs :maxUnverifiedScoreRuns]
@@ -193,7 +198,10 @@
                  "case.evidenceCitationRate"]
                 [:minCasePathEvidenceCitationRate
                  :pathEvidenceCitationRate
-                 "case.pathEvidenceCitationRate"]])
+                 "case.pathEvidenceCitationRate"]
+                [:minCaseDecisionF1
+                 :decisionF1
+                 "case.decisionF1"]])
          (keep (fn [[threshold-key metric-key metric-label]]
                  (case-max-failure check result threshold-key metric-key metric-label))
                [[:maxCaseNoiseRatioAt20 :noiseRatioAt20 "case.noiseRatioAt20"]])))
@@ -308,6 +316,21 @@
                                     :agentDiagnostics
                                     :commandlessCaseIds])
                  :message "Some agent score artifacts did not cite any commands."})]))))
+(defn- missing-decision-run-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :maxMissingDecisionRuns])]
+    (let [actual (double (get-in check
+                                 [:report
+                                  :decisionDiagnostics
+                                  :missingDecisionRuns]
+                                 0))]
+      (when (> actual expected)
+        [(merge (metric-failure "missingDecisionRuns" "<=" expected actual)
+                {:case-ids (get-in check
+                                   [:report
+                                    :decisionDiagnostics
+                                    :missingDecisionCaseIds])
+                 :message "Some decision benchmark cases are missing agent decision output."})]))))
 (defn- unverified-score-failures
   [check]
   (when-some [expected (get-in check [:thresholds :maxUnverifiedScoreRuns])]
@@ -575,6 +598,10 @@
    :noiseRatioAt20
    :evidenceCitationRate
    :pathEvidenceCitationRate
+   :decisionRecall
+   :decisionPrecision
+   :decisionF1
+   :decisionEvidenceCitationRate
    :changedFiles
    :scoreableChangedFiles
    :unsupportedGroundTruthFiles])
@@ -659,7 +686,13 @@
                            "evidenceCitationRate"]
                           [:minPathEvidenceCitationRate
                            :pathEvidenceCitationRate
-                           "pathEvidenceCitationRate"]])
+                           "pathEvidenceCitationRate"]
+                          [:minDecisionF1
+                           :decisionF1
+                           "decisionF1"]
+                          [:minDecisionEvidenceCitationRate
+                           :decisionEvidenceCitationRate
+                           "decisionEvidenceCitationRate"]])
                    (keep (fn [[threshold-key metric-path metric-label]]
                            (max-failure check-base
                                         threshold-key
@@ -676,6 +709,7 @@
                    (empty-result-failures check-base)
                    (missing-predicted-file-failures check-base)
                    (commandless-run-failures check-base)
+                   (missing-decision-run-failures check-base)
                    (warning-run-failures check-base)
                    (hint-diagnostic-run-failures check-base)
                    (identity-mismatch-run-failures check-base)

@@ -1771,15 +1771,19 @@
                                  "--max-noise-at-20" "0.5"
                                  "--min-evidence-citation-rate" "0.8"
                                  "--min-path-evidence-citation-rate" "0.6"
+                                 "--min-decision-f1" "0.75"
+                                 "--min-decision-evidence-citation-rate" "0.65"
                                  "--min-case-file-recall-at-10" "1.0"
                                  "--min-case-mrr" "0.9"
                                  "--min-case-evidence-citation-rate" "0.7"
                                  "--min-case-path-evidence-citation-rate" "0.55"
+                                 "--min-case-decision-f1" "0.5"
                                  "--max-case-noise-at-20" "0.75"
                                  "--max-input-hinted-cases" "0"
                                  "--max-unsupported-ground-truth-files" "0"
                                  "--max-commandless-runs" "0"
                                  "--max-missing-predicted-file-runs" "0"
+                                 "--max-missing-decision-runs" "0"
                                  "--max-warning-runs" "0"
                                  "--max-identity-mismatch-runs" "0"
                                  "--max-missing-declared-source-kind-runs" "0"
@@ -1820,15 +1824,19 @@
                   :max-noise-at-20 0.5
                   :min-evidence-citation-rate 0.8
                   :min-path-evidence-citation-rate 0.6
+                  :min-decision-f1 0.75
+                  :min-decision-evidence-citation-rate 0.65
                   :min-case-file-recall-at-10 1.0
                   :min-case-mrr 0.9
                   :min-case-evidence-citation-rate 0.7
                   :min-case-path-evidence-citation-rate 0.55
+                  :min-case-decision-f1 0.5
                   :max-case-noise-at-20 0.75
                   :max-input-hinted-cases 0.0
                   :max-unsupported-ground-truth-files 0.0
                   :max-commandless-runs 0.0
                   :max-missing-predicted-file-runs 0.0
+                  :max-missing-decision-runs 0.0
                   :max-warning-runs 0.0
                   :max-identity-mismatch-runs 0.0
                   :max-missing-declared-source-kind-runs 0.0

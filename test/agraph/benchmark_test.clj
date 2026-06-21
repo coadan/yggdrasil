@@ -1058,6 +1058,126 @@
              :found? true}]
            (get-in scored [:groundTruthRanks :files])))))
 
+(deftest scores-agent-decision-quality-result
+  (let [root (temp-dir "agraph-bench-agent-decision-score")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        _ (spit-file! root "test/app_test.clj" "(ns app-test)\n")
+        _ (spit-file! root "README.md" "# docs\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :agentInputFingerprint "sha256:test-input"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}
+                  :decisionCandidates [{:id "edit-runtime"
+                                        :kind "architecture-choice"
+                                        :paths ["src/app.clj"]}
+                                       {:id "add-regression-test"
+                                        :kind "architecture-choice"
+                                        :paths ["test/app_test.clj"]}
+                                       {:id "docs-only"
+                                        :kind "architecture-choice"
+                                        :paths ["README.md"]}]
+                  :decisionGroundTruth {:kind "architecture-choice"
+                                        :required ["edit-runtime"
+                                                   "add-regression-test"]
+                                        :forbidden ["docs-only"]}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :caseId "case-1"
+                      :caseFingerprint "sha256:test-case"
+                      :agentInputFingerprint "sha256:test-input"
+                      :agentId "codex"
+                      :mode "agraph"
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.9
+                                        :reason "runtime edit"
+                                        :evidence ["src/app.clj defines the runtime path"]}]
+                      :suspectedSymbols []
+                      :commands ["rg runtime src/app.clj"]
+                      :warnings []
+                      :summary "Decision candidates scored."
+                      :decision {:kind "architecture-choice"
+                                 :choices [{:id "edit-runtime"
+                                            :status "include"
+                                            :confidence 0.9
+                                            :reason "runtime owner"
+                                            :evidence ["src/app.clj owns the runtime path"]}
+                                           {:id "add-regression-test"
+                                            :status "defer"
+                                            :confidence 0.6
+                                            :reason "needs confirmation"
+                                            :evidence ["test/app_test.clj is the likely test path"]}
+                                           {:id "docs-only"
+                                            :status "include"
+                                            :confidence 0.4
+                                            :reason "wrongly included"
+                                            :evidence ["manual note without exact path"]}]}}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (= 0.5 (get-in scored [:scores :decisionRecall])))
+    (is (= 0.5 (get-in scored [:scores :decisionPrecision])))
+    (is (= 0.5 (get-in scored [:scores :decisionF1])))
+    (is (= 0.5 (get-in scored [:scores :decisionEvidenceCitationRate])))
+    (is (= {:configured true
+            :kind "architecture-choice"
+            :candidateIds ["add-regression-test" "docs-only" "edit-runtime"]
+            :requiredChoiceIds ["add-regression-test" "edit-runtime"]
+            :forbiddenChoiceIds ["docs-only"]
+            :includedChoiceIds ["docs-only" "edit-runtime"]
+            :excludedChoiceIds []
+            :deferredChoiceIds ["add-regression-test"]
+            :unknownChoiceIds []
+            :matchedRequiredChoiceIds ["edit-runtime"]
+            :missedChoiceIds ["add-regression-test"]
+            :wrongIncludedChoiceIds ["docs-only"]
+            :deferredRequiredChoiceIds ["add-regression-test"]
+            :uncitedChoiceIds ["docs-only"]
+            :missingDecision false}
+           (:decisionScoring scored)))))
+
+(deftest scores-decision-benchmark-missing-agent-decision
+  (let [root (temp-dir "agraph-bench-missing-agent-decision")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}
+                  :decisionCandidates [{:id "edit-runtime"
+                                        :kind "maintenance-action"
+                                        :paths ["src/app.clj"]}]
+                  :decisionGroundTruth {:kind "maintenance-action"
+                                        :required ["edit-runtime"]}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :caseId "case-1"
+                      :caseFingerprint "sha256:test-case"
+                      :agentId "codex"
+                      :mode "agraph"
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.8
+                                        :reason "runtime edit"
+                                        :evidence ["src/app.clj cited"]}]
+                      :suspectedSymbols []
+                      :commands []
+                      :warnings []
+                      :summary "No decision block."}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (true? (get-in scored [:decisionScoring :missingDecision])))
+    (is (= 0.0 (get-in scored [:scores :decisionF1])))
+    (is (some #{"agent result missing decision for decision benchmark case"}
+              (get-in scored [:agent :warnings])))))
+
 (deftest score-agent-result-warns-on-malformed-agent-output
   (let [root (temp-dir "agraph-bench-agent-score-shape")
         _ (spit-file! root "src/app.clj" "(ns app)\n")

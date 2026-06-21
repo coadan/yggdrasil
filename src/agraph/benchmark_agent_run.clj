@@ -170,6 +170,14 @@
    :commands []
    :warnings []
    :summary "brief rationale"
+   :decision {:kind "architecture-choice|change-plan|maintenance-action|audit-assessment|plugin-fit"
+              :choices [{:id "visible decision candidate id"
+                         :status "include|exclude|defer"
+                         :confidence 0.0
+                         :reason "short evidence-based reason"
+                         :evidence ["repo-relative/path.ext command-or-graph citation"]}]
+              :risks []
+              :followups []}
    :tokenUsage {:inputTokens 0
                 :outputTokens 0
                 :totalTokens 0
@@ -197,6 +205,21 @@
             "- Otherwise write JSON to `AGRAPH_BENCH_RESULT`; do not include prose outside JSON."
             ""]
     []))
+(defn- decision-prompt-lines
+  [packet]
+  (let [candidates (vec (get-in packet [:task :decisionCandidates]))]
+    (when (seq candidates)
+      ["## Decision Quality"
+       "This case also scores decision quality. Add `decision` to the result JSON."
+       "Use only the candidate ids listed below. Do not invent ids."
+       "For each candidate you can judge, set status to include, exclude, or defer."
+       "Cite exact repo-relative candidate evidence paths when available."
+       ""
+       "```json"
+       (json-example {:kind (get-in packet [:task :decisionKind])
+                      :candidates candidates})
+       "```"
+       ""])))
 (defn agent-run-prompt
   [packet result-path output-schema-path opts]
   (let [profile (agent-prompt-profile opts)]
@@ -241,8 +264,9 @@
        (str/join "\n" suspected-files-scope-rules)
        (str/join "\n" evidence-citation-rules)
        (str/join "\n" result-integrity-rules)
-       ""
-       "## Result Contract"
+       ""]
+      (decision-prompt-lines packet)
+      ["## Result Contract"
        (str "Write JSON with schema `" agent-result-schema "` to `AGRAPH_BENCH_RESULT`.")
        "When your agent runner supports structured output, use `AGRAPH_BENCH_OUTPUT_SCHEMA`."
        "For structured-output runners that capture the final response, return only the JSON result as the final response and do not also shell-write the result file."

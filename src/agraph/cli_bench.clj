@@ -105,6 +105,16 @@
                                                                       (parse-optional-double
                                                                        args
                                                                        "--min-path-evidence-citation-rate"))
+    (parse-optional-double args "--min-decision-f1") (assoc
+                                                      :min-decision-f1
+                                                      (parse-optional-double
+                                                       args
+                                                       "--min-decision-f1"))
+    (parse-optional-double args "--min-decision-evidence-citation-rate") (assoc
+                                                                          :min-decision-evidence-citation-rate
+                                                                          (parse-optional-double
+                                                                           args
+                                                                           "--min-decision-evidence-citation-rate"))
     (parse-optional-double args "--min-case-file-recall-at-5") (assoc
                                                                 :min-case-file-recall-at-5
                                                                 (parse-optional-double
@@ -134,6 +144,11 @@
                                                                            (parse-optional-double
                                                                             args
                                                                             "--min-case-path-evidence-citation-rate"))
+    (parse-optional-double args "--min-case-decision-f1") (assoc
+                                                           :min-case-decision-f1
+                                                           (parse-optional-double
+                                                            args
+                                                            "--min-case-decision-f1"))
     (parse-optional-double args "--max-case-noise-at-20") (assoc
                                                            :max-case-noise-at-20
                                                            (parse-optional-double
@@ -158,6 +173,11 @@
                                                                       (parse-optional-double
                                                                        args
                                                                        "--max-missing-predicted-file-runs"))
+    (parse-optional-double args "--max-missing-decision-runs") (assoc
+                                                                :max-missing-decision-runs
+                                                                (parse-optional-double
+                                                                 args
+                                                                 "--max-missing-decision-runs"))
     (parse-optional-double args "--max-commandless-runs") (assoc
                                                            :max-commandless-runs
                                                            (parse-optional-double
@@ -325,6 +345,17 @@
                                   :hintDiagnosticCaseIds
                                   :extra-key :hintDiagnosticRows
                                   :extra-label "rows")))
+(defn- print-decision-diagnostics-summary
+  [diagnostics]
+  (when diagnostics
+    (print-agent-diagnostic-count diagnostics
+                                  "missing-decision-runs"
+                                  :missingDecisionRuns
+                                  :missingDecisionCaseIds)
+    (print-agent-diagnostic-count diagnostics
+                                  "decision-quality-gap-runs"
+                                  :gapRuns
+                                  :gapCaseIds)))
 (defn- print-artifact-diagnostics-summary
   [diagnostics]
   (when diagnostics
@@ -458,6 +489,7 @@
                (format "%.2f" (double (get-in result [:scores :evidenceCitationRate] 0.0))))
       (print-parser-worker-summary (:parserWorkers result))
       (print-agent-diagnostics-summary (:agentDiagnostics result))
+      (print-decision-diagnostics-summary (:decisionDiagnostics result))
       (print-artifact-diagnostics-summary (:artifactDiagnostics result))
       (print-maintenance-preflight-summary (:maintenancePreflightDiagnostics result))
       (print-claim-readiness (:claimReadiness result))
@@ -543,6 +575,7 @@
                                               0.0))))
       (print-parser-worker-summary (get-in result [:report :parserWorkers]))
       (print-agent-diagnostics-summary (get-in result [:report :agentDiagnostics]))
+      (print-decision-diagnostics-summary (get-in result [:report :decisionDiagnostics]))
       (print-artifact-diagnostics-summary (get-in result [:report :artifactDiagnostics]))
       (print-maintenance-preflight-summary (get-in result
                                                    [:report

@@ -38,6 +38,22 @@
 (def ^:private aggregate-ranked-file-diagnostic-limit
   20)
 
+(def ^:private aggregate-score-keys
+  [:fileRecallAt5
+   :fileRecallAt10
+   :fileRecallAt20
+   :meanReciprocalRankFile
+   :noiseRatioAt20
+   :evidenceCitationRate
+   :pathEvidenceCitationRate
+   :expectedEvidenceCitationRate])
+
+(def ^:private aggregate-decision-score-keys
+  [:decisionRecall
+   :decisionPrecision
+   :decisionF1
+   :decisionEvidenceCitationRate])
+
 (defn- average
   [values]
   (if (seq values)
@@ -46,14 +62,12 @@
 
 (defn aggregate-scores
   [results]
-  (let [score-keys [:fileRecallAt5
-                    :fileRecallAt10
-                    :fileRecallAt20
-                    :meanReciprocalRankFile
-                    :noiseRatioAt20
-                    :evidenceCitationRate
-                    :pathEvidenceCitationRate
-                    :expectedEvidenceCitationRate]]
+  (let [score-keys (cond-> aggregate-score-keys
+                     (some #(some (fn [k]
+                                    (number? (get-in % [:scores k])))
+                                  aggregate-decision-score-keys)
+                           results)
+                     (into aggregate-decision-score-keys))]
     (into {}
           (map (fn [k]
                  [k (average (keep #(get-in % [:scores k]) results))]))
@@ -777,6 +791,97 @@
                                                         sort
                                                         vec)}))
 
+(defn- decision-diagnostic
+  [result]
+  (when-let [decision (:decisionScoring result)]
+    (select-keys decision
+                 [:configured
+                  :kind
+                  :candidateIds
+                  :requiredChoiceIds
+                  :forbiddenChoiceIds
+                  :includedChoiceIds
+                  :excludedChoiceIds
+                  :deferredChoiceIds
+                  :unknownChoiceIds
+                  :matchedRequiredChoiceIds
+                  :missedChoiceIds
+                  :wrongIncludedChoiceIds
+                  :deferredRequiredChoiceIds
+                  :uncitedChoiceIds
+                  :missingDecision])))
+
+(defn- decision-gap?
+  [diagnostic]
+  (or (:missingDecision diagnostic)
+      (seq (:missedChoiceIds diagnostic))
+      (seq (:wrongIncludedChoiceIds diagnostic))
+      (seq (:uncitedChoiceIds diagnostic))
+      (seq (:unknownChoiceIds diagnostic))))
+
+(defn- decision-choice-gap-rows
+  [result-pairs key kind]
+  (->> result-pairs
+       (mapcat (fn [[result diagnostic]]
+                 (map (fn [id]
+                        {:id id
+                         :kind kind
+                         :case-id (:case-id result)})
+                      (get diagnostic key))))
+       (group-by (juxt :kind :id))
+       (mapv (fn [[[kind id] rows]]
+               {:kind kind
+                :id id
+                :runs (count rows)
+                :caseIds (->> rows
+                              (map :case-id)
+                              distinct
+                              sort
+                              vec)}))
+       (sort-by (juxt :kind :id))))
+
+(defn- aggregate-decision-diagnostics
+  [results]
+  (let [result-pairs (->> results
+                          (keep (fn [result]
+                                  (when-let [diagnostic (decision-diagnostic result)]
+                                    [result diagnostic])))
+                          vec)
+        case-ids (fn [pairs]
+                   (->> pairs
+                        (map (comp :case-id first))
+                        distinct
+                        sort
+                        vec))
+        missing (filter (comp :missingDecision second) result-pairs)
+        missed (filter (comp seq :missedChoiceIds second) result-pairs)
+        wrong (filter (comp seq :wrongIncludedChoiceIds second) result-pairs)
+        uncited (filter (comp seq :uncitedChoiceIds second) result-pairs)
+        unknown (filter (comp seq :unknownChoiceIds second) result-pairs)
+        gaps (filter (comp decision-gap? second) result-pairs)]
+    {:configuredRuns (count result-pairs)
+     :configuredCaseIds (case-ids result-pairs)
+     :gapRuns (count gaps)
+     :gapCaseIds (case-ids gaps)
+     :missingDecisionRuns (count missing)
+     :missingDecisionCaseIds (case-ids missing)
+     :missedDecisionRuns (count missed)
+     :missedDecisionCaseIds (case-ids missed)
+     :wrongDecisionRuns (count wrong)
+     :wrongDecisionCaseIds (case-ids wrong)
+     :uncitedDecisionRuns (count uncited)
+     :uncitedDecisionCaseIds (case-ids uncited)
+     :unknownDecisionChoiceRuns (count unknown)
+     :unknownDecisionChoiceCaseIds (case-ids unknown)
+     :choiceGaps (vec
+                  (concat
+                   (decision-choice-gap-rows result-pairs :missedChoiceIds "missed")
+                   (decision-choice-gap-rows result-pairs
+                                             :wrongIncludedChoiceIds
+                                             "wrong-included")
+                   (decision-choice-gap-rows result-pairs :uncitedChoiceIds "uncited")
+                   (decision-choice-gap-rows result-pairs :unknownChoiceIds "unknown")))}))
+
 (declare aggregate-localization-diagnostics
          aggregate-coverage-diagnostics
          report-improvement-summary)
@@ -796,6 +901,7 @@
                          :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
                          :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
                                                            rows)
+                         :decisionDiagnostics (aggregate-decision-diagnostics rows)
                          :localizationDiagnostics (aggregate-localization-diagnostics rows)
                          :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                          :artifactDiagnostics (aggregate-artifact-diagnostics
@@ -831,6 +937,7 @@
                          :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
                          :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
                                                            rows)
+                         :decisionDiagnostics (aggregate-decision-diagnostics rows)
                          :localizationDiagnostics (aggregate-localization-diagnostics rows)
                          :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                          :artifactDiagnostics (aggregate-artifact-diagnostics
@@ -906,6 +1013,19 @@
                                 (map? (get-in report
                                               [:agentDiagnostics
                                                :commandTelemetry])))
+        decision-configured? (pos?
+                              (long
+                               (get-in report
+                                       [:decisionDiagnostics :configuredRuns]
+                                       0)))
+        decision-metrics? (or (not decision-configured?)
+                              (and (number? (get-in report [:scores :decisionF1]))
+                                   (zero?
+                                    (long
+                                     (get-in report
+                                             [:decisionDiagnostics
+                                              :missingDecisionRuns]
+                                             0)))))
         maintenance-preflight (:maintenancePreflightDiagnostics report)
         maintenance-preflight? (or (not (:requiredForClaim maintenance-preflight))
                                    (= "passed" (:status maintenance-preflight)))
@@ -916,6 +1036,7 @@
                                                     (seq measured-architecture-tags))
                       :evidenceCitationMetrics evidence-metrics?
                       :expectedEvidenceCitationMetrics expected-evidence-metrics?
+                      :decisionQualityMetrics decision-metrics?
                       :commandTelemetry command-telemetry?
                       :maintenancePreflight maintenance-preflight?}
         supported? (every? true? (vals requirements))]
@@ -942,6 +1063,9 @@
 
                  (not expected-evidence-metrics?)
                  (conj "Expected-evidence citation metrics are unavailable or incomplete; non-code help quality is unproven.")
+
+                 (not decision-metrics?)
+                 (conj "Decision-quality metrics are configured but incomplete; complex-system decision claims are unproven.")
 
                  (not command-telemetry?)
                  (conj "Command telemetry is unavailable; shell/search/read-loop costs are unproven.")
@@ -991,6 +1115,7 @@
   [report]
   (let [agent-diagnostics (:agentDiagnostics report)
         expectation-diagnostics (:expectationDiagnostics report)
+        decision-diagnostics (:decisionDiagnostics report)
         localization (:localizationDiagnostics report)
         coverage (:coverageDiagnostics report)
         graph-expectations (:graphExpectationDiagnostics report)
@@ -1044,6 +1169,13 @@
               :case-ids (:missingExpectedEvidenceCitationMetricCaseIds
                          expectation-diagnostics)
               :message "Benchmark cases declared expected evidence without scored expected-evidence citation metrics."})
+            (improvement-row
+             {:kind "decision-quality-gaps"
+              :area "agent-decision-quality"
+              :runs (:gapRuns decision-diagnostics)
+              :case-ids (:gapCaseIds decision-diagnostics)
+              :message "Decision benchmark cases had missing, wrong, unknown, or uncited candidate choices."
+              :details (:choiceGaps decision-diagnostics)})
             (improvement-row
              {:kind "missing-declared-source-kinds"
               :area "coverage-declarations"
@@ -1158,6 +1290,7 @@
                                                              rows)
                                :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
                                                                  rows)
+                               :decisionDiagnostics (aggregate-decision-diagnostics rows)
                                :localizationDiagnostics (aggregate-localization-diagnostics rows)
                                :coverageDiagnostics (aggregate-coverage-diagnostics rows)
                                :artifactDiagnostics (aggregate-artifact-diagnostics
@@ -1522,6 +1655,7 @@
                                                    results)
                      :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
                                                        results)
+                     :decisionDiagnostics (aggregate-decision-diagnostics results)
                      :localizationDiagnostics (aggregate-localization-diagnostics results)
                      :coverageDiagnostics (aggregate-coverage-diagnostics results)
                      :artifactDiagnostics (aggregate-artifact-diagnostics
@@ -1555,6 +1689,7 @@
                                                             :expectations
                                                             :maintenancePreflight
                                                             :graphExpectations
+                                                            :decisionScoring
                                                             :inputHints
                                                             :coverage
                                                             :agentResultPath
@@ -1568,6 +1703,8 @@
                                             (agent-output-diagnostic %)
                                             :maintenancePreflight
                                             (result-maintenance-preflight %)
+                                            :decision
+                                            (decision-diagnostic %)
                                             :artifact
                                             (artifact-diagnostic report-context %)
                                             :auditScope

@@ -1,0 +1,216 @@
+{:id "decision-quality-pilot"
+ :project-id "decision-quality-pilot"
+ :description "Pilot suite for scoring complex-system decision quality in addition to file localization."
+ :repos [{:id "bootstrap"
+          :root "../.dev/oss-test-cases/repos/bootstrap"
+          :role :application}
+         {:id "supabase-postgres"
+          :root "../.dev/oss-test-cases/repos/supabase-postgres"
+          :role :application}
+         {:id "axios"
+          :root "../.dev/oss-test-cases/repos/axios"
+          :role :application}
+         {:id "dapper"
+          :root "../.dev/oss-test-cases/repos/dapper"
+          :role :library}]
+ :cases [{:id "decision-bootstrap-docs-route-impact"
+          :repo-id "bootstrap"
+          :coverage {:source-kinds [:web-framework]}
+          :tags [:decision-quality
+                 :synthetic
+                 :problem-architecture
+                 :architecture-cross-system-impact
+                 :audit-scope-docs
+                 :multi-repo-corpus
+                 :web-framework
+                 :astro]
+          :base-sha "320f7139052be98339726cac20895f50172000f9"
+          :fix-sha "320f7139052be98339726cac20895f50172000f9"
+          :ground-truth {:localization-files ["site/src/pages/index.astro"
+                                              "site/src/pages/docs/[version]/examples/index.astro"]}
+          :decision-candidates [{:id "edit-docs-routes"
+                                 :kind :architecture-choice
+                                 :label "Change docs route files"
+                                 :summary "Treat the affected Astro route files as the edit surface."
+                                 :paths ["site/src/pages/index.astro"
+                                         "site/src/pages/docs/[version]/examples/index.astro"]}
+                                {:id "edit-theme-components-only"
+                                 :kind :architecture-choice
+                                 :label "Change theme components only"
+                                 :summary "Treat imported theme components as the primary edit surface."
+                                 :paths ["site/src/components/Layout.astro"]}
+                                {:id "change-root-package-manifest"
+                                 :kind :architecture-choice
+                                 :label "Change package manifest"
+                                 :summary "Treat the package manifest as the primary edit surface."
+                                 :paths ["package.json"]}]
+          :decision-ground-truth {:kind :architecture-choice
+                                  :required ["edit-docs-routes"]
+                                  :forbidden ["edit-theme-components-only"
+                                              "change-root-package-manifest"]}
+          :issue {:id "decision-bootstrap-docs-route-impact"
+                  :url "local:decision/bootstrap/docs-route-impact"
+                  :title "Choose the docs route edit surface before removing theme components"
+                  :body "The docs team wants to remove theme UI from Bootstrap's Astro docs. Identify the route files and choose which decision candidates should be included, excluded, or deferred before editing. Cite route/import evidence paths."}}
+
+         {:id "decision-supabase-trigger-maintenance"
+          :repo-id "supabase-postgres"
+          :coverage {:source-kinds [:env :sql]}
+          :tags [:decision-quality
+                 :synthetic
+                 :problem-maintenance
+                 :architecture-data-ownership
+                 :architecture-runtime-boundary
+                 :audit-scope-runtime-config
+                 :runtime-config
+                 :database]
+          :base-sha "948b5feb51b9605babc6820475b5ccff44f29552"
+          :fix-sha "948b5feb51b9605babc6820475b5ccff44f29552"
+          :ground-truth {:localization-files ["migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                              "migrations/.env"]}
+          :decision-candidates [{:id "inspect-sql-owner-and-runtime-env"
+                                 :kind :maintenance-action
+                                 :label "Inspect SQL owner and runtime env"
+                                 :summary "Review the init script and environment file before making ownership changes."
+                                 :paths ["migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                         "migrations/.env"]}
+                                {:id "change-testinfra-import-first"
+                                 :kind :maintenance-action
+                                 :label "Change Python testinfra first"
+                                 :summary "Treat Python testinfra wiring as the primary maintenance action."
+                                 :paths ["testinfra/testinfra/test_postgres.py"]}
+                                {:id "defer-owner-change-until-sync-check"
+                                 :kind :maintenance-action
+                                 :label "Defer owner change until sync check"
+                                 :summary "Block the change until graph maintenance and validation pass."
+                                 :paths ["migrations/db/init-scripts/00000000000003-post-setup.sql"]}]
+          :decision-ground-truth {:kind :maintenance-action
+                                  :required ["inspect-sql-owner-and-runtime-env"
+                                             "defer-owner-change-until-sync-check"]
+                                  :forbidden ["change-testinfra-import-first"]}
+          :issue {:id "decision-supabase-trigger-maintenance"
+                  :url "local:decision/supabase-postgres/trigger-maintenance"
+                  :title "Choose a maintenance action for event trigger ownership"
+                  :body "Before changing built-in event trigger ownership, decide which maintenance actions are justified by SQL owner and runtime env evidence. Include validation-oriented actions when graph health or sync state matters."}}
+
+         {:id "decision-axios-native-proxy-audit"
+          :repo-id "axios"
+          :coverage {:source-kinds [:javascript]}
+          :tags [:decision-quality
+                 :synthetic
+                 :problem-audit
+                 :architecture-runtime-boundary
+                 :audit-scope-runtime-config
+                 :shell-sufficient-control
+                 :javascript]
+          :base-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
+          :fix-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
+          :ground-truth {:localization-files ["lib/adapters/http.js"
+                                              "tests/unit/adapters/http.test.js"]}
+          :decision-candidates [{:id "audit-adapter-and-proxy-tests"
+                                 :kind :audit-assessment
+                                 :label "Audit adapter and proxy tests"
+                                 :summary "Treat the HTTP adapter and proxy tests as the trust boundary."
+                                 :paths ["lib/adapters/http.js"
+                                         "tests/unit/adapters/http.test.js"]}
+                                {:id "audit-package-manifest-only"
+                                 :kind :audit-assessment
+                                 :label "Audit package manifest only"
+                                 :summary "Treat package metadata as enough to decide the proxy boundary."
+                                 :paths ["package.json"]}
+                                {:id "audit-docs-before-runtime"
+                                 :kind :audit-assessment
+                                 :label "Audit docs before runtime"
+                                 :summary "Treat docs as the primary source for runtime proxy behavior."
+                                 :paths ["README.md"]}]
+          :decision-ground-truth {:kind :audit-assessment
+                                  :required ["audit-adapter-and-proxy-tests"]
+                                  :forbidden ["audit-package-manifest-only"
+                                              "audit-docs-before-runtime"]}
+          :issue {:id "decision-axios-native-proxy-audit"
+                  :url "local:decision/axios/native-proxy-audit"
+                  :title "Choose the audit boundary for native proxy handling"
+                  :body "Node can handle environment proxies natively. Decide which audit candidates belong in the runtime boundary assessment and cite exact adapter or test paths."}}
+
+         {:id "decision-dapper-jsonb-plugin-fit"
+          :repo-id "dapper"
+          :coverage {:source-kinds [:dotnet :compose]}
+          :tags [:decision-quality
+                 :synthetic
+                 :problem-architecture
+                 :plugin-fit
+                 :architecture-dependency-flow
+                 :audit-scope-dependencies
+                 :audit-scope-containers
+                 :dotnet
+                 :container]
+          :base-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
+          :fix-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
+          :ground-truth {:localization-files ["Dapper/SqlMapper.cs"
+                                              "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                              "tests/docker-compose.yml"]}
+          :decision-candidates [{:id "use-dotnet-and-container-plugins"
+                                 :kind :plugin-fit
+                                 :label "Use .NET and container plugins"
+                                 :summary "Need C# project/type handling plus compose/runtime evidence."
+                                 :paths ["Dapper/SqlMapper.cs"
+                                         "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                         "tests/docker-compose.yml"]}
+                                {:id "use-web-framework-plugin"
+                                 :kind :plugin-fit
+                                 :label "Use web framework plugin"
+                                 :summary "Treat route/component extraction as the primary fit."
+                                 :paths ["Dapper/SqlMapper.cs"]}
+                                {:id "generic-text-search-only"
+                                 :kind :plugin-fit
+                                 :label "Use generic text search only"
+                                 :summary "Avoid project-specific extractors and rely only on lexical search."
+                                 :paths ["tests/docker-compose.yml"]}]
+          :decision-ground-truth {:kind :plugin-fit
+                                  :required ["use-dotnet-and-container-plugins"]
+                                  :forbidden ["use-web-framework-plugin"
+                                              "generic-text-search-only"]}
+          :issue {:id "decision-dapper-jsonb-plugin-fit"
+                  :url "local:decision/dapper/jsonb-plugin-fit"
+                  :title "Choose project-specific plugin coverage for a JSONB regression"
+                  :body "A PostgreSQL jsonb regression spans Dapper type handling, regression tests, and the PostgreSQL test container. Decide which plugin fit candidates are justified and cite concrete paths."}}
+
+         {:id "decision-bootstrap-astro-change-plan"
+          :repo-id "bootstrap"
+          :coverage {:source-kinds [:manifest :web-framework]}
+          :tags [:decision-quality
+                 :synthetic
+                 :problem-architecture
+                 :architecture-dependency-flow
+                 :not-one-size-fits-all
+                 :multi-repo-corpus
+                 :web-framework-config
+                 :astro]
+          :base-sha "c82919e8970c7ebebb87ded191b815c76737cd04"
+          :fix-sha "c82919e8970c7ebebb87ded191b815c76737cd04"
+          :ground-truth {:localization-files ["site/astro.config.ts"
+                                              "package.json"]}
+          :decision-candidates [{:id "plan-config-and-manifest"
+                                 :kind :change-plan
+                                 :label "Plan config and manifest edits"
+                                 :summary "Change Astro config and declare the package dependency together."
+                                 :paths ["site/astro.config.ts"
+                                         "package.json"]}
+                                {:id "plan-config-only"
+                                 :kind :change-plan
+                                 :label "Plan config only"
+                                 :summary "Change Astro config without dependency manifest work."
+                                 :paths ["site/astro.config.ts"]}
+                                {:id "plan-global-search-first"
+                                 :kind :change-plan
+                                 :label "Plan broad search first"
+                                 :summary "Do not use framework or manifest facts; start from broad text search."
+                                 :paths ["package.json"]}]
+          :decision-ground-truth {:kind :change-plan
+                                  :required ["plan-config-and-manifest"]
+                                  :forbidden ["plan-config-only"
+                                              "plan-global-search-first"]}
+          :issue {:id "decision-bootstrap-astro-change-plan"
+                  :url "local:decision/bootstrap/astro-change-plan"
+                  :title "Choose a change plan for adding a docs build integration"
+                  :body "Bootstrap's docs build needs a new Astro integration. Decide whether the plan must include both framework configuration and dependency manifest work, and cite exact evidence paths."}}]}

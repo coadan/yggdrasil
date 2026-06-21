@@ -733,6 +733,90 @@
              (:failures
               (benchmark/check-agent-report report {:allow-missing? true})))))))
 
+(deftest reports-decision-quality-diagnostics
+  (let [out (temp-dir "agraph-agent-report-decision")
+        suite {:id "suite"
+               :cases [{:id "case-1"
+                        :tags [:problem-architecture]}]}]
+    (spit-json! out
+                "suite/cases/case-1/agent-scores/run.score.json"
+                {:schema benchmark/agent-score-schema
+                 :suite-id "suite"
+                 :case-id "case-1"
+                 :repo-id "repo"
+                 :agent {:agentId "codex"
+                         :mode "agraph"
+                         :topFiles []}
+                 :groundTruth {:changedFiles []
+                               :unsupportedGroundTruthFiles []}
+                 :groundTruthRanks {:files []}
+                 :decisionScoring {:configured true
+                                   :kind "architecture-choice"
+                                   :candidateIds ["a" "b" "c"]
+                                   :requiredChoiceIds ["a" "b"]
+                                   :forbiddenChoiceIds ["c"]
+                                   :includedChoiceIds ["a" "c"]
+                                   :excludedChoiceIds []
+                                   :deferredChoiceIds ["b"]
+                                   :unknownChoiceIds ["unknown"]
+                                   :matchedRequiredChoiceIds ["a"]
+                                   :missedChoiceIds ["b"]
+                                   :wrongIncludedChoiceIds ["c"]
+                                   :deferredRequiredChoiceIds ["b"]
+                                   :uncitedChoiceIds ["c"]
+                                   :missingDecision false}
+                 :scores {:fileRecallAt5 0.0
+                          :fileRecallAt10 0.0
+                          :fileRecallAt20 0.0
+                          :meanReciprocalRankFile 0.0
+                          :noiseRatioAt20 0.0
+                          :evidenceCitationRate 0.0
+                          :pathEvidenceCitationRate 0.0
+                          :decisionRecall 0.5
+                          :decisionPrecision 0.5
+                          :decisionF1 0.5
+                          :decisionEvidenceCitationRate 0.5}})
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= {:configuredRuns 1
+              :configuredCaseIds ["case-1"]
+              :gapRuns 1
+              :gapCaseIds ["case-1"]
+              :missingDecisionRuns 0
+              :missingDecisionCaseIds []
+              :missedDecisionRuns 1
+              :missedDecisionCaseIds ["case-1"]
+              :wrongDecisionRuns 1
+              :wrongDecisionCaseIds ["case-1"]
+              :uncitedDecisionRuns 1
+              :uncitedDecisionCaseIds ["case-1"]
+              :unknownDecisionChoiceRuns 1
+              :unknownDecisionChoiceCaseIds ["case-1"]
+              :choiceGaps [{:kind "missed"
+                            :id "b"
+                            :runs 1
+                            :caseIds ["case-1"]}
+                           {:kind "wrong-included"
+                            :id "c"
+                            :runs 1
+                            :caseIds ["case-1"]}
+                           {:kind "uncited"
+                            :id "c"
+                            :runs 1
+                            :caseIds ["case-1"]}
+                           {:kind "unknown"
+                            :id "unknown"
+                            :runs 1
+                            :caseIds ["case-1"]}]}
+             (:decisionDiagnostics report)))
+      (is (= 0.5 (get-in report [:scores :decisionF1])))
+      (is (= ["decision-quality-gaps"]
+             (->> (:improvementSummary report)
+                  (filter #(= "decision-quality-gaps" (:kind %)))
+                  (mapv :kind))))
+      (is (= ["c"]
+             (get-in report [:results 0 :decision :uncitedChoiceIds]))))))
+
 (deftest improvement-summary-flags-missing-agraph-context-ranks
   (let [results [{:case-id "case-1"
                   :agent {:mode "agraph"
@@ -993,6 +1077,7 @@
                              :measuredArchitectureClasses false
                              :evidenceCitationMetrics true
                              :expectedEvidenceCitationMetrics true
+                             :decisionQualityMetrics true
                              :commandTelemetry true
                              :maintenancePreflight true}
               :warnings ["No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent."]}
@@ -1737,6 +1822,49 @@
     (is (= ["passed"] (mapv :status (:caseDiagnostics passed))))
     (is (= false (get-in passed [:thresholds :requireComplete])))
     (is (= false (get-in passed [:thresholds :allowDuplicateRuns])))))
+
+(deftest checks-agent-report-decision-thresholds
+  (let [report {:schema benchmark/agent-report-schema
+                :suite-id "suite"
+                :cases 1
+                :completed 1
+                :runs 1
+                :missing []
+                :scores {:decisionF1 0.4
+                         :decisionEvidenceCitationRate 0.25}
+                :decisionDiagnostics {:configuredRuns 1
+                                      :configuredCaseIds ["case-1"]
+                                      :gapRuns 1
+                                      :gapCaseIds ["case-1"]
+                                      :missingDecisionRuns 1
+                                      :missingDecisionCaseIds ["case-1"]}
+                :results [{:case-id "case-1"
+                           :agent {:agentId "codex"
+                                   :mode "agraph"}
+                           :scores {:decisionF1 0.4
+                                    :decisionEvidenceCitationRate 0.25}
+                           :decision {:missingDecision true}}]}
+        failed (benchmark/check-agent-report
+                report
+                {:min-decision-f1 0.8
+                 :min-decision-evidence-citation-rate 0.75
+                 :min-case-decision-f1 0.9
+                 :max-missing-decision-runs 0})]
+    (is (= "failed" (:status failed)))
+    (is (= #{"decisionF1"
+             "decisionEvidenceCitationRate"
+             "case.decisionF1"
+             "missingDecisionRuns"}
+           (set (map :metric (:failures failed)))))
+    (is (= {:decisionF1 0.4
+            :decisionEvidenceCitationRate 0.25}
+           (get-in failed [:caseDiagnostics 0 :scores])))
+    (is (= ["case-1"]
+           (->> (:failures failed)
+                (filter #(= "missingDecisionRuns" (:metric %)))
+                first
+                :case-ids)))))
+
 (deftest checks-agent-report-duplicate-runs
   (let [result {:case-id "case-1"
                 :agentResultPath "/tmp/run-1.json"

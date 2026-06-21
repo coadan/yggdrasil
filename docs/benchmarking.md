@@ -174,6 +174,7 @@ bb bench agent-score benchmark.edn --case penpot-example --result agent-result.j
 bb bench agent-report benchmark.edn
 bb bench improve benchmark.edn --mode agraph --agent agraph-baseline-lexical --out .dev/reports/bench
 bb bench agent-check benchmark.edn --mode agraph --agent agraph-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
+bb bench agent-check benchmarks/decision-quality-pilot.edn --mode agraph --agent codex --min-decision-f1 0.8 --min-case-decision-f1 0.6 --min-decision-evidence-citation-rate 0.8 --max-missing-decision-runs 0
 bb bench agent-compare benchmark.edn --baseline-report .dev/agraph/bench-before/agent-report.json --candidate-report .dev/agraph/bench-after/agent-report.json
 bb bench run benchmark.edn
 bb bench report benchmark.edn
@@ -183,6 +184,27 @@ bb bench show benchmark.edn --case penpot-example
 Generated worktrees, XTDB stores, and result JSON files live under
 `.dev/agraph/bench/<suite-id>/` by default. Use `--out` to choose another
 generated output root.
+
+Decision-quality cases add visible `:decision-candidates` and hidden
+`:decision-ground-truth` to ordinary benchmark cases. Agents return an optional
+`decision` block with candidate ids, `include|exclude|defer` status, confidence,
+reason, and evidence strings. The scorer does only deterministic id math:
+required ids found, forbidden ids wrongly included, deferred required ids, and
+exact-path citations against candidate paths. Use this for complex-system
+questions where the target is a defensible architecture, maintenance, audit, or
+plugin-fit choice, not just a shorter suspected-file list.
+
+```clojure
+{:decision-candidates [{:id "plan-config-and-manifest"
+                        :kind :change-plan
+                        :paths ["site/astro.config.ts" "package.json"]}
+                       {:id "plan-config-only"
+                        :kind :change-plan
+                        :paths ["site/astro.config.ts"]}]
+ :decision-ground-truth {:kind :change-plan
+                         :required ["plan-config-and-manifest"]
+                         :forbidden ["plan-config-only"]}}
+```
 
 ## Commands
 
@@ -327,6 +349,12 @@ generated output root.
   diagnostics, and a sync/check-equivalent validation-gaps status. Shell-only
   reports mark this preflight as `not-applicable`; AGraph reports must pass it
   before the lane is claim-ready for maintained-graph claims.
+  Decision-quality reports include `decisionDiagnostics`, which counts
+  configured decision runs, missing decision outputs, missed required choices,
+  wrongly included choices, unknown ids, uncited choices, and grouped choice-gap
+  rows. Aggregate scores include `decisionRecall`, `decisionPrecision`,
+  `decisionF1`, and `decisionEvidenceCitationRate` when selected score
+  artifacts contain decision metrics.
   Reports also include `improvementSummary`, a compact ordered list of
   mechanically derived remediation targets such as extraction/retrieval gaps,
   ranking or context-budget misses, citation gaps, coverage declaration issues,
@@ -359,12 +387,15 @@ generated output root.
   `--min-case-file-recall-at-10`, `--min-case-file-recall-at-20`, `--min-mrr`,
   `--min-case-mrr`, `--min-evidence-citation-rate`,
   `--min-path-evidence-citation-rate`,
+  `--min-decision-f1`, `--min-decision-evidence-citation-rate`,
   `--min-case-evidence-citation-rate`,
-  `--min-case-path-evidence-citation-rate`, `--max-noise-at-20`, `--max-case-noise-at-20`,
+  `--min-case-path-evidence-citation-rate`, `--min-case-decision-f1`,
+  `--max-noise-at-20`, `--max-case-noise-at-20`,
   `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`,
   `--max-empty-result-runs` to fail when agents produce no rankable suspected
   files, `--max-missing-predicted-file-runs` to fail when agents predict paths
-  that do not exist in the base checkout, `--max-commandless-runs` to fail when
+  that do not exist in the base checkout, `--max-missing-decision-runs` to fail
+  when decision cases lack a decision block, `--max-commandless-runs` to fail when
   agents do not cite commands,
   `--max-warning-runs` to fail when scorer or agent warnings are present beyond
   the configured budget, `--max-hint-diagnostic-runs` to fail when score

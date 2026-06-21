@@ -34,6 +34,53 @@
   [case]
   (benchmark-suite/case-expectations case))
 
+(defn- normalize-id
+  [value]
+  (when-not (benchmark-util/blankish? value)
+    (str value)))
+
+(defn- id-list
+  [values]
+  (->> values
+       (map #(if (map? %) (:id %) %))
+       (keep normalize-id)
+       distinct
+       sort
+       vec))
+
+(defn- normalize-decision-kind
+  [value]
+  (some-> value name))
+
+(defn- normalize-decision-candidate
+  [candidate]
+  (let [id (normalize-id (:id candidate))]
+    (when (benchmark-util/blankish? id)
+      (throw (ex-info "Decision candidate is missing :id."
+                      {:candidate candidate})))
+    (cond-> (assoc candidate :id id)
+      (:kind candidate) (assoc :kind (normalize-decision-kind (:kind candidate)))
+      (:paths candidate) (assoc :paths (id-list (:paths candidate)))
+      (:evidencePaths candidate) (assoc :evidencePaths (id-list (:evidencePaths candidate)))
+      (:evidence-paths candidate) (assoc :evidencePaths (id-list (:evidence-paths candidate))))))
+
+(defn- decision-candidates
+  [case]
+  (mapv normalize-decision-candidate (:decision-candidates case)))
+
+(defn- normalize-decision-ground-truth
+  [case]
+  (when-let [truth (:decision-ground-truth case)]
+    (cond-> (assoc truth
+                   :required (id-list (or (:required truth)
+                                          (:include truth)
+                                          (:expected truth)))
+                   :forbidden (id-list (or (:forbidden truth)
+                                           (:exclude truth))))
+      (:kind truth) (assoc :kind (normalize-decision-kind (:kind truth)))
+      (:acceptable-defer truth) (assoc :acceptableDefer (id-list (:acceptable-defer truth)))
+      (:acceptableDefer truth) (assoc :acceptableDefer (id-list (:acceptableDefer truth))))))
+
 (defn run-git!
   [repo-root args]
   (let [{:keys [exit out err]} (apply shell/sh "git" "-C" repo-root args)]
@@ -244,8 +291,10 @@
    :tags (case-tags case)
    :query-text (issue-text case)
    :coverage {:source-kinds (declared-source-kinds case)}
+   :decision-candidates (decision-candidates case)
    :expectations (case-expectations case)
-   :ground-truth (:ground-truth case)})
+   :ground-truth (:ground-truth case)
+   :decision-ground-truth (normalize-decision-ground-truth case)})
 
 (defn agent-input-fingerprint-input
   [suite case]
@@ -255,6 +304,7 @@
    :repo-id (:repo-id case)
    :base-sha (:base-sha case)
    :query-text (issue-text case)
+   :decision-candidates (decision-candidates case)
    :coverage {:source-kinds (declared-source-kinds case)}})
 
 (defn- fingerprint
@@ -292,26 +342,31 @@
         truth (assoc truth :unsupportedGroundTruthFiles unsupported)
         coverage-filter (coverage-filtered-ground-truth case worktree-root truth)
         truth (merge truth coverage-filter)]
-    {:schema prepared-case-schema
-     :suite-id (:id suite)
-     :case-id (:id case)
-     :repo-id (:id repo)
-     :project-id (str (:project-id suite) "-" (:id case))
-     :caseFingerprint score-fingerprint
-     :agentInputFingerprint agent-input-fingerprint
-     :tags (case-tags case)
-     :expectations (case-expectations case)
-     :baseSha (:base-sha case)
-     :fixSha (:fix-sha case)
-     :worktreeRoot worktree-root
-     :input {:issueId (get-in case [:issue :id])
-             :title (get-in case [:issue :title])
-             :body (get-in case [:issue :body])
-             :comments (issue-comments (:issue case))
-             :queryText input-text}
-     :inputHints (input-hints input-text truth)
-     :coverage (ground-truth-coverage case worktree-root truth)
-     :groundTruth truth}))
+    (cond-> {:schema prepared-case-schema
+             :suite-id (:id suite)
+             :case-id (:id case)
+             :repo-id (:id repo)
+             :project-id (str (:project-id suite) "-" (:id case))
+             :caseFingerprint score-fingerprint
+             :agentInputFingerprint agent-input-fingerprint
+             :tags (case-tags case)
+             :expectations (case-expectations case)
+             :baseSha (:base-sha case)
+             :fixSha (:fix-sha case)
+             :worktreeRoot worktree-root
+             :input {:issueId (get-in case [:issue :id])
+                     :title (get-in case [:issue :title])
+                     :body (get-in case [:issue :body])
+                     :comments (issue-comments (:issue case))
+                     :queryText input-text}
+             :inputHints (input-hints input-text truth)
+             :coverage (ground-truth-coverage case worktree-root truth)
+             :groundTruth truth}
+      (seq (decision-candidates case))
+      (assoc :decisionCandidates (decision-candidates case))
+
+      (normalize-decision-ground-truth case)
+      (assoc :decisionGroundTruth (normalize-decision-ground-truth case)))))
 (defn prepare-case!
   "Prepare one benchmark case and write its prepared JSON artifact."
   [suite case opts]
