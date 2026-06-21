@@ -938,7 +938,7 @@
                       (= "objective-c/v1" (:extractor-version %)))
                 (:extractors report)))
       (is (some #(and (= "dotnet" (:kind %))
-                      (= "dotnet/v1" (:extractor-version %)))
+                      (= "dotnet/v2" (:extractor-version %)))
                 (:extractors report)))
       (is (some #(and (= "ruby" (:kind %))
                       (= "ruby/v1" (:extractor-version %))

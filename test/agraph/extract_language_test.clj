@@ -625,6 +625,34 @@
     (is (str/includes? (get-in chunks-by-label ["Demo/App.Load" :text])
                        "return new Result"))
     (is (empty? (:diagnostics result)))))
+(deftest dotnet-parser-worker-failure-keeps-deterministic-extraction
+  (let [result (with-redefs [extract/parser-worker-enabled? (constantly true)]
+                 (extract/extract-file
+                  "run/test"
+                  {:file-id "file:Fallback.cs"
+                   :path "src/Fallback.cs"
+                   :kind :dotnet
+                   :content (str "using Acme.Contracts;\n"
+                                 "namespace Demo;\n"
+                                 "public class App {}\n")
+                   :parser-worker-facts
+                   {:definitions []
+                    :imports []
+                    :references []
+                    :diagnostics [{:stage "parser-worker"
+                                   :line nil
+                                   :message "dotnet parser unavailable: install tree-sitter-language-pack"}]}}))
+        labels (set (map :label (:nodes result)))
+        import-targets (set (map :target-id
+                                 (filter #(= :imports (:relation %))
+                                         (:edges result))))
+        diagnostic (first (:diagnostics result))]
+    (is (contains? labels "Demo"))
+    (is (contains? labels "Demo/App"))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "Acme.Contracts")))
+    (is (= :parser-worker (:stage diagnostic)))
+    (is (str/includes? (:message diagnostic) "dotnet parser unavailable"))))
 (deftest extracts-kotlin-packages-definitions-and-imports
   (let [file (fs/file-record "test/fixtures/extractor-repo"
                              "test/fixtures/extractor-repo/mobile/android/PanelActivity.kt")

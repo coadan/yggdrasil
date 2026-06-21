@@ -36,10 +36,27 @@
           (str/split #"\.")
           last
           not-empty))
-(defn extract-dotnet-worker
-  "Extract .NET facts through the optional parser worker."
+(defn- parser-worker-failure?
+  [diagnostic]
+  (= "parser-worker" (str (:stage diagnostic))))
+(defn- worker-diagnostic-row
+  [run-id file-id path diagnostic]
+  (common/diagnostic-row run-id
+                         file-id
+                         path
+                         (:stage diagnostic)
+                         (:line diagnostic)
+                         (:message diagnostic)))
+(defn- with-worker-diagnostics
+  [extraction run-id file-id path facts]
+  (update extraction
+          :diagnostics
+          into
+          (mapv #(worker-diagnostic-row run-id file-id path %)
+                (:diagnostics facts))))
+(defn- extract-dotnet-worker-facts
   [run-id {:keys [id-scope file-id path content]} facts]
-  (let [facts (or facts {})
+  (let [diagnostics (vec (:diagnostics facts))
         module-name (or (not-empty (str (:namespace facts)))
                         (source-dotnet/dotnet-module-name path content))
         ns-node (common/namespace-node run-id id-scope file-id path module-name)
@@ -132,14 +149,22 @@
                                                              (or line 1)
                                                              (or endLine line))))
                                 definitions)
-        diagnostics (mapv #(common/diagnostic-row run-id
-                                                  file-id
-                                                  path
-                                                  (:stage %)
-                                                  (:line %)
-                                                  (:message %))
-                          (:diagnostics facts))]
+        diagnostics (mapv #(worker-diagnostic-row run-id file-id path %)
+                          diagnostics)]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges import-edges reference-edges))
      :chunks (into [chunk] definition-chunks)
      :diagnostics diagnostics}))
+(defn extract-dotnet-worker
+  "Extract .NET facts through the optional parser worker."
+  [run-id {:keys [file-id path] :as file} facts]
+  (let [facts (or facts {})
+        diagnostics (vec (:diagnostics facts))]
+    (if (some parser-worker-failure? diagnostics)
+      (with-worker-diagnostics
+        (source-dotnet/extract-dotnet run-id file)
+        run-id
+        file-id
+        path
+        facts)
+      (extract-dotnet-worker-facts run-id file facts))))

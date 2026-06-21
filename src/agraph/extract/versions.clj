@@ -10,7 +10,7 @@
    :kotlin "kotlin/v1"
    :swift "swift/v1"
    :objective-c "objective-c/v1"
-   :dotnet "dotnet/v1"
+   :dotnet "dotnet/v2"
    :ruby "ruby/v1"
    :cpp "cpp/v1"
    :dart "dart/v1"
