@@ -43,7 +43,7 @@
     (is (= [[(:files store/tables) :repo-id "repo-a"]
             [(:nodes store/tables) :repo-id "repo-a"]]
            @row-queries))
-    (is (= #{:requires :resolves :version-of}
+    (is (= #{:imports :requires :resolves :uses :version-of}
            (set (map last @xtql-queries))))))
 
 (deftest import-package-resolution-reads-source-edges-when-map-overlay-can-resolve
@@ -129,6 +129,182 @@
                                                    :package-name "org.slf4j:slf4j-api"
                                                    :import "org.slf4j"}]}})]
       (is (= [:java] (mapv :source-kind edges))))))
+
+(deftest import-package-resolution-resolves-java-maven-imports
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "src/main/java/demo/App.java"
+                                          :kind :java
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "manifest:maven"
+                                          :kind :manifest
+                                          :path "pom.xml"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "node:local"
+                                          :kind :class
+                                          :path "src/main/java/demo/Local.java"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "node:symbol:demo/Local"
+                                          :kind :class
+                                          :path "src/main/java/demo/Local.java"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:maven:slf4j-api"
+                                          :kind :external-package
+                                          :ecosystem :maven
+                                          :package-name "org.slf4j:slf4j-api"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:maven:junit-api"
+                                          :kind :external-package
+                                          :ecosystem :maven
+                                          :package-name "org.junit.jupiter:junit-jupiter-api"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:maven:junit-engine"
+                                          :kind :external-package
+                                          :ecosystem :maven
+                                          :package-name "org.junit.jupiter:junit-jupiter-engine"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires
+                            [{:source-id "manifest:maven"
+                              :target-id "pkg:maven:slf4j-api"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "manifest:maven"
+                              :target-id "pkg:maven:junit-api"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "manifest:maven"
+                              :target-id "pkg:maven:junit-engine"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:demo"
+                              :target-id "node:namespace:org.slf4j.Logger"
+                              :relation :imports
+                              :path "src/main/java/demo/App.java"
+                              :source-line 3
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "node:namespace:demo"
+                              :target-id "node:namespace:org.junit.jupiter.api.Test"
+                              :relation :imports
+                              :path "src/main/java/demo/App.java"
+                              :source-line 4
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "node:namespace:demo"
+                              :target-id "node:namespace:demo.Local"
+                              :relation :imports
+                              :path "src/main/java/demo/App.java"
+                              :source-line 5
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :uses []
+                            []))]
+    (let [edges (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})
+          package-names (set (map :package-name edges))]
+      (is (= #{"org.slf4j:slf4j-api"
+               "org.junit.jupiter:junit-jupiter-api"}
+             package-names))
+      (is (= #{:maven-coordinate-prefix}
+             (set (map :resolution-source edges))))
+      (is (not-any? #(= "demo.Local" (:import-name %)) edges)))))
+
+(deftest import-package-resolution-leaves-ambiguous-java-maven-group-import-unresolved
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "src/App.java"
+                                          :kind :java
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "manifest:maven"
+                                          :kind :manifest
+                                          :path "pom.xml"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:maven:api"
+                                          :kind :external-package
+                                          :ecosystem :maven
+                                          :package-name "org.example:example-api"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:maven:engine"
+                                          :kind :external-package
+                                          :ecosystem :maven
+                                          :package-name "org.example:example-engine"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires
+                            [{:source-id "manifest:maven"
+                              :target-id "pkg:maven:api"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "manifest:maven"
+                              :target-id "pkg:maven:engine"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:demo"
+                              :target-id "node:namespace:org.example.Shared"
+                              :relation :imports
+                              :path "src/App.java"
+                              :source-line 1
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :uses []
+                            []))]
+    (is (empty? (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})))))
 
 (deftest import-package-resolution-uses-ancestor-package-manifests
   (with-redefs [store/rows-by-field (fn [_ table _ _]

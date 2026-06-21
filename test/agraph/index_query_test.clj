@@ -863,7 +863,7 @@
           (is (= ["testinfra"] (mapv :import (:unresolved-imports report))))
           (is (empty? (:unresolved-imports corrected-report))))))))
 
-(deftest index-resolves-jvm-imports-through-map-corrections
+(deftest index-resolves-jvm-imports-through-maven-coordinates
   (let [xtdb-path (temp-dir "agraph-jvm-dependency-xtdb")
         repo (io/file (temp-dir "agraph-jvm-dependency-repo"))
         src-dir (io/file repo "src" "main" "java" "demo")]
@@ -916,28 +916,11 @@
                                                        {:project-id "jvm-dep-test"
                                                         :repo-id "app"}
                                                        {:map-overlay map-overlay})]
-          (is (zero? (get-in raw-summary [:stats :dependency-edges])))
-          (is (= ["org.slf4j.Logger"] (mapv :import (:unresolved-imports raw-report))))
-          (is (some #(= {:kind :dependency-review
-                         :label "Queue unresolved import review work"
-                         :count 1
-                         :command "agraph sync check <project.edn> --enqueue"}
-                        %)
-                    (:nextActions raw-report)))
-          (is (some #(= {:kind :dependency-review
-                         :label "Pull dependency review work"
-                         :count 1
-                         :command (str "agraph sync work pull --project jvm-dep-test"
-                                       " --kind dependency-review --agent <agent-id>")}
-                        %)
-                    (:nextActions raw-report)))
-          (is (some #(= {:kind :package-import
-                         :label "Record a reviewed import-package correction directly"
-                         :command (str "agraph sync package import <import-prefix>"
-                                       " <ecosystem>:<package> --map agraph.map.json"
-                                       " --reason <reason>")}
-                        %)
-                    (:nextActions raw-report)))
+          (is (= 1 (get-in raw-summary [:stats :dependency-edges])))
+          (is (= 1 (get-in raw-report [:counts :imports-package])))
+          (is (empty? (:unresolved-imports raw-report)))
+          (is (not-any? #(= :dependency-review (:kind %))
+                        (:nextActions raw-report)))
           (is (= 1 (get-in mapped-report-before-sync [:counts :imports-package])))
           (is (empty? (:unresolved-imports mapped-report-before-sync)))
           (is (empty? (:declared-without-import-evidence mapped-report-before-sync)))
@@ -945,7 +928,7 @@
                  (mapv :path
                        (get-in mapped-before-package-by-label
                                ["maven:org.slf4j:slf4j-api" :imported-by]))))
-          (is (= [:map-overlay]
+          (is (= [:maven-coordinate-prefix]
                  (mapv :resolution-source
                        (get-in mapped-before-package-by-label
                                ["maven:org.slf4j:slf4j-api" :imported-by]))))

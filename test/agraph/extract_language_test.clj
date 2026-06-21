@@ -290,6 +290,36 @@
         (is (contains? reference-targets
                        (extract/node-id :symbol "demo/Param")))
         (is (empty? (:diagnostics result)))))))
+
+(deftest java-parser-worker-failure-preserves-fallback-extraction
+  (let [result (with-redefs [extract/parser-worker-enabled? (constantly true)]
+                 (extract/extract-file
+                  "run/test"
+                  {:file-id "file:Fallback.java"
+                   :path "src/Fallback.java"
+                   :kind :java
+                   :content (str "package demo;\n"
+                                 "import org.example.Target;\n"
+                                 "public final class Fallback {\n"
+                                 "  Target make() { return new Target(); }\n"
+                                 "}\n")
+                   :parser-worker-facts
+                   {:definitions []
+                    :imports []
+                    :references []
+                    :diagnostics [{:stage "parser-worker"
+                                   :line nil
+                                   :message "java parser unavailable"}]}}))
+        labels (set (map :label (:nodes result)))
+        import-targets (set (map :target-id
+                                 (filter #(= :imports (:relation %))
+                                         (:edges result))))
+        diagnostics (set (map :message (:diagnostics result)))]
+    (is (contains? labels "demo/Fallback"))
+    (is (contains? import-targets
+                   (extract/node-id :namespace "org.example.Target")))
+    (is (contains? diagnostics "java parser unavailable"))))
+
 (deftest java-parser-worker-adapter-covers-rich-java-declarations
   (let [result (with-redefs [extract/parser-worker-enabled? (constantly true)]
                  (extract/extract-file

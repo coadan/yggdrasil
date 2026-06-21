@@ -33,8 +33,25 @@
           (str/split #"\.")
           last
           not-empty))
-(defn extract-java-worker
-  "Extract Java facts through the optional parser worker."
+(defn- parser-worker-failure?
+  [diagnostic]
+  (= "parser-worker" (str (:stage diagnostic))))
+(defn- worker-diagnostic-row
+  [run-id file-id path diagnostic]
+  (common/diagnostic-row run-id
+                         file-id
+                         path
+                         (:stage diagnostic)
+                         (:line diagnostic)
+                         (:message diagnostic)))
+(defn- with-worker-diagnostics
+  [extraction run-id file-id path facts]
+  (update extraction
+          :diagnostics
+          into
+          (mapv #(worker-diagnostic-row run-id file-id path %)
+                (:diagnostics facts))))
+(defn- extract-java-worker-facts
   [run-id {:keys [id-scope file-id path content]} facts]
   (let [facts (or facts {})
         module-name (or (not-empty (str (:package facts)))
@@ -141,3 +158,17 @@
      :edges (vec (concat define-edges import-edges reference-edges))
      :chunks (into [chunk] definition-chunks)
      :diagnostics diagnostics}))
+
+(defn extract-java-worker
+  "Extract Java facts through the optional parser worker."
+  [run-id {:keys [file-id path] :as file} facts]
+  (let [facts (or facts {})
+        diagnostics (vec (:diagnostics facts))]
+    (if (some parser-worker-failure? diagnostics)
+      (with-worker-diagnostics
+        (source-jvm/extract-java run-id file)
+        run-id
+        file-id
+        path
+        facts)
+      (extract-java-worker-facts run-id file facts))))
