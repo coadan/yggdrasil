@@ -388,6 +388,13 @@
                                           :package-name "Microsoft.CSharp"
                                           :active? true
                                           :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:nuget:repodb-sqlserver"
+                                          :kind :external-package
+                                          :ecosystem :nuget
+                                          :package-name "RepoDb.SqlServer"
+                                          :active? true
+                                          :project-id "project-a"
                                           :repo-id "repo-a"}]
                                         []))
                 store/q (fn [_ query]
@@ -401,6 +408,12 @@
                               :repo-id "repo-a"}
                              {:source-id "manifest:tests:props"
                               :target-id "pkg:assembly:microsoft-csharp"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "manifest:tests:csproj"
+                              :target-id "pkg:nuget:repodb-sqlserver"
                               :relation :requires
                               :active? true
                               :project-id "project-a"
@@ -421,6 +434,14 @@
                               :source-line 2
                               :active? true
                               :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "node:namespace:App"
+                              :target-id "node:namespace:RepoDb.DbHelpers"
+                              :relation :imports
+                              :path "tests/App.cs"
+                              :source-line 3
+                              :active? true
+                              :project-id "project-a"
                               :repo-id "repo-a"}]
                             :uses []
                             []))]
@@ -430,9 +451,73 @@
                  "repo-a"
                  "run-a"
                  {})]
-      (is (= #{"Belgrade.Sql.Client" "Microsoft.CSharp"}
+      (is (= #{"Belgrade.Sql.Client" "Microsoft.CSharp" "RepoDb.SqlServer"}
              (set (map :package-name edges))))
       (is (= #{:nuget :dotnet-assembly} (set (map :ecosystem edges)))))))
+
+(deftest import-package-resolution-rejects-ambiguous-dotnet-root-match
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "src/App.cs"
+                                          :kind :dotnet
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "manifest:app:csproj"
+                                          :kind :manifest
+                                          :path "src/App.csproj"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:nuget:foo-a"
+                                          :kind :external-package
+                                          :ecosystem :nuget
+                                          :package-name "Foo.ProviderA"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:nuget:foo-b"
+                                          :kind :external-package
+                                          :ecosystem :nuget
+                                          :package-name "Foo.ProviderB"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires
+                            [{:source-id "manifest:app:csproj"
+                              :target-id "pkg:nuget:foo-a"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}
+                             {:source-id "manifest:app:csproj"
+                              :target-id "pkg:nuget:foo-b"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:App"
+                              :target-id "node:namespace:Foo.Bar"
+                              :relation :imports
+                              :path "src/App.cs"
+                              :source-line 1
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :uses []
+                            []))]
+    (is (empty? (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})))))
 
 (deftest package-report-ignores-ci-workflow-edges-as-package-import-candidates
   (with-redefs [store/rows-by-field (fn [_ table _ _]

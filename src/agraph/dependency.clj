@@ -264,6 +264,17 @@
          (or (= prefix value)
              (str/starts-with? value prefix)))))
 
+(defn- dotnet-name-root
+  [value]
+  (first (str/split (str value) #"\.")))
+
+(defn- normalized-root-match?
+  [target package-name]
+  (let [target-root (normalized-dotnet-name (dotnet-name-root target))
+        package-root (normalized-dotnet-name (dotnet-name-root package-name))]
+    (and (seq target-root)
+         (= target-root package-root))))
+
 (defn- dotnet-package-match-score
   [target package-name]
   (let [target (str/lower-case (str target))
@@ -274,6 +285,7 @@
       (segment-prefix? target package-name) 1
       (normalized-prefix? package-name target) 1
       (normalized-prefix? target package-name) 1
+      (normalized-root-match? target package-name) 0.5
       :else nil)))
 
 (defn- dotnet-package
