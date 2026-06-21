@@ -326,22 +326,40 @@
        (when-some [score (:score row)]
          (str " score=" score))))
 (def ^:private architecture-evidence-score-weights
-  {"runtimeEvidence" 0.35
+  {"runtimeEvidence" 0.7
    "boundaryEvidence" 0.7
    "dependencyEvidence" 0.9
    "deployEvidence" 0.7})
 
 (def ^:private architecture-evidence-score-caps
-  {"runtimeEvidence" 1.0
+  {"runtimeEvidence" 4.4
    "boundaryEvidence" 1.6
    "dependencyEvidence" 2.4
    "deployEvidence" 1.6})
 
+(defn- runtime-evidence-low-signal?
+  [row]
+  (= "env-var" (field-name (:kind row))))
+
+(defn- architecture-score-weight
+  [section row]
+  (if (and (= "runtimeEvidence" section)
+           (runtime-evidence-low-signal? row))
+    0.35
+    (double (get architecture-evidence-score-weights section 0.7))))
+
+(defn- architecture-score-cap
+  [section row]
+  (if (and (= "runtimeEvidence" section)
+           (runtime-evidence-low-signal? row))
+    1.0
+    (double (get architecture-evidence-score-caps section 1.6))))
+
 (defn- architecture-evidence-score
   [query-tokens section row]
   (let [raw-score (double (or (parse-double-safe (:score row)) 0.0))
-        weight (double (get architecture-evidence-score-weights section 0.7))
-        cap (double (get architecture-evidence-score-caps section 1.6))
+        weight (architecture-score-weight section row)
+        cap (architecture-score-cap section row)
         package-identity-token-count (if (and (= "dependencyEvidence" section)
                                               (= "package-import" (field-name (:kind row))))
                                        (count (token-matches
