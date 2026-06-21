@@ -18,12 +18,49 @@
   [value]
   (str/blank? (str value)))
 
+(defn- normalize-package-import
+  [package-import]
+  (cond-> package-import
+    (:ecosystem package-import) (update :ecosystem name)))
+
+(defn- package-import-key
+  [package-import]
+  [(some-> (:repo package-import) str)
+   (str (:import package-import))
+   (some-> (:ecosystem package-import) name)
+   (str (:package package-import))])
+
+(defn- seed-package-imports
+  [overlay package-imports]
+  (let [existing-keys (set (map package-import-key (:packageImports overlay)))]
+    (first
+     (reduce (fn [[out seen-keys] package-import]
+               (let [package-import (normalize-package-import package-import)
+                     k (package-import-key package-import)]
+                 (if (contains? seen-keys k)
+                   [out seen-keys]
+                   [(graph-map/add-package-import out package-import)
+                    (conj seen-keys k)])))
+             [overlay existing-keys]
+             package-imports))))
+
+(defn- seed-case-map-overlay
+  [overlay case]
+  (let [package-imports (get-in case [:map-overlay :packageImports])]
+    (cond-> overlay
+      (seq package-imports) (seed-package-imports package-imports))))
+
 (defn ensure-agent-map!
   "Ensure the benchmark case has an `agraph.map.json` and return its canonical path."
   [suite case prepared opts]
-  (let [path (benchmark-paths/agent-map-path suite case opts)]
-    (when-not (graph-map/file-exists? path)
-      (graph-map/write-map! path (graph-map/empty-map (:project-id prepared))))
+  (let [path (benchmark-paths/agent-map-path suite case opts)
+        existing? (graph-map/file-exists? path)
+        before (if existing?
+                 (graph-map/read-map path)
+                 (graph-map/empty-map (:project-id prepared)))
+        after (seed-case-map-overlay before case)]
+    (when (or (not existing?) (not= before after))
+      (graph-map/write-map! path after))
     (fs/canonical-path path)))
 
 (defn agent-map-overlay

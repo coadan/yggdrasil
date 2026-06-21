@@ -162,6 +162,11 @@
                  :container]
           :base-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
           :fix-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
+          :map-overlay {:packageImports [{:repo "dapper"
+                                           :import "LinqToDB"
+                                           :ecosystem "nuget"
+                                           :package "linq2db.SqlServer"
+                                           :reason "Dapper performance benchmarks import LinqToDB namespaces from the declared linq2db.SqlServer NuGet package."}]}
           :ground-truth {:localization-files ["Dapper/SqlMapper.cs"
                                               "tests/Dapper.Tests/TypeHandlerTests.cs"
                                               "tests/docker-compose.yml"]}

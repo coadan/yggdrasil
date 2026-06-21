@@ -10,6 +10,7 @@
                                                    spit-file!
                                                    spit-json!
                                                    temp-dir]]
+            [agraph.map :as graph-map]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -1513,6 +1514,34 @@
       (is (= :available (get-in family-by-name [:map-overlay :status])))
       (is (= 1 (get-in family-by-name [:map-overlay :counts :map-file])))
       (is (.isFile (io/file (benchmark-paths/agent-map-path suite case opts)))))))
+
+(deftest benchmark-agent-map-includes-case-map-overlay-package-imports
+  (let [root (temp-dir "agraph-bench-case-map-overlay")
+        suite {:id "suite"}
+        case {:id "case-1"
+              :map-overlay {:packageImports [{:repo "repo"
+                                              :import "LinqToDB"
+                                              :ecosystem :nuget
+                                              :package "linq2db.SqlServer"
+                                              :reason "Reviewed package import mapping."}
+                                             {:repo "repo"
+                                              :import "LinqToDB"
+                                              :ecosystem :nuget
+                                              :package "linq2db.SqlServer"
+                                              :reason "Duplicate should be ignored."}]}}
+        opts {:out root}
+        prepared {:project-id "suite-case-1"}
+        map-path (benchmark-maintenance/ensure-agent-map! suite case prepared opts)
+        _ (benchmark-maintenance/ensure-agent-map! suite case prepared opts)
+        overlay (graph-map/read-map map-path)]
+    (is (= "suite-case-1" (:project overlay)))
+    (is (= [{:import "LinqToDB"
+             :ecosystem "nuget"
+             :package "linq2db.SqlServer"
+             :status "accepted"
+             :repo "repo"
+             :reason "Reviewed package import mapping."}]
+           (:packageImports overlay)))))
 
 (deftest context-ground-truth-ranks-show-context-misses-separately
   (let [root (temp-dir "agraph-bench-context-ground-truth")
