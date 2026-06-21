@@ -1,5 +1,6 @@
 (ns agraph.benchmark-report
-  (:require [agraph.benchmark-classes :as benchmark-classes]
+  (:require [agraph.benchmark-audit-scope :as benchmark-audit-scope]
+            [agraph.benchmark-classes :as benchmark-classes]
             [agraph.benchmark-command-telemetry :as benchmark-command-telemetry]
             [agraph.benchmark-agent-score :as benchmark-agent-score]
             [agraph.benchmark-io :as benchmark-io]
@@ -1592,7 +1593,9 @@
                                             :artifact
                                             (artifact-diagnostic expected-fingerprints
                                                                  expected-agent-input-fingerprints
-                                                                 %))
+                                                                 %)
+                                            :auditScope
+                                            (benchmark-audit-scope/case-audit-scope %))
                                     results)}
         report-base (assoc report-base
                            :improvementSummary

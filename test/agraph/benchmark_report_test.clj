@@ -538,6 +538,34 @@
              (get-in report [:results 0 :parserWorker])))
       (is (= "failed"
              (get-in report [:results 0 :graphExpectations :status])))
+      (is (= {:total 2
+              :found 1
+              :missed 1
+              :presentInContextButMissed 1}
+             (get-in report [:results 0 :auditScope :groundTruthSummary])))
+      (is (= [{:path "src/app.clj"
+               :scoreable? true
+               :found? true
+               :rank 7
+               :contextRank 7
+               :evidenceCited? false
+               :pathEvidenceCited? false}
+              {:path "src/missing.clj"
+               :scoreable? true
+               :found? false
+               :contextRank 12
+               :contextFound? true}]
+             (get-in report [:results 0 :auditScope :groundTruthFiles])))
+      (is (= {:expectedEvidence 1
+              :foundEvidence 1
+              :missingEvidence 0
+              :expectedEdges 0
+              :foundEdges 0
+              :missingEdges 0
+              :forbiddenEdges 1
+              :forbiddenEdgeViolations 1}
+             (get-in report
+                     [:results 0 :auditScope :graphExpectationSummary])))
       (is (= {:rawSuspectedFiles 2
               :rankedFiles 2
               :commandCount 4
