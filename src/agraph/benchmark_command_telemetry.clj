@@ -26,7 +26,7 @@
     (cond
       (nil? cmd) nil
       (= "agraph" cmd) :agraph
-      (and (= "bb" cmd) (#{"ask" "explore" "view" "sync"} arg)) :agraph
+      (and (= "bb" cmd) (#{"ask" "explore" "view" "sync" "packages"} arg)) :agraph
       (and (= "git" cmd) (= "grep" arg)) :search
       (contains? search-command-names cmd) :search
       (contains? file-read-command-names cmd) :file-read
@@ -114,3 +114,23 @@
       :fileReadCommandCount (reduce + 0 (map :fileReadCommandCount telemetry))
       :shellCommandCount (reduce + 0 (map :shellCommandCount telemetry))}
      telemetry)))
+
+(defn- long-or-zero
+  [value]
+  (long (or value 0)))
+
+(defn- double-or-zero
+  [value]
+  (double (or value 0)))
+
+(defn aggregate-token-telemetry
+  "Sum token/cost telemetry across per-result diagnostics.
+  Returns nil when no diagnostic has :tokenUsage, so callers can omit
+  :tokenTelemetry entirely when the data is absent."
+  [diagnostics]
+  (let [usages (keep :tokenUsage diagnostics)]
+    (when (seq usages)
+      {:inputTokens (reduce + 0 (map #(long-or-zero (:inputTokens %)) usages))
+       :outputTokens (reduce + 0 (map #(long-or-zero (:outputTokens %)) usages))
+       :totalTokens (reduce + 0 (map #(long-or-zero (:totalTokens %)) usages))
+       :costUsd (reduce + 0.0 (map #(double-or-zero (:costUsd %)) usages))})))

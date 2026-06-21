@@ -94,6 +94,10 @@
   [diagnostics]
   (benchmark-command-telemetry/aggregate-command-telemetry diagnostics))
 
+(defn- aggregate-token-telemetry
+  [diagnostics]
+  (benchmark-command-telemetry/aggregate-token-telemetry diagnostics))
+
 (defn agent-output-diagnostic
   [result]
   (let [top-files (get-in result [:agent :topFiles])
@@ -113,7 +117,8 @@
         command-telemetry (command-telemetry commands)
         command-count (:commandCount command-telemetry)
         candidate-count (:candidateFiles selection)
-        filtered-count (long (or (:coverageFilteredCandidateFiles selection) 0))]
+        filtered-count (long (or (:coverageFilteredCandidateFiles selection) 0))
+        token-usage (get-in result [:agent :tokenUsage])]
     (cond-> {:rawSuspectedFiles raw-count
              :rankedFiles ranked-count
              :commandCount command-count
@@ -137,7 +142,10 @@
       (assoc :zeroCandidateFiles (zero? (long candidate-count)))
 
       (pos? filtered-count)
-      (assoc :coverageFilteredCandidateFiles filtered-count))))
+      (assoc :coverageFilteredCandidateFiles filtered-count)
+
+      token-usage
+      (assoc :tokenUsage token-usage))))
 
 (defn- blocking-hint-diagnostic?
   [row]
@@ -274,6 +282,8 @@
       :warnings (reduce + 0
                         (map (comp count :warnings second)
                              warning-results))}
+     (when-let [token-telemetry (aggregate-token-telemetry diagnostics)]
+       {:tokenTelemetry token-telemetry})
      (aggregate-hint-diagnostics result-pairs))))
 (defn- parser-worker-result-profile
   [result]

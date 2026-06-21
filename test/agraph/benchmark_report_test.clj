@@ -90,6 +90,11 @@
                                     "sed -n '1,40p' src/app.clj"
                                     "agraph ask broken --project fixture"
                                     "npm test"]
+                         :tokenUsage {:inputTokens 100
+                                      :outputTokens 40
+                                      :totalTokens 140
+                                      :costUsd 0.01
+                                      :source "fixture-agent"}
                          :selection {:rawCandidateFiles 3
                                      :candidateFiles 2
                                      :coverageFilteredCandidateFiles 1
@@ -260,6 +265,10 @@
                                  :searchCommandCount 1
                                  :fileReadCommandCount 1
                                  :shellCommandCount 1}
+              :tokenTelemetry {:inputTokens 100
+                               :outputTokens 40
+                               :totalTokens 140
+                               :costUsd 0.01}
               :hintDiagnosticRows 3
               :hintDiagnosticRuns 1
               :hintDiagnosticCaseIds ["case-1"]
@@ -532,6 +541,11 @@
                                  :fileReadCommandCount 1
                                  :shellCommandCount 1
                                  :commandless false}
+              :tokenUsage {:inputTokens 100
+                           :outputTokens 40
+                           :totalTokens 140
+                           :costUsd 0.01
+                           :source "fixture-agent"}
               :missingPredictedFiles []
               :warnings ["agent result suspectedFiles row 1 missing evidence"]
               :warningCount 1
@@ -776,6 +790,56 @@
             :fileReadSegmentCount 1
             :shellSegmentCount 0}
            summary))))
+
+(deftest aggregate-token-telemetry-sums-across-diagnostics
+  (let [summary (benchmark-command-telemetry/aggregate-token-telemetry
+                 [{:tokenUsage {:inputTokens 1000
+                                :outputTokens 500
+                                :totalTokens 1500
+                                :costUsd 0.05
+                                :source "deepseek-agent"}}
+                  {:tokenUsage {:inputTokens 2000
+                                :outputTokens 800
+                                :totalTokens 2800
+                                :costUsd 0.07
+                                :source "deepseek-agent"}}
+                  {}])]
+    (is (= {:inputTokens 3000
+            :outputTokens 1300
+            :totalTokens 4300}
+           (dissoc summary :costUsd)))
+    (is (< (abs (- 0.12 (:costUsd summary))) 0.0001))))
+
+(deftest aggregate-token-telemetry-returns-nil-when-no-usage
+  (is (nil? (benchmark-command-telemetry/aggregate-token-telemetry [{} {}])))
+  (is (nil? (benchmark-command-telemetry/aggregate-token-telemetry []))))
+
+(deftest agent-output-diagnostic-includes-token-usage-when-present
+  (let [diagnostic (#'benchmark-report/agent-output-diagnostic
+                    {:agent {:commands ["rg broken src"]
+                             :topFiles [{:path "src/app.clj"}]
+                             :tokenUsage {:inputTokens 5000
+                                          :outputTokens 1200
+                                          :totalTokens 6200
+                                          :costUsd 0.15
+                                          :source "deepseek-agent"}}})]
+    (is (= {:inputTokens 5000
+            :outputTokens 1200
+            :totalTokens 6200
+            :costUsd 0.15
+            :source "deepseek-agent"}
+           (:tokenUsage diagnostic)))))
+
+(deftest agent-output-diagnostic-omits-token-usage-when-absent
+  (let [diagnostic (#'benchmark-report/agent-output-diagnostic
+                    {:agent {:commands ["rg broken src"]
+                             :topFiles [{:path "src/app.clj"}]}})]
+    (is (not (contains? diagnostic :tokenUsage)))))
+
+(deftest command-telemetry-classifies-bb-packages-as-agraph
+  (let [telemetry (benchmark-command-telemetry/command-telemetry
+                   ["bb packages --project fixture --json"])]
+    (is (= 1 (:agraphCommandCount telemetry)))))
 
 (deftest reports-problem-class-summaries
   (let [out (temp-dir "agraph-agent-report-problem-classes")

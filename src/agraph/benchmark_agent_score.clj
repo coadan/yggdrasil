@@ -146,7 +146,18 @@
                              "items" {"type" "string"}}
                  "warnings" {"type" "array"
                              "items" {"type" "string"}}
-                 "summary" {"type" "string"}}})
+                 "summary" {"type" "string"}
+                 "tokenUsage" {"type" "object"
+                               "additionalProperties" false
+                               "properties" {"inputTokens" {"type" "integer"
+                                                            "minimum" 0}
+                                             "outputTokens" {"type" "integer"
+                                                             "minimum" 0}
+                                             "totalTokens" {"type" "integer"
+                                                            "minimum" 0}
+                                             "costUsd" {"type" "number"
+                                                        "minimum" 0}
+                                             "source" {"type" "string"}}}}})
 
 (defn agent-result-output-selection-json-schema
   []
@@ -544,7 +555,26 @@
                                  {:files (benchmark-score/ground-truth-file-ranks
                                           (benchmark-score/scoreable-changed-files
                                            (get-in result-shape [:groundTruth]))
-                                          top-files)})]
+                                          top-files)})
+        agent-score (cond-> {:schema (:schema agent-result)
+                             :caseId (:caseId agent-result)
+                             :caseFingerprint (:caseFingerprint agent-result)
+                             :agentInputFingerprint (:agentInputFingerprint agent-result)
+                             :agentId (:agentId agent-result)
+                             :mode (:mode agent-result)
+                             :topFiles top-files
+                             :suspectedSymbols (or (:suspectedSymbols agent-result)
+                                                   (:suspected-symbols agent-result))
+                             :commands (:commands agent-result)
+                             :summary (:summary agent-result)
+                             :selection (:selection agent-result)
+                             :rawSuspectedFileCount (raw-suspected-file-count agent-result)
+                             :warnings warnings
+                             :missingPredictedFiles (missing-predicted-files
+                                                     (:worktreeRoot prepared)
+                                                     top-files)}
+                      (:tokenUsage agent-result)
+                      (assoc :tokenUsage (:tokenUsage agent-result)))]
     {:schema agent-score-schema
      :agentResultContractVersion agent-result-contract-version
      :suite-id (:suite-id prepared)
@@ -561,21 +591,6 @@
      :inputHints (:inputHints prepared)
      :coverage (:coverage prepared)
      :groundTruth (:groundTruth prepared)
-     :agent {:schema (:schema agent-result)
-             :caseId (:caseId agent-result)
-             :caseFingerprint (:caseFingerprint agent-result)
-             :agentInputFingerprint (:agentInputFingerprint agent-result)
-             :agentId (:agentId agent-result)
-             :mode (:mode agent-result)
-             :topFiles top-files
-             :suspectedSymbols (or (:suspectedSymbols agent-result)
-                                   (:suspected-symbols agent-result))
-             :commands (:commands agent-result)
-             :summary (:summary agent-result)
-             :selection (:selection agent-result)
-             :rawSuspectedFileCount (raw-suspected-file-count agent-result)
-             :warnings warnings
-             :missingPredictedFiles (missing-predicted-files (:worktreeRoot prepared)
-                                                             top-files)}
+     :agent agent-score
      :groundTruthRanks (:groundTruthRanks result-with-ranks)
      :scores (benchmark-score/score-result result-with-ranks)}))

@@ -172,7 +172,12 @@
    :suspectedSymbols []
    :commands []
    :warnings []
-   :summary "brief rationale"})
+   :summary "brief rationale"
+   :tokenUsage {:inputTokens 0
+                :outputTokens 0
+                :totalTokens 0
+                :costUsd 0.0
+                :source "agent-report"}})
 (defn write-agent-output-schema!
   [suite case opts]
   (let [schema-path (benchmark-paths/agent-run-output-schema-path suite case opts)]
