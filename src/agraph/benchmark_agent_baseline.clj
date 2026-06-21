@@ -88,7 +88,7 @@
         context-path (benchmark-paths/agent-baseline-context-path suite case opts)
         progress-path (benchmark-paths/progress-path suite case opts)
         agent-id (benchmark-paths/agent-baseline-id opts)
-        map-path (benchmark-maintenance/ensure-agent-map! suite case prepared opts)
+        map-path (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
         map-overlay (benchmark-maintenance/agent-map-overlay map-path)]
     (benchmark-progress/progress-stage!
      suite

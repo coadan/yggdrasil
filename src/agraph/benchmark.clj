@@ -536,7 +536,7 @@
   (when (= "agraph" (agent-mode opts))
     (let [context-path (benchmark-paths/agent-run-context-path suite case opts)
           hints-path (benchmark-paths/agent-run-hints-path suite case opts)
-          map-path (benchmark-maintenance/ensure-agent-map! suite case prepared opts)
+          map-path (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
           map-overlay (benchmark-maintenance/agent-map-overlay map-path)]
       (store/with-node (benchmark-paths/xtdb-dir suite case opts)
         (fn [xtdb]
@@ -641,7 +641,7 @@
   [suite case prepared opts]
   (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
     (when (.exists (io/file xtdb-dir))
-      (benchmark-maintenance/ensure-agent-map! suite case prepared opts)
+      (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
       (try
         (store/with-node xtdb-dir
           (fn [xtdb]

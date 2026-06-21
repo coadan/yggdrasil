@@ -23,19 +23,44 @@
   (cond-> package-import
     (:ecosystem package-import) (update :ecosystem name)))
 
+(def ^:private package-import-required-fields
+  [:import :ecosystem :package])
+
+(defn- package-import-field
+  [package-import field]
+  (when-let [value (get package-import field)]
+    (let [value (if (= :ecosystem field)
+                  (name value)
+                  (str value))]
+      (when-not (blankish? value)
+        value))))
+
+(defn- validate-package-import!
+  [package-import]
+  (let [missing-fields (filterv #(nil? (package-import-field package-import %))
+                                package-import-required-fields)]
+    (when (seq missing-fields)
+      (throw (ex-info "Benchmark map-overlay package import is missing required fields."
+                      {:package-import package-import
+                       :missing-fields missing-fields
+                       :required-fields package-import-required-fields})))
+    package-import))
+
 (defn- package-import-key
   [package-import]
-  [(some-> (:repo package-import) str)
-   (str (:import package-import))
-   (some-> (:ecosystem package-import) name)
-   (str (:package package-import))])
+  [(package-import-field package-import :repo)
+   (package-import-field package-import :import)
+   (package-import-field package-import :ecosystem)
+   (package-import-field package-import :package)])
 
 (defn- seed-package-imports
   [overlay package-imports]
   (let [existing-keys (set (map package-import-key (:packageImports overlay)))]
     (first
      (reduce (fn [[out seen-keys] package-import]
-               (let [package-import (normalize-package-import package-import)
+               (let [package-import (-> package-import
+                                        validate-package-import!
+                                        normalize-package-import)
                      k (package-import-key package-import)]
                  (if (contains? seen-keys k)
                    [out seen-keys]
@@ -50,8 +75,8 @@
     (cond-> overlay
       (seq package-imports) (seed-package-imports package-imports))))
 
-(defn ensure-agent-map!
-  "Ensure the benchmark case has an `agraph.map.json` and return its canonical path."
+(defn prepare-agent-map!
+  "Ensure the benchmark case has an `agraph.map.json`, seed case overlay corrections, and return its canonical path."
   [suite case prepared opts]
   (let [path (benchmark-paths/agent-map-path suite case opts)
         existing? (graph-map/file-exists? path)
@@ -208,7 +233,7 @@
   [suite case prepared opts agent-result result-file run-status]
   (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
     (when (.exists (io/file xtdb-dir))
-      (ensure-agent-map! suite case prepared opts)
+      (prepare-agent-map! suite case prepared opts)
       (try
         (store/with-node xtdb-dir
           (fn [xtdb]
