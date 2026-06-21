@@ -19,6 +19,10 @@
       {:project-label (or (package-jvm-dotnet/maven-coordinates content) path)
        :facts (package-jvm-dotnet/maven-facts content)}
 
+      (= "libs.versions.toml" filename)
+      {:project-label path
+       :facts (package-gradle/gradle-version-catalog-facts content)}
+
       (contains? #{"build.gradle" "build.gradle.kts" "settings.gradle"
                    "settings.gradle.kts" "gradle.properties"}
                  filename)

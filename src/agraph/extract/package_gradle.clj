@@ -207,3 +207,62 @@
                          (gradle-repositories content)
                          (gradle-modules content)
                          (gradle-tasks content)))))
+
+(defn- catalog-string-attr
+  [body attr-name]
+  (some-> (re-find (re-pattern (str "(?:^|,)\\s*"
+                                    (java.util.regex.Pattern/quote attr-name)
+                                    "\\s*=\\s*\"([^\"]+)\""))
+                   body)
+          second))
+
+(defn- catalog-library-module
+  [body]
+  (or (catalog-string-attr body "module")
+      (when-let [group-id (catalog-string-attr body "group")]
+        (when-let [artifact-id (catalog-string-attr body "name")]
+          (str group-id ":" artifact-id)))))
+
+(defn- catalog-shorthand-module
+  [value]
+  (let [[group-id artifact-id version] (str/split (str/trim value) #":" 3)]
+    (when (and group-id artifact-id)
+      {:module (str group-id ":" artifact-id)
+       :version version})))
+
+(defn gradle-version-catalog-facts
+  "Extract Maven package facts from Gradle version catalog `[libraries]` entries."
+  [content]
+  (loop [remaining (map-indexed vector (str/split-lines content))
+         in-libraries? false
+         out []]
+    (if-let [[idx line] (first remaining)]
+      (let [trimmed (str/trim line)]
+        (cond
+          (re-matches #"\[[^\]]+\]" trimmed)
+          (recur (rest remaining) (= "[libraries]" trimmed) out)
+
+          in-libraries?
+          (let [[_ _alias body] (re-matches #"^\s*([A-Za-z0-9_.-]+)\s*=\s*\{(.*?)\}\s*(?:#.*)?$"
+                                            line)
+                [_ _alias shorthand] (re-matches #"^\s*([A-Za-z0-9_.-]+)\s*=\s*\"([^\"]+)\"\s*(?:#.*)?$"
+                                                 line)
+                shorthand-fact (some-> shorthand catalog-shorthand-module)
+                module (or (some-> body catalog-library-module)
+                           (:module shorthand-fact))
+                version (or (some-> body (catalog-string-attr "version"))
+                            (:version shorthand-fact))]
+            (recur (rest remaining)
+                   in-libraries?
+                   (cond-> out
+                     (and module (str/includes? module ":"))
+                     (conj (common/package-fact
+                            {:ecosystem :maven
+                             :package-name module
+                             :version-range version
+                             :dependency-scope "version-catalog"
+                             :source-line (inc idx)})))))
+
+          :else
+          (recur (rest remaining) in-libraries? out)))
+      (->> out (remove nil?) distinct vec))))

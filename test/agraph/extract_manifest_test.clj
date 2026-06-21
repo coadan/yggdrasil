@@ -965,6 +965,39 @@
     (is (contains? (labels setup-py-result) "pypi:uvicorn"))
     (is (contains? (labels deps-result) "maven:org.clojure/data.json"))))
 
+(deftest extracts-gradle-version-catalog-library-dependencies
+  (let [result (extract/extract-file
+                "run/test"
+                {:file-id "file:gradle/libs.versions.toml"
+                 :path "gradle/libs.versions.toml"
+                 :kind :manifest
+                 :content (str "[versions]\n"
+                               "apiguardian = \"1.1.2\"\n"
+                               "\n"
+                               "[libraries]\n"
+                               "apiguardian = { module = \"org.apiguardian:apiguardian-api\", version.ref = \"apiguardian\" }\n"
+                               "jspecify = { group = \"org.jspecify\", name = \"jspecify\", version = \"1.0.0\" }\n"
+                               "hamcrest = \"org.hamcrest:hamcrest:3.0\"\n"
+                               "\n"
+                               "[plugins]\n"
+                               "shadow = { id = \"com.gradleup.shadow\", version = \"9.4.2\" }\n")})
+        labels (set (map :label (:nodes result)))
+        package-node (fn [label]
+                       (some #(when (= label (:label %)) %) (:nodes result)))
+        relations (frequencies (map :relation (:edges result)))]
+    (is (= :manifest (fs/file-kind "gradle/libs.versions.toml")))
+    (is (contains? labels "maven:org.apiguardian:apiguardian-api"))
+    (is (contains? labels "maven:org.jspecify:jspecify"))
+    (is (contains? labels "maven:org.hamcrest:hamcrest"))
+    (is (not (contains? labels "com.gradleup.shadow")))
+    (is (= "version-catalog"
+           (:dependency-scope (package-node "maven:org.jspecify:jspecify"))))
+    (is (= "1.0.0"
+           (:version-range (package-node "maven:org.jspecify:jspecify"))))
+    (is (= "3.0"
+           (:version-range (package-node "maven:org.hamcrest:hamcrest"))))
+    (is (= 3 (get relations :requires 0)))))
+
 (deftest extracts-dotnet-assembly-and-nuget-root-references
   (let [result (extract/extract-file
                 "run/test"
