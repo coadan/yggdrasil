@@ -1,17 +1,13 @@
 (ns agraph.benchmark
   "Issue replay benchmarks for AGraph retrieval quality."
-  (:require [agraph.activity :as activity]
-            [agraph.benchmark-io :as benchmark-io]
+  (:require [agraph.benchmark-io :as benchmark-io]
             [agraph.benchmark-paths :as benchmark-paths]
             [agraph.benchmark-preflight :as benchmark-preflight]
             [agraph.benchmark-score :as benchmark-score]
             [agraph.context :as context]
             [agraph.fs :as fs]
-            [agraph.map :as graph-map]
-            [agraph.hash :as hash]
             [agraph.project :as project]
             [agraph.query :as query]
-            [agraph.text :as text]
             [agraph.xtdb :as store]
             [clojure.java.io :as io]
             [agraph.benchmark-expectations :as benchmark-expectations]
@@ -24,13 +20,13 @@
             [agraph.benchmark-agent-run :as benchmark-agent-run]
             [agraph.benchmark-agent-packet :as benchmark-agent-packet]
             [agraph.benchmark-local-vector :as benchmark-local-vector]
+            [agraph.benchmark-maintenance :as benchmark-maintenance]
             [agraph.benchmark-score-artifacts :as benchmark-score-artifacts]
             [agraph.benchmark-agent-baseline :as benchmark-agent-baseline]
             [agraph.benchmark-report :as benchmark-report]
             [agraph.benchmark-check :as benchmark-check]
             [agraph.benchmark-compare :as benchmark-compare]
             [agraph.benchmark-system-improvement :as benchmark-system-improvement]
-            [agraph.evidence :as evidence]
             [clojure.string :as str]))
 
 (def suite-schema
@@ -218,167 +214,6 @@
 (defn- evaluate-graph-expectations
   [xtdb prepared]
   (benchmark-expectations/evaluate-graph-expectations xtdb prepared))
-
-(defn- ensure-agent-map!
-  [suite case prepared opts]
-  (let [path (benchmark-paths/agent-map-path suite case opts)]
-    (when-not (graph-map/file-exists? path)
-      (graph-map/write-map! path (graph-map/empty-map (:project-id prepared))))
-    (fs/canonical-path path)))
-
-(defn- agent-map-overlay
-  [map-path]
-  (when (graph-map/file-exists? map-path)
-    (graph-map/read-map map-path)))
-
-(defn- sync-inspect-summary
-  [xtdb suite case prepared opts]
-  (let [project (agent-project prepared)
-        config-path (fs/canonical-path (benchmark-paths/agent-project-path suite case opts))
-        map-path (fs/canonical-path (benchmark-paths/agent-map-path suite case opts))]
-    (try
-      (assoc (select-keys (evidence/summarize xtdb
-                                              project
-                                              {:config-path config-path
-                                               :map-path map-path
-                                               :map-overlay (agent-map-overlay map-path)})
-                          [:schema
-                           :project-id
-                           :freshness
-                           :families
-                           :counts
-                           :nextActions])
-             :status "completed")
-      (catch Exception e
-        {:schema "agraph.benchmark.sync-inspect/v1"
-         :status "failed"
-         :project-id (:id project)
-         :error (.getMessage e)}))))
-
-(defn- benchmark-activity-source
-  [agent-result opts]
-  (keyword (str "benchmark-"
-                (benchmark-paths/safe-id (or (:agentId agent-result)
-                                             (:agent-id opts)
-                                             "agent")))))
-
-(defn- benchmark-activity-source-id
-  [prepared agent-result result-file]
-  (str "benchmark-agent-result:"
-       (hash/short-hash [(:case-id prepared)
-                         (:agentInputFingerprint agent-result)
-                         (:agentId agent-result)
-                         (fs/canonical-path result-file)])))
-
-(defn- benchmark-activity-status
-  [run-status]
-  (if (= "failed" (str run-status)) :failed :done))
-
-(defn- benchmark-activity-summary
-  [prepared agent-result run-status]
-  (str/join " "
-            (remove blankish?
-                    ["benchmark-agent-result"
-                     (:case-id prepared)
-                     (:agentId agent-result)
-                     (:mode agent-result)
-                     (str "status=" run-status)
-                     (str "result-schema=" (:schema agent-result))])))
-
-(defn- benchmark-activity-rows
-  [prepared agent-result result-file opts run-status now-ms]
-  (let [source-id (benchmark-activity-source-id prepared agent-result result-file)
-        item-id (str "activity-item:" (hash/short-hash [source-id]))
-        run-id (str "activity-run:" (hash/short-hash [(:project-id prepared)
-                                                      source-id
-                                                      now-ms]))
-        summary (benchmark-activity-summary prepared agent-result run-status)
-        status (benchmark-activity-status run-status)
-        source (benchmark-activity-source agent-result opts)
-        target-ids (->> [(:project-id prepared)
-                         (:case-id prepared)
-                         (:caseFingerprint prepared)
-                         (:agentInputFingerprint agent-result)]
-                        (remove blankish?)
-                        distinct
-                        vec)
-        item {:xt/id item-id
-              :schema activity/item-schema
-              :project-id (:project-id prepared)
-              :source source
-              :source-id source-id
-              :source-path (fs/canonical-path result-file)
-              :kind "benchmark-agent-result"
-              :status status
-              :payload-schema prepared-case-schema
-              :expected-result-schema agent-result-schema
-              :result-schema (:schema agent-result)
-              :target-ids target-ids
-              :summary summary
-              :tokens (text/tokenize summary)
-              :created-at-ms now-ms
-              :updated-at-ms now-ms
-              :completed-at-ms now-ms
-              :active? true
-              :run-id run-id}
-        event {:xt/id (str "activity-event:"
-                           (hash/short-hash [source-id :validation now-ms]))
-               :schema activity/event-schema
-               :project-id (:project-id prepared)
-               :source source
-               :source-id source-id
-               :item-id item-id
-               :event-kind :validation
-               :status status
-               :agent-id (str (:agentId agent-result))
-               :target-ids target-ids
-               :summary (str "benchmark result-schema "
-                             (if (= agent-result-schema (:schema agent-result))
-                               "matching"
-                               "mismatch"))
-               :at-ms now-ms
-               :active? true
-               :run-id run-id}]
-    {:source source
-     :items [item]
-     :events [event]}))
-
-(defn- record-benchmark-agent-activity!
-  [xtdb suite case prepared opts agent-result result-file run-status]
-  (let [{:keys [source items events]}
-        (benchmark-activity-rows prepared
-                                 agent-result
-                                 result-file
-                                 opts
-                                 run-status
-                                 (long (or (:now-ms opts)
-                                           (System/currentTimeMillis))))
-        activity-result (activity/commit-activity! xtdb
-                                                   {:project-id (:project-id prepared)
-                                                    :source source
-                                                    :items items
-                                                    :events events})]
-    {:activity activity-result
-     :syncInspect (sync-inspect-summary xtdb suite case prepared opts)}))
-
-(defn- record-benchmark-agent-activity-from-artifacts!
-  [suite case prepared opts agent-result result-file run-status]
-  (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
-    (when (.exists (io/file xtdb-dir))
-      (ensure-agent-map! suite case prepared opts)
-      (try
-        (store/with-node xtdb-dir
-          (fn [xtdb]
-            (record-benchmark-agent-activity! xtdb
-                                              suite
-                                              case
-                                              prepared
-                                              opts
-                                              agent-result
-                                              result-file
-                                              run-status)))
-        (catch Exception _
-          nil)))))
 
 (defn- benchmark-index-options
   [opts]
@@ -701,8 +536,8 @@
   (when (= "agraph" (agent-mode opts))
     (let [context-path (benchmark-paths/agent-run-context-path suite case opts)
           hints-path (benchmark-paths/agent-run-hints-path suite case opts)
-          map-path (ensure-agent-map! suite case prepared opts)
-          map-overlay (agent-map-overlay map-path)]
+          map-path (benchmark-maintenance/ensure-agent-map! suite case prepared opts)
+          map-overlay (benchmark-maintenance/agent-map-overlay map-path)]
       (store/with-node (benchmark-paths/xtdb-dir suite case opts)
         (fn [xtdb]
           (let [bench-project (agent-project prepared)
@@ -715,7 +550,12 @@
                          :systemSummary (project/infer-project! xtdb bench-project)
                          :graphExpectations (evaluate-graph-expectations xtdb
                                                                          prepared)
-                         :syncInspect (sync-inspect-summary xtdb suite case prepared opts)}
+                         :syncInspect (benchmark-maintenance/sync-inspect-summary
+                                       xtdb
+                                       suite
+                                       case
+                                       prepared
+                                       opts)}
                 packet (context/context-packet xtdb
                                                (get-in prepared [:input :queryText])
                                                (assoc (agent-baseline-context-options
@@ -801,11 +641,15 @@
   [suite case prepared opts]
   (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
     (when (.exists (io/file xtdb-dir))
-      (ensure-agent-map! suite case prepared opts)
+      (benchmark-maintenance/ensure-agent-map! suite case prepared opts)
       (try
         (store/with-node xtdb-dir
           (fn [xtdb]
-            (sync-inspect-summary xtdb suite case prepared opts)))
+            (benchmark-maintenance/sync-inspect-summary xtdb
+                                                        suite
+                                                        case
+                                                        prepared
+                                                        opts)))
         (catch Exception _
           nil)))))
 
@@ -834,7 +678,7 @@
                                                                     case
                                                                     prepared
                                                                     artifact-opts)
-          benchmark-activity (record-benchmark-agent-activity-from-artifacts!
+          benchmark-activity (benchmark-maintenance/record-benchmark-agent-activity-from-artifacts!
                               suite
                               case
                               prepared
@@ -927,7 +771,7 @@
                  "passed"
                  "failed")
         benchmark-activity (when agraph-summary
-                             (record-benchmark-agent-activity-from-artifacts!
+                             (benchmark-maintenance/record-benchmark-agent-activity-from-artifacts!
                               suite
                               case
                               prepared

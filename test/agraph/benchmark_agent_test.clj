@@ -123,6 +123,51 @@
          (#'benchmark/benchmark-index-options {:index-timeout-ms 1234})))
   (is (= {:index-profile :query}
          (#'benchmark/benchmark-index-options {:index-timeout-ms 0}))))
+
+(deftest agent-baseline-records-maintenance-activity-and-sync-inspect
+  (let [root (temp-dir "agraph-bench-baseline-maintenance-repo")
+        out (temp-dir "agraph-bench-baseline-maintenance-out")]
+    (git! root "init")
+    (git! root "config" "user.email" "agraph@example.test")
+    (git! root "config" "user.name" "AGraph Test")
+    (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (let [base-sha (commit! root "base")
+          suite {:id "suite"
+                 :repos [{:id "repo"
+                          :root root
+                          :role :application}]
+                 :cases [{:id "case-1"
+                          :repo-id "repo"
+                          :base-sha base-sha
+                          :fix-sha base-sha
+                          :coverage {:source-kinds [:code]}
+                          :ground-truth {:localization-files ["src/app.clj"]}
+                          :issue {:title "broken app"
+                                  :body "Find the broken app function."}}]}
+          result (benchmark/agent-baselines! suite {:out out
+                                                    :now-ms 1000})
+          baseline (first (:baselines result))
+          score (json/read-json (slurp (get-in baseline
+                                               [:artifacts :agentScorePath]))
+                                :key-fn keyword)
+          family-by-name (into {}
+                               (map (juxt :family identity))
+                               (get-in baseline [:syncInspect :families]))]
+      (is (= benchmark/agent-baselines-schema (:schema result)))
+      (is (= "agraph-baseline-lexical" (:agentId baseline)))
+      (is (= {:items 1
+              :events 1
+              :deleted-items 0
+              :deleted-events 0}
+             (:benchmarkActivity baseline)))
+      (is (= "completed" (get-in score [:syncInspect :status])))
+      (is (= :available (get-in family-by-name [:activity :status])))
+      (is (= :available (get-in family-by-name [:validation-history :status])))
+      (is (= :available (get-in family-by-name [:map-overlay :status])))
+      (is (= "sync-inspect"
+             (get-in baseline
+                     [:maintenancePreflight :checks :syncCheck :source]))))))
+
 (deftest benchmark-parser-worker-profile-is-explicit-and-bindable
   (is (= {:mode "java"
           :source "option"}

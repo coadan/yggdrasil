@@ -1,6 +1,7 @@
 (ns agraph.benchmark-test
   (:require [agraph.benchmark :as benchmark]
             [agraph.benchmark-classes :as benchmark-classes]
+            [agraph.benchmark-maintenance :as benchmark-maintenance]
             [agraph.benchmark-paths :as benchmark-paths]
             [agraph.benchmark-prepare :as benchmark-prepare]
             [agraph.benchmark-progress :as benchmark-progress]
@@ -1438,12 +1439,12 @@
                       :mode "agraph"
                       :agentInputFingerprint "agent-input-fingerprint"
                       :suspectedFiles [{:path "src/answer.clj"}]}
-        rows (#'benchmark/benchmark-activity-rows prepared
-                                                  agent-result
-                                                  result-file
-                                                  {:agent-id "codex"}
-                                                  "passed"
-                                                  1000)
+        rows (benchmark-maintenance/benchmark-activity-rows prepared
+                                                            agent-result
+                                                            result-file
+                                                            {:agent-id "codex"}
+                                                            "passed"
+                                                            1000)
         item (first (:items rows))
         event (first (:events rows))]
     (is (= :benchmark-codex (:source rows)))
@@ -1480,7 +1481,7 @@
                       :agentInputFingerprint "agent-input-fingerprint"}]
     (store/with-node (benchmark-paths/xtdb-dir suite case opts)
       (fn [_xtdb] nil))
-    (let [recorded (#'benchmark/record-benchmark-agent-activity-from-artifacts!
+    (let [recorded (benchmark-maintenance/record-benchmark-agent-activity-from-artifacts!
                     suite
                     case
                     prepared

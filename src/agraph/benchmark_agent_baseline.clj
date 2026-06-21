@@ -4,6 +4,7 @@
             [agraph.benchmark-expectations :as benchmark-expectations]
             [agraph.benchmark-hints :as benchmark-hints]
             [agraph.benchmark-io :as benchmark-io]
+            [agraph.benchmark-maintenance :as benchmark-maintenance]
             [agraph.benchmark-paths :as benchmark-paths]
             [agraph.benchmark-preflight :as benchmark-preflight]
             [agraph.benchmark-prediction :as benchmark-prediction]
@@ -86,7 +87,9 @@
         result-path (benchmark-paths/agent-baseline-result-path suite case opts)
         context-path (benchmark-paths/agent-baseline-context-path suite case opts)
         progress-path (benchmark-paths/progress-path suite case opts)
-        agent-id (benchmark-paths/agent-baseline-id opts)]
+        agent-id (benchmark-paths/agent-baseline-id opts)
+        map-path (benchmark-maintenance/ensure-agent-map! suite case prepared opts)
+        map-overlay (benchmark-maintenance/agent-map-overlay map-path)]
     (benchmark-progress/progress-stage!
      suite
      case
@@ -108,7 +111,8 @@
                                 (fn []
                                   (project/index-project! xtdb
                                                           bench-project
-                                                          (benchmark-index-options opts))))
+                                                          (assoc (benchmark-index-options opts)
+                                                                 :map-overlay map-overlay))))
                              #(select-keys % [:files :repos :rows :extractors]))
               system-summary (benchmark-progress/progress-stage!
                               suite
@@ -126,7 +130,9 @@
                       #(context/context-packet
                         xtdb
                         (get-in prepared [:input :queryText])
-                        (agent-baseline-context-options prepared opts))
+                        (assoc (agent-baseline-context-options prepared opts)
+                               :map-path map-path
+                               :map-overlay map-overlay))
                       (fn [packet]
                         {:docs (count (:docs packet))
                          :entities (count (:entities packet))
@@ -134,12 +140,6 @@
                          :warnings (count (:warnings packet))}))
               hints (benchmark-hints/context-packet->agent-hints prepared packet opts)
               hint-diagnostics (not-empty (vec (:diagnostics hints)))
-              maintenance-preflight (benchmark-preflight/maintenance-preflight
-                                     {:index-summary index-summary
-                                      :system-summary system-summary
-                                      :graph-expectations graph-expectations
-                                      :expectations (:expectations prepared)
-                                      :hints hints})
               agent-result (benchmark-progress/progress-stage!
                             suite
                             case
@@ -159,6 +159,23 @@
                               {:suspectedFiles (count (:suspectedFiles result))
                                :suspectedSymbols (count (:suspectedSymbols result))}))
               score-path (benchmark-paths/agent-score-path suite case opts result-path)
+              benchmark-activity (benchmark-maintenance/record-benchmark-agent-activity!
+                                  xtdb
+                                  suite
+                                  case
+                                  prepared
+                                  opts
+                                  agent-result
+                                  result-path
+                                  "passed")
+              sync-inspect (:syncInspect benchmark-activity)
+              maintenance-preflight (benchmark-preflight/maintenance-preflight
+                                     {:index-summary index-summary
+                                      :system-summary system-summary
+                                      :graph-expectations graph-expectations
+                                      :expectations (:expectations prepared)
+                                      :hints hints
+                                      :sync-inspect sync-inspect})
               scored (benchmark-progress/progress-stage!
                       suite
                       case
@@ -173,6 +190,10 @@
                                                                 packet))
                          maintenance-preflight
                          (assoc :maintenancePreflight maintenance-preflight)
+                         benchmark-activity
+                         (assoc :benchmarkActivity (:activity benchmark-activity))
+                         sync-inspect
+                         (assoc :syncInspect sync-inspect)
                          hint-diagnostics
                          (assoc :agraphHints {:diagnostics hint-diagnostics})
                          graph-expectations
@@ -199,12 +220,16 @@
                         :parserWorker parser-worker
                         :suspectLimit (agent-baseline-suspect-limit opts)
                         :artifacts {:projectConfig project-path
+                                    :mapPath map-path
                                     :agentResultPath (fs/canonical-path result-path)
                                     :contextPacketPath (fs/canonical-path context-path)
                                     :agentScorePath (fs/canonical-path score-path)
                                     :progressPath (fs/canonical-path progress-path)}
                         :agraph {:indexSummary index-summary
-                                 :systemSummary system-summary}
+                                 :systemSummary system-summary
+                                 :syncInspect sync-inspect}
+                        :benchmarkActivity (:activity benchmark-activity)
+                        :syncInspect sync-inspect
                         :maintenancePreflight maintenance-preflight
                         :graphExpectations graph-expectations
                         :scores (:scores scored)}]
