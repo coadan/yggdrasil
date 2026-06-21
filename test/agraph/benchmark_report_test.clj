@@ -314,6 +314,7 @@
               "maintenance-preflight"
               "commandless-runs"
               "warning-runs"
+              "obsolete-agent-result-contract"
               "unverified-score-artifacts"]
              (mapv :kind (:improvementSummary report))))
       (is (= [{:kind "audit-scope-trust-boundary"
@@ -348,6 +349,11 @@
       (is (= "extractor-gap"
              (->> (:systemImprovementSignals report)
                   (filter #(= "source-skipped-files" (:kind %)))
+                  first
+                  :lane)))
+      (is (= "agent-protocol-gap"
+             (->> (:systemImprovementSignals report)
+                  (filter #(= "obsolete-agent-result-contract" (:kind %)))
                   first
                   :lane)))
       (is (= "agent-protocol-gap"
@@ -623,6 +629,7 @@
               "graph-expectation-failures"
               "maintenance-preflight"
               "warning-runs"
+              "obsolete-agent-result-contract"
               "unverified-score-artifacts"]
              (mapv :kind
                    (get-in (first (:byMode report)) [:improvementSummary]))))
@@ -1300,6 +1307,32 @@
             :caseIds ["case-a" "case-b"]
             :message "AGraph-mode score artifacts did not include context ground-truth ranks, so benchmark attribution is weaker."}
            row))))
+
+(deftest improvement-summary-flags-agent-contract-artifact-blockers
+  (let [report {:artifactDiagnostics
+                {:obsoleteAgentResultContractRuns 2
+                 :obsoleteAgentResultContractCaseIds ["case-a" "case-b"]
+                 :obsoleteAgentResultContractVersions ["old-contract"]
+                 :expectedAgentResultContractVersion "current-contract"
+                 :staleAgentInputRuns 1
+                 :staleAgentInputCaseIds ["case-b"]}}
+        rows (into {}
+                   (map (juxt :kind identity))
+                   (#'benchmark-report/report-improvement-summary report))]
+    (is (= {:kind "obsolete-agent-result-contract"
+            :area "agent-protocol"
+            :runs 2
+            :caseIds ["case-a" "case-b"]
+            :message "Score artifacts were produced before the current agent-result contract; rerun and rescore the agent lane before making benchmark claims."
+            :details [{:expectedAgentResultContractVersion "current-contract"
+                       :obsoleteAgentResultContractVersions ["old-contract"]}]}
+           (get rows "obsolete-agent-result-contract")))
+    (is (= {:kind "stale-agent-input-fingerprints"
+            :area "agent-protocol"
+            :runs 1
+            :caseIds ["case-b"]
+            :message "Score artifacts do not match the current agent input fingerprints; rerun the affected agent packets before making benchmark claims."}
+           (get rows "stale-agent-input-fingerprints")))))
 
 (deftest checks-agent-report-thresholds
   (let [report {:schema benchmark/agent-report-schema

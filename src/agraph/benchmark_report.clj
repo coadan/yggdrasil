@@ -1118,6 +1118,21 @@
               :case-ids (:warningCaseIds agent-diagnostics)
               :message "Agent result validation produced warnings."})
             (improvement-row
+             {:kind "obsolete-agent-result-contract"
+              :area "agent-protocol"
+              :runs (:obsoleteAgentResultContractRuns artifacts)
+              :case-ids (:obsoleteAgentResultContractCaseIds artifacts)
+              :message "Score artifacts were produced before the current agent-result contract; rerun and rescore the agent lane before making benchmark claims."
+              :details [(select-keys artifacts
+                                     [:expectedAgentResultContractVersion
+                                      :obsoleteAgentResultContractVersions])]})
+            (improvement-row
+             {:kind "stale-agent-input-fingerprints"
+              :area "agent-protocol"
+              :runs (:staleAgentInputRuns artifacts)
+              :case-ids (:staleAgentInputCaseIds artifacts)
+              :message "Score artifacts do not match the current agent input fingerprints; rerun the affected agent packets before making benchmark claims."})
+            (improvement-row
              {:kind "unverified-score-artifacts"
               :area "benchmark-hygiene"
               :runs (:unverifiedScoreRuns artifacts)

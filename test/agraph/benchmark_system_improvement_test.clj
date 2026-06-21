@@ -63,6 +63,32 @@
     (is (= "agent-protocol-gap"
            (get-in signals ["unverified-score-artifacts" :lane])))))
 
+(deftest classifies-agent-contract-artifact-blockers
+  (let [signals (signal-by-kind
+                 (benchmark-system-improvement/report->system-improvement-signals
+                  {:artifactDiagnostics
+                   {:obsoleteAgentResultContractRuns 2
+                    :obsoleteAgentResultContractCaseIds ["case-a" "case-b"]
+                    :obsoleteAgentResultContractVersions ["old-contract"]
+                    :expectedAgentResultContractVersion "current-contract"
+                    :staleAgentInputRuns 1
+                    :staleAgentInputCaseIds ["case-b"]
+                    :unverifiedScoreRuns 2
+                    :unverifiedScoreCaseIds ["case-a" "case-b"]}}))]
+    (is (= "agent-protocol-gap"
+           (get-in signals ["obsolete-agent-result-contract" :lane])))
+    (is (= [{:expectedAgentResultContractVersion "current-contract"
+             :obsoleteAgentResultContractVersions ["old-contract"]}]
+           (get-in signals ["obsolete-agent-result-contract" :evidence])))
+    (is (= "agent-protocol-gap"
+           (get-in signals ["stale-agent-input-fingerprints" :lane])))
+    (is (= [{:staleAgentInputRuns 1
+             :staleAgentInputCaseIds ["case-b"]}]
+           (get-in signals ["stale-agent-input-fingerprints" :evidence])))
+    (is (= [{:obsoleteAgentResultContractRuns 2
+             :staleAgentInputRuns 1}]
+           (get-in signals ["unverified-score-artifacts" :evidence])))))
+
 (deftest source-diagnostics-shift-missing-source-kinds-to-extractor-gap
   (let [signals (signal-by-kind
                  (benchmark-system-improvement/report->system-improvement-signals

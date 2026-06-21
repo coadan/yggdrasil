@@ -260,6 +260,24 @@
          :case-ids (:warningCaseIds agent)
          :rationale "Agent result validation produced warnings, weakening result shape reliability."})
        (signal
+        {:kind "obsolete-agent-result-contract"
+         :lane "agent-protocol-gap"
+         :runs (:obsoleteAgentResultContractRuns artifacts)
+         :case-ids (:obsoleteAgentResultContractCaseIds artifacts)
+         :evidence [(select-keys artifacts
+                                 [:expectedAgentResultContractVersion
+                                  :obsoleteAgentResultContractVersions])]
+         :rationale "Score artifacts were produced under an obsolete or missing agent-result contract; rerun and rescore the affected agent lane under the current contract before claiming benchmark results."})
+       (signal
+        {:kind "stale-agent-input-fingerprints"
+         :lane "agent-protocol-gap"
+         :runs (:staleAgentInputRuns artifacts)
+         :case-ids (:staleAgentInputCaseIds artifacts)
+         :evidence [(select-keys artifacts
+                                 [:staleAgentInputRuns
+                                  :staleAgentInputCaseIds])]
+         :rationale "Score artifacts do not match current agent input fingerprints, so benchmark results are not replayable evidence for the current packet contract."})
+       (signal
         {:kind "unverified-score-artifacts"
          :lane "agent-protocol-gap"
          :runs (:unverifiedScoreRuns artifacts)
@@ -268,7 +286,9 @@
                                  [:legacyScoreRuns
                                   :staleScoreRuns
                                   :obsoleteScoreSchemaRuns
-                                  :obsoleteAgentResultSchemaRuns])]
+                                  :obsoleteAgentResultSchemaRuns
+                                  :obsoleteAgentResultContractRuns
+                                  :staleAgentInputRuns])]
          :rationale "Score artifacts were stale or legacy relative to current benchmark fingerprints."})
        (signal
         {:kind "weak-problem-class-coverage"
