@@ -152,12 +152,28 @@
   ([xtdb table ctx]
    (q xtdb (list 'from table '[*]) ctx)))
 
+(defn xtdb-handle?
+  "Return true when value is a Yggdrasil XTDB handle."
+  [xtdb]
+  (and (map? xtdb) (contains? xtdb :node)))
+
+(defn- clean-constraints
+  [constraints]
+  (->> constraints
+       (remove (comp nil? val))
+       (into {})))
+
+(defn- constraints-match?
+  [constraints row]
+  (every? (fn [[field value]]
+            (= value (get row field)))
+          constraints))
+
 (defn rows-by-fields
   "Return rows from table where every field in constraints equals its value."
   ([xtdb table constraints] (rows-by-fields xtdb table constraints {}))
   ([xtdb table constraints ctx]
-   (let [constraints (->> constraints
-                          (remove (comp nil? val))
+   (let [constraints (->> (clean-constraints constraints)
                           (sort-by (comp str key))
                           vec)]
      (if (seq constraints)
@@ -181,6 +197,19 @@
   ([xtdb table field value] (rows-by-field xtdb table field value {}))
   ([xtdb table field value ctx]
    (rows-by-fields xtdb table {field value} ctx)))
+
+(defn constrained-rows
+  "Return rows matching equality constraints.
+
+  Uses XTQL constraints for real XTDB handles and preserves test-stub behavior by
+  falling back to all rows plus the same equality filter."
+  ([xtdb table constraints] (constrained-rows xtdb table constraints {}))
+  ([xtdb table constraints ctx]
+   (let [constraints (clean-constraints constraints)]
+     (if (and (seq constraints) (xtdb-handle? xtdb))
+       (rows-by-fields xtdb table constraints ctx)
+       (->> (all-rows xtdb table ctx)
+            (filter #(constraints-match? constraints %)))))))
 
 (defn row-by-id
   "Return row by id from table."

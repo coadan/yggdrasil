@@ -32,6 +32,48 @@
            {:result-schema "unexpected/v1"}
            {}]))))
 
+(deftest scoped-activity-reads-use-constrained-rows
+  (let [calls (atom [])
+        item {:xt/id "activity-item:demo"
+              :schema activity/item-schema
+              :project-id "demo"
+              :source :queue
+              :source-id "queue:demo"
+              :kind "test-work"
+              :status :done
+              :target-ids []
+              :summary "done"
+              :tokens ["done"]
+              :created-at-ms 1
+              :updated-at-ms 2
+              :active? true
+              :run-id "run"}
+        event {:xt/id "activity-event:demo"
+               :schema activity/event-schema
+               :project-id "demo"
+               :source :queue
+               :source-id "queue:demo"
+               :item-id "activity-item:demo"
+               :event-kind :completed
+               :target-ids []
+               :summary "completed"
+               :at-ms 2
+               :active? true
+               :run-id "run"}]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table constraints _]
+                    (swap! calls conj [table constraints])
+                    (case table
+                      :ygg/activity-items [item]
+                      :ygg/activity-events [event]))]
+      (is (= ["activity-item:demo"]
+             (mapv :xt/id (activity/all-items :xtdb {:project-id "demo"}))))
+      (is (= ["activity-event:demo"]
+             (mapv :xt/id (activity/all-events :xtdb {:project-id "demo"})))))
+    (is (= [[(:activity-items store/tables) {:project-id "demo" :active? true}]
+            [(:activity-events store/tables) {:project-id "demo" :active? true}]]
+           @calls))))
+
 (deftest sync-queue-imports-durable-activity-and-validation-events
   (let [root (temp-dir "ygg-activity-queue")
         project {:id "demo" :name "Demo" :repos []}

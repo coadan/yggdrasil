@@ -215,7 +215,13 @@
 
 (defn- scoped-active-index-rows
   [xtdb table {:keys [project-id repo-id read-context]}]
-  (->> (store/all-rows xtdb table (store/read-context read-context))
+  (->> (store/constrained-rows xtdb
+                               table
+                               {:project-id (when-not (str/blank? (str project-id))
+                                              project-id)
+                                :repo-id (when-not (str/blank? (str repo-id))
+                                           repo-id)}
+                               (store/read-context read-context))
        (filter active-index-row?)
        (filter #(scope-match? {:project-id project-id :repo-id repo-id} %))
        vec))

@@ -302,27 +302,33 @@
 (defn all-items
   ([xtdb] (all-items xtdb {}))
   ([xtdb {:keys [project-id read-context]}]
-   (->> (store/all-rows xtdb (:activity-items store/tables) (store/read-context read-context))
-        (filter #(or (str/blank? (str project-id)) (= project-id (:project-id %))))
-        (filter #(not= false (:active? %)))
+   (->> (store/constrained-rows xtdb
+                                (:activity-items store/tables)
+                                {:project-id (when-not (str/blank? (str project-id))
+                                               project-id)
+                                 :active? true}
+                                (store/read-context read-context))
         (map validate-item)
         vec)))
 
 (defn all-events
   ([xtdb] (all-events xtdb {}))
   ([xtdb {:keys [project-id read-context]}]
-   (->> (store/all-rows xtdb (:activity-events store/tables) (store/read-context read-context))
-        (filter #(or (str/blank? (str project-id)) (= project-id (:project-id %))))
-        (filter #(not= false (:active? %)))
+   (->> (store/constrained-rows xtdb
+                                (:activity-events store/tables)
+                                {:project-id (when-not (str/blank? (str project-id))
+                                               project-id)
+                                 :active? true}
+                                (store/read-context read-context))
         (map validate-event)
         vec)))
 
 (defn- rows-for-source
   [xtdb table project-id source]
-  (->> (store/all-rows xtdb table)
-       (filter #(= project-id (:project-id %)))
-       (filter #(= source (:source %)))
-       vec))
+  (vec (store/constrained-rows xtdb
+                               table
+                               {:project-id project-id
+                                :source source})))
 
 (defn commit-activity!
   "Replace durable activity rows for one project/source."

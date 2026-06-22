@@ -49,6 +49,50 @@
                                    (store/read-context
                                     {:valid-at #inst "2026-03-15T00:00:00Z"}))))))))
 
+(deftest constrained-rows-filter-by-equality-constraints
+  (store/with-node (temp-dir "ygg-constrained-rows-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op :ygg/constrained-test
+                      {:xt/id "row:match"
+                       :project-id "demo"
+                       :repo-id "app"
+                       :active? true})
+        (store/put-op :ygg/constrained-test
+                      {:xt/id "row:other-repo"
+                       :project-id "demo"
+                       :repo-id "other"
+                       :active? true})
+        (store/put-op :ygg/constrained-test
+                      {:xt/id "row:inactive"
+                       :project-id "demo"
+                       :repo-id "app"
+                       :active? false})])
+      (is (= ["row:match"]
+             (mapv :xt/id
+                   (store/constrained-rows xtdb
+                                           :ygg/constrained-test
+                                           {:project-id "demo"
+                                            :repo-id "app"
+                                            :active? true})))))))
+
+(deftest constrained-rows-fallback-filters-test-stub-rows
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (is (= :ygg/constrained-test table))
+                                 [{:xt/id "row:match"
+                                   :project-id "demo"
+                                   :active? true}
+                                  {:xt/id "row:other"
+                                   :project-id "other"
+                                   :active? true}])]
+    (is (= ["row:match"]
+           (mapv :xt/id
+                 (store/constrained-rows :stub
+                                         :ygg/constrained-test
+                                         {:project-id "demo"
+                                          :active? true}))))))
+
 (deftest temporal-bundle-writes-snapshot-run-puts-and-deletes
   (store/with-node (temp-dir "ygg-temporal-bundle-xtdb")
     (fn [xtdb]

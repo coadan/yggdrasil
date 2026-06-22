@@ -26,11 +26,13 @@
 
 (defn- active-rows
   [xtdb table {:keys [project-id repo-id read-context]}]
-  (cond->> (store/all-rows xtdb table (store/read-context read-context))
-    true (filter active?)
-    project-id (filter #(= project-id (:project-id %)))
-    repo-id (filter #(= repo-id (:repo-id %)))
-    true vec))
+  (->> (store/constrained-rows xtdb
+                               table
+                               {:project-id project-id
+                                :repo-id repo-id}
+                               (store/read-context read-context))
+       (filter active?)
+       vec))
 
 (defn- display
   [value]

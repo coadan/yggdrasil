@@ -52,7 +52,11 @@
 
 (defn- scoped-active-rows
   [xtdb table scope]
-  (->> (store/all-rows xtdb table (read-context scope))
+  (->> (store/constrained-rows xtdb
+                               table
+                               {:project-id (:project-id scope)
+                                :repo-id (:repo-id scope)}
+                               (read-context scope))
        (filter active?)
        (filter #(scope-match? scope %))
        vec))
