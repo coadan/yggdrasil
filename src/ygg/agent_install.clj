@@ -178,7 +178,12 @@
        "loop metrics. Efficiency suites must include manually tagged problem "
        "classes, not only simple file-localization issues. Include architecture-"
        "class cases, using tracked benchmark suites with curated ground truth "
-       "when necessary, and name the class where Yggdrasil helped or regressed.\n"
+       "when necessary, and name the class where Yggdrasil helped or regressed. "
+       "Before making architecture or extractor improvement claims, run "
+       "`bb bench:gate --check-only` when current score artifacts exist; run "
+       "`bb bench:gate` when they are missing or stale. The gate must pass with "
+       "claim readiness supported, graph expectations passing, and zero "
+       "maintenance preflight blockers.\n"
        end-marker "\n"))
 
 (defn- broad-search-hook

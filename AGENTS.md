@@ -46,6 +46,11 @@ only simple file-localization issues, and claims should name the class where
 Yggdrasil helped or regressed. Include architecture-class cases in the tracked
 benchmark suites, with curated ground truth when necessary. Treat anecdotes as
 hypotheses until measured.
+Before making architecture or extractor improvement claims, run the cheap current
+artifact proof with `bb bench:gate --check-only`; if current score artifacts do
+not exist or are stale, regenerate them with `bb bench:gate`. The gate must pass
+with claim readiness supported, graph expectations passing, and zero maintenance
+preflight blockers.
 
 Use `.dev/` for local XTDB data, caches, and generated reports. Put local plan
 artifacts under `.dev/plans/` and local report artifacts under `.dev/reports/`.
