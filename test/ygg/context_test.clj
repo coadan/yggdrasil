@@ -102,6 +102,67 @@
     (is (= ["src/A.java" "src/B.java" "src/A.java"]
            (mapv #(get-in % [:source :path]) docs)))))
 
+(deftest diversify-docs-prefers-query-matched-definition-kind-within-new-root
+  (let [diversify-docs @#'context/diversify-docs
+        docs (diversify-docs
+              (text/tokenize "component interface")
+              [{:target "chunk:connector"
+                :score 5.0
+                :retrievedSource true
+                :source {:repo "app"
+                         :path "connector/connector.go"
+                         :definitionKind :function}}
+               {:target "chunk:component-test"
+                :score 4.0
+                :retrievedSource true
+                :source {:repo "app"
+                         :path "component/package_test.go"
+                         :definitionKind :test}}
+               {:target "chunk:component-interface"
+                :score 3.4
+                :retrievedSource true
+                :source {:repo "app"
+                         :path "component/component.go"
+                         :definitionKind :interface}}])]
+    (is (= ["component/component.go"
+            "connector/connector.go"
+            "component/package_test.go"]
+           (mapv #(get-in % [:source :path]) docs)))))
+
+(deftest diversify-docs-promotes-query-matched-definition-kind-within-seen-root
+  (let [diversify-docs @#'context/diversify-docs
+        docs (diversify-docs
+              (text/tokenize "consumer type")
+              [{:target "chunk:consumer-interface"
+                :score 5.0
+                :retrievedSource true
+                :source {:repo "app"
+                         :path "consumer/logs.go"
+                         :definitionKind :interface}}
+               {:target "chunk:component-type"
+                :score 4.0
+                :retrievedSource true
+                :source {:repo "app"
+                         :path "component/component.go"
+                         :definitionKind :type}}
+               {:target "chunk:consumer-type"
+                :score 3.6
+                :retrievedSource true
+                :source {:repo "app"
+                         :path "consumer/consumer.go"
+                         :definitionKind :type}}
+               {:target "chunk:other"
+                :score 3.5
+                :retrievedSource true
+                :source {:repo "app"
+                         :path "other/package_test.go"
+                         :definitionKind :test}}])]
+    (is (= ["component/component.go"
+            "consumer/consumer.go"
+            "other/package_test.go"
+            "consumer/logs.go"]
+           (mapv #(get-in % [:source :path]) docs)))))
+
 (deftest select-docs-preserves-top-retrieved-path-coverage
   (let [select-docs @#'context/select-docs
         crowded-docs (for [idx (range 20)]
@@ -2080,6 +2141,101 @@
                 {:project-id "fixture"
                  :repo-id "app"})]
       (is (= 45 (count (filter #(= :file (:target-kind %)) rows)))))))
+
+(deftest context-packet-loads-docs-for-source-graph-file-candidates
+  (with-redefs [store/xtdb-handle? (constantly true)
+                query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :instrumentation {:search-docs 0
+                                                         :returned-count 0}
+                                       :results []})
+                store/rows-matching-any-token
+                (fn [_ table _ _ _ _]
+                  (case table
+                    :ygg/nodes []
+                    :ygg/files
+                    [{:xt/id "file:contract"
+                      :project-id "fixture"
+                      :repo-id "app"
+                      :path "src/contract.go"
+                      :kind :go
+                      :active? true}]))
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [_ paths _]
+                                        (is (= ["src/contract.go"]
+                                               (vec paths)))
+                                        [{:xt/id "chunk:contract"
+                                          :repo-id "app"
+                                          :path "src/contract.go"
+                                          :kind :go
+                                          :definition-kind :interface
+                                          :label "contract/Service"
+                                          :source-line 3
+                                          :end-line 8
+                                          :text "type Service interface { Start() }"
+                                          :tokens ["service" "interface"]}])
+                query/all-chunks (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "contract interface"
+                                         {:project-id "fixture"
+                                          :repo-id "app"
+                                          :budget 12000
+                                          :retriever :lexical})]
+      (is (= ["src/contract.go"]
+             (mapv #(get-in % [:source :path]) (:docs packet))))
+      (is (= ["chunk:contract"]
+             (mapv :target (:docs packet))))
+      (is (= [:interface]
+             (mapv #(get-in % [:source :definitionKind]) (:docs packet))))
+      (is (= ["type Service interface { Start() }"]
+             (mapv :snippet (:docs packet))))
+      (is (= [true]
+             (mapv :retrievedSource (:docs packet)))))))
+
+(deftest inferred-docs-rank-query-matched-definition-kinds
+  (let [docs (#'context/inferred-docs
+              (text/tokenize "contract interface")
+              [{:path "src/package_test.go"
+                :target-kind :file
+                :score 1.2
+                :label "src/package_test.go"}
+               {:path "src/component.go"
+                :target-kind :file
+                :score 1.0
+                :label "src/component.go"}]
+              [{:xt/id "chunk:test"
+                :repo-id "app"
+                :path "src/package_test.go"
+                :kind :go
+                :definition-kind :test
+                :label "contract package"
+                :source-line 1
+                :text "package fixture"
+                :tokens ["contract" "package"]}
+               {:xt/id "chunk:interface"
+                :repo-id "app"
+                :path "src/component.go"
+                :kind :go
+                :definition-kind :interface
+                :label "contract Component"
+                :source-line 4
+                :text "type Component interface { Start() }"
+                :tokens ["contract" "component" "interface"]}]
+              []
+              200)]
+    (is (= ["src/component.go" "src/package_test.go"]
+           (mapv #(get-in % [:source :path]) docs)))))
 
 (deftest candidate-input-ranking-preserves-root-diversity
   (let [ranked (#'context/ranked-candidate-inputs

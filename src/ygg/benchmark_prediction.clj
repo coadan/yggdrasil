@@ -944,6 +944,49 @@
           (assoc row :rank (inc idx)))
         (range)
         rows))
+
+(defn- prediction-path-root
+  [row]
+  (let [path (str (:path row))]
+    (or (first (remove str/blank? (str/split path #"/")))
+        path)))
+
+(defn- prediction-primary-definition-kind
+  [row]
+  (or (first (get-in row [:metrics :definitionKinds]))
+      :unknown))
+
+(defn- prediction-diversity-key
+  [row]
+  (let [definition-kind (prediction-primary-definition-kind row)]
+    (when (and (pos? (long (or (get-in row [:metrics :docCount]) 0)))
+               (not= :unknown definition-kind))
+      [(or (:repo-id row) :unknown-repo)
+       (prediction-path-root row)
+       definition-kind])))
+
+(defn- diversify-ranked-file-predictions
+  [rows]
+  (loop [remaining (vec rows)
+         seen #{}
+         out []]
+    (if (empty? remaining)
+      (renumber-file-ranks out)
+      (let [[idx row] (or (->> remaining
+                               (map-indexed vector)
+                               (some (fn [[idx row]]
+                                       (when-let [k (prediction-diversity-key
+                                                     row)]
+                                         (when-not (contains? seen k)
+                                           [idx row])))))
+                          [0 (first remaining)])]
+        (recur (vec (concat (subvec remaining 0 idx)
+                            (subvec remaining (inc idx))))
+               (cond-> seen
+                 (prediction-diversity-key row)
+                 (conj (prediction-diversity-key row)))
+               (conj out row))))))
+
 (defn- row-source-kind
   [kind-by-path row]
   (row-path-kind kind-by-path row))
@@ -1390,6 +1433,7 @@
                                                                    %))
                               (prioritize-coverage-source-lanes source-kinds
                                                                 kind-by-path)
+                              diversify-ranked-file-predictions
                               renumber-file-ranks
                               vec)
          filtered-files (- (count raw-candidate-files)

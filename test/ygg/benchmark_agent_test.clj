@@ -1926,6 +1926,41 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-diversifies-repeated-root-definition-kind
+  (let [root (temp-dir "ygg-bench-root-kind-diversity")
+        _ (doseq [path ["consumer/logs.go"
+                        "consumer/metrics.go"
+                        "connector/connector.go"]]
+            (spit-file! root path "package fixture\n"))
+        packet {:query "connector consumer interface"
+                :docs [{:source {:path "consumer/logs.go"
+                                 :definitionKind :interface
+                                 :heading "consumer/logs/Logs"}
+                        :score 5.0
+                        :snippet "consumer logs interface"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "consumer/metrics.go"
+                                 :definitionKind :interface
+                                 :heading "consumer/metrics/Metrics"}
+                        :score 4.8
+                        :snippet "consumer metrics interface"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "connector/connector.go"
+                                 :definitionKind :interface
+                                 :heading "connector/connector/Logs"}
+                        :score 4.0
+                        :snippet "connector interface"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["consumer/logs.go"
+            "connector/connector.go"
+            "consumer/metrics.go"]
+           (mapv :path files)))))
+
 (deftest file-ranking-keeps-single-row-candidate-rank-as-tiebreaker
   (let [root (temp-dir "ygg-bench-single-source-graph-candidate-rank")
         _ (spit-file! root "lib/adapters/http.js" "export default function httpAdapter() {}\n")

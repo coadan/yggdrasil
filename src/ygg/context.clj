@@ -327,23 +327,51 @@
           {}
           results))
 
+(defn- file-result-row?
+  [result]
+  (contains? #{"file"}
+             (display-name (or (:target-kind result)
+                               (:targetKind result)
+                               (:result-kind result)
+                               (:resultKind result)))))
+
+(defn- result-score-by-file-path
+  [results]
+  (reduce (fn [scores {:keys [path score] :as result}]
+            (if (and (file-result-row? result)
+                     (not (str/blank? (str path))))
+              (update scores path #(max (double (or % 0.0))
+                                        (double (or score 0.0))))
+              scores))
+          {}
+          results))
+
 (defn- result-score-for-chunk
-  [result-scores result-scores-by-path-label chunk]
+  [result-scores result-scores-by-path-label result-scores-by-file-path chunk]
   (or (get result-scores (:xt/id chunk))
-      (get result-scores-by-path-label [(:path chunk) (:label chunk)])))
+      (get result-scores-by-path-label [(:path chunk) (:label chunk)])
+      (get result-scores-by-file-path (:path chunk))))
 
 (defn- result-by-target
   [results]
   (into {} (map (juxt :target-id identity)) results))
 
 (defn- chunk-score
-  [query-tokens selected-labels result-scores result-scores-by-path-label chunk]
+  [query-tokens
+   selected-labels
+   result-scores
+   result-scores-by-path-label
+   result-scores-by-file-path
+   chunk]
   (+ (double (or (result-score-for-chunk result-scores
                                          result-scores-by-path-label
+                                         result-scores-by-file-path
                                          chunk)
                  0.0))
      (* 0.35 (capped-token-score query-tokens
                                  (compact (:label chunk) (:path chunk) (:text chunk))))
+     (* 0.45 (capped-token-score query-tokens
+                                 (display-name (:definition-kind chunk))))
      (* 0.15 (min 1.0
                   (text/token-score (text/tokenize (str/join " " selected-labels))
                                     (:tokens chunk))))))
@@ -352,21 +380,25 @@
   [query-tokens results chunks entities snippet-chars]
   (let [result-scores (result-score-by-target results)
         result-scores-by-path-label (result-score-by-path-label results)
+        result-scores-by-file-path (result-score-by-file-path results)
         results-by-target (result-by-target results)
         selected-labels (map :label entities)]
     (->> chunks
          (filter #(or (= :markdown (:kind %))
                       (result-score-for-chunk result-scores
                                               result-scores-by-path-label
+                                              result-scores-by-file-path
                                               %)))
          (map #(assoc % :context-score (chunk-score query-tokens
                                                     selected-labels
                                                     result-scores
                                                     result-scores-by-path-label
+                                                    result-scores-by-file-path
                                                     %)
                       :retrieved? (boolean (result-score-for-chunk
                                             result-scores
                                             result-scores-by-path-label
+                                            result-scores-by-file-path
                                             %))
                       :exact-path? (>= (double (get-in results-by-target
                                                        [(:xt/id %) :score-components :exact]
@@ -442,11 +474,29 @@
          (:target doc)
          :other)]))
 
+(defn- doc-root-key
+  [doc]
+  (let [source (:source doc)
+        path (:path source)
+        root (when-not (str/blank? (str path))
+               (or (first (remove str/blank? (str/split (str path) #"/")))
+                   path))]
+    [(or (:repo source) :unknown-repo)
+     (or root
+         (:heading source)
+         (:target doc)
+         :other)]))
+
 (defn- doc-definition-kind-key
   [doc]
   (let [source (:source doc)]
     [(or (:repo source) :unknown-repo)
      (get-in doc [:source :definitionKind])]))
+
+(defn- doc-root-definition-kind-key
+  [doc]
+  [(doc-root-key doc)
+   (get-in doc [:source :definitionKind])])
 
 (defn- doc-novelty-score
   [seen-paths seen-definition-kinds doc]
@@ -456,32 +506,70 @@
        0
        1)))
 
+(defn- doc-root-novelty-score
+  [seen-roots doc]
+  (if (contains? seen-roots (doc-root-key doc)) 0 1))
+
+(defn- doc-root-definition-kind-novelty-score
+  [seen-root-definition-kinds doc]
+  (let [[_ definition-kind :as k] (doc-root-definition-kind-key doc)]
+    (if (or (nil? definition-kind)
+            (contains? seen-root-definition-kinds k))
+      0
+      1)))
+
+(defn- doc-definition-kind-query-score
+  [query-tokens doc]
+  (capped-token-score query-tokens
+                      (display-name (get-in doc [:source :definitionKind]))))
+
 (defn- diversify-docs
-  [docs]
-  (loop [remaining (vec docs)
-         seen-paths #{}
-         seen-definition-kinds #{}
-         out []]
-    (if (empty? remaining)
-      out
-      (let [[idx doc] (->> remaining
-                           (map-indexed (fn [idx doc]
-                                          [idx
-                                           doc
-                                           (doc-novelty-score seen-paths
-                                                              seen-definition-kinds
-                                                              doc)]))
-                           (sort-by (juxt (comp doc-priority second)
-                                          (comp - #(nth % 2))
-                                          first))
-                           first)
-            definition-key (doc-definition-kind-key doc)]
-        (recur (vec (concat (subvec remaining 0 idx)
-                            (subvec remaining (inc idx))))
-               (conj seen-paths (doc-path-key doc))
-               (cond-> seen-definition-kinds
-                 (second definition-key) (conj definition-key))
-               (conj out doc))))))
+  ([docs] (diversify-docs [] docs))
+  ([query-tokens docs]
+   (loop [remaining (vec docs)
+          seen-roots #{}
+          seen-paths #{}
+          seen-definition-kinds #{}
+          seen-root-definition-kinds #{}
+          out []]
+     (if (empty? remaining)
+       out
+       (let [[idx doc] (->> remaining
+                            (map-indexed
+                             (fn [idx doc]
+                               (let [definition-kind-score
+                                     (doc-definition-kind-query-score query-tokens
+                                                                      doc)]
+                                 [idx
+                                  doc
+                                  (doc-root-novelty-score seen-roots doc)
+                                  definition-kind-score
+                                  (if (pos? definition-kind-score)
+                                    (doc-root-definition-kind-novelty-score
+                                     seen-root-definition-kinds
+                                     doc)
+                                    0)
+                                  (doc-novelty-score seen-paths
+                                                     seen-definition-kinds
+                                                     doc)])))
+                            (sort-by (juxt (comp doc-priority second)
+                                           (comp - #(nth % 3))
+                                           (comp - #(nth % 2))
+                                           (comp - #(nth % 4))
+                                           (comp - #(nth % 5))
+                                           first))
+                            first)
+             definition-key (doc-definition-kind-key doc)]
+         (recur (vec (concat (subvec remaining 0 idx)
+                             (subvec remaining (inc idx))))
+                (conj seen-roots (doc-root-key doc))
+                (conj seen-paths (doc-path-key doc))
+                (cond-> seen-definition-kinds
+                  (second definition-key) (conj definition-key))
+                (cond-> seen-root-definition-kinds
+                  (second (doc-root-definition-kind-key doc))
+                  (conj (doc-root-definition-kind-key doc)))
+                (conj out doc)))))))
 
 (defn- doc-source-path
   [doc]
@@ -565,21 +653,23 @@
         selected))))
 
 (defn- select-docs
-  [docs results doc-limit]
-  (let [doc-limit (long doc-limit)
-        docs (->> docs
-                  distinct-docs
-                  (sort-by (juxt doc-priority
-                                 (comp - :score)
-                                 :role
-                                 #(get-in % [:source :path])))
-                  diversify-docs)
-        result-paths (ranked-result-paths results
-                                          (or (ranked-path-coverage-limit doc-limit)
-                                              0))]
-    (-> docs
-        (ensure-ranked-path-docs result-paths doc-limit)
-        vec)))
+  ([docs results doc-limit]
+   (select-docs docs results doc-limit []))
+  ([docs results doc-limit query-tokens]
+   (let [doc-limit (long doc-limit)
+         docs (->> docs
+                   distinct-docs
+                   (sort-by (juxt doc-priority
+                                  (comp - :score)
+                                  :role
+                                  #(get-in % [:source :path])))
+                   (diversify-docs query-tokens))
+         result-paths (ranked-result-paths results
+                                           (or (ranked-path-coverage-limit doc-limit)
+                                               0))]
+     (-> docs
+         (ensure-ranked-path-docs result-paths doc-limit)
+         vec))))
 
 (defn- attached-docs
   [overlay chunks snippet-chars targets]
@@ -635,11 +725,12 @@
        vec))
 
 (defn- context-chunks
-  [xtdb results attachments opts]
+  [xtdb results attachments candidate-inputs opts]
   (let [scope (select-keys opts [:project-id :repo-id :read-context])
         by-id (query/chunks-by-ids xtdb (result-chunk-ids results) scope)
         paths (distinct (concat (result-paths results)
-                                (attachment-paths attachments)))
+                                (attachment-paths attachments)
+                                (result-paths candidate-inputs)))
         by-path (query/chunks-by-paths xtdb paths scope)]
     (->> (concat by-id by-path)
          (reduce (fn [by-id chunk]
@@ -1629,6 +1720,7 @@
                            {:project-id project-id
                             :repo-id repo-id
                             :read-context read-context})
+        candidate-inputs (ranked-candidate-inputs results source-candidates)
         graph-data (graph/system-graph xtdb
                                        project-id
                                        {:limit graph/default-node-limit
@@ -1645,6 +1737,7 @@
         chunks (context-chunks xtdb
                                results
                                attachments
+                               candidate-inputs
                                {:project-id project-id
                                 :repo-id repo-id
                                 :read-context read-context})
@@ -1673,8 +1766,12 @@
                    (conj "no graph entities matched the query"))
         drilldowns (context-drilldowns query-text project-id map-path)
         docs (->> (concat (attached-docs overlay chunks snippet-chars targets)
-                          (inferred-docs query-tokens results chunks entities snippet-chars))
-                  (#(select-docs % results doc-limit)))
+                          (inferred-docs query-tokens
+                                         candidate-inputs
+                                         chunks
+                                         entities
+                                         snippet-chars))
+                  (#(select-docs % results doc-limit query-tokens)))
         search-context (-> (select-keys search-report
                                         [:schema
                                          :query-run-id
@@ -1742,7 +1839,7 @@
                              (relationship-groups edges)
                              blast-radius
                              (candidate-files
-                              (ranked-candidate-inputs results source-candidates))
+                              candidate-inputs)
                              plugin-packages)
                 docs
                 budget)))
