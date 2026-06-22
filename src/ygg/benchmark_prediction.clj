@@ -34,6 +34,10 @@
   3.0)
 (def ^:private rank-score-doc-supported-graph-weight
   0.5)
+(def ^:private rank-score-decision-candidate-count-cap
+  2)
+(def ^:private rank-score-decision-candidate-path-weight
+  1.75)
 (def ^:private rank-score-graph-support-min
   0.5)
 (def ^:private rank-score-graph-lexical-support-min
@@ -47,7 +51,7 @@
 (def ^:private retrieved-source-rank-bonus-max
   4.1)
 (def ^:private retrieved-source-rank-bonus-step
-  0.12)
+  0.10)
 (def ^:private candidate-source-rank-bonus-window
   20)
 (def ^:private candidate-source-rank-bonus-max
@@ -58,6 +62,14 @@
   5.8)
 (def ^:private candidate-only-source-rank-bonus-step
   0.18)
+(def ^:private robust-candidate-only-support-min
+  2)
+(def ^:private robust-candidate-only-graph-min
+  0.5)
+(def ^:private robust-candidate-only-source-rank-window
+  3)
+(def ^:private robust-candidate-only-boost
+  3.5)
 (defn- parse-double-safe
   [value]
   (try
@@ -85,10 +97,17 @@
   [root roots row]
   (or (get roots (or (:repo-id row) (:repo row)))
       root))
+(defn- multi-root-map?
+  [roots]
+  (and (map? roots)
+       (< 1 (count roots))))
+(defn- single-root-map-root
+  [roots]
+  (when (map? roots)
+    (val (first roots))))
 (defn- prediction-repo-id
   [roots repo-id]
-  (when (and (map? roots)
-             (< 1 (count roots)))
+  (when (multi-root-map? roots)
     repo-id))
 (defn- file-row-key
   [row]
@@ -111,6 +130,25 @@
     (keyword? value) (name value)
     (nil? value) nil
     :else (str value)))
+(defn- decision-candidate-id
+  [candidate]
+  (some-> (:id candidate) str not-empty))
+(defn- decision-kind-name
+  [kind candidates]
+  (or (some-> kind field-name not-empty)
+      (some->> candidates
+               (keep #(some-> (:kind %) field-name not-empty))
+               first)))
+(defn- decision-candidate-paths
+  [candidate]
+  (->> (concat (:paths candidate)
+               (:evidencePaths candidate)
+               (:evidence-paths candidate)
+               (:files candidate)
+               (map :path (:evidence candidate)))
+       (keep #(some-> % str not-empty))
+       distinct
+       vec))
 (defn- line-label
   [source]
   (when-let [lines (seq (:lines source))]
@@ -147,7 +185,8 @@
   [value]
   (when-not (benchmark-util/blankish? value)
     (let [value (str value)
-          slash-tail (last (str/split value #"/"))
+          slash-tail (or (last (remove str/blank? (str/split value #"/")))
+                         value)
           file-tail (str/replace slash-tail #"\.[A-Za-z0-9]+$" "")]
       file-tail)))
 (defn- identity-tail-values
@@ -200,11 +239,24 @@
             (* retrieved-source-rank-bonus-step
                (dec first-source-rank))))
     0.0))
+(defn- robust-candidate-only?
+  [candidate-source-rank doc-count support-count graph-neighbor-score]
+  (and (zero? (long doc-count))
+       (<= robust-candidate-only-support-min
+           (long (or support-count 0)))
+       (or (<= robust-candidate-only-graph-min
+               (double (or graph-neighbor-score 0.0)))
+           (and (pos? (long (or candidate-source-rank 0)))
+                (<= (long candidate-source-rank)
+                    robust-candidate-only-source-rank-window)))))
 (defn- candidate-source-rank-score
-  [candidate-source-rank doc-count]
+  [candidate-source-rank doc-count support-count graph-neighbor-score]
   (if (and (pos? (long (or candidate-source-rank 0)))
            (<= candidate-source-rank candidate-source-rank-bonus-window))
-    (let [[bonus-max bonus-step] (if (zero? (long doc-count))
+    (let [[bonus-max bonus-step] (if (robust-candidate-only? candidate-source-rank
+                                                             doc-count
+                                                             support-count
+                                                             graph-neighbor-score)
                                    [candidate-only-source-rank-bonus-max
                                     candidate-only-source-rank-bonus-step]
                                    [candidate-source-rank-bonus-max
@@ -213,6 +265,17 @@
            (- bonus-max
               (* bonus-step
                  (dec candidate-source-rank)))))
+    0.0))
+(defn- candidate-only-robust-boost
+  [candidate-source-rank doc-count support-count graph-neighbor-score]
+  (if (and (robust-candidate-only? candidate-source-rank
+                                   doc-count
+                                   support-count
+                                   graph-neighbor-score)
+           (or (not (pos? (long (or candidate-source-rank 0))))
+               (< candidate-source-rank-bonus-window
+                  (long candidate-source-rank))))
+    robust-candidate-only-boost
     0.0))
 (defn- graph-neighbor-boost
   [doc-count graph-score evidence-score]
@@ -423,6 +486,76 @@
           (and (pos? graph-score)
                graph-score-supported?)
           (assoc :graph-neighbor-score graph-score))))))
+(defn- decision-candidate-file-evidence
+  [candidate path]
+  (str "decision-candidate:"
+       path
+       " candidate="
+       (pr-str (decision-candidate-id candidate))
+       (when-let [kind (some-> (:kind candidate) field-name not-empty)]
+         (str " kind=" kind))
+       (when-let [label (some-> (:label candidate) str not-empty)]
+         (str " label=" (pr-str label)))))
+(defn- decision-candidate-file-predictions
+  [root roots query-tokens candidates]
+  (->> candidates
+       (map-indexed
+        (fn [idx candidate]
+          (when (decision-candidate-id candidate)
+            (let [source-repo-id (or (:repo-id candidate) (:repo candidate))
+                  repo-id (prediction-repo-id roots source-repo-id)]
+              (->> (decision-candidate-paths candidate)
+                   (keep-indexed
+                    (fn [path-idx path]
+                      (let [file-root (row-root root
+                                                roots
+                                                {:repo-id source-repo-id
+                                                 :path path})]
+                        (when (existing-file-path? file-root path)
+                          (let [evidence-text (identity-text path
+                                                             (:id candidate)
+                                                             (:kind candidate)
+                                                             (:label candidate)
+                                                             (:summary candidate))]
+                            (cond-> {:path path
+                                     :source-rank (+ 450 (* idx 100) path-idx)
+                                     :confidence 0.75
+                                     :evidence-score 0.0
+                                     :evidence-kind :decision-candidate
+                                     :retrieved-source? false
+                                     :exact-path-source? false
+                                     :definition-kind "decision-candidate"
+                                     :matched-tokens (token-matches query-tokens
+                                                                    evidence-text)
+                                     :matched-token-pairs
+                                     (compact-token-pair-matches query-tokens
+                                                                 evidence-text)
+                                     :matched-compound-token-pairs
+                                     (compact-compound-token-pair-matches
+                                      query-tokens
+                                      evidence-text)
+                                     :matched-identity-compound-token-pairs
+                                     (identity-compound-token-pair-matches
+                                      query-tokens
+                                      path
+                                      (:label candidate))
+                                     :matched-identity-compound-token-span-length
+                                     (identity-compound-token-span-length
+                                      query-tokens
+                                      path
+                                      (:label candidate))
+                                     :evidence [(decision-candidate-file-evidence
+                                                 candidate
+                                                 path)]
+                                     :reason (str "Visible decision candidate "
+                                                  (pr-str (decision-candidate-id
+                                                           candidate))
+                                                  " references "
+                                                  path
+                                                  ".")}
+                              repo-id (assoc :repo-id repo-id))))))))))))
+       (mapcat identity)
+       vec))
 (defn- architecture-evidence-text
   [row]
   (str/join "\n"
@@ -618,6 +751,9 @@
                                                          ordered))
                              candidate-count (count (filter #(= :candidate-file (:evidence-kind %))
                                                             ordered))
+                             decision-candidate-count (count (filter #(= :decision-candidate
+                                                                         (:evidence-kind %))
+                                                                     ordered))
                              graph-neighbor-score (apply max
                                                          0.0
                                                          (keep :graph-neighbor-score
@@ -638,7 +774,14 @@
                                                             (apply min))
                              candidate-source-rank-score (candidate-source-rank-score
                                                           candidate-source-rank
-                                                          doc-count)
+                                                          doc-count
+                                                          support-count
+                                                          graph-neighbor-score)
+                             candidate-only-robust-boost (candidate-only-robust-boost
+                                                          candidate-source-rank
+                                                          doc-count
+                                                          support-count
+                                                          graph-neighbor-score)
                              max-evidence-score (apply max
                                                        0.0
                                                        (map :evidence-score ordered))
@@ -673,7 +816,11 @@
                                            (* 0.12 exact-path-source-count)
                                            (* 0.04 candidate-count)
                                            (* 0.03 entity-count)
+                                           (* rank-score-decision-candidate-path-weight
+                                              (min rank-score-decision-candidate-count-cap
+                                                   decision-candidate-count))
                                            candidate-source-rank-score
+                                           candidate-only-robust-boost
                                            graph-neighbor-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
@@ -704,11 +851,16 @@
                                        (pos? identity-compound-span-score)
                                        (assoc :identityCompoundTokenSpanScore
                                               identity-compound-span-score)
+                                       (pos? decision-candidate-count)
+                                       (assoc :decisionCandidateCount
+                                              decision-candidate-count)
                                        (pos? source-rank-score)
                                        (assoc :sourceRankScore source-rank-score)
                                        (pos? candidate-source-rank-score)
                                        (assoc :candidateSourceRank candidate-source-rank
                                               :candidateSourceRankScore candidate-source-rank-score)
+                                       (pos? candidate-only-robust-boost)
+                                       (assoc :robustCandidateOnlyBoost candidate-only-robust-boost)
                                        (pos? graph-neighbor-score)
                                        (assoc :graphNeighborScore graph-neighbor-score)
                                        (pos? graph-neighbor-boost)
@@ -960,25 +1112,6 @@
      :totalTokens input-tokens
      :costUsd 0.0
      :source "ygg-baseline-compact-surface-estimate"}))
-(defn- decision-candidate-id
-  [candidate]
-  (some-> (:id candidate) str not-empty))
-(defn- decision-kind-name
-  [kind candidates]
-  (or (some-> kind field-name not-empty)
-      (some->> candidates
-               (keep #(some-> (:kind %) field-name not-empty))
-               first)))
-(defn- decision-candidate-paths
-  [candidate]
-  (->> (concat (:paths candidate)
-               (:evidencePaths candidate)
-               (:evidence-paths candidate)
-               (:files candidate)
-               (map :path (:evidence candidate)))
-       (keep #(some-> % str not-empty))
-       distinct
-       vec))
 (defn- decision-file-by-path
   [files]
   (->> files
@@ -986,14 +1119,21 @@
        (reduce (fn [idx file]
                  (update idx (:path file) #(or % file)))
                {})))
+(defn- decision-supportable-file?
+  [file]
+  (let [metrics (:metrics file)
+        support-count (long (or (:supportCount metrics) 0))
+        decision-candidate-count (long (or (:decisionCandidateCount metrics) 0))]
+    (< decision-candidate-count support-count)))
 (defn- decision-support
   [file-by-path candidate]
   (let [paths (decision-candidate-paths candidate)
         matched (->> paths
                      (keep (fn [path]
                              (when-let [file (get file-by-path path)]
-                               {:path path
-                                :file file})))
+                               (when (decision-supportable-file? file)
+                                 {:path path
+                                  :file file}))))
                      vec)
         matched-paths (set (map :path matched))
         rank-score (reduce + 0.0 (map #(/ 1.0 (double (:rank (:file %)))) matched))]
@@ -1088,20 +1228,26 @@
                               (and (str/blank? (str root))
                                    (empty? roots)))
                         {}
-                        (if (seq roots)
+                        (if (multi-root-map? roots)
                           (->> roots
                                (map (fn [[repo-id repo-root]]
                                       [repo-id (scanned-path-kinds repo-root)]))
                                (into {}))
-                          (scanned-path-kinds root)))
+                          (scanned-path-kinds (or root
+                                                  (single-root-map-root roots)))))
          doc-rows (keep-indexed #(doc-prediction root roots query-tokens %1 %2) (:docs packet))
          entity-rows (keep-indexed #(entity-prediction root roots query-tokens %1 %2) (:entities packet))
          candidate-file-rows (keep-indexed #(candidate-file-prediction root roots query-tokens %1 %2)
                                            (:candidateFiles packet))
+         decision-candidate-rows (decision-candidate-file-predictions root
+                                                                      roots
+                                                                      query-tokens
+                                                                      decision-candidates)
          architecture-rows (architecture-file-rows root roots query-tokens packet)
          raw-candidate-files (ranked-file-predictions (concat doc-rows
                                                               entity-rows
                                                               candidate-file-rows
+                                                              decision-candidate-rows
                                                               architecture-rows))
          candidate-files (->> raw-candidate-files
                               (filter #(keep-coverage-source-kind? source-kinds

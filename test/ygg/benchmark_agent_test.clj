@@ -977,12 +977,83 @@
     (is (= "include" (get-in choices-by-id ["plan-config-and-manifest" :status])))
     (is (= "exclude" (get-in choices-by-id ["plan-manifest-only" :status])))
     (is (= "defer" (get-in choices-by-id ["plan-config-only" :status])))
+    (is (some #(= "site/astro.config.ts" (:path %))
+              (:suspectedFiles result)))
+    (is (= 2 (get-in (some #(when (= "site/astro.config.ts" (:path %)) %)
+                           (:suspectedFiles result))
+                     [:metrics :decisionCandidateCount])))
     (is (= ["Ygg baseline ranked file package.json at rank 1."]
            (get-in choices-by-id ["plan-config-and-manifest" :evidence])))
     (is (= 1.0 (get-in scored [:scores :decisionRecall])))
     (is (= 1.0 (get-in scored [:scores :decisionPrecision])))
     (is (= 1.0 (get-in scored [:scores :decisionF1])))
     (is (= 1.0 (get-in scored [:scores :decisionEvidenceCitationRate])))))
+
+(deftest decision-candidate-paths-contribute-to-file-ranking
+  (let [root (temp-dir "ygg-bench-decision-candidate-path-rank")
+        _ (doseq [path ["src/noise_one.cs"
+                        "src/noise_two.cs"
+                        "src/noise_three.cs"
+                        "src/core.cs"
+                        "tests/core_test.cs"]]
+            (spit-file! root path "namespace Demo;\n"))
+        packet {:query "plan jsonb string handling"
+                :candidateFiles [{:path "src/noise_one.cs"
+                                  :rank 1
+                                  :score 4.3
+                                  :targetKind "node"
+                                  :label "Demo.NoiseOne.JsonString"
+                                  :scoreComponents {:sourceGraph 4.3
+                                                    :lexical 0.45
+                                                    :graph 0.2}}
+                                 {:path "src/noise_two.cs"
+                                  :rank 2
+                                  :score 4.2
+                                  :targetKind "node"
+                                  :label "Demo.NoiseTwo.JsonString"
+                                  :scoreComponents {:sourceGraph 4.2
+                                                    :lexical 0.45
+                                                    :graph 0.2}}
+                                 {:path "src/noise_three.cs"
+                                  :rank 3
+                                  :score 4.1
+                                  :targetKind "node"
+                                  :label "Demo.NoiseThree.JsonString"
+                                  :scoreComponents {:sourceGraph 4.1
+                                                    :lexical 0.45
+                                                    :graph 0.2}}
+                                 {:path "src/core.cs"
+                                  :rank 15
+                                  :score 4.0
+                                  :targetKind "node"
+                                  :label "Demo.Core.JsonString"
+                                  :scoreComponents {:sourceGraph 4.0
+                                                    :lexical 0.45
+                                                    :graph 0.2}}]}
+        decision-candidates [{:id "plan-core-and-tests"
+                              :kind "change-plan"
+                              :label "Plan core and tests"
+                              :paths ["src/core.cs" "tests/core_test.cs"]}
+                             {:id "plan-core-only"
+                              :kind "change-plan"
+                              :label "Plan core only"
+                              :paths ["src/core.cs"]}]
+        result (benchmark/context-packet->agent-result
+                packet
+                {:root root
+                 :decision-kind "change-plan"
+                 :decision-candidates decision-candidates
+                 :limit 5})
+        files (:suspectedFiles result)
+        file-by-path (into {} (map (juxt :path identity)) files)
+        choices-by-id (->> (get-in result [:decision :choices])
+                           (map (juxt :id identity))
+                           (into {}))]
+    (is (contains? file-by-path "src/core.cs"))
+    (is (<= (:rank (get file-by-path "src/core.cs")) 5))
+    (is (= 2 (get-in file-by-path ["src/core.cs" :metrics :decisionCandidateCount])))
+    (is (= "include" (get-in choices-by-id ["plan-core-and-tests" :status])))
+    (is (= "exclude" (get-in choices-by-id ["plan-core-only" :status])))))
 
 (deftest context-packet-agent-result-respects-declared-source-coverage
   (let [root (temp-dir "ygg-bench-source-coverage")
@@ -1016,6 +1087,37 @@
             :limit nil
             :coverageSourceKinds ["code"]}
            (:selection filtered)))))
+(deftest context-packet-agent-result-filters-single-root-map-by-scanned-kind
+  (let [root (temp-dir "ygg-bench-single-root-source-coverage")
+        _ (spit-file! root "site/src/pages/index.astro" "---\n---\n<h1>Home</h1>\n")
+        _ (spit-file! root "README.md" "# Docs\n")
+        packet {:query "docs route"
+                :candidateFiles [{:path "site/src/pages/index.astro"
+                                  :repo "bootstrap"
+                                  :rank 1
+                                  :score 1.0
+                                  :targetKind :node
+                                  :label "/"}
+                                 {:path "README.md"
+                                  :repo "bootstrap"
+                                  :rank 2
+                                  :score 1.0
+                                  :targetKind :node
+                                  :label "Docs"}]}
+        result (benchmark/context-packet->agent-result
+                packet
+                {:roots {"bootstrap" root}
+                 :coverage {:declaredSourceKinds ["web-framework"]}})]
+    (is (= ["site/src/pages/index.astro"]
+           (mapv :path (:suspectedFiles result))))
+    (is (= [1]
+           (mapv :rank (:suspectedFiles result))))
+    (is (= {:rawCandidateFiles 2
+            :candidateFiles 1
+            :coverageFilteredCandidateFiles 1
+            :limit nil
+            :coverageSourceKinds ["web-framework"]}
+           (:selection result)))))
 (deftest context-packet-agent-result-prioritizes-declared-source-lanes
   (let [root (temp-dir "ygg-bench-source-lane-priority")
         _ (spit-file! root "src/first.clj" "(ns first)\n")
@@ -1751,6 +1853,13 @@
                                   :label "lib/adapters/http.js"
                                   :scoreComponents {:sourceGraph 2.3
                                                     :lexical 0.27}}
+                                 {:path "lib/adapters/http.js"
+                                  :rank 3
+                                  :score 2.0
+                                  :targetKind "package-import"
+                                  :label "npm:proxy-from-env"
+                                  :scoreComponents {:sourceGraph 2.0
+                                                    :lexical 0.2}}
                                  {:path "tests/unit/core/AxiosError.test.js"
                                   :rank 40
                                   :score 2.1
@@ -1768,6 +1877,24 @@
            5.0))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-keeps-single-row-candidate-rank-as-tiebreaker
+  (let [root (temp-dir "ygg-bench-single-source-graph-candidate-rank")
+        _ (spit-file! root "lib/adapters/http.js" "export default function httpAdapter() {}\n")
+        packet {:query "defer env proxy handling"
+                :candidateFiles [{:path "lib/adapters/http.js"
+                                  :rank 2
+                                  :score 2.3
+                                  :targetKind "file"
+                                  :label "lib/adapters/http.js"
+                                  :scoreComponents {:sourceGraph 2.3
+                                                    :lexical 0.27}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        file (first (:suspectedFiles result))]
+    (is (= "lib/adapters/http.js" (:path file)))
+    (is (= 2 (get-in file [:metrics :candidateSourceRank])))
+    (is (<= (get-in file [:metrics :candidateSourceRankScore]) 0.2))
+    (is (nil? (get-in file [:metrics :robustCandidateOnlyBoost])))))
 
 (deftest file-ranking-keeps-doc-supported-source-graph-rank-as-tiebreaker
   (let [root (temp-dir "ygg-bench-doc-source-graph-rank")

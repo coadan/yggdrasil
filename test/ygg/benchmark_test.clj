@@ -619,6 +619,23 @@
     (is (= 2 (:localizationFiles scores)))
     (is (= 2 (:scoreableChangedFiles scores)))))
 
+(deftest coverage-filter-uses-scanned-kinds-for-single-repo-root-map
+  (let [root (temp-dir "ygg-bench-coverage-kind")
+        case {:coverage {:source-kinds [:web-framework]}}
+        truth {:localizationFiles ["site/src/pages/index.astro"
+                                   "site/src/pages/docs/[version]/examples/index.astro"]
+               :unsupportedGroundTruthFiles []}]
+    (spit-file! root "site/src/pages/index.astro" "---\n---\n<h1>Home</h1>\n")
+    (spit-file! root
+                "site/src/pages/docs/[version]/examples/index.astro"
+                "---\n---\n<h1>Examples</h1>\n")
+    (is (= {:scoreableFiles ["site/src/pages/index.astro"
+                             "site/src/pages/docs/[version]/examples/index.astro"]
+            :coverageExcludedFiles []}
+           (benchmark-prepare/coverage-filtered-ground-truth case
+                                                             {"bootstrap" root}
+                                                             truth)))))
+
 (deftest agent-input-fingerprint-excludes-hidden-scoring-contract
   (let [suite {:id "suite"}
         base-case {:id "case-1"

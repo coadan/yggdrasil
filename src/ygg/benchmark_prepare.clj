@@ -323,9 +323,14 @@
                 [repo-id (scanned-path-kinds repo-root)]))
          (into {}))
     (scanned-path-kinds (single-root root))))
+(defn- repo-kind-map?
+  [kind-by-path-or-repo]
+  (and (map? kind-by-path-or-repo)
+       (seq kind-by-path-or-repo)
+       (every? map? (vals kind-by-path-or-repo))))
 (defn- file-source-kind
   [kind-by-repo file]
-  (if (roots-map? kind-by-repo)
+  (if (repo-kind-map? kind-by-repo)
     (path-source-kind (get kind-by-repo (benchmark-score/file-repo-id file))
                       (benchmark-score/file-path file))
     (path-source-kind kind-by-repo
@@ -443,6 +448,7 @@
    :repos (:repos case)
    :base-sha (:base-sha case)
    :fix-sha (:fix-sha case)
+   :result-scope (:result-scope case)
    :tags (case-tags case)
    :query-text (issue-text case)
    :coverage {:source-kinds (declared-source-kinds case)}
@@ -459,6 +465,7 @@
    :repo-id (:repo-id case)
    :repos (:repos case)
    :base-sha (:base-sha case)
+   :result-scope (:result-scope case)
    :query-text (issue-text case)
    :decision-candidates (decision-candidates case)
    :coverage {:source-kinds (declared-source-kinds case)}})
@@ -520,6 +527,7 @@
              :project-id (str (:project-id suite) "-" (:id case))
              :caseFingerprint score-fingerprint
              :agentInputFingerprint agent-input-fingerprint
+             :resultScope (:result-scope case)
              :tags (case-tags case)
              :expectations (case-expectations case)
              :baseSha (:base-sha repo)
