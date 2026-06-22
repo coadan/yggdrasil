@@ -1883,6 +1883,42 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-uses-candidate-support-label-density
+  (let [root (temp-dir "ygg-bench-candidate-support-label-density")
+        _ (spit-file! root "src/high-score.js" "export const value = 1;\n")
+        _ (spit-file! root "src/dense-support.js" "export const value = 2;\n")
+        packet {:query "adapter lifecycle"
+                :candidateFiles [{:path "src/high-score.js"
+                                  :rank 1
+                                  :score 1.0
+                                  :targetKind "node"
+                                  :label "adapter lifecycle"
+                                  :supportLabels ["support-a"
+                                                  "support-b"
+                                                  "support-c"]
+                                  :scoreComponents {:sourceGraph 1.0
+                                                    :lexical 0.6}}
+                                 {:path "src/dense-support.js"
+                                  :rank 2
+                                  :score 0.95
+                                  :targetKind "node"
+                                  :label "adapter lifecycle"
+                                  :supportLabels ["support-a"
+                                                  "support-b"
+                                                  "support-c"
+                                                  "support-d"]
+                                  :scoreComponents {:sourceGraph 0.95
+                                                    :lexical 0.6}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/dense-support.js"
+            "src/high-score.js"]
+           (mapv :path files)))
+    (is (= 4 (get-in files [0 :metrics :candidateSupportLabelCount])))
+    (is (pos? (get-in files [0 :metrics :candidateSupportLabelScore])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest file-ranking-uses-source-graph-candidate-rank-as-tiebreaker
   (let [root (temp-dir "ygg-bench-source-graph-candidate-rank")
         _ (spit-file! root "lib/adapters/http.js" "export default function httpAdapter() {}\n")

@@ -34,6 +34,10 @@
   3.0)
 (def ^:private rank-score-doc-supported-graph-weight
   0.5)
+(def ^:private rank-score-candidate-support-label-cap
+  4)
+(def ^:private rank-score-candidate-support-label-weight
+  0.06)
 (def ^:private rank-score-decision-candidate-count-cap
   2)
 (def ^:private rank-score-decision-candidate-path-weight
@@ -474,6 +478,7 @@
                  :matched-token-pairs matched-token-pairs
                  :matched-compound-token-pairs matched-compound-token-pairs
                  :matched-identity-compound-token-pairs matched-identity-compound-token-pairs
+                 :candidate-support-label-count (count support-labels)
                  :matched-identity-compound-token-span-length
                  (apply identity-compound-token-span-length
                         query-tokens
@@ -789,6 +794,13 @@
                                                             (keep :candidate-source-rank)
                                                             seq
                                                             (apply min))
+                             candidate-support-label-count (apply max
+                                                                  0
+                                                                  (keep :candidate-support-label-count
+                                                                        ordered))
+                             candidate-support-label-score (* rank-score-candidate-support-label-weight
+                                                              (min rank-score-candidate-support-label-cap
+                                                                   candidate-support-label-count))
                              candidate-source-rank-score (candidate-source-rank-score
                                                           candidate-source-rank
                                                           doc-count
@@ -826,6 +838,7 @@
                                               (min rank-score-ordered-pair-cap
                                                    (count matched-identity-compound-token-pairs)))
                                            identity-compound-span-score
+                                           candidate-support-label-score
                                            (* 0.08 (min rank-score-support-count-cap
                                                         support-count))
                                            (* 0.08 (min rank-score-retrieved-source-count-cap
@@ -868,6 +881,12 @@
                                        (pos? identity-compound-span-score)
                                        (assoc :identityCompoundTokenSpanScore
                                               identity-compound-span-score)
+                                       (pos? candidate-support-label-count)
+                                       (assoc :candidateSupportLabelCount
+                                              candidate-support-label-count)
+                                       (pos? candidate-support-label-score)
+                                       (assoc :candidateSupportLabelScore
+                                              candidate-support-label-score)
                                        (pos? decision-candidate-count)
                                        (assoc :decisionCandidateCount
                                               decision-candidate-count)
