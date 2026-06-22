@@ -73,9 +73,70 @@
              (mapv :xt/id
                    (store/constrained-rows xtdb
                                            :ygg/constrained-test
-                                           {:project-id "demo"
-                                            :repo-id "app"
-                                            :active? true})))))))
+                                            {:project-id "demo"
+                                             :repo-id "app"
+                                             :active? true})))))))
+
+(deftest edge-rows-touching-ids-finds-source-and-target-matches
+  (store/with-node (temp-dir "ygg-edge-touching-ids-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:seed:out"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :source-id "node:seed"
+                       :target-id "node:out"
+                       :relation :references
+                       :confidence :high
+                       :file-id "file:seed"
+                       :path "src/seed.clj"
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:in:seed"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :source-id "node:in"
+                       :target-id "node:seed"
+                       :relation :references
+                       :confidence :high
+                       :file-id "file:in"
+                       :path "src/in.clj"
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:other-project"
+                       :project-id "other"
+                       :repo-id "app"
+                       :source-id "node:seed"
+                       :target-id "node:other"
+                       :relation :references
+                       :confidence :high
+                       :file-id "file:other"
+                       :path "src/other.clj"
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:noise"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :source-id "node:noise"
+                       :target-id "node:other"
+                       :relation :references
+                       :confidence :high
+                       :file-id "file:noise"
+                       :path "src/noise.clj"
+                       :active? true
+                       :run-id "run"})])
+      (is (= #{"edge:seed:out" "edge:in:seed"}
+             (set (map :xt/id
+                       (store/edge-rows-touching-ids
+                        xtdb
+                        ["node:seed"]
+                        {:project-id "fixture"
+                         :repo-id "app"}))))))))
 
 (deftest rows-matching-any-token-pushes-scope-and-token-predicates
   (with-redefs [store/q

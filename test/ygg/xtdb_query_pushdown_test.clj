@@ -1,5 +1,6 @@
 (ns ygg.xtdb-query-pushdown-test
   (:require [ygg.xtdb :as store]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (defn- cursor-row
@@ -100,8 +101,39 @@
                    (store/constrained-rows
                     :xtdb
                     (:edges store/tables)
-                    {:project-id "project-a"
-                     :repo-id "app"
-                     :relation :imports
-                     :active? true})))))
+                   {:project-id "project-a"
+                    :repo-id "app"
+                    :relation :imports
+                    :active? true})))))
     (is (= :imports (last (first @queries))))))
+
+(deftest edge-rows-touching-ids-uses-bounded-xtql-unify-queries
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (let [idx (count @calls)]
+                      (swap! calls conj {:query query
+                                         :ctx ctx})
+                      [(case idx
+                         0 {:xt/id "edge:out"
+                            :source-id "node:a"
+                            :target-id "node:out"}
+                         {:xt/id "edge:in"
+                          :source-id "node:in"
+                          :target-id "node:a"})]))]
+      (is (= ["edge:out" "edge:in"]
+             (mapv :xt/id
+                   (store/edge-rows-touching-ids
+                    {:node :stub}
+                    ["node:a" "node:b" "node:a"]
+                    {:project-id "project-a"
+                     :active? true}
+                    {:valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= 2 (count @calls)))
+    (is (every? #(= {:valid-at #inst "2026-01-01T00:00:00Z"} (:ctx %)) @calls))
+    (let [queries (map (comp pr-str :query) @calls)]
+      (is (every? #(str/includes? % "unify") queries))
+      (is (every? #(str/includes? % "rel") queries))
+      (is (some #(str/includes? % ":source-id match-value") queries))
+      (is (some #(str/includes? % ":target-id match-value") queries))
+      (is (not-any? #(str/includes? % "*") queries)))))

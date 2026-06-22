@@ -206,13 +206,10 @@
 
 (defn- edges-touching-ids
   [xtdb ids opts]
-  (->> ids
-       (distinct-by identity)
-       (mapcat (fn [id]
-                 (concat (edges-by-endpoint xtdb :source-id id opts)
-                         (edges-by-endpoint xtdb :target-id id opts))))
-       (distinct-by :xt/id)
-       vec))
+  (vec (store/edge-rows-touching-ids xtdb
+                                     ids
+                                     (scope-constraints opts)
+                                     (read-context opts))))
 
 (defn find-node
   "Find node by exact id, label, namespace, name, or substring."

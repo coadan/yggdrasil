@@ -181,7 +181,18 @@
             (= value (get row field)))
           constraints))
 
-(declare rows-by-field)
+(defn- distinct-by
+  [f coll]
+  (first
+   (reduce (fn [[rows seen] row]
+             (let [k (f row)]
+               (if (contains? seen k)
+                 [rows seen]
+                 [(conj rows row) (conj seen k)])))
+           [[] #{}]
+           coll)))
+
+(declare fallback-constrained-rows rows-by-field)
 
 (def ^:private fallback-miss
   ::fallback-miss)
@@ -254,6 +265,108 @@
   ([xtdb table field value] (rows-by-field xtdb table field value {}))
   ([xtdb table field value ctx]
    (rows-by-fields xtdb table {field value} ctx)))
+
+(def ^:private edge-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :source-id
+   :target-id
+   :relation
+   :confidence
+   :ecosystem
+   :package-name
+   :version-range
+   :resolved-version
+   :dependency-scope
+   :import-name
+   :import-kind
+   :resolution-source
+   :file-id
+   :path
+   :source-line
+   :active?
+   :run-id])
+
+(defn- xtql-symbol
+  [field]
+  (if-let [ns (namespace field)]
+    (symbol ns (name field))
+    (symbol (name field))))
+
+(defn- field-values-query
+  [table field values constraints return-fields]
+  (let [value-rows (mapv (fn [value] {:match-value value}) values)
+        constraints (->> (dissoc (clean-constraints constraints) field)
+                         (sort-by (comp str key))
+                         vec)
+        terms (map-indexed (fn [idx [constraint-field value]]
+                             [constraint-field (symbol (str "v" idx)) value])
+                           constraints)
+        args (mapv second terms)
+        bindings (into {field 'match-value}
+                       (map (fn [[constraint-field arg _]]
+                              [constraint-field arg]))
+                       terms)
+        return-symbols (mapv xtql-symbol return-fields)
+        values (mapv (fn [[_ _ value]] value) terms)]
+    (into [(list 'fn
+                 args
+                 (list '->
+                       (list 'unify
+                             (list 'rel value-rows '[match-value])
+                             (list 'from table
+                                   (into [bindings] return-symbols)))
+                       (apply list 'return return-symbols)))]
+          values)))
+
+(defn rows-with-field-values
+  "Return rows where field equals any value.
+
+  Real XTDB handles use XTQL `rel`/`unify` so a bounded value set is pushed into
+  one table read. `return-fields` must be explicit because XTDB 2.x disallows
+  `*` projection inside `unify`."
+  [xtdb {:keys [table field values constraints return-fields read-context]
+         :or {constraints {}
+              read-context {}}}]
+  (let [values (->> values (remove nil?) distinct vec)]
+    (cond
+      (empty? values)
+      []
+
+      (xtdb-handle? xtdb)
+      (q xtdb
+         (field-values-query table field values constraints return-fields)
+         read-context)
+
+      :else
+      (let [value-set (set values)]
+        (->> (fallback-constrained-rows xtdb table constraints read-context)
+             (filter #(contains? value-set (get % field))))))))
+
+(defn edge-rows-touching-ids
+  "Return source graph edges whose source or target is in ids.
+
+  This is the graph-adjacency read path for search expansion. It performs two
+  bounded XTQL reads for real XTDB handles, one for source ids and one for target
+  ids, instead of one read per seed id."
+  ([xtdb ids constraints] (edge-rows-touching-ids xtdb ids constraints {}))
+  ([xtdb ids constraints ctx]
+   (->> (concat (rows-with-field-values xtdb
+                                        {:table (:edges tables)
+                                         :field :source-id
+                                         :values ids
+                                         :constraints constraints
+                                         :return-fields edge-row-query-fields
+                                         :read-context ctx})
+                (rows-with-field-values xtdb
+                                        {:table (:edges tables)
+                                         :field :target-id
+                                         :values ids
+                                         :constraints constraints
+                                         :return-fields edge-row-query-fields
+                                         :read-context ctx}))
+        (distinct-by :xt/id))))
 
 (defn- fallback-all-rows
   [xtdb table ctx]
