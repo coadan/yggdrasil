@@ -1089,9 +1089,26 @@
         result (benchmark/context-packet->agent-result
                 packet
                 {:root root
+                 :case-id "case-1"
+                 :caseFingerprint "sha256:test-case"
                  :decision-kind "change-plan"
                  :decision-candidates decision-candidates
                  :limit 10})
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :caseFingerprint "sha256:test-case"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/core.cs"
+                                               "tests/core_test.cs"]
+                                :unsupportedGroundTruthFiles []}
+                  :decisionCandidates decision-candidates
+                  :decisionGroundTruth {:kind "change-plan"
+                                        :required ["plan-core-and-tests"]
+                                        :forbidden ["plan-core-only"]}}
+        scored (benchmark-agent-score/score-agent-result prepared result)
         choices-by-id (->> (get-in result [:decision :choices])
                            (map (juxt :id identity))
                            (into {}))]
@@ -1099,6 +1116,9 @@
            (mapv :path (:suspectedFiles result))))
     (is (= [1 2] (mapv :rank (:suspectedFiles result))))
     (is (= 2 (get-in result [:selection :decisionSupportedFileSelected])))
+    (is (not-any? #(str/includes? %
+                                  "selection unknown field decisionSupportedFileSelected")
+                  (get-in scored [:agent :warnings])))
     (is (nil? (get-in result [:selection :candidateFileOnlyQuota])))
     (is (= "include" (get-in choices-by-id ["plan-core-and-tests" :status])))
     (is (= "exclude" (get-in choices-by-id ["plan-core-only" :status])))))
