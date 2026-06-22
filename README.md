@@ -1,12 +1,14 @@
 # AGraph
 
-AGraph is agentic memory for codebases. It helps coding agents stop starting
-from scratch every session by keeping a local, reviewable memory of repository
-structure, evidence, and accepted project knowledge.
+AGraph is a local-first evidence graph for codebases. It helps coding agents
+answer structural questions, inspect repo-wide context, and carry forward
+reviewed project knowledge without stuffing the whole repository into the
+prompt.
 
 Most agents rebuild context by searching and rereading files while they work.
-AGraph gives them a shared memory they can query, cite, and update, so useful
-understanding survives across prompts, agents, and maintenance runs.
+AGraph gives them a shared, queryable project record they can cite and update.
+In the language of agent tools, it can act as codebase memory, but its core job
+is keeping that memory grounded in reviewable evidence.
 
 AGraph keeps trust boundaries explicit: evidence from the repo is separate from
 human or agent judgment, and performance claims should be backed by repeatable
