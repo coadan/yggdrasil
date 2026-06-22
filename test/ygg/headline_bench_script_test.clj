@@ -68,6 +68,19 @@
     (is (= 7 (count lines)))
     (is (not-any? #(str/includes? % "bench agent-check") lines))))
 
+(deftest dry-run-propagates-case-filter-to-benchmark-phases
+  (let [result (run-headline "all"
+                             "--dry-run"
+                             "--case" "case-1"
+                             "--suite" "benchmarks/custom-headline.edn"
+                             "--out" ".dev/ygg/headline-bench/custom")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 9 (count lines)))
+    (is (every? #(str/includes? % "--case case-1")
+                (subvec lines 0 8)))
+    (is (not (str/includes? (nth lines 8) "--case case-1")))))
+
 (deftest dry-run-prints-broad-agent-efficiency-defaults
   (let [result (run-agent-efficiency "token-check"
                                      "--dry-run"

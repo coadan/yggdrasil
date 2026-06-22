@@ -17,6 +17,8 @@ Options:
   --command CMD           External agent command.
   --prompt-profile NAME   Prompt profile for agent-run. Default: fast
   --timeout-ms N          Timeout passed to agent-run.
+  --case ID               Run one benchmark case.
+  --cases IDS             Run comma-separated benchmark case ids.
   --max-total-tokens N    High-water token gate for each lane. Default: 999999999999.
   --skip-token-check      Skip token telemetry gates during all.
   --codebase-memory-bin PATH
@@ -58,6 +60,7 @@ prompt_profile="fast"
 timeout_ms=""
 max_total_tokens="999999999999"
 skip_token_check=false
+case_args=()
 codebase_memory_bin=""
 codebase_memory_command=""
 dry_run=false
@@ -86,6 +89,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --timeout-ms)
       timeout_ms="$2"
+      shift 2
+      ;;
+    --case)
+      case_args+=(--case "$2")
+      shift 2
+      ;;
+    --cases)
+      case_args+=(--cases "$2")
       shift 2
       ;;
     --max-total-tokens)
@@ -130,11 +141,18 @@ run() {
   fi
 }
 
+append_case_args() {
+  if [[ ${#case_args[@]} -gt 0 ]]; then
+    args+=("${case_args[@]}")
+  fi
+}
+
 agent_run() {
   local mode="$1"
   local lane_out="$2"
-  local args=(bench agent-run "$suite"
-    --mode "$mode"
+  local args=(bench agent-run "$suite")
+  append_case_args
+  args+=(--mode "$mode"
     --agent "$agent"
     --command "$agent_command"
     --prompt-profile "$prompt_profile"
@@ -146,18 +164,23 @@ agent_run() {
 }
 
 baseline() {
-  run bb bench agent-baseline "$suite" \
-    --out "$out/ygg-baseline"
+  local args=(bench agent-baseline "$suite")
+  append_case_args
+  args+=(--out "$out/ygg-baseline")
+  run bb "${args[@]}"
 
-  run bb bench agent-report "$suite" \
-    --mode ygg \
-    --agent ygg-baseline-lexical \
-    --out "$out/ygg-baseline"
+  args=(bench agent-report "$suite")
+  append_case_args
+  args+=(--mode ygg
+    --agent ygg-baseline-lexical
+    --out "$out/ygg-baseline")
+  run bb "${args[@]}"
 }
 
 codebase_memory() {
-  local args=(bench agent-baseline "$suite"
-    --retriever codebase-memory
+  local args=(bench agent-baseline "$suite")
+  append_case_args
+  args+=(--retriever codebase-memory
     --out "$out/codebase-memory")
   if [[ -n "$codebase_memory_bin" ]]; then
     args+=(--codebase-memory-bin "$codebase_memory_bin")
@@ -167,10 +190,12 @@ codebase_memory() {
   fi
   run bb "${args[@]}"
 
-  run bb bench agent-report "$suite" \
-    --mode codebase-memory \
-    --agent ygg-baseline-codebase-memory \
-    --out "$out/codebase-memory"
+  args=(bench agent-report "$suite")
+  append_case_args
+  args+=(--mode codebase-memory
+    --agent ygg-baseline-codebase-memory
+    --out "$out/codebase-memory")
+  run bb "${args[@]}"
 }
 
 external_baselines() {
@@ -187,29 +212,37 @@ ygg() {
 }
 
 reports() {
-  run bb bench agent-report "$suite" \
-    --mode shell-only \
-    --agent "$agent" \
-    --out "$out/shell-only"
+  local args=(bench agent-report "$suite")
+  append_case_args
+  args+=(--mode shell-only
+    --agent "$agent"
+    --out "$out/shell-only")
+  run bb "${args[@]}"
 
-  run bb bench agent-report "$suite" \
-    --mode ygg \
-    --agent "$agent" \
-    --out "$out/ygg"
+  args=(bench agent-report "$suite")
+  append_case_args
+  args+=(--mode ygg
+    --agent "$agent"
+    --out "$out/ygg")
+  run bb "${args[@]}"
 }
 
 token_check() {
-  run bb bench agent-check "$suite" \
-    --mode shell-only \
-    --agent "$agent" \
-    --out "$out/shell-only" \
-    --max-total-tokens "$max_total_tokens"
+  local args=(bench agent-check "$suite")
+  append_case_args
+  args+=(--mode shell-only
+    --agent "$agent"
+    --out "$out/shell-only"
+    --max-total-tokens "$max_total_tokens")
+  run bb "${args[@]}"
 
-  run bb bench agent-check "$suite" \
-    --mode ygg \
-    --agent "$agent" \
-    --out "$out/ygg" \
-    --max-total-tokens "$max_total_tokens"
+  args=(bench agent-check "$suite")
+  append_case_args
+  args+=(--mode ygg
+    --agent "$agent"
+    --out "$out/ygg"
+    --max-total-tokens "$max_total_tokens")
+  run bb "${args[@]}"
 }
 
 report_path() {

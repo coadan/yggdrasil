@@ -124,7 +124,9 @@ under `.dev/ygg/agent-efficiency/broad`, runs both lane reports, then runs
 `bb bench agent-check` for shell-only and Yggdrasil before writing the claim
 pack. The default token high-water mark is intentionally huge; it exists to make
 missing `tokenUsage` fail before a claim pack is produced. Tighten it with
-`--max-total-tokens` only after the suite has stable measured baselines.
+`--max-total-tokens` only after the suite has stable measured baselines. Use
+`--case <id>` or `--cases <id,id>` for a focused token-telemetry smoke run
+before spending agent calls on the full broad selector.
 
 DeepSeek v4 Pro can be run through the productized benchmark worker in
 `scripts/deepseek-agent.py`. Set `DEEPSEEK_API_KEY` directly or point
