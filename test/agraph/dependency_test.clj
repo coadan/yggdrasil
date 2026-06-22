@@ -1255,3 +1255,55 @@
                                             {})]
       (is (zero? (get-in report [:counts :source-import-candidates])))
       (is (empty? (:unresolved-imports report))))))
+
+(deftest package-report-ignores-go-stdlib-and-local-module-imports
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "cmd/app/main.go"
+                                          :kind :go
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "node:manifest:go.mod"
+                                          :kind :manifest
+                                          :label "example.com/app"
+                                          :path "go.mod"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/edges
+                                        [{:source-id "node:namespace:cmd/app/main"
+                                          :target-id "node:namespace:context"
+                                          :relation :imports
+                                          :path "cmd/app/main.go"
+                                          :source-line 3
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:cmd/app/main"
+                                          :target-id "node:namespace:example.com/app/internal/config"
+                                          :relation :imports
+                                          :path "cmd/app/main.go"
+                                          :source-line 4
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:cmd/app/main"
+                                          :target-id "node:namespace:github.com/acme/lib"
+                                          :relation :imports
+                                          :path "cmd/app/main.go"
+                                          :source-line 5
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [& _] [])]
+    (let [report (dependency/package-report :xtdb
+                                            {:project-id "project-a"
+                                             :repo-id "repo-a"}
+                                            {})]
+      (is (= 1 (get-in report [:counts :source-import-candidates])))
+      (is (= ["github.com/acme/lib"]
+             (mapv :import (:unresolved-imports report)))))))

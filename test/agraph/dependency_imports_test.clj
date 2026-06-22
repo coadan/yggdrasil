@@ -25,5 +25,8 @@
   (is (true? (dependency-imports/external-package-candidate? :python "requests")))
   (is (false? (dependency-imports/external-package-candidate? :dotnet "System.Data")))
   (is (true? (dependency-imports/external-package-candidate? :dotnet "Xunit")))
+  (is (false? (dependency-imports/external-package-candidate? :go "context")))
+  (is (false? (dependency-imports/external-package-candidate? :go "go/ast")))
+  (is (true? (dependency-imports/external-package-candidate? :go "go.opentelemetry.io/collector/component")))
   (is (false? (dependency-imports/external-package-candidate? :rust "std::fs")))
   (is (true? (dependency-imports/external-package-candidate? :rust "serde::Serialize"))))

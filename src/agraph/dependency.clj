@@ -2,6 +2,7 @@
   "Derived external package dependency resolution."
   (:require [agraph.command :as command]
             [agraph.dependency.imports :as dependency-imports]
+            [agraph.dependency.imports.go :as go-imports]
             [agraph.dependency.resolve :as dependency-resolve]
             [agraph.hash :as hash]
             [agraph.xtdb :as store]
@@ -280,7 +281,7 @@
              (candidate-local-import-paths (:path edge) target))))
 
 (defn- package-import-candidate?
-  [files-by-path alias-nodes nodes-by-id edge]
+  [files-by-path alias-nodes go-module-nodes nodes-by-id edge]
   (let [target (namespace-target (:target-id edge))
         kind (source-kind files-by-path (:path edge))]
     (and target
@@ -288,6 +289,7 @@
          (not (local-symbol-import? nodes-by-id edge kind))
          (not (local-path-alias-import? alias-nodes edge target))
          (not (local-file-import? files-by-path edge target kind))
+         (not (go-imports/local-module-import? go-module-nodes (:path edge) target kind))
          (dependency-imports/supported-source-kind? kind)
          (dependency-imports/external-package-candidate? kind target))))
 
@@ -367,6 +369,7 @@
          files-by-path (into {} (map (juxt :path identity)) files)
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
          alias-nodes (filterv module-path-alias-node? nodes)
+         go-module-nodes (go-imports/module-nodes nodes)
          packages-by-id (->> nodes
                              (filter package-node?)
                              (map (juxt :xt/id identity))
@@ -379,6 +382,7 @@
              candidate-edges (->> source-edges
                                   (filter #(package-import-candidate? files-by-path
                                                                       alias-nodes
+                                                                      go-module-nodes
                                                                       nodes-by-id
                                                                       %)))]
          (->> candidate-edges
@@ -601,6 +605,7 @@
          files-by-path (into {} (map (juxt :path identity)) files)
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
          alias-nodes (filterv module-path-alias-node? nodes)
+         go-module-nodes (go-imports/module-nodes nodes)
          packages (->> nodes (filter package-node?) sorted-values)
          packages-by-id (into {} (map (juxt :xt/id identity)) packages)
          versions (->> nodes
@@ -614,6 +619,7 @@
                               edges)
          candidate-source-edges (filter #(package-import-candidate? files-by-path
                                                                     alias-nodes
+                                                                    go-module-nodes
                                                                     nodes-by-id
                                                                     %)
                                         source-edges)

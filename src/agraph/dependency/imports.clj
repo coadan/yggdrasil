@@ -1,6 +1,7 @@
 (ns agraph.dependency.imports
   "Language-specific dependency import candidate filtering."
   (:require [agraph.dependency.imports.dotnet :as dotnet]
+            [agraph.dependency.imports.go :as go]
             [agraph.dependency.imports.java :as java]
             [agraph.dependency.imports.javascript :as javascript]
             [agraph.dependency.imports.python :as python]
@@ -22,6 +23,9 @@
 
     :rust
     (rust/external-package-candidate? target)
+
+    :go
+    (go/external-package-candidate? target)
 
     :python
     (python/external-package-candidate? target)
