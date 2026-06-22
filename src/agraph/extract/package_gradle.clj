@@ -18,12 +18,25 @@
        (remove nil?)
        distinct
        vec))
+
+(def ^:private gradle-dependency-scope-pattern
+  "(api|compileOnly|compileOnlyApi|implementation|runtimeOnly|testImplementation|testRuntimeOnly|testFixturesImplementation|annotationProcessor|kapt|classpath)")
+
+(defn- kotlin-helper-package-name
+  [module-name]
+  (let [module-name (str module-name)]
+    (when (seq module-name)
+      (str "org.jetbrains.kotlin:"
+           (if (str/starts-with? module-name "kotlin-")
+             module-name
+             (str "kotlin-" module-name))))))
+
 (defn- gradle-dependencies
   [content]
   (gradle-line-facts
    content
    (fn [source-line line]
-     (let [scope-pattern #"(api|compileOnly|implementation|runtimeOnly|testImplementation|testRuntimeOnly|testFixturesImplementation|annotationProcessor|kapt|classpath)"
+     (let [scope-pattern gradle-dependency-scope-pattern
            string-dep (re-matches (re-pattern (str "^\\s*" scope-pattern
                                                    "\\s*(?:\\(?\\s*)['\"]([^:'\"]+):([^:'\"]+)(?::([^'\"]+))?['\"].*$"))
                                   line)
@@ -32,7 +45,11 @@
                                line)
            project-dep (re-matches (re-pattern (str "^\\s*" scope-pattern
                                                     "\\s*(?:\\(?\\s*)project\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\).*$"))
-                                   line)]
+                                   line)
+           kotlin-helper-dep (re-matches (re-pattern
+                                          (str "^\\s*" scope-pattern
+                                               "\\s*(?:\\(?\\s*)kotlin\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\).*$"))
+                                         line)]
        (cond
          string-dep
          (let [[_ scope group-id artifact-id version] string-dep]
@@ -57,6 +74,13 @@
              :dependency-scope scope
              :source-line source-line
              :relation :requires}])
+
+         kotlin-helper-dep
+         (let [[_ scope module-name] kotlin-helper-dep]
+           [(common/package-fact {:ecosystem :maven
+                                  :package-name (kotlin-helper-package-name module-name)
+                                  :dependency-scope scope
+                                  :source-line source-line})])
 
          :else [])))))
 (defn- gradle-plugins

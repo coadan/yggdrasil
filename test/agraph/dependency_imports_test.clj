@@ -15,7 +15,9 @@
                   "javax.annotation.Nullable"
                   "jdk.jfr.Event"
                   "sun.misc.Unsafe"
-                  "com.sun.net.httpserver.HttpServer"]]
+                  "com.sun.net.httpserver.HttpServer"
+                  "org.w3c.dom.Document"
+                  "org.xml.sax.SAXException"]]
     (is (false? (dependency-imports/external-package-candidate? :java target))))
   (is (true? (dependency-imports/external-package-candidate? :java "org.junit.platform.Engine")))
 

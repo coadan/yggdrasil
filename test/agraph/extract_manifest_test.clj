@@ -998,6 +998,27 @@
            (:version-range (package-node "maven:org.hamcrest:hamcrest"))))
     (is (= 3 (get relations :requires 0)))))
 
+(deftest extracts-gradle-kotlin-helper-dependencies
+  (let [result (extract/extract-file
+                "run/test"
+                {:file-id "file:build.gradle.kts"
+                 :path "build.gradle.kts"
+                 :kind :manifest
+                 :content (str "dependencies {\n"
+                               "  compileOnly(kotlin(\"stdlib\"))\n"
+                               "  testRuntimeOnly(kotlin(\"reflect\"))\n"
+                               "}\n")})
+        package-node (fn [label]
+                       (some #(when (= label (:label %)) %) (:nodes result)))
+        relations (frequencies (map :relation (:edges result)))]
+    (is (= "compileOnly"
+           (:dependency-scope
+            (package-node "maven:org.jetbrains.kotlin:kotlin-stdlib"))))
+    (is (= "testRuntimeOnly"
+           (:dependency-scope
+            (package-node "maven:org.jetbrains.kotlin:kotlin-reflect"))))
+    (is (= 2 (get relations :requires 0)))))
+
 (deftest extracts-dotnet-assembly-and-nuget-root-references
   (let [result (extract/extract-file
                 "run/test"
