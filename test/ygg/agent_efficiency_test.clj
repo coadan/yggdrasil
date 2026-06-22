@@ -806,7 +806,16 @@
                            :costUsd 0.0
                            :source "codex-json-events"}))
         comparison (agent-efficiency/compare-reports shell ygg)
-        token-reduction (:perCaseTokenReduction comparison)]
+        markdown (agent-efficiency/markdown-report comparison)
+        token-reduction (:perCaseTokenReduction comparison)
+        case-by-id (into {} (map (juxt :caseId identity))
+                         (:caseDeltas comparison))
+        case-1-token-by-key (into {} (map (juxt :key identity))
+                                  (get-in case-by-id
+                                          ["case-1" :taskTokenDeltas]))
+        case-2-token-by-key (into {} (map (juxt :key identity))
+                                  (get-in case-by-id
+                                          ["case-2" :taskTokenDeltas]))]
     (is (= {:sharedCases 2
             :measuredCases 0
             :improvedCases 0
@@ -833,9 +842,24 @@
     (is (= ["Task total token telemetry is missing for at least one shared case."
             "Task total token telemetry contains zero or non-positive placeholder values."]
            (:warnings token-reduction)))
+    (is (= {:shellOnly 0.0
+            :ygg 50.0
+            :available false
+            :result "invalid"
+            :reason "non-positive-token-value"}
+           (select-keys (:taskTotalTokens case-1-token-by-key)
+                        [:shellOnly :ygg :available :result :reason])))
+    (is (= {:shellOnly nil
+            :ygg 40.0
+            :available false
+            :result "unavailable"}
+           (select-keys (:taskTotalTokens case-2-token-by-key)
+                        [:shellOnly :ygg :available :result])))
     (is (= false
            (get-in comparison
-                   [:claimReadiness :requirements :perCaseTokenReduction])))))
+                   [:claimReadiness :requirements :perCaseTokenReduction])))
+    (is (.contains markdown "- case-1: invalid (shell: 0.0, ygg: 50.0, delta: unavailable)"))
+    (is (.contains markdown "- case-2: unavailable (shell: unavailable, ygg: 40.0, delta: unavailable)"))))
 
 (deftest improvement-targets-count-against-efficiency-claims
   (let [ygg (assoc ygg-report

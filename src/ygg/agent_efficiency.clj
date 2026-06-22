@@ -290,7 +290,8 @@
     :label "taskTotalTokens"
     :category :token-cost
     :path [:agent :tokenUsage :totalTokens]
-    :direction :lower}
+    :direction :lower
+    :requires-positive? true}
    {:key :taskInputTokens
     :label "taskInputTokens"
     :category :token-cost
@@ -333,6 +334,11 @@
     (if (number? value)
       (double value)
       default)))
+
+(defn- non-positive-number?
+  [value]
+  (and (number? value)
+       (not (pos? (double value)))))
 (defn- efficiency-report
   [report]
   (if (contains? report :improvementSummary)
@@ -442,12 +448,14 @@
     effect))
 
 (defn- metric-delta
-  [shell-report ygg-report {:keys [category direction key label path tolerance default]}]
+  [shell-report ygg-report {:keys [category direction key label path tolerance default
+                                   requires-positive?]}]
   (let [shell-value (metric-value shell-report path default)
         ygg-value (metric-value ygg-report path default)
         available? (and (some? shell-value)
                         (some? ygg-value))]
-    (if-not available?
+    (cond
+      (not available?)
       {:key key
        :metric label
        :category (name category)
@@ -456,6 +464,21 @@
        :ygg ygg-value
        :available false
        :result "unavailable"}
+
+      (and requires-positive?
+           (or (non-positive-number? shell-value)
+               (non-positive-number? ygg-value)))
+      {:key key
+       :metric label
+       :category (name category)
+       :direction (name direction)
+       :shellOnly shell-value
+       :ygg ygg-value
+       :available false
+       :result "invalid"
+       :reason "non-positive-token-value"}
+
+      :else
       (let [delta (- ygg-value shell-value)
             effect (case direction
                      :observe 0.0

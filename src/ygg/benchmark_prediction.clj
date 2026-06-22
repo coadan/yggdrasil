@@ -1379,6 +1379,17 @@
        (remove benchmark-util/blankish?)
        distinct
        vec))
+
+(defn- agent-result-warning?
+  [warning]
+  (not (str/starts-with? (str warning) "candidate files trimmed to ")))
+
+(defn- agent-result-warnings
+  [packet]
+  (->> (:warnings packet)
+       (filter agent-result-warning?)
+       vec))
+
 (defn- result-surface-token-usage
   [result-surface]
   (let [input-tokens (context/estimate-tokens result-surface)]
@@ -1566,7 +1577,7 @@
          suspected-files (:files selected-files)
          suspected-symbols (context-symbols packet)
          commands (packet-commands packet)
-         warnings (vec (or (:warnings packet) []))
+         warnings (agent-result-warnings packet)
          decision (baseline-decision decision-kind
                                      decision-candidates
                                      suspected-files)

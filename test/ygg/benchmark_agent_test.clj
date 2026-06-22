@@ -1967,6 +1967,19 @@
     (is (= 7 (get-in file [:metrics :candidateSourceRank])))
     (is (= 2 (get-in file [:metrics :candidateSupportLabelCount])))))
 
+(deftest context-packet-agent-result-does-not-report-budget-trim-as-warning
+  (let [root (temp-dir "ygg-bench-budget-trim-warning-scope")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        packet {:query "app"
+                :warnings ["candidate files trimmed to 61 of 127 to fit context budget"
+                           "Context warning."]
+                :docs [{:source {:path "src/app.clj"
+                                 :heading "app"}
+                        :score 1.0
+                        :provenance "retrieved-doc"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})]
+    (is (= ["Context warning."] (:warnings result)))))
+
 (deftest file-ranking-uses-source-graph-candidate-rank-as-tiebreaker
   (let [root (temp-dir "ygg-bench-source-graph-candidate-rank")
         _ (spit-file! root "lib/adapters/http.js" "export default function httpAdapter() {}\n")
