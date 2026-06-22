@@ -331,6 +331,12 @@
     (assoc :packageClaimAuthority (:package-claim-authority plugin))
     (:package-source plugin) (assoc :packageSource (:package-source plugin))))
 
+(defn- select-core-extraction
+  [core-extraction]
+  (cond-> (select-keys core-extraction [:nodes :edges :chunks :diagnostics])
+    (contains? core-extraction :file-facts)
+    (assoc :fileFacts (:file-facts core-extraction))))
+
 (defn- plugin-input
   [{:keys [run-id project-id repo-id root-path file core-extraction]} plugin]
   {:schema input-schema
@@ -340,8 +346,7 @@
    :run {:id run-id}
    :plugin (plugin-input-summary plugin)
    :file (select-plugin-file file)
-   :core (select-keys core-extraction
-                      [:nodes :edges :chunks :file-facts :diagnostics])})
+   :core (select-core-extraction core-extraction)})
 
 (defn build-plugin-input
   "Build the JSON-compatible input packet sent to one extractor plugin.

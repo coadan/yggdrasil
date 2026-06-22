@@ -236,7 +236,7 @@ Each package directory contains `ygg.plugin.edn`:
  [{:kind :extractor
    :id "datastar-hiccup-extractor"
    :command ["python3" "extract.py"]
-   :modes [:enhance :scan]
+   :modes [:enhance :override :scan]
    :applies-to {:file-kinds [:code]
                 :path-globs ["src/**/*.clj"]}
    :scan {:path-globs ["resources/**/*.edn"]

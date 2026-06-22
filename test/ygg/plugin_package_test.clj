@@ -491,8 +491,16 @@
                          "Unsupported file families"))
       (is (str/includes? (slurp (io/file package-dir "README.md"))
                          "use `overlays` to supersede or hide weaker core rows"))
+      (is (str/includes? (slurp (io/file package-dir "README.md"))
+                         "Use `:override` mode"))
+      (is (str/includes? (slurp (io/file package-dir "README.md"))
+                         "`packageName`, `versionRange`, `dependencyScope`, and `importNames`"))
       (is (str/includes? (slurp (io/file package-dir "extract.py"))
                          "\"overlays\": []"))
+      (is (str/includes? (slurp (io/file package-dir "extract.py"))
+                         "packet.get(\"core\", {})"))
+      (is (str/includes? (slurp (io/file package-dir "extract.py"))
+                         "dependencyScope"))
       (is (str/includes? (slurp (io/file package-dir "README.md"))
                          "bb plugin input extractor . /path/to/repo src/example.clj --json"))
       (is (str/includes? (slurp (io/file package-dir "README.md"))
@@ -644,8 +652,25 @@
       (is (= (:inputs input-sample) (:inputs gap-packet)))
       (is (= "ygg.extractor-plugin.result/v1"
              (get-in gap-packet [:output-contract :schema])))
+      (is (= [:nodes :edges :chunks :fileFacts :diagnostics]
+             (get-in gap-packet [:output-contract :core-input-buckets])))
+      (is (= [:enhance :override :scan]
+             (mapv :name (get-in gap-packet [:output-contract :plugin-modes]))))
       (is (= [:nodes :edges :fileFacts :chunks :diagnostics :overlays]
              (mapv :name (get-in gap-packet [:output-contract :buckets]))))
+      (is (= [:packageName
+              :versionRange
+              :resolvedVersion
+              :dependencyScope
+              :importNames
+              :importName
+              :importKind
+              :resolutionSource]
+             (mapv :json (get-in gap-packet [:output-contract :dependency-aliases]))))
+      (is (some #(str/includes? % "same xt/id")
+                (get-in gap-packet [:output-contract :row-requirements])))
+      (is (some #(str/includes? % "external-package")
+                (get-in gap-packet [:output-contract :row-requirements])))
       (is (some #(str/includes? % "targetId")
                 (get-in gap-packet [:output-contract :overlay-requirements])))
       (is (some #(= :dry-run (:id %))
@@ -819,7 +844,7 @@
             :file-kind :htmx}
            (get-in manifest [:plugins 0 :scan])))
     (is (= :warning (:status validation)))
-    (is (= #{:enhance :scan} (:modes extractor)))
+    (is (= #{:enhance :override :scan} (:modes extractor)))
     (is (= :htmx (get-in extractor [:scan :file-kind])))
     (let [dry-run (plugin-package/dry-run-extractor
                    (.getPath package-dir)

@@ -2126,6 +2126,13 @@
 (defn- extractor-output-contract
   []
   {:schema extractor-plugin/result-schema
+   :core-input-buckets [:nodes :edges :chunks :fileFacts :diagnostics]
+   :plugin-modes [{:name :enhance
+                   :purpose "Run after core extraction to add rows or overlays for supported files."}
+                  {:name :override
+                   :purpose "Run after core extraction when same-id replacement of core rows is intentional."}
+                  {:name :scan
+                   :purpose "Opt unsupported files into indexing through explicit scan globs."}]
    :buckets [{:name :nodes
               :purpose "Concrete source-local entities the plugin can prove."}
              {:name :edges
@@ -2138,9 +2145,35 @@
               :purpose "Structured warnings or extraction failures."}
              {:name :overlays
               :purpose "Auditable plugin decisions that supersede or hide weaker core/plugin rows without deleting raw evidence."}]
+   :dependency-aliases [{:json :packageName
+                         :row-key :package-name
+                         :buckets [:nodes :edges]}
+                        {:json :versionRange
+                         :row-key :version-range
+                         :buckets [:nodes :edges]}
+                        {:json :resolvedVersion
+                         :row-key :resolved-version
+                         :buckets [:nodes :edges]}
+                        {:json :dependencyScope
+                         :row-key :dependency-scope
+                         :buckets [:nodes :edges]}
+                        {:json :importNames
+                         :row-key :import-names
+                         :buckets [:nodes]}
+                        {:json :importName
+                         :row-key :import-name
+                         :buckets [:edges]}
+                        {:json :importKind
+                         :row-key :import-kind
+                         :buckets [:edges]}
+                        {:json :resolutionSource
+                         :row-key :resolution-source
+                         :buckets [:edges]}]
    :overlay-kinds [:supersedes :refines :hides :links]
    :row-requirements ["Emit source path and source line when available."
                       "Prefer stable ids only when the plugin can make them deterministic."
+                      "Emit the same xt/id as a core row only when intentional replacement is desired."
+                      "Emit dependency package declarations as ordinary external-package nodes and requires/resolves/version-of edges."
                       "Keep facts concrete; do not emit accepted architecture meaning directly."
                       "Use overlays to mark weaker rows as superseded or hidden instead of deleting evidence."
                       "Use diagnostics for uncertainty instead of silent absence."]

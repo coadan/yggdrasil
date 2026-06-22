@@ -343,7 +343,7 @@
     (is (= [{:xt/id "file-fact:core"
              :kind :language
              :label "clojure"}]
-           (get-in input [:core :file-facts])))))
+           (get-in input [:core :fileFacts])))))
 
 (deftest extractor-plugin-output-carries-installed-package-source
   (let [source {:type :git

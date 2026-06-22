@@ -77,6 +77,13 @@
        "packet = json.load(sys.stdin)\n"
        "path = packet[\"file\"][\"path\"]\n"
        "content = packet[\"file\"].get(\"content\") or \"\"\n\n"
+       "# Core rows are available under packet[\"core\"]. Emit the same xt/id to\n"
+       "# intentionally override a weaker core row, or emit overlays to keep both\n"
+       "# rows auditable. Dependency rows use ordinary nodes/edges with packageName,\n"
+       "# versionRange, dependencyScope, importNames, importKind, and related fields.\n"
+       "core = packet.get(\"core\", {})\n"
+       "_core_nodes = core.get(\"nodes\", [])\n"
+       "_core_file_facts = core.get(\"fileFacts\", [])\n\n"
        "json.dump({\n"
        "    \"schema\": \"ygg.extractor-plugin.result/v1\",\n"
        "    \"nodes\": [],\n"
@@ -153,6 +160,11 @@
        "possible;\n"
        "- use `overlays` to supersede or hide weaker core rows while preserving "
        "raw evidence for audit.\n\n"
+       "Extractor plugins use one row contract for core replacement, new file "
+       "facts, dependency rows, chunks, and diagnostics. Use `:override` mode "
+       "when same-id row replacement is intentional; use dependency fields such "
+       "as `packageName`, `versionRange`, `dependencyScope`, and `importNames` "
+       "when the plugin emits package facts.\n\n"
        "`registry.example.edn` is a sharing template. It will not pass public "
        "registry validation until this package is reviewed as base/public and "
        "declares a real git source.\n\n"
@@ -288,7 +300,7 @@
                   [{:kind :extractor
                     :id (str package-id "-extractor")
                     :command ["python3" "extract.py"]
-                    :modes [:enhance :scan]
+                    :modes [:enhance :override :scan]
                     :applies-to {:file-kinds [file-kind]
                                  :path-globs path-globs}
                     :scan {:path-globs scan-globs

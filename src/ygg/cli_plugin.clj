@@ -387,6 +387,15 @@
   (println "- output-schema" (:schema output-contract))
   (println "- output-buckets" (id-list (map (comp name :name)
                                             (:buckets output-contract))))
+  (when (seq (:core-input-buckets output-contract))
+    (println "- core-input-buckets" (id-list (map name
+                                                  (:core-input-buckets output-contract)))))
+  (when (seq (:plugin-modes output-contract))
+    (println "- plugin-modes" (id-list (map (comp name :name)
+                                            (:plugin-modes output-contract)))))
+  (when (seq (:dependency-aliases output-contract))
+    (println "- dependency-aliases" (id-list (map (comp name :json)
+                                                  (:dependency-aliases output-contract)))))
   (when (seq (:local-checks proof))
     (println "## Proof Commands")
     (doseq [{:keys [id command]} (:local-checks proof)]

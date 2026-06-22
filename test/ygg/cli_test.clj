@@ -593,11 +593,27 @@
                      :inputs [{:schema "ygg.extractor-plugin.input/v1"
                                :plugin {:id "demo-extractor"}}]
                      :output-contract {:schema "ygg.extractor-plugin.result/v1"
+                                       :core-input-buckets [:nodes
+                                                            :edges
+                                                            :chunks
+                                                            :fileFacts
+                                                            :diagnostics]
+                                       :plugin-modes [{:name :enhance}
+                                                      {:name :override}
+                                                      {:name :scan}]
                                        :buckets [{:name :nodes}
                                                  {:name :edges}
                                                  {:name :fileFacts}
                                                  {:name :chunks}
-                                                 {:name :diagnostics}]}
+                                                 {:name :diagnostics}]
+                                       :dependency-aliases [{:json :packageName}
+                                                            {:json :versionRange}
+                                                            {:json :resolvedVersion}
+                                                            {:json :dependencyScope}
+                                                            {:json :importNames}
+                                                            {:json :importName}
+                                                            {:json :importKind}
+                                                            {:json :resolutionSource}]}
                      :proof {:local-checks [{:id :validate
                                              :command "bb plugin validate .dev/plugins/demo"}
                                             {:id :dry-run
@@ -810,6 +826,9 @@
         (is (str/includes? gap-out "# Plugin Extractor Gap"))
         (is (str/includes? gap-out "- output-schema ygg.extractor-plugin.result/v1"))
         (is (str/includes? gap-out "- output-buckets nodes,edges,fileFacts,chunks,diagnostics"))
+        (is (str/includes? gap-out "- core-input-buckets nodes,edges,chunks,fileFacts,diagnostics"))
+        (is (str/includes? gap-out "- plugin-modes enhance,override,scan"))
+        (is (str/includes? gap-out "- dependency-aliases packageName,versionRange,resolvedVersion,dependencyScope,importNames,importName,importKind,resolutionSource"))
         (is (str/includes? gap-out "- dry-run bb plugin dry-run extractor"))
         (is (str/includes? report-out "benchmark=unbenchmarked"))
         (is (str/includes? report-out "scope=project-local"))
