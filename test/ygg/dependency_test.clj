@@ -1,5 +1,6 @@
 (ns ygg.dependency-test
   (:require [ygg.dependency :as dependency]
+            [ygg.dependency.resolve.python :as resolve-python]
             [ygg.xtdb :as store]
             [clojure.test :refer [deftest is]]))
 
@@ -1040,6 +1041,30 @@
                                           :project-id "project-a"
                                           :repo-id "repo-a"}
                                          {:source-id "node:namespace:app"
+                                          :target-id "node:namespace:__future__"
+                                          :relation :imports
+                                          :path "src/app.py"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:app"
+                                          :target-id "node:namespace:contextvars"
+                                          :relation :imports
+                                          :path "src/app.py"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:app"
+                                          :target-id "node:namespace:types"
+                                          :relation :imports
+                                          :path "src/app.py"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:app"
                                           :target-id "node:namespace:requests"
                                           :relation :imports
                                           :path "src/app.py"
@@ -1136,6 +1161,166 @@
       (is (= 3 (get-in report [:counts :source-import-candidates])))
       (is (= ["Xunit" "react" "requests"]
              (sort (map :import (:unresolved-imports report))))))))
+
+(deftest package-report-ignores-python-local-package-and-sibling-imports
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :ygg/files
+                                        [{:path "examples/tutorial/flaskr/__init__.py"
+                                          :kind :python
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "examples/tutorial/flaskr/db.py"
+                                          :kind :python
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "examples/tutorial/tests/test_db.py"
+                                          :kind :python
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "tests/test_apps/helloworld/hello.py"
+                                          :kind :python
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "tests/test_apps/helloworld/wsgi.py"
+                                          :kind :python
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "examples/javascript/js_example/__init__.py"
+                                          :kind :python
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "examples/javascript/js_example/views.py"
+                                          :kind :python
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :ygg/nodes
+                                        [{:xt/id "node:namespace:examples.javascript.js_example"
+                                          :kind :namespace
+                                          :label "examples.javascript.js_example"
+                                          :path "examples/javascript/js_example/__init__.py"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :ygg/edges
+                                        [{:source-id "node:namespace:examples.tutorial.tests.test_db"
+                                          :target-id "node:namespace:flaskr.db"
+                                          :relation :imports
+                                          :path "examples/tutorial/tests/test_db.py"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:tests.test_apps.helloworld.wsgi"
+                                          :target-id "node:namespace:hello"
+                                          :relation :imports
+                                          :path "tests/test_apps/helloworld/wsgi.py"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:examples.javascript.js_example.views"
+                                          :target-id "node:namespace:examples.javascript.js_example.app"
+                                          :relation :imports
+                                          :path "examples/javascript/js_example/views.py"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:examples.tutorial.tests.test_db"
+                                          :target-id "node:namespace:requests"
+                                          :relation :imports
+                                          :path "examples/tutorial/tests/test_db.py"
+                                          :source-line 2
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [& _] [])]
+    (let [report (dependency/package-report :xtdb
+                                            {:project-id "project-a"
+                                             :repo-id "repo-a"}
+                                            {})]
+      (is (= 1 (get-in report [:counts :source-import-candidates])))
+      (is (= ["requests"] (mapv :import (:unresolved-imports report)))))))
+
+(deftest package-report-resolves-python-private-module-roots-to-declared-package
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :ygg/files
+                                        [{:path "pyproject.toml"
+                                          :kind :manifest
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "tests/test_app.py"
+                                          :kind :python
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :ygg/nodes
+                                        [{:xt/id "node:manifest:pyproject"
+                                          :kind :manifest
+                                          :path "pyproject.toml"
+                                          :label "pyproject.toml"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "node:package:pypi:pytest"
+                                          :kind :external-package
+                                          :label "pypi:pytest"
+                                          :ecosystem :pypi
+                                          :package-name "pytest"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "node:namespace:tests.test_app"
+                                          :kind :namespace
+                                          :label "tests.test_app"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :ygg/edges
+                                        [{:source-id "node:manifest:pyproject"
+                                          :target-id "node:package:pypi:pytest"
+                                          :relation :requires
+                                          :path "pyproject.toml"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:tests.test_app"
+                                          :target-id "node:namespace:_pytest.monkeypatch"
+                                          :relation :imports
+                                          :path "tests/test_app.py"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [& _] [])]
+    (let [pytest-package {:xt/id "node:package:pypi:pytest"
+                          :kind :external-package
+                          :ecosystem :pypi
+                          :package-name "pytest"}
+          result (resolve-python/resolve-import
+                  {:packages-by-source {"pyproject.toml" [pytest-package]}
+                   :edge {:path "tests/test_app.py"}
+                   :target "_pytest.monkeypatch"})
+          report (dependency/package-report :xtdb
+                                            {:project-id "project-a"
+                                             :repo-id "repo-a"}
+                                            {})]
+      (is (= pytest-package (:package result)))
+      (is (= "_pytest" (:import-name result)))
+      (is (= :python-private-module-root (:resolution-source result)))
+      (is (empty? (:unresolved-imports report))))))
 
 (deftest package-report-ignores-locally-defined-namespace-imports
   (with-redefs [store/rows-by-field (fn [_ table _ _]

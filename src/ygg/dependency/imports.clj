@@ -51,6 +51,9 @@
     :java
     (java/local-import? context)
 
+    :python
+    (python/local-import? context)
+
     false))
 
 (defn source-kind
@@ -74,6 +77,7 @@
                  :alias-nodes alias-nodes
                  :module-nodes module-nodes
                  :nodes-by-id nodes-by-id
+                 :local-namespace-targets local-namespace-targets
                  :edge edge
                  :kind kind
                  :target target}]
