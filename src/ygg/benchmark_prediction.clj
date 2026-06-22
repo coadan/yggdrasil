@@ -62,6 +62,10 @@
   0.45)
 (def ^:private rank-score-query-supported-architecture-only-cap
   2.0)
+(def ^:private rank-score-candidate-only-architecture-support-weight
+  2.4)
+(def ^:private rank-score-candidate-only-architecture-support-cap
+  3.8)
 (def ^:private rank-score-candidate-lexical-component-weight
   0.15)
 (def ^:private rank-score-candidate-lexical-component-cap
@@ -369,6 +373,23 @@
            (pos? (double architecture-evidence-score)))
     (min rank-score-query-supported-architecture-only-cap
          (* rank-score-query-supported-architecture-only-weight
+            (double architecture-evidence-score)))
+    0.0))
+(defn- candidate-only-architecture-support-boost
+  [doc-count
+   support-count
+   architecture-evidence-count
+   query-supported-architecture-evidence-count
+   architecture-evidence-score
+   matched-token-count]
+  (if (and (zero? (long doc-count))
+           (pos? (long architecture-evidence-count))
+           (< (long architecture-evidence-count) (long support-count))
+           (pos? (long query-supported-architecture-evidence-count))
+           (<= rank-score-token-cap (long matched-token-count))
+           (pos? (double architecture-evidence-score)))
+    (min rank-score-candidate-only-architecture-support-cap
+         (* rank-score-candidate-only-architecture-support-weight
             (double architecture-evidence-score)))
     0.0))
 (defn- candidate-lexical-component-boost
@@ -978,8 +999,17 @@
                               architecture-evidence-count
                               query-supported-architecture-evidence-count
                               architecture-evidence-score)
+                             candidate-only-architecture-support-boost
+                             (candidate-only-architecture-support-boost
+                              doc-count
+                              support-count
+                              architecture-evidence-count
+                              query-supported-architecture-evidence-count
+                              architecture-support-evidence-score
+                              (count matched-tokens))
                              architecture-rank-boost (+ architecture-support-boost
-                                                        query-supported-architecture-only-boost)
+                                                        query-supported-architecture-only-boost
+                                                        candidate-only-architecture-support-boost)
                              candidate-lexical-component-boost
                              (candidate-lexical-component-boost
                               candidate-lexical-score)
@@ -1439,8 +1469,9 @@
          (let [limit (long limit)
                quota (min default-agent-baseline-candidate-file-only-quota limit)
                candidate-file-only (take quota
-                                         (filter candidate-file-only-row?
-                                                 candidate-files))
+                                         (sort-by row-source-order-key
+                                                  (filter candidate-file-only-row?
+                                                          candidate-files)))
                quota-paths (set (map file-row-key candidate-file-only))
                remaining-limit (max 0 (- limit (count candidate-file-only)))
                primary (->> candidate-files

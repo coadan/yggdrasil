@@ -2,6 +2,7 @@
   (:require [ygg.benchmark :as benchmark]
             [ygg.benchmark-agent-run :as benchmark-agent-run]
             [ygg.benchmark-agent-score :as benchmark-agent-score]
+            [ygg.benchmark-prediction :as benchmark-prediction]
             [ygg.benchmark-test-support :refer [commit! git! sh! spit-file! spit-json! temp-dir]]
             [ygg.context :as context]
             [ygg.extract :as extract]
@@ -1820,6 +1821,48 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-boosts-query-supported-candidate-only-architecture-support
+  (let [root (temp-dir "ygg-bench-candidate-only-architecture-support")
+        _ (spit-file! root "tests/setup/server.js" "export const server = true;\n")
+        _ (spit-file! root "tests/unit/adapters/http.test.js" "import {HttpsProxyAgent} from 'https-proxy-agent';\n")
+        packet {:query (str "node native proxy boundary http adapter tests close server "
+                            "environment variable evidence")
+                :docs [{:source {:path "tests/setup/server.js"
+                                 :heading "node proxy server"
+                                 :definitionKind :var}
+                        :score 1.5
+                        :snippet "node proxy server"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "tests/unit/adapters/http.test.js"
+                                  :rank 32
+                                  :score 3.214285714285714
+                                  :targetKind "node"
+                                  :label "tests.unit.adapters.http.test/createHttp2Axios"
+                                  :supportLabels ["tests.unit.adapters.http.test/closeServer"
+                                                  "tests.unit.adapters.http.test/stop"
+                                                  "tests.unit.adapters.http.test/startServer"
+                                                  "tests.unit.adapters.http.test"]
+                                  :scoreComponents {:sourceGraph 3.214285714285714
+                                                    :lexical 0.64}}]
+                :architecture {:dependencyEvidence [{:id "node:pkg:https-proxy-agent"
+                                                     :path "tests/unit/adapters/http.test.js"
+                                                     :kind "package-import"
+                                                     :fileKind "javascript"
+                                                     :package "https-proxy-agent"
+                                                     :label "npm:https-proxy-agent"
+                                                     :ecosystem "npm"
+                                                     :relation "imports-package"
+                                                     :score 1.75}]}}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["tests/unit/adapters/http.test.js"
+            "tests/setup/server.js"]
+           (mapv :path files)))
+    (is (< 3.0 (get-in files [0 :metrics :architectureSupportBoost])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest file-ranking-uses-architecture-deploy-evidence
   (let [root (temp-dir "ygg-bench-architecture-deploy")
         _ (spit-file! root "tests/docker-compose.yml" "services:\n  db:\n    image: postgres:alpine\n")
@@ -2351,6 +2394,38 @@
             :candidateFileOnlyQuota 5
             :candidateFileOnlySelected 1}
            (:selection result)))))
+
+(deftest limited-agent-result-reserves-candidate-only-by-source-rank
+  (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
+        candidate-row (fn [path rank source-rank]
+                        {:path path
+                         :rank rank
+                         :metrics {:candidateFileCount 1
+                                   :docCount 0
+                                   :entityCount 0
+                                   :candidateSourceRank source-rank}})
+        rows (concat
+              [{:path "docs/context-1.md"
+                :rank 1
+                :metrics {:docCount 1
+                          :candidateFileCount 0
+                          :entityCount 0}}
+               {:path "docs/context-2.md"
+                :rank 2
+                :metrics {:docCount 1
+                          :candidateFileCount 0
+                          :entityCount 0}}]
+              [(candidate-row "src/noise-1.clj" 3 90)
+               (candidate-row "src/noise-2.clj" 4 91)
+               (candidate-row "src/noise-3.clj" 5 92)
+               (candidate-row "src/noise-4.clj" 6 93)
+               (candidate-row "src/noise-5.clj" 7 94)
+               (candidate-row "src/adapter.clj" 8 2)])
+        result (select-limited rows 5)]
+    (is (some #{"src/adapter.clj"} (map :path (:files result))))
+    (is (not-any? #{"src/noise-5.clj"} (map :path (:files result))))
+    (is (= 5 (:candidateFileOnlySelected result)))))
+
 (deftest limited-agent-result-preserves-declared-source-kind-diversity
   (let [root (temp-dir "ygg-bench-source-kind-diversity")
         _ (spit-file! root "src/app.clj" "(ns app)\n")
