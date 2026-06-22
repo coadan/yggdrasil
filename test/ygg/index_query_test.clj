@@ -263,6 +263,14 @@
         (is (= 2 (:search-docs instrumentation)))
         (is (= 2 (:returned-count instrumentation)))
         (is (= {:chunk 1 :node 1} (:search-docs-by-kind instrumentation)))
+        (is (= "xtql-rel-unify" (:graph-adjacency-strategy instrumentation)))
+        (is (= 2 (:graph-adjacency-query-count instrumentation)))
+        (is (= 1 (:graph-adjacency-source-query-count instrumentation)))
+        (is (= 1 (:graph-adjacency-target-query-count instrumentation)))
+        (is (= (:seed-count instrumentation)
+               (:graph-adjacency-seed-count instrumentation)))
+        (is (= (:graph-edges-loaded instrumentation)
+               (:graph-adjacency-loaded-rows instrumentation)))
         (is (every? #(not (neg? (get instrumentation %)))
                     [:load-search-docs-ms
                      :tokenize-ms
@@ -609,6 +617,10 @@
                                            :limit 5})
               results (:results report)]
           (is (= 1 (get-in report [:instrumentation :graph-edges-loaded])))
+          (is (= 1 (get-in report [:instrumentation :graph-adjacency-loaded-rows])))
+          (is (= 2 (get-in report [:instrumentation :graph-adjacency-query-count])))
+          (is (= 1 (get-in report [:instrumentation :graph-adjacency-source-query-count])))
+          (is (= 1 (get-in report [:instrumentation :graph-adjacency-target-query-count])))
           (is (some #(and (= "src/neighbor.clj" (:path %))
                           (= 1.0 (get-in % [:score-components :graph])))
                     results)))))))

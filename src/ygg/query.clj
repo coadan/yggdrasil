@@ -327,6 +327,19 @@
                                      (scope-constraints opts)
                                      (read-context opts))))
 
+(defn- adjacency-query-plan
+  [xtdb seed-ids edges]
+  (let [seed-count (count seed-ids)
+        query-count (if (pos? seed-count) 2 0)]
+    {:graph-adjacency-strategy (if (store/xtdb-handle? xtdb)
+                                 "xtql-rel-unify"
+                                 "fallback-bounded-values")
+     :graph-adjacency-query-count query-count
+     :graph-adjacency-source-query-count (if (pos? seed-count) 1 0)
+     :graph-adjacency-target-query-count (if (pos? seed-count) 1 0)
+     :graph-adjacency-seed-count seed-count
+     :graph-adjacency-loaded-rows (count edges)}))
+
 (defn system-neighbor-ids
   "Return ordered distinct system ids adjacent to seed ids."
   [xtdb ids {:keys [relation min-confidence] :as opts}]
@@ -804,23 +817,25 @@
         ranked (vec (take limit ranked-all))
         candidate-docs (keep (into {} (map (juxt :target-id identity)) docs)
                              (:candidates ranked-data))
-        instrumentation (assoc timings
-                               :search-total-ms (elapsed-ms started)
-                               :search-docs (count docs)
-                               :search-docs-by-kind (rows-by-kind docs)
-                               :query-tokens (count query-tokens)
-                               :lexical-positive (positive-count lexical)
-                               :semantic-positive (positive-count semantic)
-                               :seed-count (count (:seed-ids seed-data))
-                               :same-label-seed-count (count (:same-label-ids seed-data))
-                               :graph-edges-loaded (count edges)
-                               :neighbor-count (count neighbor-scores)
-                               :exact-path-candidates (count (:exact-path-candidates ranked-data))
-                               :path-token-candidates (count (:path-token-candidates ranked-data))
-                               :candidate-count (count (:candidates ranked-data))
-                               :candidates-by-kind (rows-by-kind candidate-docs)
-                               :ranked-count (count ranked-all)
-                               :returned-count (count ranked))
+        instrumentation (merge
+                         timings
+                         (adjacency-query-plan xtdb (:seed-ids seed-data) edges)
+                         {:search-total-ms (elapsed-ms started)
+                          :search-docs (count docs)
+                          :search-docs-by-kind (rows-by-kind docs)
+                          :query-tokens (count query-tokens)
+                          :lexical-positive (positive-count lexical)
+                          :semantic-positive (positive-count semantic)
+                          :seed-count (count (:seed-ids seed-data))
+                          :same-label-seed-count (count (:same-label-ids seed-data))
+                          :graph-edges-loaded (count edges)
+                          :neighbor-count (count neighbor-scores)
+                          :exact-path-candidates (count (:exact-path-candidates ranked-data))
+                          :path-token-candidates (count (:path-token-candidates ranked-data))
+                          :candidate-count (count (:candidates ranked-data))
+                          :candidates-by-kind (rows-by-kind candidate-docs)
+                          :ranked-count (count ranked-all)
+                          :returned-count (count ranked)})
         created-at-ms (System/currentTimeMillis)
         query-row {:xt/id (str "query:" (hash/short-hash [query-text created-at-ms]))
                    :query-text query-text

@@ -961,6 +961,14 @@
                                        :retriever-requested (:retriever opts)
                                        :retriever-effective :lexical
                                        :instrumentation {:search-docs 1
+                                                         :seed-count 2
+                                                         :graph-edges-loaded 3
+                                                         :graph-adjacency-strategy "xtql-rel-unify"
+                                                         :graph-adjacency-query-count 2
+                                                         :graph-adjacency-source-query-count 1
+                                                         :graph-adjacency-target-query-count 1
+                                                         :graph-adjacency-seed-count 2
+                                                         :graph-adjacency-loaded-rows 3
                                                          :returned-count 1}
                                        :results [{:path "src/auth.clj"
                                                   :score 1.2
@@ -1039,9 +1047,9 @@
                           :mapSystems 1
                           :activityItems 0}
               :systemGraph {:nodeKinds [{:value "accepted-system"
-                                          :count 1}
-                                         {:value "candidate-system"
-                                          :count 1}]
+                                         :count 1}
+                                        {:value "candidate-system"
+                                         :count 1}]
                             :relations [{:value "depends-on"
                                          :count 1}]
                             :representativeNodes [{:id "system:alpha"
@@ -1053,6 +1061,14 @@
                                                    :kind :candidate-system
                                                    :degree 1}]}
               :retrieval {:search-docs 1
+                          :seed-count 2
+                          :graph-edges-loaded 3
+                          :graph-adjacency-strategy "xtql-rel-unify"
+                          :graph-adjacency-query-count 2
+                          :graph-adjacency-source-query-count 1
+                          :graph-adjacency-target-query-count 1
+                          :graph-adjacency-seed-count 2
+                          :graph-adjacency-loaded-rows 3
                           :returned-count 1
                           :context-chunks 0}
               :missingPlanes [:embeddings]

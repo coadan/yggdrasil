@@ -698,6 +698,12 @@
                   :seed-count
                   :same-label-seed-count
                   :graph-edges-loaded
+                  :graph-adjacency-strategy
+                  :graph-adjacency-query-count
+                  :graph-adjacency-source-query-count
+                  :graph-adjacency-target-query-count
+                  :graph-adjacency-seed-count
+                  :graph-adjacency-loaded-rows
                   :neighbor-count
                   :candidate-count
                   :ranked-count
