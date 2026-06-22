@@ -1,5 +1,9 @@
 (ns ygg.xtdb-query-pushdown-test
-  (:require [ygg.query :as query]
+  (:require [ygg.activity :as activity]
+            [ygg.context :as context]
+            [ygg.coverage :as coverage]
+            [ygg.dependency :as dependency]
+            [ygg.query :as query]
             [ygg.xtdb :as store]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
@@ -183,6 +187,183 @@
       (is (not (str/includes? query-text "*")))
       (is (= 1 (count (re-seq #"target:a" query-text))))
       (is (not (str/includes? query-text "target:c"))))))
+
+(deftest count-rows-uses-sql-count-for-xtdb-handles
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (swap! calls conj {:query query
+                                       :ctx ctx})
+                    [{:row_count 42}])
+                  store/all-rows
+                  (fn [& _]
+                    (throw (ex-info "all-rows should not be used for row counts"
+                                    {})))]
+      (is (= 42
+             (store/count-rows {:node :stub}
+                               (:nodes store/tables)
+                               {:repo-id "app"
+                                :project-id "project-a"}
+                               {:valid-at #inst "2026-01-01T00:00:00Z"}))))
+    (is (= 1 (count @calls)))
+    (let [{:keys [query ctx]} (first @calls)]
+      (is (string? query))
+      (is (str/includes? query "SELECT COUNT(*) AS row_count"))
+      (is (str/includes? query "FROM ygg.nodes"))
+      (is (str/includes? query "\"project_id\" = ?"))
+      (is (str/includes? query "\"repo_id\" = ?"))
+      (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
+              :args ["project-a" "app"]}
+             ctx)))))
+
+(deftest active-row-count-pushes-active-unless-false-filter
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (swap! calls conj {:query query
+                                       :ctx ctx})
+                    [{:row-count 7}])]
+      (is (= 7
+             (store/active-row-count {:node :stub}
+                                     (:files store/tables)
+                                     {:project-id "project-a"}
+                                     {:valid-at #inst "2026-01-01T00:00:00Z"}))))
+    (is (= 1 (count @calls)))
+    (let [{:keys [query ctx]} (first @calls)]
+      (is (str/includes? query "SELECT COUNT(*) AS row_count"))
+      (is (str/includes? query "\"active?\" IS NULL"))
+      (is (str/includes? query "\"active?\" <> FALSE"))
+      (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
+              :args ["project-a"]}
+             ctx)))))
+
+(deftest graph-readiness-counts-use-store-count-queries
+  (let [active-calls (atom [])
+        exact-calls (atom [])
+        fail-broad-read (fn [& _]
+                          (throw (ex-info "graph readiness should use count queries"
+                                          {})))
+        active-counts {[:ygg/files {:project-id "project-a"
+                                    :repo-id "app"}] 4
+                       [:ygg/nodes {:project-id "project-a"
+                                    :repo-id "app"}] 7
+                       [:ygg/edges {:project-id "project-a"
+                                    :repo-id "app"}] 9
+                       [:ygg/nodes {:project-id "project-a"
+                                    :repo-id "app"
+                                    :kind :external-package}] 1
+                       [:ygg/edges {:project-id "project-a"
+                                    :repo-id "app"
+                                    :relation :imports-package}] 2
+                       [:ygg/chunks {:project-id "project-a"
+                                     :repo-id "app"}] 3
+                       [:ygg/index-diagnostics {:project-id "project-a"
+                                                :repo-id "app"}] 0}
+        exact-counts {[:ygg/system-evidence {:project-id "project-a"
+                                             :repo-id "app"
+                                             :active? true}] 5
+                      [:ygg/search-docs {:project-id "project-a"
+                                         :repo-id "app"
+                                         :active? true}] 6
+                      [:ygg/embeddings {:project-id "project-a"
+                                        :repo-id "app"
+                                        :active? true}] 0
+                      [:ygg/system-nodes {:project-id "project-a"
+                                          :active? true}] 2
+                      [:ygg/system-edges {:project-id "project-a"
+                                          :active? true}] 1
+                      [:ygg/activity-events {:project-id "project-a"
+                                             :active? true}] 4
+                      [:ygg/activity-events {:project-id "project-a"
+                                             :active? true
+                                             :event-kind :validation}] 1
+                      [:ygg/activity-events {:project-id "project-a"
+                                             :active? true
+                                             :event-kind :result-schema-mismatch}] 2}]
+    (with-redefs [store/active-row-count
+                  (fn [_ table constraints ctx]
+                    (swap! active-calls conj {:table table
+                                              :constraints constraints
+                                              :ctx ctx})
+                    (get active-counts [table constraints] 0))
+                  store/count-rows
+                  (fn [_ table constraints ctx]
+                    (swap! exact-calls conj {:table table
+                                             :constraints constraints
+                                             :ctx ctx})
+                    (get exact-counts [table constraints] 0))
+                  query/all-nodes fail-broad-read
+                  query/all-edges fail-broad-read
+                  query/all-chunks fail-broad-read
+                  query/all-search-docs fail-broad-read
+                  query/all-embeddings fail-broad-read
+                  query/all-system-nodes fail-broad-read
+                  query/all-system-edges fail-broad-read
+                  query/all-system-evidence fail-broad-read
+                  query/all-diagnostics fail-broad-read
+                  coverage/index-run-skipped-files (fn [& _] 0)
+                  dependency/package-report (fn [& _]
+                                              {:counts {:packages 1
+                                                        :source-import-candidates 0
+                                                        :unresolved-imports 0
+                                                        :declared-without-import-evidence 0
+                                                        :version-conflicts 0}})
+                  activity/all-items (fn [& _] [])]
+      (let [evidence (#'context/query-evidence
+                      {:node :stub}
+                      {}
+                      {:project-id "project-a"
+                       :repo-id "app"
+                       :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}
+                       :retriever :lexical}
+                      {:entity-count 1
+                       :doc-count 1
+                       :activity-count 0
+                       :validation-count 0
+                       :runtime-count 1})]
+        (is (= {:files 4
+                :nodes 7
+                :edges 9
+                :external-packages 1
+                :package-import-edges 2
+                :system-evidence 5
+                :chunks 3
+                :search-docs 6
+                :embeddings 0
+                :system-nodes 2
+                :system-edges 1
+                :activity-events 4
+                :validation-events 1
+                :result-schema-mismatch-events 2
+                :diagnostics 0}
+               (select-keys (:counts evidence)
+                            [:files
+                             :nodes
+                             :edges
+                             :external-packages
+                             :package-import-edges
+                             :system-evidence
+                             :chunks
+                             :search-docs
+                             :embeddings
+                             :system-nodes
+                             :system-edges
+                             :activity-events
+                             :validation-events
+                             :result-schema-mismatch-events
+                             :diagnostics])))))
+    (is (some #(and (= (:nodes store/tables) (:table %))
+                    (= {:project-id "project-a"
+                        :repo-id "app"}
+                       (:constraints %)))
+              @active-calls))
+    (is (some #(and (= (:system-nodes store/tables) (:table %))
+                    (= {:project-id "project-a"
+                        :active? true}
+                       (:constraints %)))
+              @exact-calls))
+    (is (every? #(= {:valid-at #inst "2026-01-01T00:00:00Z"} (:ctx %))
+                (concat @active-calls @exact-calls)))))
 
 (deftest system-edges-touching-ids-use-bounded-xtql-unify-queries
   (let [calls (atom [])]

@@ -1127,23 +1127,29 @@
   [row]
   (not= false (:active? row)))
 
-(defn- scope-match?
-  [{:keys [project-id repo-id]} row]
-  (and (or (str/blank? (str project-id)) (= project-id (:project-id row)))
-       (or (str/blank? (str repo-id)) (= repo-id (:repo-id row)))))
+(defn- count-scope-constraints
+  [{:keys [project-id repo-id]}]
+  (cond-> {}
+    (not (str/blank? (str project-id))) (assoc :project-id project-id)
+    (not (str/blank? (str repo-id))) (assoc :repo-id repo-id)))
+
+(defn- scoped-count
+  ([xtdb table opts] (scoped-count xtdb table opts {}))
+  ([xtdb table {:keys [read-context] :as opts} constraints]
+   (store/count-rows xtdb
+                     table
+                     (merge (count-scope-constraints opts)
+                            constraints)
+                     (store/read-context read-context))))
 
 (defn- scoped-active-count
-  [xtdb table {:keys [project-id repo-id read-context]}]
-  (->> (store/constrained-rows xtdb
-                               table
-                               {:project-id (when-not (str/blank? (str project-id))
-                                              project-id)
-                                :repo-id (when-not (str/blank? (str repo-id))
-                                           repo-id)}
-                               (store/read-context read-context))
-       (filter active-row?)
-       (filter #(scope-match? {:project-id project-id :repo-id repo-id} %))
-       count))
+  ([xtdb table opts] (scoped-active-count xtdb table opts {}))
+  ([xtdb table {:keys [read-context] :as opts} constraints]
+   (store/active-row-count xtdb
+                           table
+                           (merge (count-scope-constraints opts)
+                                  constraints)
+                           (store/read-context read-context))))
 
 (defn- overlay-counts
   [overlay]
@@ -1154,74 +1160,156 @@
 
 (defn- capability-counts
   [xtdb overlay {:keys [project-id repo-id read-context]}]
-  (let [nodes (filter active-row?
-                      (query/all-nodes xtdb {:project-id project-id
-                                             :repo-id repo-id
-                                             :read-context read-context}))
-        edges (filter active-row?
-                      (query/all-edges xtdb {:project-id project-id
-                                             :repo-id repo-id
-                                             :read-context read-context}))
-        package-report (dependency/package-report xtdb
-                                                  {:project-id project-id
-                                                   :repo-id repo-id}
-                                                  {:limit 0
-                                                   :map-overlay overlay})
-        package-counts (:counts package-report)
-        activity-items (activity/all-items xtdb {:project-id project-id
-                                                 :read-context read-context})
-        activity-events (activity/all-events xtdb {:project-id project-id
-                                                   :read-context read-context})]
-    (merge
-     {:files (scoped-active-count xtdb (:files store/tables)
-                                  {:project-id project-id
-                                   :repo-id repo-id
-                                   :read-context read-context})
-      :skipped-files (coverage/index-run-skipped-files
-                      xtdb
-                      {:project-id project-id
-                       :repo-id repo-id
-                       :read-context read-context})
-      :nodes (count nodes)
-      :edges (count edges)
-      :external-packages (count (filter #(= :external-package (:kind %)) nodes))
-      :package-import-edges (count (filter #(= :imports-package (:relation %)) edges))
-      :declared-packages (get package-counts :packages 0)
-      :source-import-candidates (get package-counts :source-import-candidates 0)
-      :unresolved-imports (get package-counts :unresolved-imports 0)
-      :package-evidence-gaps (get package-counts :declared-without-import-evidence 0)
-      :package-conflicts (get package-counts :version-conflicts 0)
-      :system-evidence (count (query/all-system-evidence xtdb
-                                                         {:project-id project-id
-                                                          :repo-id repo-id
-                                                          :read-context read-context}))
-      :chunks (count (filter active-row?
-                             (query/all-chunks xtdb {:project-id project-id
-                                                     :repo-id repo-id
-                                                     :read-context read-context})))
-      :search-docs (count (query/all-search-docs xtdb {:project-id project-id
+  (if-not (store/xtdb-handle? xtdb)
+    (let [nodes (filter active-row?
+                        (query/all-nodes xtdb {:project-id project-id
+                                               :repo-id repo-id
+                                               :read-context read-context}))
+          edges (filter active-row?
+                        (query/all-edges xtdb {:project-id project-id
+                                               :repo-id repo-id
+                                               :read-context read-context}))
+          package-report (dependency/package-report xtdb
+                                                    {:project-id project-id
+                                                     :repo-id repo-id}
+                                                    {:limit 0
+                                                     :map-overlay overlay})
+          package-counts (:counts package-report)
+          activity-items (activity/all-items xtdb {:project-id project-id
+                                                   :read-context read-context})
+          activity-events (activity/all-events xtdb {:project-id project-id
+                                                     :read-context read-context})]
+      (merge
+       {:files (scoped-active-count xtdb (:files store/tables)
+                                    {:project-id project-id
+                                     :repo-id repo-id
+                                     :read-context read-context})
+        :skipped-files (coverage/index-run-skipped-files
+                        xtdb
+                        {:project-id project-id
+                         :repo-id repo-id
+                         :read-context read-context})
+        :nodes (count nodes)
+        :edges (count edges)
+        :external-packages (count (filter #(= :external-package (:kind %)) nodes))
+        :package-import-edges (count (filter #(= :imports-package (:relation %)) edges))
+        :declared-packages (get package-counts :packages 0)
+        :source-import-candidates (get package-counts :source-import-candidates 0)
+        :unresolved-imports (get package-counts :unresolved-imports 0)
+        :package-evidence-gaps (get package-counts :declared-without-import-evidence 0)
+        :package-conflicts (get package-counts :version-conflicts 0)
+        :system-evidence (count (query/all-system-evidence xtdb
+                                                           {:project-id project-id
+                                                            :repo-id repo-id
+                                                            :read-context read-context}))
+        :chunks (count (filter active-row?
+                               (query/all-chunks xtdb {:project-id project-id
+                                                       :repo-id repo-id
+                                                       :read-context read-context})))
+        :search-docs (count (query/all-search-docs xtdb {:project-id project-id
+                                                         :repo-id repo-id
+                                                         :read-context read-context}))
+        :embeddings (count (query/all-embeddings xtdb {:project-id project-id
                                                        :repo-id repo-id
                                                        :read-context read-context}))
-      :embeddings (count (query/all-embeddings xtdb {:project-id project-id
-                                                     :repo-id repo-id
-                                                     :read-context read-context}))
-      :system-nodes (count (query/all-system-nodes xtdb {:project-id project-id
-                                                         :read-context read-context}))
-      :system-edges (count (query/all-system-edges xtdb {:project-id project-id
-                                                         :read-context read-context}))
-      :activity-items (count activity-items)
-      :activity-events (count activity-events)
-      :validation-events (count (filter #(= :validation (:event-kind %))
-                                        activity-events))
-      :result-schema-mismatch-events
-      (count (filter #(= :result-schema-mismatch (:event-kind %))
-                     activity-events))
-      :diagnostics (count (filter active-row?
-                                  (query/all-diagnostics xtdb {:project-id project-id
-                                                               :repo-id repo-id
-                                                               :read-context read-context})))}
-     (activity/result-schema-counts activity-items)
-     (overlay-counts overlay))))
+        :system-nodes (count (query/all-system-nodes xtdb {:project-id project-id
+                                                           :read-context read-context}))
+        :system-edges (count (query/all-system-edges xtdb {:project-id project-id
+                                                           :read-context read-context}))
+        :activity-items (count activity-items)
+        :activity-events (count activity-events)
+        :validation-events (count (filter #(= :validation (:event-kind %))
+                                          activity-events))
+        :result-schema-mismatch-events
+        (count (filter #(= :result-schema-mismatch (:event-kind %))
+                       activity-events))
+        :diagnostics (scoped-active-count xtdb (:diagnostics store/tables)
+                                          {:project-id project-id
+                                           :repo-id repo-id
+                                           :read-context read-context})}
+       (activity/result-schema-counts activity-items)
+       (overlay-counts overlay)))
+    (let [scope {:project-id project-id
+                 :repo-id repo-id
+                 :read-context read-context}
+          project-scope {:project-id project-id
+                         :read-context read-context}
+          node-count (scoped-active-count xtdb (:nodes store/tables) scope)
+          edge-count (scoped-active-count xtdb (:edges store/tables) scope)
+          package-report (dependency/package-report xtdb
+                                                    {:project-id project-id
+                                                     :repo-id repo-id}
+                                                    {:limit 0
+                                                     :map-overlay overlay})
+          package-counts (:counts package-report)
+          activity-items (activity/all-items xtdb {:project-id project-id
+                                                   :read-context read-context})
+          activity-event-count (scoped-count xtdb
+                                             (:activity-events store/tables)
+                                             project-scope
+                                             {:active? true})
+          validation-event-count (scoped-count xtdb
+                                               (:activity-events store/tables)
+                                               project-scope
+                                               {:active? true
+                                                :event-kind :validation})
+          result-schema-mismatch-event-count
+          (scoped-count xtdb
+                        (:activity-events store/tables)
+                        project-scope
+                        {:active? true
+                         :event-kind :result-schema-mismatch})]
+      (merge
+       {:files (scoped-active-count xtdb (:files store/tables)
+                                    scope)
+        :skipped-files (coverage/index-run-skipped-files
+                        xtdb
+                        {:project-id project-id
+                         :repo-id repo-id
+                         :read-context read-context})
+        :nodes node-count
+        :edges edge-count
+        :external-packages (scoped-active-count xtdb
+                                                (:nodes store/tables)
+                                                scope
+                                                {:kind :external-package})
+        :package-import-edges (scoped-active-count xtdb
+                                                   (:edges store/tables)
+                                                   scope
+                                                   {:relation :imports-package})
+        :declared-packages (get package-counts :packages 0)
+        :source-import-candidates (get package-counts :source-import-candidates 0)
+        :unresolved-imports (get package-counts :unresolved-imports 0)
+        :package-evidence-gaps (get package-counts :declared-without-import-evidence 0)
+        :package-conflicts (get package-counts :version-conflicts 0)
+        :system-evidence (scoped-count xtdb
+                                       (:system-evidence store/tables)
+                                       scope
+                                       {:active? true})
+        :chunks (scoped-active-count xtdb (:chunks store/tables) scope)
+        :search-docs (scoped-count xtdb
+                                   (:search-docs store/tables)
+                                   scope
+                                   {:active? true})
+        :embeddings (scoped-count xtdb
+                                  (:embeddings store/tables)
+                                  scope
+                                  {:active? true})
+        :system-nodes (scoped-count xtdb
+                                    (:system-nodes store/tables)
+                                    project-scope
+                                    {:active? true})
+        :system-edges (scoped-count xtdb
+                                    (:system-edges store/tables)
+                                    project-scope
+                                    {:active? true})
+        :activity-items (count activity-items)
+        :activity-events activity-event-count
+        :validation-events validation-event-count
+        :result-schema-mismatch-events result-schema-mismatch-event-count
+        :diagnostics (scoped-active-count xtdb (:diagnostics store/tables) scope)}
+       (activity/result-schema-counts activity-items)
+       (overlay-counts overlay)))))
 
 (defn- validation-history-count
   [counts]

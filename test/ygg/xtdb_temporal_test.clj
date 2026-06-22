@@ -77,6 +77,41 @@
                                             :repo-id "app"
                                             :active? true})))))))
 
+(deftest count-rows-use-xtdb-sql-and-active-unless-false-semantics
+  (store/with-node (temp-dir "ygg-count-rows-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op :ygg/count-test
+                      {:xt/id "row:active"
+                       :project-id "demo"
+                       :repo-id "app"
+                       :active? true})
+        (store/put-op :ygg/count-test
+                      {:xt/id "row:legacy-active"
+                       :project-id "demo"
+                       :repo-id "app"})
+        (store/put-op :ygg/count-test
+                      {:xt/id "row:inactive"
+                       :project-id "demo"
+                       :repo-id "app"
+                       :active? false})
+        (store/put-op :ygg/count-test
+                      {:xt/id "row:other"
+                       :project-id "demo"
+                       :repo-id "other"
+                       :active? true})])
+      (is (= 3
+             (store/count-rows xtdb
+                               :ygg/count-test
+                               {:project-id "demo"
+                                :repo-id "app"})))
+      (is (= 2
+             (store/active-row-count xtdb
+                                     :ygg/count-test
+                                     {:project-id "demo"
+                                      :repo-id "app"}))))))
+
 (deftest edge-rows-touching-ids-finds-source-and-target-matches
   (store/with-node (temp-dir "ygg-edge-touching-ids-xtdb")
     (fn [xtdb]

@@ -580,6 +580,63 @@
                 constraints)
    :args (mapv val constraints)})
 
+(defn- count-row-value
+  [row]
+  (long (or (:row-count row)
+            (:row_count row)
+            (get row "row_count")
+            (get row "row-count")
+            (first (vals row))
+            0)))
+
+(defn- active-unless-false-sql
+  []
+  (let [field (sql-column-name :active?)]
+    (str "(" field " IS NULL OR " field " <> FALSE)")))
+
+(defn- count-query
+  [table constraints active-unless-false?]
+  (let [constraints (->> (clean-constraints constraints)
+                         (sort-by (comp str key))
+                         vec)
+        {constraint-where :where constraint-args :args} (equality-sql constraints)
+        where-clauses (cond-> constraint-where
+                        active-unless-false? (conj (active-unless-false-sql)))]
+    {:sql (str "SELECT COUNT(*) AS row_count FROM "
+               (sql-table-name table)
+               (when (seq where-clauses)
+                 (str " WHERE " (str/join " AND " where-clauses))))
+     :args constraint-args}))
+
+(defn- active-row?
+  [row]
+  (not= false (:active? row)))
+
+(defn count-rows
+  "Return the count of rows matching equality constraints.
+
+  Real XTDB handles use SQL count pushdown so readiness/schema summaries do not
+  hydrate every row. Test doubles fall back through constrained row reads."
+  ([xtdb table constraints] (count-rows xtdb table constraints {}))
+  ([xtdb table constraints ctx]
+   (if (xtdb-handle? xtdb)
+     (let [{:keys [sql args]} (count-query table constraints false)]
+       (count-row-value (first (q xtdb sql (assoc ctx :args args)))))
+     (count (fallback-constrained-rows xtdb table (clean-constraints constraints) ctx)))))
+
+(defn active-row-count
+  "Return count of rows matching constraints where active? is not false."
+  ([xtdb table constraints] (active-row-count xtdb table constraints {}))
+  ([xtdb table constraints ctx]
+   (if (xtdb-handle? xtdb)
+     (let [{:keys [sql args]} (count-query table constraints true)]
+       (count-row-value (first (q xtdb sql (assoc ctx :args args)))))
+     (count (filter active-row?
+                    (fallback-constrained-rows xtdb
+                                               table
+                                               (clean-constraints constraints)
+                                               ctx))))))
+
 (defn rows-matching-any-token
   "Return rows where any selected field contains any token.
 
