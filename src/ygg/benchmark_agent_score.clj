@@ -230,6 +230,7 @@
       (assoc "required" ["schema"
                          "caseId"
                          "caseFingerprint"
+                         "agentInputFingerprint"
                          "agentId"
                          "mode"
                          "selection"
@@ -238,14 +239,28 @@
                          "suspectedSymbols"
                          "commands"
                          "warnings"
-                         "summary"])
+                         "summary"
+                         "decision"
+                         "tokenUsage"])
       (assoc-in ["properties" "selection"]
                 (agent-result-output-selection-json-schema))
       (assoc-in ["properties" "parserWorker" "required"]
                 ["mode" "source"])
+      (assoc-in ["properties" "decision" "type"]
+                ["object" "null"])
+      (assoc-in ["properties" "decision" "required"]
+                ["kind" "choices" "risks" "followups"])
+      (assoc-in ["properties" "tokenUsage" "type"]
+                ["object" "null"])
+      (assoc-in ["properties" "tokenUsage" "required"]
+                ["inputTokens" "outputTokens" "totalTokens" "costUsd" "source"])
       (update-in ["properties" "suspectedFiles" "items" "properties"]
                  dissoc
-                 "metrics")))
+                 "metrics")
+      (assoc-in ["properties" "suspectedFiles" "items" "required"]
+                ["path" "repoId" "rank" "confidence" "reason" "evidence"])
+      (assoc-in ["properties" "suspectedFiles" "items" "properties" "repoId" "type"]
+                ["string" "null"])))
 
 (defn- parse-long-safe
   [value]
@@ -585,7 +600,7 @@
        vec))
 (defn- decision-shape-warnings
   [agent-result]
-  (when (contains? agent-result :decision)
+  (when (some? (:decision agent-result))
     (let [decision (:decision agent-result)]
       (if-not (map? decision)
         ["agent result decision must be an object"]

@@ -577,11 +577,9 @@
 
 (defn- merge-token-usage-sidecar
   [agent-result opts]
-  (if (:tokenUsage agent-result)
-    agent-result
-    (if-let [token-usage (read-token-usage-sidecar opts)]
-      (assoc agent-result :tokenUsage token-usage)
-      agent-result)))
+  (if-let [token-usage (read-token-usage-sidecar opts)]
+    (assoc agent-result :tokenUsage token-usage)
+    agent-result))
 
 (defn- read-agent-run-result
   [prepared result-path opts process-result]

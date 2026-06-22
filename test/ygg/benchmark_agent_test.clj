@@ -13,6 +13,38 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
+(defn- object-schema?
+  [schema]
+  (let [schema-type (:type schema)]
+    (or (= "object" schema-type)
+        (and (vector? schema-type)
+             (some #{"object"} schema-type)))))
+
+(defn- strict-schema-required-mismatches
+  ([schema]
+   (strict-schema-required-mismatches [] schema))
+  ([path schema]
+   (let [properties (:properties schema)
+         missing (when (and (object-schema? schema)
+                            (= false (:additionalProperties schema))
+                            (map? properties))
+                   (->> (keys properties)
+                        (remove (set (:required schema)))
+                        (map name)
+                        sort
+                        vec))
+         self (when (seq missing)
+                [{:path path
+                  :missing missing}])]
+     (vec
+      (concat
+       self
+       (mapcat (fn [[key child]]
+                 (strict-schema-required-mismatches (conj path key) child))
+               properties)
+       (when-let [items (:items schema)]
+         (strict-schema-required-mismatches (conj path :items) items)))))))
+
 (deftest agent-run-timeout-kills-child-processes
   (let [started-at (System/currentTimeMillis)
         result (benchmark-agent-run/run-process!
@@ -458,22 +490,26 @@
                              "exact repo-relative path"))
           (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
                              "caseId, caseFingerprint, and agentInputFingerprint"))
-          (is (= ["schema"
-                  "caseId"
-                  "caseFingerprint"
-                  "agentId"
-                  "mode"
-                  "selection"
-                  "parserWorker"
-                  "suspectedFiles"
-                  "suspectedSymbols"
-                  "commands"
-                  "warnings"
-                  "summary"]
-                 (get (json/read-json
-                       (slurp (get-in run [:artifacts :outputSchemaPath]))
-                       :key-fn keyword)
-                      :required)))
+          (let [output-schema (json/read-json
+                               (slurp (get-in run [:artifacts :outputSchemaPath]))
+                               :key-fn keyword)]
+            (is (= ["schema"
+                    "caseId"
+                    "caseFingerprint"
+                    "agentInputFingerprint"
+                    "agentId"
+                    "mode"
+                    "selection"
+                    "parserWorker"
+                    "suspectedFiles"
+                    "suspectedSymbols"
+                    "commands"
+                    "warnings"
+                    "summary"
+                    "decision"
+                    "tokenUsage"]
+                   (:required output-schema)))
+            (is (= [] (strict-schema-required-mismatches output-schema))))
           (is (= {:type "string"}
                  (get-in (json/read-json
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
@@ -536,6 +572,21 @@
             (is (= {:type ["integer" "null"]
                     :minimum 0}
                    (get-in selection-schema [:properties :limit]))))
+          (is (= ["object" "null"]
+                 (get-in (json/read-json
+                          (slurp (get-in run [:artifacts :outputSchemaPath]))
+                          :key-fn keyword)
+                         [:properties :decision :type])))
+          (is (= ["kind" "choices" "risks" "followups"]
+                 (get-in (json/read-json
+                          (slurp (get-in run [:artifacts :outputSchemaPath]))
+                          :key-fn keyword)
+                         [:properties :decision :required])))
+          (is (= ["object" "null"]
+                 (get-in (json/read-json
+                          (slurp (get-in run [:artifacts :outputSchemaPath]))
+                          :key-fn keyword)
+                         [:properties :tokenUsage :type])))
           (is (not (str/includes? (slurp (get-in run [:artifacts :promptPath]))
                                   "changedFiles")))
           (is (str/includes? (slurp (get-in run [:artifacts :stdoutPath]))
@@ -583,6 +634,9 @@
                    "\"suspectedSymbols\":[],"
                    "\"commands\":[\"rg broken src/app.clj\"],"
                    "\"warnings\":[],"
+                   "\"tokenUsage\":{\"inputTokens\":0,\"outputTokens\":0,"
+                   "\"totalTokens\":0,\"costUsd\":0.0,"
+                   "\"source\":\"agent-report\"},"
                    "\"summary\":\"script result\"}\n"
                    "JSON\n"))
         (let [suite (benchmark/read-suite suite-path)
