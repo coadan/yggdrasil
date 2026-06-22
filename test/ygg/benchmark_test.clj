@@ -6,6 +6,7 @@
             [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-progress :as benchmark-progress]
+            [ygg.benchmark-report :as benchmark-report]
             [ygg.benchmark-score :as benchmark-score]
             [ygg.benchmark-suite :as benchmark-suite]
             [ygg.benchmark-test-support :refer [commit!
@@ -570,6 +571,58 @@
     (is (= (/ 2.0 3.0) (:expectedEvidenceCitationRate scores)))
     (is (= 2 (:expectedEvidenceCitations scores)))
     (is (= 3 (:expectedEvidenceCitationTargets scores)))))
+
+(deftest agent-report-treats-zero-token-usage-as-invalid-telemetry
+  (let [diagnostics (#'benchmark-report/aggregate-agent-diagnostics
+                     [{:case-id "valid"
+                       :agent {:topFiles [{:path "src/app.clj"}]
+                               :commands ["rg app"]
+                               :warnings []
+                               :tokenUsage {:inputTokens 100
+                                            :outputTokens 20
+                                            :totalTokens 120
+                                            :costUsd 0.01
+                                            :source "sidecar"}}}
+                      {:case-id "zero-placeholder"
+                       :agent {:topFiles [{:path "src/app.clj"}]
+                               :commands ["rg app"]
+                               :warnings []
+                               :tokenUsage {:inputTokens 0
+                                            :outputTokens 0
+                                            :totalTokens 0
+                                            :costUsd 0.0
+                                            :source "agent-report"}}}
+                      {:case-id "missing"
+                       :agent {:topFiles [{:path "src/app.clj"}]
+                               :commands ["rg app"]
+                               :warnings []}}])
+        improvement-summary (#'benchmark-report/report-improvement-summary
+                             {:agentDiagnostics diagnostics})]
+    (is (= {:inputTokens 100
+            :outputTokens 20
+            :totalTokens 120
+            :costUsd 0.01}
+           (:tokenTelemetry diagnostics)))
+    (is (= {:tokenUsageRuns 1
+            :tokenUsageCaseIds ["valid"]
+            :invalidTokenUsageRuns 1
+            :invalidTokenUsageCaseIds ["zero-placeholder"]
+            :missingTokenUsageRuns 1
+            :missingTokenUsageCaseIds ["missing"]}
+           (select-keys diagnostics
+                        [:tokenUsageRuns
+                         :tokenUsageCaseIds
+                         :invalidTokenUsageRuns
+                         :invalidTokenUsageCaseIds
+                         :missingTokenUsageRuns
+                         :missingTokenUsageCaseIds])))
+    (is (= {:kind "invalid-token-usage"
+            :area "benchmark-token-telemetry"
+            :runs 1
+            :caseIds ["zero-placeholder"]
+            :message "Agent results recorded zero or non-positive token usage placeholders, so token and cost claims are not measurable for those runs."}
+           (first (filter #(= "invalid-token-usage" (:kind %))
+                          improvement-summary))))))
 
 (deftest scores-only-base-visible-ground-truth-files
   (let [result {:groundTruth {:changedFiles [".chloggen/fix.yaml"

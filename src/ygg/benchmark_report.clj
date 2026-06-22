@@ -104,6 +104,11 @@
   [commands]
   (benchmark-command-telemetry/command-telemetry commands))
 
+(defn- valid-token-usage?
+  [usage]
+  (and (map? usage)
+       (pos? (long (or (:totalTokens usage) 0)))))
+
 (defn- aggregate-command-telemetry
   [diagnostics]
   (benchmark-command-telemetry/aggregate-command-telemetry diagnostics))
@@ -136,7 +141,8 @@
         command-count (:commandCount command-telemetry)
         candidate-count (:candidateFiles selection)
         filtered-count (long (or (:coverageFilteredCandidateFiles selection) 0))
-        token-usage (get-in result [:agent :tokenUsage])]
+        token-usage (get-in result [:agent :tokenUsage])
+        token-usage-valid? (valid-token-usage? token-usage)]
     (cond-> {:rawSuspectedFiles raw-count
              :rankedFiles ranked-count
              :commandCount command-count
@@ -162,8 +168,13 @@
       (pos? filtered-count)
       (assoc :coverageFilteredCandidateFiles filtered-count)
 
-      token-usage
-      (assoc :tokenUsage token-usage))))
+      token-usage-valid?
+      (assoc :tokenUsage token-usage)
+
+      (and (map? token-usage)
+           (not token-usage-valid?))
+      (assoc :invalidTokenUsage token-usage
+             :invalidTokenUsageReason "non-positive-total-tokens"))))
 
 (defn- blocking-hint-diagnostic?
   [row]
@@ -243,8 +254,12 @@
         token-usage-results (filter (fn [[_ diagnostic]]
                                       (:tokenUsage diagnostic))
                                     result-pairs)
+        invalid-token-usage-results (filter (fn [[_ diagnostic]]
+                                              (:invalidTokenUsage diagnostic))
+                                            result-pairs)
         missing-token-usage-results (remove (fn [[_ diagnostic]]
-                                              (:tokenUsage diagnostic))
+                                              (or (:tokenUsage diagnostic)
+                                                  (:invalidTokenUsage diagnostic)))
                                             result-pairs)]
     (merge
      {:emptyResultRuns (count empty-results)
@@ -311,6 +326,12 @@
                               vec)
       :missingTokenUsageRuns (count missing-token-usage-results)
       :missingTokenUsageCaseIds (->> missing-token-usage-results
+                                     (map (comp :case-id first))
+                                     distinct
+                                     sort
+                                     vec)
+      :invalidTokenUsageRuns (count invalid-token-usage-results)
+      :invalidTokenUsageCaseIds (->> invalid-token-usage-results
                                      (map (comp :case-id first))
                                      distinct
                                      sort
@@ -1283,6 +1304,12 @@
               :runs (:missingTokenUsageRuns agent-diagnostics)
               :case-ids (:missingTokenUsageCaseIds agent-diagnostics)
               :message "Agent results did not record token usage, so token and cost claims are not measurable for those runs."})
+            (improvement-row
+             {:kind "invalid-token-usage"
+              :area "benchmark-token-telemetry"
+              :runs (:invalidTokenUsageRuns agent-diagnostics)
+              :case-ids (:invalidTokenUsageCaseIds agent-diagnostics)
+              :message "Agent results recorded zero or non-positive token usage placeholders, so token and cost claims are not measurable for those runs."})
             (improvement-row
              {:kind "warning-runs"
               :area "agent-result-shape"
