@@ -14,6 +14,7 @@
 (def default-kind-candidates 50)
 (def default-path-token-candidates 100)
 (def default-seed-count 20)
+(def default-instrumentation-seed-id-sample-limit 25)
 (def lexical-graph-weight 0.25)
 (def hybrid-graph-weight 0.20)
 
@@ -330,16 +331,22 @@
                                      (read-context opts))))
 
 (defn- adjacency-query-plan
-  [xtdb seed-ids edges]
-  (let [seed-count (count seed-ids)
+  [xtdb seed-ids edges edge-load-ms]
+  (let [seed-ids (sort-by str seed-ids)
+        seed-count (count seed-ids)
         query-count (if (pos? seed-count) 2 0)]
     {:graph-adjacency-strategy (if (store/xtdb-handle? xtdb)
                                  "xtql-rel-unify"
                                  "fallback-bounded-values")
+     :graph-adjacency-ms edge-load-ms
      :graph-adjacency-query-count query-count
      :graph-adjacency-source-query-count (if (pos? seed-count) 1 0)
      :graph-adjacency-target-query-count (if (pos? seed-count) 1 0)
      :graph-adjacency-seed-count seed-count
+     :graph-adjacency-seed-id-sample (vec (take default-instrumentation-seed-id-sample-limit
+                                                seed-ids))
+     :graph-adjacency-seed-ids-truncated? (< default-instrumentation-seed-id-sample-limit
+                                             seed-count)
      :graph-adjacency-loaded-rows (count edges)}))
 
 (defn system-neighbor-ids
@@ -821,7 +828,10 @@
                              (:candidates ranked-data))
         instrumentation (merge
                          timings
-                         (adjacency-query-plan xtdb (:seed-ids seed-data) edges)
+                         (adjacency-query-plan xtdb
+                                               (:seed-ids seed-data)
+                                               edges
+                                               (:load-edges-ms timings))
                          {:search-total-ms (elapsed-ms started)
                           :search-docs (count docs)
                           :search-docs-by-kind (rows-by-kind docs)
