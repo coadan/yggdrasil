@@ -214,6 +214,61 @@
           (is (= "override-plugin" (:plugin-id override-node)))
           (is (= :unbenchmarked (:benchmark-status override-node))))))))
 
+(deftest plugin-dependency-rows-feed-derived-package-imports
+  (let [repo (temp-dir "ygg-plugin-dependency-repo")
+        xtdb-path (temp-dir "ygg-plugin-dependency-xtdb")]
+    (spit-file! repo "package.json" "{\"name\":\"demo\",\"dependencies\":{}}\n")
+    (spit-file! repo
+                "src/app.js"
+                "import pluginLib from \"plugin-lib\";\nconsole.log(pluginLib);\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [summary (index/index-repo!
+                       xtdb
+                       repo
+                       {:project-id "plugin-dependency-project"
+                        :repo-id "app"
+                        :extractors [{:id "dependency-plugin"
+                                      :version "0.1.0"
+                                      :command ["python3"
+                                                "-c"
+                                                (str "import json, sys\n"
+                                                     "request=json.load(sys.stdin)\n"
+                                                     "source_id=next(node['xt/id'] "
+                                                     "for node in request['core']['nodes'] "
+                                                     "if str(node.get('kind')).endswith('manifest'))\n"
+                                                     "package_id='node:external-package:npm:plugin-lib'\n"
+                                                     "json.dump({'schema':'ygg.extractor-plugin.result/v1',"
+                                                     "'nodes':[{'xt/id':package_id,"
+                                                     "'kind':'external-package',"
+                                                     "'label':'npm:plugin-lib',"
+                                                     "'ecosystem':'npm',"
+                                                     "'package-name':'plugin-lib',"
+                                                     "'sourceLine':1}],"
+                                                     "'edges':[{'sourceId':source_id,"
+                                                     "'targetId':package_id,"
+                                                     "'relation':'requires',"
+                                                     "'ecosystem':'npm',"
+                                                     "'package-name':'plugin-lib',"
+                                                     "'versionRange':'^1.0.0',"
+                                                     "'sourceLine':1}]}, sys.stdout)\n")]
+                                      :modes [:enhance]
+                                      :applies-to {:file-kinds [:manifest]
+                                                   :path-globs ["package.json"]}}]})
+              edges (store/rows-by-field xtdb
+                                         (:edges store/tables)
+                                         :project-id
+                                         "plugin-dependency-project")
+              dependency-edge (some #(when (and (= :imports-package (:relation %))
+                                                (= "plugin-lib" (:package-name %)))
+                                       %)
+                                    edges)]
+          (is (= :completed (:status summary)))
+          (is (= 1 (get-in summary [:stats :dependency-edges])))
+          (is (= :declared (:resolution-source dependency-edge)))
+          (is (= :npm (:ecosystem dependency-edge)))
+          (is (= "src/app.js" (:path dependency-edge))))))))
+
 (deftest project-config-normalizes-extractor-plugins
   (let [root (io/file (temp-dir "ygg-plugin-config"))
         repo-root (io/file root "repo")

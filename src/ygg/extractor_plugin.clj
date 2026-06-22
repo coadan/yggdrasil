@@ -52,6 +52,14 @@
    :contentSha :content-sha
    :normalizedValue :normalized-value
    :fileKind :file-kind
+   :packageName :package-name
+   :versionRange :version-range
+   :resolvedVersion :resolved-version
+   :dependencyScope :dependency-scope
+   :importNames :import-names
+   :importName :import-name
+   :importKind :import-kind
+   :resolutionSource :resolution-source
    :urlContext :url-context
    :authContext :auth-context
    :pluginId :plugin-id
@@ -420,7 +428,7 @@
                       plugin
                       (-> row
                           canonical-row
-                          (keyword-values [:kind])))]
+                          (keyword-values [:kind :ecosystem])))]
     (cond-> row
       (not (:xt/id row)) (assoc :xt/id (generated-id "node" plugin file row))
       (not (:source-line row)) (assoc :source-line 1))))
@@ -432,7 +440,11 @@
                       plugin
                       (-> row
                           canonical-row
-                          (keyword-values [:relation :confidence])))]
+                          (keyword-values [:relation
+                                           :confidence
+                                           :ecosystem
+                                           :import-kind
+                                           :resolution-source])))]
     (cond-> row
       (not (:xt/id row)) (assoc :xt/id (generated-id "edge" plugin file row))
       (not (:confidence row)) (assoc :confidence :plugin))))

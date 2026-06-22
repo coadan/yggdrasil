@@ -212,6 +212,12 @@ Yggdrasil fills standard file defaults when possible: `:file-id`, `:path`,
 `:run-id`, `:active?`, source line defaults for searchable rows, and stable ids
 when a plugin omits `:xt/id`.
 
+Dependency rows use the same node and edge contract as core manifest and source
+extractors. Plugin JSON may use `packageName`, `versionRange`,
+`resolvedVersion`, `dependencyScope`, `importNames`, `importName`,
+`importKind`, and `resolutionSource`; Yggdrasil normalizes those fields before
+dependency derivation runs.
+
 Every plugin row is annotated with:
 
 - `:provenance :plugin`
