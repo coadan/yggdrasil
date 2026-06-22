@@ -162,7 +162,7 @@
                                            root-id
                                            (:xt/id document-node)
                                            :defines
-                                           1.0
+                                           :extracted
                                            1)])
         root->packages (mapv #(common/edge-row run-id
                                                file-id
@@ -170,7 +170,7 @@
                                                root-id
                                                (:xt/id %)
                                                :defines
-                                               1.0
+                                               :extracted
                                                (:source-line %))
                              package-nodes)
         root->licenses (mapv #(common/edge-row run-id
@@ -179,7 +179,7 @@
                                                root-id
                                                (:xt/id %)
                                                :defines
-                                               1.0
+                                               :extracted
                                                (:source-line %))
                              license-nodes)
         package->licenses (->> package-records
@@ -196,7 +196,7 @@
                                                                           :license-id
                                                                           license-label)
                                                           :licenses
-                                                          1.0
+                                                          :extracted
                                                           1))
                                        licenses)))
                                distinct
@@ -213,7 +213,7 @@
                                                                        :sbom-package
                                                                        target-label)
                                                        :depends-on
-                                                       1.0
+                                                       :extracted
                                                        1))))
         chunk-result (common/extract-text-source run-id file :sbom-file)]
     {:nodes (vec (distinct (concat [root-node]

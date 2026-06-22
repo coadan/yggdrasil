@@ -619,6 +619,7 @@
         labels (fn [result] (set (map :label (:nodes result))))
         kinds (fn [result] (frequencies (map :kind (:nodes result))))
         relations (fn [result] (frequencies (map :relation (:edges result))))
+        edge-confidences (fn [result] (set (map :confidence (:edges result))))
         cyclonedx (result-for "sbom/cyclonedx.json")
         spdx (result-for "sbom/spdx.json")]
     (is (= :sbom (kind-for "sbom/cyclonedx.json")))
@@ -634,6 +635,7 @@
     (is (= 1 (:license-id (kinds cyclonedx))))
     (is (= 2 (:depends-on (relations cyclonedx))))
     (is (= 2 (:licenses (relations cyclonedx))))
+    (is (= #{:extracted} (edge-confidences cyclonedx)))
     (is (= [:sbom-file] (mapv :kind (:chunks cyclonedx))))
     (is (contains? (labels spdx) "SPDXRef-DOCUMENT"))
     (is (contains? (labels spdx) "panel-core@1.0.0"))
@@ -644,6 +646,7 @@
     (is (= 1 (:license-id (kinds spdx))))
     (is (= 1 (:depends-on (relations spdx))))
     (is (= 2 (:licenses (relations spdx))))
+    (is (= #{:extracted} (edge-confidences spdx)))
     (is (= [:sbom-file] (mapv :kind (:chunks spdx))))))
 (deftest extracts-format-support-tranche-facts
   (let [result-for (fn [path]

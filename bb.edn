@@ -33,6 +33,10 @@
             :task (apply shell "bash" "scripts/headline-bench.sh"
                          *command-line-args*)}
 
+  bench:gate {:doc "Run the deterministic tracked benchmark gate. Usage: bb bench:gate [--suite PATH] [--out DIR] [--case ID|--cases IDS] [--dry-run]"
+              :task (apply shell "bash" "scripts/benchmark-gate.sh"
+                           *command-line-args*)}
+
   v1:smoke {:doc "Run the V1 install/start/report smoke gate. Usage: bb v1:smoke [--keep]"
             :task (apply shell "bash" "scripts/v1-smoke.sh"
                          *command-line-args*)}

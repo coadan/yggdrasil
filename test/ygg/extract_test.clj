@@ -1,6 +1,7 @@
 (ns ygg.extract-test
   (:require [ygg.extract :as extract]
             [ygg.fs :as fs]
+            [ygg.schema :as schema]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
@@ -357,9 +358,15 @@
                 :path "config.yaml"
                 :kind :yaml
                 :content ""}]]
-    (doseq [result (map #(extract/extract-file "run/test" %) files)]
+    (doseq [file files
+            :let [result (extract/extract-file "run/test" file)]]
       (is (= canonical-buckets (set (keys result))))
-      (is (every? vector? (vals result))))))
+      (is (every? vector? (vals result)))
+      (is (every? #(keyword? (:confidence %)) (:edges result))
+          (str "extracted edge confidence must be canonical for " (:path file)))
+      (doseq [edge (:edges result)]
+        (is (= edge (schema/assert! schema/edge-row edge "Invalid edge row."))
+            (str "extracted edge row must match sync schema for " (:path file)))))))
 
 (deftest extracts-template-text-files-as-searchable-chunks
   (let [file {:file-id "file:template"
