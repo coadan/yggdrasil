@@ -1,6 +1,7 @@
 (ns agraph.dependency
   "Derived external package dependency resolution."
   (:require [agraph.command :as command]
+            [agraph.dependency.imports :as dependency-imports]
             [agraph.hash :as hash]
             [agraph.xtdb :as store]
             [clojure.string :as str]))
@@ -529,66 +530,6 @@
   [files-by-path path]
   (:kind (get files-by-path path)))
 
-(def ^:private package-import-source-kinds
-  #{:javascript :typescript :astro :vue :svelte
-    :rust :go :python :java :dotnet})
-
-(def ^:private rust-builtin-roots
-  #{"alloc" "core" "crate" "self" "std" "super"})
-
-(def ^:private js-runtime-builtin-roots
-  #{"assert" "buffer" "child_process" "cluster" "console" "crypto" "dgram" "dns"
-    "domain" "events" "fs" "http" "http2" "https" "module" "net" "os" "path"
-    "perf_hooks" "process" "querystring" "readline" "stream" "string_decoder"
-    "timers" "tls" "tty" "url" "util" "v8" "vm" "worker_threads" "zlib"})
-
-(def ^:private js-runtime-virtual-prefixes
-  #{"astro:" "bun:" "node:"})
-
-(def ^:private python-stdlib-roots
-  #{"argparse" "asyncio" "base64" "collections" "contextlib" "csv" "dataclasses"
-    "datetime" "decimal" "enum" "functools" "gzip" "hashlib" "http" "importlib"
-    "inspect" "itertools" "json" "logging" "math" "os" "pathlib" "re" "socket"
-    "sqlite3" "statistics" "string" "subprocess" "sys" "tempfile" "time" "typing"
-    "unittest" "urllib" "uuid" "xml"})
-
-(def ^:private dotnet-builtin-roots
-  #{"System"})
-
-(def ^:private java-builtin-roots
-  #{"java" "javax" "jdk" "sun"})
-
-(def ^:private java-builtin-prefixes
-  #{"com.sun"})
-
-(defn- dotted-import-root
-  [target]
-  (first (str/split (str target) #"\.")))
-
-(defn- dotted-import-prefix
-  [target n]
-  (let [parts (remove str/blank? (str/split (str target) #"\."))]
-    (when (>= (count parts) n)
-      (str/join "." (take n parts)))))
-
-(defn- slash-import-root
-  [target]
-  (first (str/split (str target) #"/")))
-
-(defn- js-runtime-import?
-  [target]
-  (or (contains? js-runtime-builtin-roots (slash-import-root target))
-      (some #(str/starts-with? target %) js-runtime-virtual-prefixes)))
-
-(defn- dotnet-runtime-import?
-  [target]
-  (contains? dotnet-builtin-roots (dotted-import-root target)))
-
-(defn- java-runtime-import?
-  [target]
-  (or (contains? java-builtin-roots (dotted-import-root target))
-      (contains? java-builtin-prefixes (dotted-import-prefix target 2))))
-
 (defn- local-namespace-import?
   [nodes-by-id edge]
   (let [target (get nodes-by-id (:target-id edge))]
@@ -645,27 +586,8 @@
          (not (local-symbol-import? nodes-by-id edge kind))
          (not (local-path-alias-import? alias-nodes edge target))
          (not (local-file-import? files-by-path edge target kind))
-         (contains? package-import-source-kinds kind)
-         (case kind
-           (:javascript :typescript :astro :vue :svelte)
-           (and (not (str/starts-with? target "."))
-                (not (js-runtime-import? target)))
-
-           :rust
-           (let [root (rust-import-root target)]
-             (and (seq root)
-                  (not (contains? rust-builtin-roots root))))
-
-           :python
-           (not (contains? python-stdlib-roots (dotted-import-root target)))
-
-           :dotnet
-           (not (dotnet-runtime-import? target))
-
-           :java
-           (not (java-runtime-import? target))
-
-           true))))
+         (dependency-imports/supported-source-kind? kind)
+         (dependency-imports/external-package-candidate? kind target))))
 
 (defn- mapping-entries
   [map-overlay]
