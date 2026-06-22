@@ -115,6 +115,26 @@
                                                                           (parse-optional-double
                                                                            args
                                                                            "--min-decision-evidence-citation-rate"))
+    (parse-optional-double args "--max-total-tokens") (assoc
+                                                       :max-total-tokens
+                                                       (parse-optional-double
+                                                        args
+                                                        "--max-total-tokens"))
+    (parse-optional-double args "--max-input-tokens") (assoc
+                                                       :max-input-tokens
+                                                       (parse-optional-double
+                                                        args
+                                                        "--max-input-tokens"))
+    (parse-optional-double args "--max-output-tokens") (assoc
+                                                        :max-output-tokens
+                                                        (parse-optional-double
+                                                         args
+                                                         "--max-output-tokens"))
+    (parse-optional-double args "--max-cost-usd") (assoc
+                                                   :max-cost-usd
+                                                   (parse-optional-double
+                                                    args
+                                                    "--max-cost-usd"))
     (parse-optional-double args "--min-case-file-recall-at-5") (assoc
                                                                 :min-case-file-recall-at-5
                                                                 (parse-optional-double
@@ -149,6 +169,26 @@
                                                            (parse-optional-double
                                                             args
                                                             "--min-case-decision-f1"))
+    (parse-optional-double args "--max-case-total-tokens") (assoc
+                                                            :max-case-total-tokens
+                                                            (parse-optional-double
+                                                             args
+                                                             "--max-case-total-tokens"))
+    (parse-optional-double args "--max-case-input-tokens") (assoc
+                                                            :max-case-input-tokens
+                                                            (parse-optional-double
+                                                             args
+                                                             "--max-case-input-tokens"))
+    (parse-optional-double args "--max-case-output-tokens") (assoc
+                                                             :max-case-output-tokens
+                                                             (parse-optional-double
+                                                              args
+                                                              "--max-case-output-tokens"))
+    (parse-optional-double args "--max-case-cost-usd") (assoc
+                                                        :max-case-cost-usd
+                                                        (parse-optional-double
+                                                         args
+                                                         "--max-case-cost-usd"))
     (parse-optional-double args "--max-case-noise-at-20") (assoc
                                                            :max-case-noise-at-20
                                                            (parse-optional-double

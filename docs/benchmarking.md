@@ -126,8 +126,9 @@ bb efficiency \
 Read `Problem-class signals`, `Architecture-class signals`, and
 `Claim readiness` together. A headline result is useful only when the compared
 lanes share completed cases, architecture-class tags are measured, evidence
-quality is available, expected-evidence citation metrics are present, and the
-report remains claim-ready. In `--json` output, read
+quality is available, expected-evidence citation metrics are present,
+decision-quality metrics are comparable when decision cases are configured, and
+the report remains claim-ready. In `--json` output, read
 `compactSummary.verdict` first for the bounded helped/regressed/inconclusive
 answer and `compactSummary.why` for the short reason list. Then inspect
 `classSignals.problemClasses` and `classSignals.architectureClasses`; a row with
@@ -173,7 +174,7 @@ bb bench agent-run benchmark.edn --agent codex --command 'codex -a never exec --
 bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
 bb bench agent-report benchmark.edn
 bb bench improve benchmark.edn --mode agraph --agent agraph-baseline-lexical --out .dev/reports/bench
-bb bench agent-check benchmark.edn --mode agraph --agent agraph-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
+bb bench agent-check benchmark.edn --mode agraph --agent agraph-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-total-tokens 120000 --max-case-total-tokens 30000 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
 bb bench agent-check benchmarks/decision-quality-pilot.edn --mode agraph --agent codex --min-decision-f1 0.8 --min-case-decision-f1 0.6 --min-decision-evidence-citation-rate 0.8 --max-missing-decision-runs 0
 bb bench agent-compare benchmark.edn --baseline-report .dev/agraph/bench-before/agent-report.json --candidate-report .dev/agraph/bench-after/agent-report.json
 bb bench run benchmark.edn
@@ -390,6 +391,10 @@ plugin-fit choice, not just a shorter suspected-file list.
   `--min-decision-f1`, `--min-decision-evidence-citation-rate`,
   `--min-case-evidence-citation-rate`,
   `--min-case-path-evidence-citation-rate`, `--min-case-decision-f1`,
+  `--max-total-tokens`, `--max-input-tokens`, `--max-output-tokens`,
+  `--max-cost-usd`, `--max-case-total-tokens`,
+  `--max-case-input-tokens`, `--max-case-output-tokens`,
+  `--max-case-cost-usd`,
   `--max-noise-at-20`, `--max-case-noise-at-20`,
   `--max-input-hinted-cases`, `--max-unsupported-ground-truth-files`,
   `--max-empty-result-runs` to fail when agents produce no rankable suspected
@@ -424,6 +429,9 @@ plugin-fit choice, not just a shorter suspected-file list.
   diagnostic includes the localization payload, agent-output diagnostics,
   artifact freshness details, progress when available, and expands case-scoped
   aggregate failures, such as missed-in-context counters, onto the affected case.
+  Token budget gates require agent result `tokenUsage`; if token usage is absent
+  and a token gate is configured, `agent-check` fails instead of treating the
+  missing measurement as zero.
 - `bench agent-compare <suite.edn>` compares two `agent-report.json` files and
   exits non-zero when aggregate or per-case recall/MRR/noise regress beyond
   `--regression-tolerance` (default `0`). Use this after a candidate change to

@@ -1865,6 +1865,103 @@
                 first
                 :case-ids)))))
 
+(deftest checks-agent-report-token-thresholds
+  (let [report {:schema benchmark/agent-report-schema
+                :suite-id "suite"
+                :cases 2
+                :completed 2
+                :runs 2
+                :missing []
+                :scores {}
+                :agentDiagnostics {:tokenTelemetry {:inputTokens 1700
+                                                    :outputTokens 700
+                                                    :totalTokens 2400
+                                                    :costUsd 0.12}}
+                :results [{:case-id "case-1"
+                           :agent {:agentId "codex"
+                                   :mode "agraph"
+                                   :tokenUsage {:inputTokens 1000
+                                                :outputTokens 500
+                                                :totalTokens 1500
+                                                :costUsd 0.08}}
+                           :scores {}}
+                          {:case-id "case-2"
+                           :agent {:agentId "codex"
+                                   :mode "agraph"
+                                   :tokenUsage {:inputTokens 700
+                                                :outputTokens 200
+                                                :totalTokens 900
+                                                :costUsd 0.04}}
+                           :scores {}}]}
+        failed (benchmark/check-agent-report
+                report
+                {:max-total-tokens 2000
+                 :max-input-tokens 1500
+                 :max-output-tokens 600
+                 :max-cost-usd 0.1
+                 :max-case-total-tokens 1000
+                 :max-case-input-tokens 900
+                 :max-case-output-tokens 400
+                 :max-case-cost-usd 0.05})
+        passed (benchmark/check-agent-report
+                report
+                {:max-total-tokens 2400
+                 :max-input-tokens 1700
+                 :max-output-tokens 700
+                 :max-cost-usd 0.12
+                 :max-case-total-tokens 1500
+                 :max-case-input-tokens 1000
+                 :max-case-output-tokens 500
+                 :max-case-cost-usd 0.08})
+        missing (benchmark/check-agent-report
+                 (-> report
+                     (dissoc :agentDiagnostics)
+                     (assoc :results [{:case-id "case-1"
+                                       :agent {:agentId "codex"
+                                               :mode "agraph"}
+                                       :scores {}}]))
+                 {:max-total-tokens 1
+                  :max-case-total-tokens 1})]
+    (is (= "failed" (:status failed)))
+    (is (= #{"totalTokens"
+             "inputTokens"
+             "outputTokens"
+             "costUsd"
+             "case.totalTokens"
+             "case.inputTokens"
+             "case.outputTokens"
+             "case.costUsd"}
+           (set (map :metric (:failures failed)))))
+    (is (= {:inputTokens 1000
+            :outputTokens 500
+            :totalTokens 1500
+            :costUsd 0.08}
+           (get-in failed [:caseDiagnostics 0 :tokenUsage])))
+    (is (= #{"case.totalTokens"
+             "case.inputTokens"
+             "case.outputTokens"
+             "case.costUsd"}
+           (set (map :metric
+                     (get-in failed [:caseDiagnostics 0 :failures])))))
+    (is (= [] (get-in failed [:caseDiagnostics 1 :failures])))
+    (is (= {:requireComplete true
+            :allowDuplicateRuns false
+            :maxTotalTokens 2000.0
+            :maxInputTokens 1500.0
+            :maxOutputTokens 600.0
+            :maxCostUsd 0.1
+            :maxCaseTotalTokens 1000.0
+            :maxCaseInputTokens 900.0
+            :maxCaseOutputTokens 400.0
+            :maxCaseCostUsd 0.05}
+           (:thresholds failed)))
+    (is (= "passed" (:status passed)))
+    (is (= "failed" (:status missing)))
+    (is (= #{"totalTokens" "case.totalTokens"}
+           (set (map :metric (:failures missing)))))
+    (is (every? #(re-find #"missing token" (:message %))
+                (:failures missing)))))
+
 (deftest checks-agent-report-duplicate-runs
   (let [result {:case-id "case-1"
                 :agentResultPath "/tmp/run-1.json"

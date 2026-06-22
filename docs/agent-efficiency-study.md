@@ -204,6 +204,9 @@ Use existing benchmark report fields first:
 - localization: file recall at 5, 10, and 20; MRR; missed runs
 - noise: noise at 20 and predicted files that do not exist
 - evidence: evidence citation rate and path evidence citation rate
+- decision quality: decision recall, precision, F1, evidence citation rate,
+  missing decision runs, and decision-quality gap runs when reports contain
+  configured decision cases
 - result health: warning runs, empty result runs, commandless runs
 - command telemetry: `agentDiagnostics.commandTelemetry` command, search,
   file-read, AGraph, and shell counts derived from cited benchmark commands
@@ -214,6 +217,14 @@ Use existing benchmark report fields first:
   When reports include compound-command segment counters, `bb efficiency`
   compares segment, search-segment, and file-read-segment counts as
   lower-is-better command telemetry too.
+- token cost: `agentDiagnostics.tokenTelemetry` input, output, total token, and
+  cost totals when agent results include `tokenUsage`. `bb efficiency` compares
+  these as lower-is-better and emits a `qualityCostTradeoff` summary when token
+  telemetry is present. `bb bench agent-check` can enforce aggregate and
+  per-case budgets with `--max-total-tokens`, `--max-input-tokens`,
+  `--max-output-tokens`, `--max-cost-usd`, `--max-case-total-tokens`,
+  `--max-case-input-tokens`, `--max-case-output-tokens`, and
+  `--max-case-cost-usd`; configured token gates fail when token usage is absent.
 - task fit: `bb efficiency` `classSignals` for compact problem-class and
   architecture-class rows. Use each row's `measured` flag to distinguish a
   shared class-shaped tag from a class that counts toward claim readiness; fall
@@ -236,11 +247,15 @@ unacceptable noise or runtime cost. Strong evidence includes:
 - fewer missed runs or empty outputs
 - higher citation rates
 - fewer opened files or shell commands when command telemetry is available
+- lower token or dollar cost at equal or better decision/localization quality,
+  or an explicit quality-versus-token tradeoff when AGraph spends more tokens
+  to make better decisions on complex-system cases
 - equal or better patch success on task-completion runs
 
 Observed-only telemetry is useful for debugging how agents use AGraph, but it
 does not prove efficiency. Broad claims need directional metrics such as recall,
-noise, citation quality, elapsed time, command reductions, or patch outcomes.
+noise, citation quality, elapsed time, command reductions, token/cost deltas,
+or patch outcomes.
 
 Track cold, warm, and amortized costs separately. A cold run includes initial
 indexing. A warm run assumes the project graph already exists. The amortized

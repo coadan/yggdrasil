@@ -1773,11 +1773,19 @@
                                  "--min-path-evidence-citation-rate" "0.6"
                                  "--min-decision-f1" "0.75"
                                  "--min-decision-evidence-citation-rate" "0.65"
+                                 "--max-total-tokens" "10000"
+                                 "--max-input-tokens" "8000"
+                                 "--max-output-tokens" "2500"
+                                 "--max-cost-usd" "0.5"
                                  "--min-case-file-recall-at-10" "1.0"
                                  "--min-case-mrr" "0.9"
                                  "--min-case-evidence-citation-rate" "0.7"
                                  "--min-case-path-evidence-citation-rate" "0.55"
                                  "--min-case-decision-f1" "0.5"
+                                 "--max-case-total-tokens" "4000"
+                                 "--max-case-input-tokens" "3200"
+                                 "--max-case-output-tokens" "1000"
+                                 "--max-case-cost-usd" "0.2"
                                  "--max-case-noise-at-20" "0.75"
                                  "--max-input-hinted-cases" "0"
                                  "--max-unsupported-ground-truth-files" "0"
@@ -1826,11 +1834,19 @@
                   :min-path-evidence-citation-rate 0.6
                   :min-decision-f1 0.75
                   :min-decision-evidence-citation-rate 0.65
+                  :max-total-tokens 10000.0
+                  :max-input-tokens 8000.0
+                  :max-output-tokens 2500.0
+                  :max-cost-usd 0.5
                   :min-case-file-recall-at-10 1.0
                   :min-case-mrr 0.9
                   :min-case-evidence-citation-rate 0.7
                   :min-case-path-evidence-citation-rate 0.55
                   :min-case-decision-f1 0.5
+                  :max-case-total-tokens 4000.0
+                  :max-case-input-tokens 3200.0
+                  :max-case-output-tokens 1000.0
+                  :max-case-cost-usd 0.2
                   :max-case-noise-at-20 0.75
                   :max-input-hinted-cases 0.0
                   :max-unsupported-ground-truth-files 0.0

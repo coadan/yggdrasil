@@ -25,6 +25,10 @@
    {:ownerArea "retrieval"
     :rootCauseCategory "retrieval-gap"
     :recommendedSystemChange "Improve retrieval ranking, context selection, or context budget allocation for facts already present in benchmark context."}
+   "decision-quality-gap"
+   {:ownerArea "decision-quality"
+    :rootCauseCategory "decision-quality-gap"
+    :recommendedSystemChange "Improve decision-candidate prompts, evidence context, and scoring feedback so agents make auditable include/exclude/defer choices on complex-system tasks."}
    "benchmark-suite-gap"
    {:ownerArea "benchmark"
     :rootCauseCategory "benchmark-suite-gap"
@@ -141,6 +145,7 @@
         graph (:graphExpectationDiagnostics report)
         localization (:localizationDiagnostics report)
         maintenance (:maintenancePreflightDiagnostics report)
+        decision (:decisionDiagnostics report)
         expectation (:expectationDiagnostics report)
         source-extraction (hint-detail report "source-extraction-diagnostics")
         source-skipped (hint-detail report "source-skipped-files")
@@ -191,6 +196,13 @@
          :runs (:contextRankMissingRuns localization)
          :case-ids (:contextRankMissingCaseIds localization)
          :rationale "AGraph-mode score artifacts lacked context ground-truth ranks, weakening attribution for retrieval versus agent selection."})
+       (signal
+        {:kind "decision-quality-gaps"
+         :lane "decision-quality-gap"
+         :runs (:gapRuns decision)
+         :case-ids (:gapCaseIds decision)
+         :evidence (:choiceGaps decision)
+         :rationale "Decision benchmark cases had missing, wrong, unknown, or uncited candidate choices, so complex-system decision support needs focused improvement."})
        (signal
         {:kind "source-extraction-diagnostics"
          :lane "extractor-gap"

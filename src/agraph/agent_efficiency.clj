@@ -156,6 +156,38 @@
     :path [:timings :runningCases]
     :direction :lower}])
 
+(def ^:private decision-metric-specs
+  [{:key :decisionRecall
+    :label "decisionRecall"
+    :category :decision-quality
+    :path [:scores :decisionRecall]
+    :direction :higher}
+   {:key :decisionPrecision
+    :label "decisionPrecision"
+    :category :decision-quality
+    :path [:scores :decisionPrecision]
+    :direction :higher}
+   {:key :decisionF1
+    :label "decisionF1"
+    :category :decision-quality
+    :path [:scores :decisionF1]
+    :direction :higher}
+   {:key :decisionEvidenceCitationRate
+    :label "decisionEvidenceCitationRate"
+    :category :decision-quality
+    :path [:scores :decisionEvidenceCitationRate]
+    :direction :higher}
+   {:key :missingDecisionRuns
+    :label "missingDecisionRuns"
+    :category :decision-quality
+    :path [:decisionDiagnostics :missingDecisionRuns]
+    :direction :lower}
+   {:key :decisionQualityGapRuns
+    :label "decisionQualityGapRuns"
+    :category :decision-quality
+    :path [:decisionDiagnostics :gapRuns]
+    :direction :lower}])
+
 (def ^:private case-score-specs
   (->> metric-specs
        (filter #(= :scores (first (:path %))))
@@ -167,7 +199,7 @@
        vec))
 
 (def ^:private category-order
-  (->> metric-specs
+  (->> (concat metric-specs decision-metric-specs)
        (map (comp name :category))
        distinct
        vec))
@@ -183,6 +215,8 @@
    :segmentCount
    :searchSegmentCount
    :fileReadSegmentCount
+   :decisionF1
+   :decisionEvidenceCitationRate
    :elapsedMs
    :totalTokens
    :costUsd])
@@ -195,6 +229,8 @@
    [:commandCount :toolCallDelta]
    [:searchCommandCount :searchCommandDelta]
    [:fileReadCommandCount :fileReadDelta]
+   [:decisionF1 :decisionF1Delta]
+   [:decisionEvidenceCitationRate :decisionEvidenceCitationRateDelta]
    [:elapsedMs :elapsedMsDelta]
    [:totalTokens :totalTokensDelta]
    [:costUsd :costUsdDelta]])
@@ -207,6 +243,8 @@
    [:toolCallDelta "tool call delta"]
    [:searchCommandDelta "search command delta"]
    [:fileReadDelta "file read delta"]
+   [:decisionF1Delta "decisionF1 delta"]
+   [:decisionEvidenceCitationRateDelta "decision evidence citation delta"]
    [:elapsedMsDelta "elapsedMs delta"]
    [:totalTokensDelta "totalTokens delta"]
    [:costUsdDelta "costUsd delta"]])
@@ -221,9 +259,30 @@
    :architectureClassCoverage
    :evidenceMetrics
    :expectedEvidenceCitationMetrics
+   :decisionQualityMetrics
    :commandTelemetry
    :shellLaneClaimReady
    :agraphLaneClaimReady])
+
+(def ^:private quality-tradeoff-metric-keys
+  #{:fileRecallAt5
+    :fileRecallAt10
+    :fileRecallAt20
+    :meanReciprocalRankFile
+    :noiseRatioAt20
+    :evidenceCitationRate
+    :pathEvidenceCitationRate
+    :expectedEvidenceCitationRate
+    :decisionRecall
+    :decisionPrecision
+    :decisionF1
+    :decisionEvidenceCitationRate})
+
+(def ^:private token-tradeoff-metric-keys
+  #{:totalTokens
+    :inputTokens
+    :outputTokens
+    :costUsd})
 
 (defn- read-json-file
   [path]
@@ -310,6 +369,27 @@
           (some? (get-in agraph-report [:agentDiagnostics :commandTelemetry :segmentCount])))
     segment-metric-specs
     []))
+
+(defn- decision-quality-present?
+  [report]
+  (or (number? (get-in report [:scores :decisionF1]))
+      (pos? (long (get-in report
+                          [:decisionDiagnostics :configuredRuns]
+                          0)))))
+
+(defn- decision-metric-specs-for
+  [shell-report agraph-report]
+  (if (or (decision-quality-present? shell-report)
+          (decision-quality-present? agraph-report))
+    decision-metric-specs
+    []))
+
+(defn- case-score-specs-for
+  [shell-report agraph-report]
+  (->> (concat case-score-specs
+               (decision-metric-specs-for shell-report agraph-report))
+       (filter #(= :scores (first (:path %))))
+       vec))
 
 (defn- result-label
   [effect]
@@ -407,6 +487,7 @@
    :scores (:scores report)
    :localizationDiagnostics (:localizationDiagnostics report)
    :agentDiagnostics (:agentDiagnostics report)
+   :decisionDiagnostics (:decisionDiagnostics report)
    :improvementSummary (:improvementSummary report)
    :improvementTargetRuns (benchmark-targets/target-runs report)
    :improvementTargetRunsByKind (benchmark-targets/target-runs-by-kind report)
@@ -478,6 +559,77 @@
               :unchangedMetrics unchanged
               :unavailableMetrics unavailable}
        (pos? observed) (assoc :observedMetrics observed)))))
+
+(defn- tradeoff-rows
+  [deltas metric-keys]
+  (let [metric-keys (set metric-keys)]
+    (filterv #(contains? metric-keys (:key %)) deltas)))
+
+(defn- tradeoff-counts
+  [rows]
+  {:availableMetrics (count (filter :available rows))
+   :improvedMetrics (count-results rows "improved")
+   :regressedMetrics (count-results rows "regressed")
+   :unchangedMetrics (count-results rows "unchanged")
+   :unavailableMetrics (count-results rows "unavailable")})
+
+(defn- compact-tradeoff-delta
+  [row]
+  (select-keys row [:key :metric :shellOnly :agraph :delta :result]))
+
+(defn- tradeoff-deltas-by-key
+  [rows]
+  (into {}
+        (keep (fn [{:keys [key delta available]}]
+                (when available
+                  [key delta])))
+        rows))
+
+(defn- quality-token-tradeoff
+  [deltas]
+  (let [quality-rows (tradeoff-rows deltas quality-tradeoff-metric-keys)
+        token-rows (tradeoff-rows deltas token-tradeoff-metric-keys)
+        token-present? (some #(or (some? (:shellOnly %))
+                                  (some? (:agraph %)))
+                             token-rows)
+        quality-counts (tradeoff-counts quality-rows)
+        token-counts (tradeoff-counts token-rows)
+        quality-improved? (pos? (:improvedMetrics quality-counts))
+        quality-regressed? (pos? (:regressedMetrics quality-counts))
+        token-improved? (pos? (:improvedMetrics token-counts))
+        token-regressed? (pos? (:regressedMetrics token-counts))
+        token-incomplete? (and token-present?
+                               (pos? (:unavailableMetrics token-counts)))
+        status (cond
+                 (not token-present?) nil
+                 token-incomplete? "token-metrics-incomplete"
+                 (zero? (:availableMetrics quality-counts))
+                 "quality-metrics-unavailable"
+                 (and quality-improved? (not quality-regressed?)
+                      token-improved? (not token-regressed?))
+                 "better-quality-lower-token-cost"
+                 (and quality-improved? token-regressed?)
+                 "better-quality-higher-token-cost"
+                 (and quality-regressed? token-improved?
+                      (not token-regressed?))
+                 "lower-quality-lower-token-cost"
+                 (and quality-regressed? token-regressed?)
+                 "lower-quality-higher-token-cost"
+                 (and (not quality-improved?) (not quality-regressed?)
+                      token-improved? (not token-regressed?))
+                 "same-quality-lower-token-cost"
+                 (and (not quality-improved?) (not quality-regressed?)
+                      token-regressed?)
+                 "same-quality-higher-token-cost"
+                 :else "mixed-quality-token-tradeoff")]
+    (when status
+      {:status status
+       :quality (assoc quality-counts
+                       :metrics (mapv compact-tradeoff-delta quality-rows))
+       :tokenCost (assoc token-counts
+                         :metrics (mapv compact-tradeoff-delta token-rows))
+       :headlineDeltas (merge (tradeoff-deltas-by-key quality-rows)
+                              (tradeoff-deltas-by-key token-rows))})))
 
 (defn- tag-comparability
   [shell-report agraph-report]
@@ -688,6 +840,18 @@
         agraph? (expected-evidence-citation-present? agraph-report)]
     (= shell? agraph?)))
 
+(defn- decision-score-present?
+  [report]
+  (and (number? (get-in report [:scores :decisionF1]))
+       (number? (get-in report [:scores :decisionEvidenceCitationRate]))))
+
+(defn- decision-quality-comparable?
+  [shell-report agraph-report]
+  (or (not (or (decision-quality-present? shell-report)
+               (decision-quality-present? agraph-report)))
+      (and (decision-score-present? shell-report)
+           (decision-score-present? agraph-report))))
+
 (defn- lane-claim-ready?
   [report]
   (let [claim-readiness (:claimReadiness report)]
@@ -718,6 +882,9 @@
         expected-evidence-metrics? (expected-evidence-citation-comparable?
                                     shell-report
                                     agraph-report)
+        decision-quality-metrics? (decision-quality-comparable?
+                                   shell-report
+                                   agraph-report)
         command-telemetry? (category-has-directional-metrics?
                             by-category
                             "command-telemetry")
@@ -736,6 +903,7 @@
                       :architectureClassCoverage architecture-classes?
                       :evidenceMetrics evidence-metrics?
                       :expectedEvidenceCitationMetrics expected-evidence-metrics?
+                      :decisionQualityMetrics decision-quality-metrics?
                       :commandTelemetry command-telemetry?
                       :shellLaneClaimReady shell-lane-ready?
                       :agraphLaneClaimReady agraph-lane-ready?}
@@ -773,6 +941,9 @@
                  (not expected-evidence-metrics?)
                  (conj "Expected evidence citation metrics are only available in one lane; non-code evidence citation quality is not comparable.")
 
+                 (not decision-quality-metrics?)
+                 (conj "Decision-quality metrics are configured in at least one lane but are not comparable; complex-system decision quality is unproven.")
+
                  (not command-telemetry?)
                  (conj "Command telemetry is unavailable; CLI search/read-loop savings are unproven.")
 
@@ -807,7 +978,7 @@
            ge (assoc :graphExpectations ge)))))))
 
 (defn- case-deltas
-  [shell-report agraph-report]
+  [shell-report agraph-report score-specs]
   (let [shell-by-case (result-by-case shell-report)
         agraph-by-case (result-by-case agraph-report)
         shared-case-ids (->> (keys shell-by-case)
@@ -819,7 +990,7 @@
                   deltas (mapv #(metric-delta shell-result
                                               agraph-result
                                               %)
-                               case-score-specs)
+                               score-specs)
                   shell-audit (case-audit-scope-summary shell-result)
                   agraph-audit (case-audit-scope-summary agraph-result)]
               (cond-> {:caseId case-id
@@ -841,9 +1012,10 @@
   (let [metrics-by-key (into {} (map (juxt :key identity)) headline-metrics)
         requirements (:requirements claim-readiness)
         metric-fields (into {}
-                            (map (fn [[metric-key field]]
-                                   [field (:delta (get metrics-by-key
-                                                       metric-key))]))
+                            (keep (fn [[metric-key field]]
+                                    (when (contains? metrics-by-key metric-key)
+                                      [field (:delta (get metrics-by-key
+                                                          metric-key))])))
                             headline-summary-fields)]
     (merge {:status (:signal summary)
             :claimStatus (:status claim-readiness)
@@ -924,6 +1096,9 @@
    (let [shell-efficiency-report (efficiency-report shell-report)
          agraph-efficiency-report (efficiency-report agraph-report)
          comparable (comparability shell-report agraph-report)
+         decision-specs (decision-metric-specs-for
+                         shell-efficiency-report
+                         agraph-efficiency-report)
          deltas (mapv #(metric-delta shell-efficiency-report
                                      agraph-efficiency-report
                                      %)
@@ -932,6 +1107,7 @@
                              (segment-metric-specs-for
                               shell-efficiency-report
                               agraph-efficiency-report)
+                             decision-specs
                              (improvement-target-metric-specs
                               shell-efficiency-report
                               agraph-efficiency-report))))
@@ -951,32 +1127,39 @@
                                                  shell-report
                                                  agraph-report)
          headline-metrics (headline-metric-deltas-from-deltas deltas)
+         quality-cost-tradeoff (quality-token-tradeoff deltas)
          compact-summary-result (compact-summary
                                  {:summary summary
                                   :comparable comparable
                                   :claim-readiness claim-readiness-result})]
-     {:schema schema
-      :status (:signal summary)
-      :suiteId (or (:suite-id agraph-report)
-                   (:suite-id shell-report))
-      :compactSummary compact-summary-result
-      :summary summary
-      :comparability comparable
-      :shellOnly (report-summary shell-report)
-      :agraph (report-summary agraph-report)
-      :deltas deltas
-      :headlineMetrics headline-metrics
-      :headlineSummary (headline-summary {:summary summary
-                                          :comparable comparable
-                                          :headline-metrics headline-metrics
-                                          :claim-readiness
-                                          claim-readiness-result})
-      :byCategory by-category
-      :byTag by-tag
-      :classSignals (class-signals by-tag problem-coverage)
-      :problemClassCoverage problem-coverage
-      :claimReadiness claim-readiness-result
-      :caseDeltas (case-deltas shell-report agraph-report)})))
+     (cond-> {:schema schema
+              :status (:signal summary)
+              :suiteId (or (:suite-id agraph-report)
+                           (:suite-id shell-report))
+              :compactSummary compact-summary-result
+              :summary summary
+              :comparability comparable
+              :shellOnly (report-summary shell-report)
+              :agraph (report-summary agraph-report)
+              :deltas deltas
+              :headlineMetrics headline-metrics
+              :headlineSummary (headline-summary {:summary summary
+                                                  :comparable comparable
+                                                  :headline-metrics headline-metrics
+                                                  :claim-readiness
+                                                  claim-readiness-result})
+              :byCategory by-category
+              :byTag by-tag
+              :classSignals (class-signals by-tag problem-coverage)
+              :problemClassCoverage problem-coverage
+              :claimReadiness claim-readiness-result
+              :caseDeltas (case-deltas shell-report
+                                       agraph-report
+                                       (case-score-specs-for
+                                        shell-efficiency-report
+                                        agraph-efficiency-report))}
+       quality-cost-tradeoff
+       (assoc :qualityCostTradeoff quality-cost-tradeoff)))))
 
 (defn compare-report-files!
   "Read two agent-report JSON files and optionally write the comparison."
@@ -1099,6 +1282,13 @@
   [summary [key label]]
   (str "- " label ": " (format-metric-value (get summary key))))
 
+(defn- tradeoff-summary-line
+  [label summary]
+  (str "- " label ": improved " (:improvedMetrics summary)
+       ", regressed " (:regressedMetrics summary)
+       ", unchanged " (:unchangedMetrics summary)
+       ", unavailable " (:unavailableMetrics summary)))
+
 (defn- claim-requirement-line
   [requirements key]
   (str "- " (name key) ": " (if (true? (get requirements key))
@@ -1127,6 +1317,7 @@
         headline-summary (:headlineSummary comparison)
         key-deltas (headline-metric-deltas comparison)
         categories (:byCategory comparison)
+        tradeoff (:qualityCostTradeoff comparison)
         case-deltas (:caseDeltas comparison)
         problem-groups (class-tag-groups comparison
                                          benchmark-classes/problem-class-tag?)
@@ -1194,12 +1385,20 @@
                                 (str/join ", " (map name requirements))
                                 "none"))]
                         (map #(headline-summary-line headline-summary %)
-                             headline-summary-lines)
+                             (filter #(contains? headline-summary (first %))
+                                     headline-summary-lines))
                         [(str "- Unavailable headline metrics: "
                               (if-let [metrics (seq (:unavailableMetrics
                                                      headline-summary))]
                                 (str/join ", " (map name metrics))
                                 "none"))]))
+              (when tradeoff
+                [""
+                 "## Quality/Token Tradeoff"
+                 ""
+                 (str "- Status: " (:status tradeoff))
+                 (tradeoff-summary-line "Quality metrics" (:quality tradeoff))
+                 (tradeoff-summary-line "Token/cost metrics" (:tokenCost tradeoff))])
               (when (seq key-deltas)
                 (concat ["" "## Key Metric Deltas" ""]
                         (map metric-delta-line key-deltas)))

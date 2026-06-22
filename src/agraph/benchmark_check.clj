@@ -30,6 +30,10 @@
                  [:min-decision-f1 :minDecisionF1]
                  [:min-decision-evidence-citation-rate
                   :minDecisionEvidenceCitationRate]
+                 [:max-total-tokens :maxTotalTokens]
+                 [:max-input-tokens :maxInputTokens]
+                 [:max-output-tokens :maxOutputTokens]
+                 [:max-cost-usd :maxCostUsd]
                  [:min-case-file-recall-at-5 :minCaseFileRecallAt5]
                  [:min-case-file-recall-at-10 :minCaseFileRecallAt10]
                  [:min-case-file-recall-at-20 :minCaseFileRecallAt20]
@@ -38,6 +42,10 @@
                  [:min-case-path-evidence-citation-rate
                   :minCasePathEvidenceCitationRate]
                  [:min-case-decision-f1 :minCaseDecisionF1]
+                 [:max-case-total-tokens :maxCaseTotalTokens]
+                 [:max-case-input-tokens :maxCaseInputTokens]
+                 [:max-case-output-tokens :maxCaseOutputTokens]
+                 [:max-case-cost-usd :maxCaseCostUsd]
                  [:max-case-noise-at-20 :maxCaseNoiseRatioAt20]
                  [:max-input-hinted-cases :maxInputHintedCases]
                  [:max-unsupported-ground-truth-files :maxUnsupportedGroundTruthFiles]
@@ -93,6 +101,15 @@
     (let [actual (double (get-in report (into [:report] metric-path) 0.0))]
       (when (> actual expected)
         (metric-failure metric-label "<=" expected actual)))))
+(defn- max-required-failure
+  [report threshold-key metric-path metric-label missing-message]
+  (when-some [expected (get-in report [:thresholds threshold-key])]
+    (if-some [actual-value (get-in report (into [:report] metric-path))]
+      (let [actual (double actual-value)]
+        (when (> actual expected)
+          (metric-failure metric-label "<=" expected actual)))
+      (merge (metric-failure metric-label "<=" expected nil)
+             {:message missing-message}))))
 (defn- min-count-failure
   [report threshold-key report-key metric-label]
   (when-some [expected (get-in report [:thresholds threshold-key])]
@@ -178,6 +195,20 @@
     (let [actual (double (get-in result [:scores metric-key] 0.0))]
       (when (> actual expected)
         (case-metric-failure result metric-label "<=" expected actual)))))
+(defn- result-token-usage
+  [result]
+  (or (get-in result [:agent :tokenUsage])
+      (get-in result [:agentOutput :tokenUsage])))
+(defn- case-token-max-failure
+  [check result threshold-key token-key metric-label]
+  (when-some [expected (get-in check [:thresholds threshold-key])]
+    (if-some [actual-value (get (result-token-usage result) token-key)]
+      (let [actual (double actual-value)]
+        (when (> actual expected)
+          (case-metric-failure result metric-label "<=" expected actual)))
+      (assoc (case-metric-failure result metric-label "<=" expected nil)
+             :message
+             "Case result is missing token usage required by this token budget gate."))))
 (defn- case-threshold-failures
   [check]
   (let [results (get-in check [:report :results])]
@@ -204,7 +235,17 @@
                  "case.decisionF1"]])
          (keep (fn [[threshold-key metric-key metric-label]]
                  (case-max-failure check result threshold-key metric-key metric-label))
-               [[:maxCaseNoiseRatioAt20 :noiseRatioAt20 "case.noiseRatioAt20"]])))
+               [[:maxCaseNoiseRatioAt20 :noiseRatioAt20 "case.noiseRatioAt20"]])
+         (keep (fn [[threshold-key token-key metric-label]]
+                 (case-token-max-failure check
+                                         result
+                                         threshold-key
+                                         token-key
+                                         metric-label))
+               [[:maxCaseTotalTokens :totalTokens "case.totalTokens"]
+                [:maxCaseInputTokens :inputTokens "case.inputTokens"]
+                [:maxCaseOutputTokens :outputTokens "case.outputTokens"]
+                [:maxCaseCostUsd :costUsd "case.costUsd"]])))
       results))))
 (defn- active-stage-failures
   [check]
@@ -224,6 +265,28 @@
                                           :activeStage])
                             {:message "Active benchmark stage exceeded the configured duration."})))))
          vec)))
+(defn- aggregate-token-failures
+  [check]
+  (->> [[:maxTotalTokens
+         [:agentDiagnostics :tokenTelemetry :totalTokens]
+         "totalTokens"]
+        [:maxInputTokens
+         [:agentDiagnostics :tokenTelemetry :inputTokens]
+         "inputTokens"]
+        [:maxOutputTokens
+         [:agentDiagnostics :tokenTelemetry :outputTokens]
+         "outputTokens"]
+        [:maxCostUsd
+         [:agentDiagnostics :tokenTelemetry :costUsd]
+         "costUsd"]]
+       (keep (fn [[threshold-key metric-path metric-label]]
+               (max-required-failure
+                check
+                threshold-key
+                metric-path
+                metric-label
+                "Agent report is missing token telemetry required by this token budget gate.")))
+       vec))
 (defn- empty-result-failures
   [check]
   (when-some [expected (get-in check [:thresholds :maxEmptyResultRuns])]
@@ -627,6 +690,9 @@
       (:agentOutput result)
       (assoc :agentOutput (:agentOutput result))
 
+      (result-token-usage result)
+      (assoc :tokenUsage (result-token-usage result))
+
       (:artifact result)
       (assoc :artifact (:artifact result))
 
@@ -705,6 +771,7 @@
                           [:maxUnsupportedGroundTruthFiles
                            [:scores :unsupportedGroundTruthFiles]
                            "unsupportedGroundTruthFiles"]])
+                   (aggregate-token-failures check-base)
                    (case-threshold-failures check-base)
                    (empty-result-failures check-base)
                    (missing-predicted-file-failures check-base)

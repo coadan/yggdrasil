@@ -37,6 +37,12 @@
                                                :rankedOutsideTop5CaseIds ["case-2"]
                                                :contextRankMissingRuns 1
                                                :contextRankMissingCaseIds ["case-1"]}
+                     :decisionDiagnostics {:gapRuns 1
+                                           :gapCaseIds ["case-1"]
+                                           :choiceGaps [{:kind "missed"
+                                                         :id "plan-runtime"
+                                                         :runs 1
+                                                         :caseIds ["case-1"]}]}
                      :maintenancePreflightDiagnostics {:blockedRuns 1
                                                        :blockedCaseIds ["case-1"]}
                      :problemClasses {:classes []
@@ -60,6 +66,13 @@
            (get-in signals ["missing-declared-source-kinds" :lane])))
     (is (= "agent-protocol-gap"
            (get-in signals ["commandless-runs" :lane])))
+    (is (= "decision-quality-gap"
+           (get-in signals ["decision-quality-gaps" :lane])))
+    (is (= [{:kind "missed"
+             :id "plan-runtime"
+             :runs 1
+             :caseIds ["case-1"]}]
+           (get-in signals ["decision-quality-gaps" :evidence])))
     (is (= "agent-protocol-gap"
            (get-in signals ["unverified-score-artifacts" :lane])))))
 

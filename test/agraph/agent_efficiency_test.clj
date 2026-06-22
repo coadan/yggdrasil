@@ -2,6 +2,7 @@
   (:require [agraph.agent-efficiency :as agent-efficiency]
             [charred.api :as json]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (defn- temp-dir
@@ -25,6 +26,8 @@
 (defn- report
   [{:keys [mode recall5 recall10 recall20 mrr noise evidence path-evidence
            expected-evidence
+           decision-recall decision-precision decision-f1 decision-evidence
+           missing-decision decision-gaps
            missed outside5 outside10 missing-predicted empty commandless warnings
            command-count search-command-count file-read-command-count
            shell-command-count agraph-command-count
@@ -39,42 +42,58 @@
                         :evidenceCitationRate evidence
                         :pathEvidenceCitationRate path-evidence}
                  (some? expected-evidence)
-                 (assoc :expectedEvidenceCitationRate expected-evidence))]
-    {:schema "agraph.benchmark.agent-report/v1"
-     :suite-id "suite"
-     :cases (count case-ids)
-     :completed (count case-ids)
-     :runs (count case-ids)
-     :missing []
-     :scores scores
-     :localizationDiagnostics {:missedRuns missed
-                               :rankedOutsideTop5Runs outside5
-                               :rankedOutsideTop10Runs outside10}
-     :agentDiagnostics {:missingPredictedFileRuns missing-predicted
-                        :emptyResultRuns empty
-                        :commandlessRuns commandless
-                        :warningRuns warnings
-                        :commandTelemetry (cond-> {:commandCount command-count
-                                                   :agraphCommandCount agraph-command-count
-                                                   :searchCommandCount search-command-count
-                                                   :fileReadCommandCount file-read-command-count
-                                                   :shellCommandCount shell-command-count}
-                                            (some? segment-count)
-                                            (assoc :segmentCount segment-count
-                                                   :agraphSegmentCount agraph-segment-count
-                                                   :searchSegmentCount search-segment-count
-                                                   :fileReadSegmentCount file-read-segment-count
-                                                   :shellSegmentCount shell-segment-count))}
-     :improvementSummary []
-     :timings {:elapsedMs elapsed
-               :failedCases failed
-               :runningCases running}
-     :results (mapv (fn [case-id]
-                      {:case-id case-id
-                       :agent {:mode mode
-                               :agentId "codex"}
-                       :scores scores})
-                    case-ids)}))
+                 (assoc :expectedEvidenceCitationRate expected-evidence)
+                 (some? decision-recall)
+                 (assoc :decisionRecall decision-recall
+                        :decisionPrecision decision-precision
+                        :decisionF1 decision-f1
+                        :decisionEvidenceCitationRate decision-evidence))]
+    (cond-> {:schema "agraph.benchmark.agent-report/v1"
+             :suite-id "suite"
+             :cases (count case-ids)
+             :completed (count case-ids)
+             :runs (count case-ids)
+             :missing []
+             :scores scores
+             :localizationDiagnostics {:missedRuns missed
+                                       :rankedOutsideTop5Runs outside5
+                                       :rankedOutsideTop10Runs outside10}
+             :agentDiagnostics {:missingPredictedFileRuns missing-predicted
+                                :emptyResultRuns empty
+                                :commandlessRuns commandless
+                                :warningRuns warnings
+                                :commandTelemetry (cond-> {:commandCount command-count
+                                                           :agraphCommandCount agraph-command-count
+                                                           :searchCommandCount search-command-count
+                                                           :fileReadCommandCount file-read-command-count
+                                                           :shellCommandCount shell-command-count}
+                                                    (some? segment-count)
+                                                    (assoc :segmentCount segment-count
+                                                           :agraphSegmentCount agraph-segment-count
+                                                           :searchSegmentCount search-segment-count
+                                                           :fileReadSegmentCount file-read-segment-count
+                                                           :shellSegmentCount shell-segment-count))}
+             :improvementSummary []
+             :timings {:elapsedMs elapsed
+                       :failedCases failed
+                       :runningCases running}
+             :results (mapv (fn [case-id]
+                              {:case-id case-id
+                               :agent {:mode mode
+                                       :agentId "codex"}
+                               :scores scores})
+                            case-ids)}
+      (some? decision-f1)
+      (assoc :decisionDiagnostics {:configuredRuns (count case-ids)
+                                   :configuredCaseIds case-ids
+                                   :gapRuns (long (or decision-gaps 0))
+                                   :gapCaseIds (if (pos? (long (or decision-gaps 0)))
+                                                 case-ids
+                                                 [])
+                                   :missingDecisionRuns (long (or missing-decision 0))
+                                   :missingDecisionCaseIds (if (pos? (long (or missing-decision 0)))
+                                                             case-ids
+                                                             [])}))))
 
 (defn- tag-row
   [key {:keys [cases runs recall10 noise]}]
@@ -321,6 +340,7 @@
                            :architectureClassCoverage false
                            :evidenceMetrics true
                            :expectedEvidenceCitationMetrics true
+                           :decisionQualityMetrics true
                            :commandTelemetry true
                            :shellLaneClaimReady true
                            :agraphLaneClaimReady true}
@@ -340,6 +360,101 @@
            (get-in comparison [:shellOnly :modes])))
     (is (= {"agraph" 2}
            (get-in comparison [:agraph :modes])))))
+
+(deftest compares-decision-quality-when-present
+  (let [shell (report {:mode "shell-only"
+                       :recall5 0.5
+                       :recall10 0.5
+                       :recall20 0.5
+                       :mrr 0.4
+                       :noise 0.5
+                       :evidence 0.25
+                       :path-evidence 0.1
+                       :decision-recall 0.5
+                       :decision-precision 0.5
+                       :decision-f1 0.5
+                       :decision-evidence 0.25
+                       :missing-decision 1
+                       :decision-gaps 1
+                       :missed 1
+                       :outside5 1
+                       :outside10 1
+                       :missing-predicted 1
+                       :empty 1
+                       :commandless 2
+                       :warnings 1
+                       :command-count 9
+                       :search-command-count 4
+                       :file-read-command-count 2
+                       :shell-command-count 3
+                       :agraph-command-count 0
+                       :elapsed 1000
+                       :failed 0
+                       :running 0
+                       :case-ids ["case-1" "case-2"]})
+        agraph (report {:mode "agraph"
+                        :recall5 0.75
+                        :recall10 0.75
+                        :recall20 0.75
+                        :mrr 0.6
+                        :noise 0.25
+                        :evidence 0.5
+                        :path-evidence 0.4
+                        :decision-recall 0.75
+                        :decision-precision 1.0
+                        :decision-f1 0.8571428571428571
+                        :decision-evidence 1.0
+                        :missing-decision 0
+                        :decision-gaps 0
+                        :missed 0
+                        :outside5 0
+                        :outside10 0
+                        :missing-predicted 0
+                        :empty 0
+                        :commandless 1
+                        :warnings 0
+                        :command-count 5
+                        :search-command-count 1
+                        :file-read-command-count 1
+                        :shell-command-count 1
+                        :agraph-command-count 2
+                        :elapsed 900
+                        :failed 0
+                        :running 0
+                        :case-ids ["case-1" "case-2"]})
+        comparison (agent-efficiency/compare-reports shell agraph)
+        deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))
+        categories-by-key (into {} (map (juxt :category identity)) (:byCategory comparison))]
+    (is (= {:shellOnly 0.5
+            :agraph 0.8571428571428571
+            :delta 0.3571428571428571
+            :effect 0.3571428571428571
+            :result "improved"}
+           (select-keys (:decisionF1 deltas-by-key)
+                        [:shellOnly :agraph :delta :effect :result])))
+    (is (= {:signal "agraph-improved"
+            :minSharedCases 2
+            :availableMetrics 6
+            :improvedMetrics 6
+            :regressedMetrics 0
+            :unchangedMetrics 0
+            :unavailableMetrics 0}
+           (get-in categories-by-key ["decision-quality" :summary])))
+    (is (= 0.3571428571428571
+           (get-in comparison [:headlineSummary :decisionF1Delta])))
+    (is (= 0.75
+           (get-in comparison
+                   [:headlineSummary :decisionEvidenceCitationRateDelta])))
+    (is (= true
+           (get-in comparison
+                   [:claimReadiness :requirements :decisionQualityMetrics])))
+    (is (= ["decisionRecall"
+            "decisionPrecision"
+            "decisionF1"
+            "decisionEvidenceCitationRate"]
+           (->> (get-in comparison [:caseDeltas 0 :deltas])
+                (filter #(str/starts-with? (:metric %) "decision"))
+                (mapv :metric))))))
 
 (deftest compares-segment-command-telemetry-when-available
   (let [shell (update-in shell-report
@@ -468,6 +583,38 @@
             :unchangedMetrics 0
             :unavailableMetrics 0}
            (get-in categories-by-key ["token-cost" :summary])))
+    (is (= "better-quality-lower-token-cost"
+           (get-in comparison [:qualityCostTradeoff :status])))
+    (is (= {:availableMetrics 7
+            :improvedMetrics 7
+            :regressedMetrics 0
+            :unchangedMetrics 0
+            :unavailableMetrics 1}
+           (select-keys (get-in comparison [:qualityCostTradeoff :quality])
+                        [:availableMetrics
+                         :improvedMetrics
+                         :regressedMetrics
+                         :unchangedMetrics
+                         :unavailableMetrics])))
+    (is (= {:availableMetrics 4
+            :improvedMetrics 4
+            :regressedMetrics 0
+            :unchangedMetrics 0
+            :unavailableMetrics 0}
+           (select-keys (get-in comparison [:qualityCostTradeoff :tokenCost])
+                        [:availableMetrics
+                         :improvedMetrics
+                         :regressedMetrics
+                         :unchangedMetrics
+                         :unavailableMetrics])))
+    (is (= {:fileRecallAt10 0.25
+            :totalTokens -5000.0
+            :costUsd -0.25}
+           (select-keys (get-in comparison
+                                [:qualityCostTradeoff :headlineDeltas])
+                        [:fileRecallAt10 :totalTokens :costUsd])))
+    (is (.contains markdown "## Quality/Token Tradeoff"))
+    (is (.contains markdown "- Status: better-quality-lower-token-cost"))
     (is (.contains markdown "- totalTokens: improved (shell: 12000.0, agraph: 7000.0, delta: -5000.0)"))
     (is (.contains markdown "- costUsd: improved (shell: 0.6, agraph: 0.35, delta: -0.25)"))))
 
@@ -685,6 +832,7 @@
                            :architectureClassCoverage true
                            :evidenceMetrics true
                            :expectedEvidenceCitationMetrics true
+                           :decisionQualityMetrics true
                            :commandTelemetry true
                            :shellLaneClaimReady true
                            :agraphLaneClaimReady true}
