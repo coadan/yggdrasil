@@ -93,6 +93,82 @@
                         [:table :field :values :constraints :read-context])))
     (is (not-any? #{'*} (:return-fields (first @calls))))))
 
+(deftest metadata-commit-single-cardinality-uses-batched-target-id-query
+  (let [calls (atom [])
+        tx-ops (atom nil)
+        rows [(metadata/row {:project-id "test"
+                             :repo-id "repo"
+                             :target-id "target:a"
+                             :target-kind :node
+                             :key :owner/team
+                             :source :review
+                             :value "platform"})
+              (metadata/row {:project-id "test"
+                             :repo-id "repo"
+                             :target-id "target:b"
+                             :target-kind :node
+                             :key :owner/team
+                             :source :review
+                             :value "product"})
+              (metadata/row {:project-id "test"
+                             :repo-id "repo"
+                             :target-id "target:a"
+                             :target-kind :node
+                             :key :runtime/deploy-target
+                             :source :review
+                             :value "prod"})]]
+    (with-redefs [store/metadata-defs
+                  (fn [_ ctx]
+                    (is (= {:valid-at t2} (select-keys ctx [:valid-at])))
+                    {:owner/team {:cardinality :one}
+                     :runtime/deploy-target {:cardinality :many}})
+                  store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    [{:xt/id "metadata:old-a"
+                      :project-id "test"
+                      :target-id "target:a"
+                      :key :owner/team
+                      :source :review
+                      :active? true}
+                     {:xt/id "metadata:old-b"
+                      :project-id "test"
+                      :target-id "target:b"
+                      :key :owner/team
+                      :source :review
+                      :active? true}
+                     {:xt/id "metadata:other-key"
+                      :project-id "test"
+                      :target-id "target:a"
+                      :key :risk/criticality
+                      :source :review
+                      :active? true}
+                     {:xt/id "metadata:other-project"
+                      :project-id "other"
+                      :target-id "target:a"
+                      :key :owner/team
+                      :source :review
+                      :active? true}])
+                  store/execute-tx!
+                  (fn [_ ops]
+                    (reset! tx-ops ops)
+                    {:tx-id 1})]
+      (is (= {:metadata 3}
+             (store/commit-metadata! :xtdb rows {:valid-from t2}))))
+    (is (= 1 (count @calls)))
+    (is (= {:table (:metadata store/tables)
+            :field :target-id
+            :values ["target:a" "target:b"]
+            :read-context {:valid-at t2}}
+           (select-keys (first @calls)
+                        [:table :field :values :read-context])))
+    (is (not-any? #{'*} (:return-fields (first @calls))))
+    (is (= ["metadata:old-a" "metadata:old-b"]
+           (->> @tx-ops
+                (filter #(= :delete-docs (first %)))
+                (mapv last))))
+    (is (= 3 (count (filter #(= :put-docs (first %)) @tx-ops))))))
+
 (deftest metadata-delete-uses-constrained-key-source-scope-query
   (let [calls (atom [])
         tx-ops (atom nil)]

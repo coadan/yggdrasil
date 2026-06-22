@@ -752,21 +752,34 @@
           (map validate-metadata-row)
           vec))))
 
-(defn- metadata-cardinality
-  [xtdb row ctx]
-  (get-in (metadata-defs xtdb ctx) [(:key row) :cardinality] :many))
+(defn- single-cardinality-metadata-row?
+  [defs row]
+  (= :one (get-in defs [(:key row) :cardinality] :many)))
 
-(defn- matching-metadata-rows
-  [xtdb row ctx]
-  (->> (constrained-rows xtdb
-                         (:metadata tables)
-                         {:target-id (:target-id row)
-                          :key (:key row)
-                          :source (:source row)
-                          :project-id (:project-id row)}
-                         ctx)
-       (filter #(not= false (:active? %)))
-       vec))
+(defn- matching-metadata-row?
+  [row existing]
+  (and (= (:target-id row) (:target-id existing))
+       (= (:key row) (:key existing))
+       (= (:source row) (:source existing))
+       (= (:project-id row) (:project-id existing))))
+
+(defn- existing-metadata-by-target
+  [xtdb rows ctx]
+  (let [target-ids (->> rows
+                        (keep :target-id)
+                        distinct
+                        vec)]
+    (if (empty? target-ids)
+      {}
+      (->> (rows-with-field-values
+            xtdb
+            {:table (:metadata tables)
+             :field :target-id
+             :values target-ids
+             :return-fields metadata-row-query-fields
+             :read-context ctx})
+           (filter #(not= false (:active? %)))
+           (group-by :target-id)))))
 
 (defn commit-metadata!
   "Persist metadata rows with metadata definition cardinality."
@@ -776,12 +789,29 @@
                     valid-from (assoc :valid-from valid-from))
          read-ctx (cond-> (read-context opts)
                     valid-from (assoc :valid-at valid-from))
-         rows (map validate-metadata-row rows)
+         rows (mapv validate-metadata-row rows)
+         defs (metadata-defs xtdb read-ctx)
+         single-cardinality-rows (filterv #(single-cardinality-metadata-row?
+                                            defs
+                                            %)
+                                          rows)
+         existing-by-target (existing-metadata-by-target xtdb
+                                                         single-cardinality-rows
+                                                         read-ctx)
          ops (vec
               (mapcat (fn [row]
-                        (let [delete-ops (when (= :one (metadata-cardinality xtdb row read-ctx))
-                                           (map #(delete-op (:metadata tables) (:xt/id %) temporal)
-                                                (matching-metadata-rows xtdb row read-ctx)))]
+                        (let [delete-ops (when (single-cardinality-metadata-row?
+                                                defs
+                                                row)
+                                           (->> (get existing-by-target
+                                                     (:target-id row))
+                                                (filter #(matching-metadata-row?
+                                                          row
+                                                          %))
+                                                (map #(delete-op
+                                                       (:metadata tables)
+                                                       (:xt/id %)
+                                                       temporal))))]
                           (concat delete-ops [(put-op (:metadata tables) row temporal)])))
                       rows))]
      (execute-tx! xtdb ops)
