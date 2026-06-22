@@ -288,12 +288,6 @@
    :active?
    :run-id])
 
-(defn- xtql-symbol
-  [field]
-  (if-let [ns (namespace field)]
-    (symbol ns (name field))
-    (symbol (name field))))
-
 (defn- field-values-query
   [table field values constraints return-fields]
   (let [value-rows (mapv (fn [value] {:match-value value}) values)
@@ -304,20 +298,31 @@
                              [constraint-field (symbol (str "v" idx)) value])
                            constraints)
         args (mapv second terms)
-        bindings (into {field 'match-value}
-                       (map (fn [[constraint-field arg _]]
-                              [constraint-field arg]))
-                       terms)
-        return-symbols (mapv xtql-symbol return-fields)
+        base-bindings (into {field 'match-value}
+                            (map (fn [[constraint-field arg _]]
+                                   [constraint-field arg]))
+                            terms)
+        return-fields (vec (distinct return-fields))
+        return-bindings (->> return-fields
+                             (remove #(contains? base-bindings %))
+                             (map-indexed (fn [idx return-field]
+                                            [return-field
+                                             (symbol (str "ret" idx))]))
+                             (into {}))
+        bindings (merge base-bindings return-bindings)
+        return-projections (into {}
+                                 (map (fn [return-field]
+                                        [return-field
+                                         (get bindings return-field)]))
+                                 return-fields)
         values (mapv (fn [[_ _ value]] value) terms)]
     (into [(list 'fn
                  args
                  (list '->
                        (list 'unify
                              (list 'rel value-rows '[match-value])
-                             (list 'from table
-                                   (into [bindings] return-symbols)))
-                       (apply list 'return return-symbols)))]
+                             (list 'from table [bindings]))
+                       (list 'return return-projections)))]
           values)))
 
 (defn rows-with-field-values
@@ -329,7 +334,7 @@
   [xtdb {:keys [table field values constraints return-fields read-context]
          :or {constraints {}
               read-context {}}}]
-  (let [values (->> values (remove nil?) distinct vec)]
+  (let [values (->> (seq values) (remove nil?) distinct vec)]
     (cond
       (empty? values)
       []
@@ -711,22 +716,38 @@
      (execute-tx! xtdb ops)
      {:metadata-defs (count rows)})))
 
+(def ^:private metadata-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :target-id
+   :target-kind
+   :key
+   :value
+   :value-type
+   :value-text
+   :source
+   :confidence
+   :evidence-ids
+   :active?
+   :run-id])
+
 (defn metadata-for-targets
   "Return metadata rows for target ids visible in read context."
   ([xtdb target-ids] (metadata-for-targets xtdb target-ids {}))
   ([xtdb target-ids ctx]
    (let [project-id (:project-id ctx)
          repo-id (:repo-id ctx)
-         target-ids (if (set? target-ids)
-                      target-ids
-                      (distinct target-ids))]
-     (->> target-ids
-          (mapcat #(constrained-rows xtdb
-                                     (:metadata tables)
-                                     {:target-id %
-                                      :project-id project-id
-                                      :repo-id repo-id}
-                                     ctx))
+         target-ids (vec (distinct (seq target-ids)))]
+     (->> (rows-with-field-values
+           xtdb
+           {:table (:metadata tables)
+            :field :target-id
+            :values target-ids
+            :constraints {:project-id project-id
+                          :repo-id repo-id}
+            :return-fields metadata-row-query-fields
+            :read-context ctx})
           (filter #(not= false (:active? %)))
           (map validate-metadata-row)
           vec))))

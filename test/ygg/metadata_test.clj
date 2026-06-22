@@ -60,17 +60,18 @@
    :active? true
    :run-id "run:system"})
 
-(deftest metadata-target-reads-use-constrained-store-queries
+(deftest metadata-target-reads-use-batched-target-id-query
   (let [calls (atom [])]
-    (with-redefs [store/constrained-rows
-                  (fn [_ table constraints ctx]
-                    (swap! calls conj [table constraints ctx])
-                    [(metadata/row {:project-id (:project-id constraints)
-                                    :repo-id (:repo-id constraints)
-                                    :target-id (:target-id constraints)
-                                    :target-kind :node
-                                    :key :owner/team
-                                    :value (str "team:" (:target-id constraints))})])]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    (for [target-id (:values request)]
+                      (metadata/row {:project-id (get-in request [:constraints :project-id])
+                                     :repo-id (get-in request [:constraints :repo-id])
+                                     :target-id target-id
+                                     :target-kind :node
+                                     :key :owner/team
+                                     :value (str "team:" target-id)})))]
       (is (= ["team:target:a" "team:target:b"]
              (mapv :value
                    (store/metadata-for-targets
@@ -79,21 +80,18 @@
                     {:project-id "test"
                      :repo-id "repo"
                      :valid-at t1})))))
-    (is (= [[(:metadata store/tables)
-             {:target-id "target:a"
-              :project-id "test"
-              :repo-id "repo"}
-             {:project-id "test"
-              :repo-id "repo"
-              :valid-at t1}]
-            [(:metadata store/tables)
-             {:target-id "target:b"
-              :project-id "test"
-              :repo-id "repo"}
-             {:project-id "test"
-              :repo-id "repo"
-              :valid-at t1}]]
-           @calls))))
+    (is (= 1 (count @calls)))
+    (is (= {:table (:metadata store/tables)
+            :field :target-id
+            :values ["target:a" "target:b"]
+            :constraints {:project-id "test"
+                          :repo-id "repo"}
+            :read-context {:project-id "test"
+                           :repo-id "repo"
+                           :valid-at t1}}
+           (select-keys (first @calls)
+                        [:table :field :values :constraints :read-context])))
+    (is (not-any? #{'*} (:return-fields (first @calls))))))
 
 (deftest metadata-delete-uses-constrained-key-source-scope-query
   (let [calls (atom [])
