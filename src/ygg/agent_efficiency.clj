@@ -284,6 +284,28 @@
     :outputTokens
     :costUsd})
 
+(def ^:private case-token-metric-specs
+  [{:key :taskTotalTokens
+    :label "taskTotalTokens"
+    :category :token-cost
+    :path [:agent :tokenUsage :totalTokens]
+    :direction :lower}
+   {:key :taskInputTokens
+    :label "taskInputTokens"
+    :category :token-cost
+    :path [:agent :tokenUsage :inputTokens]
+    :direction :lower}
+   {:key :taskOutputTokens
+    :label "taskOutputTokens"
+    :category :token-cost
+    :path [:agent :tokenUsage :outputTokens]
+    :direction :lower}
+   {:key :taskCostUsd
+    :label "taskCostUsd"
+    :category :token-cost
+    :path [:agent :tokenUsage :costUsd]
+    :direction :lower}])
+
 (defn- read-json-file
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
@@ -384,11 +406,25 @@
     decision-metric-specs
     []))
 
+(defn- case-token-usage-present?
+  [report]
+  (boolean
+   (some #(map? (get-in % [:agent :tokenUsage]))
+         (:results report))))
+
+(defn- case-token-metric-specs-for
+  [shell-report ygg-report]
+  (if (or (case-token-usage-present? shell-report)
+          (case-token-usage-present? ygg-report))
+    case-token-metric-specs
+    []))
+
 (defn- case-score-specs-for
   [shell-report ygg-report]
   (->> (concat case-score-specs
-               (decision-metric-specs-for shell-report ygg-report))
-       (filter #(= :scores (first (:path %))))
+               (filter #(= :scores (first (:path %)))
+                       (decision-metric-specs-for shell-report ygg-report))
+               (case-token-metric-specs-for shell-report ygg-report))
        vec))
 
 (defn- result-label
@@ -977,6 +1013,12 @@
            gt (assoc :groundTruth gt)
            ge (assoc :graphExpectations ge)))))))
 
+(defn- task-token-deltas
+  [deltas]
+  (->> deltas
+       (filter #(= "token-cost" (:category %)))
+       vec))
+
 (defn- case-deltas
   [shell-report ygg-report score-specs]
   (let [shell-by-case (result-by-case shell-report)
@@ -991,11 +1033,13 @@
                                               ygg-result
                                               %)
                                score-specs)
+                  token-deltas (task-token-deltas deltas)
                   shell-audit (case-audit-scope-summary shell-result)
                   ygg-audit (case-audit-scope-summary ygg-result)]
               (cond-> {:caseId case-id
                        :summary (aggregate-summary deltas {:sharedCases 1})
                        :deltas deltas}
+                (seq token-deltas) (assoc :taskTokenDeltas token-deltas)
                 shell-audit (assoc :shellOnlyAuditScope shell-audit)
                 ygg-audit (assoc :yggAuditScope ygg-audit))))
           shared-case-ids)))
@@ -1278,6 +1322,15 @@
        ", ygg: " (format-metric-value ygg)
        ", delta: " (format-metric-value delta) ")"))
 
+(defn- task-token-delta-line
+  [{:keys [caseId taskTokenDeltas]}]
+  (when-let [total-row (some #(when (= :taskTotalTokens (:key %)) %)
+                             taskTokenDeltas)]
+    (str "- " caseId ": " (:result total-row)
+         " (shell: " (format-metric-value (:shellOnly total-row))
+         ", ygg: " (format-metric-value (:ygg total-row))
+         ", delta: " (format-metric-value (:delta total-row)) ")")))
+
 (defn- headline-summary-line
   [summary [key label]]
   (str "- " label ": " (format-metric-value (get summary key))))
@@ -1412,6 +1465,10 @@
               (when (seq case-deltas)
                 (concat ["" "## Case Signals" ""]
                         (map case-delta-line case-deltas)))
+              (when-let [token-lines (seq (keep task-token-delta-line
+                                                case-deltas))]
+                (concat ["" "## Task Token Deltas" ""]
+                        token-lines))
               (when-let [audit-lines (seq (keep case-audit-scope-line case-deltas))]
                 (concat ["" "## Case Audit Scopes" ""]
                         audit-lines))

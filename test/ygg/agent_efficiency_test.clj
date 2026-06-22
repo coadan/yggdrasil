@@ -618,6 +618,68 @@
     (is (.contains markdown "- totalTokens: improved (shell: 12000.0, ygg: 7000.0, delta: -5000.0)"))
     (is (.contains markdown "- costUsd: improved (shell: 0.6, ygg: 0.35, delta: -0.25)"))))
 
+(deftest compares-task-token-usage-per-shared-case
+  (let [shell (-> shell-report
+                  (assoc-in [:results 0 :agent :tokenUsage]
+                            {:inputTokens 1000
+                             :outputTokens 500
+                             :totalTokens 1500
+                             :costUsd 0.10
+                             :source "codex-json-events"})
+                  (assoc-in [:results 1 :agent :tokenUsage]
+                            {:inputTokens 500
+                             :outputTokens 100
+                             :totalTokens 600
+                             :costUsd 0.04
+                             :source "codex-json-events"}))
+        ygg (-> ygg-report
+                (assoc-in [:results 0 :agent :tokenUsage]
+                          {:inputTokens 700
+                           :outputTokens 200
+                           :totalTokens 900
+                           :costUsd 0.06
+                           :source "codex-json-events"})
+                (assoc-in [:results 1 :agent :tokenUsage]
+                          {:inputTokens 800
+                           :outputTokens 200
+                           :totalTokens 1000
+                           :costUsd 0.07
+                           :source "codex-json-events"}))
+        comparison (agent-efficiency/compare-reports shell ygg)
+        markdown (agent-efficiency/markdown-report comparison)
+        case-by-id (into {} (map (juxt :caseId identity))
+                         (:caseDeltas comparison))
+        case-1-token-by-key (into {} (map (juxt :key identity))
+                                  (get-in case-by-id
+                                          ["case-1" :taskTokenDeltas]))
+        case-2-token-by-key (into {} (map (juxt :key identity))
+                                  (get-in case-by-id
+                                          ["case-2" :taskTokenDeltas]))]
+    (is (= {:shellOnly 1500.0
+            :ygg 900.0
+            :delta -600.0
+            :effect 600.0
+            :result "improved"}
+           (select-keys (:taskTotalTokens case-1-token-by-key)
+                        [:shellOnly :ygg :delta :effect :result])))
+    (is (= {:shellOnly 600.0
+            :ygg 1000.0
+            :delta 400.0
+            :effect -400.0
+            :result "regressed"}
+           (select-keys (:taskTotalTokens case-2-token-by-key)
+                        [:shellOnly :ygg :delta :effect :result])))
+    (is (= {:shellOnly 1000.0
+            :ygg 700.0
+            :delta -300.0
+            :effect 300.0
+            :result "improved"}
+           (select-keys (:taskInputTokens case-1-token-by-key)
+                        [:shellOnly :ygg :delta :effect :result])))
+    (is (.contains markdown "## Task Token Deltas"))
+    (is (.contains markdown "- case-1: improved (shell: 1500.0, ygg: 900.0, delta: -600.0)"))
+    (is (.contains markdown "- case-2: regressed (shell: 600.0, ygg: 1000.0, delta: 400.0)"))))
+
 (deftest improvement-targets-count-against-efficiency-claims
   (let [ygg (assoc ygg-report
                    :improvementSummary [{:kind "hint-diagnostics"

@@ -245,9 +245,12 @@ Use existing benchmark report fields first:
 - token cost: `agentDiagnostics.tokenTelemetry` input, output, total token, and
   cost totals when agent results include `tokenUsage`. `bb efficiency` compares
   these as lower-is-better and emits a `qualityCostTradeoff` summary when token
-  telemetry is present. Agent wrappers can either write `tokenUsage` in the
-  result JSON or write a provider sidecar to `$YGG_BENCH_TOKEN_USAGE`. For
-  Codex CLI runs, use `scripts/codex-benchmark-agent.py`; for DeepSeek runs, use
+  telemetry is present. It also emits per-shared-task token comparisons under
+  `caseDeltas[].taskTokenDeltas`, and the Markdown report includes
+  `Task Token Deltas` for the final shell-only versus Ygg task token count.
+  Agent wrappers can either write `tokenUsage` in the result JSON or write a
+  provider sidecar to `$YGG_BENCH_TOKEN_USAGE`. For Codex CLI runs, use
+  `scripts/codex-benchmark-agent.py`; for DeepSeek runs, use
   `scripts/deepseek-agent.py`.
   `bb bench agent-check` can enforce aggregate and per-case budgets with
   `--max-total-tokens`, `--max-input-tokens`, `--max-output-tokens`,
