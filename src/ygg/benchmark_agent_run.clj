@@ -191,11 +191,7 @@
                          :evidence ["repo-relative/path.ext command-or-graph citation"]}]
               :risks []
               :followups []}
-   :tokenUsage {:inputTokens 0
-                :outputTokens 0
-                :totalTokens 0
-                :costUsd 0.0
-                :source "agent-report"}})
+   :tokenUsage nil})
 (defn write-agent-output-schema!
   [suite case opts]
   (let [schema-path (benchmark-paths/agent-run-output-schema-path suite case opts)]

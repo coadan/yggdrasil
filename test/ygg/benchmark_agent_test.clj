@@ -589,8 +589,10 @@
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
                           :key-fn keyword)
                          [:properties :tokenUsage :type])))
-          (is (not (str/includes? (slurp (get-in run [:artifacts :promptPath]))
-                                  "changedFiles")))
+          (let [prompt-text (slurp (get-in run [:artifacts :promptPath]))]
+            (is (not (str/includes? prompt-text "changedFiles")))
+            (is (str/includes? prompt-text "\"tokenUsage\": null"))
+            (is (not (str/includes? prompt-text "\"totalTokens\": 0"))))
           (is (str/includes? (slurp (get-in run [:artifacts :stdoutPath]))
                              "ran script-agent"))
           (is (= 1 (:skipped resumed)))
