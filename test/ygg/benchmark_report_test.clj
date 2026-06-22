@@ -270,6 +270,8 @@
               :tokenUsageCaseIds ["case-1"]
               :missingTokenUsageRuns 1
               :missingTokenUsageCaseIds ["case-1"]
+              :invalidTokenUsageRuns 0
+              :invalidTokenUsageCaseIds []
               :tokenTelemetry {:inputTokens 100
                                :outputTokens 40
                                :totalTokens 140
