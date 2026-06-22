@@ -1,17 +1,17 @@
-{:id "oss-architecture-synthetic"
- :project-id "oss-architecture-synthetic"
- :description "Synthetic architecture-class agent-efficiency cases on real OSS checkouts."
+{:id "architecture-synthetic"
+ :project-id "architecture-synthetic"
+ :description "Synthetic architecture-class agent-efficiency cases on real benchmark checkouts."
  :repos [{:id "bootstrap"
-          :root "../.dev/oss-test-cases/repos/bootstrap"
+          :root "../.dev/ygg/benchmark-repos/bootstrap"
           :role :application}
          {:id "supabase-postgres"
-          :root "../.dev/oss-test-cases/repos/supabase-postgres"
+          :root "../.dev/ygg/benchmark-repos/supabase-postgres"
           :role :application}
          {:id "axios"
-          :root "../.dev/oss-test-cases/repos/axios"
+          :root "../.dev/ygg/benchmark-repos/axios"
           :role :application}
          {:id "dapper"
-          :root "../.dev/oss-test-cases/repos/dapper"
+          :root "../.dev/ygg/benchmark-repos/dapper"
           :role :library}]
  :cases [{:id "bootstrap-synthetic-docs-route-impact"
           :repo-id "bootstrap"
@@ -165,8 +165,8 @@
                                   :path "tests/Dapper.Tests/Dapper.Tests.csproj"
                                   :label "nuget:Npgsql"}]
                          :edges [{:relation :shares-config
-                                  :source-id "system:oss-architecture-synthetic-dapper-synthetic-jsonb-test-stack:dapper:path/tests"
-                                  :target-id "system:oss-architecture-synthetic-dapper-synthetic-jsonb-test-stack:dapper:path/tests/Dapper.Tests"}]}
+                                  :source-id "system:architecture-synthetic-dapper-synthetic-jsonb-test-stack:dapper:path/tests"
+                                  :target-id "system:architecture-synthetic-dapper-synthetic-jsonb-test-stack:dapper:path/tests/Dapper.Tests"}]}
           :issue {:id "synthetic-dapper-jsonb-test-stack"
                   :url "local:synthetic/dapper/jsonb-test-stack"
                   :title "Trace the PostgreSQL JSONB test stack through Dapper type handling"

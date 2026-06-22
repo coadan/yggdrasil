@@ -2,16 +2,16 @@
  :project-id "architecture-coverage"
  :description "Architecture-class coverage cases for under-sampled tags, using repos not in the headline suite."
  :repos [{:id "opentelemetry-collector"
-          :root "../.dev/oss-test-cases/repos/opentelemetry-collector"
+          :root "../.dev/ygg/benchmark-repos/opentelemetry-collector"
           :role :library}
          {:id "terraform-aws-vpc"
-          :root "../.dev/oss-test-cases/repos/terraform-aws-vpc"
+          :root "../.dev/ygg/benchmark-repos/terraform-aws-vpc"
           :role :application}
          {:id "flask"
-          :root "../.dev/oss-test-cases/repos/flask"
+          :root "../.dev/ygg/benchmark-repos/flask"
           :role :library}
          {:id "junit-framework"
-          :root "../.dev/oss-test-cases/repos/junit-framework"
+          :root "../.dev/ygg/benchmark-repos/junit-framework"
           :role :library}]
  :cases [{:id "otel-connector-consumer-component-flow"
           :repo-id "opentelemetry-collector"

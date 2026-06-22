@@ -29,7 +29,7 @@ each `agent-report.json`, so the summary can show which classes improve,
 regress, or remain shell-sufficient.
 
 Include an architecture-class slice even if some cases are synthetic prompts on
-the OSS corpus. Synthetic cases should still use real base checkouts and fair
+the benchmark corpus. Synthetic cases should still use real base checkouts and fair
 task text, but may use curated `:ground-truth` and `:expectations` when the
 question is about system boundaries, dependency flow, route-to-handler shape,
 runtime configuration, data ownership, or cross-file impact rather than one
@@ -38,7 +38,7 @@ historical bug fix. Mark them with tags such as `:synthetic`,
 `:architecture-dependency-flow`, `:audit-scope-dependencies`, or
 `:architecture-cross-system-impact`.
 
-Starter architecture-class OSS cases:
+Starter architecture-class cases:
 
 - `bootstrap-synthetic-docs-route-impact`: ask which Astro route files and
   component imports are impacted by removing the docs theme surface. Expect
@@ -69,8 +69,8 @@ Starter architecture-class OSS cases:
   Tags: `:synthetic`, `:problem-architecture`,
   `:architecture-dependency-flow`, `:audit-scope-dependencies`, `:database`.
 
-The tracked starter suite is `benchmarks/oss-architecture-synthetic.edn`. It
-expects local OSS checkouts under `.dev/oss-test-cases/repos/` and keeps all
+The tracked starter suite is `benchmarks/architecture-synthetic.edn`. It
+expects local benchmark checkouts under `.dev/ygg/benchmark-repos/` and keeps all
 prepared cases, worktrees, graph stores, and reports under `.dev/` via `--out`.
 Use it as the architecture-class slice alongside historical issue replay; do
 not treat a simple localization-only suite as representative proof for Yggdrasil.
@@ -87,7 +87,7 @@ not keep adding cases to rescue a weak result.
 Use separate generated output roots so artifacts cannot overwrite each other:
 
 ```sh
-bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
+bb bench agent-run .dev/ygg/benchmarks/wide.edn \
   --agent codex-efficiency \
   --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$YGG_BENCH_RESULT" - < "$YGG_BENCH_PROMPT"' \
   --mode shell-only \
@@ -95,7 +95,7 @@ bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --timeout-ms 600000 \
   --out .dev/ygg/agent-efficiency/shell-only
 
-bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
+bb bench agent-run .dev/ygg/benchmarks/wide.edn \
   --agent codex-efficiency \
   --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$YGG_BENCH_RESULT" - < "$YGG_BENCH_PROMPT"' \
   --mode ygg \
@@ -111,7 +111,7 @@ DeepSeek v4 Pro can be run through the productized benchmark worker in
 both lanes:
 
 ```sh
-bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
+bb bench agent-run .dev/ygg/benchmarks/wide.edn \
   --agent deepseek-v4-pro \
   --command 'python3 scripts/deepseek-agent.py' \
   --mode shell-only \
@@ -119,7 +119,7 @@ bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --timeout-ms 600000 \
   --out .dev/ygg/agent-efficiency/deepseek-shell-only
 
-bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
+bb bench agent-run .dev/ygg/benchmarks/wide.edn \
   --agent deepseek-v4-pro \
   --command 'python3 scripts/deepseek-agent.py' \
   --mode ygg \
@@ -158,13 +158,13 @@ when the reports show where those classes improved, stayed neutral, or regressed
 Summarize each lane with existing reports:
 
 ```sh
-bb bench agent-report .dev/benchmarks/oss-issue-replay.edn \
+bb bench agent-report .dev/ygg/benchmarks/wide.edn \
   --mode shell-only \
   --agent codex-efficiency \
   --out .dev/ygg/agent-efficiency/shell-only \
   --json
 
-bb bench agent-report .dev/benchmarks/oss-issue-replay.edn \
+bb bench agent-report .dev/ygg/benchmarks/wide.edn \
   --mode ygg \
   --agent codex-efficiency \
   --out .dev/ygg/agent-efficiency/ygg \

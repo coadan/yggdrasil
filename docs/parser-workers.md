@@ -75,7 +75,7 @@ starting a Python process once per file.
 2. Add worker-backed extraction behind the same canonical extraction boundary.
 3. Start with high-value languages where regex extraction is noisy:
    Java, C#, TypeScript/JavaScript.
-4. Benchmark each worker-backed extractor against OSS issue replay before
+4. Benchmark each worker-backed extractor against the benchmark replay suite before
    making it the default.
 5. Track both quality and cost: recall, MRR, noise@20, edge count, index time,
    parser diagnostics, and unsupported-file counts.
@@ -114,7 +114,7 @@ Run Yggdrasil with the experimental Java worker adapter:
 ```sh
 YGG_PARSER_WORKER=java \
 YGG_PARSER_WORKER_PYTHON=.dev/parser-worker-venv/bin/python \
-bb bench agent-baseline .dev/benchmarks/oss-issue-replay.edn \
+bb bench agent-baseline .dev/ygg/benchmarks/wide.edn \
   --case junit-framework-4587-console-uid-selector \
   --out .dev/ygg/bench-junit-worker-java
 ```

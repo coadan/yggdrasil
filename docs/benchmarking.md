@@ -13,8 +13,8 @@ did or did not get useful help.
 
 Tracked starter suites:
 
-- `benchmarks/oss-architecture-synthetic.edn`: diagnostic architecture-class
-  suite with synthetic tasks on real OSS checkouts.
+- `benchmarks/architecture-synthetic.edn`: diagnostic architecture-class
+  suite with synthetic tasks on real benchmark checkouts.
 - `benchmarks/headline.edn`: small architecture-first headline suite for
   shell-only versus Yggdrasil agent-efficiency runs. Generated lane outputs should
   still live under `.dev/ygg/`.
@@ -147,10 +147,10 @@ of the same comparison.
 Create a benchmark suite EDN file:
 
 ```clojure
-{:id "oss-issue-replay"
- :project-id "oss-issue-replay"
+{:id "issue-replay"
+ :project-id "issue-replay"
  :repos [{:id "penpot"
-          :root ".dev/oss-test-cases/repos/penpot"}]
+          :root ".dev/ygg/benchmark-repos/penpot"}]
  :cases [{:id "penpot-example"
           :repo-id "penpot"
           :coverage {:source-kinds [:code :typescript]}
@@ -470,13 +470,17 @@ case. Use `--cases <case-id>,<case-id>` with suite-level benchmark commands
 such as `agent-baseline`, `agent-run`, `agent-report`, and `agent-check` to
 rerun or gate a focused subset without paying for unrelated slow cases.
 
-The wide OSS replay suite currently covers Clojure/ClojureScript, Go, Java,
+An exploratory wide replay suite can live under `.dev/ygg/benchmarks/` while it
+is still scratch data. Promote it into `benchmarks/` only after the case
+metadata, tags, and ground truth are curated enough to review as source.
+
+The wide replay suite currently covers Clojure/ClojureScript, Go, Java,
 .NET/C#, Python, Rust, JavaScript, TypeScript, Terraform, shell, SQL, style
 files, and docs across multiple public repositories. A repeatable deterministic
 baseline gate for that suite is:
 
 ```sh
-bb bench agent-check .dev/benchmarks/oss-issue-replay.edn --out .dev/ygg/bench-oss-wide-v4 --mode ygg --agent ygg-baseline-lexical --min-cases 14 --min-runs 14 --min-file-recall-at-5 0.55 --min-file-recall-at-10 0.68 --min-file-recall-at-20 0.68 --min-mrr 0.55 --max-noise-at-20 0.82 --max-input-hinted-cases 0 --max-unsupported-ground-truth-files 14
+bb bench agent-check .dev/ygg/benchmarks/wide.edn --out .dev/ygg/bench-wide-v4 --mode ygg --agent ygg-baseline-lexical --min-cases 14 --min-runs 14 --min-file-recall-at-5 0.55 --min-file-recall-at-10 0.68 --min-file-recall-at-20 0.68 --min-mrr 0.55 --max-noise-at-20 0.82 --max-input-hinted-cases 0 --max-unsupported-ground-truth-files 14
 ```
 
 The lower wide-suite thresholds are deliberate. New source-kind cases should
@@ -507,7 +511,7 @@ and tracked as a separate benchmark finding.
 Example narrow gate for the Bootstrap style case:
 
 ```sh
-bb bench agent-check .dev/benchmarks/oss-issue-replay.edn --out .dev/ygg/bench-bootstrap-style-rules-v1 --case bootstrap-34852-form-select-border-radius --mode ygg --agent ygg-baseline-lexical --min-case-file-recall-at-5 1.0 --min-file-recall-at-5 1.0 --max-missed-runs 0
+bb bench agent-check .dev/ygg/benchmarks/wide.edn --out .dev/ygg/bench-bootstrap-style-rules-v1 --case bootstrap-34852-form-select-border-radius --mode ygg --agent ygg-baseline-lexical --min-case-file-recall-at-5 1.0 --min-file-recall-at-5 1.0 --max-missed-runs 0
 ```
 
 When a benchmark miss points at extractor noise or missing syntax facts, prefer
@@ -567,9 +571,9 @@ chunks instead, set `:graph-evidence []` or provide a separate
 `:graph-evidence [...]` vector so citation scoring and graph validation stay
 explicit.
 
-Architecture-class agent-efficiency cases may be synthetic when the OSS corpus
+Architecture-class agent-efficiency cases may be synthetic when the benchmark corpus
 has useful structure but no historical issue that asks the architectural
-question directly. Keep them replayable: use a real OSS base checkout, write
+question directly. Keep them replayable: use a real benchmark base checkout, write
 fair issue text that asks about the architecture task, tag the case with
 `:synthetic` plus `:problem-architecture`, and provide curated
 `:ground-truth`/`:expectations` for the files or graph facts a competent agent
@@ -605,16 +609,16 @@ historical fix commit, set `:fix-sha` to the same commit as `:base-sha` and use
          :body "The docs team wants to remove the theme UI from Bootstrap's Astro docs. Identify the route files and component imports that a change would affect before editing code."}}
 ```
 
-Other useful seeds for the current OSS corpus: Astro plugin config in
+Other useful seeds for the current benchmark corpus: Astro plugin config in
 Bootstrap, event-trigger ownership flow in Supabase Postgres, native proxy
 handling in Axios, and Dapper's PostgreSQL JSONB test stack. Give each one
 manual architecture problem tags and curated expectations; do not teach Yggdrasil
 core to infer those classes from names or paths.
 
-The tracked starter file `benchmarks/oss-architecture-synthetic.edn` contains
-the runnable Bootstrap, Supabase Postgres, and Axios cases. It expects the OSS
-corpus checkouts in `.dev/oss-test-cases/repos/`; keep generated benchmark
-outputs under `.dev/ygg/...` with `--out`.
+The tracked starter file `benchmarks/architecture-synthetic.edn` contains
+the runnable Bootstrap, Supabase Postgres, Axios, and Dapper cases. It expects
+local benchmark checkouts in `.dev/ygg/benchmark-repos/`; keep generated
+benchmark outputs under `.dev/ygg/...` with `--out`.
 
 Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
 agents through the filesystem queue:
@@ -755,7 +759,7 @@ kind from the base checkout, and reports aggregate them as `coverage`:
 }
 ```
 
-Use this to keep the OSS replay suite honest as source support expands. A case
+Use this to keep the wide replay suite honest as source support expands. A case
 that declares `:rust` but only changes docs will show up as missing declared
 coverage. Declared source-kind coverage also scopes scoring: changed or
 localization files outside the declared kinds remain in the prepared ground

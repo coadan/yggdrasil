@@ -177,7 +177,7 @@
        "tool usage; search/read/shell command reductions are the lower-is-better "
        "loop metrics. Efficiency suites must include manually tagged problem "
        "classes, not only simple file-localization issues. Include architecture-"
-       "class cases, using synthetic OSS-corpus prompts with curated ground truth "
+       "class cases, using tracked benchmark suites with curated ground truth "
        "when necessary, and name the class where Yggdrasil helped or regressed.\n"
        end-marker "\n"))
 

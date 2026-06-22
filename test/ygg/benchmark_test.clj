@@ -136,14 +136,14 @@
                (ex-data e)))))))
 
 (deftest architecture-starter-suite-covers-required-problem-classes
-  (let [suite (benchmark/read-suite "benchmarks/oss-architecture-synthetic.edn")
+  (let [suite (benchmark/read-suite "benchmarks/architecture-synthetic.edn")
         cases (:cases suite)
         tags (set (mapcat :tags cases))
         source-kinds (set (mapcat #(get-in % [:coverage :source-kinds]) cases))
         evidence-kinds (set (mapcat #(map :kind (get-in % [:expectations :evidence])) cases))
         node-kinds (set (mapcat #(map :kind (get-in % [:expectations :nodes])) cases))
         cases-by-id (into {} (map (juxt :id identity)) cases)]
-    (is (= "oss-architecture-synthetic" (:id suite)))
+    (is (= "architecture-synthetic" (:id suite)))
     (is (<= 4 (count cases)))
     (is (every? #(contains? (set (:tags %)) "synthetic") cases))
     (is (every? #(contains? (set (:tags %)) "problem-architecture") cases))
@@ -179,6 +179,20 @@
                  "architecture-data-ownership"
                  "architecture-runtime-boundary"
                  "audit-scope-dependencies"]))))
+
+(deftest tracked-benchmark-suites-use-common-local-artifact-space
+  (let [suite-files (->> (file-seq (io/file "benchmarks"))
+                         (filter #(and (.isFile %)
+                                       (str/ends-with? (.getName %) ".edn")))
+                         (sort-by #(.getPath %))
+                         vec)
+        suites (mapv #(benchmark/read-suite (.getPath %)) suite-files)]
+    (is (seq suite-files))
+    (is (some #(= "architecture-synthetic" (:id %)) suites))
+    (is (every? #(not (str/includes? (.getName %) "oss-")) suite-files))
+    (doseq [suite suites
+            repo (:repos suite)]
+      (is (str/includes? (:root repo) "/.dev/ygg/benchmark-repos/")))))
 
 (deftest headline-suite-covers-architecture-first-agent-questions
   (let [suite (benchmark/read-suite "benchmarks/headline.edn")

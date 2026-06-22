@@ -2,16 +2,16 @@
  :project-id "headline-architecture"
  :description "Small architecture-first headline suite for shell-only versus Yggdrasil agent-efficiency runs."
  :repos [{:id "bootstrap"
-          :root "../.dev/oss-test-cases/repos/bootstrap"
+          :root "../.dev/ygg/benchmark-repos/bootstrap"
           :role :application}
          {:id "supabase-postgres"
-          :root "../.dev/oss-test-cases/repos/supabase-postgres"
+          :root "../.dev/ygg/benchmark-repos/supabase-postgres"
           :role :application}
          {:id "axios"
-          :root "../.dev/oss-test-cases/repos/axios"
+          :root "../.dev/ygg/benchmark-repos/axios"
           :role :application}
          {:id "dapper"
-          :root "../.dev/oss-test-cases/repos/dapper"
+          :root "../.dev/ygg/benchmark-repos/dapper"
           :role :library}]
  :cases [{:id "headline-bootstrap-docs-route-impact"
           :repo-id "bootstrap"
