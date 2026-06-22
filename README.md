@@ -1,13 +1,18 @@
 # AGraph
 
-AGraph is a local-first repo graph indexer backed by XTDB. It helps coding
-agents work on complex systems by grounding answers, reports, and handoffs in
-concrete, cited repository evidence.
+AGraph is agentic memory for codebases: a local, auditable graph that lets
+coding agents remember how a repo is shaped instead of rediscovering it through
+repeated grep/read loops. It gives agents a durable place to sync repository
+facts, ask structural questions, attach evidence, and carry accepted corrections
+across sessions.
 
-AGraph is not a semantic classifier bolted onto source search. It stores durable
+AGraph is not a semantic classifier bolted onto source search, and it does not
+claim that architecture meaning can be guessed from names. It stores concrete
 facts first, derives neutral graph candidates from structure and evidence
 density, and keeps accepted project meaning in auditable corrections,
-metadata, or `agraph.map.json`.
+metadata, or `agraph.map.json`. If AGraph makes agents faster, cheaper, or more
+effective on a task class, that claim should come from replayable benchmarks,
+not anecdotes.
 
 ## Quickstart
 
