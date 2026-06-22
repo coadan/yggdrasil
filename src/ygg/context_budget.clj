@@ -151,6 +151,52 @@
   (if (contains? packet :architecture)
     (update packet :architecture compact-architecture)
     packet))
+(def ^:private compact-architecture-evidence-keys
+  [:id
+   :kind
+   :path
+   :fileKind
+   :file-kind
+   :sourceKind
+   :source-kind
+   :relation
+   :label
+   :normalizedValue
+   :source
+   :target
+   :score
+   :package
+   :import])
+(defn- compact-architecture-evidence-row
+  [row]
+  (select-keys row compact-architecture-evidence-keys))
+(defn- compact-architecture-evidence
+  [rows n]
+  (mapv compact-architecture-evidence-row (take n rows)))
+(defn- evidence-architecture
+  [architecture]
+  (when architecture
+    (cond-> (select-keys architecture [:basis :summary])
+      (seq (:runtimeEvidence architecture))
+      (assoc :runtimeEvidence
+             (compact-architecture-evidence (:runtimeEvidence architecture) 12))
+
+      (seq (:dependencyEvidence architecture))
+      (assoc :dependencyEvidence
+             (compact-architecture-evidence (:dependencyEvidence architecture) 12))
+
+      (seq (:boundaryEvidence architecture))
+      (assoc :boundaryEvidence
+             (compact-architecture-evidence (:boundaryEvidence architecture) 8))
+
+      (seq (:deployEvidence architecture))
+      (assoc :deployEvidence
+             (compact-architecture-evidence (:deployEvidence architecture) 5)))))
+(defn- evidence-architecture-in-packet
+  [packet]
+  (if (contains? packet :architecture)
+    (update packet :architecture evidence-architecture)
+    packet))
 (defn- minimal-architecture
   [architecture]
   (when architecture
@@ -267,6 +313,7 @@
                     #(dissoc % :relationships)
                     #(dissoc % :blastRadius)
                     #(dissoc % :auditScopes)
+                    evidence-architecture-in-packet
                     minimal-architecture-in-packet
                     #(dissoc % :architecture)
                     #(dissoc % :systems)
@@ -312,6 +359,7 @@
                #(dissoc % :relationships)
                #(dissoc % :blastRadius)
                #(dissoc % :auditScopes)
+               evidence-architecture-in-packet
                #(dissoc % :architecture)
                #(dissoc % :systems)
                #(assoc % :warnings [])

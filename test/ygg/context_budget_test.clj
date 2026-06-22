@@ -227,7 +227,7 @@
         compact (context-budget/compact-snippets-in-packet packet)]
     (is (= 4 (count (:snippets compact))))
     (is (every? #(= 2 (count (:items %))) (:snippets compact)))))
-(deftest packet-trimming-keeps-architecture-summary-before-dropping-section
+(deftest packet-trimming-keeps-architecture-summary-and-compact-evidence-before-dropping-section
   (let [trim context-budget/trim-optional-context-metadata
         summary {:counts {:acceptedSystems 12
                           :candidateSystems 10
@@ -312,16 +312,20 @@
                 :drilldowns []
                 :answerability {:status :ready}
                 :architecture architecture}
-        minimal-architecture {:basis "mechanical-plus-map"
-                              :summary summary}
+        compact-evidence-architecture {:basis "mechanical-plus-map"
+                                       :summary summary
+                                       :boundaryEvidence (mapv (fn [idx]
+                                                                 {:id (str "edge:" idx)
+                                                                  :relation "imports-package"})
+                                                               (range 8))}
         budget 500
         trimmed (trim packet budget)]
     (is (> (context/estimate-tokens packet) budget))
     (is (<= (context/estimate-tokens (assoc packet
                                             :architecture
-                                            minimal-architecture))
+                                            compact-evidence-architecture))
             budget))
-    (is (= minimal-architecture (:architecture trimmed)))
+    (is (= compact-evidence-architecture (:architecture trimmed)))
     (is (<= (context/estimate-tokens trimmed) budget))))
 
 (deftest compacted-architecture-keeps-selected-dependency-evidence-window
@@ -333,6 +337,84 @@
         compact (#'context-budget/compact-architecture architecture)]
     (is (= (mapv #(str "dependency:" %) (range 8))
            (mapv :id (:dependencyEvidence compact))))))
+
+(deftest packet-trimming-keeps-compact-architecture-evidence-before-summary-only
+  (let [trim context-budget/trim-optional-context-metadata
+        verbose-text (apply str (repeat 80 "verbose architecture evidence "))
+        summary {:counts {:runtimeEvidence 12
+                          :dependencyEvidence 12
+                          :boundaryEvidence 8}}
+        architecture {:basis "mechanical-plus-map"
+                      :summary summary
+                      :acceptedSystems [{:id "system:verbose"
+                                         :label verbose-text}]
+                      :candidateSystems [{:id "system:candidate"
+                                          :why verbose-text}]
+                      :runtimeEvidence (mapv (fn [idx]
+                                               {:id (str "runtime:" idx)
+                                                :kind "env-var"
+                                                :path (str "config/env_" idx)
+                                                :fileKind "env"
+                                                :label "DATABASE_URL"
+                                                :normalizedValue "DATABASE_URL"
+                                                :score 2.6
+                                                :reason verbose-text})
+                                             (range 12))
+                      :dependencyEvidence (mapv (fn [idx]
+                                                  {:id (str "dependency:" idx)
+                                                   :kind "package-import"
+                                                   :path (str "src/importer_" idx ".clj")
+                                                   :fileKind "clojure"
+                                                   :relation "imports-package"
+                                                   :label "npm:proxy-from-env"
+                                                   :package "proxy-from-env"
+                                                   :import "proxy-from-env"
+                                                   :score 1.75
+                                                   :reason verbose-text})
+                                                (range 12))
+                      :boundaryEvidence [{:id "boundary:0"
+                                          :kind "graph-edge"
+                                          :path "src/boundary.clj"
+                                          :relation "uses"
+                                          :score 0.7
+                                          :reason verbose-text}]}
+        packet {:schema context/schema
+                :query "runtime dependency evidence"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 1}
+                :entities []
+                :edges []
+                :activity []
+                :candidateFiles []
+                :docs []
+                :warnings []
+                :drilldowns []
+                :answerability {:status :ready}
+                :architecture architecture}
+        evidence-packet (update packet
+                                :architecture
+                                #'context-budget/evidence-architecture)
+        budget (+ 50 (context/estimate-tokens evidence-packet))
+        trimmed (trim packet budget)
+        trimmed-architecture (:architecture trimmed)]
+    (is (> (context/estimate-tokens packet) budget))
+    (is (<= (context/estimate-tokens trimmed) budget))
+    (is (= "mechanical-plus-map" (:basis trimmed-architecture)))
+    (is (= summary (:summary trimmed-architecture)))
+    (is (not (contains? trimmed-architecture :acceptedSystems)))
+    (is (= (mapv #(str "runtime:" %) (range 12))
+           (mapv :id (:runtimeEvidence trimmed-architecture))))
+    (is (= (mapv #(str "dependency:" %) (range 8))
+           (mapv :id (:dependencyEvidence trimmed-architecture))))
+    (is (= ["boundary:0"]
+           (mapv :id (:boundaryEvidence trimmed-architecture))))
+    (is (not (contains? (first (:dependencyEvidence trimmed-architecture))
+                        :reason)))
+    (is (= "proxy-from-env"
+           (:package (first (:dependencyEvidence trimmed-architecture)))))))
 
 (deftest architecture-section-keeps-accepted-systems-auditable
   (let [section (#'context/architecture-section
