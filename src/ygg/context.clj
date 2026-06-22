@@ -777,20 +777,41 @@
        (map-indexed #(assoc %2 :rank (inc %1)))
        vec))
 
+(def ^:private source-graph-node-token-fields
+  [:path :label :name :kind])
+
+(def ^:private source-graph-file-token-fields
+  [:path :kind])
+
+(defn- source-graph-scope-constraints
+  [project-id repo-id]
+  (cond-> {:project-id project-id}
+    repo-id (assoc :repo-id repo-id)))
+
 (defn- source-graph-candidates
   [xtdb query-tokens {:keys [project-id repo-id read-context]}]
   (if-not (store/xtdb-handle? xtdb)
     []
-    (let [scope {:project-id project-id
-                 :repo-id repo-id
-                 :read-context read-context}]
+    (let [constraints (source-graph-scope-constraints project-id repo-id)]
       (vec
        (concat
         (ranked-source-graph-candidates query-tokens
-                                        (query/all-nodes xtdb scope)
+                                        (store/rows-matching-any-token
+                                         xtdb
+                                         (:nodes store/tables)
+                                         source-graph-node-token-fields
+                                         query-tokens
+                                         constraints
+                                         read-context)
                                         source-graph-candidate-limit)
         (ranked-source-graph-candidates query-tokens
-                                        (query/all-files xtdb scope)
+                                        (store/rows-matching-any-token
+                                         xtdb
+                                         (:files store/tables)
+                                         source-graph-file-token-fields
+                                         query-tokens
+                                         (assoc constraints :active? true)
+                                         read-context)
                                         source-graph-file-candidate-limit))))))
 
 (defn- candidate-input-score

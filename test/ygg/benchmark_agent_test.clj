@@ -188,7 +188,7 @@
                           (slurp (get-in baseline
                                          [:artifacts :contextPacketPath]))
                           :key-fn keyword)
-          expected-input-tokens (context/estimate-tokens context-packet)
+          token-usage (get-in score [:agent :tokenUsage])
           family-by-name (into {}
                                (map (juxt :family identity))
                                (get-in baseline [:syncInspect :families]))]
@@ -205,12 +205,13 @@
       (is (= :available (get-in family-by-name [:map-overlay :status])))
       (is (= true (:claimReady score)))
       (is (= true (:claimReady baseline)))
-      (is (= {:inputTokens expected-input-tokens
-              :outputTokens 0
-              :totalTokens expected-input-tokens
-              :costUsd 0.0
-              :source "ygg-context-packet-estimate"}
-             (get-in score [:agent :tokenUsage])))
+      (is (= "ygg-baseline-compact-surface-estimate"
+             (:source token-usage)))
+      (is (= (:inputTokens token-usage) (:totalTokens token-usage)))
+      (is (= 0 (:outputTokens token-usage)))
+      (is (= 0.0 (:costUsd token-usage)))
+      (is (< (:inputTokens token-usage)
+             (context/estimate-tokens context-packet)))
       (is (= "sync-inspect"
              (get-in baseline
                      [:maintenancePreflight :checks :syncCheck :source]))))))
@@ -878,12 +879,14 @@
             "ygg sync project.edn --check --enqueue"]
            (:commands result)))
     (is (= ["Context warning."] (:warnings result)))
-    (is (= {:inputTokens (context/estimate-tokens packet)
-            :outputTokens 0
-            :totalTokens (context/estimate-tokens packet)
-            :costUsd 0.0
-            :source "ygg-context-packet-estimate"}
-           (:tokenUsage result)))
+    (let [expected-input-tokens (context/estimate-tokens
+                                 (dissoc result :tokenUsage))]
+      (is (= {:inputTokens expected-input-tokens
+              :outputTokens 0
+              :totalTokens expected-input-tokens
+              :costUsd 0.0
+              :source "ygg-baseline-compact-surface-estimate"}
+             (:tokenUsage result))))
     (is (= {:rawCandidateFiles 2
             :candidateFiles 2
             :coverageFilteredCandidateFiles 0
@@ -921,6 +924,66 @@
               :coverageSourceKinds []}
              (:selection limited)))
       (is (= 2 (count (:suspectedSymbols limited)))))))
+
+(deftest context-packet-agent-result-emits-structural-decision-choices
+  (let [root (temp-dir "ygg-bench-context-decision")
+        _ (spit-file! root "package.json" "{\"dependencies\":{\"astro\":\"latest\"}}\n")
+        _ (spit-file! root "site/astro.config.ts" "import { defineConfig } from 'astro/config'\n")
+        packet {:query "plan docs search integration"
+                :docs [{:source {:path "package.json"
+                                 :heading "dependencies"
+                                 :definitionKind :manifest
+                                 :lines [1 1]}
+                        :score 3.0
+                        :snippet "astro dependency"
+                        :provenance "retrieved-doc"}]}
+        decision-candidates [{:id "plan-config-and-manifest"
+                              :kind "change-plan"
+                              :paths ["site/astro.config.ts"
+                                      "package.json"]}
+                             {:id "plan-manifest-only"
+                              :kind "change-plan"
+                              :paths ["package.json"]}
+                             {:id "plan-config-only"
+                              :kind "change-plan"
+                              :paths ["site/astro.config.ts"]}]
+        result (benchmark/context-packet->agent-result
+                packet
+                {:root root
+                 :case-id "case-1"
+                 :caseFingerprint "sha256:test-case"
+                 :decision-kind "change-plan"
+                 :decision-candidates decision-candidates})
+        choices-by-id (->> (get-in result [:decision :choices])
+                           (map (juxt :id identity))
+                           (into {}))
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["package.json"]
+                                :unsupportedGroundTruthFiles []}
+                  :decisionCandidates decision-candidates
+                  :decisionGroundTruth {:kind "change-plan"
+                                        :required ["plan-config-and-manifest"]
+                                        :forbidden ["plan-manifest-only"
+                                                    "plan-config-only"]}}
+        scored (benchmark-agent-score/score-agent-result prepared result)]
+    (is (= "change-plan" (get-in result [:decision :kind])))
+    (is (= "include" (get-in choices-by-id ["plan-config-and-manifest" :status])))
+    (is (= "exclude" (get-in choices-by-id ["plan-manifest-only" :status])))
+    (is (= "defer" (get-in choices-by-id ["plan-config-only" :status])))
+    (is (= ["Ygg baseline ranked file package.json at rank 1."]
+           (get-in choices-by-id ["plan-config-and-manifest" :evidence])))
+    (is (= 1.0 (get-in scored [:scores :decisionRecall])))
+    (is (= 1.0 (get-in scored [:scores :decisionPrecision])))
+    (is (= 1.0 (get-in scored [:scores :decisionF1])))
+    (is (= 1.0 (get-in scored [:scores :decisionEvidenceCitationRate])))))
+
 (deftest context-packet-agent-result-respects-declared-source-coverage
   (let [root (temp-dir "ygg-bench-source-coverage")
         _ (spit-file! root ".github/ISSUE_TEMPLATE/bug_report.md" "bug report\n")
@@ -1669,6 +1732,42 @@
     (is (= 1 (get-in files [0 :metrics :matchedCompoundTokenPairCount])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-uses-source-graph-candidate-rank
+  (let [root (temp-dir "ygg-bench-source-graph-candidate-rank")
+        _ (spit-file! root "lib/adapters/http.js" "export default function httpAdapter() {}\n")
+        _ (spit-file! root "tests/unit/core/AxiosError.test.js" "describe('AxiosError', () => {})\n")
+        packet {:query "defer env proxy handling to Node HTTP adapter unit tests"
+                :candidateFiles [{:path "tests/unit/adapters/http.test.js"
+                                  :rank 1
+                                  :score 6.4
+                                  :targetKind "node"
+                                  :label "tests.unit.adapters.http.test/createHttp2Axios"
+                                  :scoreComponents {:sourceGraph 6.4}}
+                                 {:path "lib/adapters/http.js"
+                                  :rank 2
+                                  :score 2.3
+                                  :targetKind "file"
+                                  :label "lib/adapters/http.js"
+                                  :scoreComponents {:sourceGraph 2.3
+                                                    :lexical 0.27}}
+                                 {:path "tests/unit/core/AxiosError.test.js"
+                                  :rank 40
+                                  :score 4.4
+                                  :targetKind "file"
+                                  :label "tests/unit/core/AxiosError.test.js"
+                                  :scoreComponents {:sourceGraph 4.4
+                                                    :lexical 0.88}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["lib/adapters/http.js"
+            "tests/unit/core/AxiosError.test.js"]
+           (mapv :path files)))
+    (is (= 2 (get-in files [0 :metrics :candidateSourceRank])))
+    (is (pos? (get-in files [0 :metrics :candidateSourceRankScore])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
   (let [root (temp-dir "ygg-bench-candidate-file-quota")
         _ (doseq [path ["src/doc-1.clj" "src/doc-2.clj" "src/doc-3.clj"

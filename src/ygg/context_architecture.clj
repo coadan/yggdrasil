@@ -706,7 +706,7 @@
                 (:imported-by package))))
 (defn- dependency-token-score
   [query-tokens row]
-  (capped-token-score query-tokens
+  (capped-token-score (distinct query-tokens)
                       (compact (:kind row)
                                (:relation row)
                                (:label row)

@@ -153,6 +153,8 @@
                                :root (:worktreeRoot prepared)
                                :roots (:worktreeRoots prepared)
                                :coverage (:coverage prepared)
+                               :decision-candidates (:decisionCandidates prepared)
+                               :decision-kind (get-in prepared [:decisionGroundTruth :kind])
                                :limit (agent-baseline-suspect-limit opts)})
                             (fn [result]
                               {:suspectedFiles (count (:suspectedFiles result))

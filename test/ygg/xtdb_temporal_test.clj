@@ -77,6 +77,45 @@
                                             :repo-id "app"
                                             :active? true})))))))
 
+(deftest rows-matching-any-token-pushes-scope-and-token-predicates
+  (with-redefs [store/q
+                (fn [xtdb sql ctx]
+                  (is (= {:node :stub} xtdb))
+                  (is (= (str "SELECT * FROM ygg.token_match WHERE "
+                              "\"active?\" = ? AND "
+                              "\"project_id\" = ? AND "
+                              "\"repo_id\" = ? AND "
+                              "(LOWER(CAST(\"path\" AS VARCHAR)) LIKE ? ESCAPE '\\\\' OR "
+                              "LOWER(CAST(\"path\" AS VARCHAR)) LIKE ? ESCAPE '\\\\' OR "
+                              "LOWER(CAST(\"label\" AS VARCHAR)) LIKE ? ESCAPE '\\\\' OR "
+                              "LOWER(CAST(\"label\" AS VARCHAR)) LIKE ? ESCAPE '\\\\' OR "
+                              "LOWER(CAST(\"kind\" AS VARCHAR)) LIKE ? ESCAPE '\\\\' OR "
+                              "LOWER(CAST(\"kind\" AS VARCHAR)) LIKE ? ESCAPE '\\\\')")
+                         sql))
+                  (is (= {:args [true
+                                 "demo"
+                                 "app"
+                                 "%astro%"
+                                 "%bootstrap%"
+                                 "%astro%"
+                                 "%bootstrap%"
+                                 "%astro%"
+                                 "%bootstrap%"]
+                          :valid-at t1}
+                         ctx))
+                  [{:xt/id "row:match"}])]
+    (is (= ["row:match"]
+           (mapv :xt/id
+                 (store/rows-matching-any-token
+                  {:node :stub}
+                  :ygg/token-match
+                  [:path :label :kind]
+                  ["astro" "bootstrap"]
+                  {:project-id "demo"
+                   :repo-id "app"
+                   :active? true}
+                  {:valid-at t1}))))))
+
 (deftest constrained-rows-fallback-filters-test-stub-rows
   (with-redefs [store/all-rows (fn [_ table]
                                  (is (= :ygg/constrained-test table))

@@ -1864,41 +1864,50 @@
 
 (deftest source-graph-candidates-surface-query-matched-source-rows
   (with-redefs [store/xtdb-handle? (constantly true)
-                query/all-nodes (fn [_ opts]
-                                  (is (= {:project-id "fixture"
-                                          :repo-id "app"
-                                          :read-context {:valid-at "t"}}
-                                         opts))
-                                  [{:xt/id "node:config"
-                                    :project-id "fixture"
-                                    :repo-id "app"
-                                    :path "site/astro.config.ts"
-                                    :kind :web-framework-plugin
-                                    :label "bootstrap"
-                                    :source-line 12}
-                                   {:xt/id "node:unrelated"
-                                    :project-id "fixture"
-                                    :repo-id "app"
-                                    :path "src/other.clj"
-                                    :kind :namespace
-                                    :label "unrelated"}])
-                query/all-files (fn [_ opts]
-                                  (is (= {:project-id "fixture"
-                                          :repo-id "app"
-                                          :read-context {:valid-at "t"}}
-                                         opts))
-                                  [{:xt/id "file:astro"
-                                    :project-id "fixture"
-                                    :repo-id "app"
-                                    :path "site/astro.config.ts"
-                                    :kind :javascript
-                                    :active? true}
-                                   {:xt/id "file:other"
-                                    :project-id "fixture"
-                                    :repo-id "app"
-                                    :path "src/other.clj"
-                                    :kind :clojure
-                                    :active? true}])]
+                store/rows-matching-any-token
+                (fn [_ table fields tokens constraints ctx]
+                  (is (= {:valid-at "t"} ctx))
+                  (is (= #{"astro" "config" "bootstrap"} (set tokens)))
+                  (case table
+                    :ygg/nodes
+                    (do
+                      (is (= [:path :label :name :kind] fields))
+                      (is (= {:project-id "fixture"
+                              :repo-id "app"}
+                             constraints))
+                      [{:xt/id "node:config"
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :path "site/astro.config.ts"
+                        :kind :web-framework-plugin
+                        :label "bootstrap"
+                        :source-line 12}
+                       {:xt/id "node:unrelated"
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :path "src/other.clj"
+                        :kind :namespace
+                        :label "unrelated"}])
+
+                    :ygg/files
+                    (do
+                      (is (= [:path :kind] fields))
+                      (is (= {:project-id "fixture"
+                              :repo-id "app"
+                              :active? true}
+                             constraints))
+                      [{:xt/id "file:astro"
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :path "site/astro.config.ts"
+                        :kind :javascript
+                        :active? true}
+                       {:xt/id "file:other"
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :path "src/other.clj"
+                        :kind :clojure
+                        :active? true}])))]
     (let [rows (#'context/source-graph-candidates
                 :xtdb
                 (text/tokenize-all "Astro config bootstrap")
@@ -1945,26 +1954,30 @@
 
 (deftest source-graph-candidates-preserve-file-lane-when-nodes-dominate
   (with-redefs [store/xtdb-handle? (constantly true)
-                query/all-nodes (fn [& _]
-                                  (mapv (fn [idx]
-                                          {:xt/id (str "node:test:" idx)
-                                           :project-id "fixture"
-                                           :repo-id "app"
-                                           :path (str "tests/unit/adapters/http"
-                                                      idx
-                                                      ".test.js")
-                                           :kind :function
-                                           :label (str "tests.unit.adapters.http"
-                                                       idx
-                                                       ".test/createHttp2Axios")})
-                                        (range 45)))
-                query/all-files (fn [& _]
-                                  [{:xt/id "file:adapter"
-                                    :project-id "fixture"
-                                    :repo-id "app"
-                                    :path "lib/adapters/http.js"
-                                    :kind :javascript
-                                    :active? true}])]
+                store/rows-matching-any-token
+                (fn [_ table _ _ _ _]
+                  (case table
+                    :ygg/nodes
+                    (mapv (fn [idx]
+                            {:xt/id (str "node:test:" idx)
+                             :project-id "fixture"
+                             :repo-id "app"
+                             :path (str "tests/unit/adapters/http"
+                                        idx
+                                        ".test.js")
+                             :kind :function
+                             :label (str "tests.unit.adapters.http"
+                                         idx
+                                         ".test/createHttp2Axios")})
+                          (range 45))
+
+                    :ygg/files
+                    [{:xt/id "file:adapter"
+                      :project-id "fixture"
+                      :repo-id "app"
+                      :path "lib/adapters/http.js"
+                      :kind :javascript
+                      :active? true}]))]
     (let [rows (#'context/source-graph-candidates
                 :xtdb
                 (text/tokenize-all "http adapter")
@@ -1976,17 +1989,20 @@
 
 (deftest source-graph-candidates-use-wider-file-lane
   (with-redefs [store/xtdb-handle? (constantly true)
-                query/all-nodes (fn [& _] [])
-                query/all-files (fn [& _]
-                                  (mapv (fn [idx]
-                                          {:xt/id (str "file:adapter:" idx)
-                                           :project-id "fixture"
-                                           :repo-id "app"
-                                           :path (format "lib/adapters/http_%02d.js"
-                                                         idx)
-                                           :kind :javascript
-                                           :active? true})
-                                        (range 45)))]
+                store/rows-matching-any-token
+                (fn [_ table _ _ _ _]
+                  (case table
+                    :ygg/nodes []
+                    :ygg/files
+                    (mapv (fn [idx]
+                            {:xt/id (str "file:adapter:" idx)
+                             :project-id "fixture"
+                             :repo-id "app"
+                             :path (format "lib/adapters/http_%02d.js"
+                                           idx)
+                             :kind :javascript
+                             :active? true})
+                          (range 45))))]
     (let [rows (#'context/source-graph-candidates
                 :xtdb
                 (text/tokenize-all "http adapter")
@@ -2018,15 +2034,18 @@
                                                   :target-kind :node
                                                   :target-id "node:docs"
                                                   :label "site.src.pages.docs.index"}]})
-                query/all-nodes (fn [_ _]
-                                  [{:xt/id "node:config"
-                                    :project-id "fixture"
-                                    :repo-id "app"
-                                    :path "site/astro.config.ts"
-                                    :kind :web-framework-plugin
-                                    :label "bootstrap"
-                                    :source-line 12}])
-                query/all-files (fn [_ _] [])
+                store/rows-matching-any-token
+                (fn [_ table _ _ _ _]
+                  (case table
+                    :ygg/nodes
+                    [{:xt/id "node:config"
+                      :project-id "fixture"
+                      :repo-id "app"
+                      :path "site/astro.config.ts"
+                      :kind :web-framework-plugin
+                      :label "bootstrap"
+                      :source-line 12}]
+                    :ygg/files []))
                 graph/system-graph (fn [_ project-id _]
                                      {:basis {:project-id project-id}
                                       :nodes []

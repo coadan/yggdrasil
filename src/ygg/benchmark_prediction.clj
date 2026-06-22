@@ -48,6 +48,12 @@
   0.55)
 (def ^:private retrieved-source-rank-bonus-step
   0.025)
+(def ^:private candidate-source-rank-bonus-window
+  20)
+(def ^:private candidate-source-rank-bonus-max
+  2.8)
+(def ^:private candidate-source-rank-bonus-step
+  0.12)
 (defn- parse-double-safe
   [value]
   (try
@@ -189,6 +195,15 @@
          (- retrieved-source-rank-bonus-max
             (* retrieved-source-rank-bonus-step
                (dec first-source-rank))))
+    0.0))
+(defn- candidate-source-rank-score
+  [candidate-source-rank]
+  (if (and (pos? (long (or candidate-source-rank 0)))
+           (<= candidate-source-rank candidate-source-rank-bonus-window))
+    (max 0.0
+         (- candidate-source-rank-bonus-max
+            (* candidate-source-rank-bonus-step
+               (dec candidate-source-rank))))
     0.0))
 (defn- graph-neighbor-boost
   [doc-count graph-score evidence-score]
@@ -348,10 +363,14 @@
                                                    support-labels)
             score-components (or (:scoreComponents candidate)
                                  (:score-components candidate))
+            candidate-rank (long (or (parse-double-safe (:rank candidate))
+                                     (inc idx)))
             graph-score (double (or (parse-double-safe (:graph score-components))
                                     0.0))
             lexical-score (double (or (parse-double-safe (:lexical score-components))
                                       0.0))
+            source-graph-score (double (or (parse-double-safe (:sourceGraph score-components))
+                                           0.0))
             graph-score-supported? (or (>= (count matched-tokens) 2)
                                        (seq matched-token-pairs)
                                        (and (>= graph-score
@@ -388,6 +407,9 @@
                               ".")}
           repo-id
           (assoc :repo-id repo-id)
+
+          (pos? source-graph-score)
+          (assoc :candidate-source-rank candidate-rank)
 
           (and (pos? graph-score)
                graph-score-supported?)
@@ -601,6 +623,12 @@
                                                                    ordered))
                              exact-path-source-count (count (filter :exact-path-source?
                                                                     ordered))
+                             candidate-source-rank (some->> ordered
+                                                            (keep :candidate-source-rank)
+                                                            seq
+                                                            (apply min))
+                             candidate-source-rank-score (candidate-source-rank-score
+                                                          candidate-source-rank)
                              max-evidence-score (apply max
                                                        0.0
                                                        (map :evidence-score ordered))
@@ -635,6 +663,7 @@
                                            (* 0.12 exact-path-source-count)
                                            (* 0.04 candidate-count)
                                            (* 0.03 entity-count)
+                                           candidate-source-rank-score
                                            graph-neighbor-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
@@ -667,6 +696,9 @@
                                               identity-compound-span-score)
                                        (pos? source-rank-score)
                                        (assoc :sourceRankScore source-rank-score)
+                                       (pos? candidate-source-rank-score)
+                                       (assoc :candidateSourceRank candidate-source-rank
+                                              :candidateSourceRankScore candidate-source-rank-score)
                                        (pos? graph-neighbor-score)
                                        (assoc :graphNeighborScore graph-neighbor-score)
                                        (pos? graph-neighbor-boost)
@@ -910,14 +942,127 @@
        (remove benchmark-util/blankish?)
        distinct
        vec))
-(defn- packet-token-usage
-  [packet]
-  (let [input-tokens (context/estimate-tokens packet)]
+(defn- result-surface-token-usage
+  [result-surface]
+  (let [input-tokens (context/estimate-tokens result-surface)]
     {:inputTokens input-tokens
      :outputTokens 0
      :totalTokens input-tokens
      :costUsd 0.0
-     :source "ygg-context-packet-estimate"}))
+     :source "ygg-baseline-compact-surface-estimate"}))
+(defn- decision-candidate-id
+  [candidate]
+  (some-> (:id candidate) str not-empty))
+(defn- decision-kind-name
+  [kind candidates]
+  (or (some-> kind field-name not-empty)
+      (some->> candidates
+               (keep #(some-> (:kind %) field-name not-empty))
+               first)))
+(defn- decision-candidate-paths
+  [candidate]
+  (->> (concat (:paths candidate)
+               (:evidencePaths candidate)
+               (:evidence-paths candidate)
+               (:files candidate)
+               (map :path (:evidence candidate)))
+       (keep #(some-> % str not-empty))
+       distinct
+       vec))
+(defn- decision-file-by-path
+  [files]
+  (->> files
+       (sort-by :rank)
+       (reduce (fn [idx file]
+                 (update idx (:path file) #(or % file)))
+               {})))
+(defn- decision-support
+  [file-by-path candidate]
+  (let [paths (decision-candidate-paths candidate)
+        matched (->> paths
+                     (keep (fn [path]
+                             (when-let [file (get file-by-path path)]
+                               {:path path
+                                :file file})))
+                     vec)
+        matched-paths (set (map :path matched))
+        rank-score (reduce + 0.0 (map #(/ 1.0 (double (:rank (:file %)))) matched))]
+    {:candidate candidate
+     :id (decision-candidate-id candidate)
+     :paths paths
+     :pathSet (set paths)
+     :matched matched
+     :matchedPathSet matched-paths
+     :matchedCount (count matched)
+     :coverageRatio (if (seq paths)
+                      (/ (double (count matched)) (double (count paths)))
+                      0.0)
+     :bestRank (some->> matched (map (comp :rank :file)) seq (apply min))
+     :supportScore (+ (count matched) rank-score)}))
+(defn- supported-decision?
+  [support]
+  (pos? (long (:matchedCount support))))
+(defn- dominates-decision?
+  [left right]
+  (and (not= (:id left) (:id right))
+       (supported-decision? left)
+       (supported-decision? right)
+       (set/subset? (:pathSet right) (:pathSet left))
+       (< (count (:pathSet right)) (count (:pathSet left)))
+       (<= (double (:supportScore right))
+           (double (:supportScore left)))))
+(defn- dominated-decision?
+  [supports support]
+  (boolean (some #(dominates-decision? % support) supports)))
+(defn- decision-choice-evidence
+  [support]
+  (->> (:matched support)
+       (mapv (fn [{:keys [path file]}]
+               (str "Ygg baseline ranked file "
+                    path
+                    " at rank "
+                    (:rank file)
+                    ".")))))
+(defn- decision-choice
+  [supports support]
+  (let [dominated? (dominated-decision? supports support)
+        supported? (supported-decision? support)
+        status (cond
+                 (and supported? (not dominated?)) "include"
+                 dominated? "exclude"
+                 :else "defer")
+        confidence (case status
+                     "include" (min 1.0
+                                    (+ 0.45
+                                       (* 0.2 (:matchedCount support))
+                                       (* 0.25 (:coverageRatio support))))
+                     "exclude" 0.7
+                     0.35)
+        reason (case status
+                 "include"
+                 (str "Visible candidate paths overlap Ygg-ranked files"
+                      (when-let [rank (:bestRank support)]
+                        (str "; best rank " rank))
+                      ".")
+                 "exclude"
+                 "A broader visible candidate covers the same ranked path evidence."
+                 "Visible candidate paths were not represented in Ygg-ranked files.")]
+    {:id (:id support)
+     :status status
+     :confidence confidence
+     :reason reason
+     :evidence (decision-choice-evidence support)}))
+(defn- baseline-decision
+  [decision-kind decision-candidates suspected-files]
+  (let [candidates (filterv decision-candidate-id decision-candidates)
+        kind (decision-kind-name decision-kind candidates)]
+    (when (and kind (seq candidates))
+      (let [file-by-path (decision-file-by-path suspected-files)
+            supports (mapv #(decision-support file-by-path %) candidates)]
+        {:kind kind
+         :choices (mapv #(decision-choice supports %) supports)
+         :risks []
+         :followups []}))))
 (defn context-packet->agent-result
   "Convert one Yggdrasil context packet into the benchmark agent-result contract.
 
@@ -926,7 +1071,7 @@
   truth or fix artifacts."
   ([packet]
    (context-packet->agent-result packet {}))
-  ([packet {:keys [agent-id mode case-id caseFingerprint agentInputFingerprint root roots limit coverage]}]
+  ([packet {:keys [agent-id mode case-id caseFingerprint agentInputFingerprint root roots limit coverage decision-candidates decision-kind]}]
    (let [query-tokens (text/tokenize-all (:query packet))
          source-kinds (coverage-source-kinds coverage)
          kind-by-path (if (or (empty? source-kinds)
@@ -971,21 +1116,31 @@
                      (:candidateFileOnlyQuota selected-files)
                      (assoc :candidateFileOnlyQuota (:candidateFileOnlyQuota selected-files)
                             :candidateFileOnlySelected (:candidateFileOnlySelected selected-files)))
-         suspected-files (:files selected-files)]
-     (cond-> {:schema agent-result-schema
-              :caseId case-id
-              :agentId (or agent-id "ygg-baseline")
-              :mode (or mode "ygg")
-              :suspectedFiles suspected-files
-              :suspectedSymbols (context-symbols packet)
-              :commands (packet-commands packet)
-              :warnings (vec (or (:warnings packet) []))
-              :selection selection
-              :tokenUsage (packet-token-usage packet)
-              :summary (str "Deterministic Yggdrasil baseline ranked "
-                            (count suspected-files)
-                            " suspected files from "
-                            (count candidate-files)
-                            " context packet file candidates.")}
-       caseFingerprint (assoc :caseFingerprint caseFingerprint)
-       agentInputFingerprint (assoc :agentInputFingerprint agentInputFingerprint)))))
+         suspected-files (:files selected-files)
+         suspected-symbols (context-symbols packet)
+         commands (packet-commands packet)
+         warnings (vec (or (:warnings packet) []))
+         decision (baseline-decision decision-kind
+                                     decision-candidates
+                                     suspected-files)
+         summary (str "Deterministic Yggdrasil baseline ranked "
+                      (count suspected-files)
+                      " suspected files from "
+                      (count candidate-files)
+                      " context packet file candidates.")
+         result-surface (cond-> {:schema agent-result-schema
+                                 :caseId case-id
+                                 :agentId (or agent-id "ygg-baseline")
+                                 :mode (or mode "ygg")
+                                 :suspectedFiles suspected-files
+                                 :suspectedSymbols suspected-symbols
+                                 :commands commands
+                                 :warnings warnings
+                                 :selection selection
+                                 :summary summary}
+                          caseFingerprint (assoc :caseFingerprint caseFingerprint)
+                          agentInputFingerprint (assoc :agentInputFingerprint
+                                                       agentInputFingerprint)
+                          decision (assoc :decision decision))]
+     (assoc result-surface
+            :tokenUsage (result-surface-token-usage result-surface)))))

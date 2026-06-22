@@ -3,6 +3,7 @@
   (:require [ygg.metadata :as metadata]
             [ygg.schema :as schema]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [xtdb.api :as xt]
             [xtdb.node :as xtn])
   (:import [java.io Closeable]
@@ -134,9 +135,15 @@
 
 (defn- query-options
   [ctx]
-  (let [ctx (read-context ctx)
+  (let [raw-ctx (or ctx {})
+        ctx (read-context raw-ctx)
         current-time (or (:current-time ctx) (:valid-at ctx))]
-    (cond-> {}
+    (cond-> (select-keys raw-ctx [:args
+                                  :await-token
+                                  :default-tz
+                                  :explain?
+                                  :key-fn
+                                  :tx-timeout])
       current-time (assoc :current-time current-time)
       (:snapshot-token ctx) (assoc :snapshot-token (:snapshot-token ctx)))))
 
@@ -144,7 +151,12 @@
   "Run XTQL query."
   ([xtdb query] (q xtdb query {}))
   ([{:keys [node]} query ctx]
-   (xt/q node query (query-options ctx))))
+   (let [opts (query-options ctx)
+         args (:args opts)
+         query (if (and (string? query) (seq args))
+                 (into [query] args)
+                 query)]
+     (xt/q node query (dissoc opts :args)))))
 
 (defn all-rows
   "Return all rows from table."
@@ -288,6 +300,121 @@
      (if (and (seq constraints) (xtdb-handle? xtdb))
        (rows-by-fields xtdb table constraints ctx)
        (fallback-constrained-rows xtdb table constraints ctx)))))
+
+(defn- sql-name-fragment
+  [value]
+  (-> (str value)
+      (str/replace "." "$")
+      (str/replace "-" "_")))
+
+(defn- sql-table-name
+  [table]
+  (if-let [table-ns (namespace table)]
+    (str (sql-name-fragment table-ns)
+         "."
+         (sql-name-fragment (name table)))
+    (sql-name-fragment (name table))))
+
+(defn- sql-quote-ident
+  [value]
+  (str "\""
+       (str/replace (str value) "\"" "\"\"")
+       "\""))
+
+(defn- sql-column-name
+  [field]
+  (sql-quote-ident
+   (if (= :xt/id field)
+     "_id"
+     (str (some-> (namespace field)
+                  sql-name-fragment
+                  (str "$"))
+          (sql-name-fragment (name field))))))
+
+(defn- token-like-pattern
+  [token]
+  (str "%"
+       (-> (str token)
+           str/lower-case
+           (str/replace "\\" "\\\\")
+           (str/replace "%" "\\%")
+           (str/replace "_" "\\_"))
+       "%"))
+
+(defn- token-match-row?
+  [fields tokens row]
+  (let [tokens (set tokens)
+        text (->> fields
+                  (keep #(get row %))
+                  (map str)
+                  (str/join "\n")
+                  str/lower-case)]
+    (some #(str/includes? text %) tokens)))
+
+(defn- token-match-sql
+  [fields tokens]
+  (let [pairs (for [field fields
+                    token tokens]
+                [field token])]
+    {:where (when (seq pairs)
+              (str "("
+                   (str/join
+                    " OR "
+                    (map (fn [[field _]]
+                           (str "LOWER(CAST("
+                                (sql-column-name field)
+                                " AS VARCHAR)) LIKE ? ESCAPE '\\\\'"))
+                         pairs))
+                   ")"))
+     :args (mapv (comp token-like-pattern second) pairs)}))
+
+(defn- equality-sql
+  [constraints]
+  {:where (mapv (fn [[field _]]
+                  (str (sql-column-name field) " = ?"))
+                constraints)
+   :args (mapv val constraints)})
+
+(defn rows-matching-any-token
+  "Return rows where any selected field contains any token.
+
+  Real XTDB handles use SQL predicate pushdown with parameterized LIKE clauses.
+  Test doubles fall back to constrained rows and the same mechanical substring
+  predicate."
+  ([xtdb table fields tokens constraints] (rows-matching-any-token
+                                           xtdb
+                                           table
+                                           fields
+                                           tokens
+                                           constraints
+                                           {}))
+  ([xtdb table fields tokens constraints ctx]
+   (let [fields (vec (distinct fields))
+         tokens (->> tokens
+                     (keep #(some-> % str str/lower-case not-empty))
+                     distinct
+                     vec)
+         constraints (->> (clean-constraints constraints)
+                          (sort-by (comp str key))
+                          vec)]
+     (cond
+       (or (empty? fields) (empty? tokens))
+       []
+
+       (xtdb-handle? xtdb)
+       (let [{token-where :where token-args :args} (token-match-sql fields tokens)
+             {constraint-where :where constraint-args :args} (equality-sql constraints)
+             where-clauses (cond-> constraint-where token-where (conj token-where))
+             sql (str "SELECT * FROM "
+                      (sql-table-name table)
+                      (when (seq where-clauses)
+                        (str " WHERE "
+                             (str/join " AND " where-clauses))))]
+         (q xtdb sql (assoc ctx :args (vec (concat constraint-args token-args)))))
+
+       :else
+       (->> (fallback-constrained-rows xtdb table (into {} constraints) ctx)
+            (filter #(token-match-row? fields tokens %)))))))
 
 (defn row-by-id
   "Return row by id from table."
