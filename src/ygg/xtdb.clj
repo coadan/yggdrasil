@@ -406,13 +406,18 @@
   "Return metadata rows for target ids visible in read context."
   ([xtdb target-ids] (metadata-for-targets xtdb target-ids {}))
   ([xtdb target-ids ctx]
-   (let [ids (set target-ids)
-         project-id (:project-id ctx)
-         repo-id (:repo-id ctx)]
-     (->> (all-rows xtdb (:metadata tables) ctx)
-          (filter #(contains? ids (:target-id %)))
-          (filter #(or (nil? project-id) (= project-id (:project-id %))))
-          (filter #(or (nil? repo-id) (= repo-id (:repo-id %))))
+   (let [project-id (:project-id ctx)
+         repo-id (:repo-id ctx)
+         target-ids (if (set? target-ids)
+                      target-ids
+                      (distinct target-ids))]
+     (->> target-ids
+          (mapcat #(constrained-rows xtdb
+                                     (:metadata tables)
+                                     {:target-id %
+                                      :project-id project-id
+                                      :repo-id repo-id}
+                                     ctx))
           (filter #(not= false (:active? %)))
           (map validate-metadata-row)
           vec))))
@@ -423,10 +428,13 @@
 
 (defn- matching-metadata-rows
   [xtdb row ctx]
-  (->> (rows-by-field xtdb (:metadata tables) :target-id (:target-id row) ctx)
-       (filter #(= (:key row) (:key %)))
-       (filter #(= (:source row) (:source %)))
-       (filter #(or (nil? (:project-id row)) (= (:project-id row) (:project-id %))))
+  (->> (constrained-rows xtdb
+                         (:metadata tables)
+                         {:target-id (:target-id row)
+                          :key (:key row)
+                          :source (:source row)
+                          :project-id (:project-id row)}
+                         ctx)
        (filter #(not= false (:active? %)))
        vec))
 
@@ -458,11 +466,14 @@
                    valid-from (assoc :valid-from valid-from))
         read-ctx (cond-> (read-context opts)
                    valid-from (assoc :valid-at valid-from))
-        rows (->> (rows-by-field xtdb (:metadata tables) :target-id target-id read-ctx)
-                  (filter #(= key (:key %)))
-                  (filter #(= source (:source %)))
-                  (filter #(or (nil? project-id) (= project-id (:project-id %))))
-                  (filter #(or (nil? repo-id) (= repo-id (:repo-id %))))
+        rows (->> (constrained-rows xtdb
+                                    (:metadata tables)
+                                    {:target-id target-id
+                                     :key key
+                                     :source source
+                                     :project-id project-id
+                                     :repo-id repo-id}
+                                    read-ctx)
                   vec)
         ops (mapv #(delete-op (:metadata tables) (:xt/id %) temporal) rows)]
     (execute-tx! xtdb ops)
@@ -486,10 +497,12 @@
                    valid-from (assoc :valid-from valid-from))
         read-ctx (cond-> (read-context opts)
                    valid-from (assoc :valid-at valid-from))
-        existing (->> (rows-by-field xtdb (:edges tables) :project-id project-id read-ctx)
-                      (filter #(= :imports-package (:relation %)))
-                      (filter #(or (nil? repo-id) (= repo-id (:repo-id %))))
-                      vec)
+        existing (vec (constrained-rows xtdb
+                                        (:edges tables)
+                                        {:project-id project-id
+                                         :repo-id repo-id
+                                         :relation :imports-package}
+                                        read-ctx))
         rows (map validate-edge-row rows)
         ops (vec (concat
                   (map #(delete-op (:edges tables) (:xt/id %) temporal) existing)

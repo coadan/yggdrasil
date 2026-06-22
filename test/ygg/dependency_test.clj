@@ -110,6 +110,34 @@
                           (:relation constraints)))
                       @constrained-queries))))))
 
+(deftest derived-dependency-edge-replacement-pushes-relation-scope-constraints
+  (let [calls (atom [])
+        tx-ops (atom nil)]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table constraints ctx]
+                    (swap! calls conj [table constraints ctx])
+                    [{:xt/id "edge:old-import-package"}])
+                  store/execute-tx!
+                  (fn [_ ops]
+                    (reset! tx-ops ops)
+                    {:tx-id 1})]
+      (is (= {:dependency-edges 0
+              :dependency-edges-deleted 1}
+             (store/commit-derived-dependency-edges!
+              :xtdb
+              "project-a"
+              "repo-a"
+              []
+              {:valid-from #inst "2026-01-01T00:00:00Z"}))))
+    (is (= [[(:edges store/tables)
+             {:project-id "project-a"
+              :repo-id "repo-a"
+              :relation :imports-package}
+             {:valid-at #inst "2026-01-01T00:00:00Z"}]]
+           @calls))
+    (is (= 1 (count @tx-ops)))
+    (is (= "edge:old-import-package" (last (first @tx-ops))))))
+
 (deftest import-package-resolution-reads-source-edges-when-map-overlay-can-resolve
   (let [xtql-queries (atom [])]
     (with-redefs [store/rows-by-field (fn [_ table _ _]

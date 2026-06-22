@@ -60,6 +60,74 @@
    :active? true
    :run-id "run:system"})
 
+(deftest metadata-target-reads-use-constrained-store-queries
+  (let [calls (atom [])]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table constraints ctx]
+                    (swap! calls conj [table constraints ctx])
+                    [(metadata/row {:project-id (:project-id constraints)
+                                    :repo-id (:repo-id constraints)
+                                    :target-id (:target-id constraints)
+                                    :target-kind :node
+                                    :key :owner/team
+                                    :value (str "team:" (:target-id constraints))})])]
+      (is (= ["team:target:a" "team:target:b"]
+             (mapv :value
+                   (store/metadata-for-targets
+                    :xtdb
+                    ["target:a" "target:a" "target:b"]
+                    {:project-id "test"
+                     :repo-id "repo"
+                     :valid-at t1})))))
+    (is (= [[(:metadata store/tables)
+             {:target-id "target:a"
+              :project-id "test"
+              :repo-id "repo"}
+             {:project-id "test"
+              :repo-id "repo"
+              :valid-at t1}]
+            [(:metadata store/tables)
+             {:target-id "target:b"
+              :project-id "test"
+              :repo-id "repo"}
+             {:project-id "test"
+              :repo-id "repo"
+              :valid-at t1}]]
+           @calls))))
+
+(deftest metadata-delete-uses-constrained-key-source-scope-query
+  (let [calls (atom [])
+        tx-ops (atom nil)]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table constraints ctx]
+                    (swap! calls conj [table constraints ctx])
+                    [{:xt/id "metadata:old"}])
+                  store/execute-tx!
+                  (fn [_ ops]
+                    (reset! tx-ops ops)
+                    {:tx-id 1})]
+      (is (= {:metadata-deleted 1}
+             (store/delete-metadata!
+              :xtdb
+              {:target-id "target:a"
+               :key "owner/team"
+               :source "review"
+               :project-id "test"
+               :repo-id "repo"
+               :valid-from t2}))))
+    (is (= [[(:metadata store/tables)
+             {:target-id "target:a"
+              :key :owner/team
+              :source :review
+              :project-id "test"
+              :repo-id "repo"}
+             {:project-id "test"
+              :repo-id "repo"
+              :valid-at t2}]]
+           @calls))
+    (is (= 1 (count @tx-ops)))
+    (is (= "metadata:old" (last (first @tx-ops))))))
+
 (deftest metadata-cardinality-is-bitemporal
   (store/with-node (temp-dir "ygg-metadata-temporal-xtdb")
     (fn [xtdb]
