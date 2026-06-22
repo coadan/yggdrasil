@@ -170,8 +170,8 @@
                                                         {:kind "report"
                                                          :query "missing"})
           loaded (project/read-project (.getPath project-edn))
-          extractor (first (project/extractor-plugins loaded))
-          report (first (project/report-plugins loaded))]
+          extractor (first (project/extractors loaded))
+          report (first (project/reports loaded))]
       (is (= plugin-package/install-schema (:schema install-result)))
       (is (= "sample-plugin-pack" (get-in install-result [:package :id])))
       (is (= "plugin-fixture" (:project-id install-result)))

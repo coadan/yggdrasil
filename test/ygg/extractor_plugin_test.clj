@@ -48,7 +48,7 @@
                        repo
                        {:project-id "plugin-project"
                         :repo-id "app"
-                        :extractor-plugins [(plugin-config)]})
+                        :extractors [(plugin-config)]})
               files (store/rows-by-field xtdb
                                          (:files store/tables)
                                          :project-id
@@ -106,8 +106,8 @@
                        {:project-id "plugin-search-project"
                         :repo-id "app"
                         :index-profile :graph
-                        :extractor-plugins [(assoc (plugin-config)
-                                                   :search {:chunks? true})]})
+                        :extractors [(assoc (plugin-config)
+                                            :search {:chunks? true})]})
               chunks (store/rows-by-field xtdb
                                           (:chunks store/tables)
                                           :project-id
@@ -135,7 +135,7 @@
                        {:project-id "plugin-no-search-project"
                         :repo-id "app"
                         :index-profile :graph
-                        :extractor-plugins [(plugin-config)]})
+                        :extractors [(plugin-config)]})
               chunks (store/rows-by-field xtdb
                                           (:chunks store/tables)
                                           :project-id
@@ -161,13 +161,13 @@
                        repo
                        {:project-id "plugin-project"
                         :repo-id "app"
-                        :extractor-plugins [{:id "broken-plugin"
-                                             :command ["python3"
-                                                       "-c"
-                                                       (str "import sys; "
-                                                            "sys.stderr.write('broken'); "
-                                                            "sys.exit(7)")]
-                                             :applies-to {:file-kinds [:code]}}]})
+                        :extractors [{:id "broken-plugin"
+                                      :command ["python3"
+                                                "-c"
+                                                (str "import sys; "
+                                                     "sys.stderr.write('broken'); "
+                                                     "sys.exit(7)")]
+                                      :applies-to {:file-kinds [:code]}}]})
               diagnostics (store/rows-by-field xtdb
                                                (:diagnostics store/tables)
                                                :project-id
@@ -177,6 +177,42 @@
                           (= "broken-plugin" (:plugin-id %))
                           (re-find #"exit 7" (:message %)))
                     diagnostics)))))))
+
+(deftest override-mode-can-replace-core-indexed-row
+  (let [repo (temp-dir "ygg-plugin-override-repo")
+        xtdb-path (temp-dir "ygg-plugin-override-xtdb")]
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn value [] 1)\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [summary (index/index-repo!
+                       xtdb
+                       repo
+                       {:project-id "plugin-override-project"
+                        :repo-id "app"
+                        :extractors [{:id "override-plugin"
+                                      :version "0.1.0"
+                                      :command ["python3"
+                                                "-c"
+                                                (str "import json, sys\n"
+                                                     "request=json.load(sys.stdin)\n"
+                                                     "node_id=request['core']['nodes'][0]['xt/id']\n"
+                                                     "json.dump({'schema':'ygg.extractor-plugin.result/v1',"
+                                                     "'nodes':[{'xt/id':node_id,"
+                                                     "'kind':'plugin-override',"
+                                                     "'label':'plugin override',"
+                                                     "'sourceLine':1}]}, sys.stdout)\n")]
+                                      :modes [:override]
+                                      :applies-to {:file-kinds [:code]}}]})
+              nodes (store/rows-by-field xtdb
+                                         (:nodes store/tables)
+                                         :project-id
+                                         "plugin-override-project")
+              override-node (some #(when (= "plugin override" (:label %)) %) nodes)]
+          (is (= :completed (:status summary)))
+          (is (= :plugin-override (:kind override-node)))
+          (is (= :plugin (:provenance override-node)))
+          (is (= "override-plugin" (:plugin-id override-node)))
+          (is (= :unbenchmarked (:benchmark-status override-node))))))))
 
 (deftest project-config-normalizes-extractor-plugins
   (let [root (io/file (temp-dir "ygg-plugin-config"))
@@ -189,7 +225,7 @@
                             :root (.getPath repo-root)}]
                    :plugins [(assoc (plugin-config) :kind :extractor)]}))
     (let [loaded (project/read-project (.getPath project-edn))
-          plugin (first (project/extractor-plugins loaded))]
+          plugin (first (project/extractors loaded))]
       (is (not (contains? loaded :extractor-plugins)))
       (is (= "panel-plugin" (:id plugin)))
       (is (= #{:enhance :scan} (:modes plugin)))
@@ -227,6 +263,9 @@
                 :core-extraction {:nodes []
                                   :edges []
                                   :chunks []
+                                  :file-facts [{:xt/id "file-fact:core"
+                                                :kind :language
+                                                :label "clojure"}]
                                   :diagnostics []}}
                plugin)]
     (is (= {:id "panel-plugin"
@@ -245,7 +284,11 @@
             :packageSource {:type :git
                             :url "https://example.test/datastar.git"
                             :rev "abc123"}}
-           (:plugin input)))))
+           (:plugin input)))
+    (is (= [{:xt/id "file-fact:core"
+             :kind :language
+             :label "clojure"}]
+           (get-in input [:core :file-facts])))))
 
 (deftest extractor-plugin-output-carries-installed-package-source
   (let [source {:type :git

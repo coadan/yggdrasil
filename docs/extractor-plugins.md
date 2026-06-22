@@ -4,9 +4,11 @@ Extractor plugins are explicit project extensions for graph facts that Yggdrasil
 core does not know how to extract yet. They are local-first, opt-in, and
 validated into the same canonical row shapes as core extractors.
 
-Plugins have two supported modes:
+Plugins have three supported modes:
 
 - `:enhance`: run after core extraction for files Yggdrasil already scans.
+- `:override`: run after core extraction and intentionally replace selected
+  indexed rows by reusing their `:xt/id` with plugin-provenance rows.
 - `:scan`: opt explicitly matched files into indexing when Yggdrasil only has
   fallback or no first-class support for that file family.
 
@@ -26,7 +28,7 @@ Add plugins to `project.edn`:
    :id "datastar-hiccup"
    :version "0.1.0"
    :command ["bb" "run" "-m" "tools.datastar-extractor"]
-   :modes [:enhance :scan]
+   :modes [:enhance :override :scan]
    :applies-to {:file-kinds [:code]
                 :path-globs ["src/**/*.clj"]}
    :scan {:path-globs ["ui/**/*.panel"]
@@ -72,7 +74,7 @@ replace that fallback kind with the configured `:file-kind`. Files already
 covered by first-class core kinds stay core files and should be handled with
 `:enhance`.
 
-## Enhance Mode
+## Enhance And Override Modes
 
 Use `:enhance` when core already scans the file but the project needs deeper
 facts from local helper APIs, DSLs, templates, or generated conventions.
@@ -80,6 +82,12 @@ facts from local helper APIs, DSLs, templates, or generated conventions.
 The plugin receives the file record and the core rows for that file. It can add
 rows, emit edges that core would not know about, or emit a row with the same
 `:xt/id` to replace a weaker core row in the persisted extraction.
+
+Use `:override` when replacement is intentional rather than incidental. Override
+plugins still receive core rows and still emit ordinary canonical rows. A plugin
+overrides a core row by emitting the same row id; Yggdrasil writes the plugin row
+with plugin provenance, benchmark status, package pin metadata when present, and
+the plugin fingerprint.
 
 Plugins can also emit `overlays` to mark existing rows as superseded or hidden
 without deleting raw evidence. This is the preferred path when a plugin has a
@@ -140,6 +148,7 @@ Input schema: `ygg.extractor-plugin.input/v1`
     "nodes": [],
     "edges": [],
     "chunks": [],
+    "fileFacts": [],
     "diagnostics": []
   }
 }

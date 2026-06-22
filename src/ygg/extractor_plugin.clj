@@ -26,7 +26,10 @@
   10000)
 
 (def plugin-modes
-  #{:enhance :scan})
+  #{:enhance :override :scan})
+
+(def ^:private file-transform-modes
+  #{:enhance :override})
 
 (def benchmark-statuses
   #{:unbenchmarked :benchmarked})
@@ -219,10 +222,10 @@
       (some #(fs/path-glob-matches? % path) path-globs)))
 
 (defn plugin-applies-to-file?
-  "Return true if a normalized plugin should enhance the file."
+  "Return true if a normalized plugin should transform the file extraction."
   [plugin file]
   (let [{:keys [file-kinds path-globs]} (:applies-to plugin)]
-    (and (contains? (:modes plugin) :enhance)
+    (and (some file-transform-modes (:modes plugin))
          (or (empty? file-kinds) (contains? file-kinds (:kind file)))
          (path-matches-any? (:path file) path-globs))))
 
@@ -329,7 +332,8 @@
    :run {:id run-id}
    :plugin (plugin-input-summary plugin)
    :file (select-plugin-file file)
-   :core (select-keys core-extraction [:nodes :edges :chunks :diagnostics])})
+   :core (select-keys core-extraction
+                      [:nodes :edges :chunks :file-facts :diagnostics])})
 
 (defn build-plugin-input
   "Build the JSON-compatible input packet sent to one extractor plugin.

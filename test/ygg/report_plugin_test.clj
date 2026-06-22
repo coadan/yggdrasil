@@ -33,7 +33,7 @@
                             :root (.getPath repo-root)}]
                    :plugins [(assoc (plugin-config) :kind :report)]}))
     (let [loaded (project/read-project (.getPath project-edn))
-          plugin (first (project/report-plugins loaded))]
+          plugin (first (project/reports loaded))]
       (is (not (contains? loaded :report-plugins)))
       (is (= "graph-crawl-plugin" (:id plugin)))
       (is (= "0.1.0" (:version plugin)))

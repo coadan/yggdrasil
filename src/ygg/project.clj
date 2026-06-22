@@ -179,12 +179,12 @@
   [project]
   (vec (get-in project [:plugins :packages])))
 
-(defn extractor-plugins
+(defn extractors
   "Return normalized extractor plugins for a project."
   [project]
   (vec (get-in project [:plugins :extractors])))
 
-(defn report-plugins
+(defn reports
   "Return normalized report plugins for a project."
   [project]
   (vec (get-in project [:plugins :reports])))
@@ -283,7 +283,7 @@
                                          :index-deadline-ns index-deadline-ns
                                          :progress-fn progress-fn
                                          :progress-interval progress-interval
-                                         :extractor-plugins (extractor-plugins project)})]
+                                         :extractors (extractors project)})]
     (if dry-run?
       {:project-id (:id project)
        :status :dry-run
@@ -326,7 +326,7 @@
                                          :index-deadline-ns index-deadline-ns
                                          :progress-fn progress-fn
                                          :progress-interval progress-interval
-                                         :extractor-plugins (extractor-plugins project)})]
+                                         :extractors (extractors project)})]
     (if dry-run?
       (index/index-repo! nil
                          (:root repo)

@@ -219,7 +219,7 @@
   ([file] (extractor-fingerprint file (or (:index-profile file) default-index-profile)))
   ([file index-profile]
    (extractor-fingerprint file index-profile []))
-  ([file index-profile extractor-plugins]
+  ([file index-profile extractors]
    (let [index-profile (normalize-index-profile index-profile)]
      (str "extractor:"
           (hash/short-hash [indexing-contract-version
@@ -227,15 +227,15 @@
                             (extract/extractor-fingerprint file)
                             file-facts/facts-contract-version
                             (extractor-plugin/applicable-fingerprints
-                             extractor-plugins
+                             extractors
                              file)
                             (sort indexed-relations)])))))
 
 (defn- attach-extractor-fingerprint
-  [index-profile extractor-plugins file]
+  [index-profile extractors file]
   (let [file (assoc file :index-profile index-profile)]
     (assoc file :extractor-fingerprint
-           (extractor-fingerprint file index-profile extractor-plugins))))
+           (extractor-fingerprint file index-profile extractors))))
 
 (defn- plugin-search-chunk?
   [search-plugin-ids chunk]
@@ -243,22 +243,22 @@
        (contains? search-plugin-ids (:plugin-id chunk))))
 
 (defn- profile-extraction
-  [extraction index-profile extractor-plugins]
+  [extraction index-profile extractors]
   (case (normalize-index-profile index-profile)
     :query extraction
     :graph (let [search-plugin-ids (extractor-plugin/search-chunk-plugin-ids
-                                    extractor-plugins)]
+                                    extractors)]
              (update extraction
                      :chunks
                      #(filterv (partial plugin-search-chunk? search-plugin-ids)
                                %)))))
 
 (defn- indexable-extraction
-  [run-id project-id repo-id index-profile extractor-plugins file extraction]
+  [run-id project-id repo-id index-profile extractors file extraction]
   (let [annotate #(assoc % :project-id project-id :repo-id repo-id)
         plugin-edge? #(= :plugin (:provenance %))
         filtered (-> extraction
-                     (profile-extraction index-profile extractor-plugins)
+                     (profile-extraction index-profile extractors)
                      (update :nodes #(mapv annotate %))
                      (update :edges #(mapv annotate %))
                      (update :chunks #(mapv annotate %))
@@ -286,7 +286,7 @@
 (defn index-repo!
   "Index root into XTDB. Returns run summary."
   [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile map-overlay
-                     index-timeout-ms index-deadline-ns extractor-plugins
+                     index-timeout-ms index-deadline-ns extractors
                      progress-fn progress-interval]
               :or {dry-run? false
                    project-id default-project-id
@@ -297,7 +297,7 @@
         index-deadline-ns (or index-deadline-ns (deadline-ns index-timeout-ms))
         index-profile (normalize-index-profile index-profile)
         progress-interval (normalized-progress-interval progress-interval)
-        extractor-plugins (extractor-plugin/normalize-plugins extractor-plugins)
+        extractors (extractor-plugin/normalize-plugins extractors)
         [root-path timings] (timed {} :canonicalize-root-ms #(fs/canonical-path root))
         _ (progress! progress-fn
                      project-id
@@ -321,7 +321,7 @@
                                       plugin-files (fs/scan-plugin-files
                                                     root-path
                                                     (extractor-plugin/scan-specs
-                                                     extractor-plugins)
+                                                     extractors)
                                                     core-supported-paths)
                                       plugin-paths (set (map :path plugin-files))]
                                   (->> (concat (remove (fn [file]
@@ -332,7 +332,7 @@
                                        (mapv (fn [file]
                                                (attach-extractor-fingerprint
                                                 index-profile
-                                                extractor-plugins
+                                                extractors
                                                 (scoped-file project-id repo-id file))))
                                        (sort-by :path)
                                        vec)))
@@ -498,7 +498,7 @@
                                                             file)
                                                      core-extraction (extract/extract-file run-id file)
                                                      extraction (extractor-plugin/enhance-extraction
-                                                                 {:plugins extractor-plugins
+                                                                 {:plugins extractors
                                                                   :run-id run-id
                                                                   :project-id project-id
                                                                   :repo-id repo-id
@@ -518,7 +518,7 @@
                                                                          project-id
                                                                          repo-id
                                                                          index-profile
-                                                                         extractor-plugins
+                                                                         extractors
                                                                          file
                                                                          extraction)
                                                             :existing? existing?

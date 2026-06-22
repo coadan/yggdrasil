@@ -884,7 +884,7 @@
                                              :package-report package-report
                                              :plugin-package-summary plugin-packages
                                              :artifacts artifacts
-                                             :plugins (project/report-plugins project)})
+                                             :plugins (project/reports project)})
         report-packet (assoc base-report-packet :plugins plugin-bundle)
         report (report-mdx {:project project
                             :map-path map-path
