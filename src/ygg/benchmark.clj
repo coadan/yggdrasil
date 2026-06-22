@@ -24,6 +24,7 @@
             [ygg.benchmark-codebase-memory :as benchmark-codebase-memory]
             [ygg.benchmark-maintenance :as benchmark-maintenance]
             [ygg.benchmark-score-artifacts :as benchmark-score-artifacts]
+            [ygg.benchmark-context-artifacts :as benchmark-context-artifacts]
             [ygg.benchmark-agent-baseline :as benchmark-agent-baseline]
             [ygg.benchmark-report :as benchmark-report]
             [ygg.benchmark-check :as benchmark-check]
@@ -677,6 +678,10 @@
              (.isFile (io/file hints-path)))
     (benchmark-io/read-json-file hints-path)))
 
+(defn- context-artifact-telemetry
+  [paths]
+  (benchmark-context-artifacts/context-artifact-telemetry paths))
+
 (defn- read-json-artifact
   [path]
   (when (and path (.isFile (io/file path)))
@@ -780,6 +785,24 @@
                          prepared
                          (benchmark-paths/agent-run-context-path suite case artifact-opts))
           hints (refresh-agent-hints-from-context! suite case artifact-opts prepared)
+          context-artifacts (context-artifact-telemetry
+                             {:prompt (benchmark-paths/agent-run-prompt-path
+                                       suite
+                                       case
+                                       artifact-opts)
+                              :yggHints (benchmark-paths/agent-run-hints-path
+                                         suite
+                                         case
+                                         artifact-opts)
+                              :yggFullHints (benchmark-hints-progressive/full-hints-path
+                                             (benchmark-paths/agent-run-hints-path
+                                              suite
+                                              case
+                                              artifact-opts))
+                              :yggContext (benchmark-paths/agent-run-context-path
+                                           suite
+                                           case
+                                           artifact-opts)})
           hint-diagnostics (not-empty (vec (:diagnostics hints)))
           graph-expectations (score-agent-result-graph-expectations suite
                                                                     case
@@ -814,6 +837,8 @@
       (-> (cond-> scored
             context-ranks
             (assoc :contextGroundTruthRanks context-ranks)
+            context-artifacts
+            (assoc :contextArtifacts context-artifacts)
             hint-diagnostics
             (assoc :yggHints {:diagnostics hint-diagnostics})
             graph-expectations
@@ -880,6 +905,13 @@
                                            process-result)
         agent-result (:agent-result read-result)
         _ (benchmark-io/write-json-file! result-path agent-result)
+        context-artifacts (context-artifact-telemetry
+                           {:prompt prompt-path
+                            :yggHints (get-in packet [:artifacts :yggHintsPath])
+                            :yggFullHints (get-in packet
+                                                  [:artifacts :yggFullHintsPath])
+                            :yggContext (get-in packet
+                                                [:artifacts :yggContextPath])})
         context-ranks (context-ground-truth-ranks-from-path
                        prepared
                        (get-in packet [:artifacts :yggContextPath]))
@@ -917,6 +949,8 @@
                         maintenance-preflight)
                  context-ranks
                  (assoc :contextGroundTruthRanks context-ranks)
+                 context-artifacts
+                 (assoc :contextArtifacts context-artifacts)
                  hint-diagnostics
                  (assoc :yggHints {:diagnostics hint-diagnostics})
                  benchmark-activity
@@ -957,6 +991,7 @@
              :ygg ygg-summary
              :benchmarkActivity (:activity benchmark-activity)
              :syncInspect sync-inspect
+             :contextArtifacts context-artifacts
              :maintenancePreflight maintenance-preflight
              :claimReady (benchmark-preflight/claim-ready?
                           maintenance-preflight)

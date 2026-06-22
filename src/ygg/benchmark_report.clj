@@ -10,6 +10,7 @@
             [ygg.benchmark-results :as benchmark-results]
             [ygg.benchmark-score :as benchmark-score]
             [ygg.benchmark-score-artifacts :as benchmark-score-artifacts]
+            [ygg.benchmark-context-artifacts :as benchmark-context-artifacts]
             [ygg.benchmark-suite :as benchmark-suite]
             [ygg.benchmark-system-improvement :as benchmark-system-improvement]
             [ygg.benchmark-util :as benchmark-util]
@@ -109,6 +110,10 @@
 (defn- aggregate-token-telemetry
   [diagnostics]
   (benchmark-command-telemetry/aggregate-token-telemetry diagnostics))
+
+(defn- aggregate-context-artifact-telemetry
+  [results]
+  (benchmark-context-artifacts/aggregate-context-artifact-telemetry results))
 
 (defn agent-output-diagnostic
   [result]
@@ -314,6 +319,9 @@
                              warning-results))}
      (when-let [token-telemetry (aggregate-token-telemetry diagnostics)]
        {:tokenTelemetry token-telemetry})
+     (when-let [context-artifact-telemetry (aggregate-context-artifact-telemetry
+                                            results)]
+       {:contextArtifactTelemetry context-artifact-telemetry})
      (aggregate-hint-diagnostics result-pairs))))
 (defn- parser-worker-result-profile
   [result]
@@ -1730,6 +1738,7 @@
                                                             :decisionScoring
                                                             :inputHints
                                                             :coverage
+                                                            :contextArtifacts
                                                             :agentResultPath
                                                             :parserWorker
                                                             :agent
