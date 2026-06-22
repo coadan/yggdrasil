@@ -660,6 +660,14 @@ historical fix commit, set `:fix-sha` to the same commit as `:base-sha` and use
          :body "The docs team wants to remove the theme UI from Bootstrap's Astro docs. Identify the route files and component imports that a change would affect before editing code."}}
 ```
 
+Cases default to `:result-scope :edit-files`: `localization-files` should be
+files most likely to need edits. Use `:result-scope :inspection-files` for
+architecture, planning, or audit prompts where the scoreable set is the bounded
+files a competent agent should inspect before editing, even if some may become
+evidence rather than direct patch targets. Keep the issue text consistent with
+the scope; do not ask for inspection targets and then tell the agent to return
+only likely edit files.
+
 Multi-repo quality cases use a case-level `:repos` vector instead of a single
 `:repo-id`. Each entry supplies the checkout id, SHAs, and that repo's local
 ground truth. Scoring treats the pair of `:repo-id` and `:path` as the file
@@ -667,6 +675,7 @@ identity, so the same relative path in two repos remains distinct:
 
 ```clojure
 {:id "otel-core-contrib-routing-connector-contract"
+ :result-scope :inspection-files
  :repos [{:repo-id "opentelemetry-collector"
           :base-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
           :fix-sha "415d3dcae73b37a8e3cf490452949a72589ae650"

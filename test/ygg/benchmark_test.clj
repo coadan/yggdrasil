@@ -418,11 +418,14 @@
     (is (= ["opentelemetry-collector"
             "opentelemetry-collector-contrib"]
            case-repo-ids))
+    (is (= "inspection-files" (:result-scope case)))
     (is (contains? (set (:tags case)) "multi-repo-quality"))
     (is (every? #(seq (get-in % [:ground-truth :localization-files]))
                 (:repos case)))
     (is (some #{"connector/connector.go"} ground-truth-files))
     (is (some #{"connector/routingconnector/factory.go"} ground-truth-files))
+    (is (= []
+           (get-in case [:expectations :graph-evidence])))
     (is (every? #(contains? % :repo-id)
                 (concat (get-in case [:expectations :nodes])
                         (get-in case [:expectations :evidence]))))))
@@ -445,9 +448,10 @@
     (is (= ["headline-architecture"
             "architecture-coverage"
             "decision-quality-pilot"
-            "feature-planning"]
+            "feature-planning"
+            "historical-replay"]
            (mapv :id (:included-suites suite))))
-    (is (= 18 (count cases)))
+    (is (= 20 (count cases)))
     (is (= 8 (count (:repos suite))))
     (is (every? repo-ids
                 ["bootstrap"
@@ -925,6 +929,7 @@
                                     :root consumer-root
                                     :role :application}]
                            :cases [{:id "provider-consumer-contract"
+                                    :result-scope :inspection-files
                                     :repos [{:repo-id "provider"
                                              :base-sha provider-base
                                              :fix-sha provider-fix
@@ -944,8 +949,24 @@
                                             :body "The provider contract and consumer adapter both need the contract update. Inspect provider:src/contract.clj and consumer:src/contract.clj."}}]}))
             (let [suite (benchmark/read-suite suite-path)
                   prepared (first (:cases (benchmark/prepare-suite! suite {:out out})))
-                  project (benchmark-agent-packet/agent-project prepared)]
+                  case (first (:cases suite))
+                  packet (benchmark-agent-packet/agent-packet-from-prepared!
+                          suite
+                          case
+                          prepared
+                          {:out out
+                           :mode :ygg})
+                  project (benchmark-agent-packet/agent-project prepared)
+                  task-rules (get-in packet [:task :rules])]
               (is (= "provider" (:repo-id prepared)))
+              (is (= "inspection-files" (:resultScope prepared)))
+              (is (= "inspection-files" (get-in packet [:task :resultScope])))
+              (is (str/includes? (get-in packet [:task :objective])
+                                 "should be inspected before editing"))
+              (is (some #(str/includes? % "issue asks to inspect")
+                        task-rules))
+              (is (not-any? #(str/includes? % "likely to require edits")
+                            task-rules))
               (is (= ["provider" "consumer"] (:repoIds prepared)))
               (is (= #{"provider" "consumer"} (set (keys (:worktreeRoots prepared)))))
               (is (= #{"provider" "consumer"} (set (keys (:graphRoots prepared)))))

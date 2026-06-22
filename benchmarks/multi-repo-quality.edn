@@ -8,6 +8,7 @@
           :root "../.dev/ygg/benchmark-repos/opentelemetry-collector-contrib"
           :role :application}]
  :cases [{:id "otel-core-contrib-routing-connector-contract"
+          :result-scope :inspection-files
           :repos [{:repo-id "opentelemetry-collector"
                    :base-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
                    :fix-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
@@ -60,8 +61,9 @@
                                     {:repo-id "opentelemetry-collector-contrib"
                                      :kind :package-import
                                      :path "connector/routingconnector/config.go"
-                                     :label "go.opentelemetry.io/collector/pipeline"}]}
+                                     :label "go.opentelemetry.io/collector/pipeline"}]
+                         :graph-evidence []}
           :issue {:id "otel-core-contrib-routing-connector-contract"
                   :url "local:multi-repo/opentelemetry/routing-connector-contract"
                   :title "Trace connector contract changes from Collector core into contrib routing connector"
-                  :body "A connector contract change starts in OpenTelemetry Collector core and must be checked against the contrib routing connector implementation. Identify the core connector/component/consumer contract files and the contrib routing connector files that should be inspected before editing. Return only files likely to need contract or adapter edits, and include repo ids for every suspected file."}}]}
+                  :body "A connector contract change starts in OpenTelemetry Collector core and must be checked against the contrib routing connector implementation. Identify the core connector/component/consumer contract files and the contrib routing connector files that should be inspected before editing. Return the strongest inspection targets, and include repo ids for every suspected file."}}]}

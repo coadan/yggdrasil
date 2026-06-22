@@ -145,27 +145,39 @@
                                            "--project"
                                            (:project-id prepared)
                                            "--json")}))))
+(defn- task-objective
+  [result-scope]
+  (case result-scope
+    "inspection-files" (str "Identify the repo-relative files and optional symbols that should "
+                            "be inspected before editing from the base checkout.")
+    (str "Identify the repo-relative files and optional symbols most likely "
+         "needed to fix the issue from the base checkout.")))
+(defn- task-rules
+  [result-scope]
+  (vec
+   (concat ["Use only the base checkout and issue text in this packet."
+            "Return ranked suspected files before attempting a patch."
+            "For multi-repo cases, include the repo id for each suspected file."]
+           (benchmark-agent-run/result-scope-rules result-scope)
+           benchmark-agent-run/evidence-citation-rules
+           benchmark-agent-run/result-integrity-rules
+           ["Keep reasoning evidence-based and cite commands or graph context used."
+            "Do not inspect the fixing diff, PR body, post-fix commits, or ground-truth artifacts."])))
 (defn- task-shape
   [prepared]
-  (cond-> {:kind "issue-localization"
-           :objective (str "Identify the repo-relative files and optional symbols most likely "
-                           "needed to fix the issue from the base checkout.")
-           :rules ["Use only the base checkout and issue text in this packet."
-                   "Return ranked suspected files before attempting a patch."
-                   "For multi-repo cases, include the repo id for each suspected file."
-                   (str/join " " benchmark-agent-run/suspected-files-scope-rules)
-                   (str/join " " benchmark-agent-run/evidence-citation-rules)
-                   (str/join " " benchmark-agent-run/result-integrity-rules)
-                   "Keep reasoning evidence-based and cite commands or graph context used."
-                   "Do not inspect the fixing diff, PR body, post-fix commits, or ground-truth artifacts."]
-           :expectedResultSchema agent-result-schema
-           :resultContract (benchmark-agent-run/agent-result-contract)}
-    (seq (:decisionCandidates prepared))
-    (assoc :decisionCandidates (:decisionCandidates prepared)
-           :decisionKind (get-in prepared [:decisionGroundTruth :kind])
-           :decisionRules ["Use only visible decision candidate ids."
-                           "For each decision choice, return status include, exclude, or defer."
-                           "Cite exact repo-relative evidence paths from the candidate when available."])))
+  (let [result-scope (or (:resultScope prepared) "edit-files")]
+    (cond-> {:kind "issue-localization"
+             :resultScope result-scope
+             :objective (task-objective result-scope)
+             :rules (task-rules result-scope)
+             :expectedResultSchema agent-result-schema
+             :resultContract (benchmark-agent-run/agent-result-contract)}
+      (seq (:decisionCandidates prepared))
+      (assoc :decisionCandidates (:decisionCandidates prepared)
+             :decisionKind (get-in prepared [:decisionGroundTruth :kind])
+             :decisionRules ["Use only visible decision candidate ids."
+                             "For each decision choice, return status include, exclude, or defer."
+                             "Cite exact repo-relative evidence paths from the candidate when available."]))))
 (defn agent-packet-from-prepared!
   [suite case prepared opts]
   (let [mode (agent-mode opts)

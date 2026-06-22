@@ -24,6 +24,18 @@
    "When Yggdrasil hints expose coverageSourceKinds or coverage-filtered diagnostics, check those source-kind lanes before finalizing suspectedFiles."
    "If a runtime/config/setup file may need edits for the issue or test path, include it as a suspectedFile rather than citing it only as supporting evidence."])
 
+(def inspection-files-scope-rules
+  ["Include files the issue asks to inspect before editing, even when they may end up as context rather than direct edit targets."
+   "Keep suspectedFiles limited to the best inspection targets; cite broad background, examples, generated, or clearly read-only files as evidence instead."
+   "When Yggdrasil hints expose coverageSourceKinds or coverage-filtered diagnostics, check those source-kind lanes before finalizing suspectedFiles."])
+
+(defn result-scope-rules
+  [result-scope]
+  (case (or (some-> result-scope name) "edit-files")
+    "edit-files" suspected-files-scope-rules
+    "inspection-files" inspection-files-scope-rules
+    suspected-files-scope-rules))
+
 (def evidence-citation-rules
   ["For every suspectedFiles row, include at least one evidence string containing that row's exact repo-relative path."
    "When citing expected evidence from Yggdrasil hints, include the exact evidence path and label when available; do not rely on basenames."])
@@ -189,8 +201,16 @@
   (let [schema-path (benchmark-paths/agent-run-output-schema-path suite case opts)]
     (benchmark-io/write-json-file! schema-path (agent-result-json-schema))
     (fs/canonical-path schema-path)))
+(defn- task-rule-lines
+  [task]
+  (let [rules (:rules task)]
+    (if (seq rules)
+      rules
+      (concat (result-scope-rules (:resultScope task))
+              evidence-citation-rules
+              result-integrity-rules))))
 (defn- agent-prompt-profile-lines
-  [profile]
+  [profile result-scope]
   (case profile
     "fast" ["## Fast Localization Profile"
             "- Localization only. Do not patch files."
@@ -199,7 +219,7 @@
             "- Inspect at most 12 files or snippets."
             "- Prefer `rg`, focused `sed`, and packet-provided Yggdrasil ask/explore commands."
             "- Return the best 1-5 suspected files as soon as evidence is sufficient."
-            (str "- " (str/join "\n- " suspected-files-scope-rules))
+            (str "- " (str/join "\n- " (result-scope-rules result-scope)))
             (str "- " (str/join "\n- " evidence-citation-rules))
             (str "- " (str/join "\n- " result-integrity-rules))
             "- If structured output is active, make the final response the result JSON."
@@ -223,7 +243,9 @@
        ""])))
 (defn agent-run-prompt
   [packet result-path output-schema-path opts]
-  (let [profile (agent-prompt-profile opts)]
+  (let [profile (agent-prompt-profile opts)
+        task (:task packet)
+        result-scope (:resultScope task)]
     (str/join
      "\n"
      (concat
@@ -256,15 +278,13 @@
        "- `YGG_BENCH_PROJECT` is the generated Yggdrasil project config."
        "- `YGG_BENCH_XTDB_PATH` and `YGG_XTDB_PATH` point to the graph store."
        ""]
-      (agent-prompt-profile-lines profile)
+      (agent-prompt-profile-lines profile result-scope)
       ["## Task"
        (get-in packet [:task :objective])
        ""
        "Read the packet, inspect the checkout, and write the ranked localization result JSON."
        "Return files before proposing or applying a patch."
-       (str/join "\n" suspected-files-scope-rules)
-       (str/join "\n" evidence-citation-rules)
-       (str/join "\n" result-integrity-rules)
+       (str/join "\n" (task-rule-lines task))
        ""]
       (decision-prompt-lines packet)
       ["## Result Contract"

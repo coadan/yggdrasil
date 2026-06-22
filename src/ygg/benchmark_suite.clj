@@ -56,6 +56,21 @@
   [case]
   (when-let [expectations (:expectations case)]
     expectations))
+
+(def supported-result-scopes
+  ["edit-files" "inspection-files"])
+(def ^:private supported-result-scope-set
+  (set supported-result-scopes))
+(defn normalize-result-scope
+  [value]
+  (let [scope (if (benchmark-util/blankish? value)
+                "edit-files"
+                (name (keyword value)))]
+    (when-not (contains? supported-result-scope-set scope)
+      (throw (ex-info "Unsupported benchmark result scope."
+                      {:result-scope value
+                       :supported supported-result-scopes})))
+    scope))
 (defn- normalize-index-file
   [path]
   (let [path (some-> path str (str/replace "\\" "/") str/trim)]
@@ -110,6 +125,7 @@
                    :repo-id repo-id
                    :base-sha (some-> (:base-sha case) str)
                    :fix-sha (some-> (:fix-sha case) str)
+                   :result-scope (normalize-result-scope (:result-scope case))
                    :tags (case-tags case)
                    :expectations (case-expectations case))
       (seq case-repos)
