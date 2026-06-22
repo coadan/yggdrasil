@@ -1093,6 +1093,78 @@
       (is (= ["Xunit"]
              (mapv :import (:unresolved-imports report)))))))
 
+(deftest package-report-ignores-local-java-member-imports
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :agraph/files
+                                        [{:path "src/App.java"
+                                          :kind :java
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:path "src/Local.java"
+                                          :kind :java
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/nodes
+                                        [{:xt/id "node:symbol:demo/Local"
+                                          :label "demo/Local"
+                                          :kind :class
+                                          :path "src/Local.java"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "node:symbol:demo/Exact.staticMethod"
+                                          :label "demo/Exact.staticMethod"
+                                          :kind :method
+                                          :path "src/Local.java"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :agraph/edges
+                                        [{:source-id "node:namespace:demo"
+                                          :target-id "node:namespace:demo.Local.CONSTANT"
+                                          :relation :imports
+                                          :path "src/App.java"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:demo"
+                                          :target-id "node:namespace:demo.Local.Nested.VALUE"
+                                          :relation :imports
+                                          :path "src/App.java"
+                                          :source-line 2
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:demo"
+                                          :target-id "node:namespace:demo.Exact.staticMethod"
+                                          :relation :imports
+                                          :path "src/App.java"
+                                          :source-line 3
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:demo"
+                                          :target-id "node:namespace:org.slf4j.LoggerFactory.getLogger"
+                                          :relation :imports
+                                          :path "src/App.java"
+                                          :source-line 4
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [& _] [])]
+    (let [report (dependency/package-report :xtdb
+                                            {:project-id "project-a"
+                                             :repo-id "repo-a"}
+                                            {})]
+      (is (= 1 (get-in report [:counts :source-import-candidates])))
+      (is (= ["org.slf4j.LoggerFactory.getLogger"]
+             (mapv :import (:unresolved-imports report)))))))
+
 (deftest package-report-ignores-configured-module-path-alias-imports
   (with-redefs [store/rows-by-field (fn [_ table _ _]
                                       (case table
