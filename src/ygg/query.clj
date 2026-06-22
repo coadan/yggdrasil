@@ -223,15 +223,17 @@
 (defn chunks-by-paths
   "Return chunk rows for concrete file paths within the requested scope."
   [xtdb paths opts]
-  (let [ctx (read-context opts)]
-    (->> paths
-         (distinct-by identity)
-         (mapcat #(store/constrained-rows xtdb
-                                          (:chunks store/tables)
-                                          (merge (scope-constraints opts)
-                                                 {:path %})
-                                          ctx))
-         (#(filter-scope % opts)))))
+  (let [paths (distinct-by identity paths)
+        rows (store/rows-with-field-values
+              xtdb
+              {:table (:chunks store/tables)
+               :field :path
+               :values paths
+               :constraints (scope-constraints opts)
+               :return-fields chunk-row-query-fields
+               :read-context (read-context opts)})
+        rows-by-path (group-by :path (filter-scope rows opts))]
+    (mapcat #(get rows-by-path % []) paths)))
 
 (defn all-diagnostics
   ([xtdb] (all-diagnostics xtdb {}))

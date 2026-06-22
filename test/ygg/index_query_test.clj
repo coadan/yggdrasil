@@ -18,7 +18,8 @@
     (.getPath (.toFile file))))
 
 (deftest query-scoped-reads-use-constrained-store-queries
-  (let [calls (atom [])]
+  (let [calls (atom [])
+        chunk-calls (atom [])]
     (with-redefs [store/constrained-rows
                   (fn [_ table constraints ctx]
                     (swap! calls conj [table constraints ctx])
@@ -36,10 +37,19 @@
                         :active? true}]
 
                       :ygg/chunks
-                      [{:xt/id (str "chunk:" (:path constraints))
-                        :project-id "project-a"
-                        :repo-id "repo-a"
-                        :path (:path constraints)}]))]
+                      (throw (ex-info "chunks should use a batched path read"
+                                      {:constraints constraints}))))
+                  store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! chunk-calls conj request)
+                    [{:xt/id "chunk:src/db.clj"
+                      :project-id "project-a"
+                      :repo-id "repo-a"
+                      :path "src/db.clj"}
+                     {:xt/id "chunk:src/app.clj"
+                      :project-id "project-a"
+                      :repo-id "repo-a"
+                      :path "src/app.clj"}])]
       (is (= ["node:app"]
              (mapv :xt/id
                    (query/all-nodes :xtdb
@@ -64,18 +74,16 @@
              {:project-id "project-a"
               :repo-id "repo-a"
               :active? true}
-             {}]
-            [(:chunks store/tables)
-             {:project-id "project-a"
-              :repo-id "repo-a"
-              :path "src/app.clj"}
-             {}]
-            [(:chunks store/tables)
-             {:project-id "project-a"
-              :repo-id "repo-a"
-              :path "src/db.clj"}
              {}]]
-           @calls))))
+           @calls))
+    (is (= [{:table (:chunks store/tables)
+             :field :path
+             :values ["src/app.clj" "src/db.clj"]
+             :constraints {:project-id "project-a"
+                           :repo-id "repo-a"}
+             :return-fields @#'query/chunk-row-query-fields
+             :read-context {}}]
+           @chunk-calls))))
 
 (deftest indexes-and-queries-sample-repo
   (let [xtdb-path (temp-dir "ygg-xtdb")

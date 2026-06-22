@@ -219,6 +219,43 @@
            (:read-context (first @calls))))
     (is (not-any? #{'*} (:return-fields (first @calls))))))
 
+(deftest chunks-by-paths-use-batched-path-read-and-preserve-path-order
+  (let [calls (atom [])
+        rows (with-redefs [store/rows-with-field-values
+                           (fn [_ request]
+                             (swap! calls conj request)
+                             [{:xt/id "chunk:db"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :path "src/db.clj"
+                               :active? true}
+                              {:xt/id "chunk:app"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :path "src/app.clj"
+                               :active? true}])
+                           store/constrained-rows
+                           (fn [& _]
+                             (throw (ex-info "constrained-rows should not be used for path chunk reads"
+                                             {})))]
+               (query/chunks-by-paths
+                {:node :stub}
+                ["src/app.clj" "src/app.clj" "src/db.clj"]
+                {:project-id "project-a"
+                 :repo-id "app"
+                 :valid-at #inst "2026-01-01T00:00:00Z"}))]
+    (is (= ["chunk:app" "chunk:db"] (mapv :xt/id rows)))
+    (is (= 1 (count @calls)))
+    (is (= {:table (:chunks store/tables)
+            :field :path
+            :values ["src/app.clj" "src/db.clj"]
+            :constraints {:project-id "project-a"
+                          :repo-id "app"}}
+           (select-keys (first @calls) [:table :field :values :constraints])))
+    (is (= {:valid-at #inst "2026-01-01T00:00:00Z"}
+           (:read-context (first @calls))))
+    (is (not-any? #{'*} (:return-fields (first @calls))))))
+
 (deftest deps-loads-endpoint-nodes-with-batched-id-read
   (let [calls (atom [])
         edge-calls (atom [])
