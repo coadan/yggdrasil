@@ -34,6 +34,16 @@ The deterministic gate runs the same preflight before doing benchmark work:
 bb bench:gate
 ```
 
+When current score artifacts already exist, use the cheaper claim check:
+
+```sh
+bb bench:gate --check-only
+```
+
+This still runs checkout preflight and strict `agent-check` thresholds, including
+stale-artifact and maintained-graph claim-readiness checks, but skips baseline
+regeneration.
+
 If a checkout still exists under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path. Move or symlink it into
 `.dev/ygg/benchmark-repos/`; do not commit the checkout or gate output.

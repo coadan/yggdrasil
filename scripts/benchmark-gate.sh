@@ -15,12 +15,14 @@ Options:
   --case ID           Run one benchmark case.
   --cases ID,ID       Run selected benchmark cases.
   --setup-check       Only check required local benchmark repos.
+  --check-only        Reuse existing score artifacts; skip baseline regeneration.
   --skip-setup-check  Run without checking local benchmark repos first.
   --dry-run           Print commands without running them.
 
 The gate runs the deterministic Yggdrasil baseline and checks the generated
-score artifacts. Generated worktrees, XTDB stores, reports, and scores stay
-under the output root.
+score artifacts. Use --check-only before a claim when current artifacts already
+exist; stale or missing score artifacts still fail the strict check. Generated
+worktrees, XTDB stores, reports, and scores stay under the output root.
 EOF
 }
 
@@ -30,6 +32,7 @@ out=".dev/ygg/benchmark-gate"
 case_id=""
 case_ids=""
 setup_check_only=false
+check_only=false
 skip_setup_check=false
 dry_run=false
 
@@ -57,6 +60,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --setup-check)
       setup_check_only=true
+      shift
+      ;;
+    --check-only)
+      check_only=true
       shift
       ;;
     --skip-setup-check)
@@ -125,8 +132,10 @@ if [[ "$skip_setup_check" != true ]]; then
   setup_check
 fi
 
-run_bench agent-baseline \
-  --out "$out"
+if [[ "$check_only" != true ]]; then
+  run_bench agent-baseline \
+    --out "$out"
+fi
 
 run_bench agent-check \
   --mode ygg \

@@ -30,9 +30,13 @@ bb bench:gate --setup-check
 ```
 
 `bb bench:gate` runs the same setup check before deterministic baseline work.
-If a checkout exists only under the legacy `.dev/oss-test-cases/repos/` cache,
-the preflight reports that path so it can be moved or symlinked into the common
-cache without committing generated files.
+Use `bb bench:gate --check-only` immediately before architecture or extractor
+claims when current score artifacts already exist. Check-only mode skips
+baseline regeneration but still rejects missing, stale, unverified, graph-failing,
+or maintained-graph-blocked score artifacts. If a checkout exists only under the
+legacy `.dev/oss-test-cases/repos/` cache, the preflight reports that path so it
+can be moved or symlinked into the common cache without committing generated
+files.
 
 ## Headline Suite
 
