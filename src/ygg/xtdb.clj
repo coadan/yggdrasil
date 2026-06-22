@@ -198,6 +198,15 @@
   ([xtdb table field value ctx]
    (rows-by-fields xtdb table {field value} ctx)))
 
+(defn- fallback-all-rows
+  [xtdb table ctx]
+  (try
+    (all-rows xtdb table ctx)
+    (catch clojure.lang.ArityException e
+      (if (seq ctx)
+        (throw e)
+        (all-rows xtdb table)))))
+
 (defn constrained-rows
   "Return rows matching equality constraints.
 
@@ -208,7 +217,7 @@
    (let [constraints (clean-constraints constraints)]
      (if (and (seq constraints) (xtdb-handle? xtdb))
        (rows-by-fields xtdb table constraints ctx)
-       (->> (all-rows xtdb table ctx)
+       (->> (fallback-all-rows xtdb table ctx)
             (filter #(constraints-match? constraints %)))))))
 
 (defn row-by-id

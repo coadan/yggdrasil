@@ -78,7 +78,7 @@
                                             :active? true})))))))
 
 (deftest constrained-rows-fallback-filters-test-stub-rows
-  (with-redefs [store/all-rows (fn [_ table _]
+  (with-redefs [store/all-rows (fn [_ table]
                                  (is (= :ygg/constrained-test table))
                                  [{:xt/id "row:match"
                                    :project-id "demo"

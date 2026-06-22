@@ -52,45 +52,25 @@
    :created-at-ms (long (or created-at-ms (now-ms)))
    :active? true})
 
-(defn- clean-constraints
-  [m]
-  (->> m
-       (remove (comp nil? val))
-       (into {})))
-
-(defn- xtdb-handle?
-  [xtdb]
-  (and (map? xtdb) (contains? xtdb :node)))
-
-(defn- constrained-rows
-  [xtdb table raw-constraints]
-  (let [query-constraints (clean-constraints raw-constraints)]
-    (if (and (seq query-constraints) (xtdb-handle? xtdb))
-      (store/rows-by-fields xtdb table query-constraints)
-      (->> (store/all-rows xtdb table)
-           (filter #(every? (fn [[field value]]
-                              (= value (get % field)))
-                            query-constraints))))))
-
 (defn all-search-docs
   ([xtdb] (all-search-docs xtdb {}))
   ([xtdb {:keys [project-id repo-id]}]
-   (constrained-rows xtdb
-                     (:search-docs store/tables)
-                     {:project-id project-id
-                      :repo-id repo-id
-                      :active? true})))
+   (store/constrained-rows xtdb
+                           (:search-docs store/tables)
+                           {:project-id project-id
+                            :repo-id repo-id
+                            :active? true})))
 
 (defn all-embeddings
   ([xtdb] (all-embeddings xtdb {}))
   ([xtdb {:keys [project-id repo-id provider model]}]
-   (constrained-rows xtdb
-                     (:embeddings store/tables)
-                     {:project-id project-id
-                      :repo-id repo-id
-                      :provider provider
-                      :model model
-                      :active? true})))
+   (store/constrained-rows xtdb
+                           (:embeddings store/tables)
+                           {:project-id project-id
+                            :repo-id repo-id
+                            :provider provider
+                            :model model
+                            :active? true})))
 
 (defn- embedded-key
   [{:keys [target-id provider model input-sha]}]

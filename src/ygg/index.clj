@@ -413,10 +413,11 @@
         (let [[existing-by-path timings] (timed
                                           timings
                                           :load-existing-ms
-                                          #(->> (store/all-rows xtdb (:files store/tables))
-                                                (filter (fn [row]
-                                                          (and (= project-id (:project-id row))
-                                                               (= repo-id (:repo-id row)))))
+                                          #(->> (store/constrained-rows
+                                                 xtdb
+                                                 (:files store/tables)
+                                                 {:project-id project-id
+                                                  :repo-id repo-id})
                                                 (map (juxt :path identity))
                                                 (into {})))
               current-paths (set (map :path files))

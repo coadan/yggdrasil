@@ -638,9 +638,10 @@
 
 (defn- scoped-files
   [xtdb project-id]
-  (->> (store/all-rows xtdb (:files store/tables))
+  (->> (store/constrained-rows xtdb
+                               (:files store/tables)
+                               {:project-id project-id})
        (filter active-row?)
-       (filter #(or (nil? project-id) (= project-id (:project-id %))))
        vec))
 
 (defn- inspect-matches
