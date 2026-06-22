@@ -11,11 +11,11 @@ governance, assets, and cross-repo boundaries. Parser-backed extraction is usefu
 when it improves syntax facts, but accepted architecture meaning belongs in
 auditable corrections, metadata, or `agraph.map.json`.
 
-It starts with deterministic Clojure/ClojureScript/Go/JavaScript/TypeScript/
-Python/Rust/SQL/style/EDN/Markdown indexing:
+It starts with deterministic indexing for 20+ source, manifest, lockfile,
+schema, config, docs, asset, and operations artifact families. Use
+`agraph sync coverage project.edn` for the current support breakdown.
 
-- namespaces, requires, vars, tests, Go packages, JS/TS modules, Python modules,
-  source imports, Rust modules, and source items
+- source declarations, imports/requires, module relationships, tests, and source items
 - canonical external package declarations, selected lockfile resolutions, and
   mechanically resolved source-import-to-package edges
 - Markdown heading chunks and exact symbol mentions
@@ -27,11 +27,10 @@ Python/Rust/SQL/style/EDN/Markdown indexing:
 - package/dependency reports from manifests, lockfiles, and import evidence
 - project-level system graphs, third-party API nodes, and maintenance findings
 
-Default indexing persists high-confidence relations: definitions, namespace
-requires, source imports, Rust module declarations, manifest package
-requirements, selected lockfile resolutions, and mechanically derived package
-import edges. Noisy inferred call edges are extracted internally but not stored
-by default yet.
+Default indexing persists high-confidence relations: definitions, source
+dependency edges, manifest package requirements, selected lockfile resolutions,
+and mechanically derived package import edges. Noisy inferred call edges are
+extracted internally but not stored by default yet.
 
 ## Quickstart
 
