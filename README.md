@@ -1,16 +1,16 @@
 # AGraph
 
-AGraph is agentic memory for codebases: a local, auditable graph that lets
-coding agents remember how a repo is shaped instead of rediscovering it through
-repeated grep/read loops. It gives agents a durable place to sync repository
-facts, ask structural questions, attach evidence, and carry accepted corrections
-across sessions.
+AGraph is agentic memory for codebases. It helps coding agents stop starting
+from scratch every session by keeping a local, reviewable memory of repository
+structure, evidence, and accepted project knowledge.
 
-AGraph is built to help agents stay grounded in what the repo actually shows.
-It separates observed evidence from human or agent judgment, so teams can review
-what was accepted, correct what was wrong, and carry that shared understanding
-forward. When AGraph claims to make agent work faster, cheaper, or more
-effective, those claims should be backed by repeatable benchmarks.
+Most agents rebuild context by searching and rereading files while they work.
+AGraph gives them a shared memory they can query, cite, and update, so useful
+understanding survives across prompts, agents, and maintenance runs.
+
+AGraph keeps trust boundaries explicit: evidence from the repo is separate from
+human or agent judgment, and performance claims should be backed by repeatable
+benchmarks.
 
 ## Quickstart
 
@@ -36,20 +36,18 @@ different XTDB directory.
 
 ## Core Ideas
 
-- Evidence first: deterministic extractors index 20+ source, manifest,
-  lockfile, schema, config, docs, asset, and operations artifact families. Use
-  `agraph sync coverage project.edn` for the current support breakdown.
-- Emergent systems: generated system nodes are candidates, not final
-  architecture claims. Human or LLM-backed corrections record accepted project
-  meaning in `agraph.map.json` or metadata.
-- Progressive disclosure: agents should start with freshness, coverage, and
-  compact graph views, then drill into `ask`, `explore`, reports, and evidence
-  only for the active task.
-- Local handoff: the filesystem queue stores transport and lease state for
-  provider-agnostic agent work. Semantic results return as explicit JSON
-  artifacts before they are validated and applied.
-- Measured claims: any claim that AGraph improves agent efficiency should point
-  to replayable shell-only versus AGraph evidence, not anecdotes.
+- Evidence first: AGraph records what the repo shows before asking anyone to
+  decide what it means. Use `agraph sync coverage project.edn` for the current
+  support breakdown.
+- Shared project memory: accepted corrections and useful context become part of
+  the project record instead of disappearing with one agent session.
+- Progressive disclosure: agents start with compact status and graph views,
+  then drill into `ask`, `explore`, reports, and evidence only for the active
+  task.
+- Local handoff: queued work moves through local files with explicit results
+  that can be reviewed before they change project memory.
+- Measured claims: improvements in speed, cost, or effectiveness should point
+  to replayable shell-only versus AGraph evidence.
 
 ## Main Workflows
 
