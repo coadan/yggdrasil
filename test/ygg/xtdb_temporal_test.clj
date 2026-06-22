@@ -73,9 +73,9 @@
              (mapv :xt/id
                    (store/constrained-rows xtdb
                                            :ygg/constrained-test
-                                            {:project-id "demo"
-                                             :repo-id "app"
-                                             :active? true})))))))
+                                           {:project-id "demo"
+                                            :repo-id "app"
+                                            :active? true})))))))
 
 (deftest edge-rows-touching-ids-finds-source-and-target-matches
   (store/with-node (temp-dir "ygg-edge-touching-ids-xtdb")
