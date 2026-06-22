@@ -57,6 +57,33 @@
   [path]
   (edn/read-string (slurp (io/file path))))
 
+(def ^:private plugin-entry-kinds
+  #{:package :extractor :report})
+
+(defn- plugin-entry-kind
+  [entry]
+  (some-> (:kind entry) keyword))
+
+(defn- plugin-entry-kind!
+  [entry]
+  (let [kind (plugin-entry-kind entry)]
+    (when-not (contains? plugin-entry-kinds kind)
+      (throw (ex-info "Project plugin entry declares unsupported :kind."
+                      {:plugin-entry entry
+                       :kind kind
+                       :supported (sort plugin-entry-kinds)})))
+    kind))
+
+(defn- plugin-entries
+  [data]
+  (plugin-package/reject-legacy-project-plugin-keys! data)
+  (let [entries (:plugins data)]
+    (cond
+      (nil? entries) []
+      (sequential? entries) (mapv #(do (plugin-entry-kind! %) %) entries)
+      :else (throw (ex-info "Project config :plugins must be a vector."
+                            {:plugins entries})))))
+
 (defn- write-config-data!
   [path data]
   (with-open [writer (io/writer path)]
@@ -118,19 +145,44 @@
     :else
     (throw (ex-info "Project config is missing :repos or :workbench-root." {}))))
 
+(defn- resolve-plugin-entry
+  [base entry]
+  (case (plugin-entry-kind entry)
+    :package
+    (let [package (plugin-package/read-package base entry)]
+      {:packages [package]
+       :extractor-plugins (:resolved-extractor-plugins package)
+       :report-plugins (:resolved-report-plugins package)})
+
+    :extractor
+    {:packages []
+     :extractor-plugins [(dissoc entry :kind)]
+     :report-plugins []}
+
+    :report
+    {:packages []
+     :extractor-plugins []
+     :report-plugins [(dissoc entry :kind)]}))
+
+(defn- plugin-config
+  [base data]
+  (let [resolved (mapv #(resolve-plugin-entry base %) (plugin-entries data))
+        packages (vec (mapcat :packages resolved))
+        extractor-plugins (vec (mapcat :extractor-plugins resolved))
+        report-plugins (vec (mapcat :report-plugins resolved))
+        normalized-extractors (extractor-plugin/normalize-plugins extractor-plugins)
+        normalized-reports (report-plugin/normalize-plugins report-plugins)]
+    {:packages packages
+     :package-summaries (mapv plugin-package/package-summary packages)
+     :extractor-plugins normalized-extractors
+     :report-plugins normalized-reports}))
+
 (defn read-project
   "Read and normalize a project.edn file."
   [path]
   (let [base (config-dir path)
         data (read-config-data path)
-        plugin-packages (mapv #(plugin-package/read-package base %)
-                              (:plugin-packages data))
-        extractor-plugins (vec (concat (mapcat :resolved-extractor-plugins
-                                               plugin-packages)
-                                       (:extractor-plugins data)))
-        report-plugins (vec (concat (mapcat :resolved-report-plugins
-                                            plugin-packages)
-                                    (:report-plugins data)))
+        plugins (plugin-config base data)
         project-id (some-> (:id data) str)]
     (when (str/blank? project-id)
       (throw (ex-info "Project config is missing :id." {:path path})))
@@ -138,16 +190,21 @@
              :name (str (or (:name data) project-id))
              :path (fs/canonical-path path)
              :repos (normalize-repos base data)}
-      (seq plugin-packages)
-      (assoc :plugin-packages (mapv plugin-package/package-summary plugin-packages))
+      (or (seq (:package-summaries plugins))
+          (seq (:extractor-plugins plugins))
+          (seq (:report-plugins plugins)))
+      (assoc :plugins {:packages (:package-summaries plugins)
+                       :extractors (:extractor-plugins plugins)
+                       :reports (:report-plugins plugins)})
 
-      (seq extractor-plugins)
-      (assoc :extractor-plugins
-             (extractor-plugin/normalize-plugins extractor-plugins))
+      (seq (:package-summaries plugins))
+      (assoc :plugin-packages (:package-summaries plugins))
 
-      (seq report-plugins)
-      (assoc :report-plugins
-             (report-plugin/normalize-plugins report-plugins)))))
+      (seq (:extractor-plugins plugins))
+      (assoc :extractor-plugins (:extractor-plugins plugins))
+
+      (seq (:report-plugins plugins))
+      (assoc :report-plugins (:report-plugins plugins)))))
 
 (defn add-repo-to-config!
   "Add a repo entry to project config and return the normalized project.

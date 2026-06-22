@@ -38,13 +38,14 @@ the relevant scaffold/gap workflow. This keeps unsupported file families and
 report gaps on the plugin lane instead of pushing project-specific logic into
 core.
 
-Install writes a `:plugin-packages` entry to `project.edn`:
+Install writes a `:kind :package` entry under `:plugins` in `project.edn`:
 
 ```clojure
 {:id "sample"
  :repos [{:id "app" :root "."}]
- :plugin-packages
- [{:id "datastar-hiccup"
+ :plugins
+ [{:kind :package
+   :id "datastar-hiccup"
    :source {:type :git
             :url "https://github.com/org/ygg-datastar.git"
             :ref "v0.1.0"
@@ -66,7 +67,7 @@ falling back to the pinned revision. Pass `--ref` to move to a new tag, branch,
 or commit.
 
 Remove a package from a project with `bb plugin remove <project.edn>
-<package-id>`. This edits only the `:plugin-packages` entry in `project.edn`;
+<package-id>`. This edits only the package entries under `:plugins` in `project.edn`;
 cached git checkouts stay under `.dev/ygg/plugins/cache` and can be reused by
 installing again.
 
@@ -205,7 +206,7 @@ Plain dry-runs print start/complete progress lines to stderr; use `--json` or
 context without generating a full report. It returns panels, artifacts,
 diagnostics, per-plugin counts, per-plugin package pins/source, and the same
 package caveats. The synthetic report context also carries those package
-summaries under `report.plugin-packages`, so report plugins receive the same
+summaries under `report.plugins.packages`, so report plugins receive the same
 `pluginPackages` input during dry-run authoring that they receive during full
 report generation. This keeps report plugin authoring in the same scaffold /
 validate / diagnose / dry-run loop as extractors. Report dry-runs also fail with
@@ -231,8 +232,9 @@ Each package directory contains `ygg.plugin.edn`:
  :scope {:kind :base
          :reason "Reusable Datastar/Hiccup extraction across projects."}
  :benchmark {:status :unbenchmarked}
- :extractor-plugins
- [{:id "datastar-hiccup-extractor"
+ :plugins
+ [{:kind :extractor
+   :id "datastar-hiccup-extractor"
    :command ["python3" "extract.py"]
    :modes [:enhance :scan]
    :applies-to {:file-kinds [:code]
@@ -240,9 +242,9 @@ Each package directory contains `ygg.plugin.edn`:
    :scan {:path-globs ["resources/**/*.edn"]
           :file-kind :datastar-config}
    :search {:chunks? true}
-   :emits [:datastar-signal]}]
- :report-plugins
- [{:id "datastar-hiccup-report"
+   :emits [:datastar-signal]}
+  {:kind :report
+   :id "datastar-hiccup-report"
    :command ["python3" "report.py"]
    :slots [:plugins :systems]}]}
 ```
@@ -251,7 +253,7 @@ Package plugin commands run with their working directory set to the installed
 package directory. This keeps package commands relative to the package, while
 the extractor input still includes the indexed repo root and file content.
 
-Installed package plugins are normalized into the same project shapes described
+Installed package plugins are normalized into the same runtime plugin shapes described
 in [extractor-plugins.md](extractor-plugins.md) and
 [report-plugins.md](report-plugins.md). They carry:
 
@@ -264,14 +266,16 @@ in [extractor-plugins.md](extractor-plugins.md) and
   explicitly `:non-authoritative`
 - plugin provenance on emitted rows or report panels
 
-Project-local `:extractor-plugins` and `:report-plugins` still work. They are
-loaded after packaged plugins, so local config can intentionally override or
-augment a package during development.
+Project-local extractor and report plugins are also `:plugins` entries with
+`:kind :extractor` or `:kind :report`. They are loaded after packaged plugins,
+so local config can intentionally override or augment a package during
+development.
 
-Generated reports include a `plugin-packages` section in `report.json`. It keeps
-package counts, benchmark status, claim authority, diagnostic counts, structured
-diagnostics, warnings, source pins, manifest fingerprints, and diagnose commands
-with the report artifact, even when no report plugin renders those caveats.
+Generated reports include package caveats at `report.plugins.packages`. This
+keeps package counts, benchmark status, claim authority, diagnostic counts,
+structured diagnostics, warnings, source pins, manifest fingerprints, and
+diagnose commands with the report artifact, even when no report plugin renders
+those caveats.
 
 ## Ecosystem Policy
 

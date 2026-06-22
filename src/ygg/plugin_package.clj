@@ -90,6 +90,21 @@
 (def ^:private registry-support-statuses
   #{:experimental :maintained :deprecated})
 
+(def ^:private legacy-project-plugin-keys
+  #{:plugin-packages :extractor-plugins :report-plugins})
+
+(def ^:private legacy-package-plugin-keys
+  #{:extractor-plugins :report-plugins})
+
+(def ^:private project-plugin-entry-kinds
+  #{:package :extractor :report})
+
+(def ^:private package-plugin-entry-kinds
+  #{:extractor :report})
+
+(def plugin-entry-kinds
+  project-plugin-entry-kinds)
+
 (defn- now-ms
   []
   (System/currentTimeMillis))
@@ -114,6 +129,36 @@
 (defn- read-edn-file
   [path]
   (edn/read-string (slurp (io/file path))))
+
+(defn- legacy-key-diagnostics
+  [data legacy-keys replacement]
+  (->> legacy-keys
+       (keep (fn [k]
+               (when (contains? data k)
+                 {:key k
+                  :replacement replacement})))
+       vec))
+
+(defn reject-legacy-project-plugin-keys!
+  "Fail fast when project config uses the pre-canonical plugin keys."
+  [data]
+  (when-let [diagnostics (seq (legacy-key-diagnostics data
+                                                      legacy-project-plugin-keys
+                                                      :plugins))]
+    (throw (ex-info "Project config uses legacy plugin keys. Use canonical :plugins entries with :kind instead."
+                    {:legacy-keys (mapv :key diagnostics)
+                     :replacement :plugins})))
+  data)
+
+(defn- reject-legacy-package-plugin-keys!
+  [manifest]
+  (when-let [diagnostics (seq (legacy-key-diagnostics manifest
+                                                      legacy-package-plugin-keys
+                                                      :plugins))]
+    (throw (ex-info "Plugin package manifest uses legacy plugin keys. Use canonical :plugins entries with :kind instead."
+                    {:legacy-keys (mapv :key diagnostics)
+                     :replacement :plugins})))
+  manifest)
 
 (defn- manifest-fingerprint
   [path]
@@ -183,6 +228,55 @@
 (defn- package-dir
   [checkout-root subdir]
   (resolve-path checkout-root (or subdir ".")))
+
+(defn- plugin-entry-kind
+  [entry]
+  (some-> (:kind entry) keyword))
+
+(defn- plugin-entry-kind!
+  [entry supported-kinds message]
+  (let [kind (plugin-entry-kind entry)]
+    (when-not (contains? supported-kinds kind)
+      (throw (ex-info message
+                      {:plugin-entry entry
+                       :kind kind
+                       :supported (sort supported-kinds)})))
+    kind))
+
+(defn- plugin-entries
+  [manifest]
+  (let [entries (:plugins manifest)]
+    (cond
+      (nil? entries) []
+      (sequential? entries) (mapv #(do (plugin-entry-kind!
+                                        %
+                                        package-plugin-entry-kinds
+                                        "Plugin package manifest plugin entry declares unsupported :kind.")
+                                       %)
+                                  entries)
+      :else (throw (ex-info "Plugin package manifest :plugins must be a vector."
+                            {:plugins entries})))))
+
+(defn- plugin-entries-of-kind
+  [plugins kind]
+  (->> plugins
+       (filter #(= kind (plugin-entry-kind %)))
+       (mapv #(dissoc % :kind))))
+
+(defn- project-plugin-entries
+  [data]
+  (->> (:plugins (reject-legacy-project-plugin-keys! data))
+       (mapv #(do (plugin-entry-kind!
+                   %
+                   project-plugin-entry-kinds
+                   "Project plugin entry declares unsupported :kind.")
+                  %))))
+
+(defn- package-plugin-entries
+  [data]
+  (->> (project-plugin-entries data)
+       (filter #(= :package (plugin-entry-kind %)))
+       vec))
 
 (defn- normalize-visibility
   [manifest]
@@ -696,9 +790,12 @@
   [project-base entry]
   (let [package-path (resolve-path project-base (:path entry))
         manifest-path (io/file package-path (or (:manifest entry) manifest-filename))
-        manifest (read-edn-file manifest-path)
+        manifest (reject-legacy-package-plugin-keys! (read-edn-file manifest-path))
         fingerprint (manifest-fingerprint manifest-path)
-        package-id (some-> (:id manifest) str)]
+        package-id (some-> (:id manifest) str)
+        plugins (plugin-entries manifest)
+        extractor-plugins (plugin-entries-of-kind plugins :extractor)
+        report-plugins (plugin-entries-of-kind plugins :report)]
     (when-not (present? package-id)
       (throw (ex-info "Plugin package manifest is missing :id."
                       {:path (.getPath manifest-path)})))
@@ -725,8 +822,9 @@
                            :benchmark (:benchmark manifest)
                            :benchmark-status (benchmark-status manifest)
                            :core-promotion (:core-promotion manifest)
-                           :extractor-plugins (vec (:extractor-plugins manifest))
-                           :report-plugins (vec (:report-plugins manifest))}
+                           :plugins plugins
+                           :extractor-plugins extractor-plugins
+                           :report-plugins report-plugins}
                     (:description manifest) (assoc :description (str (:description manifest))))]
       (assoc package
              :warnings (package-warnings package)
@@ -760,8 +858,10 @@
                                                                      :tests
                                                                      %)
                                    (core-promotion-artifacts package :tests))}
-     :extractor-plugins (count (:resolved-extractor-plugins package))
-     :report-plugins (count (:resolved-report-plugins package))
+     :plugins {:total (+ (count (:resolved-extractor-plugins package))
+                         (count (:resolved-report-plugins package)))
+               :extractor (count (:resolved-extractor-plugins package))
+               :report (count (:resolved-report-plugins package))}
      :diagnostics diagnostics
      :diagnostic-counts (diagnostic-counts diagnostics)
      :warnings (:warnings package)}))
@@ -779,15 +879,19 @@
   [config-path]
   (let [base (config-dir config-path)
         data (read-edn-file config-path)]
-    (mapv #(read-package base %) (:plugin-packages data))))
+    (mapv #(read-package base %) (package-plugin-entries data))))
 
 (defn- installed-package-kind?
   [package kind]
   (case (some-> kind keyword)
-    :extractor (pos? (long (or (:extractor-plugins package) 0)))
-    :report (pos? (long (or (:report-plugins package) 0)))
+    :extractor (pos? (long (or (get-in package [:plugins :extractor]) 0)))
+    :report (pos? (long (or (get-in package [:plugins :report]) 0)))
     nil true
     false))
+
+(defn- package-entry?
+  [entry]
+  (= :package (plugin-entry-kind entry)))
 
 (defn- installed-package-search-text
   [package]
@@ -885,13 +989,18 @@
 (defn- remove-package-entry
   [entries package-id]
   (let [package-id (str package-id)
-        matches (filterv #(= package-id (str (:id %))) entries)]
+        matches (filterv #(and (package-entry? %)
+                               (= package-id (str (:id %))))
+                         entries)]
     (when-not (seq matches)
       (throw (ex-info "Plugin package is not installed."
                       {:plugin-package-id package-id
-                       :installed (mapv #(str (:id %)) entries)})))
+                       :installed (mapv #(str (:id %))
+                                        (filter package-entry? entries))})))
     {:removed (first matches)
-     :entries (vec (remove #(= package-id (str (:id %))) entries))}))
+     :entries (vec (remove #(and (package-entry? %)
+                                 (= package-id (str (:id %))))
+                           entries))}))
 
 (defn remove!
   "Remove an installed plugin package entry from project config.
@@ -902,9 +1011,9 @@
   (when-not (present? package-id)
     (throw (ex-info "Missing plugin package id." {:config-path config-path})))
   (let [data (read-edn-file config-path)
-        entries (vec (:plugin-packages data))
+        entries (project-plugin-entries data)
         removal (remove-package-entry entries package-id)
-        updated (assoc data :plugin-packages (:entries removal))]
+        updated (assoc data :plugins (:entries removal))]
     (write-edn-file! config-path updated)
     {:schema remove-schema
      :project-id (some-> (:id data) str)
@@ -915,16 +1024,20 @@
 (defn- installed-package-entry
   [entries package-id]
   (let [package-id (str package-id)
-        matches (filterv #(= package-id (str (:id %))) entries)]
+        matches (filterv #(and (package-entry? %)
+                               (= package-id (str (:id %))))
+                         entries)]
     (when-not (seq matches)
       (throw (ex-info "Plugin package is not installed."
                       {:plugin-package-id package-id
-                       :installed (mapv #(str (:id %)) entries)})))
+                       :installed (mapv #(str (:id %))
+                                        (filter package-entry? entries))})))
     (first matches)))
 
 (defn- installed-entry
   [{:keys [id source rev ref subdir package-path manifest-fingerprint]}]
-  (cond-> {:id id
+  (cond-> {:kind :package
+           :id id
            :source (source-map {:source source
                                 :ref ref
                                 :rev rev
@@ -937,12 +1050,16 @@
 
 (defn- upsert-package-entry
   [entries entry force?]
-  (let [existing (some #(when (= (:id entry) (:id %)) %) entries)]
+  (let [existing (some #(when (and (package-entry? %)
+                                   (= (:id entry) (:id %)))
+                          %)
+                       entries)]
     (when (and existing (not force?))
       (throw (ex-info "Plugin package is already installed. Re-run with --force to replace it."
                       {:plugin-package-id (:id entry)})))
     (->> entries
-         (remove #(= (:id entry) (:id %)))
+         (remove #(and (package-entry? %)
+                       (= (:id entry) (:id %))))
          (concat [entry])
          vec)))
 
@@ -965,7 +1082,8 @@
                             {:path (.getPath manifest-path)})))
         manifest (read-edn-file manifest-path)
         fingerprint (manifest-fingerprint manifest-path)
-        data (read-edn-file config-path)
+        data (reject-legacy-project-plugin-keys! (read-edn-file config-path))
+        entries (project-plugin-entries data)
         entry (installed-entry {:id (str (:id manifest))
                                 :source source
                                 :rev rev
@@ -974,9 +1092,9 @@
                                 :package-path package-path
                                 :manifest-fingerprint fingerprint})
         package (ensure-local-use-ready! (read-package base entry))
-        updated (update data
-                        :plugin-packages
-                        #(upsert-package-entry (vec %) entry (boolean force?)))]
+        updated (assoc data
+                       :plugins
+                       (upsert-package-entry entries entry (boolean force?)))]
     (write-edn-file! config-path updated)
     {:schema install-schema
      :project-id (some-> (:id data) str)
@@ -989,7 +1107,7 @@
   "Refresh an installed git plugin package through the install validation path."
   [config-path package-id {:keys [ref subdir cache-root] :as opts}]
   (let [data (read-edn-file config-path)
-        entries (vec (:plugin-packages data))
+        entries (project-plugin-entries data)
         entry (installed-package-entry entries package-id)
         source (:source entry)
         source-url (or (:url source)
@@ -1067,10 +1185,16 @@
                  (seq warnings) :warning
                  :else :passed)
        :package (package-summary package)
-       :extractor-plugins (mapv #(select-keys % [:id :version :modes :scan :search])
-                                extractor-plugins)
-       :report-plugins (mapv #(select-keys % [:id :version :slots])
-                             report-plugins)
+       :plugins (vec
+                 (concat
+                  (mapv #(assoc (select-keys % [:id :version :modes :scan :search])
+                                :kind
+                                :extractor)
+                        extractor-plugins)
+                  (mapv #(assoc (select-keys % [:id :version :slots])
+                                :kind
+                                :report)
+                        report-plugins)))
        :warnings warnings
        :errors errors})
     (catch Exception e
@@ -2179,7 +2303,8 @@
                       :systems {:nodes 0
                                 :edges 0}
                       :dependencies {:packages 0}}
-              :plugin-packages plugin-packages}
+              :plugins {:packages plugin-packages}}
+     :plugin-packages plugin-packages
      :graph {:nodes []
              :edges []}
      :systems {:nodes []

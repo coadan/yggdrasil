@@ -187,7 +187,7 @@
           (pr-str {:id "plugin-config"
                    :repos [{:id "repo"
                             :root (.getPath repo-root)}]
-                   :extractor-plugins [(plugin-config)]}))
+                   :plugins [(assoc (plugin-config) :kind :extractor)]}))
     (let [plugin (-> (project/read-project (.getPath project-edn))
                      :extractor-plugins
                      first)]

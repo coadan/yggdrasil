@@ -309,19 +309,19 @@
 
 (defn- plugin-input
   [{:keys [project generated-at-ms report graph systems coverage maintenance evidence
-           package-report artifacts]} plugin]
+           package-report plugin-packages artifacts]} plugin]
   {:schema input-schema
    :project (select-keys project [:id :name :path :repos])
    :generatedAtMs generated-at-ms
    :plugin (plugin-summary plugin)
-   :report report
+   :report (assoc-in report [:plugins :packages] plugin-packages)
    :graphs {:overview graph
             :systems systems}
    :coverage coverage
    :maintenance maintenance
    :evidence evidence
    :packages package-report
-   :pluginPackages (:plugin-packages report)
+   :pluginPackages plugin-packages
    :artifacts artifacts})
 
 (defn build-plugin-input
@@ -431,13 +431,14 @@
 
 (defn bundle
   "Combine core and external report plugin output into the report plugin bundle."
-  [{:keys [report plugins] :as ctx}]
+  [{:keys [report plugins plugin-packages] :as ctx}]
   (let [core {:panels (core-panels report)
               :diagnostics []
               :artifacts []}
         external (mapv #(run-plugin ctx %) plugins)
         outputs (cons core external)]
     {:schema bundle-schema
+     :packages plugin-packages
      :panels (->> outputs (mapcat :panels) (sort-by (juxt :slot :order :id)) vec)
      :diagnostics (->> outputs (mapcat :diagnostics) vec)
      :artifacts (->> outputs (mapcat :artifacts) vec)}))

@@ -21,8 +21,9 @@ Add plugins to `project.edn`:
 ```clojure
 {:id "sample"
  :repos [{:id "app" :root "."}]
- :extractor-plugins
- [{:id "datastar-hiccup"
+ :plugins
+ [{:kind :extractor
+   :id "datastar-hiccup"
    :version "0.1.0"
    :command ["bb" "run" "-m" "tools.datastar-extractor"]
    :modes [:enhance :scan]

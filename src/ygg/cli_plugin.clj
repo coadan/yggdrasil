@@ -68,8 +68,8 @@
   (println "-"
            (:id package)
            (str "version=" (:version package))
-           (str "extractors=" (:extractor-plugins package))
-           (str "reports=" (:report-plugins package))
+           (str "extractors=" (get-in package [:plugins :extractor] 0))
+           (str "reports=" (get-in package [:plugins :report] 0))
            (str "benchmark=" (name (or (:benchmark-status package) :unbenchmarked))))
   (print-plugin-claim-authority " " (:claim-authority package))
   (print-plugin-benchmark-cases " " (:benchmark-cases package))
@@ -162,15 +162,15 @@
     (println "- fixture" fixture-path))
   (println "- files" (count files)))
 (defn- print-plugin-validation
-  [{:keys [status package extractor-plugins report-plugins warnings errors]}]
+  [{:keys [status package plugins warnings errors]}]
   (println "# Plugin Validation")
   (println "- status" (name status))
   (when package
     (println "- package" (:id package) (str "version=" (:version package)))
     (print-plugin-benchmark-cases "-" (:benchmark-cases package))
     (print-plugin-claim-authority "-" (:claim-authority package)))
-  (println "- extractors" (count extractor-plugins))
-  (println "- reports" (count report-plugins))
+  (println "- extractors" (count (filter #(= :extractor (:kind %)) plugins)))
+  (println "- reports" (count (filter #(= :report (:kind %)) plugins)))
   (doseq [warning warnings]
     (println "- warning" warning))
   (doseq [error errors]

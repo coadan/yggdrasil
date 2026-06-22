@@ -296,31 +296,31 @@ export const fixtureReport: YggReport = {
       }
     ]
   },
-  "plugin-packages": {
-    counts: {
-      packages: 1,
-      warnings: 1,
-      errors: 0,
-      unbenchmarked: 1
-    },
-    packages: [
-      {
-        id: "datastar-hiccup",
-        version: "0.1.0",
-        scope: { kind: "project-local" },
-        "benchmark-status": "unbenchmarked",
-        "claim-authority": {
-          status: "non-authoritative",
-          "public-claims?": false,
-          blockers: [{ code: "unbenchmarked", message: "Unbenchmarked package output is useful for review but non-authoritative." }]
-        },
-        warnings: ["datastar-hiccup is unbenchmarked"],
-        "diagnose-command": "ygg plugin diagnose .dev/ygg/plugins/cache/datastar-hiccup --json"
-      }
-    ]
-  },
   plugins: {
     schema: "ygg.report.plugins/v1",
+    packages: {
+      counts: {
+        packages: 1,
+        warnings: 1,
+        errors: 0,
+        unbenchmarked: 1
+      },
+      packages: [
+        {
+          id: "datastar-hiccup",
+          version: "0.1.0",
+          scope: { kind: "project-local" },
+          "benchmark-status": "unbenchmarked",
+          "claim-authority": {
+            status: "non-authoritative",
+            "public-claims?": false,
+            blockers: [{ code: "unbenchmarked", message: "Unbenchmarked package output is useful for review but non-authoritative." }]
+          },
+          warnings: ["datastar-hiccup is unbenchmarked"],
+          "diagnose-command": "ygg plugin diagnose .dev/ygg/plugins/cache/datastar-hiccup --json"
+        }
+      ]
+    },
     panels: [
       {
         id: "core-atlas-summary",

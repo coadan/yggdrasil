@@ -57,6 +57,7 @@ export type ReportPluginDiagnostic = {
 
 export type ReportPlugins = {
   schema: "ygg.report.plugins/v1";
+  packages?: PluginPackages;
   panels?: ReportPluginPanel[];
   diagnostics?: ReportPluginDiagnostic[];
   artifacts?: Array<Record<string, unknown>>;
@@ -104,8 +105,6 @@ export type YggReport = {
     [key: string]: unknown;
   };
   maintenance?: Record<string, unknown>;
-  "plugin-packages"?: PluginPackages;
-  pluginPackages?: PluginPackages;
   plugins?: ReportPlugins;
   commands: string[];
 };

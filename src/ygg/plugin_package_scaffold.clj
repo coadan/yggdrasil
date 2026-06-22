@@ -142,9 +142,9 @@
        " --json\n"
        "```\n\n"
        "Unsupported file families:\n\n"
-       "- edit `:extractor-plugins[0] :applies-to :file-kinds` to name the "
+       "- edit the extractor entry under `:plugins` to name the "
        "incoming file kind this package handles;\n"
-       "- edit `:extractor-plugins[0] :scan` when the package should discover "
+       "- edit its `:scan` config when the package should discover "
        "files core does not index yet;\n"
        "- replace `fixtures/sample.clj` with representative project-agnostic "
        "fixtures for that file family;\n"
@@ -274,31 +274,32 @@
   (let [file-kind (scaffold-file-kind file-kind)
         path-globs (scaffold-globs path-globs ["src/*" "src/**/*"])
         scan-globs (scaffold-globs scan-globs ["fixtures/**/*"])]
-    (cond-> {:schema manifest-schema
-             :id package-id
-             :name (str (or name package-id))
-             :version "0.1.0"
-             :license {:spdx "MIT"}
-             :distribution (distribution public-base?)
-             :scope (scope public-base?)
-             :benchmark {:status :unbenchmarked}}
-      extractor?
-      (assoc :extractor-plugins
-             [{:id (str package-id "-extractor")
-               :command ["python3" "extract.py"]
-               :modes [:enhance :scan]
-               :applies-to {:file-kinds [file-kind]
-                            :path-globs path-globs}
-               :scan {:path-globs scan-globs
-                      :file-kind file-kind}
-               :search {:chunks? true}
-               :emits [:plugin-observation]}])
-
-      report?
-      (assoc :report-plugins
-             [{:id (str package-id "-report")
-               :command ["python3" "report.py"]
-               :slots [:plugins]}]))))
+    {:schema manifest-schema
+     :id package-id
+     :name (str (or name package-id))
+     :version "0.1.0"
+     :license {:spdx "MIT"}
+     :distribution (distribution public-base?)
+     :scope (scope public-base?)
+     :benchmark {:status :unbenchmarked}
+     :plugins (vec
+               (concat
+                (when extractor?
+                  [{:kind :extractor
+                    :id (str package-id "-extractor")
+                    :command ["python3" "extract.py"]
+                    :modes [:enhance :scan]
+                    :applies-to {:file-kinds [file-kind]
+                                 :path-globs path-globs}
+                    :scan {:path-globs scan-globs
+                           :file-kind file-kind}
+                    :search {:chunks? true}
+                    :emits [:plugin-observation]}])
+                (when report?
+                  [{:kind :report
+                    :id (str package-id "-report")
+                    :command ["python3" "report.py"]
+                    :slots [:plugins]}])))}))
 
 (defn new!
   "Create a local plugin package scaffold."

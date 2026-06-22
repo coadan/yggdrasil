@@ -10,8 +10,9 @@ Report plugins are configured in `project.edn`:
 ```clojure
 {:id "my-project"
  :repos [{:id "app" :root "."}]
- :report-plugins
- [{:id "planning-panel"
+ :plugins
+ [{:kind :report
+   :id "planning-panel"
    :version "0.1.0"
    :command ["python3" "tools/report_panels.py"]
    :slots [:plugins :systems]
@@ -203,14 +204,14 @@ and plugin diagnostics.
 `bb report` writes:
 
 - `report.json`, including `report.plugins`
-- `report-plugins.json`, containing only the plugin bundle
+- `report-plugins.json`, containing the plugin bundle
 - `index.html`, which renders the report UI
 
-`report.json` also includes `plugin-packages`: compact package summaries with
-diagnostic counts, structured diagnostics, warnings, benchmark status, claim
-authority, source pins, manifest fingerprints, and diagnose commands. Report
-plugins receive the same data directly as `pluginPackages` and inside the full
-report packet as `report.plugin-packages`.
+`report.json` includes `report.plugins.packages`: compact package summaries
+with diagnostic counts, structured diagnostics, warnings, benchmark status,
+claim authority, source pins, manifest fingerprints, and diagnose commands.
+Report plugins receive the same data directly as `pluginPackages` and inside
+the full report packet as `report.plugins.packages`.
 Packaged report plugin dry-runs use the same shape in their synthetic report
 context, so package caveats are visible before generating a full dashboard.
 
@@ -220,7 +221,7 @@ treated as review inventory: common explicit reference fields such as `path`,
 move from a plugin decision surface to generated evidence quickly.
 
 The Plugins tab also renders installed plugin package caveats from
-`report.plugin-packages`: package counts, benchmark status, claim authority,
+`report.plugins.packages`: package counts, benchmark status, claim authority,
 blockers, warnings, and diagnose commands. This makes unbenchmarked,
 project-local, or otherwise non-authoritative package output visible without
 opening raw report JSON.

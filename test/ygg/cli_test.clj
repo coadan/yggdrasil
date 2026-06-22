@@ -126,8 +126,9 @@
                                              :project-id "fixture"
                                              :package {:id "pkg"
                                                        :version "0.1.0"
-                                                       :extractor-plugins 1
-                                                       :report-plugins 1
+                                                       :plugins {:total 2
+                                                                 :extractor 1
+                                                                 :report 1}
                                                        :benchmark-status :unbenchmarked
                                                        :claim-authority claim-authority
                                                        :manifest-fingerprint "sha256:abc123"
@@ -186,8 +187,9 @@
                                             :previous-entry {:source {:rev "oldrev"}}
                                             :package {:id package-id
                                                       :version "0.2.0"
-                                                      :extractor-plugins 1
-                                                      :report-plugins 1
+                                                      :plugins {:total 2
+                                                                :extractor 1
+                                                                :report 1}
                                                       :benchmark-status :unbenchmarked
                                                       :claim-authority claim-authority
                                                       :manifest-fingerprint "sha256:def456"
@@ -240,8 +242,9 @@
                               :report 1}
                      :packages [{:id "datastar-hiccup"
                                  :version "0.1.0"
-                                 :extractor-plugins 1
-                                 :report-plugins 0
+                                 :plugins {:total 1
+                                           :extractor 1
+                                           :report 0}
                                  :benchmark-status :unbenchmarked
                                  :claim-authority {:status :non-authoritative
                                                    :public-claims? false
@@ -330,8 +333,9 @@
                                :project-id "fixture"
                                :package {:id package-id
                                          :version "0.1.0"
-                                         :extractor-plugins 1
-                                         :report-plugins 0
+                                         :plugins {:total 1
+                                                   :extractor 1
+                                                   :report 0}
                                          :benchmark-status :unbenchmarked
                                          :manifest-fingerprint "sha256:abc123"
                                          :warnings []}
@@ -434,8 +438,8 @@
                                                    :package {:id "demo"
                                                              :version "0.1.0"
                                                              :claim-authority claim-authority}
-                                                   :extractor-plugins [{}]
-                                                   :report-plugins [{}]
+                                                   :plugins [{:kind :extractor}
+                                                             {:kind :report}]
                                                    :warnings ["demo is unbenchmarked"]
                                                    :errors []})
                   plugin-package/diagnose-local (fn [dir]

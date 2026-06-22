@@ -31,7 +31,7 @@
           (pr-str {:id "report-plugin-config"
                    :repos [{:id "repo"
                             :root (.getPath repo-root)}]
-                   :report-plugins [(plugin-config)]}))
+                   :plugins [(assoc (plugin-config) :kind :report)]}))
     (let [plugin (-> (project/read-project (.getPath project-edn))
                      :report-plugins
                      first)]
@@ -74,17 +74,18 @@
                           :repos []}
                 :generated-at-ms 1
                 :report {:schema "ygg.report/v2"
-                         :plugin-packages plugin-packages}
+                         :plugins {:packages plugin-packages}}
                 :graph {:nodes [] :edges []}
                 :systems {:nodes [] :edges []}
                 :coverage {}
                 :maintenance {}
                 :evidence {}
                 :package-report {}
+                :plugin-packages plugin-packages
                 :artifacts {}}
                plugin)]
     (is (= plugin-packages (:pluginPackages input)))
-    (is (= plugin-packages (get-in input [:report :plugin-packages])))))
+    (is (= plugin-packages (get-in input [:report :plugins :packages])))))
 
 (deftest report-plugin-can-crawl-generated-graph-exports
   (let [plugin (report-plugin/normalize-plugin (plugin-config))

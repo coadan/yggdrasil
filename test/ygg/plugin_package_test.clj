@@ -14,11 +14,24 @@
               (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(defn- canonical-plugin-manifest
+  [manifest]
+  (let [extractors (mapv #(assoc % :kind :extractor)
+                         (:extractor-plugins manifest))
+        reports (mapv #(assoc % :kind :report)
+                      (:report-plugins manifest))]
+    (cond-> (dissoc manifest :extractor-plugins :report-plugins)
+      (or (seq extractors) (seq reports))
+      (assoc :plugins (vec (concat extractors reports))))))
+
 (defn- write-file!
   [root path content]
   (let [file (io/file root path)]
     (.mkdirs (.getParentFile file))
-    (spit file content)
+    (spit file
+          (if (= path plugin-package/manifest-filename)
+            (pr-str (canonical-plugin-manifest (edn/read-string content)))
+            content))
     (.getPath file)))
 
 (def benchmark-improvement-fixture
@@ -80,6 +93,57 @@
         "initial plugin package")
   root)
 
+(deftest rejects-legacy-project-plugin-keys
+  (let [workspace (temp-dir "ygg-plugin-legacy-project")
+        app-root (io/file workspace "app")
+        project-edn (io/file workspace "project.edn")]
+    (.mkdirs app-root)
+    (spit project-edn
+          (pr-str {:id "legacy-plugin-config"
+                   :repos [{:id "app"
+                            :root (.getPath app-root)}]
+                   :plugin-packages []}))
+    (try
+      (project/read-project (.getPath project-edn))
+      (is false "Expected legacy project plugin key rejection.")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= "Project config uses legacy plugin keys. Use canonical :plugins entries with :kind instead."
+               (ex-message e)))
+        (is (= {:legacy-keys [:plugin-packages]
+                :replacement :plugins}
+               (ex-data e)))))))
+
+(deftest validate-local-rejects-legacy-package-plugin-keys
+  (let [package-dir (io/file (temp-dir "ygg-plugin-legacy-package"))]
+    (spit (io/file package-dir plugin-package/manifest-filename)
+          (pr-str {:schema plugin-package/manifest-schema
+                   :id "legacy-package"
+                   :version "0.1.0"
+                   :extractor-plugins []}))
+    (let [validation (plugin-package/validate-local (.getPath package-dir))]
+      (is (= :failed (:status validation)))
+      (is (= ["Plugin package manifest uses legacy plugin keys. Use canonical :plugins entries with :kind instead."]
+             (:errors validation)))
+      (is (= {:legacy-keys [:extractor-plugins]
+              :replacement :plugins}
+             (:data validation))))))
+
+(deftest validate-local-rejects-package-kind-in-package-manifests
+  (let [package-dir (io/file (temp-dir "ygg-plugin-nested-package-kind"))]
+    (spit (io/file package-dir plugin-package/manifest-filename)
+          (pr-str {:schema plugin-package/manifest-schema
+                   :id "nested-package"
+                   :version "0.1.0"
+                   :plugins [{:kind :package
+                              :id "other-package"}]}))
+    (let [validation (plugin-package/validate-local (.getPath package-dir))]
+      (is (= :failed (:status validation)))
+      (is (= ["Plugin package manifest plugin entry declares unsupported :kind."]
+             (:errors validation)))
+      (is (= :package (get-in validation [:data :kind])))
+      (is (= #{:extractor :report}
+             (set (get-in validation [:data :supported])))))))
+
 (deftest installs-git-plugin-package-and-project-loads-plugins
   (let [workspace (temp-dir "ygg-plugin-package")
         app-root (io/file workspace "app")
@@ -96,7 +160,7 @@
                           package-root
                           {:cache-root (.getPath cache-root)})
           data (edn/read-string (slurp project-edn))
-          entry (first (:plugin-packages data))
+          entry (first (:plugins data))
           manifest-fingerprint (:manifest-fingerprint entry)
           listed (plugin-package/list-installed (.getPath project-edn))
           filtered (plugin-package/list-installed (.getPath project-edn)
@@ -111,6 +175,7 @@
       (is (= plugin-package/install-schema (:schema install-result)))
       (is (= "sample-plugin-pack" (get-in install-result [:package :id])))
       (is (= "plugin-fixture" (:project-id install-result)))
+      (is (= :package (:kind entry)))
       (is (= :git (get-in entry [:source :type])))
       (is (= package-root (get-in entry [:source :url])))
       (is (not (str/blank? (get-in entry [:source :rev]))))
@@ -141,8 +206,10 @@
              (get-in missing-filter [:next-actions 1 :command])))
       (is (= "bb plugin gap report '<package-dir>' --json"
              (get-in missing-filter [:next-actions 2 :command])))
-      (is (= 1 (get-in listed [:packages 0 :extractor-plugins])))
-      (is (= 1 (get-in listed [:packages 0 :report-plugins])))
+      (is (= {:total 2
+              :extractor 1
+              :report 1}
+             (get-in listed [:packages 0 :plugins])))
       (is (some #(str/includes? % "unbenchmarked")
                 (get-in listed [:packages 0 :warnings])))
       (is (= "sample-extractor" (:id extractor)))
@@ -159,14 +226,14 @@
       (is (= (:path entry) (:cwd report)))
       (spit project-edn
             (pr-str (assoc data
-                           :plugin-packages
+                           :plugins
                            [(assoc entry :manifest-fingerprint "sha256:stale")])))
       (is (some #(str/includes? % "manifest fingerprint")
                 (get-in (plugin-package/list-installed (.getPath project-edn))
                         [:packages 0 :warnings])))
       (spit project-edn
             (pr-str (assoc data
-                           :plugin-packages
+                           :plugins
                            [(assoc entry :id "different-plugin")])))
       (let [mismatched (plugin-package/list-installed (.getPath project-edn))]
         (is (= "different-plugin"
@@ -234,13 +301,14 @@
                      "sample-plugin-pack"
                      {:cache-root (.getPath cache-root)})
             data (edn/read-string (slurp project-edn))
-            entry (first (:plugin-packages data))]
+            entry (first (:plugins data))]
         (is (= plugin-package/update-schema (:schema updated)))
         (is (= "sample-plugin-pack" (:package-id updated)))
         (is (= previous-entry (:previous-entry updated)))
         (is (= branch (:update-ref updated)))
         (is (= true (:refresh? updated)))
         (is (= "0.2.0" (get-in updated [:package :version])))
+        (is (= :package (:kind entry)))
         (is (not= previous-rev (get-in updated [:entry :source :rev])))
         (is (not= previous-fingerprint
                   (get-in updated [:entry :manifest-fingerprint])))
@@ -307,7 +375,7 @@
           (is (= [:duplicate-extractor-plugin-id]
                  (mapv :code (:diagnostics (ex-data e)))))))
       (let [data (edn/read-string (slurp project-edn))]
-        (is (= [previous-entry] (:plugin-packages data)))))))
+        (is (= [previous-entry] (:plugins data)))))))
 
 (deftest removes-installed-plugin-package-entry
   (let [workspace (temp-dir "ygg-plugin-remove")
@@ -315,12 +383,14 @@
     (spit project-edn
           (pr-str {:id "plugin-remove-fixture"
                    :repos []
-                   :plugin-packages [{:id "keep-plugin"
-                                      :path "/tmp/keep"
-                                      :manifest plugin-package/manifest-filename}
-                                     {:id "remove-plugin"
-                                      :path "/tmp/remove"
-                                      :manifest plugin-package/manifest-filename}]}))
+                   :plugins [{:kind :package
+                              :id "keep-plugin"
+                              :path "/tmp/keep"
+                              :manifest plugin-package/manifest-filename}
+                             {:kind :package
+                              :id "remove-plugin"
+                              :path "/tmp/remove"
+                              :manifest plugin-package/manifest-filename}]}))
     (let [result (plugin-package/remove! (.getPath project-edn) "remove-plugin")
           data (edn/read-string (slurp project-edn))]
       (is (= plugin-package/remove-schema (:schema result)))
@@ -328,12 +398,12 @@
       (is (= "remove-plugin" (:package-id result)))
       (is (= "/tmp/remove" (get-in result [:removed-entry :path])))
       (is (= 1 (:remaining result)))
-      (is (= ["keep-plugin"] (mapv :id (:plugin-packages data))))))
+      (is (= ["keep-plugin"] (mapv :id (:plugins data))))))
   (let [workspace (temp-dir "ygg-plugin-remove-missing")
         project-edn (io/file workspace "project.edn")]
     (spit project-edn
           (pr-str {:id "plugin-remove-missing"
-                   :plugin-packages []}))
+                   :plugins []}))
     (try
       (plugin-package/remove! (.getPath project-edn) "missing-plugin")
       (is false "Expected remove! to reject missing package id.")
@@ -473,8 +543,8 @@
       (is (= plugin-package/validate-schema (:schema validation)))
       (is (str/starts-with? manifest-fingerprint "sha256:"))
       (is (= :warning (:status validation)))
-      (is (= 1 (count (:extractor-plugins validation))))
-      (is (= 1 (count (:report-plugins validation))))
+      (is (= 1 (count (filter #(= :extractor (:kind %)) (:plugins validation)))))
+      (is (= 1 (count (filter #(= :report (:kind %)) (:plugins validation)))))
       (is (some #(str/includes? % "unbenchmarked") (:warnings validation)))
       (is (= #{:project-local-scope :unbenchmarked}
              (set (map :code (get-in validation [:package :diagnostics])))))
@@ -676,13 +746,13 @@
                 (get-in report-gap-packet [:proof :core-promotion-requirements])))
       (is (= :unbenchmarked (get-in report-gap-packet [:caveats :benchmark-status])))
       (is (= claim-authority (get-in report-gap-packet [:caveats :claim-authority])))
-      (is (= 1 (get-in report-context [:report :plugin-packages :counts :packages])))
-      (is (= 1 (get-in report-context [:report :plugin-packages :counts :unbenchmarked])))
+      (is (= 1 (get-in report-context [:report :plugins :packages :counts :packages])))
+      (is (= 1 (get-in report-context [:report :plugins :packages :counts :unbenchmarked])))
       (is (= "demo-plugin"
-             (get-in report-context [:report :plugin-packages :packages 0 :id])))
+             (get-in report-context [:report :plugins :packages :packages 0 :id])))
       (is (= claim-authority
              (get-in report-context
-                     [:report :plugin-packages :packages 0 :claim-authority]))))))
+                     [:report :plugins :packages :packages 0 :claim-authority]))))))
 
 (deftest scaffold-can-create-explicit-public-base-package
   (let [workspace (temp-dir "ygg-plugin-public-base")
@@ -722,7 +792,7 @@
         manifest (edn/read-string
                   (slurp (io/file package-dir plugin-package/manifest-filename)))
         validation (plugin-package/validate-local (.getPath package-dir))
-        extractor (first (:extractor-plugins validation))]
+        extractor (first (filter #(= :extractor (:kind %)) (:plugins validation)))]
     (.mkdirs template-dir)
     (spit (io/file template-dir "page.html") "<button hx-post=\"/save\">Save</button>\n")
     (is (= :htmx (:file-kind created)))
@@ -733,12 +803,12 @@
     (is (str/includes? (slurp (io/file package-dir "fixtures" "sample.html"))
                        "Sample htmx fixture"))
     (is (= [:htmx]
-           (get-in manifest [:extractor-plugins 0 :applies-to :file-kinds])))
+           (get-in manifest [:plugins 0 :applies-to :file-kinds])))
     (is (= ["templates/*.html" "resources/**/*.html"]
-           (get-in manifest [:extractor-plugins 0 :applies-to :path-globs])))
+           (get-in manifest [:plugins 0 :applies-to :path-globs])))
     (is (= {:path-globs ["templates/*.html"]
             :file-kind :htmx}
-           (get-in manifest [:extractor-plugins 0 :scan])))
+           (get-in manifest [:plugins 0 :scan])))
     (is (= :warning (:status validation)))
     (is (= #{:enhance :scan} (:modes extractor)))
     (is (= :htmx (get-in extractor [:scan :file-kind])))
@@ -986,7 +1056,7 @@
           (is (= "Plugin package local-use validation failed." (ex-message e)))
           (is (= #{:duplicate-extractor-plugin-id :duplicate-report-plugin-id}
                  (set (map :code (:diagnostics (ex-data e))))))))
-      (is (nil? (:plugin-packages (edn/read-string (slurp project-edn))))))))
+      (is (nil? (:plugins (edn/read-string (slurp project-edn))))))))
 
 (deftest diagnose-blocks-invalid-public-package-policy
   (let [workspace (temp-dir "ygg-plugin-diagnose")

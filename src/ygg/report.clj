@@ -334,8 +334,7 @@
                         :manifest-fingerprint
                         :expected-package-id
                         :expected-manifest-fingerprint
-                        :extractor-plugins
-                        :report-plugins
+                        :plugins
                         :diagnostics
                         :diagnostic-counts
                         :warnings])
@@ -610,7 +609,10 @@
                               :coverage coverage
                               :maintenance maintenance
                               :evidence evidence
-                              :package-report package-report})]
+                              :package-report package-report})
+        plugin-packages (plugin-package-summary project)
+        plugins (assoc (or report-plugins empty-plugin-bundle)
+                       :packages plugin-packages)]
     {:schema schema
      :project {:id (:id project)
                :name (:name project)
@@ -651,7 +653,6 @@
                                          (take report-package-diagnostic-limit
                                                (:version-conflicts package-report)))
                 :artifact "report.json"}
-     :plugin-packages (plugin-package-summary project)
      :maintenance {:counts (:counts maintenance)
                    :external-api-review (:external-api-review maintenance)
                    :top-hubs (vec (take 10 (or (get-in maintenance [:graph-health :high-degree-hubs])
@@ -669,7 +670,7 @@
                                                            maintenance)))}
      :context-example {:artifact "context-example.json"
                        :answerability (:answerability context-example)}
-     :plugins (or report-plugins empty-plugin-bundle)
+     :plugins plugins
      :artifacts artifacts
      :commands (suggested-commands project map-path maintenance)}))
 
@@ -848,6 +849,7 @@
                                          {:map-overlay overlay
                                           :config-path (:path project)
                                           :map-path map-path})
+        plugin-packages (plugin-package-summary project)
         artifacts {:index (artifact "index.html")
                    :report (artifact "REPORT.mdx")
                    :report-data (artifact "report.json")
@@ -868,7 +870,9 @@
                                          :package-report package-report
                                          :audit-report audit-report
                                          :artifacts artifacts
-                                         :report-plugins empty-plugin-bundle})
+                                         :report-plugins (assoc empty-plugin-bundle
+                                                                :packages
+                                                                plugin-packages)})
         plugin-bundle (report-plugin/bundle {:project project
                                              :generated-at-ms generated-at-ms
                                              :report base-report-packet
@@ -878,6 +882,7 @@
                                              :maintenance maintenance
                                              :evidence evidence-summary
                                              :package-report package-report
+                                             :plugin-packages plugin-packages
                                              :artifacts artifacts
                                              :plugins (:report-plugins project)})
         report-packet (assoc base-report-packet :plugins plugin-bundle)

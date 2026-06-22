@@ -55,8 +55,9 @@
                              :manifest-fingerprint "sha256:manifest"
                              :expected-package-id "datastar-hiccup"
                              :expected-manifest-fingerprint "sha256:manifest"
-                             :extractor-plugins 1
-                             :report-plugins 1
+                             :plugins {:total 2
+                                       :extractor 1
+                                       :report 1}
                              :diagnostics [{:code :unbenchmarked
                                             :severity :warning
                                             :applies-to [:claims :core-promotion]
@@ -172,7 +173,7 @@
             :warnings 1
             :unbenchmarked 1
             :benchmarked 0}
-           (get-in packet [:plugin-packages :counts])))
+           (get-in packet [:plugins :packages :counts])))
     (is (= [{:id "datastar-hiccup"
              :name "Datastar Hiccup"
              :version "0.1.0"
@@ -192,8 +193,9 @@
              :manifest-fingerprint "sha256:manifest"
              :expected-package-id "datastar-hiccup"
              :expected-manifest-fingerprint "sha256:manifest"
-             :extractor-plugins 1
-             :report-plugins 1
+             :plugins {:total 2
+                       :extractor 1
+                       :report 1}
              :diagnostics [{:code :unbenchmarked
                             :severity :warning
                             :applies-to [:claims :core-promotion]
@@ -207,7 +209,7 @@
                       :rev "abc123"}
              :diagnose-command
              "ygg plugin diagnose .dev/ygg/plugins/cache/datastar --json"}]
-           (get-in packet [:plugin-packages :packages])))
+           (get-in packet [:plugins :packages :packages])))
     (is (= 2 (get-in packet [:atlas :dependencies :packages])))
     (is (= 1 (get-in packet [:atlas :dependencies :unresolved-imports])))
     (is (= 1 (get-in packet [:atlas :dependencies :version-conflicts])))

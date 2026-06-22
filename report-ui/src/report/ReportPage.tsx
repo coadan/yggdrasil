@@ -1106,7 +1106,7 @@ function claimBlockers(row: Record<string, unknown>): string {
 }
 
 function PluginPackageCaveats({ report }: { report: YggReport }) {
-  const pluginPackages = report["plugin-packages"] || report.pluginPackages;
+  const pluginPackages = report.plugins?.packages;
   const counts = asRecord(pluginPackages?.counts);
   const rows = asRows(pluginPackages?.packages).map((row) => ({
     id: row.id,
