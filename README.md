@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="ygg.png" alt="Yggdrasil" width="360">
+</p>
+
 # Yggdrasil
 
 Real-world systems are more than code files. They are services, configs,
