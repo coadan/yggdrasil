@@ -53,10 +53,22 @@
                                      :label "astro/config"}
                                     {:kind :web-framework-plugin
                                      :path "site/astro.config.ts"
-                                     :label "Astro integration"}
-                                    {:kind :manifest-package
-                                     :path "package.json"
-                                     :label "astro dependency"}]}
+                                     :label "bootstrap"}
+                                    {:kind :external-package
+                                     :label "npm:astro"}]
+                         :graph-evidence []
+                         :nodes [{:kind :web-framework
+                                  :label "astro"}
+                                 {:kind :web-framework-import
+                                  :path "site/astro.config.ts"
+                                  :label "astro/config"}
+                                 {:kind :web-framework-plugin
+                                  :path "site/astro.config.ts"
+                                  :label "bootstrap"}
+                                 {:kind :external-package
+                                  :label "npm:astro"}]
+                         :chunks [{:kind :web-framework-file
+                                   :path "site/astro.config.ts"}]}
           :issue {:id "planning-bootstrap-docs-search-integration"
                   :url "local:planning/bootstrap/docs-search-integration"
                   :title "Plan a docs search integration for Bootstrap's Astro docs"

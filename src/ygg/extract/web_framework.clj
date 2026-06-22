@@ -43,6 +43,105 @@
            :source-line 1
            :relation relation})
         (extract.docs-config/docs-config-array-property-values content property-name)))
+(defn- non-empty-segment
+  [segment]
+  (not-empty (str/trim (apply str segment))))
+(defn- top-level-array-segments
+  [body]
+  (letfn [(finish [out segment]
+            (cond-> out
+              (non-empty-segment segment) (conj (non-empty-segment segment))))
+          (balanced? [paren-depth brace-depth bracket-depth]
+            (and (zero? paren-depth)
+                 (zero? brace-depth)
+                 (zero? bracket-depth)))]
+    (loop [chars (seq body)
+           out []
+           segment []
+           quote nil
+           escaped? false
+           paren-depth 0
+           brace-depth 0
+           bracket-depth 0]
+      (if-let [ch (first chars)]
+        (cond
+          quote
+          (recur (next chars)
+                 out
+                 (conj segment ch)
+                 (cond
+                   escaped? quote
+                   (= \\ ch) quote
+                   (= quote ch) nil
+                   :else quote)
+                 (and (not escaped?) (= \\ ch))
+                 paren-depth
+                 brace-depth
+                 bracket-depth)
+
+          (contains? #{\" \' \`} ch)
+          (recur (next chars)
+                 out
+                 (conj segment ch)
+                 ch
+                 false
+                 paren-depth
+                 brace-depth
+                 bracket-depth)
+
+          (and (= \, ch)
+               (balanced? paren-depth brace-depth bracket-depth))
+          (recur (next chars)
+                 (finish out segment)
+                 []
+                 nil
+                 false
+                 paren-depth
+                 brace-depth
+                 bracket-depth)
+
+          :else
+          (recur (next chars)
+                 out
+                 (conj segment ch)
+                 nil
+                 false
+                 (cond
+                   (= \( ch) (inc paren-depth)
+                   (= \) ch) (max 0 (dec paren-depth))
+                   :else paren-depth)
+                 (cond
+                   (= \{ ch) (inc brace-depth)
+                   (= \} ch) (max 0 (dec brace-depth))
+                   :else brace-depth)
+                 (cond
+                   (= \[ ch) (inc bracket-depth)
+                   (= \] ch) (max 0 (dec bracket-depth))
+                   :else bracket-depth)))
+        (finish out segment)))))
+(defn- web-config-call-array-values
+  [content property-name]
+  (let [identifier (common/js-identifier)
+        property-pattern (re-pattern (str "(?s)\\b"
+                                          (java.util.regex.Pattern/quote property-name)
+                                          "\\s*:\\s*\\[(.*?)\\]"))
+        call-pattern (re-pattern (str "^\\s*(" identifier
+                                      "(?:\\." identifier ")*)\\s*\\("))]
+    (->> (re-seq property-pattern content)
+         (mapcat (fn [[_ body]]
+                   (keep #(some->> (re-find call-pattern %) second)
+                         (top-level-array-segments body))))
+         (remove str/blank?)
+         distinct
+         vec)))
+(defn- web-config-call-array-facts
+  [content property-name kind relation]
+  (mapv (fn [value]
+          {:kind kind
+           :label value
+           :source-line 1
+           :relation relation})
+        (web-config-call-array-values content property-name)))
 (defn- angular-project-facts
   [content]
   (if-let [m (common/read-json-map content)]
@@ -126,6 +225,7 @@
         "astro"
         (vec (concat
               (web-config-string-array-facts content "integrations" :web-framework-plugin :uses)
+              (web-config-call-array-facts content "integrations" :web-framework-plugin :uses)
               (map (fn [value]
                      {:kind :web-framework-route
                       :label value

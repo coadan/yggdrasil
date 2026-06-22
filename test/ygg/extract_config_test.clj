@@ -924,24 +924,33 @@
                (.deleteOnExit))
         next-source (io/file root "next.config.mts")
         vite-source (io/file root "vite.config.cts")
+        astro-source (io/file root "astro.config.ts")
         _ (spit next-source "import analyzer from '@next/bundle-analyzer';\nexport default { basePath: '/panels' };\n")
         _ (spit vite-source "import react from '@vitejs/plugin-react';\nexport default { base: '/vite-panels', plugins: [react()] };\n")
+        _ (spit astro-source "import { defineConfig } from 'astro/config';\nimport { bootstrap } from './src/libs/astro';\nexport default defineConfig({ integrations: [bootstrap(), docsSearch({ index: 'docs' })] });\n")
         result-for (fn [source]
                      (extract/extract-file "run/test"
                                            (fs/file-record (.getPath root)
                                                            (.getPath source))))
         next-file (fs/file-record (.getPath root) (.getPath next-source))
         vite-file (fs/file-record (.getPath root) (.getPath vite-source))
+        astro-file (fs/file-record (.getPath root) (.getPath astro-source))
         next-labels (set (map :label (:nodes (result-for next-source))))
-        vite-labels (set (map :label (:nodes (result-for vite-source))))]
+        vite-labels (set (map :label (:nodes (result-for vite-source))))
+        astro-labels (set (map :label (:nodes (result-for astro-source))))]
     (is (= :web-framework (:kind next-file)))
     (is (= :web-framework (:kind vite-file)))
+    (is (= :web-framework (:kind astro-file)))
     (is (contains? next-labels "next"))
     (is (contains? next-labels "@next/bundle-analyzer"))
     (is (contains? next-labels "/panels"))
     (is (contains? vite-labels "vite"))
     (is (contains? vite-labels "@vitejs/plugin-react"))
-    (is (contains? vite-labels "/vite-panels"))))
+    (is (contains? vite-labels "/vite-panels"))
+    (is (contains? astro-labels "astro"))
+    (is (contains? astro-labels "astro/config"))
+    (is (contains? astro-labels "bootstrap"))
+    (is (contains? astro-labels "docsSearch"))))
 (deftest extracts-workflow-orchestration-facts
   (let [result-for (fn [path]
                      (extract/extract-file
