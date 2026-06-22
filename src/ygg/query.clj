@@ -84,28 +84,98 @@
 
 (declare all-nodes all-system-nodes)
 
+(def ^:private node-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :label
+   :kind
+   :file-id
+   :path
+   :ecosystem
+   :package-name
+   :version-range
+   :resolved-version
+   :dependency-scope
+   :import-names
+   :namespace
+   :name
+   :public?
+   :source-line
+   :tokens
+   :active?
+   :run-id])
+
+(def ^:private system-node-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :system-key
+   :label
+   :kind
+   :path
+   :path-prefix
+   :source
+   :candidate-types
+   :evidence
+   :metrics
+   :repo-role
+   :aliases
+   :active?
+   :run-id])
+
+(def ^:private chunk-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :file-id
+   :path
+   :kind
+   :definition-kind
+   :label
+   :text
+   :tokens
+   :heading-path
+   :content-sha
+   :source-line
+   :end-line
+   :active?
+   :run-id])
+
 (defn- rows-by-ids
-  [xtdb table ids opts all-fn]
+  [xtdb table ids opts all-fn return-fields]
   (let [ids (distinct-by identity ids)
         id-set (set ids)
         rows (if (store/xtdb-handle? xtdb)
-               (keep #(store/row-by-id xtdb table % (read-context opts)) ids)
+               (store/rows-with-field-values
+                xtdb
+                {:table table
+                 :field :xt/id
+                 :values ids
+                 :constraints (scope-constraints opts)
+                 :return-fields return-fields
+                 :read-context (read-context opts)})
                (filter #(contains? id-set (:xt/id %)) (all-fn xtdb opts)))]
-    (filter-scope rows opts)))
+    (filter-scope (keep (into {} (map (juxt :xt/id identity)) rows) ids) opts)))
 
 (defn- nodes-by-ids
   [xtdb ids opts]
-  (rows-by-ids xtdb (:nodes store/tables) ids opts all-nodes))
+  (rows-by-ids xtdb (:nodes store/tables) ids opts all-nodes node-row-query-fields))
 
 (defn- system-nodes-by-ids
   [xtdb ids opts]
   (filter :active?
-          (rows-by-ids xtdb (:system-nodes store/tables) ids opts all-system-nodes)))
+          (rows-by-ids xtdb
+                       (:system-nodes store/tables)
+                       ids
+                       opts
+                       all-system-nodes
+                       system-node-row-query-fields)))
 
 (defn- first-scoped-row-by-id
-  [xtdb table id opts all-fn]
+  [xtdb table id opts all-fn return-fields]
   (when id
-    (first (rows-by-ids xtdb table [id] opts all-fn))))
+    (first (rows-by-ids xtdb table [id] opts all-fn return-fields))))
 
 (defn all-nodes
   ([xtdb] (all-nodes xtdb {}))
@@ -130,11 +200,12 @@
 (defn chunks-by-ids
   "Return chunk rows for concrete chunk ids within the requested scope."
   [xtdb ids opts]
-  (let [ctx (read-context opts)]
-    (->> ids
-         (distinct-by identity)
-         (keep #(store/row-by-id xtdb (:chunks store/tables) % ctx))
-         (#(filter-scope % opts)))))
+  (rows-by-ids xtdb
+               (:chunks store/tables)
+               ids
+               opts
+               all-chunks
+               chunk-row-query-fields))
 
 (defn chunks-by-paths
   "Return chunk rows for concrete file paths within the requested scope."
@@ -215,30 +286,31 @@
   "Find node by exact id, label, namespace, name, or substring."
   ([xtdb value] (find-node xtdb value {}))
   ([xtdb value opts]
-   (let [needle (str/lower-case (str value))
-         exact-id (first-scoped-row-by-id xtdb (:nodes store/tables) value opts all-nodes)
-         exact-label (first (scoped-rows xtdb
-                                         (:nodes store/tables)
-                                         opts
-                                         {:label value}))
-         exact-namespace (or (first (scoped-rows xtdb
-                                                 (:nodes store/tables)
-                                                 opts
-                                                 {:kind :namespace
-                                                  :namespace value}))
-                             (first (scoped-rows xtdb
-                                                 (:nodes store/tables)
-                                                 opts
-                                                 {:kind :namespace
-                                                  :name value})))
-         exact-name (first (scoped-rows xtdb
-                                        (:nodes store/tables)
-                                        opts
-                                        {:name value}))]
-     (or exact-id
-         exact-label
-         exact-namespace
-         exact-name
+   (let [needle (str/lower-case (str value))]
+     (or (first-scoped-row-by-id xtdb
+                                 (:nodes store/tables)
+                                 value
+                                 opts
+                                 all-nodes
+                                 node-row-query-fields)
+         (first (scoped-rows xtdb
+                             (:nodes store/tables)
+                             opts
+                             {:label value}))
+         (or (first (scoped-rows xtdb
+                                 (:nodes store/tables)
+                                 opts
+                                 {:kind :namespace
+                                  :namespace value}))
+             (first (scoped-rows xtdb
+                                 (:nodes store/tables)
+                                 opts
+                                 {:kind :namespace
+                                  :name value})))
+         (first (scoped-rows xtdb
+                             (:nodes store/tables)
+                             opts
+                             {:name value}))
          (some #(when (str/includes? (str/lower-case (:label %)) needle) %)
                (all-nodes xtdb opts))))))
 
@@ -246,26 +318,25 @@
   "Find system node by exact id, label, system key, or substring."
   ([xtdb value] (find-system-node xtdb value {}))
   ([xtdb value opts]
-   (let [needle (str/lower-case (str value))
-         exact-id-row (first-scoped-row-by-id xtdb
-                                              (:system-nodes store/tables)
-                                              value
-                                              opts
-                                              all-system-nodes)
-         exact-id (when (:active? exact-id-row) exact-id-row)
-         exact-label (first (scoped-rows xtdb
-                                         (:system-nodes store/tables)
-                                         opts
-                                         {:active? true
-                                          :label value}))
-         exact-system-key (first (scoped-rows xtdb
-                                              (:system-nodes store/tables)
-                                              opts
-                                              {:active? true
-                                               :system-key value}))]
-     (or exact-id
-         exact-label
-         exact-system-key
+   (let [needle (str/lower-case (str value))]
+     (or (when-let [exact-id-row (first-scoped-row-by-id xtdb
+                                                         (:system-nodes store/tables)
+                                                         value
+                                                         opts
+                                                         all-system-nodes
+                                                         system-node-row-query-fields)]
+           (when (:active? exact-id-row)
+             exact-id-row))
+         (first (scoped-rows xtdb
+                             (:system-nodes store/tables)
+                             opts
+                             {:active? true
+                              :label value}))
+         (first (scoped-rows xtdb
+                             (:system-nodes store/tables)
+                             opts
+                             {:active? true
+                              :system-key value}))
          (let [nodes (all-system-nodes xtdb opts)]
            (or (some #(when (str/includes? (str/lower-case (:label %)) needle) %)
                      nodes)

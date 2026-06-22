@@ -1,5 +1,6 @@
 (ns ygg.xtdb-query-pushdown-test
-  (:require [ygg.xtdb :as store]
+  (:require [ygg.query :as query]
+            [ygg.xtdb :as store]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
@@ -137,3 +138,100 @@
       (is (some #(str/includes? % ":source-id match-value") queries))
       (is (some #(str/includes? % ":target-id match-value") queries))
       (is (not-any? #(str/includes? % "*") queries)))))
+
+(deftest chunks-by-ids-use-batched-id-read-and-preserve-input-order
+  (let [calls (atom [])
+        rows (with-redefs [store/rows-with-field-values
+                           (fn [_ request]
+                             (swap! calls conj request)
+                             [{:xt/id "chunk:b"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :active? true}
+                              {:xt/id "chunk:a"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :active? true}])
+                           store/row-by-id
+                           (fn [& _]
+                             (throw (ex-info "row-by-id should not be used for batched chunk reads"
+                                             {})))]
+               (query/chunks-by-ids
+                {:node :stub}
+                ["chunk:a" "chunk:b" "chunk:a"]
+                {:project-id "project-a"
+                 :repo-id "app"
+                 :valid-at #inst "2026-01-01T00:00:00Z"}))]
+    (is (= ["chunk:a" "chunk:b"] (mapv :xt/id rows)))
+    (is (= 1 (count @calls)))
+    (is (= {:table (:chunks store/tables)
+            :field :xt/id
+            :values ["chunk:a" "chunk:b"]
+            :constraints {:project-id "project-a"
+                          :repo-id "app"}}
+           (select-keys (first @calls) [:table :field :values :constraints])))
+    (is (= {:valid-at #inst "2026-01-01T00:00:00Z"}
+           (:read-context (first @calls))))
+    (is (not-any? #{'*} (:return-fields (first @calls))))))
+
+(deftest deps-loads-endpoint-nodes-with-batched-id-read
+  (let [calls (atom [])
+        edge-calls (atom [])
+        node-a {:xt/id "node:a"
+                :project-id "project-a"
+                :repo-id "app"
+                :label "A"
+                :active? true}
+        node-b {:xt/id "node:b"
+                :project-id "project-a"
+                :repo-id "app"
+                :label "B"
+                :active? true}
+        edge {:xt/id "edge:a-b"
+              :project-id "project-a"
+              :repo-id "app"
+              :source-id "node:a"
+              :target-id "node:b"
+              :relation :calls
+              :active? true}]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    (cond
+                      (= #{"node:a"} (set (:values request)))
+                      [node-a]
+
+                      (= #{"node:a" "node:b"} (set (:values request)))
+                      [node-b node-a]
+
+                      :else
+                      []))
+                  store/edge-rows-touching-ids
+                  (fn [_ ids constraints ctx]
+                    (swap! edge-calls conj {:ids ids
+                                            :constraints constraints
+                                            :ctx ctx})
+                    [edge])
+                  store/row-by-id
+                  (fn [& _]
+                    (throw (ex-info "row-by-id should not be used for endpoint hydration"
+                                    {})))]
+      (let [result (query/deps {:node :stub}
+                               "node:a"
+                               {:project-id "project-a"
+                                :repo-id "app"
+                                :valid-at #inst "2026-01-01T00:00:00Z"})]
+        (is (= "node:a" (get-in result [:node :xt/id])))
+        (is (= ["node:b"] (mapv #(get-in % [:target :xt/id]) (:outgoing result))))))
+    (is (= 2 (count @calls)))
+    (is (every? #(= :xt/id (:field %)) @calls))
+    (is (every? #(= (:nodes store/tables) (:table %)) @calls))
+    (is (every? #(= {:project-id "project-a"
+                     :repo-id "app"}
+                    (:constraints %))
+                @calls))
+    (is (= [{:ids ["node:a"]
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @edge-calls))))
