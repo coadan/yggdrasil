@@ -43,8 +43,8 @@ replayable shell-only versus Yggdrasil evidence: benchmark reports, `bb efficien
 summaries, command counts, timing, localization, citation rates, or patch
 success. Efficiency suites must include manually tagged problem classes, not
 only simple file-localization issues, and claims should name the class where
-Yggdrasil helped or regressed. Include architecture-class cases, using synthetic
-OSS-corpus prompts with curated ground truth when necessary. Treat anecdotes as
+Yggdrasil helped or regressed. Include architecture-class cases in the tracked
+benchmark suites, with curated ground truth when necessary. Treat anecdotes as
 hypotheses until measured.
 
 Use `.dev/` for local XTDB data, caches, and generated reports. Put local plan
@@ -80,7 +80,9 @@ document top-level `ygg install` / `ygg uninstall` wrappers for this
 flow.
 
 When a task depends on project structure, ownership, dependencies, or system
-boundaries, inspect Yggdrasil before making broad assumptions:
+boundaries, use Yggdrasil inspection only when a relevant project config already
+exists or the user asks to create one. Do not create a root `project.edn` or
+`ygg.map.json` just to satisfy agent guidance. If a project config exists, prefer:
 
 ```sh
 bb sync inspect project.edn
