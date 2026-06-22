@@ -50,6 +50,14 @@
   2)
 (def ^:private rank-score-decision-candidate-path-weight
   1.75)
+(def ^:private rank-score-doc-supported-candidate-evidence-weight
+  0.8)
+(def ^:private rank-score-doc-supported-candidate-evidence-cap
+  1.2)
+(def ^:private rank-score-architecture-support-weight
+  0.45)
+(def ^:private rank-score-architecture-support-cap
+  1.0)
 (def ^:private rank-score-graph-support-min
   0.5)
 (def ^:private rank-score-graph-lexical-support-min
@@ -325,6 +333,23 @@
        rank-score-doc-supported-graph-weight)
      (double graph-score)
      (min 1.0 (double evidence-score))))
+(defn- doc-supported-candidate-evidence-boost
+  [doc-count source-graph-candidate-evidence-score]
+  (if (and (pos? (long doc-count))
+           (pos? (double source-graph-candidate-evidence-score)))
+    (min rank-score-doc-supported-candidate-evidence-cap
+         (* rank-score-doc-supported-candidate-evidence-weight
+            (double source-graph-candidate-evidence-score)))
+    0.0))
+(defn- architecture-support-boost
+  [support-count architecture-evidence-count architecture-evidence-score]
+  (if (and (pos? (long architecture-evidence-count))
+           (< (long architecture-evidence-count) (long support-count))
+           (pos? (double architecture-evidence-score)))
+    (min rank-score-architecture-support-cap
+         (* rank-score-architecture-support-weight
+            (double architecture-evidence-score)))
+    0.0))
 (defn- doc-prediction
   [root roots query-tokens idx doc]
   (let [source (:source doc)
@@ -648,6 +673,13 @@
    "dependencyEvidence" 2.4
    "deployEvidence" 1.6})
 
+(defn- architecture-query-supported?
+  [query-tokens row]
+  (let [evidence-text (architecture-evidence-text row)]
+    (or (<= 2 (count (token-matches query-tokens evidence-text)))
+        (seq (compact-token-pair-matches query-tokens evidence-text))
+        (seq (compact-compound-token-pair-matches query-tokens evidence-text)))))
+
 (defn- runtime-evidence-low-signal?
   [row]
   (= "env-var" (field-name (:kind row))))
@@ -686,6 +718,17 @@
     (min cap (+ (* weight raw-score)
                 package-identity-boost))))
 
+(defn- architecture-support-score
+  [query-tokens section row]
+  (let [raw-score (double (or (parse-double-safe (:score row)) 0.0))]
+    (if (and (= "runtimeEvidence" section)
+             (= "env-var" (field-name (:kind row)))
+             (architecture-query-supported? query-tokens row))
+      (min (double (get architecture-evidence-score-caps section 1.6))
+           (* (double (get architecture-evidence-score-weights section 0.7))
+              raw-score))
+      (architecture-evidence-score query-tokens section row))))
+
 (defn- architecture-file-prediction
   [root roots query-tokens idx section row]
   (let [path (:path row)
@@ -698,7 +741,11 @@
                  :source-rank (+ 700 (inc idx))
                  :confidence (bounded-confidence (:score row))
                  :evidence-score (architecture-evidence-score query-tokens section row)
+                 :architecture-support-score (architecture-support-score query-tokens
+                                                                         section
+                                                                         row)
                  :evidence-kind :candidate-file
+                 :architecture-evidence? true
                  :retrieved-source? false
                  :exact-path-source? false
                  :definition-kind (some-> (:kind row) str)
@@ -805,10 +852,23 @@
                              decision-candidate-count (count (filter #(= :decision-candidate
                                                                          (:evidence-kind %))
                                                                      ordered))
+                             architecture-evidence-count (count (filter :architecture-evidence?
+                                                                        ordered))
                              graph-neighbor-score (apply max
                                                          0.0
                                                          (keep :graph-neighbor-score
                                                                ordered))
+                             source-graph-candidate-evidence-score
+                             (apply max
+                                    0.0
+                                    (keep #(when (:candidate-source-rank %)
+                                             (:evidence-score %))
+                                          ordered))
+                             architecture-evidence-score (apply max
+                                                                0.0
+                                                                (keep #(when (:architecture-evidence? %)
+                                                                         (:architecture-support-score %))
+                                                                      ordered))
                              candidate-only-compound-pair-count (if (zero? doc-count)
                                                                   (count matched-compound-token-pairs)
                                                                   0)
@@ -859,6 +919,14 @@
                                                    doc-count
                                                    graph-neighbor-score
                                                    max-evidence-score)
+                             doc-supported-candidate-evidence-boost
+                             (doc-supported-candidate-evidence-boost
+                              doc-count
+                              source-graph-candidate-evidence-score)
+                             architecture-support-boost (architecture-support-boost
+                                                         support-count
+                                                         architecture-evidence-count
+                                                         architecture-evidence-score)
                              rank-score (+ max-evidence-score
                                            source-rank-score
                                            (* 0.22 (min rank-score-token-cap
@@ -891,7 +959,9 @@
                                                    decision-candidate-count))
                                            candidate-source-rank-score
                                            candidate-only-robust-boost
-                                           graph-neighbor-boost)
+                                           graph-neighbor-boost
+                                           doc-supported-candidate-evidence-boost
+                                           architecture-support-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
                                               :docCount doc-count
@@ -950,7 +1020,13 @@
                                        (pos? graph-neighbor-score)
                                        (assoc :graphNeighborScore graph-neighbor-score)
                                        (pos? graph-neighbor-boost)
-                                       (assoc :graphNeighborBoost graph-neighbor-boost))]
+                                       (assoc :graphNeighborBoost graph-neighbor-boost)
+                                       (pos? doc-supported-candidate-evidence-boost)
+                                       (assoc :docSupportedCandidateEvidenceBoost
+                                              doc-supported-candidate-evidence-boost)
+                                       (pos? architecture-support-boost)
+                                       (assoc :architectureSupportBoost
+                                              architecture-support-boost))]
                          (cond-> (assoc best-row
                                         :path path
                                         :confidence confidence
@@ -978,6 +1054,7 @@
                             (dissoc :source-rank
                                     :rank-score
                                     :evidence-score
+                                    :architecture-support-score
                                     :evidence-kind
                                     :graph-neighbor-score
                                     :retrieved-source?
@@ -988,6 +1065,7 @@
                                     :matched-identity-compound-token-pairs
                                     :matched-identity-compound-token-span-length
                                     :definition-kind
+                                    :architecture-evidence?
                                     :direct-file-candidate?
                                     :candidate-source-rank
                                     :candidate-support-label-count)
@@ -1026,7 +1104,9 @@
 (defn- prediction-diversity-key
   [row]
   (let [definition-kind (prediction-primary-definition-kind row)]
-    (when (and (pos? (long (or (get-in row [:metrics :docCount]) 0)))
+    (when (and (or (pos? (long (or (get-in row [:metrics :docCount]) 0)))
+                   (pos? (double (or (get-in row [:metrics :architectureSupportBoost])
+                                     0.0))))
                (not= :unknown definition-kind))
       [(or (:repo-id row) :unknown-repo)
        (prediction-path-root row)

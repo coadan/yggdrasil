@@ -76,6 +76,8 @@
                  "sourceRankScore" {"type" "number"}
                  "graphNeighborScore" {"type" "number"}
                  "graphNeighborBoost" {"type" "number"}
+                 "docSupportedCandidateEvidenceBoost" {"type" "number"}
+                 "architectureSupportBoost" {"type" "number"}
                  "robustCandidateOnlyBoost" {"type" "number"}
                  "cosine" {"type" "number"
                            "minimum" -1

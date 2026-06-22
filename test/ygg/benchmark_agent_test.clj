@@ -1625,6 +1625,106 @@
             :definitionKinds ["env-var"]}
            (get-in files [0 :metrics])))))
 
+(deftest file-ranking-boosts-query-supported-architecture-and-candidate-support
+  (let [root (temp-dir "ygg-bench-architecture-candidate-support")
+        _ (doseq [path ["migrations/schema.sql"
+                        "migrations/schema-15.sql"
+                        "migrations/db/init-scripts/00000000000003-post-setup.sql"
+                        "migrations/.env"
+                        "noise/.env"]]
+            (spit-file! root path "fixture\n"))
+        packet {:query "database runtime config post setup ownership trigger"
+                :docs [{:source {:path "migrations/schema.sql"
+                                 :heading "database schema"
+                                 :definitionKind :file
+                                 :lines [1 1]}
+                        :score 1.6
+                        :snippet "database schema"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "migrations/schema-15.sql"
+                                 :heading "database schema 15"
+                                 :definitionKind :file
+                                 :lines [1 1]}
+                        :score 1.59
+                        :snippet "database schema"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                 :heading "database post setup"
+                                 :definitionKind :file
+                                 :lines [1 1]}
+                        :score 1.45
+                        :snippet "database post setup"
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "noise/.env"
+                                  :rank 3
+                                  :score 3.375
+                                  :targetKind "file"
+                                  :label "noise/.env"
+                                  :supportLabels ["LOG_LEVEL" "PORT"]
+                                  :scoreComponents {:sourceGraph 3.375
+                                                    :lexical 0.46
+                                                    :graph 0.0
+                                                    :exact 0.2}}
+                                 {:path "migrations/.env"
+                                  :rank 13
+                                  :score 3.3
+                                  :targetKind "node"
+                                  :label "DATABASE_URL"
+                                  :supportLabels ["migrations/.env"]
+                                  :scoreComponents {:sourceGraph 3.3
+                                                    :lexical 0.56
+                                                    :graph 0.0
+                                                    :exact 0.15}}
+                                 {:path "migrations/schema.sql"
+                                  :rank 71
+                                  :score 1.25
+                                  :targetKind "file"
+                                  :label "migrations/schema.sql"
+                                  :scoreComponents {:sourceGraph 1.25
+                                                    :lexical 0.99
+                                                    :graph 0.0
+                                                    :exact 0.1}}
+                                 {:path "migrations/schema-15.sql"
+                                  :rank 73
+                                  :score 1.2
+                                  :targetKind "file"
+                                  :label "migrations/schema-15.sql"
+                                  :scoreComponents {:sourceGraph 1.2
+                                                    :lexical 1.0
+                                                    :graph 0.0
+                                                    :exact 0.1}}
+                                 {:path "migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                  :rank 53
+                                  :score 2.222222222222222
+                                  :targetKind "file"
+                                  :label "migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                  :scoreComponents {:sourceGraph 2.222222222222222
+                                                    :lexical 0.82
+                                                    :graph 0.0
+                                                    :exact 0.15}}]
+                :architecture {:runtimeEvidence [{:id "evidence:database-url"
+                                                  :path "migrations/.env"
+                                                  :kind "env-var"
+                                                  :fileKind "env"
+                                                  :label "DATABASE_URL"
+                                                  :normalizedValue "database-url"
+                                                  :score 2.6}]}}
+        result (benchmark/context-packet->agent-result
+                packet
+                {:root root
+                 :coverage {:declaredSourceKinds ["env" "sql"]}})
+        file-by-path (into {} (map (juxt :path identity)) (:suspectedFiles result))
+        runtime-file (get file-by-path "migrations/.env")
+        setup-file (get file-by-path "migrations/db/init-scripts/00000000000003-post-setup.sql")
+        noise-file (get file-by-path "noise/.env")
+        schema-file (get file-by-path "migrations/schema.sql")]
+    (is (<= (:rank runtime-file) 2))
+    (is (< (:rank runtime-file) (:rank noise-file)))
+    (is (< (:rank setup-file) (:rank schema-file)))
+    (is (pos? (get-in runtime-file [:metrics :architectureSupportBoost])))
+    (is (pos? (get-in setup-file
+                      [:metrics :docSupportedCandidateEvidenceBoost])))))
+
 (deftest file-ranking-normalizes-architecture-evidence-families
   (let [root (temp-dir "ygg-bench-architecture-evidence-family-score")
         _ (spit-file! root "lib/adapters/http.js" "import proxyFromEnv from 'proxy-from-env';\n")
