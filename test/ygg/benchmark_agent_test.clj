@@ -1733,7 +1733,7 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
-(deftest file-ranking-uses-source-graph-candidate-rank
+(deftest file-ranking-uses-source-graph-candidate-rank-as-tiebreaker
   (let [root (temp-dir "ygg-bench-source-graph-candidate-rank")
         _ (spit-file! root "lib/adapters/http.js" "export default function httpAdapter() {}\n")
         _ (spit-file! root "tests/unit/core/AxiosError.test.js" "describe('AxiosError', () => {})\n")
@@ -1753,20 +1753,45 @@
                                                     :lexical 0.27}}
                                  {:path "tests/unit/core/AxiosError.test.js"
                                   :rank 40
-                                  :score 4.4
+                                  :score 2.1
                                   :targetKind "file"
                                   :label "tests/unit/core/AxiosError.test.js"
-                                  :scoreComponents {:sourceGraph 4.4
-                                                    :lexical 0.88}}]}
+                                  :scoreComponents {:sourceGraph 2.1
+                                                    :lexical 0.27}}]}
         result (benchmark/context-packet->agent-result packet {:root root})
         files (:suspectedFiles result)]
     (is (= ["lib/adapters/http.js"
             "tests/unit/core/AxiosError.test.js"]
            (mapv :path files)))
     (is (= 2 (get-in files [0 :metrics :candidateSourceRank])))
-    (is (pos? (get-in files [0 :metrics :candidateSourceRankScore])))
+    (is (> (get-in files [0 :metrics :candidateSourceRankScore])
+           5.0))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-keeps-doc-supported-source-graph-rank-as-tiebreaker
+  (let [root (temp-dir "ygg-bench-doc-source-graph-rank")
+        _ (spit-file! root "src/settings.cs" "public static class Settings {}\n")
+        packet {:query "prefer enum typehandler setting"
+                :docs [{:source {:path "src/settings.cs"
+                                 :heading "Settings.Settings"}
+                        :score 1.0
+                        :snippet "setting"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "src/settings.cs"
+                                  :rank 1
+                                  :score 4.0
+                                  :targetKind "file"
+                                  :label "src/settings.cs"
+                                  :scoreComponents {:sourceGraph 4.0
+                                                    :lexical 0.4}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        file (first (:suspectedFiles result))]
+    (is (= "src/settings.cs" (:path file)))
+    (is (= 1 (get-in file [:metrics :candidateSourceRank])))
+    (is (<= (get-in file [:metrics :candidateSourceRankScore]) 0.2))
+    (is (> (get-in file [:metrics :sourceRankScore]) 2.0))))
 
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
   (let [root (temp-dir "ygg-bench-candidate-file-quota")

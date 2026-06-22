@@ -35,6 +35,11 @@
                  :architecture-data-ownership
                  :audit-scope-dependencies
                  :dotnet]
+          :map-overlay {:packageImports [{:repo "dapper"
+                                          :import "LinqToDB"
+                                          :ecosystem "nuget"
+                                          :package "linq2db.SqlServer"
+                                          :reason "Dapper performance benchmarks import LinqToDB namespaces from the declared linq2db.SqlServer NuGet package."}]}
           :base-sha "512f024667b79b4a17a38f33da59b072a43579f1"
           :fix-sha "2a8faab235c21892fb4c9a4529510d030516d691"
           :ground-truth {:localization-files ["Dapper/SqlMapper.Settings.cs"

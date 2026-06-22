@@ -45,15 +45,19 @@
 (def ^:private retrieved-source-rank-bonus-window
   20)
 (def ^:private retrieved-source-rank-bonus-max
-  0.55)
+  4.1)
 (def ^:private retrieved-source-rank-bonus-step
-  0.025)
+  0.12)
 (def ^:private candidate-source-rank-bonus-window
   20)
 (def ^:private candidate-source-rank-bonus-max
-  2.8)
+  0.2)
 (def ^:private candidate-source-rank-bonus-step
-  0.12)
+  0.01)
+(def ^:private candidate-only-source-rank-bonus-max
+  5.8)
+(def ^:private candidate-only-source-rank-bonus-step
+  0.18)
 (defn- parse-double-safe
   [value]
   (try
@@ -197,13 +201,18 @@
                (dec first-source-rank))))
     0.0))
 (defn- candidate-source-rank-score
-  [candidate-source-rank]
+  [candidate-source-rank doc-count]
   (if (and (pos? (long (or candidate-source-rank 0)))
            (<= candidate-source-rank candidate-source-rank-bonus-window))
-    (max 0.0
-         (- candidate-source-rank-bonus-max
-            (* candidate-source-rank-bonus-step
-               (dec candidate-source-rank))))
+    (let [[bonus-max bonus-step] (if (zero? (long doc-count))
+                                   [candidate-only-source-rank-bonus-max
+                                    candidate-only-source-rank-bonus-step]
+                                   [candidate-source-rank-bonus-max
+                                    candidate-source-rank-bonus-step])]
+      (max 0.0
+           (- bonus-max
+              (* bonus-step
+                 (dec candidate-source-rank)))))
     0.0))
 (defn- graph-neighbor-boost
   [doc-count graph-score evidence-score]
@@ -628,7 +637,8 @@
                                                             seq
                                                             (apply min))
                              candidate-source-rank-score (candidate-source-rank-score
-                                                          candidate-source-rank)
+                                                          candidate-source-rank
+                                                          doc-count)
                              max-evidence-score (apply max
                                                        0.0
                                                        (map :evidence-score ordered))

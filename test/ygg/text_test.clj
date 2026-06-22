@@ -57,6 +57,18 @@
           "js"]
          (text/tokenize "lib/adapters/http.js"))))
 
+(deftest tokenization-expands-common-plural-code-nouns
+  (is (= ["sqlmapper.settings.cs"
+          "sqlmapper"
+          "settings"
+          "setting"
+          "cs"
+          "sql"
+          "mapper"]
+         (text/tokenize "SqlMapper.Settings.cs")))
+  (is (= ["enums" "enum"]
+         (text/tokenize "Enums"))))
+
 (deftest tokenization-expands-camel-and-pascal-identifiers
   (is (= ["typehandlertests"
           "type"

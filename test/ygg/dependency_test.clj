@@ -1157,6 +1157,18 @@
                                           :path "src/Local.cs"
                                           :active? true
                                           :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "node:namespace:Acme.Mapper"
+                                          :kind :namespace
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "node:symbol:Acme/Mapper"
+                                          :kind :class
+                                          :label "Acme/Mapper"
+                                          :path "src/Mapper.cs"
+                                          :active? true
+                                          :project-id "project-a"
                                           :repo-id "repo-a"}]
                                         :ygg/edges
                                         [{:source-id "node:namespace:App"
@@ -1168,10 +1180,18 @@
                                           :project-id "project-a"
                                           :repo-id "repo-a"}
                                          {:source-id "node:namespace:App"
-                                          :target-id "node:namespace:Xunit"
+                                          :target-id "node:namespace:Acme.Mapper"
                                           :relation :imports
                                           :path "src/App.cs"
                                           :source-line 2
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:App"
+                                          :target-id "node:namespace:Xunit"
+                                          :relation :imports
+                                          :path "src/App.cs"
+                                          :source-line 3
                                           :active? true
                                           :project-id "project-a"
                                           :repo-id "repo-a"}]

@@ -77,6 +77,11 @@
       (and (< 4 (count token))
            (or (str/ends-with? token "ers")
                (str/ends-with? token "ors")))
+      (subs token 0 (dec (count token)))
+
+      (and (< 4 (count token))
+           (or (str/ends-with? token "ings")
+               (str/ends-with? token "ums")))
       (subs token 0 (dec (count token))))))
 
 (defn- expanded-token

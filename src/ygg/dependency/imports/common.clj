@@ -43,9 +43,23 @@
 
 (defn local-namespace-import?
   [nodes-by-id edge]
-  (let [target (get nodes-by-id (:target-id edge))]
-    (and (= :namespace (:kind target))
-         (seq (:path target)))))
+  (let [target-node (get nodes-by-id (:target-id edge))
+        target (namespace-target (:target-id edge))
+        local-symbol? (fn [node]
+                        (let [label (or (:label node) (:name node))
+                              dotted-label (some-> label
+                                                   str
+                                                   (str/replace "/" "."))]
+                          (and (seq target)
+                               (seq dotted-label)
+                               (seq (:path node))
+                               (not= :namespace (:kind node))
+                               (or (= target dotted-label)
+                                   (str/starts-with? dotted-label
+                                                     (str target "."))))))]
+    (or (and (= :namespace (:kind target-node))
+             (seq (:path target-node)))
+        (some local-symbol? (vals nodes-by-id)))))
 
 (defn module-path-alias-node?
   [node]
