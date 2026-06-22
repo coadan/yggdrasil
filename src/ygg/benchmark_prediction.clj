@@ -967,6 +967,31 @@
     (and (pos? (long (or (:candidateFileCount metrics) 0)))
          (zero? (long (or (:docCount metrics) 0)))
          (zero? (long (or (:entityCount metrics) 0))))))
+(defn- independently-supported-decision-file?
+  [row]
+  (let [metrics (:metrics row)
+        support-count (long (or (:supportCount metrics) 0))
+        decision-candidate-count (long (or (:decisionCandidateCount metrics) 0))]
+    (and (pos? decision-candidate-count)
+         (< decision-candidate-count support-count))))
+(defn- fully-supported-decision-candidate?
+  [supported-paths candidate]
+  (let [paths (set (decision-candidate-paths candidate))]
+    (and (< 1 (count paths))
+         (set/subset? paths supported-paths))))
+(defn- compact-supported-decision-selection
+  [candidate-files limit decision-candidates]
+  (let [supported (filter independently-supported-decision-file? candidate-files)
+        supported-paths (set (map :path supported))]
+    (when (and (seq supported)
+               (some #(fully-supported-decision-candidate?
+                       supported-paths
+                       %)
+                     decision-candidates))
+      (let [files (cond->> supported
+                    limit (take (long limit)))]
+        {:files (renumber-file-ranks files)
+         :decisionSupportedFileSelected (count files)}))))
 (defn- selected-source-kind-counts
   [kind-by-path rows]
   (frequencies
@@ -1016,30 +1041,33 @@
 (defn- select-limited-suspected-files
   ([candidate-files limit]
    (select-limited-suspected-files candidate-files limit {}))
-  ([candidate-files limit {:keys [source-kinds kind-by-path]}]
-   (if-not limit
-     {:files (vec candidate-files)}
-     (let [limit (long limit)
-           quota (min default-agent-baseline-candidate-file-only-quota limit)
-           candidate-file-only (take quota
-                                     (filter candidate-file-only-row?
-                                             candidate-files))
-           quota-paths (set (map file-row-key candidate-file-only))
-           remaining-limit (max 0 (- limit (count candidate-file-only)))
-           primary (->> candidate-files
-                        (remove #(contains? quota-paths (file-row-key %)))
-                        (take remaining-limit))
-           selected (->> (preserve-source-kind-diversity
-                          candidate-files
-                          (sort-by :rank (concat primary candidate-file-only))
-                          source-kinds
-                          kind-by-path)
-                         (sort-by :rank)
-                         renumber-file-ranks)]
-       (cond-> {:files selected}
-         (seq candidate-file-only)
-         (assoc :candidateFileOnlyQuota quota
-                :candidateFileOnlySelected (count candidate-file-only)))))))
+  ([candidate-files limit {:keys [source-kinds kind-by-path decision-candidates]}]
+   (or (compact-supported-decision-selection candidate-files
+                                             limit
+                                             decision-candidates)
+       (if-not limit
+         {:files (vec candidate-files)}
+         (let [limit (long limit)
+               quota (min default-agent-baseline-candidate-file-only-quota limit)
+               candidate-file-only (take quota
+                                         (filter candidate-file-only-row?
+                                                 candidate-files))
+               quota-paths (set (map file-row-key candidate-file-only))
+               remaining-limit (max 0 (- limit (count candidate-file-only)))
+               primary (->> candidate-files
+                            (remove #(contains? quota-paths (file-row-key %)))
+                            (take remaining-limit))
+               selected (->> (preserve-source-kind-diversity
+                              candidate-files
+                              (sort-by :rank (concat primary candidate-file-only))
+                              source-kinds
+                              kind-by-path)
+                             (sort-by :rank)
+                             renumber-file-ranks)]
+           (cond-> {:files selected}
+             (seq candidate-file-only)
+             (assoc :candidateFileOnlyQuota quota
+                    :candidateFileOnlySelected (count candidate-file-only))))))))
 (defn- context-symbols
   [packet]
   (->> (:docs packet)
@@ -1263,7 +1291,8 @@
                          candidate-files
                          limit
                          {:source-kinds source-kinds
-                          :kind-by-path kind-by-path})
+                          :kind-by-path kind-by-path
+                          :decision-candidates decision-candidates})
          selection (cond-> {:rawCandidateFiles (count raw-candidate-files)
                             :candidateFiles (count candidate-files)
                             :coverageFilteredCandidateFiles filtered-files
@@ -1272,6 +1301,10 @@
                      (:candidateFileOnlyQuota selected-files)
                      (assoc :candidateFileOnlyQuota (:candidateFileOnlyQuota selected-files)
                             :candidateFileOnlySelected (:candidateFileOnlySelected selected-files)))
+         selection (cond-> selection
+                     (:decisionSupportedFileSelected selected-files)
+                     (assoc :decisionSupportedFileSelected
+                            (:decisionSupportedFileSelected selected-files)))
          suspected-files (:files selected-files)
          suspected-symbols (context-symbols packet)
          commands (packet-commands packet)

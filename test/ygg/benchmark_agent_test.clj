@@ -982,6 +982,7 @@
     (is (= 2 (get-in (some #(when (= "site/astro.config.ts" (:path %)) %)
                            (:suspectedFiles result))
                      [:metrics :decisionCandidateCount])))
+    (is (nil? (get-in result [:selection :decisionSupportedFileSelected])))
     (is (= ["Ygg baseline ranked file package.json at rank 1."]
            (get-in choices-by-id ["plan-config-and-manifest" :evidence])))
     (is (= 1.0 (get-in scored [:scores :decisionRecall])))
@@ -1052,6 +1053,51 @@
     (is (contains? file-by-path "src/core.cs"))
     (is (<= (:rank (get file-by-path "src/core.cs")) 5))
     (is (= 2 (get-in file-by-path ["src/core.cs" :metrics :decisionCandidateCount])))
+    (is (= "include" (get-in choices-by-id ["plan-core-and-tests" :status])))
+    (is (= "exclude" (get-in choices-by-id ["plan-core-only" :status])))))
+
+(deftest fully-supported-decision-candidates-compact-suspected-files
+  (let [root (temp-dir "ygg-bench-supported-decision-compact")
+        _ (doseq [path ["src/noise.cs" "src/core.cs" "tests/core_test.cs"]]
+            (spit-file! root path "namespace Demo;\n"))
+        packet {:query "plan jsonb string handling"
+                :candidateFiles [{:path "src/noise.cs"
+                                  :rank 1
+                                  :score 9.0
+                                  :targetKind "node"
+                                  :label "Demo.Noise.JsonString"}
+                                 {:path "src/core.cs"
+                                  :rank 7
+                                  :score 3.0
+                                  :targetKind "node"
+                                  :label "Demo.Core.JsonString"}
+                                 {:path "tests/core_test.cs"
+                                  :rank 8
+                                  :score 3.0
+                                  :targetKind "node"
+                                  :label "Demo.CoreTests.JsonString"}]}
+        decision-candidates [{:id "plan-core-and-tests"
+                              :kind "change-plan"
+                              :label "Plan core and tests"
+                              :paths ["src/core.cs" "tests/core_test.cs"]}
+                             {:id "plan-core-only"
+                              :kind "change-plan"
+                              :label "Plan core only"
+                              :paths ["src/core.cs"]}]
+        result (benchmark/context-packet->agent-result
+                packet
+                {:root root
+                 :decision-kind "change-plan"
+                 :decision-candidates decision-candidates
+                 :limit 10})
+        choices-by-id (->> (get-in result [:decision :choices])
+                           (map (juxt :id identity))
+                           (into {}))]
+    (is (= ["src/core.cs" "tests/core_test.cs"]
+           (mapv :path (:suspectedFiles result))))
+    (is (= [1 2] (mapv :rank (:suspectedFiles result))))
+    (is (= 2 (get-in result [:selection :decisionSupportedFileSelected])))
+    (is (nil? (get-in result [:selection :candidateFileOnlyQuota])))
     (is (= "include" (get-in choices-by-id ["plan-core-and-tests" :status])))
     (is (= "exclude" (get-in choices-by-id ["plan-core-only" :status])))))
 
