@@ -556,11 +556,20 @@
   #{"System"})
 
 (def ^:private java-builtin-roots
-  #{"java" "javax"})
+  #{"java" "javax" "jdk" "sun"})
+
+(def ^:private java-builtin-prefixes
+  #{"com.sun"})
 
 (defn- dotted-import-root
   [target]
   (first (str/split (str target) #"\.")))
+
+(defn- dotted-import-prefix
+  [target n]
+  (let [parts (remove str/blank? (str/split (str target) #"\."))]
+    (when (>= (count parts) n)
+      (str/join "." (take n parts)))))
 
 (defn- slash-import-root
   [target]
@@ -574,6 +583,11 @@
 (defn- dotnet-runtime-import?
   [target]
   (contains? dotnet-builtin-roots (dotted-import-root target)))
+
+(defn- java-runtime-import?
+  [target]
+  (or (contains? java-builtin-roots (dotted-import-root target))
+      (contains? java-builtin-prefixes (dotted-import-prefix target 2))))
 
 (defn- local-namespace-import?
   [nodes-by-id edge]
@@ -649,7 +663,7 @@
            (not (dotnet-runtime-import? target))
 
            :java
-           (not (contains? java-builtin-roots (dotted-import-root target)))
+           (not (java-runtime-import? target))
 
            true))))
 

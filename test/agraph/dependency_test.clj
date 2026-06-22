@@ -926,6 +926,11 @@
                                           :active? true
                                           :project-id "project-a"
                                           :repo-id "repo-a"}
+                                         {:path "src/App.java"
+                                          :kind :java
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
                                          {:path "src/View.astro"
                                           :kind :astro
                                           :active? true
@@ -986,6 +991,30 @@
                                           :target-id "node:namespace:bun:test"
                                           :relation :imports
                                           :path "src/runtime.js"
+                                          :source-line 3
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:App"
+                                          :target-id "node:namespace:jdk.jfr.Event"
+                                          :relation :imports
+                                          :path "src/App.java"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:App"
+                                          :target-id "node:namespace:com.sun.net.httpserver.HttpServer"
+                                          :relation :imports
+                                          :path "src/App.java"
+                                          :source-line 2
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:source-id "node:namespace:App"
+                                          :target-id "node:namespace:sun.misc.Unsafe"
+                                          :relation :imports
+                                          :path "src/App.java"
                                           :source-line 3
                                           :active? true
                                           :project-id "project-a"
