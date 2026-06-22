@@ -4,4 +4,5 @@
  :include-suites ["headline.edn"
                   "architecture-coverage.edn"
                   "decision-quality-pilot.edn"
-                  "feature-planning.edn"]}
+                  "feature-planning.edn"
+                  "historical-replay.edn"]}

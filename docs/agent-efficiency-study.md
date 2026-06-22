@@ -71,12 +71,14 @@ Starter architecture-class cases:
 
 The tracked starter suite is `benchmarks/architecture-synthetic.edn`. The
 tracked broader selector is `benchmarks/agent-efficiency-broad.edn`, which
-composes headline architecture, additional architecture coverage, and
-decision-quality cases through `:include-suites`. Both expect local benchmark
-checkouts under `.dev/ygg/benchmark-repos/` and keep prepared cases, worktrees,
-graph stores, and reports under `.dev/` via `--out`. Use the broad selector for
-shell-only versus Yggdrasil task-token comparisons; do not treat a simple
-localization-only suite as representative proof for Yggdrasil.
+composes headline architecture, additional architecture coverage,
+decision-quality, planning, and historical replay cases through
+`:include-suites`. Both expect local benchmark checkouts under
+`.dev/ygg/benchmark-repos/` and keep prepared cases, worktrees, graph stores,
+and reports under `.dev/` via `--out`. Use the broad selector for shell-only
+versus Yggdrasil task-token comparisons; do not treat a simple
+localization-only suite or synthetic-only slice as representative proof for
+Yggdrasil.
 
 For the bounded architecture benchmark improvement slice, use
 `benchmarks/headline.edn` as the fixed five-case selector. It covers dependency

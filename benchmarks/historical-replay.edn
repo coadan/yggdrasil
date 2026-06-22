@@ -1,0 +1,46 @@
+{:id "historical-replay"
+ :project-id "historical-replay"
+ :description "Small non-synthetic replay cases from real fix commits on cached benchmark repos."
+ :repos [{:id "axios"
+          :root "../.dev/ygg/benchmark-repos/axios"
+          :role :application}
+         {:id "dapper"
+          :root "../.dev/ygg/benchmark-repos/dapper"
+          :role :library}]
+ :cases [{:id "historical-axios-defer-env-proxy-to-node"
+          :repo-id "axios"
+          :coverage {:source-kinds [:javascript]}
+          :tags [:historical
+                 :problem-cross-file
+                 :problem-runtime-config
+                 :architecture-runtime-boundary
+                 :audit-scope-runtime-config
+                 :shell-sufficient-control
+                 :javascript]
+          :base-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
+          :fix-sha "20ce9c412ebd88823d1a4a47000cb133a8f79440"
+          :ground-truth {:localization-files ["lib/adapters/http.js"
+                                              "tests/unit/adapters/http.test.js"]}
+          :issue {:id "axios-10942"
+                  :url "https://github.com/axios/axios/pull/10942"
+                  :title "fix(http): defer env proxy handling to Node"
+                  :body "Historical replay of axios commit 20ce9c412ebd88823d1a4a47000cb133a8f79440. The fix deferred environment proxy handling to Node and changed the HTTP adapter plus its unit tests. Identify the adapter and test files likely to need edits before looking at the fixing diff."}}
+
+         {:id "historical-dapper-prefer-enum-type-handlers"
+          :repo-id "dapper"
+          :coverage {:source-kinds [:dotnet]}
+          :tags [:historical
+                 :problem-cross-file
+                 :problem-api-contract
+                 :architecture-data-ownership
+                 :audit-scope-dependencies
+                 :dotnet]
+          :base-sha "512f024667b79b4a17a38f33da59b072a43579f1"
+          :fix-sha "2a8faab235c21892fb4c9a4529510d030516d691"
+          :ground-truth {:localization-files ["Dapper/SqlMapper.Settings.cs"
+                                              "Dapper/SqlMapper.cs"
+                                              "tests/Dapper.Tests/PreferTypeHandlersForEnumsTests.cs"]}
+          :issue {:id "dapper-2200"
+                  :url "https://github.com/DapperLib/Dapper/pull/2200"
+                  :title "Fix/prefer typehandlers for enums"
+                  :body "Historical replay of Dapper commit 2a8faab235c21892fb4c9a4529510d030516d691. The fix added an opt-in setting so registered enum TypeHandlers are preferred before default enum boxing, with changes in core mapping/settings code and regression tests. Identify the files likely to need edits before looking at the fixing diff."}}]}

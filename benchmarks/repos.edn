@@ -13,11 +13,14 @@
          {:id "axios"
           :url "https://github.com/axios/axios.git"
           :dir "axios"
-          :required-shas ["e64bcf9c5af231d6f37d8389b1e57ded314fff86"]}
+          :required-shas ["e64bcf9c5af231d6f37d8389b1e57ded314fff86"
+                          "20ce9c412ebd88823d1a4a47000cb133a8f79440"]}
          {:id "dapper"
           :url "https://github.com/DapperLib/Dapper.git"
           :dir "dapper"
-          :required-shas ["360367ca5475425944fb390433cb0f1817ad2dcb"]}
+          :required-shas ["360367ca5475425944fb390433cb0f1817ad2dcb"
+                          "512f024667b79b4a17a38f33da59b072a43579f1"
+                          "2a8faab235c21892fb4c9a4529510d030516d691"]}
          {:id "opentelemetry-collector"
           :url "https://github.com/open-telemetry/opentelemetry-collector.git"
           :dir "opentelemetry-collector"
