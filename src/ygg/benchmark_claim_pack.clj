@@ -51,7 +51,10 @@
    :missing (:missing report)
    :claimReadiness (:claimReadiness report)
    :scores (:scores report)
-   :tokenTelemetry (token-telemetry-status report)})
+   :tokenTelemetry (token-telemetry-status report)
+   :contextArtifactTelemetry (get-in report
+                                     [:agentDiagnostics
+                                      :contextArtifactTelemetry])})
 
 (defn- artifact-paths
   [suite opts]
@@ -84,6 +87,7 @@
                                           [:claimReadiness
                                            :broadEfficiencyClaimSupported])
    :qualityCostTradeoff (:qualityCostTradeoff comparison)
+   :contextArtifacts (:contextArtifacts comparison)
    :failedRequirements (get-in comparison
                                [:headlineSummary :failedRequirements])
    :systemImprovementLanes (mapv #(select-keys % [:lane
@@ -100,6 +104,17 @@
        " (runs with tokenUsage: " (:tokenUsageRuns status)
        ", missing: " (:missingTokenUsageRuns status)
        ")"))
+
+(defn- format-context-artifact-status
+  [telemetry]
+  (if telemetry
+    (str "present (runs: " (:runs telemetry)
+         ", compact hints bytes: "
+         (get-in telemetry [:totals :compactHintsBytes])
+         ", hint savings bytes: "
+         (get-in telemetry [:totals :hintSavingsBytes])
+         ")")
+    "missing"))
 
 (defn- artifact-line
   [[label path]]
@@ -127,7 +142,15 @@
        (str "- Quality/token tradeoff: "
             (or (:status tradeoff) "unavailable"))
        (str "- Shell-only token telemetry: " (format-token-status shell-token))
-       (str "- Yggdrasil token telemetry: " (format-token-status ygg-token))]
+       (str "- Yggdrasil token telemetry: " (format-token-status ygg-token))
+       (str "- Shell-only context artifact telemetry: "
+            (format-context-artifact-status
+             (get-in claim-pack
+                     [:lanes :shellOnly :contextArtifactTelemetry])))
+       (str "- Yggdrasil context artifact telemetry: "
+            (format-context-artifact-status
+             (get-in claim-pack
+                     [:lanes :ygg :contextArtifactTelemetry])))]
       (when-let [failed (seq (:failedRequirements summary))]
         [""
          "## Failed Requirements"

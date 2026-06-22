@@ -667,6 +667,40 @@
        :headlineDeltas (merge (tradeoff-deltas-by-key quality-rows)
                               (tradeoff-deltas-by-key token-rows))})))
 
+(defn- context-artifact-telemetry
+  [report]
+  (get-in report [:agentDiagnostics :contextArtifactTelemetry]))
+
+(defn- progressive-disclosure-summary
+  [telemetry]
+  (when telemetry
+    (merge (select-keys telemetry [:runs
+                                   :caseIds
+                                   :hintSavingsRatio
+                                   :frontloadToExpansionRatio])
+           (select-keys (:totals telemetry)
+                        [:promptBytes
+                         :compactHintsBytes
+                         :fullHintsBytes
+                         :contextBytes
+                         :frontloadBytes
+                         :expansionBytes
+                         :fullAvailableBytes
+                         :hintSavingsBytes]))))
+
+(defn- context-artifact-comparison
+  [shell-report ygg-report]
+  (let [shell-telemetry (context-artifact-telemetry shell-report)
+        ygg-telemetry (context-artifact-telemetry ygg-report)]
+    (when (or shell-telemetry ygg-telemetry)
+      (cond-> {}
+        shell-telemetry
+        (assoc :shellOnly shell-telemetry)
+        ygg-telemetry
+        (assoc :ygg ygg-telemetry
+               :progressiveDisclosure
+               (progressive-disclosure-summary ygg-telemetry))))))
+
 (defn- tag-comparability
   [shell-report ygg-report]
   (let [shell-tags (set (keys (rows-by-key (:byTag shell-report))))
@@ -1172,6 +1206,7 @@
                                                  ygg-report)
          headline-metrics (headline-metric-deltas-from-deltas deltas)
          quality-cost-tradeoff (quality-token-tradeoff deltas)
+         context-artifacts (context-artifact-comparison shell-report ygg-report)
          compact-summary-result (compact-summary
                                  {:summary summary
                                   :comparable comparable
@@ -1202,6 +1237,8 @@
                                        (case-score-specs-for
                                         shell-efficiency-report
                                         ygg-efficiency-report))}
+       context-artifacts
+       (assoc :contextArtifacts context-artifacts)
        quality-cost-tradeoff
        (assoc :qualityCostTradeoff quality-cost-tradeoff)))))
 
@@ -1342,6 +1379,38 @@
        ", unchanged " (:unchangedMetrics summary)
        ", unavailable " (:unavailableMetrics summary)))
 
+(defn- context-artifact-line
+  [label telemetry]
+  (let [totals (:totals telemetry)]
+    (str "- " label
+         ": frontload "
+         (format-metric-value (:frontloadBytes totals))
+         ", compact hints "
+         (format-metric-value (:compactHintsBytes totals))
+         ", full hints "
+         (format-metric-value (:fullHintsBytes totals))
+         ", context "
+         (format-metric-value (:contextBytes totals))
+         ", hint savings "
+         (format-metric-value (:hintSavingsBytes totals))
+         (when-let [ratio (:hintSavingsRatio telemetry)]
+           (str " (ratio " ratio ")")))))
+
+(defn- progressive-disclosure-line
+  [summary]
+  (str "- Ygg progressive disclosure: compact hints "
+       (format-metric-value (:compactHintsBytes summary))
+       " vs full hints "
+       (format-metric-value (:fullHintsBytes summary))
+       ", saved "
+       (format-metric-value (:hintSavingsBytes summary))
+       (when-let [ratio (:hintSavingsRatio summary)]
+         (str " (ratio " ratio ")"))
+       ", frontload "
+       (format-metric-value (:frontloadBytes summary))
+       ", expansion available "
+       (format-metric-value (:expansionBytes summary))))
+
 (defn- claim-requirement-line
   [requirements key]
   (str "- " (name key) ": " (if (true? (get requirements key))
@@ -1368,6 +1437,7 @@
         warnings (get-in comparison [:claimReadiness :warnings])
         notes (get-in comparison [:claimReadiness :notes])
         headline-summary (:headlineSummary comparison)
+        context-artifacts (:contextArtifacts comparison)
         key-deltas (headline-metric-deltas comparison)
         categories (:byCategory comparison)
         tradeoff (:qualityCostTradeoff comparison)
@@ -1452,6 +1522,19 @@
                  (str "- Status: " (:status tradeoff))
                  (tradeoff-summary-line "Quality metrics" (:quality tradeoff))
                  (tradeoff-summary-line "Token/cost metrics" (:tokenCost tradeoff))])
+              (when context-artifacts
+                (concat
+                 [""
+                  "## Context Artifact Telemetry"
+                  ""]
+                 (keep identity
+                       [(when-let [shell-telemetry (:shellOnly context-artifacts)]
+                          (context-artifact-line "Shell-only" shell-telemetry))
+                        (when-let [ygg-telemetry (:ygg context-artifacts)]
+                          (context-artifact-line "Yggdrasil" ygg-telemetry))
+                        (when-let [summary (:progressiveDisclosure
+                                            context-artifacts)]
+                          (progressive-disclosure-line summary))])))
               (when (seq key-deltas)
                 (concat ["" "## Key Metric Deltas" ""]
                         (map metric-delta-line key-deltas)))

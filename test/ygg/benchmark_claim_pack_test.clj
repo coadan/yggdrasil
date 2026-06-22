@@ -21,7 +21,7 @@
     (.getPath file)))
 
 (defn- report
-  [{:keys [mode recall tokens]}]
+  [{:keys [mode recall tokens context-artifacts]}]
   {:schema benchmark/agent-report-schema
    :suite-id "suite"
    :cases 2
@@ -42,7 +42,8 @@
                                          :fileReadCommandCount 1
                                          :shellCommandCount 0
                                          :yggCommandCount 0}
-                      :tokenTelemetry tokens}
+                      :tokenTelemetry tokens
+                      :contextArtifactTelemetry context-artifacts}
    :localizationDiagnostics {:missedRuns 0
                              :rankedOutsideTop5Runs 0
                              :rankedOutsideTop10Runs 0
@@ -111,7 +112,16 @@
                                           :tokens {:inputTokens 800
                                                    :outputTokens 300
                                                    :totalTokens 1100
-                                                   :costUsd 0.07}})
+                                                   :costUsd 0.07}
+                                          :context-artifacts
+                                          {:runs 2
+                                           :caseIds ["case-1" "case-2"]
+                                           :totals {:compactHintsBytes 4000
+                                                    :fullHintsBytes 16000
+                                                    :hintSavingsBytes 12000
+                                                    :frontloadBytes 6000
+                                                    :expansionBytes 40000}
+                                           :hintSavingsRatio 0.75}})
                                  (assoc :decisionDiagnostics
                                         {:configuredRuns 2
                                          :gapRuns 1
@@ -136,10 +146,24 @@
            (get-in pack [:lanes :shellOnly :tokenTelemetry :telemetryPresent])))
     (is (= 2
            (get-in pack [:lanes :ygg :tokenTelemetry :tokenUsageRuns])))
+    (is (= 12000
+           (get-in pack
+                   [:lanes
+                    :ygg
+                    :contextArtifactTelemetry
+                    :totals
+                    :hintSavingsBytes])))
+    (is (= 0.75
+           (get-in pack
+                   [:summary
+                    :contextArtifacts
+                    :progressiveDisclosure
+                    :hintSavingsRatio])))
     (is (= ["decision-quality-gap"]
            (mapv :lane (get-in pack [:systemImprovement :lanes]))))
     (doseq [path (vals artifacts)]
       (is (.isFile (io/file path))))
     (is (str/includes? markdown "# Yggdrasil Benchmark Claim Pack"))
     (is (str/includes? markdown "- Verdict: inconclusive"))
+    (is (str/includes? markdown "- Yggdrasil context artifact telemetry: present"))
     (is (str/includes? markdown "decision-quality-gap"))))
