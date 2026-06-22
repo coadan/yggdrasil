@@ -26,10 +26,18 @@
   1.00)
 (def ^:private rank-score-identity-compound-span-min
   3)
+(def ^:private rank-score-long-identity-compound-span-min
+  4)
 (def ^:private rank-score-identity-compound-span-cap
   2)
 (def ^:private rank-score-identity-compound-span-weight
   0.8)
+(def ^:private rank-score-retrieved-long-identity-compound-span-weight
+  2.25)
+(def ^:private rank-score-retrieved-early-long-identity-compound-span-window
+  5)
+(def ^:private rank-score-retrieved-early-long-identity-compound-span-weight
+  2.0)
 (def ^:private rank-score-candidate-only-graph-weight
   3.0)
 (def ^:private rank-score-doc-supported-graph-weight
@@ -241,6 +249,27 @@
      (min rank-score-identity-compound-span-cap
           (max 0 (- (long (or span-length 0))
                     (dec rank-score-identity-compound-span-min))))))
+(defn- retrieved-long-identity-compound-span-score
+  [retrieved-source-count span-length]
+  (if (and (pos? (long (or retrieved-source-count 0)))
+           (<= rank-score-long-identity-compound-span-min
+               (long (or span-length 0))))
+    rank-score-retrieved-long-identity-compound-span-weight
+    0.0))
+(defn- retrieved-early-long-identity-compound-span-score
+  [retrieved-source-count first-source-rank span-length]
+  (let [first-source-rank (long (or first-source-rank 0))
+        span-length (long (or span-length 0))]
+    (if (and (pos? (long (or retrieved-source-count 0)))
+             (pos? first-source-rank)
+             (<= first-source-rank
+                 rank-score-retrieved-early-long-identity-compound-span-window)
+             (<= rank-score-long-identity-compound-span-min span-length))
+      (* rank-score-retrieved-early-long-identity-compound-span-weight
+         (/ (double (inc (- rank-score-retrieved-early-long-identity-compound-span-window
+                            first-source-rank)))
+            (double rank-score-retrieved-early-long-identity-compound-span-window)))
+      0.0)))
 (defn- retrieved-source-rank-score
   [retrieved-source-count first-source-rank]
   (if (and (pos? retrieved-source-count)
@@ -817,6 +846,15 @@
                              source-rank-score (retrieved-source-rank-score
                                                 retrieved-source-count
                                                 (:source-rank best-row))
+                             retrieved-long-identity-compound-span-score
+                             (retrieved-long-identity-compound-span-score
+                              retrieved-source-count
+                              matched-identity-compound-token-span-length)
+                             retrieved-early-long-identity-compound-span-score
+                             (retrieved-early-long-identity-compound-span-score
+                              retrieved-source-count
+                              (:source-rank best-row)
+                              matched-identity-compound-token-span-length)
                              graph-neighbor-boost (graph-neighbor-boost
                                                    doc-count
                                                    graph-neighbor-score
@@ -838,6 +876,8 @@
                                               (min rank-score-ordered-pair-cap
                                                    (count matched-identity-compound-token-pairs)))
                                            identity-compound-span-score
+                                           retrieved-long-identity-compound-span-score
+                                           retrieved-early-long-identity-compound-span-score
                                            candidate-support-label-score
                                            (* 0.08 (min rank-score-support-count-cap
                                                         support-count))
@@ -881,6 +921,12 @@
                                        (pos? identity-compound-span-score)
                                        (assoc :identityCompoundTokenSpanScore
                                               identity-compound-span-score)
+                                       (pos? retrieved-long-identity-compound-span-score)
+                                       (assoc :retrievedLongIdentityCompoundTokenSpanScore
+                                              retrieved-long-identity-compound-span-score)
+                                       (pos? retrieved-early-long-identity-compound-span-score)
+                                       (assoc :retrievedEarlyLongIdentityCompoundTokenSpanScore
+                                              retrieved-early-long-identity-compound-span-score)
                                        (pos? candidate-support-label-count)
                                        (assoc :candidateSupportLabelCount
                                               candidate-support-label-count)

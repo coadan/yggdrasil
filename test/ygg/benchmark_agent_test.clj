@@ -1883,6 +1883,34 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-boosts-retrieved-long-identity-spans
+  (let [root (temp-dir "ygg-bench-long-identity-span")
+        _ (spit-file! root "src/JupiterEngineExecutionContext.java" "class JupiterEngineExecutionContext {}\n")
+        _ (spit-file! root "tests/ExecutionLifecycleTests.java" "class ExecutionLifecycleTests {}\n")
+        packet {:query "JupiterEngineExecutionContext lifecycle state"
+                :docs [{:source {:path "tests/ExecutionLifecycleTests.java"
+                                 :heading "ExecutionLifecycleTests"}
+                        :score 4.0
+                        :snippet "lifecycle state"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/JupiterEngineExecutionContext.java"
+                                 :heading "JupiterEngineExecutionContext"}
+                        :score 1.0
+                        :snippet "JupiterEngineExecutionContext lifecycle state"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/JupiterEngineExecutionContext.java"
+            "tests/ExecutionLifecycleTests.java"]
+           (mapv :path files)))
+    (is (<= 4 (get-in files [0 :metrics :matchedIdentityCompoundTokenSpanLength])))
+    (is (pos? (get-in files [0 :metrics :retrievedLongIdentityCompoundTokenSpanScore])))
+    (is (pos? (get-in files [0 :metrics :retrievedEarlyLongIdentityCompoundTokenSpanScore])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest file-ranking-uses-candidate-support-label-density
   (let [root (temp-dir "ygg-bench-candidate-support-label-density")
         _ (spit-file! root "src/high-score.js" "export const value = 1;\n")
