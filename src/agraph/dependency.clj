@@ -2,6 +2,7 @@
   "Derived external package dependency resolution."
   (:require [agraph.command :as command]
             [agraph.dependency.imports :as dependency-imports]
+            [agraph.dependency.resolve :as dependency-resolve]
             [agraph.hash :as hash]
             [agraph.xtdb :as store]
             [clojure.string :as str]))
@@ -64,10 +65,6 @@
     (when (pos? idx)
       (subs path 0 idx))))
 
-(defn- filename
-  [path]
-  (last (str/split (str path) #"/")))
-
 (defn- extension
   [path]
   (some-> (re-find #"\.([A-Za-z0-9]+)$" (str path))
@@ -113,22 +110,6 @@
          distinct
          vec)))
 
-(defn- ancestor-paths
-  [path filename]
-  (loop [dir (dirname path)
-         out []]
-    (if (seq dir)
-      (recur (dirname dir) (conj out (str dir "/" filename)))
-      (conj out filename))))
-
-(defn- nearest-manifest
-  [manifest-paths source-path filename]
-  (some #(when (contains? manifest-paths %) %) (ancestor-paths source-path filename)))
-
-(defn- ancestor-manifest-paths
-  [manifest-paths source-path filename]
-  (filterv #(contains? manifest-paths %) (ancestor-paths source-path filename)))
-
 (defn- ancestor-dir?
   [ancestor path]
   (let [ancestor (or ancestor "")
@@ -137,66 +118,8 @@
         (= ancestor dir)
         (str/starts-with? dir (str ancestor "/")))))
 
-(defn- js-package-name
-  [target]
-  (when-not (str/starts-with? (str target) ".")
-    (let [parts (str/split (str target) #"/")]
-      (if (str/starts-with? (str target) "@")
-        (when (<= 2 (count parts))
-          (str (first parts) "/" (second parts)))
-        (first parts)))))
-
-(declare package-by-name package-result)
-
-(defn- rust-import-root
-  [target]
-  (first (str/split (str target) #"::")))
-
-(defn- rust-package
-  [packages target]
-  (let [root (rust-import-root target)]
-    (or (package-by-name packages root)
-        (package-by-name packages (some-> root (str/replace "_" "-"))))))
-
-(defn- go-package-name
-  [packages target]
-  (->> packages
-       (filter #(or (= (:package-name %) target)
-                    (str/starts-with? target (str (:package-name %) "/"))))
-       (sort-by (comp - count :package-name))
-       first
-       :package-name))
-
-(def ^:private dotnet-manifest-extensions
-  #{"csproj" "fsproj" "vbproj" "props" "targets"})
-
-(def ^:private dotnet-manifest-filenames
-  #{"packages.config" "nuget.config"})
-
-(defn- dotnet-manifest?
-  [path]
-  (let [name (str/lower-case (filename path))]
-    (or (contains? dotnet-manifest-extensions (extension path))
-        (contains? dotnet-manifest-filenames name))))
-
-(def ^:private dotnet-dependency-ecosystems
-  #{:nuget :dotnet-assembly})
-
-(defn- dotnet-packages-for-source
-  [packages-by-manifest source-path]
-  (->> packages-by-manifest
-       (filter (fn [[manifest-path _packages]]
-                 (and (dotnet-manifest? manifest-path)
-                      (ancestor-dir? (dirname manifest-path) source-path))))
-       (mapcat val)
-       (filter #(contains? dotnet-dependency-ecosystems (:ecosystem %)))
-       vec))
-
 (def ^:private package-evidence-source-kinds
   #{:manifest :doc-file})
-
-(def ^:private npm-lock-filenames
-  ["package-lock.json" "pnpm-lock.yaml" "yarn.lock" "bun.lock"])
 
 (defn- package-source-entries
   [nodes-by-id edges]
@@ -236,112 +159,6 @@
                    (update out source-path (fnil conj []) package))
                  {}))))
 
-(defn- packages-for
-  [packages-by-source source-path ecosystem]
-  (->> (get packages-by-source source-path)
-       (filter #(= ecosystem (:ecosystem %)))
-       vec))
-
-(defn- distinct-packages
-  [packages]
-  (->> packages
-       (map (juxt :xt/id identity))
-       (into {})
-       vals
-       vec))
-
-(defn- ancestor-source-packages
-  [packages-by-source source-path ecosystem]
-  (->> packages-by-source
-       (filter (fn [[package-source-path _packages]]
-                 (ancestor-dir? (dirname package-source-path) source-path)))
-       (mapcat val)
-       (filter #(= ecosystem (:ecosystem %)))
-       distinct-packages))
-
-(defn- package-by-name
-  [packages package-name]
-  (let [matches (->> packages
-                     (filter #(= package-name (:package-name %)))
-                     distinct-packages)]
-    (when (= 1 (count matches))
-      (first matches))))
-
-(defn- package-by-ancestor-manifest
-  [packages-by-manifest manifest-paths ecosystem package-name]
-  (some (fn [manifest-path]
-          (package-by-name
-           (packages-for packages-by-manifest manifest-path ecosystem)
-           package-name))
-        manifest-paths))
-
-(defn- package-by-ancestor-npm-lock
-  [packages-by-manifest manifest-paths source-path package-name]
-  (some (fn [filename]
-          (package-by-ancestor-manifest
-           packages-by-manifest
-           (ancestor-manifest-paths manifest-paths source-path filename)
-           :npm
-           package-name))
-        npm-lock-filenames))
-
-(defn- segment-prefix?
-  [prefix value]
-  (or (= prefix value)
-      (str/starts-with? value (str prefix "."))))
-
-(defn- normalized-dotnet-name
-  [value]
-  (str/replace (str/lower-case (str value)) #"[^a-z0-9]" ""))
-
-(defn- normalized-prefix?
-  [prefix value]
-  (let [prefix (normalized-dotnet-name prefix)
-        value (normalized-dotnet-name value)]
-    (and (seq prefix)
-         (or (= prefix value)
-             (str/starts-with? value prefix)))))
-
-(defn- dotnet-name-root
-  [value]
-  (first (str/split (str value) #"\.")))
-
-(defn- normalized-root-match?
-  [target package-name]
-  (let [target-root (normalized-dotnet-name (dotnet-name-root target))
-        package-root (normalized-dotnet-name (dotnet-name-root package-name))]
-    (and (seq target-root)
-         (= target-root package-root))))
-
-(defn- dotnet-package-match-score
-  [target package-name]
-  (let [target (str/lower-case (str target))
-        package-name (str/lower-case (str package-name))]
-    (cond
-      (= target package-name) 3
-      (segment-prefix? package-name target) 2
-      (segment-prefix? target package-name) 1
-      (normalized-prefix? package-name target) 1
-      (normalized-prefix? target package-name) 1
-      (normalized-root-match? target package-name) 0.5
-      :else nil)))
-
-(defn- dotnet-package
-  [packages target]
-  (let [matches (->> packages
-                     (keep (fn [package]
-                             (when-let [score (dotnet-package-match-score
-                                               target
-                                               (:package-name package))]
-                               (assoc package :match-score score))))
-                     (sort-by (juxt (comp - :match-score)
-                                    (comp - count :package-name)))
-                     vec)
-        best-score (:match-score (first matches))
-        best (filter #(= best-score (:match-score %)) matches)]
-    (when (= 1 (count best))
-      (dissoc (first best) :match-score))))
-
 (defn- module-path-alias-node?
   [node]
   (= :module-path-alias (:kind node)))
@@ -369,162 +186,6 @@
              (re-matches #"^(.+?)=.*$" (str (:label alias-node)))]
     (and (ancestor-dir? (dirname (:path alias-node)) (:path edge))
          (alias-pattern-match? alias-pattern target))))
-
-(defn- import-prefix-match?
-  [target import-name]
-  (let [target (str target)
-        import-name (str import-name)]
-    (and (seq target)
-         (seq import-name)
-         (or (= target import-name)
-             (str/starts-with? target (str import-name "."))
-             (str/starts-with? target (str import-name "/"))))))
-
-(defn- package-by-import-name
-  [packages target]
-  (let [matches (->> packages
-                     (keep (fn [package]
-                             (or (when-let [import-name
-                                            (->> (:import-names package)
-                                                 (filter #(import-prefix-match? target %))
-                                                 (sort-by count >)
-                                                 first)]
-                                   {:package package
-                                    :import-name import-name
-                                    :resolution-source :manifest-import-name})
-                                 (when (import-prefix-match? target (:package-name package))
-                                   {:package package
-                                    :import-name (:package-name package)
-                                    :resolution-source :package-name})))))
-        packages (distinct-packages (map :package matches))]
-    (when (= 1 (count packages))
-      (first matches))))
-
-(defn- maven-coordinate
-  [package-name]
-  (let [[group-id artifact-id] (str/split (str package-name) #":" 2)]
-    (when (and (seq group-id) (seq artifact-id))
-      {:group-id group-id
-       :artifact-id artifact-id})))
-
-(defn- maven-artifact-prefixes
-  [group-id artifact-id]
-  (let [parts (vec (remove str/blank? (str/split (str artifact-id) #"-")))]
-    (->> (range (count parts))
-         (map #(subvec parts %))
-         (remove empty?)
-         (map #(str group-id "." (str/join "." %)))
-         distinct
-         vec)))
-
-(defn- maven-import-prefixes
-  [{:keys [package-name]}]
-  (when-let [{:keys [group-id artifact-id]} (maven-coordinate package-name)]
-    (->> (cond-> [group-id]
-           (str/includes? group-id ".")
-           (into (maven-artifact-prefixes group-id artifact-id)))
-         distinct
-         vec)))
-
-(defn- maven-coordinate-match
-  [target package]
-  (->> (maven-import-prefixes package)
-       (keep (fn [prefix]
-               (when (import-prefix-match? target prefix)
-                 {:package package
-                  :import-name prefix
-                  :resolution-source :maven-coordinate-prefix
-                  :match-score (if (str/includes? prefix ".") 2 1)})))
-       (sort-by (juxt (comp - :match-score)
-                      (comp - count :import-name)))))
-
-(defn- unique-best-package-match
-  [matches]
-  (let [matches (vec matches)
-        best-score (:match-score (first matches))
-        best-prefix-len (some-> (first matches) :import-name count)
-        best (filter #(and (= best-score (:match-score %))
-                           (= best-prefix-len (count (:import-name %))))
-                     matches)
-        packages (distinct-packages (map :package best))]
-    (when (= 1 (count packages))
-      (dissoc (first best) :match-score))))
-
-(defn- maven-package-result
-  [packages target]
-  (or (package-by-import-name packages target)
-      (unique-best-package-match
-       (mapcat #(maven-coordinate-match target %) packages))))
-
-(defn- all-source-packages
-  [packages-by-source ecosystem]
-  (->> packages-by-source
-       vals
-       (mapcat identity)
-       (filter #(= ecosystem (:ecosystem %)))
-       distinct-packages))
-
-(defn- java-package-result
-  [packages-by-source source-path target]
-  (let [ancestor-packages (ancestor-source-packages packages-by-source
-                                                    source-path
-                                                    :maven)
-        all-packages (all-source-packages packages-by-source :maven)]
-    (or (maven-package-result ancestor-packages target)
-        (maven-package-result all-packages target))))
-
-(defn- npm-types-package-name
-  [package-name]
-  (when (and (seq package-name)
-             (not (str/starts-with? package-name "@")))
-    (str "@types/" package-name)))
-
-(defn- type-import?
-  [edge]
-  (= :type (:import-kind edge)))
-
-(defn- js-package-result
-  [packages-by-source manifest-paths source-path target edge]
-  (let [package-name (js-package-name target)
-        types-package-name (npm-types-package-name package-name)]
-    (or (package-result
-         (package-by-ancestor-manifest
-          packages-by-source
-          (ancestor-manifest-paths manifest-paths source-path "deno.json")
-          :deno
-          package-name)
-         :deno-import-map)
-        (package-result
-         (package-by-ancestor-manifest
-          packages-by-source
-          (ancestor-manifest-paths manifest-paths source-path "package.json")
-          :npm
-          package-name)
-         :declared)
-        (package-result
-         (package-by-ancestor-npm-lock
-          packages-by-source
-          manifest-paths
-          source-path
-          package-name)
-         :dependency-lock)
-        (when (type-import? edge)
-          (or (package-result
-               (package-by-ancestor-manifest
-                packages-by-source
-                (ancestor-manifest-paths manifest-paths source-path "package.json")
-                :npm
-                types-package-name)
-               :type-declaration
-               package-name)
-              (package-result
-               (package-by-ancestor-npm-lock
-                packages-by-source
-                manifest-paths
-                source-path
-                types-package-name)
-               :type-dependency-lock
-               package-name))))))
 
 (defn- source-kind
   [files-by-path path]
@@ -630,98 +291,15 @@
          (dependency-imports/supported-source-kind? kind)
          (dependency-imports/external-package-candidate? kind target))))
 
-(defn- mapping-entries
-  [map-overlay]
-  (->> (concat (:packageImports map-overlay) (:package-imports map-overlay))
-       (filter #(not= "rejected" (str (:status %))))
-       vec))
-
-(def ^:private directly-resolvable-import-ecosystems
-  #{:npm :cargo :go :pypi :maven :nuget :deno :dotnet-assembly})
-
-(defn- directly-resolvable-package?
-  [package]
-  (contains? directly-resolvable-import-ecosystems (:ecosystem package)))
-
-(defn- can-resolve-import-packages?
-  [packages-by-manifest map-overlay]
-  (or (seq (mapping-entries map-overlay))
-      (some directly-resolvable-package?
-            (mapcat identity (vals packages-by-manifest)))))
-
-(defn- mapping-package
-  [packages-by-id mapping]
-  (let [ecosystem (some-> (:ecosystem mapping) keyword)
-        package-name (or (:package mapping) (:package-name mapping))]
-    (some (fn [package]
-            (when (and (= ecosystem (:ecosystem package))
-                       (= package-name (:package-name package)))
-              package))
-          (vals packages-by-id))))
-
-(defn- resolve-map-import
-  [packages-by-id map-overlay repo-id target]
-  (->> (mapping-entries map-overlay)
-       (filter #(or (nil? (:repo %))
-                    (= repo-id (:repo %))))
-       (filter #(import-prefix-match? target (:import %)))
-       (sort-by (comp - count :import))
-       (keep (fn [mapping]
-               (when-let [package (mapping-package packages-by-id mapping)]
-                 {:package package
-                  :import-name (:import mapping)
-                  :resolution-source :map-overlay})))
-       first))
-
-(defn- package-result
-  ([package resolution-source]
-   (package-result package resolution-source nil))
-  ([package resolution-source import-name]
-   (when package
-     (cond-> {:package package
-              :resolution-source resolution-source}
-       import-name (assoc :import-name import-name)))))
-
-(defn- resolve-import
+(defn- resolve-package-import
   [packages-by-id packages-by-source manifest-paths files-by-path map-overlay repo-id edge]
-  (let [target (namespace-target (:target-id edge))
-        kind (source-kind files-by-path (:path edge))]
-    (or (resolve-map-import packages-by-id map-overlay repo-id target)
-        (cond
-          (contains? #{:javascript :typescript :astro :vue :svelte} kind)
-          (js-package-result packages-by-source
-                             manifest-paths
-                             (:path edge)
-                             target
-                             edge)
-
-          (= :rust kind)
-          (when-let [manifest-path (nearest-manifest manifest-paths (:path edge) "Cargo.toml")]
-            (let [packages (packages-for packages-by-source manifest-path :cargo)]
-              (package-result (rust-package packages target)
-                              :declared)))
-
-          (= :go kind)
-          (when-let [manifest-path (nearest-manifest manifest-paths (:path edge) "go.mod")]
-            (let [packages (packages-for packages-by-source manifest-path :go)]
-              (package-result (package-by-name packages (go-package-name packages target))
-                              :declared)))
-
-          (= :python kind)
-          (let [packages (ancestor-source-packages packages-by-source
-                                                   (:path edge)
-                                                   :pypi)]
-            (package-by-import-name packages target))
-
-          (= :java kind)
-          (java-package-result packages-by-source (:path edge) target)
-
-          (= :dotnet kind)
-          (let [packages (dotnet-packages-for-source packages-by-source (:path edge))]
-            (package-result (dotnet-package packages target)
-                            :declared))
-
-          :else nil))))
+  (dependency-resolve/resolve-import {:packages-by-id packages-by-id
+                                      :packages-by-source packages-by-source
+                                      :manifest-paths manifest-paths
+                                      :files-by-path files-by-path
+                                      :map-overlay map-overlay
+                                      :repo-id repo-id
+                                      :edge edge}))
 
 (defn- dependency-edge-id
   [source-id target-id path]
@@ -756,10 +334,11 @@
   (let [existing-keys (set (map import-edge-key imports))]
     (->> source-edges
          (keep (fn [edge]
-                 (when-let [result (resolve-map-import packages-by-id
-                                                       map-overlay
-                                                       (:repo-id edge)
-                                                       (namespace-target (:target-id edge)))]
+                 (when-let [result (dependency-resolve/resolve-map-import
+                                    packages-by-id
+                                    map-overlay
+                                    (:repo-id edge)
+                                    (namespace-target (:target-id edge)))]
                    (let [derived (import-package-edge "report:map-overlay"
                                                       project-id
                                                       (:repo-id edge)
@@ -794,7 +373,7 @@
                              (into {}))
          packages-by-source (package-by-source nodes dependency-source-edges)
          manifest-paths (set (keys packages-by-source))]
-     (if-not (can-resolve-import-packages? packages-by-source map-overlay)
+     (if-not (dependency-resolve/can-resolve-import-packages? packages-by-source map-overlay)
        []
        (let [source-edges (active-scope-edge-rows xtdb scope #{:imports :uses})
              candidate-edges (->> source-edges
@@ -804,13 +383,13 @@
                                                                       %)))]
          (->> candidate-edges
               (keep (fn [edge]
-                      (when-let [result (resolve-import packages-by-id
-                                                        packages-by-source
-                                                        manifest-paths
-                                                        files-by-path
-                                                        map-overlay
-                                                        repo-id
-                                                        edge)]
+                      (when-let [result (resolve-package-import packages-by-id
+                                                                packages-by-source
+                                                                manifest-paths
+                                                                files-by-path
+                                                                map-overlay
+                                                                repo-id
+                                                                edge)]
                         (import-package-edge run-id
                                              project-id
                                              repo-id
@@ -1088,13 +667,13 @@
          unresolved-imports (if (or ecosystem package with-conflicts? without-import-evidence?)
                               []
                               (->> candidate-source-edges
-                                   (filter #(nil? (resolve-import packages-by-id
-                                                                  packages-by-source
-                                                                  manifest-paths
-                                                                  files-by-path
-                                                                  map-overlay
-                                                                  (:repo-id %)
-                                                                  %)))
+                                   (filter #(nil? (resolve-package-import packages-by-id
+                                                                          packages-by-source
+                                                                          manifest-paths
+                                                                          files-by-path
+                                                                          map-overlay
+                                                                          (:repo-id %)
+                                                                          %)))
                                    (mapv #(unresolved-import-row nodes-by-id
                                                                  files-by-path
                                                                  %))
