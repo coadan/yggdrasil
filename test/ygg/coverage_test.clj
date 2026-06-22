@@ -77,25 +77,25 @@
 (deftest project-coverage-adds-diagnostic-next-action
   (let [root (temp-dir "ygg-coverage-diagnostic-action")]
     (spit-file! root "src/app.clj" "(ns app)\n")
-    (with-redefs [store/rows-by-field (fn [_ table field value]
-                                        (case [table field value]
-                                          [:ygg/files :project-id "fixture"]
-                                          [{:xt/id "file:app"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :path "src/app.clj"
-                                            :kind :code
-                                            :active? true}]
+    (with-redefs [store/constrained-rows (fn [_ table constraints & [_ctx]]
+                                           (case [table constraints]
+                                             [:ygg/files {:project-id "fixture"}]
+                                             [{:xt/id "file:app"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :path "src/app.clj"
+                                               :kind :code
+                                               :active? true}]
 
-                                          [:ygg/index-diagnostics :project-id "fixture"]
-                                          [{:file-id "file:app"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :stage :parse
-                                            :message "parser failed"
-                                            :active? true}]
+                                             [:ygg/index-diagnostics {:project-id "fixture"}]
+                                             [{:file-id "file:app"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :stage :parse
+                                               :message "parser failed"
+                                               :active? true}]
 
-                                          []))]
+                                             []))]
       (let [report (coverage/project-coverage
                     :xtdb
                     {:id "fixture"
@@ -368,35 +368,35 @@
 (deftest project-coverage-reports-indexed-extractor-fingerprints
   (let [root (temp-dir "ygg-coverage-fingerprints")]
     (spit-file! root "src/app.clj" "(ns app)\n")
-    (with-redefs [store/rows-by-field (fn [_ table field value]
-                                        (case [table field value]
-                                          [:ygg/files :project-id "fixture"]
-                                          [{:xt/id "file:app"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :path "src/app.clj"
-                                            :kind :code
-                                            :extractor-fingerprint "extractor:clj-a"
-                                            :active? true}
-                                           {:xt/id "file:worker"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :path "src/Worker.java"
-                                            :kind :java
-                                            :extractor-fingerprint "extractor:java-a"
-                                            :active? true}
-                                           {:xt/id "file:old"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :path "src/Old.java"
-                                            :kind :java
-                                            :extractor-fingerprint "extractor:java-old"
-                                            :active? false}]
+    (with-redefs [store/constrained-rows (fn [_ table constraints & [_ctx]]
+                                           (case [table constraints]
+                                             [:ygg/files {:project-id "fixture"}]
+                                             [{:xt/id "file:app"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :path "src/app.clj"
+                                               :kind :code
+                                               :extractor-fingerprint "extractor:clj-a"
+                                               :active? true}
+                                              {:xt/id "file:worker"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :path "src/Worker.java"
+                                               :kind :java
+                                               :extractor-fingerprint "extractor:java-a"
+                                               :active? true}
+                                              {:xt/id "file:old"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :path "src/Old.java"
+                                               :kind :java
+                                               :extractor-fingerprint "extractor:java-old"
+                                               :active? false}]
 
-                                          [:ygg/index-diagnostics :project-id "fixture"]
-                                          []
+                                             [:ygg/index-diagnostics {:project-id "fixture"}]
+                                             []
 
-                                          []))]
+                                             []))]
       (let [report (coverage/project-coverage
                     :xtdb
                     {:id "fixture"
@@ -417,91 +417,91 @@
 (deftest project-coverage-reports-indexed-connectivity
   (let [root (temp-dir "ygg-coverage-connectivity")]
     (spit-file! root "src/app.clj" "(ns app)\n")
-    (with-redefs [store/rows-by-field (fn [_ table field value]
-                                        (case [table field value]
-                                          [:ygg/files :project-id "fixture"]
-                                          [{:xt/id "file:app"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :path "src/app.clj"
-                                            :kind :code
-                                            :active? true}
-                                           {:xt/id "file:helper"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :path "src/helper.py"
-                                            :kind :python
-                                            :active? true}
-                                           {:xt/id "file:self"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :path "src/Self.java"
-                                            :kind :java
-                                            :active? true}
-                                           {:xt/id "file:doc"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :path "README.md"
-                                            :kind :doc
-                                            :active? true}
-                                           {:xt/id "file:inactive"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :path "src/Old.java"
-                                            :kind :java
-                                            :active? false}]
+    (with-redefs [store/constrained-rows (fn [_ table constraints & [_ctx]]
+                                           (case [table constraints]
+                                             [:ygg/files {:project-id "fixture"}]
+                                             [{:xt/id "file:app"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :path "src/app.clj"
+                                               :kind :code
+                                               :active? true}
+                                              {:xt/id "file:helper"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :path "src/helper.py"
+                                               :kind :python
+                                               :active? true}
+                                              {:xt/id "file:self"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :path "src/Self.java"
+                                               :kind :java
+                                               :active? true}
+                                              {:xt/id "file:doc"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :path "README.md"
+                                               :kind :doc
+                                               :active? true}
+                                              {:xt/id "file:inactive"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :path "src/Old.java"
+                                               :kind :java
+                                               :active? false}]
 
-                                          [:ygg/nodes :project-id "fixture"]
-                                          [{:xt/id "node:app"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :file-id "file:app"
-                                            :active? true}
-                                           {:xt/id "node:helper"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :file-id "file:helper"
-                                            :active? true}
-                                           {:xt/id "node:self-a"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :file-id "file:self"
-                                            :active? true}
-                                           {:xt/id "node:self-b"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :file-id "file:self"
-                                            :active? true}
-                                           {:xt/id "node:inactive"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :file-id "file:inactive"
-                                            :active? false}]
+                                             [:ygg/nodes {:project-id "fixture"}]
+                                             [{:xt/id "node:app"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :file-id "file:app"
+                                               :active? true}
+                                              {:xt/id "node:helper"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :file-id "file:helper"
+                                               :active? true}
+                                              {:xt/id "node:self-a"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :file-id "file:self"
+                                               :active? true}
+                                              {:xt/id "node:self-b"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :file-id "file:self"
+                                               :active? true}
+                                              {:xt/id "node:inactive"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :file-id "file:inactive"
+                                               :active? false}]
 
-                                          [:ygg/edges :project-id "fixture"]
-                                          [{:xt/id "edge:app-helper"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :source-id "node:app"
-                                            :target-id "node:helper"
-                                            :active? true}
-                                           {:xt/id "edge:self"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :source-id "node:self-a"
-                                            :target-id "node:self-b"
-                                            :active? true}
-                                           {:xt/id "edge:inactive"
-                                            :project-id "fixture"
-                                            :repo-id "app"
-                                            :source-id "node:app"
-                                            :target-id "node:inactive"
-                                            :active? false}]
+                                             [:ygg/edges {:project-id "fixture"}]
+                                             [{:xt/id "edge:app-helper"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :source-id "node:app"
+                                               :target-id "node:helper"
+                                               :active? true}
+                                              {:xt/id "edge:self"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :source-id "node:self-a"
+                                               :target-id "node:self-b"
+                                               :active? true}
+                                              {:xt/id "edge:inactive"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :source-id "node:app"
+                                               :target-id "node:inactive"
+                                               :active? false}]
 
-                                          [:ygg/index-diagnostics :project-id "fixture"]
-                                          []
+                                             [:ygg/index-diagnostics {:project-id "fixture"}]
+                                             []
 
-                                          []))]
+                                             []))]
       (let [report (coverage/project-coverage
                     :xtdb
                     {:id "fixture"

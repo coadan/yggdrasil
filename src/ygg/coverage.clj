@@ -200,10 +200,6 @@
              :count isolated-count
              :command command}))))
 
-(defn- active-rows
-  [rows]
-  (filter :active? rows))
-
 (defn- active-index-row?
   [row]
   (not= false (:active? row)))
@@ -217,10 +213,11 @@
   [xtdb table {:keys [project-id repo-id read-context]}]
   (->> (store/constrained-rows xtdb
                                table
-                               {:project-id (when-not (str/blank? (str project-id))
-                                              project-id)
-                                :repo-id (when-not (str/blank? (str repo-id))
-                                           repo-id)}
+                               (cond-> {}
+                                 (not (str/blank? (str project-id)))
+                                 (assoc :project-id project-id)
+                                 (not (str/blank? (str repo-id)))
+                                 (assoc :repo-id repo-id))
                                (store/read-context read-context))
        (filter active-index-row?)
        (filter #(scope-match? {:project-id project-id :repo-id repo-id} %))
@@ -444,11 +441,9 @@
   [xtdb project-id]
   (if-not xtdb
     []
-    (->> (store/rows-by-field xtdb
-                              (:files store/tables)
-                              :project-id
-                              project-id)
-         (filter active-index-row?)
+    (->> (scoped-active-index-rows xtdb
+                                   (:files store/tables)
+                                   {:project-id project-id})
          (group-by (juxt :kind extractor-fingerprint-value))
          (map (fn [[[kind fingerprint] files]]
                 {:kind (display-value kind)
@@ -460,9 +455,7 @@
 
 (defn- active-project-rows
   [xtdb table project-id]
-  (->> (store/rows-by-field xtdb table :project-id project-id)
-       (filter active-index-row?)
-       vec))
+  (scoped-active-index-rows xtdb table {:project-id project-id}))
 
 (defn- indexed-connectivity-summary
   [xtdb project-id]
@@ -479,19 +472,14 @@
      :by-stage []
      :by-extractor []
      :samples []}
-    (let [files-by-id (->> (store/rows-by-field xtdb
+    (let [files-by-id (->> (active-project-rows xtdb
                                                 (:files store/tables)
-                                                :project-id
                                                 project-id)
-                           active-rows
                            (map (juxt :xt/id identity))
                            (into {}))
-          diagnostics (->> (store/rows-by-field xtdb
-                                                (:diagnostics store/tables)
-                                                :project-id
-                                                project-id)
-                           active-rows
-                           vec)
+          diagnostics (active-project-rows xtdb
+                                           (:diagnostics store/tables)
+                                           project-id)
           diagnostic-extractor (fn [diagnostic]
                                  (let [file (get files-by-id (:file-id diagnostic))
                                        kind (or (:kind file) :unknown)]
