@@ -46,6 +46,70 @@
     (is (= #{:imports :requires :resolves :uses :version-of}
            (set (map last @xtql-queries))))))
 
+(deftest import-package-resolution-pushes-real-xtdb-scope-constraints
+  (let [constrained-queries (atom [])
+        manifest {:xt/id "manifest:maven"
+                  :kind :manifest
+                  :path "pom.xml"
+                  :active? true
+                  :project-id "project-a"
+                  :repo-id "repo-a"}
+        package {:xt/id "pkg:maven:junit"
+                 :kind :external-package
+                 :ecosystem :maven
+                 :package-name "org.junit.jupiter"
+                 :active? true
+                 :project-id "project-a"
+                 :repo-id "repo-a"}
+        requires-edge {:source-id "manifest:maven"
+                       :target-id "pkg:maven:junit"
+                       :relation :requires
+                       :active? true
+                       :project-id "project-a"
+                       :repo-id "repo-a"}]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table constraints]
+                    (swap! constrained-queries conj [table constraints])
+                    (case table
+                      :ygg/files []
+                      :ygg/nodes [manifest package]
+                      :ygg/edges (if (= :requires (:relation constraints))
+                                   [requires-edge]
+                                   [])))
+                  store/rows-by-field
+                  (fn [& _]
+                    (throw (ex-info "rows-by-field should not be used for real XTDB handles"
+                                    {})))
+                  store/all-rows
+                  (fn [& _]
+                    (throw (ex-info "all-rows should not be used for scoped dependency reads"
+                                    {})))
+                  store/q
+                  (fn [& _]
+                    (throw (ex-info "store/q relation fallback should not be used for real XTDB handles"
+                                    {})))]
+      (is (= [] (dependency/resolve-import-package-edges
+                 {:node :node}
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {}))))
+    (is (contains? (set @constrained-queries)
+                   [(:files store/tables)
+                    {:project-id "project-a"
+                     :repo-id "repo-a"
+                     :active? true}]))
+    (is (contains? (set @constrained-queries)
+                   [(:nodes store/tables)
+                    {:project-id "project-a"
+                     :repo-id "repo-a"
+                     :active? true}]))
+    (is (= #{:imports :requires :resolves :uses :version-of}
+           (set (keep (fn [[table constraints]]
+                        (when (= (:edges store/tables) table)
+                          (:relation constraints)))
+                      @constrained-queries))))))
+
 (deftest import-package-resolution-reads-source-edges-when-map-overlay-can-resolve
   (let [xtql-queries (atom [])]
     (with-redefs [store/rows-by-field (fn [_ table _ _]
