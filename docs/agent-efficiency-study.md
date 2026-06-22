@@ -92,7 +92,7 @@ Use separate generated output roots so artifacts cannot overwrite each other:
 ```sh
 bb bench agent-run benchmarks/agent-efficiency-broad.edn \
   --agent codex-efficiency \
-  --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$YGG_BENCH_RESULT" - < "$YGG_BENCH_PROMPT"' \
+  --command "python3 $(pwd)/scripts/codex-benchmark-agent.py" \
   --mode shell-only \
   --prompt-profile fast \
   --timeout-ms 600000 \
@@ -100,12 +100,18 @@ bb bench agent-run benchmarks/agent-efficiency-broad.edn \
 
 bb bench agent-run benchmarks/agent-efficiency-broad.edn \
   --agent codex-efficiency \
-  --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$YGG_BENCH_RESULT" - < "$YGG_BENCH_PROMPT"' \
+  --command "python3 $(pwd)/scripts/codex-benchmark-agent.py" \
   --mode ygg \
   --prompt-profile fast \
   --timeout-ms 600000 \
   --out .dev/ygg/agent-efficiency/ygg
 ```
+
+Set `YGG_CODEX_MODEL`, `YGG_CODEX_EXTRA_ARGS`, or `YGG_CODEX_BIN` to tune the
+Codex invocation without changing benchmark commands. The wrapper reads Codex
+JSONL output and writes `$YGG_BENCH_TOKEN_USAGE` when usage telemetry is present,
+so `bb efficiency` can compare end-to-end task tokens for the shell-only and
+Yggdrasil lanes.
 
 DeepSeek v4 Pro can be run through the productized benchmark worker in
 `scripts/deepseek-agent.py`. Set `DEEPSEEK_API_KEY` directly or point
@@ -226,7 +232,9 @@ Use existing benchmark report fields first:
   cost totals when agent results include `tokenUsage`. `bb efficiency` compares
   these as lower-is-better and emits a `qualityCostTradeoff` summary when token
   telemetry is present. Agent wrappers can either write `tokenUsage` in the
-  result JSON or write a provider sidecar to `$YGG_BENCH_TOKEN_USAGE`.
+  result JSON or write a provider sidecar to `$YGG_BENCH_TOKEN_USAGE`. For
+  Codex CLI runs, use `scripts/codex-benchmark-agent.py`; for DeepSeek runs, use
+  `scripts/deepseek-agent.py`.
   `bb bench agent-check` can enforce aggregate and per-case budgets with
   `--max-total-tokens`, `--max-input-tokens`, `--max-output-tokens`,
   `--max-cost-usd`, `--max-case-total-tokens`, `--max-case-input-tokens`,

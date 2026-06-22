@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-DEFAULT_COMMAND='codex -a never exec --sandbox read-only --output-schema "$YGG_BENCH_OUTPUT_SCHEMA" -o "$YGG_BENCH_RESULT" - < "$YGG_BENCH_PROMPT"'
+DEFAULT_COMMAND="python3 \"$ROOT/scripts/codex-benchmark-agent.py\""
 
 usage() {
   cat <<'EOF'

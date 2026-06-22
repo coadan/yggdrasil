@@ -310,7 +310,9 @@ plugin-fit choice, not just a shorter suspected-file list.
   the file from inside its sandbox. Provider wrappers may write token usage to
   `$YGG_BENCH_TOKEN_USAGE` as JSON with `inputTokens`/`outputTokens` or
   `input_tokens`/`output_tokens`; Yggdrasil folds that sidecar into
-  `tokenUsage` when the result JSON does not already contain token usage. The
+  `tokenUsage` when the result JSON does not already contain token usage. Use
+  `python3 $(pwd)/scripts/codex-benchmark-agent.py` for Codex CLI runs so
+  Codex JSONL usage events become a token sidecar. The
   deterministic Yggdrasil baseline records `tokenUsage.source =
   "ygg-context-packet-estimate"` with `inputTokens` equal to the estimated
   context packet size, so tracked gates can catch packet-size regressions even

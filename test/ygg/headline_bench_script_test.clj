@@ -33,6 +33,7 @@
     (is (str/includes? (nth lines 2) "--mode shell-only"))
     (is (str/includes? (nth lines 2) "--agent codex-test"))
     (is (str/includes? (nth lines 2) "--timeout-ms 12345"))
+    (is (str/includes? (nth lines 2) "codex-benchmark-agent.py"))
     (is (str/includes? (nth lines 3) "--mode ygg"))
     (is (str/includes? (nth lines 4) "--mode shell-only"))
     (is (str/includes? (nth lines 5) "--mode ygg"))
