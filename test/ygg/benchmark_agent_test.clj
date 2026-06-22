@@ -2081,6 +2081,7 @@
   (let [core-root (temp-dir "ygg-bench-inspection-core")
         contrib-root (temp-dir "ygg-bench-inspection-contrib")
         _ (doseq [[root paths] [[core-root ["connector/logs_router.go"
+                                            "connector/metrics_router.go"
                                             "connector/connector.go"
                                             "consumer/consumer.go"
                                             "component/component.go"]]
@@ -2128,6 +2129,15 @@
                                   :label "consumer/consumer.go"
                                   :scoreComponents {:sourceGraph 1.3
                                                     :lexical 0.7}}
+                                 {:repo "core"
+                                  :path "connector/metrics_router.go"
+                                  :rank 16
+                                  :score 1.25
+                                  :targetKind "file"
+                                  :label "connector/metrics_router.go"
+                                  :scoreComponents {:sourceGraph 1.25
+                                                    :lexical 0.7
+                                                    :graph 0.2}}
                                  {:repo "contrib"
                                   :path "connector/routingconnector/config.go"
                                   :rank 11
@@ -2194,8 +2204,8 @@
              :rank 5}]
            (mapv #(select-keys % [:repo-id :path :rank]) files)))
     (is (= 24 (get-in files [3 :metrics :candidateSourceRank])))
-    (is (= {:rawCandidateFiles 8
-            :candidateFiles 8
+    (is (= {:rawCandidateFiles 9
+            :candidateFiles 9
             :coverageFilteredCandidateFiles 0
             :limit 5
             :coverageSourceKinds []

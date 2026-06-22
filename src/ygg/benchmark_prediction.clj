@@ -1076,13 +1076,44 @@
    (:rank row)
    (:repo-id row)
    (:path row)])
+
+(defn- reserve-repo-direct-file-candidates
+  [rows quota]
+  (let [repos (->> rows
+                   (keep :repo-id)
+                   distinct
+                   vec)]
+    (if (< (count repos) 2)
+      (take quota rows)
+      (let [repo-set (set repos)]
+        (loop [remaining (seq rows)
+               selected []
+               selected-repos #{}]
+          (if (or (nil? remaining)
+                  (<= quota (count selected)))
+            selected
+            (let [row (first remaining)
+                  repo-id (:repo-id row)
+                  missing-repos (set/difference repo-set selected-repos)
+                  remaining-slots (- quota (count selected))
+                  reserve-missing-repo? (and (contains? selected-repos repo-id)
+                                             (seq missing-repos)
+                                             (<= remaining-slots
+                                                 (count missing-repos)))]
+              (recur (next remaining)
+                     (if reserve-missing-repo?
+                       selected
+                       (conj selected row))
+                     (cond-> selected-repos
+                       repo-id (conj repo-id))))))))))
+
 (defn- inspection-direct-file-candidates
   [candidate-files selection-limit]
   (let [quota (min inspection-direct-file-quota selection-limit)]
     (->> candidate-files
          (filter direct-file-candidate-row?)
          (sort-by row-source-order-key)
-         (take quota)
+         (#(reserve-repo-direct-file-candidates % quota))
          vec)))
 (defn- row-repo-counts
   [rows]
