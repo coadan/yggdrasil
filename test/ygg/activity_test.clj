@@ -208,11 +208,11 @@
                                              {:project-id "demo"
                                               :retriever :lexical
                                               :budget 2000})
-              answerability (:answerability packet)]
-          (is (= :limited (:status answerability)))
+              evidence (:evidence packet)]
+          (is (= :limited (:status evidence)))
           (is (seq (:activity packet)))
-          (is (contains? (set (:available answerability)) :activity))
-          (is (contains? (set (:available answerability)) :validation-history))
-          (is (contains? (set (:missing answerability)) :source-graph))
-          (is (contains? (set (:unsupported answerability)) :remote-work))
-          (is (not (contains? (set (:unsupported answerability)) :activity))))))))
+          (is (contains? (set (:available evidence)) :activity))
+          (is (contains? (set (:available evidence)) :validation-history))
+          (is (contains? (set (:missing evidence)) :source-graph))
+          (is (contains? (set (:unsupported evidence)) :remote-work))
+          (is (not (contains? (set (:unsupported evidence)) :activity))))))))

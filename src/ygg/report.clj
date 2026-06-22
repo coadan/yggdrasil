@@ -669,7 +669,7 @@
                    :dependency-review-queue (vec (take 20 (:dependency-review-queue
                                                            maintenance)))}
      :context-example {:artifact "context-example.json"
-                       :answerability (:answerability context-example)}
+                       :evidence (:evidence context-example)}
      :plugins plugins
      :artifacts artifacts
      :commands (suggested-commands project map-path maintenance)}))

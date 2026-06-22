@@ -360,7 +360,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   telemetry, while warning/error rows feed the generic `hint-diagnostics`
   improvement target. Hints and deterministic Yggdrasil baseline results flatten
   context
-  drilldowns, legacy `answerability.next`, structured packet `nextActions`, and
+  drilldowns, query evidence and packet-level `nextActions`, and
   `architecture.validationGaps.nextActions` into `commands` so agents see
   bounded follow-up checks without inspecting nested context JSON.
   `sourceCoverage.diagnostics.samples` carries a bounded set of

@@ -94,7 +94,7 @@
            (get-in init [:result :serverInfo])))
     (is (str/includes? instructions "Use ygg_explore first"))
     (is (str/includes? instructions "evidence.families"))
-    (is (str/includes? instructions "answerability.planes"))
+    (is (str/includes? instructions "evidence.planes"))
     (is (str/includes? instructions "nextActions before trusting missing evidence"))
     (is (str/includes? instructions "systems as the work-area orientation"))
     (is (str/includes? instructions "architecture as auditable evidence"))
@@ -256,7 +256,7 @@
                                           :retriever (name (:retriever opts))
                                           :candidateFiles [{:repo "app"
                                                             :path "src/app.clj"}]
-                                          :answerability {:status :usable}
+                                          :evidence {:status :usable}
                                           :pluginPackages (get-in opts [:plugins :packages])
                                           :freshness (:freshness opts)
                                           :drilldowns ["ygg query \"where auth\" --project fixture"]})
@@ -290,7 +290,7 @@
       (is (= [{:repo "app"
                :path "src/app.clj"}]
              (:candidateFiles packet)))
-      (is (= {:status :usable} (:answerability packet)))
+      (is (= {:status :usable} (:evidence packet)))
       (is (= [plugin-package-fixture]
              (:pluginPackages packet)))
       (is (= {:status :stale

@@ -752,7 +752,7 @@
   (context-architecture/systems-section architecture))
 
 (defn- base-packet
-  [query-text budget graph-data entities edges activity warnings drilldowns answerability
+  [query-text budget graph-data entities edges activity warnings drilldowns evidence
    search-instrumentation freshness source-coverage architecture systems audit-scopes
    relationships blast-radius candidate-files plugin-packages]
   (cond-> {:schema schema
@@ -766,7 +766,7 @@
            :docs []
            :warnings warnings
            :drilldowns drilldowns}
-    answerability (assoc :answerability answerability)
+    evidence (assoc :evidence evidence)
     search-instrumentation (assoc :search search-instrumentation)
     freshness (assoc :freshness freshness)
     architecture (assoc :architecture architecture)
@@ -1027,8 +1027,8 @@
     (vec (:nextActions freshness))
     []))
 
-(defn- answerability-warnings
-  ([counts retrieval weak] (answerability-warnings counts retrieval weak nil))
+(defn- evidence-warnings
+  ([counts retrieval weak] (evidence-warnings counts retrieval weak nil))
   ([counts retrieval weak freshness]
    (cond-> []
      (freshness-warning freshness)
@@ -1342,11 +1342,7 @@
         (take 5)
         vec)))
 
-(defn- next-steps
-  [actions]
-  (mapv #(str "Run " (:command %)) actions))
-
-(defn- answerability-status
+(defn- evidence-readiness-status
   [missing weak retrieval {:keys [entity-count doc-count activity-count]} freshness]
   (let [core-missing? (some #{:source-files :source-graph :docs :system-graph} missing)
         core-weak? (some #{:source-files :system-graph :docs} weak)]
@@ -1358,7 +1354,7 @@
           (freshness-problem? freshness)) :limited
       :else :ready)))
 
-(defn- answerability
+(defn- query-evidence
   [xtdb overlay opts match-counts]
   (let [counts (capability-counts xtdb overlay opts)
         retrieval (retrieval-summary opts)
@@ -1372,7 +1368,8 @@
                                  :counts counts})
         freshness (:freshness opts)
         actions (next-actions counts retrieval (:project-id opts) freshness (:map-path opts))]
-    {:status (answerability-status missing weak retrieval match-counts freshness)
+    {:basis "query-scoped-mechanical-readiness"
+     :status (evidence-readiness-status missing weak retrieval match-counts freshness)
      :available available
      :missing missing
      :weak weak
@@ -1380,8 +1377,7 @@
      :planes planes
      :counts counts
      :retrieval retrieval
-     :warnings (answerability-warnings counts retrieval weak freshness)
-     :next (next-steps actions)
+     :warnings (evidence-warnings counts retrieval weak freshness)
      :nextActions actions}))
 
 (defn context-packet
@@ -1467,22 +1463,22 @@
                                          :instrumentation])
                            (update :instrumentation assoc
                                    :context-chunks (count chunks)))
-        answerability (answerability xtdb
-                                     overlay
-                                     {:project-id project-id
-                                      :repo-id repo-id
-                                      :read-context read-context
-                                      :retriever retriever
-                                      :embedding-client embedding-client
-                                      :freshness freshness}
-                                     {:entity-count (count entities)
-                                      :doc-count (count docs)
-                                      :activity-count (count activity)
-                                      :runtime-count (count runtime-evidence)
-                                      :validation-count (count (filter #(some (fn [event]
-                                                                                (= :validation (:event-kind event)))
-                                                                              (:events %))
-                                                                       activity))})
+        evidence (query-evidence xtdb
+                                 overlay
+                                 {:project-id project-id
+                                  :repo-id repo-id
+                                  :read-context read-context
+                                  :retriever retriever
+                                  :embedding-client embedding-client
+                                  :freshness freshness}
+                                 {:entity-count (count entities)
+                                  :doc-count (count docs)
+                                  :activity-count (count activity)
+                                  :runtime-count (count runtime-evidence)
+                                  :validation-count (count (filter #(some (fn [event]
+                                                                            (= :validation (:event-kind event)))
+                                                                          (:events %))
+                                                                   activity))})
         source-coverage (coverage/context-summary xtdb
                                                   {:project-id project-id
                                                    :repo-id repo-id
@@ -1497,7 +1493,7 @@
                                             :dependency-report dependency-report
                                             :docs docs
                                             :activity activity
-                                            :answerability answerability
+                                            :evidence evidence
                                             :freshness freshness})
         systems (systems-section architecture)
         audit-scopes (audit-scope/selected-summaries
@@ -1516,7 +1512,7 @@
                              activity
                              warnings
                              drilldowns
-                             answerability
+                             evidence
                              search-context
                              freshness
                              source-coverage

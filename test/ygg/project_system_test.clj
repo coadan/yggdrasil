@@ -718,11 +718,11 @@
           (is (= context/schema (:schema packet)))
           (is (= "primary" (get-in packet [:graph :defaultDetail])))
           (is (pos? (get-in packet [:graph :counts :nodes])))
-          (is (= :ready (get-in packet [:answerability :status])))
-          (is (contains? (set (get-in packet [:answerability :available])) :docs))
-          (is (contains? (set (get-in packet [:answerability :available])) :system-graph))
-          (is (contains? (set (get-in packet [:answerability :missing])) :embeddings))
-          (is (contains? (set (get-in packet [:answerability :missing])) :activity))
+          (is (= :ready (get-in packet [:evidence :status])))
+          (is (contains? (set (get-in packet [:evidence :available])) :docs))
+          (is (contains? (set (get-in packet [:evidence :available])) :system-graph))
+          (is (contains? (set (get-in packet [:evidence :missing])) :embeddings))
+          (is (contains? (set (get-in packet [:evidence :missing])) :activity))
           (is (<= (context/estimate-tokens packet) 1300))
           (is (contains? labels "Fixture API"))
           (is (= "runbook" (:role doc)))
@@ -964,33 +964,33 @@
             (is (= [:test :var]
                    (mapv #(get-in % [:source :definitionKind]) (:docs packet))))))))))
 
-(deftest context-packet-reports-answerability-for-empty-project
-  (store/with-node (temp-dir "ygg-empty-answerability-xtdb")
+(deftest context-packet-reports-evidence-for-empty-project
+  (store/with-node (temp-dir "ygg-empty-evidence-xtdb")
     (fn [xtdb]
       (let [packet (context/context-packet xtdb
                                            "prior work around auth"
                                            {:project-id "fixture"
                                             :retriever :lexical
                                             :budget 2000})
-            answerability (:answerability packet)]
+            evidence (:evidence packet)]
         (is (= context/schema (:schema packet)))
-        (is (= :empty (:status answerability)))
-        (is (contains? (set (:missing answerability)) :source-graph))
-        (is (contains? (set (:missing answerability)) :docs))
-        (is (contains? (set (:missing answerability)) :system-graph))
-        (is (contains? (set (:missing answerability)) :embeddings))
-        (is (contains? (set (:missing answerability)) :activity))
+        (is (= :empty (:status evidence)))
+        (is (contains? (set (:missing evidence)) :source-graph))
+        (is (contains? (set (:missing evidence)) :docs))
+        (is (contains? (set (:missing evidence)) :system-graph))
+        (is (contains? (set (:missing evidence)) :embeddings))
+        (is (contains? (set (:missing evidence)) :activity))
         (is (= {:requested :lexical
                 :effective :lexical
                 :fallback? false}
-               (:retrieval answerability)))
+               (:retrieval evidence)))
         (is (some #(str/includes? % "No search docs")
-                  (:warnings answerability)))
+                  (:warnings evidence)))
         (is (some #(str/includes? % "activity/work")
-                  (:warnings answerability)))))))
+                  (:warnings evidence)))))))
 
 (deftest context-packet-is-limited-when-system-graph-is-missing
-  (let [xtdb-path (temp-dir "ygg-missing-system-answerability-xtdb")
+  (let [xtdb-path (temp-dir "ygg-missing-system-evidence-xtdb")
         repo (.getPath (io/file "test/fixtures/project-repo"))
         project {:id "fixture"
                  :name "Fixture"
@@ -1003,17 +1003,17 @@
                                              {:project-id "fixture"
                                               :retriever :lexical
                                               :budget 2000})
-              answerability (:answerability packet)]
+              evidence (:evidence packet)]
           (is (seq (:docs packet)))
           (is (empty? (:entities packet)))
-          (is (= :limited (:status answerability)))
-          (is (contains? (set (:available answerability)) :docs))
-          (is (contains? (set (:missing answerability)) :system-graph))
+          (is (= :limited (:status evidence)))
+          (is (contains? (set (:available evidence)) :docs))
+          (is (contains? (set (:missing evidence)) :system-graph))
           (is (some #(str/includes? % "No system graph rows")
-                    (:warnings answerability))))))))
+                    (:warnings evidence))))))))
 
 (deftest context-packet-reports-graph-profile-and-auto-fallback
-  (let [xtdb-path (temp-dir "ygg-graph-profile-answerability-xtdb")
+  (let [xtdb-path (temp-dir "ygg-graph-profile-evidence-xtdb")
         repo (.getPath (io/file "test/fixtures/sample-repo"))
         project {:id "fixture"
                  :name "Fixture"
@@ -1026,20 +1026,20 @@
                                              {:project-id "fixture"
                                               :retriever :auto
                                               :budget 2000})
-              answerability (:answerability packet)]
-          (is (= :empty (:status answerability)))
-          (is (contains? (set (:available answerability)) :source-graph))
-          (is (contains? (set (:missing answerability)) :docs))
-          (is (pos? (get-in answerability [:counts :files])))
-          (is (pos? (get-in answerability [:counts :nodes])))
-          (is (zero? (get-in answerability [:counts :search-docs])))
+              evidence (:evidence packet)]
+          (is (= :empty (:status evidence)))
+          (is (contains? (set (:available evidence)) :source-graph))
+          (is (contains? (set (:missing evidence)) :docs))
+          (is (pos? (get-in evidence [:counts :files])))
+          (is (pos? (get-in evidence [:counts :nodes])))
+          (is (zero? (get-in evidence [:counts :search-docs])))
           (is (= {:requested :auto
                   :effective :lexical
                   :fallback? true
                   :reason "No embedding client was available."}
-                 (:retrieval answerability)))
-          (is (some #(str/includes? % "--query-index")
-                    (:next answerability))))))))
+                 (:retrieval evidence)))
+          (is (some #(str/includes? (:command %) "--query-index")
+                    (:nextActions evidence))))))))
 
 (deftest reads-workbench-project-config
   (let [root (io/file (temp-dir "ygg-workbench"))

@@ -28,7 +28,7 @@
 
 (def server-instructions
   (str "Use ygg_explore first for structural coding questions when a project "
-       "graph exists. Check freshness, evidence.families, answerability.planes, "
+       "graph exists. Check freshness, evidence.families, evidence.planes, "
        "and nextActions before trusting missing evidence. Treat returned "
        "systems as the work-area orientation, architecture as auditable "
        "evidence, snippets as already-read source context, and relationships "

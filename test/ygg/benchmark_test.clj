@@ -1031,10 +1031,9 @@
         packet {:query "broken app"
                 :drilldowns ["ygg ask 'broken app' --project project"]
                 :warnings []
-                :answerability {:status :ok
-                                :next ["Run ygg packages --project project --json"]
-                                :nextActions [{:kind :dependencies
-                                               :command "ygg packages --project project --json"}]}
+                :evidence {:status :ok
+                           :nextActions [{:kind :dependencies
+                                          :command "ygg packages --project project --json"}]}
                 :sourceCoverage {:schema "ygg.source-coverage.context/v1"
                                  :basis "indexed-graph"
                                  :totals {:indexedFiles 2
@@ -1212,7 +1211,6 @@
              :metrics {:file-count 2}}]
            (:candidateSystems hints)))
     (is (= ["ygg ask 'broken app' --project project"
-            "Run ygg packages --project project --json"
             "ygg packages --project project --json"
             "ygg sync explain system:repo:path/src --map ygg.map.json"
             "ygg sync project.edn --check --enqueue"]

@@ -43,21 +43,27 @@
                      (double exact))))
   (when-let [reason (:reason result)]
     (println "       " reason)))
-(defn- print-ask-answerability-warning
+(defn- next-action-command
+  [action]
+  (when-let [command (some-> (:command action) str/trim not-empty)]
+    (str "Run " command)))
+
+(defn- print-ask-evidence-warning
   [packet]
-  (let [answerability (:answerability packet)
-        missing (map name (:missing answerability))
-        weak (map name (:weak answerability))
-        unsupported (map name (:unsupported answerability))
+  (let [evidence (:evidence packet)
+        missing (map name (:missing evidence))
+        weak (map name (:weak evidence))
+        unsupported (map name (:unsupported evidence))
         warning-limit 3
         next-limit 4
-        warnings (take warning-limit (:warnings answerability))
-        next-steps (take next-limit (:next answerability))
-        extra-warnings (max 0 (- (count (:warnings answerability)) warning-limit))
-        extra-next (max 0 (- (count (:next answerability)) next-limit))]
+        warnings (take warning-limit (:warnings evidence))
+        all-next-steps (vec (keep next-action-command (:nextActions evidence)))
+        next-steps (take next-limit all-next-steps)
+        extra-warnings (max 0 (- (count (:warnings evidence)) warning-limit))
+        extra-next (max 0 (- (count all-next-steps) next-limit))]
     (binding [*out* *err*]
       (println "No query results.")
-      (println "Answerability" (name (:status answerability)))
+      (println "Evidence" (name (:status evidence)))
       (when (seq missing)
         (println "Missing evidence:" (str/join ", " missing)))
       (when (seq weak)
@@ -77,8 +83,8 @@
   (if (str/blank? (str project-id))
     (binding [*out* *err*]
       (println "No query results.")
-      (println "Use --project to include answerability details."))
-    (print-ask-answerability-warning
+      (println "Use --project to include evidence details."))
+    (print-ask-evidence-warning
      (context/context-packet xtdb
                              query-text
                              (context-packet-options xtdb

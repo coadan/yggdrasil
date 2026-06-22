@@ -915,8 +915,8 @@
          (take 2)
          vec)))
 (defn- validation-gap-row
-  [answerability plane status]
-  (let [actions (matching-plane-actions (:nextActions answerability) plane)]
+  [evidence plane status]
+  (let [actions (matching-plane-actions (:nextActions evidence) plane)]
     (cond-> {:plane (name plane)
              :status status}
       (seq actions) (assoc :nextActions actions))))
@@ -942,17 +942,17 @@
       (seq (:nextActions freshness))
       (assoc :nextActions (vec (take 2 (:nextActions freshness)))))))
 (defn- validation-gaps
-  [answerability freshness docs]
+  [evidence freshness docs]
   (vec (concat (when-let [gap (freshness-validation-gap-row freshness)]
                  [gap])
                (when-let [gap (stale-doc-validation-gap docs)]
                  [gap])
-               (map (fn [plane] (validation-gap-row answerability plane "missing"))
-                    (:missing answerability))
-               (map (fn [plane] (validation-gap-row answerability plane "weak"))
-                    (:weak answerability))
-               (map (fn [plane] (validation-gap-row answerability plane "unsupported"))
-                    (:unsupported answerability)))))
+               (map (fn [plane] (validation-gap-row evidence plane "missing"))
+                    (:missing evidence))
+               (map (fn [plane] (validation-gap-row evidence plane "weak"))
+                    (:weak evidence))
+               (map (fn [plane] (validation-gap-row evidence plane "unsupported"))
+                    (:unsupported evidence)))))
 (def ^:private architecture-family-specs
   [{:family "source-structure"
     :source-keys [:acceptedSystems :candidateSystems :boundaryEvidence]
@@ -976,17 +976,17 @@
     :source-keys [:openDecisions]
     :planes [:activity]}])
 (defn- family-plane-status
-  [answerability plane]
+  [evidence plane]
   (cond
-    (contains? (set (:weak answerability)) plane) "weak"
-    (contains? (set (:missing answerability)) plane) "missing"
-    (contains? (set (:unsupported answerability)) plane) "unsupported"
-    (contains? (set (:available answerability)) plane) "available"))
+    (contains? (set (:weak evidence)) plane) "weak"
+    (contains? (set (:missing evidence)) plane) "missing"
+    (contains? (set (:unsupported evidence)) plane) "unsupported"
+    (contains? (set (:available evidence)) plane) "available"))
 (defn- family-plane-rows
-  [answerability planes]
+  [evidence planes]
   (->> planes
        (keep (fn [plane]
-               (when-let [status (family-plane-status answerability plane)]
+               (when-let [status (family-plane-status evidence plane)]
                  {:plane (name plane)
                   :status status})))
        vec))
@@ -1037,11 +1037,11 @@
     (some #(= "missing" (:status %)) plane-rows) "missing"
     (some #(= "unsupported" (:status %)) plane-rows) "unsupported"))
 (defn- architecture-evidence-family-row
-  [section answerability {:keys [family source-keys planes]}]
+  [section evidence {:keys [family source-keys planes]}]
   (let [source-counts (architecture-source-counts section source-keys)
         file-kinds (architecture-source-file-kinds section source-keys)
         row-count (reduce + 0 (map :count source-counts))
-        plane-rows (family-plane-rows answerability planes)
+        plane-rows (family-plane-rows evidence planes)
         status (family-status row-count plane-rows)]
     (when status
       (cond-> {:family family
@@ -1051,9 +1051,9 @@
         (seq file-kinds) (assoc :fileKinds file-kinds)
         (seq plane-rows) (assoc :planes plane-rows)))))
 (defn- architecture-evidence-families
-  [section answerability]
+  [section evidence]
   (->> architecture-family-specs
-       (keep #(architecture-evidence-family-row section answerability %))
+       (keep #(architecture-evidence-family-row section evidence %))
        vec))
 (def ^:private deploy-evidence-kinds
   #{"container-image"
@@ -1236,11 +1236,11 @@
   [freshness]
   (vec (take 3 (:nextActions freshness))))
 (defn- architecture-warnings
-  [answerability freshness]
+  [evidence freshness]
   (vec (take 5 (concat (:warnings freshness)
-                       (:warnings answerability)))))
+                       (:warnings evidence)))))
 (defn architecture-section
-  [{:keys [overlay entities results edges runtime-evidence dependency-report docs activity answerability freshness
+  [{:keys [overlay entities results edges runtime-evidence dependency-report docs activity evidence freshness
            accepted-systems query-tokens]}]
   (let [accepted-systems (or accepted-systems
                              (selected-accepted-systems overlay entities results))
@@ -1292,16 +1292,16 @@
                  :openDecisions open-decisions
                  :rejectedCorrections rejected-corrections
                  :validationGaps (vec (take 12
-                                            (validation-gaps answerability
+                                            (validation-gaps evidence
                                                              freshness
                                                              architecture-docs)))
-                 :warnings (architecture-warnings answerability freshness)
+                 :warnings (architecture-warnings evidence freshness)
                  :nextActions (vec (take 6 (concat inspect-actions
                                                    (freshness-next-actions freshness)
-                                                   (:nextActions answerability))))}
+                                                   (:nextActions evidence))))}
         section (assoc section
                        :evidenceFamilies
-                       (architecture-evidence-families section answerability))
+                       (architecture-evidence-families section evidence))
         section (assoc section :summary (architecture-summary section))]
     (when (architecture-supported? section)
       section)))

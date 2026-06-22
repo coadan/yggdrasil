@@ -3,9 +3,10 @@
             [ygg.context-budget :as context-budget]
             [clojure.test :refer [deftest is]]))
 
-(deftest compact-answerability-keeps-bounded-actionable-detail
-  (let [compact (context-budget/compact-answerability
-                 {:status :limited
+(deftest compact-evidence-keeps-bounded-actionable-detail
+  (let [compact (context-budget/compact-evidence-readiness
+                 {:basis "query-scoped-mechanical-readiness"
+                  :status :limited
                   :available [:source-graph]
                   :missing [:docs]
                   :weak [:dependencies]
@@ -21,12 +22,12 @@
                   :counts {:unresolved-imports 1}
                   :retrieval {:effective :lexical}
                   :warnings ["one" "two" "three" "four"]
-                  :next ["Run ygg packages --project fixture --json"]
                   :nextActions [{:kind :dependencies
                                  :label "Inspect package graph facts"
                                  :command "ygg packages --project fixture --json"}]
                   :extra "drop"})]
-    (is (= {:status :limited
+    (is (= {:basis "query-scoped-mechanical-readiness"
+            :status :limited
             :available [:source-graph]
             :missing [:docs]
             :weak [:dependencies]
@@ -42,14 +43,14 @@
             :counts {:unresolved-imports 1}
             :retrieval {:effective :lexical}
             :warnings ["one" "two" "three"]
-            :next ["Run ygg packages --project fixture --json"]
             :nextActions [{:kind :dependencies
                            :label "Inspect package graph facts"
                            :command "ygg packages --project fixture --json"}]}
            compact))))
-(deftest minimal-answerability-keeps-result-schema-status-summary
-  (let [minimal (context-budget/minimal-answerability
-                 {:status :limited
+(deftest minimal-evidence-keeps-result-schema-status-summary
+  (let [minimal (context-budget/minimal-evidence-readiness
+                 {:basis "query-scoped-mechanical-readiness"
+                  :status :limited
                   :available [:activity :validation-history]
                   :missing [:docs]
                   :weak [:validation-history]
@@ -64,7 +65,8 @@
                            :result-schema-missing-result-items 1
                            :result-schema-unexpected-result-items 0
                            :result-schema-mismatch-events 0}})]
-    (is (= {:status :limited
+    (is (= {:basis "query-scoped-mechanical-readiness"
+            :status :limited
             :available [:activity :validation-history]
             :missing [:docs]
             :weak [:validation-history]
@@ -310,7 +312,7 @@
                 :docs []
                 :warnings []
                 :drilldowns []
-                :answerability {:status :ready}
+                :evidence {:status :ready}
                 :architecture architecture}
         compact-evidence-architecture {:basis "mechanical-plus-map"
                                        :summary summary
@@ -392,7 +394,7 @@
                 :docs []
                 :warnings []
                 :drilldowns []
-                :answerability {:status :ready}
+                :evidence {:status :ready}
                 :architecture architecture}
         evidence-packet (update packet
                                 :architecture
@@ -523,12 +525,12 @@
                               :status "completed"
                               :source "queue"
                               :sourceId "work:done"}]
-                  :answerability {:missing [:dependencies]
-                                  :weak [:docs]
-                                  :unsupported [:remote-work]
-                                  :warnings ["Dependency graph is incomplete."]
-                                  :nextActions [{:kind :dependencies
-                                                 :command "ygg packages --json"}]}})]
+                  :evidence {:missing [:dependencies]
+                             :weak [:docs]
+                             :unsupported [:remote-work]
+                             :warnings ["Dependency graph is incomplete."]
+                             :nextActions [{:kind :dependencies
+                                            :command "ygg packages --json"}]}})]
     (is (= "mechanical-plus-map" (:basis section)))
     (is (= [{:id "system:billing"
              :label "Billing"
@@ -826,7 +828,7 @@
                   :runtime-evidence []
                   :docs []
                   :activity []
-                  :answerability {}})]
+                  :evidence {}})]
     (is (= [{:id "system:billing"
              :label "Billing"
              :status "accepted"
@@ -848,15 +850,15 @@
                   :runtime-evidence []
                   :docs []
                   :activity []
-                  :answerability {:available [:source-graph
-                                              :system-graph
-                                              :map-overlay]
-                                  :missing [:dependencies
-                                            :system-evidence
-                                            :docs
-                                            :activity]
-                                  :weak []
-                                  :unsupported []}})]
+                  :evidence {:available [:source-graph
+                                         :system-graph
+                                         :map-overlay]
+                             :missing [:dependencies
+                                       :system-evidence
+                                       :docs
+                                       :activity]
+                             :weak []
+                             :unsupported []}})]
     (is (= {"source-structure" "available"
             "dependency-flow" "missing"
             "runtime-config" "missing"
@@ -878,21 +880,21 @@
                   :runtime-evidence []
                   :docs []
                   :activity []
-                  :answerability {:missing [:dependencies]
-                                  :weak [:docs]
-                                  :unsupported []
-                                  :nextActions [{:kind :dependencies
-                                                 :label "Inspect package graph facts"
-                                                 :command "ygg packages --json"}
-                                                {:kind :dependency-review
-                                                 :label "Queue unresolved import review work"
-                                                 :command "ygg sync <project.edn> --check --enqueue"}
-                                                {:kind :dependencies
-                                                 :label "Inspect package version conflicts"
-                                                 :command "ygg packages --with-conflicts --json"}
-                                                {:kind :docs
-                                                 :label "Build query index"
-                                                 :command "ygg sync <project.edn> --query-index"}]}})]
+                  :evidence {:missing [:dependencies]
+                             :weak [:docs]
+                             :unsupported []
+                             :nextActions [{:kind :dependencies
+                                            :label "Inspect package graph facts"
+                                            :command "ygg packages --json"}
+                                           {:kind :dependency-review
+                                            :label "Queue unresolved import review work"
+                                            :command "ygg sync <project.edn> --check --enqueue"}
+                                           {:kind :dependencies
+                                            :label "Inspect package version conflicts"
+                                            :command "ygg packages --with-conflicts --json"}
+                                           {:kind :docs
+                                            :label "Build query index"
+                                            :command "ygg sync <project.edn> --query-index"}]}})]
     (is (= [{:plane "dependencies"
              :status "missing"
              :nextActions [{:kind :dependencies
@@ -926,10 +928,10 @@
                           :reason "accepted by architecture review"
                           :warning "attached doc source not found"}]
                   :activity []
-                  :answerability {:available [:docs]
-                                  :missing []
-                                  :weak []
-                                  :unsupported []}})]
+                  :evidence {:available [:docs]
+                             :missing []
+                             :weak []
+                             :unsupported []}})]
     (is (= [{:target "system:billing"
              :role "contract"
              :status "stale"
@@ -962,9 +964,9 @@
                   :runtime-evidence []
                   :docs []
                   :activity []
-                  :answerability {:missing [:dependencies]
-                                  :weak []
-                                  :unsupported []}
+                  :evidence {:missing [:dependencies]
+                             :weak []
+                             :unsupported []}
                   :freshness {:status :stale
                               :counts {:changed 2
                                        :missing 1}
@@ -1051,7 +1053,7 @@
                   :runtime-evidence []
                   :docs []
                   :activity []
-                  :answerability {}})]
+                  :evidence {}})]
     (is (= ["map-edge:alpha-beta"
             "edge:dense"
             "edge:medium"

@@ -319,7 +319,7 @@
     (is (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json"))
     (is (str/includes? prompt "`topFiles`, `architecture`, and `auditScopes`"))
     (is (str/includes? prompt
-                       "`answerability`, `sourceCoverage`, and `diagnostics`"))
+                       "`evidence`, `sourceCoverage`, and `diagnostics`"))
     (is (str/includes? prompt
                        "`commands` as bounded follow-up checks"))
     (is (str/includes? prompt
@@ -789,9 +789,8 @@
                               :mcpArgs {:query "broken app"
                                         :projectId "fixture"}}]
                 :warnings ["Context warning."]
-                :answerability {:next ["Run ygg packages --project fixture --json"]
-                                :nextActions [{:kind :dependencies
-                                               :command "ygg packages --project fixture --json"}]}
+                :evidence {:nextActions [{:kind :dependencies
+                                          :command "ygg packages --project fixture --json"}]}
                 :architecture {:validationGaps [{:plane "dependencies"
                                                  :status "missing"
                                                  :nextActions [{:kind :dependency-review
@@ -874,7 +873,6 @@
              :evidence ["context-doc:src/missing.clj provenance=retrieved-doc"]}]
            (:suspectedSymbols result)))
     (is (= ["ygg ask 'broken app' --project fixture"
-            "Run ygg packages --project fixture --json"
             "ygg packages --project fixture --json"
             "ygg sync project.edn --check --enqueue"]
            (:commands result)))

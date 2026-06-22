@@ -13,11 +13,12 @@
     (if (<= (estimate-tokens with-warning) budget)
       with-warning
       packet)))
-(defn compact-answerability
-  [answerability]
-  (when answerability
-    (cond-> (select-keys answerability
-                         [:status
+(defn compact-evidence-readiness
+  [evidence]
+  (when evidence
+    (cond-> (select-keys evidence
+                         [:basis
+                          :status
                           :available
                           :missing
                           :weak
@@ -25,10 +26,9 @@
                           :planes
                           :counts
                           :retrieval
-                          :next
                           :nextActions])
-      (seq (:warnings answerability))
-      (assoc :warnings (vec (take 3 (:warnings answerability)))))))
+      (seq (:warnings evidence))
+      (assoc :warnings (vec (take 3 (:warnings evidence)))))))
 (def ^:private result-schema-count-keys
   [:result-schema-statuses
    :result-schema-status-items
@@ -45,15 +45,16 @@
                               (remove #{:result-schema-statuses}
                                       result-schema-count-keys))))
       schema-counts)))
-(defn minimal-answerability
-  [answerability]
-  (when answerability
-    (let [schema-counts (compact-result-schema-counts (:counts answerability))]
-      (cond-> (select-keys answerability [:status
-                                          :available
-                                          :missing
-                                          :weak
-                                          :unsupported])
+(defn minimal-evidence-readiness
+  [evidence]
+  (when evidence
+    (let [schema-counts (compact-result-schema-counts (:counts evidence))]
+      (cond-> (select-keys evidence [:basis
+                                     :status
+                                     :available
+                                     :missing
+                                     :weak
+                                     :unsupported])
         schema-counts (assoc :counts schema-counts)))))
 (defn- compact-freshness-samples
   [samples]
@@ -308,7 +309,7 @@
                     compact-relationships-in-packet
                     compact-blast-radius-in-packet
                     compact-snippets-in-packet
-                    #(update % :answerability compact-answerability)
+                    #(update % :evidence compact-evidence-readiness)
                     #(dissoc % :snippets)
                     #(dissoc % :relationships)
                     #(dissoc % :blastRadius)
@@ -353,8 +354,8 @@
                compact-relationships-in-packet
                compact-blast-radius-in-packet
                compact-snippets-in-packet
-               #(update % :answerability compact-answerability)
-               #(update % :answerability minimal-answerability)
+               #(update % :evidence compact-evidence-readiness)
+               #(update % :evidence minimal-evidence-readiness)
                #(dissoc % :snippets)
                #(dissoc % :relationships)
                #(dissoc % :blastRadius)

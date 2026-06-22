@@ -815,7 +815,7 @@
 (defn summarize
   "Return a project-level mechanical evidence summary.
 
-  This is an inventory, not a per-question answerability claim."
+  This is an inventory, not a per-question semantic confidence claim."
   [xtdb project {:keys [repo-id map-overlay config-path map-path read-context] :as opts}]
   (let [scope (scope {:project-id (:id project)
                       :repo-id repo-id

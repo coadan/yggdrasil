@@ -1527,7 +1527,7 @@
                                           :retriever (:retriever opts)
                                           :freshness (:freshness opts)
                                           :pluginPackages (get-in opts [:plugins :packages])
-                                          :answerability {:status :usable}})]
+                                          :evidence {:status :usable}})]
     (let [out (with-out-str
                 (cli/dispatch "explore"
                               ["where" "auth"
@@ -1545,8 +1545,8 @@
              (:freshness parsed)))
       (is (= (json-roundtrip [plugin-package-fixture])
              (:pluginPackages parsed)))
-      (is (= {:status "usable"} (:answerability parsed))))))
-(deftest ask-plain-empty-result-prints-answerability-warning
+      (is (= {:status "usable"} (:evidence parsed))))))
+(deftest ask-plain-empty-result-prints-evidence-warning
   (let [err (java.io.StringWriter.)
         calls (atom [])]
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))
@@ -1556,14 +1556,15 @@
                   context/context-packet (fn [xtdb query-text opts]
                                            (swap! calls conj [:context xtdb query-text opts])
                                            {:schema context/schema
-                                            :answerability
+                                            :evidence
                                             {:status :empty
                                              :missing [:docs :embeddings]
                                              :weak []
                                              :unsupported [:remote-work]
                                              :warnings ["No search docs are indexed."
                                                         "No activity/work rows are indexed."]
-                                             :next ["Run ygg sync <project.edn> --query-index"]}})]
+                                             :nextActions [{:kind :docs
+                                                            :command "ygg sync <project.edn> --query-index"}]}})]
       (let [out (with-out-str
                   (binding [*err* err]
                     (cli/dispatch "ask"
@@ -1572,7 +1573,7 @@
                                    "--retriever" "lexical"])))]
         (is (= "" out))
         (is (str/includes? (str err) "No query results."))
-        (is (str/includes? (str err) "Answerability empty"))
+        (is (str/includes? (str err) "Evidence empty"))
         (is (str/includes? (str err) "Missing evidence: docs, embeddings"))
         (is (str/includes? (str err) "Unsupported evidence: remote-work"))
         (is (str/includes? (str err) "Run ygg sync <project.edn> --query-index"))
@@ -1584,7 +1585,7 @@
                   query/semantic-query (fn [& _] [])
                   context/context-packet (fn [& _]
                                            {:schema context/schema
-                                            :answerability
+                                            :evidence
                                             {:status :limited
                                              :missing []
                                              :weak [:dependencies]
@@ -1593,11 +1594,16 @@
                                                         "Dependency graph has unresolved imports."
                                                         "Package version conflicts are present."
                                                         "No embeddings are indexed."]
-                                             :next ["Run ygg packages --project fixture --json"
-                                                    "Run ygg packages --project fixture --without-import-evidence --json"
-                                                    "Run ygg packages --project fixture --with-conflicts --json"
-                                                    "Run ygg sync <project.edn> --check --enqueue"
-                                                    "Run ygg sync coverage <project.edn> --json"]}})]
+                                             :nextActions [{:kind :dependencies
+                                                            :command "ygg packages --project fixture --json"}
+                                                           {:kind :dependencies
+                                                            :command "ygg packages --project fixture --without-import-evidence --json"}
+                                                           {:kind :dependencies
+                                                            :command "ygg packages --project fixture --with-conflicts --json"}
+                                                           {:kind :dependency-review
+                                                            :command "ygg sync <project.edn> --check --enqueue"}
+                                                           {:kind :coverage
+                                                            :command "ygg sync coverage <project.edn> --json"}]}})]
       (with-out-str
         (binding [*err* err]
           (cli/dispatch "ask" ["deps" "--project" "fixture" "--retriever" "lexical"])))

@@ -892,10 +892,9 @@
   [packet]
   (let [architecture (:architecture packet)]
     (->> (concat (:nextActions packet)
-                 (get-in packet [:answerability :nextActions])
+                 (get-in packet [:evidence :nextActions])
                  (get-in packet [:freshness :nextActions])
                  (get-in packet [:sourceCoverage :nextActions])
-                 (get-in packet [:evidence :nextActions])
                  (:nextActions architecture)
                  (mapcat :nextActions (:validationGaps architecture)))
          next-action-commands)))
@@ -907,7 +906,6 @@
 (defn packet-commands
   [packet]
   (->> (concat (map drilldown-command (:drilldowns packet))
-               (get-in packet [:answerability :next])
                (packet-next-action-commands packet))
        (remove benchmark-util/blankish?)
        distinct

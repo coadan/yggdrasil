@@ -141,8 +141,8 @@
     (is (some #{"important.clj"}
               (map #(get-in % [:source :path]) selected)))))
 
-(deftest answerability-warns-when-indexer-diagnostics-exist
-  (let [warnings (#'context/answerability-warnings
+(deftest evidence-warns-when-indexer-diagnostics-exist
+  (let [warnings (#'context/evidence-warnings
                   {:search-docs 1
                    :diagnostics 2
                    :system-nodes 1
@@ -158,7 +158,7 @@
     (is (some #{"Indexer diagnostics are present; inspect source coverage before relying on missing facts."}
               warnings))))
 
-(deftest answerability-surfaces-skipped-source-files-as-weak-coverage
+(deftest evidence-surfaces-skipped-source-files-as-weak-coverage
   (let [retrieval {:requested :lexical
                    :effective :lexical
                    :fallback? false}
@@ -186,7 +186,7 @@
                       :validation-count 1
                       :runtime-count 1}
         weak (#'context/weak-planes counts match-counts)
-        warnings (#'context/answerability-warnings counts retrieval weak)
+        warnings (#'context/evidence-warnings counts retrieval weak)
         actions (#'context/next-actions counts retrieval "fixture")]
     (is (= [:source-files] weak))
     (is (some #{"Some files were skipped by the latest index run; inspect source coverage before treating missing facts as absent."}
@@ -202,8 +202,8 @@
                   %)
               actions))))
 
-(deftest answerability-warns-when-result-schema-mismatch-activity-exists
-  (let [warnings (#'context/answerability-warnings
+(deftest evidence-warns-when-result-schema-mismatch-activity-exists
+  (let [warnings (#'context/evidence-warnings
                   {:files 1
                    :nodes 1
                    :edges 1
@@ -223,11 +223,11 @@
     (is (some #{"Completed work has result schema mismatches; inspect activity before trusting prior results."}
               warnings))))
 
-(deftest answerability-warns-when-source-plane-is-empty
+(deftest evidence-warns-when-source-plane-is-empty
   (let [retrieval {:requested :lexical
                    :effective :lexical
                    :fallback? false}
-        no-files (#'context/answerability-warnings
+        no-files (#'context/evidence-warnings
                   {:files 0
                    :nodes 0
                    :edges 0
@@ -241,7 +241,7 @@
                    :embeddings 1}
                   retrieval
                   [])
-        no-graph (#'context/answerability-warnings
+        no-graph (#'context/evidence-warnings
                   {:files 2
                    :nodes 0
                    :edges 0
@@ -259,14 +259,14 @@
     (is (some #{"Source files are indexed, but no source graph rows are indexed."}
               no-graph))))
 
-(deftest answerability-next-steps-distinguish-source-file-and-graph-gaps
+(deftest evidence-next-steps-distinguish-source-file-and-graph-gaps
   (let [retrieval {:requested :lexical
                    :effective :lexical
                    :fallback? false}
-        next-steps (fn [counts]
-                     (#'context/next-steps
-                      (#'context/next-actions counts retrieval "fixture")))
-        no-files (next-steps
+        commands (fn [counts]
+                   (mapv :command
+                         (#'context/next-actions counts retrieval "fixture")))
+        no-files (commands
                   {:files 0
                    :nodes 0
                    :edges 0
@@ -281,7 +281,7 @@
                    :activity-items 1
                    :activity-events 0
                    :diagnostics 0})
-        no-graph (next-steps
+        no-graph (commands
                   {:files 2
                    :nodes 0
                    :edges 0
@@ -296,11 +296,11 @@
                    :activity-items 1
                    :activity-events 0
                    :diagnostics 0})]
-    (is (some #{"Run ygg sync <project.edn>"} no-files))
-    (is (not (some #{"Run ygg sync <project.edn> --check"} no-files)))
-    (is (some #{"Run ygg sync <project.edn> --check"} no-graph))))
+    (is (some #{"ygg sync <project.edn>"} no-files))
+    (is (not (some #{"ygg sync <project.edn> --check"} no-files)))
+    (is (some #{"ygg sync <project.edn> --check"} no-graph))))
 
-(deftest answerability-next-actions-quote-shell-sensitive-project-id
+(deftest evidence-next-actions-quote-shell-sensitive-project-id
   (let [retrieval {:requested :lexical
                    :effective :lexical
                    :fallback? false}
@@ -352,7 +352,7 @@
           "fixture project"
           "maps/ygg map.json"))))
 
-(deftest answerability-next-actions-keep-coverage-when-capped
+(deftest evidence-next-actions-keep-coverage-when-capped
   (let [actions (#'context/next-actions
                  {:files 0
                   :nodes 0
@@ -381,7 +381,7 @@
                   %)
               actions))))
 
-(deftest answerability-coverage-actions-include-status-mcp-when-map-path-is-known
+(deftest evidence-coverage-actions-include-status-mcp-when-map-path-is-known
   (let [actions (#'context/next-actions
                  {:files 1
                   :nodes 1
@@ -421,7 +421,7 @@
              :mcpArgs {:mapPath "ygg.map.json"}}]
            (filterv #(= :coverage (:kind %)) actions)))))
 
-(deftest answerability-surfaces-stale-freshness
+(deftest evidence-surfaces-stale-freshness
   (let [retrieval {:requested :lexical
                    :effective :lexical
                    :fallback? false}
@@ -445,10 +445,10 @@
                 :activity-events 1
                 :diagnostics 0
                 :embeddings 1}
-        warnings (#'context/answerability-warnings counts retrieval [] freshness)
+        warnings (#'context/evidence-warnings counts retrieval [] freshness)
         actions (#'context/next-actions counts retrieval "fixture" freshness)]
     (is (= :limited
-           (#'context/answerability-status
+           (#'context/evidence-readiness-status
             []
             []
             retrieval
@@ -461,7 +461,7 @@
     (is (= (:nextActions freshness)
            (filterv #(= :freshness (:kind %)) actions)))))
 
-(deftest answerability-surfaces-skipped-index-run-files
+(deftest evidence-surfaces-skipped-index-run-files
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :ygg/files [{:xt/id "file:app"
@@ -471,6 +471,7 @@
                                    :ygg/index-runs [{:xt/id "run:app"
                                                      :project-id "fixture"
                                                      :repo-id "app"
+                                                     :active? true
                                                      :status :completed
                                                      :finished-at-ms 100
                                                      :stats {:files-skipped 3}}]
@@ -512,28 +513,28 @@
                 activity/all-events (fn [& _]
                                       [{:xt/id "event:validation"
                                         :event-kind :validation}])]
-    (let [answerability (#'context/answerability
-                         :xtdb
-                         {}
-                         {:project-id "fixture"
-                          :repo-id "app"
-                          :retriever :lexical}
-                         {:entity-count 1
-                          :doc-count 1
-                          :activity-count 1
-                          :runtime-count 1
-                          :validation-count 1})]
-      (is (= :limited (:status answerability)))
-      (is (contains? (set (:weak answerability)) :source-files))
+    (let [evidence (#'context/query-evidence
+                    :xtdb
+                    {}
+                    {:project-id "fixture"
+                     :repo-id "app"
+                     :retriever :lexical}
+                    {:entity-count 1
+                     :doc-count 1
+                     :activity-count 1
+                     :runtime-count 1
+                     :validation-count 1})]
+      (is (= :limited (:status evidence)))
+      (is (contains? (set (:weak evidence)) :source-files))
       (is (= {:plane :source-files
               :status :weak
               :counts {:files 1
                        :skipped-files 3
                        :diagnostics 0}}
              (some #(when (= :source-files (:plane %)) %)
-                   (:planes answerability))))
+                   (:planes evidence))))
       (is (some #{"Some files were skipped by the latest index run; inspect source coverage before treating missing facts as absent."}
-                (:warnings answerability)))
+                (:warnings evidence)))
       (is (some #(= {:kind :coverage
                      :label "Inspect skipped source candidates"
                      :count 3
@@ -543,9 +544,9 @@
                      :pluginGapCommand "bb plugin gap extractor <package-dir> <repo-root> <file> --json"
                      :mcpTool "ygg_status"}
                     %)
-                (:nextActions answerability))))))
+                (:nextActions evidence))))))
 
-(deftest answerability-exposes-indexed-dependency-plane
+(deftest evidence-exposes-indexed-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :ygg/files []
@@ -579,18 +580,18 @@
                                                       :version-conflicts 0}})
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
-    (let [answerability (#'context/answerability
-                         :xtdb
-                         {}
-                         {:project-id "fixture"
-                          :repo-id "app"
-                          :retriever :lexical}
-                         {:entity-count 1
-                          :doc-count 0
-                          :activity-count 0
-                          :validation-count 0})]
-      (is (contains? (set (:available answerability)) :dependencies))
-      (is (not (contains? (set (:missing answerability)) :dependencies)))
+    (let [evidence (#'context/query-evidence
+                    :xtdb
+                    {}
+                    {:project-id "fixture"
+                     :repo-id "app"
+                     :retriever :lexical}
+                    {:entity-count 1
+                     :doc-count 0
+                     :activity-count 0
+                     :validation-count 0})]
+      (is (contains? (set (:available evidence)) :dependencies))
+      (is (not (contains? (set (:missing evidence)) :dependencies)))
       (is (= {:plane :dependencies
               :status :available
               :counts {:external-packages 1
@@ -601,11 +602,11 @@
                        :package-evidence-gaps 0
                        :package-conflicts 0}}
              (some #(when (= :dependencies (:plane %)) %)
-                   (:planes answerability))))
-      (is (= 1 (get-in answerability [:counts :external-packages])))
-      (is (= 1 (get-in answerability [:counts :package-import-edges]))))))
+                   (:planes evidence))))
+      (is (= 1 (get-in evidence [:counts :external-packages])))
+      (is (= 1 (get-in evidence [:counts :package-import-edges]))))))
 
-(deftest answerability-exposes-system-evidence-plane
+(deftest evidence-exposes-system-evidence-plane
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :ygg/files [{:xt/id "file:app"
@@ -636,30 +637,30 @@
                                                       :version-conflicts 0}})
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
-    (let [answerability (#'context/answerability
-                         :xtdb
-                         {}
-                         {:project-id "fixture"
-                          :repo-id "app"
-                          :retriever :lexical}
-                         {:entity-count 1
-                          :doc-count 0
-                          :activity-count 0
-                          :runtime-count 0
-                          :validation-count 0})]
-      (is (contains? (set (:available answerability)) :system-evidence))
-      (is (contains? (set (:weak answerability)) :system-evidence))
-      (is (not (contains? (set (:missing answerability)) :system-evidence)))
+    (let [evidence (#'context/query-evidence
+                    :xtdb
+                    {}
+                    {:project-id "fixture"
+                     :repo-id "app"
+                     :retriever :lexical}
+                    {:entity-count 1
+                     :doc-count 0
+                     :activity-count 0
+                     :runtime-count 0
+                     :validation-count 0})]
+      (is (contains? (set (:available evidence)) :system-evidence))
+      (is (contains? (set (:weak evidence)) :system-evidence))
+      (is (not (contains? (set (:missing evidence)) :system-evidence)))
       (is (= {:plane :system-evidence
               :status :weak
               :counts {:system-evidence 1}}
              (some #(when (= :system-evidence (:plane %)) %)
-                   (:planes answerability))))
-      (is (= 1 (get-in answerability [:counts :system-evidence])))
+                   (:planes evidence))))
+      (is (= 1 (get-in evidence [:counts :system-evidence])))
       (is (some #{"Runtime/config evidence rows are indexed, but no runtime/config evidence matched this query."}
-                (:warnings answerability))))))
+                (:warnings evidence))))))
 
-(deftest answerability-counts-result-schema-mismatch-events
+(deftest evidence-counts-result-schema-mismatch-events
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :ygg/files [{:xt/id "file:app"
@@ -688,18 +689,18 @@
                 activity/all-events (fn [& _]
                                       [{:xt/id "event:mismatch"
                                         :event-kind :result-schema-mismatch}])]
-    (let [answerability (#'context/answerability
-                         :xtdb
-                         {}
-                         {:project-id "fixture"
-                          :repo-id "app"
-                          :retriever :lexical}
-                         {:entity-count 1
-                          :doc-count 0
-                          :activity-count 0
-                          :validation-count 0})]
-      (is (contains? (set (:available answerability)) :validation-history))
-      (is (not (contains? (set (:missing answerability)) :validation-history)))
+    (let [evidence (#'context/query-evidence
+                    :xtdb
+                    {}
+                    {:project-id "fixture"
+                     :repo-id "app"
+                     :retriever :lexical}
+                    {:entity-count 1
+                     :doc-count 0
+                     :activity-count 0
+                     :validation-count 0})]
+      (is (contains? (set (:available evidence)) :validation-history))
+      (is (not (contains? (set (:missing evidence)) :validation-history)))
       (is (= {:plane :validation-history
               :status :weak
               :counts {:validation-events 0
@@ -710,21 +711,21 @@
                        :result-schema-unexpected-result-items 0
                        :result-schema-mismatch-events 1}}
              (some #(when (= :validation-history (:plane %)) %)
-                   (:planes answerability))))
-      (is (= 1 (get-in answerability [:counts :result-schema-mismatch-events])))
+                   (:planes evidence))))
+      (is (= 1 (get-in evidence [:counts :result-schema-mismatch-events])))
       (is (some #{"Completed work has result schema mismatches; inspect activity before trusting prior results."}
-                (:warnings answerability)))
+                (:warnings evidence)))
       (is (not (some #{"No validation history rows are indexed; validation-history queries are limited."}
-                     (:warnings answerability))))
+                     (:warnings evidence))))
       (is (some #(= {:kind :activity
                      :label "Inspect result schema mismatch activity"
                      :count 1
                      :mcpTool "ygg_sync_activity"
                      :command "ygg sync activity <project.edn> --json"}
                     %)
-                (:nextActions answerability))))))
+                (:nextActions evidence))))))
 
-(deftest answerability-counts-result-schema-status-items
+(deftest evidence-counts-result-schema-status-items
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :ygg/files [{:xt/id "file:app"
@@ -753,21 +754,21 @@
                                        :expected-result-schema "ygg.result/v1"
                                        :result-schema "ygg.result/v1"}])
                 activity/all-events (fn [& _] [])]
-    (let [answerability (#'context/answerability
-                         :xtdb
-                         {}
-                         {:project-id "fixture"
-                          :repo-id "app"
-                          :retriever :lexical}
-                         {:entity-count 1
-                          :doc-count 0
-                          :activity-count 0
-                          :validation-count 0})]
+    (let [evidence (#'context/query-evidence
+                    :xtdb
+                    {}
+                    {:project-id "fixture"
+                     :repo-id "app"
+                     :retriever :lexical}
+                    {:entity-count 1
+                     :doc-count 0
+                     :activity-count 0
+                     :validation-count 0})]
       (is (= {:matching 1}
-             (get-in answerability [:counts :result-schema-statuses])))
-      (is (= 1 (get-in answerability [:counts :result-schema-status-items])))
-      (is (contains? (set (:available answerability)) :validation-history))
-      (is (not (contains? (set (:missing answerability)) :validation-history)))
+             (get-in evidence [:counts :result-schema-statuses])))
+      (is (= 1 (get-in evidence [:counts :result-schema-status-items])))
+      (is (contains? (set (:available evidence)) :validation-history))
+      (is (not (contains? (set (:missing evidence)) :validation-history)))
       (is (= {:plane :validation-history
               :status :weak
               :counts {:validation-events 0
@@ -778,11 +779,11 @@
                        :result-schema-unexpected-result-items 0
                        :result-schema-mismatch-events 0}}
              (some #(when (= :validation-history (:plane %)) %)
-                   (:planes answerability))))
+                   (:planes evidence))))
       (is (not (some #{"No validation history rows are indexed; validation-history queries are limited."}
-                     (:warnings answerability)))))))
+                     (:warnings evidence)))))))
 
-(deftest answerability-reports-missing-dependency-plane
+(deftest evidence-reports-missing-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :ygg/files [{:xt/id "file:app"
@@ -816,24 +817,24 @@
                 activity/all-events (fn [& _]
                                       [{:xt/id "event:app"
                                         :event-kind :validation}])]
-    (let [answerability (#'context/answerability
-                         :xtdb
-                         {}
-                         {:project-id "fixture"
-                          :repo-id "app"
-                          :retriever :lexical}
-                         {:entity-count 1
-                          :doc-count 1
-                          :activity-count 1
-                          :validation-count 1})]
-      (is (not (contains? (set (:available answerability)) :dependencies)))
-      (is (contains? (set (:missing answerability)) :dependencies))
+    (let [evidence (#'context/query-evidence
+                    :xtdb
+                    {}
+                    {:project-id "fixture"
+                     :repo-id "app"
+                     :retriever :lexical}
+                    {:entity-count 1
+                     :doc-count 1
+                     :activity-count 1
+                     :validation-count 1})]
+      (is (not (contains? (set (:available evidence)) :dependencies)))
+      (is (contains? (set (:missing evidence)) :dependencies))
       (is (some #{"No dependency graph rows are indexed; dependency questions are limited."}
-                (:warnings answerability)))
-      (is (some #{"Run ygg packages --project fixture --json"}
-                (:next answerability))))))
+                (:warnings evidence)))
+      (is (some #(= "ygg packages --project fixture --json" (:command %))
+                (:nextActions evidence))))))
 
-(deftest answerability-surfaces-unresolved-dependency-review-next-step
+(deftest evidence-surfaces-unresolved-dependency-review-next-step
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :ygg/files [{:xt/id "file:app"
@@ -862,39 +863,35 @@
                                                       :version-conflicts 0}})
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
-    (let [answerability (#'context/answerability
-                         :xtdb
-                         {}
-                         {:project-id "fixture"
-                          :repo-id "app"
-                          :retriever :lexical}
-                         {:entity-count 1
-                          :doc-count 0
-                          :activity-count 0
-                          :validation-count 0})]
-      (is (contains? (set (:available answerability)) :dependencies))
-      (is (contains? (set (:weak answerability)) :dependencies))
-      (is (not (contains? (set (:missing answerability)) :dependencies)))
-      (is (= 1 (get-in answerability [:counts :unresolved-imports])))
+    (let [evidence (#'context/query-evidence
+                    :xtdb
+                    {}
+                    {:project-id "fixture"
+                     :repo-id "app"
+                     :retriever :lexical}
+                    {:entity-count 1
+                     :doc-count 0
+                     :activity-count 0
+                     :validation-count 0})]
+      (is (contains? (set (:available evidence)) :dependencies))
+      (is (contains? (set (:weak evidence)) :dependencies))
+      (is (not (contains? (set (:missing evidence)) :dependencies)))
+      (is (= 1 (get-in evidence [:counts :unresolved-imports])))
       (is (some #{"Dependency graph has unresolved imports; dependency answers may need package review."}
-                (:warnings answerability)))
-      (is (some #{"Run ygg packages --project fixture --json"}
-                (:next answerability)))
+                (:warnings evidence)))
       (is (some #(= {:kind :dependencies
                      :label "Inspect package graph facts"
                      :command "ygg packages --project fixture --json"}
                     %)
-                (:nextActions answerability)))
-      (is (some #{"Run ygg sync <project.edn> --check --enqueue"}
-                (:next answerability)))
+                (:nextActions evidence)))
       (is (some #(= {:kind :dependency-review
                      :label "Queue unresolved import review work"
                      :count 1
                      :command "ygg sync <project.edn> --check --enqueue"}
                     %)
-                (:nextActions answerability))))))
+                (:nextActions evidence))))))
 
-(deftest answerability-surfaces-dependency-evidence-gaps-and-conflicts
+(deftest evidence-surfaces-dependency-evidence-gaps-and-conflicts
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :ygg/files [{:xt/id "file:app"
@@ -924,40 +921,36 @@
                                                       :version-conflicts 1}})
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
-    (let [answerability (#'context/answerability
-                         :xtdb
-                         {}
-                         {:project-id "fixture"
-                          :repo-id "app"
-                          :retriever :lexical}
-                         {:entity-count 1
-                          :doc-count 0
-                          :activity-count 0
-                          :validation-count 0})]
-      (is (not (contains? (set (:weak answerability)) :dependencies)))
-      (is (contains? (set (:available answerability)) :dependencies))
-      (is (= 1 (get-in answerability [:counts :package-evidence-gaps])))
-      (is (= 1 (get-in answerability [:counts :package-conflicts])))
+    (let [evidence (#'context/query-evidence
+                    :xtdb
+                    {}
+                    {:project-id "fixture"
+                     :repo-id "app"
+                     :retriever :lexical}
+                    {:entity-count 1
+                     :doc-count 0
+                     :activity-count 0
+                     :validation-count 0})]
+      (is (not (contains? (set (:weak evidence)) :dependencies)))
+      (is (contains? (set (:available evidence)) :dependencies))
+      (is (= 1 (get-in evidence [:counts :package-evidence-gaps])))
+      (is (= 1 (get-in evidence [:counts :package-conflicts])))
       (is (some #{"Some declared packages have no source import evidence."}
-                (:warnings answerability)))
+                (:warnings evidence)))
       (is (some #{"Package version conflicts are present in dependency facts."}
-                (:warnings answerability)))
-      (is (some #{"Run ygg packages --project fixture --without-import-evidence --json"}
-                (:next answerability)))
-      (is (some #{"Run ygg packages --project fixture --with-conflicts --json"}
-                (:next answerability)))
+                (:warnings evidence)))
       (is (some #(= {:kind :dependencies
                      :label "Inspect packages without source import evidence"
                      :count 1
                      :command "ygg packages --project fixture --without-import-evidence --json"}
                     %)
-                (:nextActions answerability)))
+                (:nextActions evidence)))
       (is (some #(= {:kind :dependencies
                      :label "Inspect package version conflicts"
                      :count 1
                      :command "ygg packages --project fixture --with-conflicts --json"}
                     %)
-                (:nextActions answerability))))))
+                (:nextActions evidence))))))
 
 (deftest context-packet-includes-search-instrumentation
   (with-redefs [query/search-report (fn [_ query-text opts]
@@ -987,7 +980,7 @@
                 query/all-system-evidence (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
-                context/answerability (fn [& _] {:status :ready})
+                context/query-evidence (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _]
                                            {:schema "ygg.source-coverage.context/v1"
                                             :totals {:indexedFiles 1}})]
@@ -1158,14 +1151,14 @@
                                              :sourceId "work:boundary"
                                              :summary "review billing boundary"
                                              :score 1.0}])
-                context/answerability (fn [& _]
-                                        {:status :limited
-                                         :missing [:dependencies]
-                                         :weak [:docs]
-                                         :unsupported [:remote-work]
-                                         :warnings ["Dependency graph is incomplete."]
-                                         :nextActions [{:kind :dependencies
-                                                        :command "ygg packages --json"}]})
+                context/query-evidence (fn [& _]
+                                         {:status :limited
+                                          :missing [:dependencies]
+                                          :weak [:docs]
+                                          :unsupported [:remote-work]
+                                          :warnings ["Dependency graph is incomplete."]
+                                          :nextActions [{:kind :dependencies
+                                                         :command "ygg packages --json"}]})
                 coverage/context-summary (fn [& _] nil)]
     (let [packet (context/context-packet
                   :xtdb
@@ -1491,7 +1484,7 @@
                                            (is (contains? (:target-ids opts)
                                                           "system:billing"))
                                            [])
-                context/answerability (fn [& _] {:status :ready})
+                context/query-evidence (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
     (let [packet (context/context-packet
                   :xtdb
@@ -1810,7 +1803,7 @@
                                             :import-name "proxy-from-env"
                                             :resolution-source :declared}]}])))
                 activity/select-activity (fn [& _] [])
-                context/answerability (fn [& _] {:status :ready})
+                context/query-evidence (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
     (let [packet (context/context-packet :xtdb
                                          "proxy env"
@@ -1852,7 +1845,7 @@
                 query/all-system-evidence (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
-                context/answerability (fn [& _] {:status :ready})
+                context/query-evidence (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
     (let [packet (context/context-packet :xtdb
                                          "caller"
@@ -1897,7 +1890,7 @@
                 query/all-system-evidence (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
-                context/answerability (fn [& _] {:status :ready})
+                context/query-evidence (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
     (let [packet (context/context-packet :xtdb
                                          "caller"
@@ -1948,7 +1941,7 @@
                 query/all-system-evidence (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
-                context/answerability (fn [& _] {:status :ready})
+                context/query-evidence (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
     (let [packet (context/context-packet :xtdb
                                          "app"
@@ -2001,7 +1994,7 @@
                   query/all-system-evidence (fn [& _] [])
                   dependency/package-report (fn [& _] (empty-dependency-report))
                   activity/select-activity (fn [& _] [])
-                  context/answerability (fn [& _] {:status :ready})
+                  context/query-evidence (fn [& _] {:status :ready})
                   coverage/context-summary (fn [& _] nil)]
       (let [packet (context/context-packet :xtdb
                                            "open page root"

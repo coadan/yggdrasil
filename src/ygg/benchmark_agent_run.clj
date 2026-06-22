@@ -284,7 +284,7 @@
               "Read `YGG_BENCH_YGG_HINTS` first when it is set; use "
               "`YGG_BENCH_YGG_CONTEXT` for supporting snippets. In the "
               "hints, prefer `topFiles`, `architecture`, and `auditScopes` "
-              "before broad shell search; treat `answerability`, "
+              "before broad shell search; treat `evidence`, "
               "`sourceCoverage`, and `diagnostics` as trust boundaries. Use "
               "`commands` as bounded follow-up checks, especially commands "
               "copied from `architecture.validationGaps.nextActions` when a "

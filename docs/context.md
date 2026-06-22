@@ -39,7 +39,8 @@ The packet schema is `ygg.context/v1`:
     "extractorFingerprints": [],
     "diagnostics": {"byStage": [], "byExtractor": []}
   },
-  "answerability": {
+  "evidence": {
+    "basis": "query-scoped-mechanical-readiness",
     "status": "limited",
     "available": ["source-graph", "dependencies", "system-evidence", "docs"],
     "missing": ["embeddings", "system-graph", "activity", "validation-history"],
@@ -75,7 +76,6 @@ The packet schema is `ygg.context/v1`:
     },
     "retrieval": {"requested": "auto", "effective": "lexical", "fallback?": true},
     "warnings": [],
-    "next": [],
     "nextActions": []
   },
   "warnings": [],
@@ -87,25 +87,27 @@ The packet schema is `ygg.context/v1`:
 Yggdrasil keeps the source reference and marks `snippetOmitted`; if even that does
 not fit, the doc is omitted and a warning is added.
 `sourceCoverage` is trimmed before warnings and drilldowns when the packet is
-too small. Under tight budgets, `answerability` is compacted but keeps status,
-evidence planes, counts, retrieval, next steps, unsupported planes, and a bounded
-warning list.
+too small. Under tight budgets, `evidence` is compacted but keeps mechanical
+readiness status, evidence planes, counts, retrieval, structured next actions,
+unsupported planes, and a bounded warning list.
 
-## Answerability
+## Evidence Readiness
 
-Every context packet reports `answerability`: a mechanical summary of which
-evidence planes were available for the query and which were missing, weak, or
-not supported by the current model.
+Every context packet reports `evidence`: a mechanical summary of which evidence
+planes were available for the query and which were missing, weak, or not
+supported by the current graph model. It is not a semantic claim that the system
+can or cannot answer the question.
 
-Project-level reports and `ygg sync inspect <project.edn> --json` expose the same mechanical
-inventory as `ygg.evidence/v2`, including graph-basis freshness. Use that
-evidence surface when an agent needs to see what can be asked about at a glance.
+Project-level reports and `ygg sync inspect <project.edn> --json` expose the same
+mechanical inventory as `ygg.evidence/v2`, including graph-basis freshness. Use
+that evidence surface when an agent needs to see available evidence families at
+a glance.
 Its `families` field is a bounded readiness table for source files, file facts,
 source graph rows, dependencies, docs, embeddings, system evidence, system graph
 rows, local activity, validation history, and accepted map overlay evidence.
 Use `ygg explore --json` when the agent has a concrete question and needs the
-smaller query-scoped `answerability` packet plus matching entities, edges, docs,
-and activity.
+smaller query-scoped `evidence` packet plus matching entities, edges, docs, and
+activity.
 Both surfaces use `dependencies` for the evidence plane backed by package
 declarations, lockfile versions, and mechanically resolved package-import edges.
 When plugin packages are installed, context packets also include
@@ -114,6 +116,7 @@ warning counts, package ids, source pins, and manifest fingerprints. Treat
 unbenchmarked or non-authoritative plugin output as review evidence, not as
 benchmark-backed architecture understanding.
 
+- `basis`: currently `query-scoped-mechanical-readiness`
 - `status`: `ready`, `limited`, or `empty`
 - `available`: populated evidence planes, such as `source-graph`,
   `dependencies`, `system-evidence`, `docs`, `system-graph`, `embeddings`,
@@ -139,41 +142,39 @@ benchmark-backed architecture understanding.
   `result-schema-mismatch-events`.
 - `retrieval`: requested and effective retriever, including lexical fallback
 - `warnings`: short mechanical explanations
-- `next`: bounded follow-up commands
-- `nextActions`: the same follow-up work as structured rows with `kind`,
+- `nextActions`: follow-up work as structured rows with `kind`,
   `label`, optional `count`, executable `command`, and optional MCP hints
   (`mcpTool`, `mcpArgs`) when a typed MCP tool maps directly to the action
 
-If `dependencies` is missing or weak, `next` points at the package report so
+If `dependencies` is missing or weak, `nextActions` points at the package report so
 agents can inspect whether the graph has package declarations, import evidence,
 conflicts, or unresolved imports before answering dependency-shaped questions.
-When unresolved imports are present, `next` also suggests
+When unresolved imports are present, `nextActions` also suggests
 `ygg sync <project.edn> --check --enqueue` so the package mapping can move
 through the review queue. When declared packages lack source import evidence or
-version conflicts are present, `next` includes the matching package-report
+version conflicts are present, `nextActions` includes the matching package-report
 filter command.
 If `runtime-config` is missing or weak, agents should treat runtime/config
 answers as limited. Missing means no active system-evidence rows are indexed;
 weak means rows exist, but none matched the selected work area.
 If source files or source graph rows are missing, `warnings` names that source
-plane explicitly and `next` points at `ygg sync <project.edn>` or
+plane explicitly and `nextActions` points at `ygg sync <project.edn>` or
 `ygg sync <project.edn> --check`. Agents should treat those as graph-basis
 problems before concluding that code evidence does not exist.
-Machine consumers should prefer `nextActions` over parsing `next`; MCP clients
-should use `mcpTool`/`mcpArgs` when present. `next` stays as a compact
-human-readable command list.
+Machine consumers should read `nextActions`; MCP clients should use
+`mcpTool`/`mcpArgs` when present.
 
-Agents should treat `answerability` as a confidence boundary. Local queue
+Agents should treat `evidence` as a mechanical readiness boundary. Local queue
 activity and validation-shaped queue results are supported after
 `ygg sync activity <project.edn>`. Remote work tools and session history are
-still unsupported. If `status` is `empty` or `limited`, follow `next` or use the
-listed missing planes to decide whether to sync, embed, inspect coverage, import
-activity, or ask the user for another source of truth.
-When indexed diagnostics are present, `answerability.warnings` points agents to
+still unsupported. If `status` is `empty` or `limited`, follow `nextActions` or
+use the listed missing planes to decide whether to sync, embed, inspect
+coverage, import activity, or ask the user for another source of truth.
+When indexed diagnostics are present, `evidence.warnings` points agents to
 `sourceCoverage` and `ygg sync coverage`; this is a source-support signal, not
 a semantic classification.
 
-Plain `ygg explore` prints a concise answerability warning only when no query
+Plain `ygg explore` prints a concise evidence warning only when no query
 results are found. Use `ygg explore --json` for the full structured packet.
 `ygg ask --json` returns the same one-shot packet for compatibility.
 Packet `drilldowns` favor agent-facing follow-ups: repeat the primary
@@ -285,7 +286,7 @@ work area. Rows use fixed evidence-family names such as `source-structure`,
 container/deploy fact rows such as container images, ports, Docker stages,
 Compose/devcontainer/Helm/Kustomize facts, and runtime commands. `rowCount` and
 `sourceCounts` come from packet rows already present in the architecture
-section. `planes` mirrors matching `answerability` plane statuses when a family
+section. `planes` mirrors matching `evidence` plane statuses when a family
 depends on an indexed evidence plane. These rows help agents see whether an
 answer is backed by code, config, deployment evidence, dependency, docs, map
 correction, or maintenance evidence without classifying architecture from path
@@ -306,12 +307,12 @@ inspection and which first actions are available.
 packet freshness status is `stale`, `partial`, `unknown`, or `unsynced`. These
 rows use `plane: "graph-basis"` and include bounded freshness counts and
 warnings when available. Gap rows may include bounded `nextActions` copied from
-matching freshness or answerability actions, so the packet shows the exact
+matching freshness or evidence actions, so the packet shows the exact
 repair or inspection command beside the missing or weak evidence plane.
 Matching actions are still included in `architecture.nextActions`, and
-freshness warnings are surfaced in `architecture.warnings` before
-answerability warnings so agents see basis problems before trusting missing
-architecture evidence. Accepted map docs whose indexed source is stale or
+freshness warnings are surfaced in `architecture.warnings` before evidence
+warnings so agents see basis problems before trusting missing architecture
+evidence. Accepted map docs whose indexed source is stale or
 missing remain visible under `architecture.docs`, but also add a
 `docs-contracts` validation gap with bounded samples so agents know the
 contract attachment needs repair before relying on it.
@@ -394,10 +395,10 @@ The MCP server returns the same packet schemas as the CLI. By default,
 `YGG_MCP_TOOLS=all` to enable and list advanced cursor, sync, and queue
 handoff tools; hidden advanced tools are rejected by default.
 Use `ygg_explore` as the primary one-shot MCP packet for structural
-questions; it returns graph-basis freshness, answerability, candidate files,
+questions; it returns graph-basis freshness, evidence readiness, candidate files,
 docs, graph facts, plugin package caveats, and drilldowns without creating a
 cursor. MCP agents should inspect `freshness`, `evidence.families`,
-`answerability.planes`, `pluginPackages`, and `nextActions` before treating
+`evidence.planes`, `pluginPackages`, and `nextActions` before treating
 missing facts as absent.
 Use `ygg_node` for a single file, evidence row, package, node, or accepted
 system; when map docs are attached, the node packet includes bounded
