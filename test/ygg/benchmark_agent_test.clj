@@ -150,6 +150,11 @@
           score (json/read-json (slurp (get-in baseline
                                                [:artifacts :agentScorePath]))
                                 :key-fn keyword)
+          context-packet (json/read-json
+                          (slurp (get-in baseline
+                                         [:artifacts :contextPacketPath]))
+                          :key-fn keyword)
+          expected-input-tokens (context/estimate-tokens context-packet)
           family-by-name (into {}
                                (map (juxt :family identity))
                                (get-in baseline [:syncInspect :families]))]
@@ -166,6 +171,12 @@
       (is (= :available (get-in family-by-name [:map-overlay :status])))
       (is (= true (:claimReady score)))
       (is (= true (:claimReady baseline)))
+      (is (= {:inputTokens expected-input-tokens
+              :outputTokens 0
+              :totalTokens expected-input-tokens
+              :costUsd 0.0
+              :source "ygg-context-packet-estimate"}
+             (get-in score [:agent :tokenUsage])))
       (is (= "sync-inspect"
              (get-in baseline
                      [:maintenancePreflight :checks :syncCheck :source]))))))
@@ -813,6 +824,12 @@
             "ygg sync project.edn --check --enqueue"]
            (:commands result)))
     (is (= ["Context warning."] (:warnings result)))
+    (is (= {:inputTokens (context/estimate-tokens packet)
+            :outputTokens 0
+            :totalTokens (context/estimate-tokens packet)
+            :costUsd 0.0
+            :source "ygg-context-packet-estimate"}
+           (:tokenUsage result)))
     (is (= {:rawCandidateFiles 2
             :candidateFiles 2
             :coverageFilteredCandidateFiles 0

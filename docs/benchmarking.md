@@ -33,10 +33,12 @@ bb bench:gate --setup-check
 Use `bb bench:gate --check-only` immediately before architecture or extractor
 claims when current score artifacts already exist. Check-only mode skips
 baseline regeneration but still rejects missing, stale, unverified, graph-failing,
-or maintained-graph-blocked score artifacts. If a checkout exists only under the
-legacy `.dev/oss-test-cases/repos/` cache, the preflight reports that path so it
-can be moved or symlinked into the common cache without committing generated
-files.
+maintained-graph-blocked, or per-case estimated context-packet token-budget
+violating score artifacts. If artifacts predate deterministic baseline token
+estimates, run the full gate once before using check-only mode for token claims.
+If a checkout exists only under the legacy `.dev/oss-test-cases/repos/` cache,
+the preflight reports that path so it can be moved or symlinked into the common
+cache without committing generated files.
 
 ## Headline Suite
 
@@ -308,8 +310,11 @@ plugin-fit choice, not just a shorter suspected-file list.
   the file from inside its sandbox. Provider wrappers may write token usage to
   `$YGG_BENCH_TOKEN_USAGE` as JSON with `inputTokens`/`outputTokens` or
   `input_tokens`/`output_tokens`; Yggdrasil folds that sidecar into
-  `tokenUsage` when the result JSON does not already contain token usage. Use
-  `--prompt-profile fast` for short
+  `tokenUsage` when the result JSON does not already contain token usage. The
+  deterministic Yggdrasil baseline records `tokenUsage.source =
+  "ygg-context-packet-estimate"` with `inputTokens` equal to the estimated
+  context packet size, so tracked gates can catch packet-size regressions even
+  without provider billing telemetry. Use `--prompt-profile fast` for short
   localization-only smoke runs that should avoid patching and full test suites;
   omit it for the standard prompt. In `--mode ygg`, the graph, hints, and
   context artifacts are prepared before the command runs; in `--mode

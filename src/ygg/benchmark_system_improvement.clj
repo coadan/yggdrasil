@@ -29,6 +29,10 @@
    {:ownerArea "decision-quality"
     :rootCauseCategory "decision-quality-gap"
     :recommendedSystemChange "Improve decision-candidate prompts, evidence context, and scoring feedback so agents make auditable include/exclude/defer choices on complex-system tasks."}
+   "token-telemetry-gap"
+   {:ownerArea "benchmark"
+    :rootCauseCategory "token-telemetry-gap"
+    :recommendedSystemChange "Record token usage or deterministic packet-size estimates for every benchmark agent result before making token or cost claims."}
    "benchmark-suite-gap"
    {:ownerArea "benchmark"
     :rootCauseCategory "benchmark-suite-gap"
@@ -265,6 +269,17 @@
          :case-ids (:commandlessCaseIds agent)
          :evidence [(get agent :commandTelemetry)]
          :rationale "Agent result artifacts did not include command telemetry."})
+       (signal
+        {:kind "missing-token-usage"
+         :lane "token-telemetry-gap"
+         :runs (:missingTokenUsageRuns agent)
+         :case-ids (:missingTokenUsageCaseIds agent)
+         :evidence [(select-keys agent
+                                 [:tokenUsageRuns
+                                  :tokenUsageCaseIds
+                                  :missingTokenUsageRuns
+                                  :missingTokenUsageCaseIds])]
+         :rationale "Agent result artifacts did not include token usage for every run, so token and cost claims are not measurable."})
        (signal
         {:kind "agent-result-warning-runs"
          :lane "agent-protocol-gap"

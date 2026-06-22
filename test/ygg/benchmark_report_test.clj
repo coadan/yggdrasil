@@ -266,6 +266,10 @@
                                  :searchCommandCount 1
                                  :fileReadCommandCount 1
                                  :shellCommandCount 1}
+              :tokenUsageRuns 1
+              :tokenUsageCaseIds ["case-1"]
+              :missingTokenUsageRuns 1
+              :missingTokenUsageCaseIds ["case-1"]
               :tokenTelemetry {:inputTokens 100
                                :outputTokens 40
                                :totalTokens 140
@@ -314,6 +318,7 @@
               "graph-expectation-failures"
               "maintenance-preflight"
               "commandless-runs"
+              "missing-token-usage"
               "warning-runs"
               "obsolete-agent-result-contract"
               "unverified-score-artifacts"]

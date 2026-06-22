@@ -29,7 +29,9 @@
     (is (str/includes? (nth lines 2)
                        "bench agent-check benchmarks/custom.edn"))
     (is (str/includes? (nth lines 2)
-                       "--max-maintenance-preflight-blockers 0"))))
+                       "--max-maintenance-preflight-blockers 0"))
+    (is (str/includes? (nth lines 2)
+                       "--max-case-total-tokens 24000"))))
 
 (deftest check-only-dry-run-skips-baseline-and-keeps-strict-checks
   (let [result (run-gate "--dry-run"
@@ -50,7 +52,9 @@
     (is (str/includes? (nth lines 1) "--min-runs 1"))
     (is (str/includes? (nth lines 1) "--max-unverified-score-runs 0"))
     (is (str/includes? (nth lines 1)
-                       "--max-maintenance-preflight-blockers 0"))))
+                       "--max-maintenance-preflight-blockers 0"))
+    (is (str/includes? (nth lines 1)
+                       "--max-case-total-tokens 24000"))))
 
 (deftest help-lists-check-only
   (let [result (run-gate "--help")]

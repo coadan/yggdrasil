@@ -233,7 +233,13 @@
                                 result-pairs)
         identity-mismatch-results (filter (fn [[_ diagnostic]]
                                             (:hasIdentityMismatch diagnostic))
-                                          result-pairs)]
+                                          result-pairs)
+        token-usage-results (filter (fn [[_ diagnostic]]
+                                      (:tokenUsage diagnostic))
+                                    result-pairs)
+        missing-token-usage-results (remove (fn [[_ diagnostic]]
+                                              (:tokenUsage diagnostic))
+                                            result-pairs)]
     (merge
      {:emptyResultRuns (count empty-results)
       :emptyResultCaseIds (->> empty-results
@@ -291,6 +297,18 @@
                                   (map (comp count :identityWarnings second)
                                        identity-mismatch-results))
       :commandTelemetry (aggregate-command-telemetry diagnostics)
+      :tokenUsageRuns (count token-usage-results)
+      :tokenUsageCaseIds (->> token-usage-results
+                              (map (comp :case-id first))
+                              distinct
+                              sort
+                              vec)
+      :missingTokenUsageRuns (count missing-token-usage-results)
+      :missingTokenUsageCaseIds (->> missing-token-usage-results
+                                     (map (comp :case-id first))
+                                     distinct
+                                     sort
+                                     vec)
       :warnings (reduce + 0
                         (map (comp count :warnings second)
                              warning-results))}
@@ -1244,6 +1262,12 @@
               :runs (:commandlessRuns agent-diagnostics)
               :case-ids (:commandlessCaseIds agent-diagnostics)
               :message "Agent results did not record any commands, making replay quality weaker."})
+            (improvement-row
+             {:kind "missing-token-usage"
+              :area "benchmark-token-telemetry"
+              :runs (:missingTokenUsageRuns agent-diagnostics)
+              :case-ids (:missingTokenUsageCaseIds agent-diagnostics)
+              :message "Agent results did not record token usage, so token and cost claims are not measurable for those runs."})
             (improvement-row
              {:kind "warning-runs"
               :area "agent-result-shape"

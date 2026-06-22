@@ -149,6 +149,7 @@ run_bench agent-check \
   --max-noise-at-20 0.90 \
   --max-graph-expectation-failures 0 \
   --max-maintenance-preflight-blockers 0 \
+  --max-case-total-tokens 24000 \
   --max-input-hinted-cases 0 \
   --max-unverified-score-runs 0 \
   --out "$out"

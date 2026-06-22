@@ -41,8 +41,10 @@ bb bench:gate --check-only
 ```
 
 This still runs checkout preflight and strict `agent-check` thresholds, including
-stale-artifact and maintained-graph claim-readiness checks, but skips baseline
-regeneration.
+stale-artifact, maintained-graph claim-readiness, and per-case estimated context
+packet token budgets, but skips baseline regeneration. If current artifacts were
+created before deterministic baseline token estimates were recorded, run the full
+gate once to refresh them before using check-only mode for token claims.
 
 If a checkout still exists under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path. Move or symlink it into

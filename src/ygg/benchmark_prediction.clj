@@ -1,6 +1,7 @@
 (ns ygg.benchmark-prediction
   (:require [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-util :as benchmark-util]
+            [ygg.context :as context]
             [ygg.text :as text]
             [clojure.java.io :as io]
             [clojure.set :as set]
@@ -869,6 +870,14 @@
        (remove benchmark-util/blankish?)
        distinct
        vec))
+(defn- packet-token-usage
+  [packet]
+  (let [input-tokens (context/estimate-tokens packet)]
+    {:inputTokens input-tokens
+     :outputTokens 0
+     :totalTokens input-tokens
+     :costUsd 0.0
+     :source "ygg-context-packet-estimate"}))
 (defn context-packet->agent-result
   "Convert one Yggdrasil context packet into the benchmark agent-result contract.
 
@@ -926,6 +935,7 @@
               :commands (packet-commands packet)
               :warnings (vec (or (:warnings packet) []))
               :selection selection
+              :tokenUsage (packet-token-usage packet)
               :summary (str "Deterministic Yggdrasil baseline ranked "
                             (count suspected-files)
                             " suspected files from "

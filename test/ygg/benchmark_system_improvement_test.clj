@@ -18,6 +18,8 @@
                                 :tags ["problem-localization"]}]
                      :agentDiagnostics {:commandlessRuns 1
                                         :commandlessCaseIds ["case-1"]
+                                        :missingTokenUsageRuns 1
+                                        :missingTokenUsageCaseIds ["case-1"]
                                         :hintDiagnosticsByKind []}
                      :artifactDiagnostics {:unverifiedScoreRuns 1
                                            :unverifiedScoreCaseIds ["case-2"]}
@@ -66,6 +68,8 @@
            (get-in signals ["missing-declared-source-kinds" :lane])))
     (is (= "agent-protocol-gap"
            (get-in signals ["commandless-runs" :lane])))
+    (is (= "token-telemetry-gap"
+           (get-in signals ["missing-token-usage" :lane])))
     (is (= "decision-quality-gap"
            (get-in signals ["decision-quality-gaps" :lane])))
     (is (= [{:kind "missed"
