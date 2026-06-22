@@ -8,7 +8,7 @@ data "aws_caller_identity" "current" {
 
 resource "aws_s3_bucket" "assets" {
   provider = aws.edge
-  bucket = "agraph-assets"
+  bucket = "ygg-assets"
   tags = {
     account = data.aws_caller_identity.current.account_id
   }

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""JSONL parser worker for AGraph extractor experiments.
+"""JSONL parser worker for Yggdrasil extractor experiments.
 
 The worker reads one JSON request per stdin line and writes one JSON response
-per stdout line. It emits parser facts only; AGraph owns ids, graph row shape,
+per stdout line. It emits parser facts only; Yggdrasil owns ids, graph row shape,
 relation names, storage, and semantic interpretation.
 """
 
@@ -15,8 +15,8 @@ import traceback
 from typing import Any, Iterable
 
 
-REQUEST_SCHEMA = "agraph.parser.request/v1"
-RESPONSE_SCHEMA = "agraph.parser.response/v1"
+REQUEST_SCHEMA = "ygg.parser.request/v1"
+RESPONSE_SCHEMA = "ygg.parser.response/v1"
 
 
 def emit(value: dict[str, Any]) -> None:

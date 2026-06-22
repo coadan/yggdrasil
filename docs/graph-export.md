@@ -1,25 +1,25 @@
 # Graph Export
 
-AGraph has one maintained graph data contract: `agraph.graph/v2`.
+Yggdrasil has one maintained graph data contract: `ygg.graph/v2`.
 
 Create it with:
 
 ```sh
-agraph view overview --format json --out graph.json
-agraph view deps my.namespace --format json --depth 2 --out deps.json
-agraph view query "where is auth handled" --format json --retriever lexical --out query.json
-agraph view systems --project my-project --format json --out systems.json
-agraph view systems --project my-project --format json --detail expanded --out systems-expanded.json
-agraph view systems --project my-project --format json --map agraph.map.json --out systems.json
-agraph view systems --project my-project --format json --no-map --out raw-systems.json
-agraph view systems --project my-project --format json --view view:runtime --out runtime.json
+ygg view overview --format json --out graph.json
+ygg view deps my.namespace --format json --depth 2 --out deps.json
+ygg view query "where is auth handled" --format json --retriever lexical --out query.json
+ygg view systems --project my-project --format json --out systems.json
+ygg view systems --project my-project --format json --detail expanded --out systems-expanded.json
+ygg view systems --project my-project --format json --map ygg.map.json --out systems.json
+ygg view systems --project my-project --format json --no-map --out raw-systems.json
+ygg view systems --project my-project --format json --view view:runtime --out runtime.json
 ```
 
 The top-level shape is:
 
 ```json
 {
-  "schema": "agraph.graph/v2",
+  "schema": "ygg.graph/v2",
   "title": "Query: where is auth handled",
   "basis": {
     "project-id": "my-project",
@@ -90,32 +90,32 @@ relation-level system edges. `clusters[]` is present for semantic system exports
 and summarizes discovered node groups plus bridge counts.
 
 Generated report viewers consume this canonical graph shape and transform it
-internally for their renderer. External tools should consume `agraph.graph/v2`
+internally for their renderer. External tools should consume `ygg.graph/v2`
 rather than depending on Cytoscape, Sigma, or another renderer-specific format.
 
-`agraph report <project.edn> --map agraph.map.json --out agraph-out` writes a
+`ygg report <project.edn> --map ygg.map.json --out ygg-out` writes a
 local report bundle for humans and agents. The bundle includes `index.html`,
 `report.json`, `REPORT.mdx`, `graph.json`, `systems.json`, and
 `context-example.json`. `index.html` is the unified report and graph viewer.
 `report.json` is the structured report packet. `graph.json` and `systems.json`
-use this same `agraph.graph/v2` contract. `REPORT.mdx` is readable narrative
+use this same `ygg.graph/v2` contract. `REPORT.mdx` is readable narrative
 source, not a data contract.
 
-`agraph view ... --format html --out systems.html` uses the same packaged
+`ygg view ... --format html --out systems.html` uses the same packaged
 viewer in graph mode. It writes `systems.html`, sibling `systems.assets/`, and
 `systems.graph.json`. The HTML embeds a boot packet for local opening, while the
-sibling JSON remains the inspectable `agraph.graph/v2` artifact. Use
+sibling JSON remains the inspectable `ygg.graph/v2` artifact. Use
 `--format json` when another tool needs only the graph contract.
 
 ## Package Reports
 
-Use `agraph packages --project <id> [--repo <id>] [--ecosystem npm|cargo|go]
+Use `ygg packages --project <id> [--repo <id>] [--ecosystem npm|cargo|go]
 [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N]
 [--json]` when the task is package/dependency inventory rather than a graph
 slice. The report folds manifest declarations, selected lockfile resolutions,
 mechanical source-import-to-package evidence, and unresolved source imports into
 package-focused rows. It is a dependency report, not a replacement for
-`agraph.graph/v2`.
+`ygg.graph/v2`.
 Generated project report data includes compact package diagnostics for declared
 packages without import evidence, unresolved imports, and version conflicts so
 agents can triage dependency gaps before opening the full package report.
@@ -123,7 +123,7 @@ The report atlas also carries `next-actions` rows with concrete `command`
 strings for dependency triage, source coverage diagnostics, external API review,
 and queued maintenance work.
 
-Use `agraph view deps <package-label> --project <id>` to export or render the
+Use `ygg view deps <package-label> --project <id>` to export or render the
 graph slice around a package. For external package nodes, the slice is
 package-focused: manifests that declare the package, exact lockfile version
 nodes, lockfiles that resolved those versions, and source namespaces with import
@@ -139,20 +139,20 @@ changing the graph export schema.
 CLI commands:
 
 ```sh
-agraph sync meta defs
-agraph sync meta set <target-id> owner/team platform --type string --project my-project
-agraph sync meta get <target-id> --project my-project
-agraph sync meta unset <target-id> owner/team --project my-project
-agraph sync view list --project my-project
-agraph sync view show view:platform --project my-project
+ygg sync meta defs
+ygg sync meta set <target-id> owner/team platform --type string --project my-project
+ygg sync meta get <target-id> --project my-project
+ygg sync meta unset <target-id> owner/team --project my-project
+ygg sync view list --project my-project
+ygg sync view show view:platform --project my-project
 ```
 
 Stored graph views can filter exports with metadata and relation constraints.
-Use `--view <id-or-label>` on `agraph view ...` commands to apply a stored view.
+Use `--view <id-or-label>` on `ygg view ...` commands to apply a stored view.
 
 ## System Graph Maps
 
-System graph exports apply `agraph.map.json` from the current directory when it
+System graph exports apply `ygg.map.json` from the current directory when it
 exists. The map is an agent-maintained correction layer that merges accepted systems,
 rejects known false positives, and adds accepted system relationships before the
 canonical graph is written. Use `--no-map` to export generated candidates
@@ -163,7 +163,7 @@ project-specific semantics enter the graph.
 
 ## Compatibility
 
-- Additive nullable fields may be added within `agraph.graph/v2`.
+- Additive nullable fields may be added within `ygg.graph/v2`.
 - Renaming or changing the meaning of existing fields requires a new schema id.
 - Renderer-specific state should stay out of the export contract.
 - New file types should extend the extractor layer while continuing to emit this
@@ -172,9 +172,9 @@ project-specific semantics enter the graph.
   `coverage.extractor-fingerprints` rows so agents can audit source-kind
   coverage, extractor versions, and persisted extractor/indexer basis ids
   without opening the full coverage artifact.
-- `agraph sync coverage <project.edn> --json` includes bounded `samples` on
+- `ygg sync coverage <project.edn> --json` includes bounded `samples` on
   `skipped-by-extension` and `skipped-by-reason` rows. Use those concrete paths
   to decide whether a missing file kind needs extractor support, suite scope
   adjustment, or should remain unsupported.
-- `agraph.graph/v1` consumers should ignore or migrate to the v2 metadata and
+- `ygg.graph/v1` consumers should ignore or migrate to the v2 metadata and
   basis fields.

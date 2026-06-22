@@ -1,6 +1,6 @@
 # Extractor Format Support Plan
 
-AGraph format support should grow through deterministic scanner kinds and small
+Yggdrasil format support should grow through deterministic scanner kinds and small
 extractor adapters that emit canonical graph rows. Avoid semantic project
 classification in core extractors; store bounded facts and relationships first.
 
@@ -55,7 +55,7 @@ shows material improvement for the relevant task class.
   existing bounded ops/editor/dependency-lock extractors, preserving concrete
   local runtime and toolchain facts without path-based project semantics.
 - Secret material metadata: `.crt`, `.cer`, `.cert`, `.key`, and `.pem` files
-  are indexed as metadata-only `secret-material` rows. AGraph records concrete
+  are indexed as metadata-only `secret-material` rows. Yggdrasil records concrete
   file facts such as path, size, and content hash but does not create searchable
   text chunks for certificate or key contents.
 - Binary media/font/archive metadata: `.gif`, `.bmp`, `.ppm`, `.mp4`, `.webm`,

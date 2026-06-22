@@ -12,7 +12,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: "../resources/agraph/report-ui",
+    outDir: "../resources/ygg/report-ui",
     emptyOutDir: true
   },
   test: {

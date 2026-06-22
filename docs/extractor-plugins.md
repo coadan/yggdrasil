@@ -1,13 +1,13 @@
 # Extractor Plugins
 
-Extractor plugins are explicit project extensions for graph facts that AGraph
+Extractor plugins are explicit project extensions for graph facts that Yggdrasil
 core does not know how to extract yet. They are local-first, opt-in, and
 validated into the same canonical row shapes as core extractors.
 
 Plugins have two supported modes:
 
-- `:enhance`: run after core extraction for files AGraph already scans.
-- `:scan`: opt explicitly matched files into indexing when AGraph only has
+- `:enhance`: run after core extraction for files Yggdrasil already scans.
+- `:scan`: opt explicitly matched files into indexing when Yggdrasil only has
   fallback or no first-class support for that file family.
 
 Plugin rows are useful evidence, but they are not the same as benchmarked core
@@ -35,12 +35,12 @@ Add plugins to `project.edn`:
    :timeout-ms 10000}]}
 ```
 
-Commands run from the indexed repo root. AGraph sends one JSON request on stdin
+Commands run from the indexed repo root. Yggdrasil sends one JSON request on stdin
 and expects one JSON result on stdout. Commands are executed as argv vectors,
 not through shell interpolation.
 
 Use `bb plugin input extractor <package-dir> <repo-root> <file> --json` to
-inspect the exact input packet AGraph will send for one selected package
+inspect the exact input packet Yggdrasil will send for one selected package
 extractor without executing the plugin command.
 Use `bb plugin gap extractor <package-dir> <repo-root> <file> --json` when an
 agent needs the full authoring packet: input sample, core counts, output
@@ -52,7 +52,7 @@ For git-shared packages, install a package with `bb plugin install` and let
 
 ## Scan Mode
 
-Use `:scan` when a project has a file family AGraph does not support as a core
+Use `:scan` when a project has a file family Yggdrasil does not support as a core
 kind yet.
 
 ```clojure
@@ -82,7 +82,7 @@ rows, emit edges that core would not know about, or emit a row with the same
 
 Plugins can also emit `overlays` to mark existing rows as superseded or hidden
 without deleting raw evidence. This is the preferred path when a plugin has a
-more specific fact but the weaker core row should remain auditable. AGraph
+more specific fact but the weaker core row should remain auditable. Yggdrasil
 annotates the target row with the replacement id, reason, plugin id, package
 pin, plugin fingerprint, benchmark status, and claim authority. Hidden rows are
 still persisted as raw evidence; consumers can choose to ignore rows marked with
@@ -106,11 +106,11 @@ architecture facts.
 
 ## Input Contract
 
-Input schema: `agraph.extractor-plugin.input/v1`
+Input schema: `ygg.extractor-plugin.input/v1`
 
 ```json
 {
-  "schema": "agraph.extractor-plugin.input/v1",
+  "schema": "ygg.extractor-plugin.input/v1",
   "project": {"id": "sample"},
   "repo": {"id": "app", "root": "/repo"},
   "run": {"id": "run:..."},
@@ -125,7 +125,7 @@ Input schema: `agraph.extractor-plugin.input/v1`
     "packageManifestFingerprint": "sha256:...",
     "packageSource": {
       "type": "git",
-      "url": "https://github.com/org/agraph-datastar.git",
+      "url": "https://github.com/org/ygg-datastar.git",
       "rev": "abc123"
     }
   },
@@ -150,11 +150,11 @@ configs omit them.
 
 ## Output Contract
 
-Output schema: `agraph.extractor-plugin.result/v1`
+Output schema: `ygg.extractor-plugin.result/v1`
 
 ```json
 {
-  "schema": "agraph.extractor-plugin.result/v1",
+  "schema": "ygg.extractor-plugin.result/v1",
   "nodes": [
     {
       "kind": "hypermedia-request",
@@ -198,7 +198,7 @@ Output schema: `agraph.extractor-plugin.result/v1`
 }
 ```
 
-AGraph fills standard file defaults when possible: `:file-id`, `:path`,
+Yggdrasil fills standard file defaults when possible: `:file-id`, `:path`,
 `:run-id`, `:active?`, source line defaults for searchable rows, and stable ids
 when a plugin omits `:xt/id`.
 
@@ -214,7 +214,7 @@ Every plugin row is annotated with:
 - `:plugin-package-source` for packaged plugins
 - `:benchmark-status`
 
-AGraph stamps these provenance fields after parsing plugin output. Plugin
+Yggdrasil stamps these provenance fields after parsing plugin output. Plugin
 commands cannot make their own rows authoritative by spoofing file, run, or
 plugin provenance fields.
 
@@ -241,8 +241,8 @@ proves it is core-ready:
 - The contribution includes fixtures and extractor tests for the new core kind.
 - The contribution includes benchmark cases showing a material improvement for
   the relevant task class.
-- The benchmark report distinguishes shell-only, core AGraph, and, when useful,
-  plugin-enhanced AGraph lanes.
+- The benchmark report distinguishes shell-only, core Yggdrasil, and, when useful,
+  plugin-enhanced Yggdrasil lanes.
 - Claims about agent improvement cite the benchmark artifact, not anecdotes.
 
 Until those conditions are met, keep the implementation as an explicit plugin

@@ -19,7 +19,7 @@ vi.mock("./graph/GraphPanel", () => ({
 describe("App", () => {
   afterEach(() => {
     window.history.replaceState(null, "", "/");
-    window.__AGRAPH_BOOT__ = undefined;
+    window.__YGG_BOOT__ = undefined;
     vi.mocked(loadJson).mockReset();
     vi.mocked(loadJson).mockRejectedValue(new Error("missing local artifact"));
   });
@@ -27,7 +27,7 @@ describe("App", () => {
   it("uses fixture data without fetching when no reportDir is provided", () => {
     render(<App />);
 
-    expect(screen.getByText("AGraph Report")).toBeInTheDocument();
+    expect(screen.getByText("Yggdrasil Report")).toBeInTheDocument();
     expect(vi.mocked(loadJson)).not.toHaveBeenCalled();
   });
 
@@ -39,14 +39,14 @@ describe("App", () => {
     window.history.replaceState(
       null,
       "",
-      "/?mode=graph&refresh=0&reportDir=/Users/vegard/agraph/.dev/reports/live"
+      "/?mode=graph&refresh=0&reportDir=/Users/vegard/yggdrasil/.dev/reports/live"
     );
 
     render(<App />);
 
     await waitFor(() => {
       expect(vi.mocked(loadJson)).toHaveBeenCalledWith(
-        "/@fs/Users/vegard/agraph/.dev/reports/live/graph.json"
+        "/@fs/Users/vegard/yggdrasil/.dev/reports/live/graph.json"
       );
     });
     expect(await screen.findByText("Live Systems")).toBeInTheDocument();
@@ -56,14 +56,14 @@ describe("App", () => {
     window.history.replaceState(
       null,
       "",
-      "/?mode=report&refresh=0&reportDir=/Users/vegard/agraph/.dev/reports/live"
+      "/?mode=report&refresh=0&reportDir=/Users/vegard/yggdrasil/.dev/reports/live"
     );
 
     render(<App />);
 
     expect(screen.getByRole("link", { name: "Graph" })).toHaveAttribute(
       "href",
-      "?mode=graph&refresh=0&reportDir=%2FUsers%2Fvegard%2Fagraph%2F.dev%2Freports%2Flive"
+      "?mode=graph&refresh=0&reportDir=%2FUsers%2Fvegard%2Fyggdrasil%2F.dev%2Freports%2Flive"
     );
   });
 });

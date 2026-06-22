@@ -10,17 +10,17 @@ repeat local use.
 ## Command
 
 ```text
-agraph start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map agraph.map.json] [--report-out agraph-out] [--force] [--query-index]
+ygg start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map ygg.map.json] [--report-out ygg-out] [--force] [--query-index]
 ```
 
 ## Behavior
 
 - Initializes `project.edn` when it is missing.
 - Reuses an existing project config unless `--force` is supplied.
-- Uses `agraph.map.json` by default; `--no-map` disables the correction map.
-- Runs the same graph sync/check path as `agraph sync <project.edn> --check`.
+- Uses `ygg.map.json` by default; `--no-map` disables the correction map.
+- Runs the same graph sync/check path as `ygg sync <project.edn> --check`.
 - Imports local queue activity with `sync activity` semantics.
-- Writes a report bundle with `agraph report` semantics.
+- Writes a report bundle with `ygg report` semantics.
 - Returns a compact JSON summary with counts, output paths, and next commands.
 
 ## Guardrails
@@ -38,5 +38,5 @@ agraph start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map
 - CLI usage and dispatch tests cover the new public command.
 - Focused CLI tests cover first-run initialization and idempotent config reuse.
 - Focused CLI tests assert the compact response shape.
-- Manual smoke should run with a temporary `AGRAPH_XTDB_PATH` to avoid generated
+- Manual smoke should run with a temporary `YGG_XTDB_PATH` to avoid generated
   graph data in the repository.

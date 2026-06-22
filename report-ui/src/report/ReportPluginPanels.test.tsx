@@ -17,12 +17,12 @@ describe("PluginPanel", () => {
               {
                 kind: "maintenance",
                 label: "Process maintenance work queue",
-                command: "agraph sync work list --project fixture"
+                command: "ygg sync work list --project fixture"
               }
             ]
           },
           plugin: {
-            id: "agraph-core-report",
+            id: "ygg-core-report",
             version: "1",
             authority: "core"
           }
@@ -31,8 +31,8 @@ describe("PluginPanel", () => {
     );
 
     expect(screen.getByText("Process maintenance work queue")).toBeInTheDocument();
-    expect(screen.queryByText("agraph-core-report")).not.toBeInTheDocument();
-    expect(screen.queryByText("agraph-core-report.core-actions")).not.toBeInTheDocument();
+    expect(screen.queryByText("ygg-core-report")).not.toBeInTheDocument();
+    expect(screen.queryByText("ygg-core-report.core-actions")).not.toBeInTheDocument();
   });
 
   it("asks about and copies a whole plugin panel", () => {

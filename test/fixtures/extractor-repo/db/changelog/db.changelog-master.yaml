@@ -1,7 +1,7 @@
 databaseChangeLog:
   - changeSet:
       id: create-panel-audit
-      author: agraph
+      author: ygg
       changes:
         - createTable:
             tableName: panel_audit

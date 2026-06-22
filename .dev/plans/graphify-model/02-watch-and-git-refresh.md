@@ -5,17 +5,17 @@ refresh loop
 
 ## Goal
 
-Keep AGraph current without requiring users or agents to remember manual sync
+Keep Yggdrasil current without requiring users or agents to remember manual sync
 after every meaningful change. Borrow Graphify's `--watch` and Git hook
-refresh loop, but keep AGraph's sync profile explicit and deterministic.
+refresh loop, but keep Yggdrasil's sync profile explicit and deterministic.
 
 ## Target Commands
 
 ```text
-agraph watch <project.edn> [--map agraph.map.json] [--query-index] [--debounce-ms N]
-agraph hook install <project.edn> [--map agraph.map.json] [--query-index]
-agraph hook uninstall
-agraph hook status
+ygg watch <project.edn> [--map ygg.map.json] [--query-index] [--debounce-ms N]
+ygg hook install <project.edn> [--map ygg.map.json] [--query-index]
+ygg hook uninstall
+ygg hook status
 ```
 
 ## Watch Behavior
@@ -28,7 +28,7 @@ Default watch should:
 - debounce bursts of changes
 - run graph-maintenance sync by default
 - print compact summaries, not full JSON reports
-- never write `agraph.map.json` except through explicit correction commands
+- never write `ygg.map.json` except through explicit correction commands
 
 Use `--query-index` when the user wants searchable chunks and embeddings inputs
 refreshed during watch.
@@ -43,10 +43,10 @@ Install hooks for:
 
 Hooks should:
 
-- call the current AGraph executable path
+- call the current Yggdrasil executable path
 - use the project config path passed during install
 - fail open so Git workflows are not blocked
-- log short summaries under `.dev/agraph/hooks/`
+- log short summaries under `.dev/ygg/hooks/`
 - avoid recursive behavior
 
 ## Sync Profiles
@@ -62,9 +62,9 @@ behavior.
 
 ## Implementation Areas
 
-- Add `agraph.watch` for filesystem observation.
-- Add `agraph.hook` for hook install/status/uninstall.
-- Reuse `agraph.fs/supported-path?` and ignore rules.
+- Add `ygg.watch` for filesystem observation.
+- Add `ygg.hook` for hook install/status/uninstall.
+- Reuse `ygg.fs/supported-path?` and ignore rules.
 - Reuse `sync` command implementation rather than duplicating index logic.
 - Add hook marker sections when editing existing Git hook files.
 
@@ -73,9 +73,9 @@ behavior.
 - Unit test supported/ignored watch path filtering.
 - Hook install creates executable hook scripts in a temp Git repo.
 - Hook install preserves existing hook content.
-- Hook uninstall removes only AGraph-owned blocks.
+- Hook uninstall removes only Yggdrasil-owned blocks.
 - Watch debounce collapses multiple events into one sync request.
-- Hook command fails open when `agraph` exits nonzero.
+- Hook command fails open when `ygg` exits nonzero.
 
 ## Non-Goals
 
@@ -86,21 +86,21 @@ behavior.
 
 ## Done Criteria
 
-A user can install hooks for a project, commit a source change, and see AGraph
+A user can install hooks for a project, commit a source change, and see Yggdrasil
 refresh its mechanical graph state without blocking Git or mutating semantic
 corrections.
 
 Implemented surface:
 
-- `agraph watch <project.edn> [--map agraph.map.json] [--query-index] [--debounce-ms N]`
-- `agraph hook install <project.edn> [--map agraph.map.json] [--query-index]`
-- `agraph hook uninstall <project.edn>`
-- `agraph hook status <project.edn>`
+- `ygg watch <project.edn> [--map ygg.map.json] [--query-index] [--debounce-ms N]`
+- `ygg hook install <project.edn> [--map ygg.map.json] [--query-index]`
+- `ygg hook uninstall <project.edn>`
+- `ygg hook status <project.edn>`
 
 Notes:
 
 - Hooks are installed into `post-commit`, `post-checkout`, and `post-merge` for
   each normal Git repo in the project.
-- Hook scripts fail open and log to `.dev/agraph/hooks/` inside the repo.
+- Hook scripts fail open and log to `.dev/ygg/hooks/` inside the repo.
 - Watch tests cover path filtering, event coalescing, and sync command shaping;
   they do not enter the long-running watch loop.

@@ -4,15 +4,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-DEFAULT_COMMAND='codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" - < "$AGRAPH_BENCH_PROMPT"'
+DEFAULT_COMMAND='codex -a never exec --sandbox read-only --output-schema "$YGG_BENCH_OUTPUT_SCHEMA" -o "$YGG_BENCH_RESULT" - < "$YGG_BENCH_PROMPT"'
 
 usage() {
   cat <<'EOF'
-Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|claim-pack|all [options]
+Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|compare|claim-pack|all [options]
 
 Options:
   --suite PATH            Benchmark suite EDN. Default: benchmarks/headline.edn
-  --out DIR               Output root. Default: .dev/agraph/headline-bench
+  --out DIR               Output root. Default: .dev/ygg/headline-bench
   --agent ID              External agent id. Default: codex
   --command CMD           External agent command.
   --prompt-profile NAME   Prompt profile for agent-run. Default: fast
@@ -24,15 +24,15 @@ Options:
   --dry-run               Print commands without running them.
 
 Commands:
-  baseline    Run deterministic AGraph baseline and report.
+  baseline    Run deterministic Yggdrasil baseline and report.
   codebase-memory
               Run Codebase Memory MCP baseline and report.
   external-baselines
-              Run deterministic AGraph and Codebase Memory baseline reports.
+              Run deterministic Yggdrasil and Codebase Memory baseline reports.
   shell-only  Run the external shell-only lane.
-  agraph      Run the external AGraph lane.
+  ygg      Run the external Yggdrasil lane.
   agents      Run both external lanes.
-  reports     Generate shell-only and AGraph lane reports.
+  reports     Generate shell-only and Yggdrasil lane reports.
   compare     Compare lane reports with bb efficiency.
   claim-pack  Write bundled efficiency, token, and improvement proof artifacts.
   all         Run baseline, both external lanes, reports, and claim pack.
@@ -48,7 +48,7 @@ action="$1"
 shift
 
 suite="benchmarks/headline.edn"
-out=".dev/agraph/headline-bench"
+out=".dev/ygg/headline-bench"
 agent="codex"
 agent_command="$DEFAULT_COMMAND"
 prompt_profile="fast"
@@ -134,12 +134,12 @@ agent_run() {
 
 baseline() {
   run bb bench agent-baseline "$suite" \
-    --out "$out/agraph-baseline"
+    --out "$out/ygg-baseline"
 
   run bb bench agent-report "$suite" \
-    --mode agraph \
-    --agent agraph-baseline-lexical \
-    --out "$out/agraph-baseline"
+    --mode ygg \
+    --agent ygg-baseline-lexical \
+    --out "$out/ygg-baseline"
 }
 
 codebase_memory() {
@@ -156,7 +156,7 @@ codebase_memory() {
 
   run bb bench agent-report "$suite" \
     --mode codebase-memory \
-    --agent agraph-baseline-codebase-memory \
+    --agent ygg-baseline-codebase-memory \
     --out "$out/codebase-memory"
 }
 
@@ -169,8 +169,8 @@ shell_only() {
   agent_run shell-only "$out/shell-only"
 }
 
-agraph() {
-  agent_run agraph "$out/agraph"
+ygg() {
+  agent_run ygg "$out/ygg"
 }
 
 reports() {
@@ -180,9 +180,9 @@ reports() {
     --out "$out/shell-only"
 
   run bb bench agent-report "$suite" \
-    --mode agraph \
+    --mode ygg \
     --agent "$agent" \
-    --out "$out/agraph"
+    --out "$out/ygg"
 }
 
 report_path() {
@@ -202,7 +202,7 @@ report_path() {
 compare() {
   run bb efficiency \
     "$(report_path shell-only)" \
-    "$(report_path agraph)" \
+    "$(report_path ygg)" \
     --out "$out/summary.json" \
     --markdown-out "$out/REPORT.md"
 }
@@ -210,7 +210,7 @@ compare() {
 claim_pack() {
   run bb bench claim-pack "$suite" \
     --shell-report "$(report_path shell-only)" \
-    --agraph-report "$(report_path agraph)" \
+    --ygg-report "$(report_path ygg)" \
     --out "$out/claim-pack"
 }
 
@@ -227,12 +227,12 @@ case "$action" in
   shell-only)
     shell_only
     ;;
-  agraph)
-    agraph
+  ygg)
+    ygg
     ;;
   agents)
     shell_only
-    agraph
+    ygg
     ;;
   reports)
     reports
@@ -246,7 +246,7 @@ case "$action" in
   all)
     baseline
     shell_only
-    agraph
+    ygg
     reports
     claim_pack
     ;;

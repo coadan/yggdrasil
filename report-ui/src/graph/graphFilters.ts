@@ -1,4 +1,4 @@
-import type { AGraphEdge, AGraphGraph, AGraphNode } from "../data/types";
+import type { YggEdge, YggGraph, YggNode } from "../data/types";
 
 export type GraphFilters = {
   query: string;
@@ -15,7 +15,7 @@ export type FilterOption = {
 };
 
 export type FilteredGraph = {
-  graph: AGraphGraph;
+  graph: YggGraph;
   visibleNodes: number;
   visibleEdges: number;
 };
@@ -43,11 +43,11 @@ function includesNeedle(values: unknown[], needle: string): boolean {
   return values.some((value) => asText(value).toLowerCase().includes(needle));
 }
 
-function nodeClusterValues(node: AGraphNode): string[] {
+function nodeClusterValues(node: YggNode): string[] {
   return [node.clusterId, node.cluster_id, node.clusterLabel, node.cluster_label].filter(Boolean) as string[];
 }
 
-function nodeClusterOption(node: AGraphNode): FilterOption | null {
+function nodeClusterOption(node: YggNode): FilterOption | null {
   const value = node.clusterId || node.cluster_id || node.clusterLabel || node.cluster_label;
   if (!value) return null;
   return {
@@ -56,11 +56,11 @@ function nodeClusterOption(node: AGraphNode): FilterOption | null {
   };
 }
 
-function clusterLabel(cluster: NonNullable<AGraphGraph["clusters"]>[number]): string {
+function clusterLabel(cluster: NonNullable<YggGraph["clusters"]>[number]): string {
   return asText(cluster.label || cluster.sourceLabel || cluster.source_label || cluster.id || "cluster");
 }
 
-function clusterValue(cluster: NonNullable<AGraphGraph["clusters"]>[number]): string {
+function clusterValue(cluster: NonNullable<YggGraph["clusters"]>[number]): string {
   return asText(cluster.id || cluster.label || cluster.sourceLabel || cluster.source_label);
 }
 
@@ -68,7 +68,7 @@ function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b));
 }
 
-function nodeMatchesText(node: AGraphNode, needle: string): boolean {
+function nodeMatchesText(node: YggNode, needle: string): boolean {
   return includesNeedle(
     [
       node.id,
@@ -88,7 +88,7 @@ function nodeMatchesText(node: AGraphNode, needle: string): boolean {
   );
 }
 
-function edgeMatchesText(edge: AGraphEdge, needle: string): boolean {
+function edgeMatchesText(edge: YggEdge, needle: string): boolean {
   return includesNeedle(
     [
       edge.id,
@@ -105,7 +105,7 @@ function edgeMatchesText(edge: AGraphEdge, needle: string): boolean {
   );
 }
 
-function nodeMatchesFacet(node: AGraphNode, filters: GraphFilters): boolean {
+function nodeMatchesFacet(node: YggNode, filters: GraphFilters): boolean {
   if (filters.kind && node.kind !== filters.kind) return false;
   if (filters.cluster && !nodeClusterValues(node).includes(filters.cluster)) return false;
   return true;
@@ -119,7 +119,7 @@ function stableGroupId(value: string): string {
   return `external-api-group:${value.replace(/[^A-Za-z0-9_.:-]+/g, "_").slice(0, 180)}`;
 }
 
-function graphDegree(edges: AGraphEdge[]): Map<string, number> {
+function graphDegree(edges: YggEdge[]): Map<string, number> {
   const degree = new Map<string, number>();
   for (const edge of edges) {
     degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
@@ -133,7 +133,7 @@ function minimumDegree(filters: GraphFilters): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-function groupExternalApis(graph: AGraphGraph): AGraphGraph {
+function groupExternalApis(graph: YggGraph): YggGraph {
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
   const externalIds = new Set(graph.nodes.filter((node) => node.kind === externalApiKind).map((node) => node.id));
   if (externalIds.size === 0) return graph;
@@ -143,11 +143,11 @@ function groupExternalApis(graph: AGraphGraph): AGraphGraph {
     peerId: string;
     relation: string;
     externalIds: Set<string>;
-    edges: AGraphEdge[];
+    edges: YggEdge[];
   };
 
   const groups = new Map<string, Group>();
-  const edges: AGraphEdge[] = [];
+  const edges: YggEdge[] = [];
 
   for (const edge of graph.edges) {
     const sourceExternal = externalIds.has(edge.source);
@@ -179,8 +179,8 @@ function groupExternalApis(graph: AGraphGraph): AGraphGraph {
     groups.set(key, group);
   }
 
-  const groupedNodes: AGraphNode[] = [];
-  const groupedEdges: AGraphEdge[] = [];
+  const groupedNodes: YggNode[] = [];
+  const groupedEdges: YggEdge[] = [];
 
   for (const [key, group] of groups) {
     const groupId = stableGroupId(key);
@@ -225,7 +225,7 @@ function groupExternalApis(graph: AGraphGraph): AGraphGraph {
   };
 }
 
-function hideExternalApis(graph: AGraphGraph): AGraphGraph {
+function hideExternalApis(graph: YggGraph): YggGraph {
   const externalIds = new Set(graph.nodes.filter((node) => node.kind === externalApiKind).map((node) => node.id));
   if (externalIds.size === 0) return graph;
   return {
@@ -235,13 +235,13 @@ function hideExternalApis(graph: AGraphGraph): AGraphGraph {
   };
 }
 
-function applyExternalApiMode(graph: AGraphGraph, mode: GraphFilters["externalApiMode"]): AGraphGraph {
+function applyExternalApiMode(graph: YggGraph, mode: GraphFilters["externalApiMode"]): YggGraph {
   if (mode === "hide") return hideExternalApis(graph);
   if (mode === "group") return groupExternalApis(graph);
   return graph;
 }
 
-function applyMinimumDegree(graph: AGraphGraph, minDegree: number): AGraphGraph {
+function applyMinimumDegree(graph: YggGraph, minDegree: number): YggGraph {
   if (minDegree <= 0) return graph;
   const degree = graphDegree(graph.edges);
   const nodes = graph.nodes.filter((node) => (degree.get(node.id) || 0) >= minDegree);
@@ -263,7 +263,7 @@ export function normalizeFilters(filters: Partial<GraphFilters>): GraphFilters {
   };
 }
 
-export function graphFilterOptions(graph: AGraphGraph): {
+export function graphFilterOptions(graph: YggGraph): {
   kinds: string[];
   relations: string[];
   clusters: FilterOption[];
@@ -288,7 +288,7 @@ export function graphFilterOptions(graph: AGraphGraph): {
   };
 }
 
-export function filterGraph(graph: AGraphGraph, rawFilters: Partial<GraphFilters>): FilteredGraph {
+export function filterGraph(graph: YggGraph, rawFilters: Partial<GraphFilters>): FilteredGraph {
   const filters = normalizeFilters(rawFilters);
   const edgeTextMatches = new Set(
     graph.edges.filter((edge) => edgeMatchesText(edge, filters.query)).flatMap((edge) => [edge.source, edge.target])

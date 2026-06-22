@@ -1,6 +1,6 @@
 {:id "headline-architecture"
  :project-id "headline-architecture"
- :description "Small architecture-first headline suite for shell-only versus AGraph agent-efficiency runs."
+ :description "Small architecture-first headline suite for shell-only versus Yggdrasil agent-efficiency runs."
  :repos [{:id "bootstrap"
           :root "../.dev/oss-test-cases/repos/bootstrap"
           :role :application}

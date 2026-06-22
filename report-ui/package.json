@@ -1,5 +1,5 @@
 {
-  "name": "@agraph/report-ui",
+  "name": "@ygg/report-ui",
   "version": "0.0.0",
   "private": true,
   "type": "module",

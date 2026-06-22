@@ -22,12 +22,12 @@ Project-local report plugins default to `:benchmark-status :unbenchmarked`.
 Supported statuses are `:unbenchmarked` and `:benchmarked`; unsupported values
 fail config normalization.
 
-AGraph starts each plugin during `bb report`, writes a JSON packet to stdin, and
-expects a JSON result on stdout. Core AGraph dashboard panels use the same panel
+Yggdrasil starts each plugin during `bb report`, writes a JSON packet to stdin, and
+expects a JSON result on stdout. Core Yggdrasil dashboard panels use the same panel
 contract and are included in the same `report.plugins` registry.
 
 Use `bb plugin input report <package-dir> --json` to inspect the exact input
-packet AGraph will send to one selected package report plugin without executing
+packet Yggdrasil will send to one selected package report plugin without executing
 the plugin command.
 Use `bb plugin gap report <package-dir> --json` when an agent needs the full
 authoring packet: report input sample, output contract, proof commands,
@@ -39,18 +39,18 @@ install, pinning, and ecosystem rules.
 
 ## Input
 
-Plugins receive `agraph.report-plugin.input/v1`:
+Plugins receive `ygg.report-plugin.input/v1`:
 
 ```json
 {
-  "schema": "agraph.report-plugin.input/v1",
+  "schema": "ygg.report-plugin.input/v1",
   "project": {"id": "my-project", "name": "My Project", "path": "project.edn"},
   "generatedAtMs": 12345,
   "plugin": {"id": "planning-panel", "version": "0.1.0"},
-  "report": {"schema": "agraph.report/v2"},
+  "report": {"schema": "ygg.report/v2"},
   "graphs": {
-    "overview": {"schema": "agraph.graph/v2", "nodes": [], "edges": []},
-    "systems": {"schema": "agraph.graph/v2", "nodes": [], "edges": []}
+    "overview": {"schema": "ygg.graph/v2", "nodes": [], "edges": []},
+    "systems": {"schema": "ygg.graph/v2", "nodes": [], "edges": []}
   },
   "coverage": {},
   "maintenance": {},
@@ -76,11 +76,11 @@ neighborhoods in its own way when a project needs a different report surface.
 
 ## Output
 
-Plugins return `agraph.report-plugin.result/v1`:
+Plugins return `ygg.report-plugin.result/v1`:
 
 ```json
 {
-  "schema": "agraph.report-plugin.result/v1",
+  "schema": "ygg.report-plugin.result/v1",
   "panels": [
     {
       "id": "graph-crawl",
@@ -111,7 +111,7 @@ The browser does not execute plugin JavaScript. Unsupported expressions are
 shown as skipped content so report plugins can fail visibly without taking over
 the dashboard runtime.
 
-AGraph normalizes plugin results before they reach the UI. `panels`,
+Yggdrasil normalizes plugin results before they reach the UI. `panels`,
 `diagnostics`, and `artifacts` must be arrays. Malformed arrays or malformed
 rows are converted into plugin diagnostics while valid sibling rows are still
 kept in the bundle.
@@ -121,7 +121,7 @@ packaged plugins that summary carries package id, version, package source,
 pinned revision, manifest fingerprint, claim authority, and benchmark status, so
 report output remains tied to the installed package contract.
 
-AGraph also stamps row-level provenance after parsing plugin output:
+Yggdrasil also stamps row-level provenance after parsing plugin output:
 
 - `:provenance`
 - `:plugin-id`, `:plugin-version`, `:plugin-fingerprint`, and
@@ -158,7 +158,7 @@ for node in nodes:
 
 json.dump(
     {
-        "schema": "agraph.report-plugin.result/v1",
+        "schema": "ygg.report-plugin.result/v1",
         "panels": [
             {
                 "id": "systems-by-kind",
@@ -228,4 +228,4 @@ opening raw report JSON.
 Report plugins are presentation and planning tools. They should emit panel data,
 diagnostics, or artifacts for review. They should not mutate graph facts or
 write accepted semantic corrections directly; accepted corrections still belong
-in validated `agraph.map.json` flows.
+in validated `ygg.map.json` flows.

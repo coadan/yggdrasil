@@ -1,0 +1,33 @@
+class Yggdrasil < Formula
+  desc "Local-first graph tooling for coding agents working on complex systems"
+  homepage "https://github.com/OWNER/yggdrasil"
+  url "https://github.com/OWNER/yggdrasil/archive/refs/tags/v0.1.0.tar.gz"
+  sha256 "REPLACE_WITH_RELEASE_TARBALL_SHA256"
+  license "MIT"
+  head "https://github.com/OWNER/yggdrasil.git", branch: "main"
+
+  depends_on "clojure/tools/clojure"
+  depends_on "git"
+  depends_on "openjdk@21"
+
+  def install
+    libexec.install Dir["*"]
+
+    (bin/"ygg").write <<~EOS
+      #!/usr/bin/env bash
+      set -euo pipefail
+      export JAVA_HOME="#{Formula["openjdk@21"].opt_prefix}"
+      exec "#{libexec}/bin/ygg" "$@"
+    EOS
+
+    (bin/"ygg-mcp").write <<~EOS
+      #!/usr/bin/env bash
+      set -euo pipefail
+      exec "#{bin}/ygg" mcp "$@"
+    EOS
+  end
+
+  test do
+    assert_match "Usage:", shell_output("#{bin}/ygg help")
+  end
+end

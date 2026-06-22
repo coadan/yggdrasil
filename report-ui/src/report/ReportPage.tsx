@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import type { AGraphGraph, AGraphReport } from "../data/types";
+import type { YggGraph, YggReport } from "../data/types";
 import { edgeRelationRows, fileKindRows, nodeKindRows, numericCount } from "../data/reportAdapter";
 import { GraphPanel } from "../graph/GraphPanel";
 import {
@@ -52,7 +52,7 @@ import { graphSlices, type GraphSlice } from "./graphSlices";
 import { reviewQueueRows } from "./reviewQueue";
 import { displayValue } from "./valueFormat";
 
-function ExternalApiReview({ report }: { report: AGraphReport }) {
+function ExternalApiReview({ report }: { report: YggReport }) {
   const review = externalApiReview(report);
   if (!review) return null;
 
@@ -111,7 +111,7 @@ function ProjectAuditScopes({
   onAsk,
   onOpenTab
 }: {
-  report: AGraphReport;
+  report: YggReport;
   onAsk: (scope: AskScope) => void;
   onOpenTab: (tab: ReportTab) => void;
 }) {
@@ -279,8 +279,8 @@ function AtlasTab({
   onOpenTab,
   copiedActionKey
 }: {
-  report: AGraphReport;
-  graph: AGraphGraph;
+  report: YggReport;
+  graph: YggGraph;
   onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
@@ -409,8 +409,8 @@ function SystemsTab({
   selectedSliceId,
   onSelectSlice
 }: {
-  report: AGraphReport;
-  graph: AGraphGraph;
+  report: YggReport;
+  graph: YggGraph;
   onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
@@ -482,7 +482,7 @@ function FocusedGraphSlices({
   selectedSliceId,
   onSelect
 }: {
-  graph: AGraphGraph;
+  graph: YggGraph;
   onAsk: (scope: AskScope) => void;
   selectedSlice: GraphSlice | null;
   slices: GraphSlice[];
@@ -546,21 +546,21 @@ function FocusedGraphSlices({
   );
 }
 
-function dependencyCommands(report: AGraphReport): string[] {
+function dependencyCommands(report: YggReport): string[] {
   const projectId = report.project.id;
   const packages = asRecord(report.packages);
   const counts = asRecord(packages.counts);
-  const commands = new Set<string>([`agraph packages --project ${projectId} --json`]);
+  const commands = new Set<string>([`ygg packages --project ${projectId} --json`]);
 
   if (countValue(counts, "version-conflicts") > 0) {
-    commands.add(`agraph packages --project ${projectId} --with-conflicts --json`);
+    commands.add(`ygg packages --project ${projectId} --with-conflicts --json`);
   }
   if (countValue(counts, "declared-without-import-evidence") > 0) {
-    commands.add(`agraph packages --project ${projectId} --without-import-evidence --json`);
+    commands.add(`ygg packages --project ${projectId} --without-import-evidence --json`);
   }
   for (const row of asRows(packages.ecosystems)) {
     const ecosystem = displayValue(row.ecosystem);
-    if (ecosystem) commands.add(`agraph packages --project ${projectId} --ecosystem ${ecosystem} --json`);
+    if (ecosystem) commands.add(`ygg packages --project ${projectId} --ecosystem ${ecosystem} --json`);
   }
   return [...commands];
 }
@@ -573,7 +573,7 @@ function DependenciesTab({
   onOpenGraphSlice,
   onOpenTab
 }: {
-  report: AGraphReport;
+  report: YggReport;
   copiedActionKey: string | null;
   onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
@@ -650,7 +650,7 @@ function EvidenceFreshnessPanel({
   copiedKey,
   onCopyCommand
 }: {
-  report: AGraphReport;
+  report: YggReport;
   onAsk: (scope: AskScope) => void;
   copiedKey: string | null;
   onCopyCommand: (key: string, command: string) => void;
@@ -743,7 +743,7 @@ function EvidenceTab({
   onOpenGraphSlice,
   onOpenTab
 }: {
-  report: AGraphReport;
+  report: YggReport;
   copiedActionKey: string | null;
   onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
@@ -810,7 +810,7 @@ function CorrectionWorkflow({
   onAsk,
   onCopyCommand
 }: {
-  report: AGraphReport;
+  report: YggReport;
   copiedKey: string | null;
   onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
@@ -829,7 +829,7 @@ function CorrectionWorkflow({
       <div className="panel-header">
         <div>
           <h2>Correction Workflow</h2>
-          <p className="muted">Validated path from review evidence to accepted `agraph.map.json` corrections.</p>
+          <p className="muted">Validated path from review evidence to accepted `ygg.map.json` corrections.</p>
         </div>
         <div className="action-row-buttons">
           <button
@@ -903,7 +903,7 @@ function MaintenanceTab({
   onOpenGraphSlice,
   onOpenTab
 }: {
-  report: AGraphReport;
+  report: YggReport;
   copiedActionKey: string | null;
   onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
@@ -972,8 +972,8 @@ function DashboardTab({
   onOpenTab,
   copiedActionKey
 }: {
-  report: AGraphReport;
-  graph: AGraphGraph;
+  report: YggReport;
+  graph: YggGraph;
   onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
@@ -1105,7 +1105,7 @@ function claimBlockers(row: Record<string, unknown>): string {
     .join(",");
 }
 
-function PluginPackageCaveats({ report }: { report: AGraphReport }) {
+function PluginPackageCaveats({ report }: { report: YggReport }) {
   const pluginPackages = report["plugin-packages"] || report.pluginPackages;
   const counts = asRecord(pluginPackages?.counts);
   const rows = asRows(pluginPackages?.packages).map((row) => ({
@@ -1185,7 +1185,7 @@ function PluginsTab({
   onOpenGraphSlice,
   onOpenTab
 }: {
-  report: AGraphReport;
+  report: YggReport;
   copiedActionKey: string | null;
   onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
@@ -1221,8 +1221,8 @@ function AskTab({
   copiedKey,
   onCopyCommand
 }: {
-  report: AGraphReport;
-  graph: AGraphGraph;
+  report: YggReport;
+  graph: YggGraph;
   scope: AskScope | null;
   copiedKey: string | null;
   onCopyCommand: (key: string, command: string) => void;
@@ -1357,7 +1357,7 @@ function AskTab({
   );
 }
 
-export function ReportPage({ report, graph }: { report: AGraphReport; graph: AGraphGraph }) {
+export function ReportPage({ report, graph }: { report: YggReport; graph: YggGraph }) {
   const [activeTab, setActiveTab] = useState<ReportTab>("dashboard");
   const [askScope, setAskScope] = useState<AskScope | null>(null);
   const [systemSliceId, setSystemSliceId] = useState<string>("");

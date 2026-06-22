@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to AGraph will be documented here.
+All notable changes to Yggdrasil will be documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning
 once public releases begin.

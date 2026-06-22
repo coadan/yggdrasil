@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Local semantic-vector benchmark baseline for AGraph issue replay.
+"""Local semantic-vector benchmark baseline for Yggdrasil issue replay.
 
-This script is intentionally a benchmark worker, not AGraph core. It uses a
+This script is intentionally a benchmark worker, not Yggdrasil core. It uses a
 local sentence-transformers model to rank files by cosine similarity to the
 issue text and writes the standard agent-result JSON shape.
 """
@@ -165,10 +165,10 @@ def main(argv: list[str]) -> int:
         for idx, (rel, score) in enumerate(ranked[:limit])
     ]
     result = {
-        "schema": "agraph.benchmark.agent-result/v2",
+        "schema": "ygg.benchmark.agent-result/v2",
         "caseId": request.get("caseId"),
         "caseFingerprint": request.get("caseFingerprint"),
-        "agentId": request.get("agentId") or "agraph-baseline-local-vector",
+        "agentId": request.get("agentId") or "ygg-baseline-local-vector",
         "mode": "local-vector",
         "suspectedFiles": suspected_files,
         "suspectedSymbols": [],

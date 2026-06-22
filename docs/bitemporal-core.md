@@ -1,12 +1,12 @@
 # Bitemporal Core
 
-AGraph stores graph facts in XTDB using valid time for source/project time and
-XTDB system time for when AGraph learned or corrected those facts.
+Yggdrasil stores graph facts in XTDB using valid time for source/project time and
+XTDB system time for when Yggdrasil learned or corrected those facts.
 
 Current implementation status:
 
-- Source snapshots are persisted in `:agraph/source-snapshots`.
-- Index runs are persisted in `:agraph/index-runs` and keep `snapshot-id` plus
+- Source snapshots are persisted in `:ygg/source-snapshots`.
+- Index runs are persisted in `:ygg/index-runs` and keep `snapshot-id` plus
   `valid-from`.
 - File-owned graph rows are written at the snapshot `basis-instant`.
 - Removed files and replaced file-owned facts use temporal `delete-docs` at the
@@ -37,10 +37,10 @@ system-time replay should use `snapshot-token`.
 CLI reads support:
 
 ```sh
-agraph view deps sample.core --valid-at 2026-01-01T00:00:00Z
-agraph view deps sample.core --format json --valid-at 2026-01-01T00:00:00Z
-agraph ask "greeting flow" --valid-at 2026-01-01T00:00:00Z
-agraph ask "api gateway" --project sample --json --valid-at 2026-01-01T00:00:00Z
+ygg view deps sample.core --valid-at 2026-01-01T00:00:00Z
+ygg view deps sample.core --format json --valid-at 2026-01-01T00:00:00Z
+ygg ask "greeting flow" --valid-at 2026-01-01T00:00:00Z
+ygg ask "api gateway" --project sample --json --valid-at 2026-01-01T00:00:00Z
 ```
 
 ## Snapshot Semantics
@@ -71,9 +71,9 @@ into XTDB `:put-docs` and `:delete-docs` operations.
 
 Custom metadata uses XTDB tables for definitions, values, and graph views:
 
-- `:agraph/metadata-defs`
-- `:agraph/metadata`
-- `:agraph/graph-views`
+- `:ygg/metadata-defs`
+- `:ygg/metadata`
+- `:ygg/graph-views`
 
 Metadata values attach to graph target ids and can be read with `--valid-at`.
 Definitions declare value type, cardinality, display behavior, and whether a key
@@ -83,7 +83,7 @@ and `metrics` so consumers can customize views without schema changes.
 ## Remaining Work
 
 - Remove `active?` from canonical graph schemas and call sites.
-- Move code/system evidence into `:agraph/evidence`.
+- Move code/system evidence into `:ygg/evidence`.
 - Add `snapshots`, `runs`, `history`, and `diff` commands.
 - Persist exact snapshot-token metadata once the driver integration exposes the
   right serializable token.

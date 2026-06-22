@@ -1,4 +1,4 @@
-import type { AGraphReport } from "../data/types";
+import type { YggReport } from "../data/types";
 
 export type ReviewQueueRow = {
   id: string;
@@ -36,21 +36,21 @@ function countValue(value: unknown, key: string): number {
   return typeof cell === "number" ? cell : 0;
 }
 
-function firstCommand(report: AGraphReport, patterns: RegExp[]): string | undefined {
+function firstCommand(report: YggReport, patterns: RegExp[]): string | undefined {
   return report.commands.find((command) => patterns.some((pattern) => pattern.test(command)));
 }
 
-function maintenanceRows(report: AGraphReport, key: string): Array<Record<string, unknown>> {
+function maintenanceRows(report: YggReport, key: string): Array<Record<string, unknown>> {
   const maintenance = asRecord(report.maintenance);
   return asRows(maintenance[key] || maintenance[key.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())]);
 }
 
-function packageRows(report: AGraphReport, key: string): Array<Record<string, unknown>> {
+function packageRows(report: YggReport, key: string): Array<Record<string, unknown>> {
   const packages = asRecord(report.packages);
   return asRows(packages[key] || packages[key.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())]);
 }
 
-function externalApiReview(report: AGraphReport): Record<string, unknown> {
+function externalApiReview(report: YggReport): Record<string, unknown> {
   const maintenance = asRecord(report.maintenance);
   return asRecord(maintenance.externalApiReview || maintenance["external-api-review"] || maintenance.external_api_review);
 }
@@ -72,7 +72,7 @@ function freshnessEvidenceRows(freshness: Record<string, unknown>): Array<Record
   });
 }
 
-function freshnessRow(report: AGraphReport): ReviewQueueRow | null {
+function freshnessRow(report: YggReport): ReviewQueueRow | null {
   const freshness = asRecord(report.evidence.freshness);
   if (freshness.status !== "stale") return null;
   const counts = asRecord(freshness.counts);
@@ -95,7 +95,7 @@ function freshnessRow(report: AGraphReport): ReviewQueueRow | null {
   };
 }
 
-function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
+function dependencyRows(report: YggReport): ReviewQueueRow[] {
   const packages = asRecord(report.packages);
   const counts = asRecord(packages.counts);
   const command = firstCommand(report, [/packages/, /dependency-review/, /sync check/]);
@@ -160,7 +160,7 @@ function dependencyRows(report: AGraphReport): ReviewQueueRow[] {
   return rows;
 }
 
-function maintenanceReviewRows(report: AGraphReport): ReviewQueueRow[] {
+function maintenanceReviewRows(report: YggReport): ReviewQueueRow[] {
   const command = firstCommand(report, [/sync work/, /sync check/, /audit-scope/]);
   const groups = [
     { key: "decision-queue", area: "Maintenance", label: "Apply or reject pending graph decisions", severity: "high" as const },
@@ -202,7 +202,7 @@ function maintenanceReviewRows(report: AGraphReport): ReviewQueueRow[] {
   });
 }
 
-function externalRows(report: AGraphReport): ReviewQueueRow[] {
+function externalRows(report: YggReport): ReviewQueueRow[] {
   const review = externalApiReview(report);
   const counts = asRecord(review.counts);
   const fanouts = asRows(review["source-fanouts"] || review.sourceFanouts || review.source_fanouts);
@@ -228,7 +228,7 @@ function externalRows(report: AGraphReport): ReviewQueueRow[] {
   ];
 }
 
-function diagnosticRows(report: AGraphReport): ReviewQueueRow[] {
+function diagnosticRows(report: YggReport): ReviewQueueRow[] {
   const coverage = asRecord(report.coverage);
   const diagnostics = asRecord(coverage.diagnostics);
   const diagnosticCount = countValue(diagnostics, "total") || countValue(report.evidence.counts, "diagnostics");
@@ -266,7 +266,7 @@ function diagnosticRows(report: AGraphReport): ReviewQueueRow[] {
   return rows;
 }
 
-export function reviewQueueRows(report: AGraphReport): ReviewQueueRow[] {
+export function reviewQueueRows(report: YggReport): ReviewQueueRow[] {
   return [
     freshnessRow(report),
     ...dependencyRows(report),

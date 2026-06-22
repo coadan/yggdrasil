@@ -1,6 +1,6 @@
 # Agent Guide
 
-AGraph is in heavy development. Default to aggressive refactors that
+Yggdrasil is in heavy development. Default to aggressive refactors that
 canonicalize concepts, names, data shapes, and workflows instead of preserving
 backwards compatibility. Prefer one clear canonical path over compatibility
 layers, aliases, or parallel legacy behavior unless the user explicitly asks for
@@ -17,13 +17,13 @@ metrics, and stable row shapes. Leave open-ended semantic judgment, merging,
 classification, and use-case-specific meaning to humans or LLM-backed corrections;
 do not recreate that reasoning with brittle rules.
 
-Hard boundary: AGraph core must not contain semantic heuristics that classify
+Hard boundary: Yggdrasil core must not contain semantic heuristics that classify
 project meaning from names, hosts, path vocabulary, prose, or substring lists.
 Examples of forbidden core logic: "docs-like host", "service-like path",
 "library-like folder", "test/example URL means non-runtime", or similar
 semantic shortcuts. When such judgment is useful, expose a bounded decision with
 ids, evidence rows, graph neighborhood, and recommended actions so a human or
-LLM can decide and write the accepted result into metadata or `agraph.map.json`.
+LLM can decide and write the accepted result into metadata or `ygg.map.json`.
 Deterministic code may rank by mechanical facts such as relation type,
 evidence count, degree, file kind, parser output, and graph topology; it must
 not pretend those facts are final architecture semantics.
@@ -31,19 +31,19 @@ not pretend those facts are final architecture semantics.
 Use the filesystem queue as the durable provider-agnostic handoff for agent
 packets. Queue items are transport and lease state only; embedded payloads stay
 explicit JSON, and semantic results must return as auditable JSON artifacts that
-can be validated and folded into `agraph.map.json` or metadata. Do not make AGraph core
+can be validated and folded into `ygg.map.json` or metadata. Do not make Yggdrasil core
 depend on one LLM provider, hidden agent loop, or semantic classifier path.
 
 Keep implementation local-first and deterministic. XTDB stores durable graph
 facts and audit history; semantic/vector providers are optional later backends.
 
-Do not justify AGraph agent-efficiency work with hand-wavy claims. Any claim
-that AGraph makes agents faster, easier, or more effective must point to
-replayable shell-only versus AGraph evidence: benchmark reports, `bb efficiency`
+Do not justify Yggdrasil agent-efficiency work with hand-wavy claims. Any claim
+that Yggdrasil makes agents faster, easier, or more effective must point to
+replayable shell-only versus Yggdrasil evidence: benchmark reports, `bb efficiency`
 summaries, command counts, timing, localization, citation rates, or patch
 success. Efficiency suites must include manually tagged problem classes, not
 only simple file-localization issues, and claims should name the class where
-AGraph helped or regressed. Include architecture-class cases, using synthetic
+Yggdrasil helped or regressed. Include architecture-class cases, using synthetic
 OSS-corpus prompts with curated ground truth when necessary. Treat anecdotes as
 hypotheses until measured.
 
@@ -60,31 +60,31 @@ Core commands:
 
 - `bb start <repo-root> --project <project-id>`
 - `bb sync <project.edn>`
-- `bb sync <project.edn> --check --map agraph.map.json`
+- `bb sync <project.edn> --check --map ygg.map.json`
 - `bb sync work pull --project <project-id> --agent <agent-id>`
 - `bb ask "text" --project <project-id>`
 - `bb explore create "text" --project <project-id>`
 - `bb view systems --project <project-id>`
 - `bb packages --project <project-id> --json`
-- `bb efficiency <shell-agent-report.json> <agraph-agent-report.json> --json`
-- `bb report <project.edn> --map agraph.map.json --out agraph-out`
-- `agraph-mcp --config project.edn --map agraph.map.json`
+- `bb efficiency <shell-agent-report.json> <ygg-agent-report.json> --json`
+- `bb report <project.edn> --map ygg.map.json --out ygg-out`
+- `ygg-mcp --config project.edn --map ygg.map.json`
 - `bb test`
 - `bb lint`
 - `bb format:check`
 
 Keep setup commands noun-scoped. Agent guidance is installed with
-`agraph agent install --platform codex --project` and removed with
-`agraph agent uninstall --platform codex --project`; do not introduce or
-document top-level `agraph install` / `agraph uninstall` wrappers for this
+`ygg agent install --platform codex --project` and removed with
+`ygg agent uninstall --platform codex --project`; do not introduce or
+document top-level `ygg install` / `ygg uninstall` wrappers for this
 flow.
 
 When a task depends on project structure, ownership, dependencies, or system
-boundaries, inspect AGraph before making broad assumptions:
+boundaries, inspect Yggdrasil before making broad assumptions:
 
 ```sh
 bb sync inspect project.edn
-bb sync project.edn --check --map agraph.map.json
+bb sync project.edn --check --map ygg.map.json
 ```
 
 Use `bb ask` for one-shot graph questions and `bb explore` for multi-step
@@ -93,17 +93,17 @@ context unless the task explicitly needs broad inventory. Use `bb view` only
 when a rendered or exported graph slice helps.
 
 If sync reports maintenance work, claim one bounded item at a time and inspect
-the evidence. For manual corrections, use `agraph map` before completion so
-`agraph.map.json` stays behind the validated correction API. For structured
-work results, complete the item first, then run `bb sync work apply` so AGraph
-validates the result before editing `agraph.map.json`:
+the evidence. For manual corrections, use `ygg map` before completion so
+`ygg.map.json` stays behind the validated correction API. For structured
+work results, complete the item first, then run `bb sync work apply` so Yggdrasil
+validates the result before editing `ygg.map.json`:
 
 ```sh
 bb sync work pull --project <project-id> --agent <agent-id>
-agraph map explain <target> --map agraph.map.json
-agraph map reject external-api <host> --map agraph.map.json --reason "<reason>"
+ygg map explain <target> --map ygg.map.json
+ygg map reject external-api <host> --map ygg.map.json --reason "<reason>"
 bb sync work complete <work-id> --result result.json
-bb sync work apply <work-id> --map agraph.map.json
+bb sync work apply <work-id> --map ygg.map.json
 ```
 
 Prefer small, pure extractors and one store boundary that writes a complete

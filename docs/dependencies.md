@@ -1,6 +1,6 @@
 # Dependencies
 
-AGraph is distributed as a native CLI and a Docker image.
+Yggdrasil is distributed as a native CLI and a Docker image.
 
 ## Runtime
 
@@ -25,15 +25,15 @@ use does not require a Node.js toolchain, TypeScript compiler, Terraform binary,
 OpenAPI generator, or package-manager install.
 
 The report and graph HTML viewer is built from `report-ui/` into
-`resources/agraph/report-ui/`. Runtime CLI use does not require Node when those
+`resources/ygg/report-ui/`. Runtime CLI use does not require Node when those
 compiled assets are present. The canonical graph export remains plain
-`agraph.graph/v2` JSON.
+`ygg.graph/v2` JSON.
 
 For hot-reload development of that viewer, use the Vite server from
 `report-ui/` and point it at a generated report directory:
 
 ```sh
-bb report project.edn --map agraph.map.json --out .dev/reports/live --force
+bb report project.edn --map ygg.map.json --out .dev/reports/live --force
 bb report-ui:dev -- --host 0.0.0.0 --port 5173
 open "http://localhost:5173/?reportDir=$(pwd)/.dev/reports/live"
 ```
@@ -44,11 +44,11 @@ Use the package report for dependency inventory that should stay grounded in
 bounded graph facts:
 
 ```sh
-agraph packages --project <project-id> [--repo <repo-id>] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]
+ygg packages --project <project-id> [--repo <repo-id>] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]
 bb packages --project <project-id> [--repo <repo-id>] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]
 ```
 
-The JSON schema is `agraph.dependency.report/v1`. The report joins manifest
+The JSON schema is `ygg.dependency.report/v1`. The report joins manifest
 declarations, lockfile resolutions, mechanically resolved
 source-import-to-package evidence, and unresolved source imports into:
 
@@ -66,7 +66,7 @@ source-import-to-package evidence, and unresolved source imports into:
 Evidence gaps are not unused dependency findings. They are bounded facts for a
 human or agent to inspect.
 
-The package report and project evidence surface (`agraph.evidence/v2` in reports
+The package report and project evidence surface (`ygg.evidence/v2` in reports
 and `sync inspect --json`) include dependency counts plus `next` commands and
 structured `nextActions` rows when declared-package evidence gaps, version
 conflicts, or unresolved imports are present. Agents should prefer `nextActions`
@@ -74,15 +74,15 @@ because each row carries a bounded `kind`, `label`, optional `count`, and
 executable `command`.
 
 `sync check --enqueue` turns unresolved imports into
-`agraph.dependency.review-packet/v1` queue items. A completed
-`agraph.dependency.review-result/v1` can apply an explicit `packageImports`
-correction to `agraph.map.json`; the result must cite packet evidence and choose
+`ygg.dependency.review-packet/v1` queue items. A completed
+`ygg.dependency.review-result/v1` can apply an explicit `packageImports`
+correction to `ygg.map.json`; the result must cite packet evidence and choose
 one package from the packet. Applied corrections retain the dependency review id,
 rules source, evidence ids, reason, and result or patch confidence for audit.
-Use `agraph sync work validate <work-id>` before `apply` when a human or agent
+Use `ygg sync work validate <work-id>` before `apply` when a human or agent
 has written the result JSON and wants a non-mutating schema/evidence check.
-When the reviewer already knows the mapping, `agraph map package import
-<import-prefix> <ecosystem>:<package> --map agraph.map.json` records the same
+When the reviewer already knows the mapping, `ygg map package import
+<import-prefix> <ecosystem>:<package> --map ygg.map.json` records the same
 accepted correction path directly.
 Packets include `facts.packageSelection` with total package rows, included rows,
 packet limit, truncation flag, `matchingPackages`, and the mechanical selection
@@ -93,7 +93,7 @@ an exact import or import-prefix match, so reviewers can see why a package was
 included. Package candidates preserve manifest facts such as `version-range` and
 `dependency-scope` when those rows are indexed.
 
-Use `agraph view deps <package-label>` for a package evidence graph. For package
+Use `ygg view deps <package-label>` for a package evidence graph. For package
 nodes, `deps` includes the declaring manifests, resolved lockfile versions,
 lockfiles that resolved those versions, and source namespaces with import
 evidence.
@@ -105,7 +105,7 @@ import names:
 [project]
 dependencies = ["beautifulsoup4>=4"]
 
-[tool.agraph.import-names]
+[tool.ygg.import-names]
 beautifulsoup4 = ["bs4"]
 ```
 
@@ -113,8 +113,8 @@ JVM package imports are resolved only through accepted map corrections because
 Maven coordinates do not mechanically imply Java package roots:
 
 ```sh
-agraph map package import org.slf4j maven:org.slf4j:slf4j-api \
-  --map agraph.map.json \
+ygg map package import org.slf4j maven:org.slf4j:slf4j-api \
+  --map ygg.map.json \
   --reason "slf4j-api exports org.slf4j"
 ```
 
@@ -134,8 +134,8 @@ scripts/install-macos.sh
 
 The installer links:
 
-- `agraph`
-- `agraph-mcp`
+- `ygg`
+- `ygg-mcp`
 
 to `$HOME/.local/bin` by default. Use `--prefix DIR` to choose another prefix.
 

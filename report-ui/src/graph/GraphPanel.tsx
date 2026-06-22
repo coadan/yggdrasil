@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { SigmaContainer, useCamera, useLoadGraph, useRegisterEvents } from "@react-sigma/core";
 import "@react-sigma/core/lib/style.css";
-import { edgeKey, type GraphLayout, toGraphology } from "../data/agraphGraphAdapter";
-import type { AGraphEdge, AGraphGraph, AGraphNode } from "../data/types";
+import { edgeKey, type GraphLayout, toGraphology } from "../data/yggGraphAdapter";
+import type { YggEdge, YggGraph, YggNode } from "../data/types";
 import { displayValue } from "../report/valueFormat";
 import { filterGraph, graphFilterOptions, type GraphFilters } from "./graphFilters";
 
@@ -19,7 +19,7 @@ type Selection = {
 };
 
 type GraphPanelProps = {
-  graph: AGraphGraph;
+  graph: YggGraph;
   onAsk?: (scope: GraphAskScope) => void;
 };
 
@@ -58,7 +58,7 @@ function GraphRuntime({
   return null;
 }
 
-function selectedRow(graph: AGraphGraph, selection: Selection | null): AGraphNode | AGraphEdge | null {
+function selectedRow(graph: YggGraph, selection: Selection | null): YggNode | YggEdge | null {
   if (!selection) return null;
   if (selection.type === "node") {
     return graph.nodes.find((node) => node.id === selection.id) || null;
@@ -66,15 +66,15 @@ function selectedRow(graph: AGraphGraph, selection: Selection | null): AGraphNod
   return graph.edges.find((edge) => edgeKey(edge) === selection.id) || null;
 }
 
-function rowLabel(row: AGraphNode | AGraphEdge): string {
-  return displayValue((row as AGraphNode).label || (row as AGraphNode).id || (row as AGraphEdge).relation) || "graph row";
+function rowLabel(row: YggNode | YggEdge): string {
+  return displayValue((row as YggNode).label || (row as YggNode).id || (row as YggEdge).relation) || "graph row";
 }
 
-function rowSource(graph: AGraphGraph, selection: Selection): string {
+function rowSource(graph: YggGraph, selection: Selection): string {
   return `graph.${graph.title || "untitled"}.${selection.type}.${selection.id}`;
 }
 
-function detailEntries(row: AGraphNode | AGraphEdge, keys: string[]): Array<[string, unknown]> {
+function detailEntries(row: YggNode | YggEdge, keys: string[]): Array<[string, unknown]> {
   const record = row as Record<string, unknown>;
   return keys.map((key) => [key, record[key]] as [string, unknown]).filter(([, value]) => displayValue(value));
 }
@@ -101,7 +101,7 @@ function DetailSection({ title, rows }: { title: string; rows: Array<[string, un
   );
 }
 
-function DetailRows({ row }: { row: AGraphNode | AGraphEdge | null }) {
+function DetailRows({ row }: { row: YggNode | YggEdge | null }) {
   if (!row) {
     return <p className="muted">No selection.</p>;
   }
@@ -127,8 +127,8 @@ function DetailRows({ row }: { row: AGraphNode | AGraphEdge | null }) {
   return (
     <div className="detail-sections">
       <DetailSection title="Identity" rows={detailEntries(row, identityKeys)} />
-      <DetailSection title="Metrics" rows={recordEntries((row as AGraphNode).metrics)} />
-      <DetailSection title="Attributes" rows={recordEntries((row as AGraphNode).attrs)} />
+      <DetailSection title="Metrics" rows={recordEntries((row as YggNode).metrics)} />
+      <DetailSection title="Attributes" rows={recordEntries((row as YggNode).attrs)} />
       <DetailSection title="Raw" rows={rawRows} />
     </div>
   );
@@ -138,7 +138,7 @@ function GraphRowsPreview({
   graph,
   onSelect
 }: {
-  graph: AGraphGraph;
+  graph: YggGraph;
   onSelect: (selection: Selection) => void;
 }) {
   const nodeRows = graph.nodes.slice(0, 5);
@@ -210,8 +210,8 @@ function GraphRowActions({
   selection,
   onAsk
 }: {
-  graph: AGraphGraph;
-  row: AGraphNode | AGraphEdge | null;
+  graph: YggGraph;
+  row: YggNode | YggEdge | null;
   selection: Selection | null;
   onAsk?: (scope: GraphAskScope) => void;
 }) {
@@ -260,15 +260,15 @@ function GraphRowActions({
   );
 }
 
-function externalApiCount(graph: AGraphGraph): number {
+function externalApiCount(graph: YggGraph): number {
   return graph.nodes.filter((node) => node.kind === "external-api").length;
 }
 
-function defaultExternalApiMode(graph: AGraphGraph): GraphFilters["externalApiMode"] {
+function defaultExternalApiMode(graph: YggGraph): GraphFilters["externalApiMode"] {
   return externalApiCount(graph) >= 20 ? "group" : "show";
 }
 
-function emptyFiltersForGraph(graph: AGraphGraph): GraphFilters {
+function emptyFiltersForGraph(graph: YggGraph): GraphFilters {
   return {
     query: "",
     kind: "",

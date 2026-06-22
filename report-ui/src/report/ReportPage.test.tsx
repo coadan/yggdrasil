@@ -38,7 +38,7 @@ describe("ReportPage", () => {
 
     expect(screen.getByText("Fixture")).toBeInTheDocument();
     expect(screen.getByText("Project Atlas")).toBeInTheDocument();
-    expect(screen.queryByText("agraph-core-report")).not.toBeInTheDocument();
+    expect(screen.queryByText("ygg-core-report")).not.toBeInTheDocument();
     expect(screen.getByText("Audit Scopes")).toBeInTheDocument();
     expect(screen.getByText("Evidence Families")).toBeInTheDocument();
     expect(screen.getByText("Evidence Kinds")).toBeInTheDocument();
@@ -51,8 +51,8 @@ describe("ReportPage", () => {
     expect(screen.getByText("Report Actions")).toBeInTheDocument();
     expect(screen.getByText("Regenerate report")).toBeInTheDocument();
     expect(screen.getByText("Enqueue review work")).toBeInTheDocument();
-    expect(screen.getByText("agraph sync project.edn --check --map agraph.map.json --enqueue")).toBeInTheDocument();
-    expect(screen.getByText("agraph report project.edn --map agraph.map.json --out agraph-out")).toBeInTheDocument();
+    expect(screen.getByText("ygg sync project.edn --check --map ygg.map.json --enqueue")).toBeInTheDocument();
+    expect(screen.getByText("ygg report project.edn --map ygg.map.json --out ygg-out")).toBeInTheDocument();
     expect(screen.getByText("packages.unresolved-imports")).toBeInTheDocument();
     expect(screen.getAllByText("Evidence Rows").length).toBeGreaterThan(0);
     expect(screen.getByText("src/app/core.clj")).toBeInTheDocument();
@@ -95,7 +95,7 @@ describe("ReportPage", () => {
     expect(screen.getByText("datastar-hiccup")).toBeInTheDocument();
     expect(screen.getAllByText("unbenchmarked").length).toBeGreaterThan(0);
     expect(screen.getByText("non-authoritative")).toBeInTheDocument();
-    expect(screen.getByText("agraph plugin diagnose .dev/agraph/plugins/cache/datastar-hiccup --json")).toBeInTheDocument();
+    expect(screen.getByText("ygg plugin diagnose .dev/ygg/plugins/cache/datastar-hiccup --json")).toBeInTheDocument();
     expect(screen.getByText("Fixture Graph Crawl")).toBeInTheDocument();
     expect(screen.getAllByText("fixture-report-plugin").length).toBeGreaterThan(0);
     expect(screen.getByText("Fixture diagnostic")).toBeInTheDocument();
@@ -131,7 +131,7 @@ describe("ReportPage", () => {
     expect(within(pluginArtifacts as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
 
     const pluginCommand = screen
-      .getAllByText("agraph ask \"what owns checkout?\" --project fixture --json")
+      .getAllByText("ygg ask \"what owns checkout?\" --project fixture --json")
       .map((element) => element.closest("li"))
       .find(Boolean);
     expect(pluginCommand).toBeTruthy();
@@ -152,11 +152,11 @@ describe("ReportPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Maintenance" }));
 
-    expect(screen.getAllByText(/agraph ask/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/ygg ask/).length).toBeGreaterThan(0);
     const correctionWorkflow = screen.getByText("Correction Workflow").closest("section");
     expect(correctionWorkflow).toBeTruthy();
-    expect(within(correctionWorkflow as HTMLElement).getByText("agraph.map.json")).toBeInTheDocument();
-    expect(within(correctionWorkflow as HTMLElement).getByText("agraph sync work complete <work-id> --result result.json")).toBeInTheDocument();
+    expect(within(correctionWorkflow as HTMLElement).getByText("ygg.map.json")).toBeInTheDocument();
+    expect(within(correctionWorkflow as HTMLElement).getByText("ygg sync work complete <work-id> --result result.json")).toBeInTheDocument();
     fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copy map path" }));
     expect(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
     fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copy apply command" }));
@@ -175,7 +175,7 @@ describe("ReportPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Maintenance" }));
 
     const commandItem = screen
-      .getAllByText(/agraph ask/)
+      .getAllByText(/ygg ask/)
       .map((element) => element.closest("li"))
       .find(Boolean);
     expect(commandItem).toBeTruthy();
@@ -202,10 +202,10 @@ describe("ReportPage", () => {
     fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Open dependencies" }));
 
     expect(screen.getByText("Package Summary")).toBeInTheDocument();
-    expect(screen.getByText("agraph packages --project fixture --without-import-evidence --json")).toBeInTheDocument();
+    expect(screen.getByText("ygg packages --project fixture --without-import-evidence --json")).toBeInTheDocument();
     expect(screen.getByText("missing.lib")).toBeInTheDocument();
 
-    const commandItem = screen.getByText("agraph packages --project fixture --without-import-evidence --json").closest("li");
+    const commandItem = screen.getByText("ygg packages --project fixture --without-import-evidence --json").closest("li");
     expect(commandItem).toBeTruthy();
     fireEvent.click(within(commandItem as HTMLElement).getByRole("button", { name: "Copy command" }));
     expect(within(commandItem as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
@@ -239,24 +239,24 @@ describe("ReportPage", () => {
     const report = {
       ...fixtureReport,
       atlas: {
-        schema: "agraph.report.atlas/v1",
+        schema: "ygg.report.atlas/v1",
         "next-actions": [
           {
             kind: "dependency-review",
             label: "Review unresolved imports",
             count: 3,
-            command: "agraph packages --project fixture --json"
+            command: "ygg packages --project fixture --json"
           },
           {
             kind: "freshness",
             label: "Refresh indexed graph basis",
             count: 6,
-            command: "agraph sync project.edn --check"
+            command: "ygg sync project.edn --check"
           },
           {
             kind: "audit-scope",
             label: "Inspect project audit scopes",
-            command: "agraph audit-scope project.edn --json"
+            command: "ygg audit-scope project.edn --json"
           }
         ]
       }
@@ -266,7 +266,7 @@ describe("ReportPage", () => {
 
     const row = screen.getByText("Review unresolved imports").closest("article");
     expect(row).toBeTruthy();
-    expect(within(row as HTMLElement).getByText("agraph packages --project fixture --json")).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText("ygg packages --project fixture --json")).toBeInTheDocument();
 
     fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Copy command" }));
     expect(within(row as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();

@@ -4,9 +4,9 @@ Status: implemented.
 
 ## Goal
 
-Turn `agraph-mcp` from a placeholder into the structured agent interface that
-AGraph's packet model already implies. Graphify's MCP support is useful because
-agents can query a graph without shell-specific glue. AGraph should expose its
+Turn `ygg-mcp` from a placeholder into the structured agent interface that
+Yggdrasil's packet model already implies. Graphify's MCP support is useful because
+agents can query a graph without shell-specific glue. Yggdrasil should expose its
 stronger context, explore, view, and work queue APIs through MCP.
 
 ## Initial Tools
@@ -15,15 +15,15 @@ Expose a small surface first:
 
 | MCP tool | Backing command/function |
 | --- | --- |
-| `agraph_ask` | `agraph ask --json` / context packet generation |
-| `agraph_explore_create` | `agraph explore create` |
-| `agraph_explore_open` | `agraph explore open` |
-| `agraph_explore_expand` | `agraph explore expand` |
-| `agraph_view_systems` | `agraph view systems --format json` |
-| `agraph_sync_inspect` | `agraph sync inspect` |
-| `agraph_sync_check` | `agraph sync check --json` |
-| `agraph_work_pull` | `agraph sync work pull` |
-| `agraph_work_complete` | `agraph sync work complete` |
+| `ygg_ask` | `ygg ask --json` / context packet generation |
+| `ygg_explore_create` | `ygg explore create` |
+| `ygg_explore_open` | `ygg explore open` |
+| `ygg_explore_expand` | `ygg explore expand` |
+| `ygg_view_systems` | `ygg view systems --format json` |
+| `ygg_sync_inspect` | `ygg sync inspect` |
+| `ygg_sync_check` | `ygg sync check --json` |
+| `ygg_work_pull` | `ygg sync work pull` |
+| `ygg_work_complete` | `ygg sync work complete` |
 
 Add mutating tools conservatively. `work_complete` records a result artifact,
 but `work_apply` should require explicit support and clear schema validation.
@@ -48,14 +48,14 @@ The MCP server should:
 - accept a project root or config path option
 - return compact JSON packets
 - include suggested next commands or next tool calls
-- preserve AGraph schema ids in responses
+- preserve Yggdrasil schema ids in responses
 - fail with structured errors
 - avoid running long sync jobs unless explicitly requested
 
 ## Implementation Areas
 
-- Add `agraph.mcp` namespace.
-- Make `bin/agraph-mcp` call real server entrypoint.
+- Add `ygg.mcp` namespace.
+- Make `bin/ygg-mcp` call real server entrypoint.
 - Refactor CLI handlers where needed so MCP can call functions directly instead
   of shelling back into the CLI.
 - Keep tool schemas narrow and explicit.
@@ -65,8 +65,8 @@ The MCP server should:
 
 - MCP initialize/list-tools smoke test.
 - Tool schema snapshot tests.
-- `agraph_ask` returns `agraph.context/v1`.
-- `agraph_view_systems` returns `agraph.graph/v2`.
+- `ygg_ask` returns `ygg.context/v1`.
+- `ygg_view_systems` returns `ygg.graph/v2`.
 - Missing project returns structured error.
 - Mutating work completion rejects invalid result JSON.
 
@@ -80,6 +80,6 @@ The MCP server should:
 
 ## Done Criteria
 
-`agraph-mcp` starts a stdio server and an MCP client can list tools, ask a graph
+`ygg-mcp` starts a stdio server and an MCP client can list tools, ask a graph
 question, open an explore packet, inspect systems, and pull a queue item without
 using shell commands.

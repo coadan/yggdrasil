@@ -31,5 +31,5 @@ jobs:
         with:
           context: .
           load: true
-          tags: agraph:test
-      - run: docker run --rm agraph:test help
+          tags: ygg:test
+      - run: docker run --rm ygg:test help

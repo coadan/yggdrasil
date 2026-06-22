@@ -3,25 +3,25 @@ import { GraphPage } from "./graph/GraphPage";
 import { ReportPage } from "./report/ReportPage";
 import { artifactBaseFromLocation, artifactPath, loadJson } from "./data/artifactLoader";
 import { fixtureGraph, fixtureReport } from "./fixtures/sampleData";
-import type { AGraphGraph, AGraphReport } from "./data/types";
+import type { YggGraph, YggReport } from "./data/types";
 
 type Mode = "report" | "graph";
 
 type BootData = {
   mode?: Mode;
-  report?: AGraphReport;
-  graph?: AGraphGraph;
+  report?: YggReport;
+  graph?: YggGraph;
 };
 
 declare global {
   interface Window {
-    __AGRAPH_BOOT__?: BootData;
+    __YGG_BOOT__?: BootData;
   }
 }
 
 function modeFromLocation(): Mode {
-  if (window.__AGRAPH_BOOT__?.mode) {
-    return window.__AGRAPH_BOOT__.mode;
+  if (window.__YGG_BOOT__?.mode) {
+    return window.__YGG_BOOT__.mode;
   }
   const params = new URLSearchParams(window.location.search);
   return params.get("mode") === "graph" ? "graph" : "report";
@@ -46,12 +46,12 @@ function hrefForMode(mode: Mode): string {
 }
 
 export function App() {
-  const boot = window.__AGRAPH_BOOT__;
+  const boot = window.__YGG_BOOT__;
   const [mode] = useState<Mode>(modeFromLocation);
   const [artifactBase] = useState(artifactBaseFromLocation);
   const [refreshMs] = useState(refreshMsFromLocation);
-  const [report, setReport] = useState<AGraphReport>(boot?.report ?? fixtureReport);
-  const [graph, setGraph] = useState<AGraphGraph>(boot?.graph ?? fixtureGraph);
+  const [report, setReport] = useState<YggReport>(boot?.report ?? fixtureReport);
+  const [graph, setGraph] = useState<YggGraph>(boot?.graph ?? fixtureGraph);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,9 +65,9 @@ export function App() {
     const loadArtifacts = () => {
       Promise.all([
         mode === "report" && (!boot?.report || artifactBase)
-          ? loadJson<AGraphReport>(artifactPath(artifactBase, "report.json"))
+          ? loadJson<YggReport>(artifactPath(artifactBase, "report.json"))
           : Promise.resolve(boot?.report ?? fixtureReport),
-        loadJson<AGraphGraph>(artifactPath(artifactBase, graphFile))
+        loadJson<YggGraph>(artifactPath(artifactBase, graphFile))
       ])
         .then(([loadedReport, loadedGraph]) => {
           if (canceled) {
@@ -96,7 +96,7 @@ export function App() {
   }, [artifactBase, boot?.graph, boot?.report, mode, refreshMs]);
 
   const title = useMemo(
-    () => (mode === "graph" ? graph.title || "AGraph Graph" : "AGraph Report"),
+    () => (mode === "graph" ? graph.title || "Yggdrasil Graph" : "Yggdrasil Report"),
     [graph.title, mode]
   );
 
@@ -104,7 +104,7 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">AGraph</p>
+          <p className="eyebrow">Yggdrasil</p>
           <h1>{title}</h1>
         </div>
         <nav className="mode-tabs" aria-label="View mode">

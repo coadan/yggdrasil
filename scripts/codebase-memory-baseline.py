@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Codebase Memory MCP benchmark baseline for AGraph issue replay.
+"""Codebase Memory MCP benchmark baseline for Yggdrasil issue replay.
 
-This script is intentionally a benchmark worker, not AGraph core. It shells out
+This script is intentionally a benchmark worker, not Yggdrasil core. It shells out
 to an already-installed codebase-memory-mcp binary, runs bounded read-only CLI
 queries, extracts repo-relative file paths, and writes the standard agent-result
 JSON shape.
@@ -327,10 +327,10 @@ def ranked_files(found: dict[str, list[str]], limit: int) -> list[dict]:
 
 def result_base(request: dict, warnings: list[str], commands: list[str], suspected: list[dict]) -> dict:
     result = {
-        "schema": "agraph.benchmark.agent-result/v2",
+        "schema": "ygg.benchmark.agent-result/v2",
         "caseId": request.get("caseId"),
         "caseFingerprint": request.get("caseFingerprint"),
-        "agentId": request.get("agentId") or "agraph-baseline-codebase-memory",
+        "agentId": request.get("agentId") or "ygg-baseline-codebase-memory",
         "mode": "codebase-memory",
         "suspectedFiles": suspected,
         "suspectedSymbols": [],

@@ -1,8 +1,8 @@
 # Plugin Packages
 
 Plugin packages make extractor and report plugins shareable over git without
-promoting them into AGraph core. A package is trusted local code: install pins a
-git revision into `.dev/agraph/plugins/cache`, records the package in
+promoting them into Yggdrasil core. A package is trusted local code: install pins a
+git revision into `.dev/ygg/plugins/cache`, records the package in
 `project.edn`, and ordinary `sync` / `report` commands load the resolved local
 manifest.
 
@@ -12,7 +12,7 @@ while keeping core deterministic, project-agnostic, and benchmark-gated.
 ## Install
 
 ```sh
-bb plugin install project.edn https://github.com/org/agraph-datastar.git --ref v0.1.0
+bb plugin install project.edn https://github.com/org/ygg-datastar.git --ref v0.1.0
 bb plugin update project.edn datastar-hiccup --ref v0.2.0
 bb plugin list project.edn
 bb plugin list project.edn --kind extractor --query datastar
@@ -23,7 +23,7 @@ Useful flags:
 
 - `--ref REF`: branch, tag, or commit to check out before pinning.
 - `--subdir DIR`: package directory inside a larger git repo.
-- `--cache-dir DIR`: local clone cache; defaults to `.dev/agraph/plugins/cache`
+- `--cache-dir DIR`: local clone cache; defaults to `.dev/ygg/plugins/cache`
   relative to `project.edn`.
 - `--force`: replace an already installed package with the same package id.
 - `--json`: emit machine-readable install/update/list output.
@@ -46,12 +46,12 @@ Install writes a `:plugin-packages` entry to `project.edn`:
  :plugin-packages
  [{:id "datastar-hiccup"
    :source {:type :git
-            :url "https://github.com/org/agraph-datastar.git"
+            :url "https://github.com/org/ygg-datastar.git"
             :ref "v0.1.0"
             :rev "..."
             :subdir "packages/datastar-hiccup"}
-   :path "/abs/project/.dev/agraph/plugins/cache/.../packages/datastar-hiccup"
-   :manifest "agraph.plugin.edn"
+   :path "/abs/project/.dev/ygg/plugins/cache/.../packages/datastar-hiccup"
+   :manifest "ygg.plugin.edn"
    :manifest-fingerprint "sha256:..."
    :installed-at-ms 1790000000000}]}
 ```
@@ -67,10 +67,10 @@ or commit.
 
 Remove a package from a project with `bb plugin remove <project.edn>
 <package-id>`. This edits only the `:plugin-packages` entry in `project.edn`;
-cached git checkouts stay under `.dev/agraph/plugins/cache` and can be reused by
+cached git checkouts stay under `.dev/ygg/plugins/cache` and can be reused by
 installing again.
 
-AGraph recomputes the manifest fingerprint when a package is read. If the
+Yggdrasil recomputes the manifest fingerprint when a package is read. If the
 installed package path no longer matches the fingerprint recorded in
 `project.edn`, package diagnostics report the mismatch. Diagnostics also report
 when an installed entry id no longer matches the package manifest id.
@@ -80,21 +80,21 @@ when an installed entry id no longer matches the package manifest id.
 Start with a local scaffold:
 
 ```sh
-bb plugin new .dev/agraph/plugins/datastar-hiccup --id datastar-hiccup
-bb plugin validate .dev/agraph/plugins/datastar-hiccup
-bb plugin diagnose .dev/agraph/plugins/datastar-hiccup
-bb plugin core-check .dev/agraph/plugins/datastar-hiccup
-bb plugin input extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
-bb plugin input report .dev/agraph/plugins/datastar-hiccup --json
-bb plugin gap extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
-bb plugin gap report .dev/agraph/plugins/datastar-hiccup --json
-bb plugin dry-run extractor .dev/agraph/plugins/datastar-hiccup . src/page.clj --json
-bb plugin dry-run report .dev/agraph/plugins/datastar-hiccup --json
-bb plugin registry validate .dev/agraph/plugins/registry.edn
-bb plugin registry install .dev/agraph/plugins/registry.edn project.edn datastar-hiccup
+bb plugin new .dev/ygg/plugins/datastar-hiccup --id datastar-hiccup
+bb plugin validate .dev/ygg/plugins/datastar-hiccup
+bb plugin diagnose .dev/ygg/plugins/datastar-hiccup
+bb plugin core-check .dev/ygg/plugins/datastar-hiccup
+bb plugin input extractor .dev/ygg/plugins/datastar-hiccup . src/page.clj --json
+bb plugin input report .dev/ygg/plugins/datastar-hiccup --json
+bb plugin gap extractor .dev/ygg/plugins/datastar-hiccup . src/page.clj --json
+bb plugin gap report .dev/ygg/plugins/datastar-hiccup --json
+bb plugin dry-run extractor .dev/ygg/plugins/datastar-hiccup . src/page.clj --json
+bb plugin dry-run report .dev/ygg/plugins/datastar-hiccup --json
+bb plugin registry validate .dev/ygg/plugins/registry.edn
+bb plugin registry install .dev/ygg/plugins/registry.edn project.edn datastar-hiccup
 ```
 
-`plugin new` writes `agraph.plugin.edn`, Python extractor/report examples, a
+`plugin new` writes `ygg.plugin.edn`, Python extractor/report examples, a
 fixture file, `registry.example.edn`, benchmark starter templates under
 `benchmarks/`, and a package README. By default it creates both extractor and
 report examples; use `--extractor` or `--report` to scaffold only one lane.
@@ -107,7 +107,7 @@ For unsupported file families, keep the package external and pass explicit
 scaffold options instead of adding project-specific rules to core:
 
 ```sh
-bb plugin new .dev/agraph/plugins/htmx \
+bb plugin new .dev/ygg/plugins/htmx \
   --id htmx \
   --extractor \
   --file-kind htmx \
@@ -165,12 +165,12 @@ review evidence for a project-agnostic core contribution.
 `plugin input extractor` and `plugin input report` build the exact plugin input
 packets that selected package plugins would receive without executing plugin
 code. Extractor input samples include package caveats, selected/skipped plugins,
-core extraction counts, and one `agraph.extractor-plugin.input/v1` packet per
+core extraction counts, and one `ygg.extractor-plugin.input/v1` packet per
 applicable selected extractor. Report input samples include one
-`agraph.report-plugin.input/v1` packet per selected report plugin with the same
+`ygg.report-plugin.input/v1` packet per selected report plugin with the same
 synthetic report context used by report dry-runs. Use these before writing or
 debugging agent-authored plugins so the plugin can target the real contract
-instead of guessing what AGraph sends.
+instead of guessing what Yggdrasil sends.
 
 `plugin gap extractor` and `plugin gap report` build agent-facing authoring
 packets for one package. Extractor gap packets include selected input packets,
@@ -211,17 +211,17 @@ report generation. This keeps report plugin authoring in the same scaffold /
 validate / diagnose / dry-run loop as extractors. Report dry-runs also fail with
 a structured diagnostic when no report plugin is selected, and failed report
 dry-runs also fail the CLI command. Report dry-runs include the same
-`selection` shape as extractor dry-runs. AGraph stamps report panels,
+`selection` shape as extractor dry-runs. Yggdrasil stamps report panels,
 diagnostics, and artifacts with plugin id, fingerprint, package pin, claim
 authority, and benchmark status after parsing plugin output, so package
 provenance cannot be spoofed by plugin JSON.
 
 ## Manifest
 
-Each package directory contains `agraph.plugin.edn`:
+Each package directory contains `ygg.plugin.edn`:
 
 ```clojure
-{:schema "agraph.plugin/v1"
+{:schema "ygg.plugin/v1"
  :id "datastar-hiccup"
  :name "Datastar Hiccup"
  :version "0.1.0"
@@ -275,10 +275,10 @@ with the report artifact, even when no report plugin renders those caveats.
 
 ## Ecosystem Policy
 
-Private/local packages are project dependencies. AGraph does not block them
+Private/local packages are project dependencies. Yggdrasil does not block them
 based on license metadata.
 
-Public AGraph/Yggdrasil plugin packages should be FOSS and non-commercial. The
+Public Yggdrasil/Yggdrasil plugin packages should be FOSS and non-commercial. The
 official registry should not list commercial plugins or project-local plugins.
 Public packages should declare license metadata, `:scope {:kind :base}`, and an
 explicit `:benchmark :status`. They should not claim agent or
@@ -323,7 +323,7 @@ Registry entries must use unique package ids and include:
 repository root.
 
 ```clojure
-{:schema "agraph.plugin.registry/v1"
+{:schema "ygg.plugin.registry/v1"
  :id "official"
  :packages [{:id "datastar-hiccup"
              :kinds [:extractor]
@@ -332,7 +332,7 @@ repository root.
              :support {:status :experimental}
              :trust {:code-reviewed? false}
              :path "packages/datastar-hiccup"
-             :source "https://github.com/org/agraph-plugins.git"
+             :source "https://github.com/org/ygg-plugins.git"
              :ref "v0.1.0"
              :subdir "packages/datastar-hiccup"}]}
 ```
@@ -342,7 +342,7 @@ Run:
 ```sh
 bb plugin registry list registry.edn --query datastar
 bb plugin registry validate registry.edn --json
-bb plugin registry install registry.edn project.edn datastar-hiccup --cache-dir .dev/agraph/plugins/cache
+bb plugin registry install registry.edn project.edn datastar-hiccup --cache-dir .dev/ygg/plugins/cache
 ```
 
 `plugin registry list` is the consumer-facing discovery command. It reads the
@@ -413,7 +413,7 @@ For registry reviewers:
 - Require benchmark artifacts before accepting public claims or core-promotion
   requests.
 - Prefer keeping niche or project-specific ideas as external packages rather
-  than widening AGraph core.
+  than widening Yggdrasil core.
 
 ## Scope
 
@@ -424,7 +424,7 @@ Every package has a declared scope:
 - `:base`: a reusable package intended to work as ecosystem or core-ready
   support for a file family, framework, report slot, or extractor gap.
 
-Scope is self-declared metadata. AGraph does not infer project specificity from
+Scope is self-declared metadata. Yggdrasil does not infer project specificity from
 path names, repository names, host names, prose, or substring lists. Diagnosis
 uses the declared scope to keep project-local packages external:
 
@@ -455,8 +455,8 @@ package-local benchmark artifacts:
               :case-id "datastar-hiccup-architecture"
               :problem-class :architecture-understanding
               :improvement {:metric :file-recall-at-5
-                            :baseline :core-agraph
-                            :candidate :plugin-enhanced-agraph
+                            :baseline :core-ygg
+                            :candidate :plugin-enhanced-ygg
                             :delta "+0.25"
                             :effect 0.25}}]}
 ```

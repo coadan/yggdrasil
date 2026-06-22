@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { AGraphReport, ReportPluginDiagnostic, ReportPluginPanel } from "../data/types";
+import type { YggReport, ReportPluginDiagnostic, ReportPluginPanel } from "../data/types";
 import { displayValue } from "./valueFormat";
 
 type TableColumn = {
@@ -22,7 +22,7 @@ export type PluginPanelActions = {
   onOpenTab?: (tab: string) => void;
 };
 
-const coreReportPluginId = "agraph-core-report";
+const coreReportPluginId = "ygg-core-report";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -66,7 +66,7 @@ export function panelPluginId(panel: ReportPluginPanel): string {
   return String(panel.plugin?.id || "unknown-plugin");
 }
 
-export function pluginPanels(report: AGraphReport): ReportPluginPanel[] {
+export function pluginPanels(report: YggReport): ReportPluginPanel[] {
   return [...(report.plugins?.panels || [])].sort((left, right) => {
     const leftOrder = typeof left.order === "number" ? left.order : 1000;
     const rightOrder = typeof right.order === "number" ? right.order : 1000;
@@ -79,7 +79,7 @@ export function pluginPanels(report: AGraphReport): ReportPluginPanel[] {
   });
 }
 
-function panelsForSlot(report: AGraphReport, slot: string, includeCore = false): ReportPluginPanel[] {
+function panelsForSlot(report: YggReport, slot: string, includeCore = false): ReportPluginPanel[] {
   return pluginPanels(report).filter((panel) => {
     if (panel.slot !== slot) return false;
     if (includeCore) return true;
@@ -87,7 +87,7 @@ function panelsForSlot(report: AGraphReport, slot: string, includeCore = false):
   });
 }
 
-export function externalPanels(report: AGraphReport): ReportPluginPanel[] {
+export function externalPanels(report: YggReport): ReportPluginPanel[] {
   return pluginPanels(report).filter((panel) => panelPluginId(panel) !== coreReportPluginId);
 }
 
@@ -621,7 +621,7 @@ export function PluginPanelList({
   includeCore = false,
   actions
 }: {
-  report: AGraphReport;
+  report: YggReport;
   slot?: string;
   includeCore?: boolean;
   actions?: PluginPanelActions;

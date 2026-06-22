@@ -1,7 +1,7 @@
-import type { AGraphGraph, AGraphReport } from "../data/types";
+import type { YggGraph, YggReport } from "../data/types";
 
-export const fixtureGraph: AGraphGraph = {
-  schema: "agraph.graph/v2",
+export const fixtureGraph: YggGraph = {
+  schema: "ygg.graph/v2",
   title: "Fixture Graph",
   nodes: [
     {
@@ -43,7 +43,7 @@ export const fixtureGraph: AGraphGraph = {
   ]
 };
 
-export const auditScopeGraph: AGraphGraph = {
+export const auditScopeGraph: YggGraph = {
   ...fixtureGraph,
   title: "Audit Scope Fixture Graph",
   nodes: [
@@ -90,15 +90,15 @@ export const auditScopeGraph: AGraphGraph = {
   ]
 };
 
-export const emptyGraph: AGraphGraph = {
-  schema: "agraph.graph/v2",
+export const emptyGraph: YggGraph = {
+  schema: "ygg.graph/v2",
   title: "Empty Graph",
   nodes: [],
   edges: []
 };
 
-export const denseGraph: AGraphGraph = {
-  schema: "agraph.graph/v2",
+export const denseGraph: YggGraph = {
+  schema: "ygg.graph/v2",
   title: "Dense Fixture Graph",
   nodes: Array.from({ length: 8 }, (_, index) => ({
     id: `node:${index}`,
@@ -126,8 +126,8 @@ const externalApiNodes = Array.from({ length: 20 }, (_, index) => ({
   color: "#be123c"
 }));
 
-export const externalApiHeavyGraph: AGraphGraph = {
-  schema: "agraph.graph/v2",
+export const externalApiHeavyGraph: YggGraph = {
+  schema: "ygg.graph/v2",
   title: "External API Fixture",
   nodes: [
     {
@@ -147,12 +147,12 @@ export const externalApiHeavyGraph: AGraphGraph = {
   }))
 };
 
-export const fixtureReport: AGraphReport = {
-  schema: "agraph.report/v2",
-  project: { id: "fixture", name: "Fixture", detail: "primary", mapPath: "agraph.map.json" },
+export const fixtureReport: YggReport = {
+  schema: "ygg.report/v2",
+  project: { id: "fixture", name: "Fixture", detail: "primary", mapPath: "ygg.map.json" },
   repos: [{ id: "app", root: "/tmp/app", role: "application" }],
   evidence: {
-    schema: "agraph.evidence/v2",
+    schema: "ygg.evidence/v2",
     available: ["source-files", "file-facts", "source-graph", "docs", "system-evidence", "system-graph"],
     families: [
       { family: "source-files", status: "weak", counts: { files: 12, "skipped-files": 0, diagnostics: 0 } },
@@ -315,12 +315,12 @@ export const fixtureReport: AGraphReport = {
           blockers: [{ code: "unbenchmarked", message: "Unbenchmarked package output is useful for review but non-authoritative." }]
         },
         warnings: ["datastar-hiccup is unbenchmarked"],
-        "diagnose-command": "agraph plugin diagnose .dev/agraph/plugins/cache/datastar-hiccup --json"
+        "diagnose-command": "ygg plugin diagnose .dev/ygg/plugins/cache/datastar-hiccup --json"
       }
     ]
   },
   plugins: {
-    schema: "agraph.report.plugins/v1",
+    schema: "ygg.report.plugins/v1",
     panels: [
       {
         id: "core-atlas-summary",
@@ -338,7 +338,7 @@ export const fixtureReport: AGraphReport = {
           ]
         },
         plugin: {
-          id: "agraph-core-report",
+          id: "ygg-core-report",
           version: "1",
           authority: "core"
         }
@@ -373,12 +373,12 @@ export const fixtureReport: AGraphReport = {
               source: "fixture-report-plugin.graph-crawl",
               tab: "systems",
               graphSliceId: "system-neighborhood",
-              command: "agraph ask \"what owns checkout?\" --project fixture --json",
+              command: "ygg ask \"what owns checkout?\" --project fixture --json",
               question: "What should I inspect in the checkout plugin crawl?",
               evidenceRows: [{ source: "systems.json", nodes: 3, edges: 2, path: "src/app/core.clj" }]
             }
           ],
-          commands: ["agraph ask \"what owns checkout?\" --project fixture --json"],
+          commands: ["ygg ask \"what owns checkout?\" --project fixture --json"],
           rows: {
             columns: [
               { key: "source", label: "Source" },
@@ -428,23 +428,23 @@ export const fixtureReport: AGraphReport = {
     ]
   },
   commands: [
-    "agraph sync project.edn --check --map agraph.map.json",
-    "agraph sync inspect project.edn --map agraph.map.json --json",
-    "agraph report project.edn --map agraph.map.json --out agraph-out",
-    "agraph packages --project fixture --json",
-    "agraph ask \"where is this handled?\" --project fixture --json",
-    "agraph sync work list --project fixture",
-    "agraph sync work complete <work-id> --result result.json",
-    "agraph sync work apply <work-id> --map agraph.map.json"
+    "ygg sync project.edn --check --map ygg.map.json",
+    "ygg sync inspect project.edn --map ygg.map.json --json",
+    "ygg report project.edn --map ygg.map.json --out ygg-out",
+    "ygg packages --project fixture --json",
+    "ygg ask \"where is this handled?\" --project fixture --json",
+    "ygg sync work list --project fixture",
+    "ygg sync work complete <work-id> --result result.json",
+    "ygg sync work apply <work-id> --map ygg.map.json"
   ]
 };
 
-export const emptyReport: AGraphReport = {
-  schema: "agraph.report/v2",
+export const emptyReport: YggReport = {
+  schema: "ygg.report/v2",
   project: { id: "empty", name: "Empty Project", detail: "primary" },
   repos: [],
   evidence: {
-    schema: "agraph.evidence/v2",
+    schema: "ygg.evidence/v2",
     available: [],
     counts: {
       files: 0,
@@ -464,7 +464,7 @@ export const emptyReport: AGraphReport = {
   commands: []
 };
 
-export const sourceDocsSystemReport: AGraphReport = {
+export const sourceDocsSystemReport: YggReport = {
   ...fixtureReport,
   project: { id: "source-docs", name: "Source Docs System", detail: "expanded" },
   evidence: {
@@ -480,17 +480,17 @@ export const sourceDocsSystemReport: AGraphReport = {
   }
 };
 
-export const packageFocusedDepsGraph: AGraphGraph = {
-  schema: "agraph.graph/v2",
+export const packageFocusedDepsGraph: YggGraph = {
+  schema: "ygg.graph/v2",
   title: "Package: xtdb",
   nodes: [
     { id: "package:xtdb", label: "xtdb", kind: "package", ecosystem: "maven", color: "#9333ea" },
     { id: "manifest:deps", label: "deps.edn", kind: "manifest", path: "deps.edn", color: "#0f766e" },
     {
       id: "namespace:store",
-      label: "agraph.xtdb",
+      label: "ygg.xtdb",
       kind: "namespace",
-      path: "src/agraph/xtdb.clj",
+      path: "src/ygg/xtdb.clj",
       color: "#2563eb"
     }
   ],

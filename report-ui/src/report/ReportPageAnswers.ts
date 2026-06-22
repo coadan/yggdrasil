@@ -1,10 +1,10 @@
-import type { AGraphGraph, AGraphReport } from "../data/types";
+import type { YggGraph, YggReport } from "../data/types";
 import { numericCount } from "../data/reportAdapter";
 import type { AskAnswer } from "./ReportPageTypes";
 import { asRecord, asRows, countValue } from "./ReportPageShared";
 import { displayValue } from "./valueFormat";
 
-export function externalApiReview(report: AGraphReport): Record<string, unknown> | null {
+export function externalApiReview(report: YggReport): Record<string, unknown> | null {
   const maintenance = report.maintenance;
   if (!maintenance || typeof maintenance !== "object") return null;
   const review =
@@ -24,12 +24,12 @@ export function nestedLabel(row: Record<string, unknown>, key: string): string {
   return String(nested.label || nested.id || nested["xt/id"] || "");
 }
 
-export function packageRows(report: AGraphReport, key: string): Array<Record<string, unknown>> {
+export function packageRows(report: YggReport, key: string): Array<Record<string, unknown>> {
   const packages = asRecord(report.packages);
   return asRows(packages[key] || packages[key.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())]);
 }
 
-export function freshnessRepoRows(report: AGraphReport): Array<Record<string, unknown>> {
+export function freshnessRepoRows(report: YggReport): Array<Record<string, unknown>> {
   const freshness = asRecord(report.evidence.freshness);
   return asRows(freshness.repos).map((repo) => {
     const counts = asRecord(repo.counts);
@@ -45,7 +45,7 @@ export function freshnessRepoRows(report: AGraphReport): Array<Record<string, un
   });
 }
 
-export function freshnessSampleRows(report: AGraphReport): Array<Record<string, unknown>> {
+export function freshnessSampleRows(report: YggReport): Array<Record<string, unknown>> {
   const rows: Array<Record<string, unknown>> = [];
   const freshness = asRecord(report.evidence.freshness);
   for (const repo of asRows(freshness.repos)) {
@@ -66,7 +66,7 @@ export function freshnessSampleRows(report: AGraphReport): Array<Record<string, 
   return rows;
 }
 
-export function freshnessEvidencePacket(report: AGraphReport): string {
+export function freshnessEvidencePacket(report: YggReport): string {
   return JSON.stringify(
     {
       source: "evidence.freshness",
@@ -81,7 +81,7 @@ export function freshnessEvidencePacket(report: AGraphReport): string {
 export function askAnswerPacket(question: string, answer: AskAnswer): string {
   return JSON.stringify(
     {
-      schema: "agraph.report.ask-answer/v1",
+      schema: "ygg.report.ask-answer/v1",
       question,
       title: answer.title,
       summary: answer.summary,
@@ -94,12 +94,12 @@ export function askAnswerPacket(question: string, answer: AskAnswer): string {
   );
 }
 
-export function maintenanceRows(report: AGraphReport, key: string): Array<Record<string, unknown>> {
+export function maintenanceRows(report: YggReport, key: string): Array<Record<string, unknown>> {
   const maintenance = asRecord(report.maintenance);
   return asRows(maintenance[key] || maintenance[key.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())]);
 }
 
-export function externalGraphRows(graph: AGraphGraph): Array<Record<string, unknown>> {
+export function externalGraphRows(graph: YggGraph): Array<Record<string, unknown>> {
   const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
   const externalIds = new Set(graph.nodes.filter((node) => node.kind === "external-api").map((node) => node.id));
   const rows = new Map<string, { label: string; relation: string; externalApis: Set<string>; edges: number }>();
@@ -136,7 +136,7 @@ export function externalGraphRows(graph: AGraphGraph): Array<Record<string, unkn
     .slice(0, 12);
 }
 
-export function reportAtlas(report: AGraphReport, graph: AGraphGraph): Record<string, unknown> {
+export function reportAtlas(report: YggReport, graph: YggGraph): Record<string, unknown> {
   if (report.atlas && typeof report.atlas === "object") return report.atlas;
   const maintenance = asRecord(report.maintenance);
   const packages = asRecord(report.packages);
@@ -174,13 +174,13 @@ export function reportAtlas(report: AGraphReport, graph: AGraphGraph): Record<st
   };
 }
 
-function operatorNextRows(report: AGraphReport, fallbackRows: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
+function operatorNextRows(report: YggReport, fallbackRows: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
   const operator = asRecord(report.operator);
   const rows = asRows(operator["next-actions"] || operator.nextActions);
   return rows.length > 0 ? rows : fallbackRows;
 }
 
-export function overviewAnswer(report: AGraphReport, graph: AGraphGraph): AskAnswer {
+export function overviewAnswer(report: YggReport, graph: YggGraph): AskAnswer {
   const atlas = reportAtlas(report, graph);
   const evidence = asRecord(atlas.evidence);
   const systems = asRecord(atlas.systems);
@@ -206,7 +206,7 @@ export function overviewAnswer(report: AGraphReport, graph: AGraphGraph): AskAns
   };
 }
 
-export function evidenceKindCount(report: AGraphReport, names: string[]): number {
+export function evidenceKindCount(report: YggReport, names: string[]): number {
   const wanted = new Set(names);
   const kinds = asRecord(report.evidence.kinds);
   let total = 0;
@@ -224,7 +224,7 @@ export function evidenceKindCount(report: AGraphReport, names: string[]): number
   return total;
 }
 
-export function graphNodeCount(graph: AGraphGraph, kinds: string[], tags: string[] = []): number {
+export function graphNodeCount(graph: YggGraph, kinds: string[], tags: string[] = []): number {
   const wantedKinds = new Set(kinds);
   const wantedTags = new Set(tags);
   return graph.nodes.filter((node) => {
@@ -233,7 +233,7 @@ export function graphNodeCount(graph: AGraphGraph, kinds: string[], tags: string
   }).length;
 }
 
-export function auditScopeRelatedRows(report: AGraphReport, graph: AGraphGraph): Array<Record<string, unknown>> {
+export function auditScopeRelatedRows(report: YggReport, graph: YggGraph): Array<Record<string, unknown>> {
   const auditScopeKinds = new Set([
     "route",
     "url",
@@ -263,7 +263,7 @@ export function auditScopeRelatedRows(report: AGraphReport, graph: AGraphGraph):
   return [...graphRows, ...freshnessSampleRows(report).slice(0, 8)];
 }
 
-export function auditScopeAnswer(report: AGraphReport, graph: AGraphGraph): AskAnswer {
+export function auditScopeAnswer(report: YggReport, graph: YggGraph): AskAnswer {
   const packages = asRecord(report.packages);
   const packageCounts = asRecord(packages.counts);
   const freshness = asRecord(report.evidence.freshness);
@@ -298,7 +298,7 @@ export function auditScopeAnswer(report: AGraphReport, graph: AGraphGraph): AskA
   };
 }
 
-export function dependencyAnswer(report: AGraphReport): AskAnswer {
+export function dependencyAnswer(report: YggReport): AskAnswer {
   const packages = asRecord(report.packages);
   const counts = asRecord(packages.counts);
   const unresolved = packageRows(report, "unresolved-imports");
@@ -326,7 +326,7 @@ export function dependencyAnswer(report: AGraphReport): AskAnswer {
   };
 }
 
-export function externalApiAnswer(report: AGraphReport, graph: AGraphGraph): AskAnswer {
+export function externalApiAnswer(report: YggReport, graph: YggGraph): AskAnswer {
   const review = externalApiReview(report);
   const counts = asRecord(review?.counts);
   const fanouts = fanoutRows(review);
@@ -349,7 +349,7 @@ export function externalApiAnswer(report: AGraphReport, graph: AGraphGraph): Ask
   };
 }
 
-export function systemsAnswer(report: AGraphReport, graph: AGraphGraph): AskAnswer {
+export function systemsAnswer(report: YggReport, graph: YggGraph): AskAnswer {
   const atlas = reportAtlas(report, graph);
   const systems = asRecord(atlas.systems);
   const hubs = maintenanceRows(report, "top-hubs");
@@ -372,7 +372,7 @@ export function systemsAnswer(report: AGraphReport, graph: AGraphGraph): AskAnsw
   };
 }
 
-export function maintenanceAnswer(report: AGraphReport): AskAnswer {
+export function maintenanceAnswer(report: YggReport): AskAnswer {
   const maintenance = asRecord(report.maintenance);
   const queue = asRecord(maintenance.queue);
   const decisions = maintenanceRows(report, "decision-queue");
@@ -383,7 +383,7 @@ export function maintenanceAnswer(report: AGraphReport): AskAnswer {
     title: "Maintenance work",
     summary: [
       `The report exposes ${countValue(queue, "decisions")} maintenance decision(s), ${countValue(queue, "infra-review")} infra review item(s), and ${countValue(queue, "dependency-review")} dependency review item(s).`,
-      "These rows are the safest path from raw graph evidence to accepted `agraph.map.json` corrections.",
+      "These rows are the safest path from raw graph evidence to accepted `ygg.map.json` corrections.",
       "Use the listed work commands when you need validated map patch application."
     ],
     evidence: [
@@ -396,7 +396,7 @@ export function maintenanceAnswer(report: AGraphReport): AskAnswer {
   };
 }
 
-export function coverageAnswer(report: AGraphReport): AskAnswer {
+export function coverageAnswer(report: YggReport): AskAnswer {
   const coverage = asRecord(report.coverage);
   const diagnostics = asRecord(coverage.diagnostics);
   const extractors = asRows(coverage.extractors);
@@ -419,7 +419,7 @@ export function coverageAnswer(report: AGraphReport): AskAnswer {
   };
 }
 
-export function answerReportQuestion(report: AGraphReport, graph: AGraphGraph, question: string): AskAnswer {
+export function answerReportQuestion(report: YggReport, graph: YggGraph, question: string): AskAnswer {
   const normalized = question.trim().toLowerCase();
   if (/\b(made of|inventory|contain|contains|routes?|auth|config|generated|manifest|freshness|stale|missing)\b/.test(normalized)) {
     return auditScopeAnswer(report, graph);

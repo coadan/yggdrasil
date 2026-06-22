@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_SOURCE = Path("src/agraph/extract.clj")
+DEFAULT_SOURCE = Path("src/ygg/extract.clj")
 
 
 @dataclass(frozen=True)
@@ -209,14 +209,14 @@ def selected_form_names(
 
 
 def focused_test_command(test_names: list[str]) -> list[str]:
-    test_vars = " ".join(f"#'agraph.extract-test/{name}" for name in test_names)
+    test_vars = " ".join(f"#'ygg.extract-test/{name}" for name in test_names)
     return [
         "clojure",
         "-Sdeps",
         '{:paths ["src" "resources" "test"] :deps {lambdaisland/kaocha {:mvn/version "1.91.1392"} nubank/matcher-combinators {:mvn/version "3.10.0"}}}',
         "-M",
         "-e",
-        f"(require 'clojure.test 'agraph.extract-test) (clojure.test/test-vars [{test_vars}])",
+        f"(require 'clojure.test 'ygg.extract-test) (clojure.test/test-vars [{test_vars}])",
     ]
 
 

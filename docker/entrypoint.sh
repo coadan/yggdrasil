@@ -1,29 +1,29 @@
 #!/usr/bin/env sh
 set -eu
 
-export AGRAPH_XTDB_PATH="${AGRAPH_XTDB_PATH:-/data/xtdb}"
+export YGG_XTDB_PATH="${YGG_XTDB_PATH:-/data/xtdb}"
 
 if [ "$#" -eq 0 ]; then
-  exec agraph help
+  exec ygg help
 fi
 
 case "$1" in
-  agraph)
+  ygg)
     shift
-    exec agraph "$@"
+    exec ygg "$@"
     ;;
-  agraph-mcp)
+  ygg-mcp)
     shift
-    exec agraph-mcp "$@"
+    exec ygg-mcp "$@"
     ;;
   mcp)
     shift
-    exec agraph mcp "$@"
+    exec ygg mcp "$@"
     ;;
   sh|bash|clojure|bb|git)
     exec "$@"
     ;;
   *)
-    exec agraph "$@"
+    exec ygg "$@"
     ;;
 esac

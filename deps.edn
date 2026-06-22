@@ -18,7 +18,7 @@
                     "--enable-native-access=ALL-UNNAMED"
                     "-Dio.netty.tryReflectionSetAccessible=true"]}
   :lint {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.05.25"}}
-         :main-opts ["-m" "clj-kondo.main" "--lint" "src" "test/agraph" "bb.edn" "deps.edn"]}
+         :main-opts ["-m" "clj-kondo.main" "--lint" "src" "test/ygg" "bb.edn" "deps.edn"]}
   :format/check {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.16.4"}}
                  :main-opts ["-m" "cljfmt.main" "check"]}
   :format/fix {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.16.4"}}

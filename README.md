@@ -1,10 +1,10 @@
-# AGraph
+# Yggdrasil
 
 Real-world systems are more than code files. They are services, configs,
 dependencies, docs, deployments, ownership decisions, architectural choices,
 and half-remembered fixes spread across a repo over time.
 
-AGraph helps coding agents work in that reality. It builds a local, reviewable
+Yggdrasil helps coding agents work in that reality. It builds a local, reviewable
 map of what exists, how important pieces connect, and what has been accepted
 about the system, so agents can find the right context without rereading
 everything from scratch.
@@ -14,7 +14,7 @@ search results. It needs a maintainable way to encode project-specific tribal
 knowledge about architecture, boundaries, ownership, and recurring fixes, then
 keep that knowledge easy to review and update as the system changes.
 
-Many agent tools call this codebase memory. AGraph is more specific: it keeps
+Many agent tools call this codebase memory. Yggdrasil is more specific: it keeps
 that memory tied to files, evidence, and reviewable corrections, so maintainers
 can see why an answer was trusted. Claims about speed, cost, or effectiveness
 should come from repeatable benchmarks.
@@ -22,29 +22,29 @@ should come from repeatable benchmarks.
 ## Quickstart
 
 ```sh
-agraph start . --project my-project
+ygg start . --project my-project
 ```
 
-`start` writes or reuses `project.edn`, creates `agraph.map.json`, syncs the
-repo, imports local queue activity, and writes an `agraph-out/` report bundle.
-Open `agraph-out/index.html` for the generated report and graph viewer.
+`start` writes or reuses `project.edn`, creates `ygg.map.json`, syncs the
+repo, imports local queue activity, and writes an `ygg-out/` report bundle.
+Open `ygg-out/index.html` for the generated report and graph viewer.
 
 For lower-level setup, use the explicit commands behind that flow:
 
 ```sh
-agraph init . --project my-project --out project.edn
-agraph sync project.edn --check --map agraph.map.json
-agraph ask "where is auth handled" --project my-project
-agraph explore create "where is auth handled" --project my-project --map agraph.map.json
+ygg init . --project my-project --out project.edn
+ygg sync project.edn --check --map ygg.map.json
+ygg ask "where is auth handled" --project my-project
+ygg explore create "where is auth handled" --project my-project --map ygg.map.json
 ```
 
-Default local data lives under `.dev/`. Use `AGRAPH_XTDB_PATH` when you need a
+Default local data lives under `.dev/`. Use `YGG_XTDB_PATH` when you need a
 different XTDB directory.
 
 ## Core Ideas
 
-- Real systems first: AGraph looks beyond source files to the repo evidence
-  agents need for real maintenance work. Use `agraph sync coverage project.edn`
+- Real systems first: Yggdrasil looks beyond source files to the repo evidence
+  agents need for real maintenance work. Use `ygg sync coverage project.edn`
   for the current support breakdown.
 - Architecture and tribal knowledge: accepted corrections, boundaries, and
   useful context become part of the project record instead of disappearing with
@@ -89,9 +89,9 @@ bb v1:smoke
 bb v1:gate
 ```
 
-This installs the AGraph binary. Project agent setup is noun-scoped: use
-`agraph agent install` and `agraph agent uninstall`, not top-level
-`agraph install` or `agraph uninstall` wrappers.
+This installs the Yggdrasil binary. Project agent setup is noun-scoped: use
+`ygg agent install` and `ygg agent uninstall`, not top-level
+`ygg install` or `ygg uninstall` wrappers.
 
 ## Detailed Docs
 

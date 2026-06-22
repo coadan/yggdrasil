@@ -3,7 +3,7 @@
 ## Goal
 
 Borrow the highest-value product and workflow ideas from Graphify without
-changing AGraph's core model:
+changing Yggdrasil's core model:
 
 - facts first
 - deterministic extraction where possible
@@ -11,19 +11,19 @@ changing AGraph's core model:
 - durable local state in XTDB
 - provider-agnostic agent handoff
 
-The borrowed ideas should make AGraph easier to adopt and harder to forget
-during agent work. They should not turn AGraph into a report-only graph
+The borrowed ideas should make Yggdrasil easier to adopt and harder to forget
+during agent work. They should not turn Yggdrasil into a report-only graph
 generator or a broad semantic classifier.
 
 ## Stages
 
 | Stage | Plan | Outcome |
 | --- | --- | --- |
-| 1 | [Agent Install And Hooks](01-agent-install-and-hooks.md) | Agents get project/user instructions that route broad codebase questions through AGraph first. |
-| 2 | [Watch And Git Refresh](02-watch-and-git-refresh.md) | AGraph can stay current through file watching and post-commit/post-checkout hooks. |
+| 1 | [Agent Install And Hooks](01-agent-install-and-hooks.md) | Agents get project/user instructions that route broad codebase questions through Yggdrasil first. |
+| 2 | [Watch And Git Refresh](02-watch-and-git-refresh.md) | Yggdrasil can stay current through file watching and post-commit/post-checkout hooks. |
 | 3 | [One Command Onboarding](03-one-command-onboarding.md) | New users can run one command on a repo and get a usable project config, sync, and next steps. |
-| 4 | [Report Bundle](04-report-bundle.md) | AGraph emits a simple shareable `agraph-out/` bundle while preserving `agraph.graph/v2`. |
-| 5 | [MCP Server](05-mcp-server.md) | `agraph-mcp` becomes a real structured server over ask, explore, view, and sync work. |
+| 4 | [Report Bundle](04-report-bundle.md) | Yggdrasil emits a simple shareable `ygg-out/` bundle while preserving `ygg.graph/v2`. |
+| 5 | [MCP Server](05-mcp-server.md) | `ygg-mcp` becomes a real structured server over ask, explore, view, and sync work. |
 | 6 | [Extractor Expansion](06-extractor-expansion.md) | Add high-impact deterministic extractors and coverage guidance. |
 | 7 | [Adoption Polish](07-adoption-polish.md) | Finish the docs, tests, migration cleanup, and release checks around the new surface. |
 | 8 | [Start Command](08-start-command.md) | One command initializes or reuses a project, syncs, imports activity, and writes a report bundle. |
@@ -36,7 +36,7 @@ generator or a broad semantic classifier.
    over multiple coding turns.
 3. **Onboarding and report bundle third.** These make the system legible to
    humans without weakening the internal graph contract.
-4. **MCP fourth.** AGraph already has packet-shaped APIs; MCP should expose them
+4. **MCP fourth.** Yggdrasil already has packet-shaped APIs; MCP should expose them
    after the public command surface is clearer.
 5. **Extractor expansion last.** New extractors are valuable, but only after the
    ingestion and agent workflows are easy to use and validate.
@@ -48,10 +48,10 @@ generator or a broad semantic classifier.
 - New commands should wrap the canonical surfaces: `sync`, `ask`, `explore`,
   `view`, `sync work`, `sync docs`, and `sync meta`.
 - New file type support must emit canonical extraction buckets and graph rows.
-- Keep renderer-specific state out of `agraph.graph/v2`.
+- Keep renderer-specific state out of `ygg.graph/v2`.
 - Keep `.dev/` outputs local and ignored unless the user explicitly asks for
   tracked examples.
-- Prefer aggressive canonicalization over compatibility layers while AGraph is
+- Prefer aggressive canonicalization over compatibility layers while Yggdrasil is
   in heavy development.
 
 ## Cross-Stage Test Matrix
@@ -70,20 +70,20 @@ Every stage should add or update focused tests:
 The roadmap is complete when a fresh repo can run:
 
 ```sh
-agraph start .
-agraph init .
-agraph sync project.edn --check --map agraph.map.json
-agraph install-agent --platform codex --project
-agraph hook install
-agraph report project.edn
-agraph-mcp
+ygg start .
+ygg init .
+ygg sync project.edn --check --map ygg.map.json
+ygg install-agent --platform codex --project
+ygg hook install
+ygg report project.edn
+ygg-mcp
 ```
 
 and an agent can then answer focused questions through:
 
 ```sh
-agraph ask "where is auth handled" --project <id> --json
-agraph explore create "runtime boundary" --project <id>
-agraph view systems --project <id> --format json
-agraph sync work pull --project <id> --agent codex
+ygg ask "where is auth handled" --project <id> --json
+ygg explore create "runtime boundary" --project <id>
+ygg view systems --project <id> --format json
+ygg sync work pull --project <id> --agent codex
 ```

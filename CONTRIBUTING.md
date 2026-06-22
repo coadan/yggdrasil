@@ -1,6 +1,6 @@
 # Contributing
 
-AGraph is local-first tooling for coding agents. Changes should preserve three
+Yggdrasil is local-first tooling for coding agents. Changes should preserve three
 agent jobs:
 
 - Build: construct graph/evidence from repositories.
@@ -57,8 +57,8 @@ Core promotion PRs that start from plugin work must include:
 - fixtures and tests for the promoted behavior;
 - benchmark cases and generated reports showing material improvement for the
   relevant problem class;
-- clear before/after evidence when the claim compares shell-only, core AGraph,
-  and plugin-enhanced AGraph;
+- clear before/after evidence when the claim compares shell-only, core Yggdrasil,
+  and plugin-enhanced Yggdrasil;
 - FOSS, non-commercial package metadata when the work was developed as a public
   plugin package.
 

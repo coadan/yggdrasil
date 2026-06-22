@@ -1,35 +1,35 @@
 {:tasks
  {:requires ([babashka.process :refer [shell]])
 
-  start {:doc "Start AGraph for a repo. Usage: bb start <repo-root> [--project ID] [--out project.edn] [--map agraph.map.json] [--report-out agraph-out]"
-         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "start"
+  start {:doc "Start Yggdrasil for a repo. Usage: bb start <repo-root> [--project ID] [--out project.edn] [--map ygg.map.json] [--report-out ygg-out]"
+         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "start"
                       *command-line-args*)}
 
-  sync {:doc "Sync AGraph with a project. Usage: bb sync <project.edn> [--check] [--enqueue] [--query-index]"
-        :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "sync"
+  sync {:doc "Sync Yggdrasil with a project. Usage: bb sync <project.edn> [--check] [--enqueue] [--query-index]"
+        :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "sync"
                      *command-line-args*)}
 
   ask {:doc "Ask the current graph one question. Usage: bb ask \"text\" [--project ID]"
-       :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "ask"
+       :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "ask"
                     *command-line-args*)}
 
   explore {:doc "Progressively explore the graph. Usage: bb explore create|show|open|expand|docs|search ..."
-           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "explore"
+           :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "explore"
                         *command-line-args*)}
 
   view {:doc "Render or export graph slices. Usage: bb view overview|deps|query|systems ..."
-        :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "view"
+        :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "view"
                      *command-line-args*)}
 
   packages {:doc "Report package/dependency evidence. Usage: bb packages [--project ID] [--repo ID] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]"
-            :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "packages"
+            :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "packages"
                          *command-line-args*)}
 
   bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-baseline|agent-run|agent-score|agent-report|agent-check|claim-pack|improve|run|report|show <benchmark.edn>"
-         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "bench"
+         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "bench"
                       *command-line-args*)}
 
-  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|claim-pack|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
+  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|compare|claim-pack|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
             :task (apply shell "bash" "scripts/headline-bench.sh"
                          *command-line-args*)}
 
@@ -46,60 +46,60 @@
                    (shell {:dir "report-ui"} "npm run build")
                    (shell "bash scripts/v1-smoke.sh"))}
 
-  efficiency {:doc "Compare shell-only and AGraph agent reports. Usage: bb efficiency <shell-agent-report.json> <agraph-agent-report.json> [--out report.json] [--json] [--min-shared-cases N]"
-              :task (apply shell "clojure" "-M:run" "-m" "agraph.agent-efficiency"
+  efficiency {:doc "Compare shell-only and Yggdrasil agent reports. Usage: bb efficiency <shell-agent-report.json> <ygg-agent-report.json> [--out report.json] [--json] [--min-shared-cases N]"
+              :task (apply shell "clojure" "-M:run" "-m" "ygg.agent-efficiency"
                            *command-line-args*)}
 
   index {:doc "Compatibility: index a repo. Usage: bb index <repo-path> [--dry-run]"
-         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "index"
+         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "index"
                       *command-line-args*)}
 
   project {:doc "Compatibility: project commands. Prefer bb sync."
-           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "project"
+           :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "project"
                         *command-line-args*)}
 
   systems {:doc "System candidate commands. Usage: bb systems candidates --project ID"
-           :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "systems"
+           :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "systems"
                         *command-line-args*)}
 
   classify {:doc "Focused classifier commands. Usage: bb classify decision <id> --project ID"
-            :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "classify"
+            :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "classify"
                          *command-line-args*)}
 
   queue {:doc "Compatibility: filesystem queue commands. Prefer bb sync work."
-         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "queue"
+         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "queue"
                       *command-line-args*)}
 
   query {:doc "Compatibility: search indexed graph. Prefer bb ask."
-         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "query"
+         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "query"
                       *command-line-args*)}
 
   embed {:doc "Embed search docs. Usage: bb embed [--model MODEL] [--limit N]"
-         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "embed"
+         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "embed"
                       *command-line-args*)}
 
   graph {:doc "Compatibility: write graph view. Prefer bb view."
-         :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "graph"
+         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "graph"
                       *command-line-args*)}
 
   cursor {:doc "Compatibility: cursor packets. Prefer bb explore."
-          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "cursor"
+          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "cursor"
                        *command-line-args*)}
 
   deps {:doc "Compatibility: show graph dependencies. Prefer bb view deps or bb ask."
-        :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "deps"
+        :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "deps"
                      *command-line-args*)}
 
   path {:doc "Compatibility: find graph path."
-        :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "path"
+        :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "path"
                      *command-line-args*)}
 
-  report {:doc "Write a local report bundle. Usage: bb report <project.edn> [--map agraph.map.json] [--out agraph-out]"
-          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "report"
+  report {:doc "Write a local report bundle. Usage: bb report <project.edn> [--map ygg.map.json] [--out ygg-out]"
+          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "report"
                        *command-line-args*)}
 
-  plugin {:doc "Manage AGraph plugin packages. Usage: bb plugin new|validate|diagnose|dry-run|install|list|remove|registry ..."
-          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "plugin"
+  plugin {:doc "Manage Yggdrasil plugin packages. Usage: bb plugin new|validate|diagnose|dry-run|install|list|remove|registry ..."
+          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "plugin"
                        *command-line-args*)}
 
   report-ui:install {:doc "Install report UI dependencies."

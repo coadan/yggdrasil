@@ -4,7 +4,7 @@ Status: implemented.
 
 ## Goal
 
-Borrow Graphify's broad input coverage selectively. AGraph should prioritize
+Borrow Graphify's broad input coverage selectively. Yggdrasil should prioritize
 deterministic extractors that improve repo/system understanding and fit the
 canonical row model.
 
@@ -19,14 +19,14 @@ canonical row model.
 7. Live Postgres introspection
 8. PDF and Office document indexing
 
-The first four have the best fit with AGraph's existing system graph and
+The first four have the best fit with Yggdrasil's existing system graph and
 mechanical fact model.
 
 ## Extractor Rules
 
 Each extractor must:
 
-- add a scanner kind in `agraph.fs`
+- add a scanner kind in `ygg.fs`
 - emit canonical extraction buckets: nodes, edges, chunks, diagnostics
 - use stable ids
 - record source file and line when available
@@ -139,6 +139,6 @@ Near-term option:
 
 ## Done Criteria
 
-AGraph supports at least TypeScript/JavaScript, SQL, Terraform/HCL, and OpenAPI
-as deterministic source types, and `agraph sync coverage` clearly reports what
+Yggdrasil supports at least TypeScript/JavaScript, SQL, Terraform/HCL, and OpenAPI
+as deterministic source types, and `ygg sync coverage` clearly reports what
 was indexed, skipped, and unsupported.

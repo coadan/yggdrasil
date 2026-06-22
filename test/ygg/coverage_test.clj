@@ -1,0 +1,1203 @@
+(ns ygg.coverage-test
+  (:require [ygg.coverage :as coverage]
+            [ygg.xtdb :as store]
+            [clojure.java.io :as io]
+            [clojure.test :refer [deftest is]]))
+
+(defn- temp-dir
+  [prefix]
+  (let [file (java.nio.file.Files/createTempDirectory
+              prefix
+              (make-array java.nio.file.attribute.FileAttribute 0))]
+    (.getPath (.toFile file))))
+
+(defn- spit-file!
+  [root path content]
+  (let [file (io/file root path)]
+    (.mkdirs (.getParentFile file))
+    (spit file content)
+    (.getPath file)))
+
+(defn- row-by
+  [k value rows]
+  (some #(when (= value (get % k)) %) rows))
+
+(deftest project-coverage-adds-bounded-skipped-bucket-samples
+  (let [root-a (temp-dir "ygg-coverage-skipped-a")
+        root-b (temp-dir "ygg-coverage-skipped-b")]
+    (doseq [idx (range 1 7)]
+      (spit-file! root-a (str "assets/a" idx ".wasm") "wasm\n"))
+    (spit-file! root-b "assets/b1.wasm" "wasm\n")
+    (spit-file! root-b "src/app.clj" "(ns app)\n")
+    (let [report (coverage/project-coverage
+                  {:id "fixture"
+                   :path "project.edn"
+                   :repos [{:id "repo-a"
+                            :root root-a
+                            :role :application}
+                           {:id "repo-b"
+                            :root root-b
+                            :role :application}]})
+          wasm-row (row-by :ext ".wasm" (:skipped-by-extension report))
+          reason-row (row-by :reason
+                             "unsupported-extension"
+                             (:skipped-by-reason report))]
+      (is (= 7 (:count wasm-row)))
+      (is (= 5 (count (:samples wasm-row))))
+      (is (= [{:path "assets/a1.wasm"
+               :ext ".wasm"
+               :skip-reason :unsupported-extension
+               :repo-id "repo-a"}
+              {:path "assets/a2.wasm"
+               :ext ".wasm"
+               :skip-reason :unsupported-extension
+               :repo-id "repo-a"}
+              {:path "assets/a3.wasm"
+               :ext ".wasm"
+               :skip-reason :unsupported-extension
+               :repo-id "repo-a"}
+              {:path "assets/a4.wasm"
+               :ext ".wasm"
+               :skip-reason :unsupported-extension
+               :repo-id "repo-a"}
+              {:path "assets/a5.wasm"
+               :ext ".wasm"
+               :skip-reason :unsupported-extension
+               :repo-id "repo-a"}]
+             (:samples wasm-row)))
+      (is (= 7 (:count reason-row)))
+      (is (= (take 3 (:samples wasm-row))
+             (take 3 (:samples reason-row))))
+      (is (= [{:kind :coverage
+               :label "Inspect skipped source candidates"
+               :count 7
+               :command "ygg sync coverage project.edn --json"}]
+             (:nextActions report))))))
+
+(deftest project-coverage-adds-diagnostic-next-action
+  (let [root (temp-dir "ygg-coverage-diagnostic-action")]
+    (spit-file! root "src/app.clj" "(ns app)\n")
+    (with-redefs [store/rows-by-field (fn [_ table field value]
+                                        (case [table field value]
+                                          [:ygg/files :project-id "fixture"]
+                                          [{:xt/id "file:app"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/app.clj"
+                                            :kind :code
+                                            :active? true}]
+
+                                          [:ygg/index-diagnostics :project-id "fixture"]
+                                          [{:file-id "file:app"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :stage :parse
+                                            :message "parser failed"
+                                            :active? true}]
+
+                                          []))]
+      (let [report (coverage/project-coverage
+                    :xtdb
+                    {:id "fixture"
+                     :repos [{:id "app"
+                              :root root
+                              :role :application}]}
+                    {:config-path "project.edn"})]
+        (is (= [{:kind :coverage
+                 :label "Inspect extractor diagnostics"
+                 :count 1
+                 :command "ygg sync coverage project.edn --json"}
+                {:kind :coverage
+                 :label "Inspect isolated indexed files"
+                 :count 1
+                 :command "ygg sync coverage project.edn --json"}]
+               (:nextActions report)))))))
+
+(deftest context-summary-groups-indexed-files-and-diagnostics
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :ygg/files
+                                   [{:xt/id "file:app"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :path "src/app.clj"
+                                     :kind :code
+                                     :extractor-fingerprint "extractor:clj-a"
+                                     :active? true}
+                                    {:xt/id "file:service"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :path "src/Service.java"
+                                     :kind :java
+                                     :extractor-fingerprint "extractor:java-a"
+                                     :active? true}
+                                    {:xt/id "file:other"
+                                     :project-id "other"
+                                     :repo-id "app"
+                                     :path "src/Other.java"
+                                     :kind :java
+                                     :active? true}
+                                    {:xt/id "file:inactive"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :path "src/Old.java"
+                                     :kind :java
+                                     :active? false}]
+
+                                   :ygg/nodes
+                                   [{:xt/id "node:app"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :file-id "file:app"
+                                     :active? true}
+                                    {:xt/id "node:service"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :file-id "file:service"
+                                     :active? true}
+                                    {:xt/id "node:other"
+                                     :project-id "other"
+                                     :repo-id "app"
+                                     :file-id "file:other"
+                                     :active? true}
+                                    {:xt/id "node:inactive"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :file-id "file:inactive"
+                                     :active? false}]
+
+                                   :ygg/edges
+                                   [{:xt/id "edge:app-service"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :source-id "node:app"
+                                     :target-id "node:service"
+                                     :active? true}
+                                    {:xt/id "edge:other"
+                                     :project-id "other"
+                                     :repo-id "app"
+                                     :source-id "node:other"
+                                     :target-id "node:app"
+                                     :active? true}
+                                    {:xt/id "edge:inactive"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :source-id "node:app"
+                                     :target-id "node:inactive"
+                                     :active? false}]
+
+                                   :ygg/index-diagnostics
+                                   [{:file-id "file:service"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :stage :parse
+                                     :message "parser failed"
+                                     :source-line 12
+                                     :active? true}
+                                    {:file-id "file:missing"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :stage :extract
+                                     :message "missing file row"
+                                     :active? true}
+                                    {:file-id "file:other"
+                                     :project-id "other"
+                                     :repo-id "app"
+                                     :stage :parse
+                                     :active? true}
+                                    {:file-id "file:inactive"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :stage :parse
+                                     :active? false}]
+
+                                   []))]
+    (let [summary (coverage/context-summary
+                   :xtdb
+                   {:project-id "fixture"
+                    :repo-id "app"
+                    :read-context nil})]
+      (is (= coverage/context-schema (:schema summary)))
+      (is (= {:indexedFiles 2
+              :skippedFiles 0
+              :diagnostics 2
+              :fileKinds 2}
+             (:totals summary)))
+      (is (= {:indexedFiles 2
+              :nodes 2
+              :edges 1
+              :connectedFiles 2
+              :crossFileConnectedFiles 2
+              :isolatedFiles 0}
+             (dissoc (:indexedConnectivity summary) :byKind)))
+      (is (= [{:kind "code"
+               :indexedFiles 1
+               :connectedFiles 1
+               :crossFileConnectedFiles 1
+               :isolatedFiles 0}
+              {:kind "java"
+               :indexedFiles 1
+               :connectedFiles 1
+               :crossFileConnectedFiles 1
+               :isolatedFiles 0}]
+             (get-in summary [:indexedConnectivity :byKind])))
+      (is (= [{:kind "code" :count 1}
+              {:kind "java" :count 1}]
+             (:topFileKinds summary)))
+      (is (= [{:kind "code"
+               :extractorVersion "clojure/v9"
+               :files 1}
+              {:kind "java"
+               :extractorVersion "java/v2"
+               :files 1}]
+             (:extractors summary)))
+      (is (= [{:kind "code"
+               :extractorVersion "clojure/v9"
+               :extractorFingerprint "extractor:clj-a"
+               :files 1}
+              {:kind "java"
+               :extractorVersion "java/v2"
+               :extractorFingerprint "extractor:java-a"
+               :files 1}]
+             (:extractorFingerprints summary)))
+      (is (= [{:stage "extract" :count 1}
+              {:stage "parse" :count 1}]
+             (get-in summary [:diagnostics :byStage])))
+      (is (= [{:kind "java"
+               :extractorVersion "java/v2"
+               :stage "parse"
+               :count 1}
+              {:kind "unknown"
+               :extractorVersion "unknown"
+               :stage "extract"
+               :count 1}]
+             (get-in summary [:diagnostics :byExtractor])))
+      (is (= [{:file-id "file:missing"
+               :stage :extract
+               :message "missing file row"}
+              {:file-id "file:service"
+               :stage :parse
+               :message "parser failed"
+               :source-line 12
+               :path "src/Service.java"
+               :kind "java"}]
+             (get-in summary [:diagnostics :samples])))
+      (is (= [{:kind :coverage
+               :label "Inspect extractor diagnostics"
+               :count 2
+               :command "ygg sync coverage <project.edn> --json"}]
+             (:nextActions summary))))))
+
+(deftest context-summary-includes-latest-index-run-skipped-files
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :ygg/files []
+                                   :ygg/nodes []
+                                   :ygg/edges []
+                                   :ygg/index-diagnostics []
+                                   :ygg/index-runs
+                                   [{:xt/id "run:old"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :status :completed
+                                     :finished-at-ms 10
+                                     :stats {:files-skipped 5}}
+                                    {:xt/id "run:latest"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :status :completed
+                                     :finished-at-ms 20
+                                     :stats {:files-skipped 2}}
+                                    {:xt/id "run:running"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :status :running
+                                     :finished-at-ms 30
+                                     :stats {:files-skipped 9}}
+                                    {:xt/id "run:other"
+                                     :project-id "fixture"
+                                     :repo-id "other"
+                                     :status :completed
+                                     :finished-at-ms 30
+                                     :stats {:files-skipped 7}}]
+                                   []))]
+    (let [summary (coverage/context-summary
+                   :xtdb
+                   {:project-id "fixture"
+                    :repo-id "app"})]
+      (is (= 2 (get-in summary [:totals :skippedFiles])))
+      (is (= [{:kind :coverage
+               :label "Inspect skipped source candidates"
+               :count 2
+               :command "ygg sync coverage <project.edn> --json"}]
+             (:nextActions summary))))))
+
+(deftest context-summary-actions-isolated-indexed-files
+  (with-redefs [store/all-rows (fn [_ table _]
+                                 (case table
+                                   :ygg/files
+                                   [{:xt/id "file:app"
+                                     :project-id "fixture"
+                                     :repo-id "app"
+                                     :path "src/app.clj"
+                                     :kind :code
+                                     :active? true}]
+
+                                   :ygg/nodes []
+                                   :ygg/edges []
+                                   :ygg/index-diagnostics []
+
+                                   []))]
+    (let [summary (coverage/context-summary
+                   :xtdb
+                   {:project-id "fixture"
+                    :repo-id "app"})]
+      (is (= {:indexedFiles 1
+              :nodes 0
+              :edges 0
+              :connectedFiles 0
+              :crossFileConnectedFiles 0
+              :isolatedFiles 1}
+             (dissoc (:indexedConnectivity summary) :byKind)))
+      (is (= [{:kind :coverage
+               :label "Inspect isolated indexed files"
+               :count 1
+               :command "ygg sync coverage <project.edn> --json"}]
+             (:nextActions summary))))))
+
+(deftest project-coverage-reports-indexed-extractor-fingerprints
+  (let [root (temp-dir "ygg-coverage-fingerprints")]
+    (spit-file! root "src/app.clj" "(ns app)\n")
+    (with-redefs [store/rows-by-field (fn [_ table field value]
+                                        (case [table field value]
+                                          [:ygg/files :project-id "fixture"]
+                                          [{:xt/id "file:app"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/app.clj"
+                                            :kind :code
+                                            :extractor-fingerprint "extractor:clj-a"
+                                            :active? true}
+                                           {:xt/id "file:worker"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/Worker.java"
+                                            :kind :java
+                                            :extractor-fingerprint "extractor:java-a"
+                                            :active? true}
+                                           {:xt/id "file:old"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/Old.java"
+                                            :kind :java
+                                            :extractor-fingerprint "extractor:java-old"
+                                            :active? false}]
+
+                                          [:ygg/index-diagnostics :project-id "fixture"]
+                                          []
+
+                                          []))]
+      (let [report (coverage/project-coverage
+                    :xtdb
+                    {:id "fixture"
+                     :repos [{:id "app"
+                              :root root
+                              :role :application}]}
+                    {})]
+        (is (= [{:kind "code"
+                 :extractor-version "clojure/v9"
+                 :extractor-fingerprint "extractor:clj-a"
+                 :files 1}
+                {:kind "java"
+                 :extractor-version "java/v2"
+                 :extractor-fingerprint "extractor:java-a"
+                 :files 1}]
+               (:extractor-fingerprints report)))))))
+
+(deftest project-coverage-reports-indexed-connectivity
+  (let [root (temp-dir "ygg-coverage-connectivity")]
+    (spit-file! root "src/app.clj" "(ns app)\n")
+    (with-redefs [store/rows-by-field (fn [_ table field value]
+                                        (case [table field value]
+                                          [:ygg/files :project-id "fixture"]
+                                          [{:xt/id "file:app"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/app.clj"
+                                            :kind :code
+                                            :active? true}
+                                           {:xt/id "file:helper"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/helper.py"
+                                            :kind :python
+                                            :active? true}
+                                           {:xt/id "file:self"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/Self.java"
+                                            :kind :java
+                                            :active? true}
+                                           {:xt/id "file:doc"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "README.md"
+                                            :kind :doc
+                                            :active? true}
+                                           {:xt/id "file:inactive"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :path "src/Old.java"
+                                            :kind :java
+                                            :active? false}]
+
+                                          [:ygg/nodes :project-id "fixture"]
+                                          [{:xt/id "node:app"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :file-id "file:app"
+                                            :active? true}
+                                           {:xt/id "node:helper"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :file-id "file:helper"
+                                            :active? true}
+                                           {:xt/id "node:self-a"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :file-id "file:self"
+                                            :active? true}
+                                           {:xt/id "node:self-b"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :file-id "file:self"
+                                            :active? true}
+                                           {:xt/id "node:inactive"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :file-id "file:inactive"
+                                            :active? false}]
+
+                                          [:ygg/edges :project-id "fixture"]
+                                          [{:xt/id "edge:app-helper"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :source-id "node:app"
+                                            :target-id "node:helper"
+                                            :active? true}
+                                           {:xt/id "edge:self"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :source-id "node:self-a"
+                                            :target-id "node:self-b"
+                                            :active? true}
+                                           {:xt/id "edge:inactive"
+                                            :project-id "fixture"
+                                            :repo-id "app"
+                                            :source-id "node:app"
+                                            :target-id "node:inactive"
+                                            :active? false}]
+
+                                          [:ygg/index-diagnostics :project-id "fixture"]
+                                          []
+
+                                          []))]
+      (let [report (coverage/project-coverage
+                    :xtdb
+                    {:id "fixture"
+                     :repos [{:id "app"
+                              :root root
+                              :role :application}]}
+                    {})]
+        (is (= {:indexedFiles 4
+                :nodes 4
+                :edges 2
+                :connectedFiles 3
+                :crossFileConnectedFiles 2
+                :isolatedFiles 1}
+               (dissoc (:indexedConnectivity report) :byKind)))
+        (is (= [{:kind "code"
+                 :indexedFiles 1
+                 :connectedFiles 1
+                 :crossFileConnectedFiles 1
+                 :isolatedFiles 0}
+                {:kind "doc"
+                 :indexedFiles 1
+                 :connectedFiles 0
+                 :crossFileConnectedFiles 0
+                 :isolatedFiles 1}
+                {:kind "java"
+                 :indexedFiles 1
+                 :connectedFiles 1
+                 :crossFileConnectedFiles 0
+                 :isolatedFiles 0}
+                {:kind "python"
+                 :indexedFiles 1
+                 :connectedFiles 1
+                 :crossFileConnectedFiles 1
+                 :isolatedFiles 0}]
+               (get-in report [:indexedConnectivity :byKind])))
+        (is (= [{:kind :coverage
+                 :label "Inspect isolated indexed files"
+                 :count 1
+                 :command "ygg sync coverage <project.edn> --json"}]
+               (:nextActions report)))))))
+
+(deftest project-coverage-reports-supported-and-skipped-source-types
+  (let [root (temp-dir "ygg-coverage-repo")]
+    (spit-file! root "src/app.py" "def main():\n    return 1\n")
+    (spit-file! root "src/App.java" "package demo;\npublic class App {}\n")
+    (spit-file! root "src/App.kt" "package demo\nclass App\n")
+    (spit-file! root "src/App.swift" "struct App {}\n")
+    (spit-file! root "src/App.cs" "namespace Demo;\npublic class App {}\n")
+    (spit-file! root "src/App.csproj" "<Project><ItemGroup><PackageReference Include=\"Dapper\" /></ItemGroup></Project>\n")
+    (spit-file! root "build.gradle" "rootProject.name = 'demo'\n")
+    (spit-file! root "android/AndroidManifest.xml" "<manifest package=\"com.example\"><uses-permission android:name=\"android.permission.INTERNET\" /></manifest>\n")
+    (spit-file! root "android/res/values/strings.xml" "<resources><string name=\"app_name\">Demo</string></resources>\n")
+    (spit-file! root "android/res/layout/activity.xml" "<LinearLayout android:id=\"@+id/root\" />\n")
+    (spit-file! root "android/res/navigation/main.xml" "<navigation android:id=\"@+id/main\" />\n")
+    (spit-file! root "ios/Info.plist" "<plist><dict><key>CFBundleIdentifier</key><string>com.example</string></dict></plist>\n")
+    (spit-file! root "ios/App.entitlements" "<plist><dict><key>aps-environment</key><string>development</string></dict></plist>\n")
+    (spit-file! root "ios/Debug.xcconfig" "PRODUCT_BUNDLE_IDENTIFIER = com.example\n")
+    (spit-file! root "ios/Podfile" "target 'Demo' do\n  pod 'Alamofire'\nend\n")
+    (spit-file! root "ios/Package.swift" "let package = Package(name: \"Demo\")\n")
+    (spit-file! root "ios/Demo.xcodeproj/project.pbxproj" "productName = Demo;\n")
+    (spit-file! root "expo/app.json" "{\"expo\":{\"name\":\"Demo\",\"android\":{\"package\":\"com.example\"}}}\n")
+    (spit-file! root "mobile/capacitor.config.ts" "export default { appId: 'com.example', appName: 'Demo', webDir: 'dist' };\n")
+    (spit-file! root "mobile/tauri.conf.json" "{\"productName\":\"Demo\",\"identifier\":\"com.example.demo\"}\n")
+    (spit-file! root "db/schema.prisma" "model User {\n  id String @id\n}\n")
+    (spit-file! root "db/drizzle.config.ts" "export default { schema: './src/db/schema.ts' };\n")
+    (spit-file! root "db/flyway.conf" "flyway.locations=filesystem:db/migration\n")
+    (spit-file! root "db/liquibase.properties" "changeLogFile=db/changelog.xml\n")
+    (spit-file! root "db/migration/V1__create_panels.sql" "create table panels (id text primary key);\n")
+    (spit-file! root "db/changelog/db.changelog-master.yaml" "databaseChangeLog:\n  - changeSet:\n      id: create-panels\n")
+    (spit-file! root "codegen/graphql-codegen.yml" "schema: ./contracts/schema.graphql\n")
+    (spit-file! root "contracts/schema.graphql" "type Query { panel: Panel }\ntype Panel { id: ID! }\n")
+    (spit-file! root "contracts/panel.proto" "syntax = \"proto3\";\npackage demo;\nmessage Panel { string id = 1; }\n")
+    (spit-file! root "contracts/events.asyncapi.json" "{\"asyncapi\":\"3.0.0\",\"channels\":{\"panel.created\":{}},\"components\":{\"messages\":{\"PanelCreated\":{}},\"schemas\":{\"Panel\":{}}}}\n")
+    (spit-file! root "contracts/panel.schema.json" "{\"$id\":\"panel\",\"properties\":{\"id\":{\"type\":\"string\"}},\"$defs\":{\"User\":{}}}\n")
+    (spit-file! root "contracts/panel.avsc" "{\"type\":\"record\",\"name\":\"Panel\",\"fields\":[{\"name\":\"id\",\"type\":\"string\"}]}\n")
+    (spit-file! root "dbt/dbt_project.yml" "name: panels\nprofile: panels_profile\nmodel-paths:\n  - models\n")
+    (spit-file! root "dbt/panel_orders.sql" "select * from {{ ref('panels') }}\n")
+    (spit-file! root "dbt/packages.yml" "packages:\n  - package: dbt-labs/dbt_utils\n")
+    (spit-file! root "dbt/profiles.yml" "panels:\n  target: dev\n  outputs:\n    dev:\n      type: postgres\n")
+    (spit-file! root "dbt/models/schema.yml" "version: 2\nmodels:\n  - name: panel_orders\nsources:\n  - name: billing\n")
+    (spit-file! root "notebooks/panel_analysis.ipynb" "{\"cells\":[{\"cell_type\":\"code\",\"source\":[\"print(1)\\n\"]}],\"metadata\":{\"kernelspec\":{\"name\":\"python3\"},\"language_info\":{\"name\":\"python\"}},\"nbformat\":4}\n")
+    (spit-file! root "ml/dvc/dvc.yaml" "stages:\n  train:\n    cmd: python train.py\n    outs:\n      - models/panel.pkl\n")
+    (spit-file! root "ml/dvc/dvc.lock" "stages:\n  train:\n    cmd: python train.py\n")
+    (spit-file! root "ml/data/raw.csv.dvc" "outs:\n  - path: raw.csv\n")
+    (spit-file! root "ml/mlflow/MLproject" "name: panels-ml\nentry_points:\n  train:\n    command: python train.py\n")
+    (spit-file! root "ml/env/environment.yml" "name: panel-lab\nchannels:\n  - conda-forge\ndependencies:\n  - python=3.11\n  - pip:\n      - mlflow==2.12.1\n")
+    (spit-file! root "ml/cards/model-card.md" "---\nmodel_name: panel-forecast\ndatasets:\n  - panel_orders\nlicense: apache-2.0\n---\n\n# Panel Forecast\n")
+    (spit-file! root "ml/cards/data-card.md" "---\ndataset_name: panel_orders\nschema: schemas/panel_orders.json\n---\n\n# Panel Orders\n")
+    (spit-file! root "observability/otel/otelcol.yaml" "receivers:\n  otlp:\nprocessors:\n  batch:\nexporters:\n  logging:\nservice:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: [batch]\n      exporters: [logging]\n")
+    (spit-file! root "observability/prometheus/prometheus.yml" "scrape_configs:\n  - job_name: panels\n    static_configs:\n      - targets: [\"localhost:9090\"]\n")
+    (spit-file! root "observability/prometheus/rules.yaml" "groups:\n  - name: panels\n    rules:\n      - alert: PanelLatencyHigh\n")
+    (spit-file! root "observability/prometheus/alertmanager.yml" "route:\n  receiver: team-default\nreceivers:\n  - name: team-default\n")
+    (spit-file! root "observability/grafana/datasources.yaml" "apiVersion: 1\ndatasources:\n  - name: Prometheus\n    type: prometheus\n")
+    (spit-file! root "observability/grafana/dashboard.json" "{\"schemaVersion\":39,\"title\":\"Panels\",\"panels\":[{\"title\":\"Latency\",\"datasource\":{\"uid\":\"prometheus\"}}]}\n")
+    (spit-file! root "observability/logs/vector.yaml" "sources:\n  app:\nsinks:\n  stdout:\n    inputs: [app]\n")
+    (spit-file! root ".coveragerc" "[run]\nbranch = True\n")
+    (spit-file! root "quality/mypy.ini" "[mypy]\nstrict = True\n")
+    (spit-file! root "quality/ruff.toml" "line-length = 100\n")
+    (spit-file! root "quality/sonar-project.properties" "sonar.projectKey=panels\n")
+    (spit-file! root "quality/checkstyle.xml" "<module name=\"Checker\"><module name=\"AvoidStarImport\"/></module>\n")
+    (spit-file! root "quality/pmd.xml" "<ruleset><rule ref=\"category/java/bestpractices.xml/UnusedPrivateMethod\"/></ruleset>\n")
+    (spit-file! root "quality/spotbugs-exclude.xml" "<FindBugsFilter><Match><Bug pattern=\"EI_EXPOSE_REP\"/></Match></FindBugsFilter>\n")
+    (spit-file! root "quality/phpstan.neon" "includes:\n  - rules.neon\nparameters:\n  paths:\n    - src\n")
+    (spit-file! root "quality/psalm.xml" "<psalm><projectFiles><directory name=\"src\"/></projectFiles></psalm>\n")
+    (spit-file! root ".rubocop.yml" "require:\n  - rubocop-performance\n")
+    (spit-file! root ".swiftlint.yml" "opt_in_rules:\n  - explicit_init\n")
+    (spit-file! root "quality/detekt.yml" "build:\n  maxIssues: 0\n")
+    (spit-file! root ".devcontainer/devcontainer.json" "{\"image\":\"mcr.microsoft.com/devcontainers/base:ubuntu\",\"features\":{\"ghcr.io/devcontainers/features/node:1\":{}},\"runServices\":[\"db\"],\"forwardPorts\":[3000],\"postCreateCommand\":\"bb test\"}\n")
+    (spit-file! root "infra/kustomize/kustomization.yaml" "resources:\n  - ../k8s/deployment.yaml\nimages:\n  - name: ghcr.io/acme/panels-web\nconfigMapGenerator:\n  - name: panels-config\n")
+    (spit-file! root ".pre-commit-config.yaml" "repos:\n  - repo: https://github.com/pre-commit/pre-commit-hooks\n    rev: v4.6.0\n    hooks:\n      - id: trailing-whitespace\n")
+    (spit-file! root ".github/CODEOWNERS" "* @acme/core\n/frontend/ @acme/web @acme/design\n")
+    (spit-file! root "tasks/Taskfile.yml" "version: '3'\ntasks:\n  build:\n    deps: [lint]\n    cmds:\n      - bb test\n")
+    (spit-file! root "tasks/justfile" "test: lint\n  bb test\n")
+    (spit-file! root "build/rules/panels.bzl" "load(\"@rules_java//java:defs.bzl\", \"java_library\")\ndef panel_library(name):\n    pass\npanel_rule = rule(implementation = panel_library)\n")
+    (spit-file! root ".tool-versions" "nodejs 20.11.1\npython 3.12.2\n")
+    (spit-file! root ".node-version" "20.11.1\n")
+    (spit-file! root ".python-version" "3.12.2\n")
+    (spit-file! root ".ruby-version" "3.3.0\n")
+    (spit-file! root "mise.toml" "[tools]\nnode = \"20.11.1\"\n[env]\nPANEL_ENV = \"dev\"\n[tasks.build]\nrun = \"bb test\"\n")
+    (spit-file! root "pages/index.astro" "---\nimport Header from '../Header.astro';\n---\n<Header />\n")
+    (spit-file! root "plugin/connector.php" "<?php\nnamespace Demo;\nclass Connector {}\n")
+    (spit-file! root "framework/routes/web.php" "<?php\nRoute::get('/panels', [PanelController::class, 'index']);\n")
+    (spit-file! root "framework/config/routes.yaml" "panel_show:\n  path: /panels/{id}\n  controller: App\\Controller\\PanelController::show\n")
+    (spit-file! root ".github/ISSUE_TEMPLATE/bug_report.yml" "name: Bug report\nlabels: bug\n")
+    (spit-file! root ".github/PULL_REQUEST_TEMPLATE.md" "# Summary\n- [ ] Tests updated\n")
+    (spit-file! root ".github/FUNDING.yml" "github: acme\n")
+    (spit-file! root "SECURITY.md" "# Security Policy\n")
+    (spit-file! root "CONTRIBUTING.md" "# Contributing\n")
+    (spit-file! root "sbom/cyclonedx.json" "{\"bomFormat\":\"CycloneDX\",\"metadata\":{\"component\":{\"name\":\"demo\",\"version\":\"1.0.0\",\"bom-ref\":\"pkg:demo/demo@1.0.0\"}},\"components\":[]}\n")
+    (spit-file! root "languages/messages.po" "msgid \"Hello\"\nmsgstr \"Hei\"\n")
+    (spit-file! root "assets/logo.svg" "<svg id=\"logo\"></svg>\n")
+    (spit-file! root "assets/hero.png" "png\n")
+    (spit-file! root "assets/animation.gif" "gif\n")
+    (spit-file! root "assets/photo.jpg" "jpg\n")
+    (spit-file! root "assets/download.bmp" "bmp\n")
+    (spit-file! root "assets/palette.ppm" "ppm\n")
+    (spit-file! root "assets/preview.webp" "webp\n")
+    (spit-file! root "assets/tutorial.mp4" "mp4\n")
+    (spit-file! root "assets/tutorial.webm" "webm\n")
+    (spit-file! root "assets/trace.svg.gz" "gz\n")
+    (spit-file! root "assets/plugin.jar" "jar\n")
+    (spit-file! root "assets/favicon.ico" "ico\n")
+    (spit-file! root "assets/fonts/outfit.ttf" "ttf\n")
+    (spit-file! root "assets/fonts/display.otf" "otf\n")
+    (spit-file! root "build/classes/App.class" "class\n")
+    (spit-file! root "design/template.penpot" "penpot\n")
+    (spit-file! root "secrets/dev.crt" "-----BEGIN CERTIFICATE-----\n")
+    (spit-file! root "secrets/dev.key" "-----BEGIN PRIVATE KEY-----\n")
+    (spit-file! root "secrets/dev.pem" "-----BEGIN CERTIFICATE-----\n")
+    (spit-file! root "languages/messages.mo" "mo\n")
+    (spit-file! root "wrangler.ops.jsonc" "{ // comment\n \"name\": \"demo\"\n}\n")
+    (spit-file! root "infra/support.env.example" "SUPPORT_URL=https://example.com\n")
+    (spit-file! root "public/index.html" "<!doctype html><main id=\"app\"></main>\n")
+    (spit-file! root "plugin/readme.txt" "Demo plugin\n")
+    (spit-file! root "templates/page.njk" "<main>{{ title }}</main>\n")
+    (spit-file! root "templates/email.mustache" "Hello {{name}}\n")
+    (spit-file! root "templates/service.go.tmpl" "package {{ .Package }}\n")
+    (spit-file! root "backend/email/en.subj" "Panel invite\n")
+    (spit-file! root "snapshots/panel.snap" "exports[`panel`] = `<main />`\n")
+    (spit-file! root "patches/runtime.patch" "diff --git a/app b/app\n")
+    (spit-file! root "server/postgresql.conf" "shared_buffers = 128MB\n")
+    (spit-file! root "server/build.properties" "version=1.0.0\n")
+    (spit-file! root "README.md" "# Demo\n")
+    (spit-file! root "LICENSE" "MIT\n")
+    (spit-file! root "resources/vendor/cytoscape.LICENSE" "Vendor license\n")
+    (spit-file! root "docs/release-notes.adoc" "= Release Notes\n\n== Runtime\n")
+    (spit-file! root "docs/changes.rst" "Changes\n=======\n\nRuntime notes\n")
+    (spit-file! root "infra/flake.nix" "{ description = \"Demo\"; }\n")
+    (spit-file! root "scripts/run-server.sh.in" "#!/bin/sh\nexec demo\n")
+    (spit-file! root "bin/tool" "#!/usr/bin/env bash\nexec demo\n")
+    (spit-file! root "tests/expected/result.out" "ok\n")
+    (spit-file! root "web/app.ts" "export const value = 1;\n")
+    (spit-file! root "web/widget.vue" "<template><main /></template>\n<script>export const value = 1;</script>\n")
+    (spit-file! root "web/widget.svelte" "<script>export const value = 1;</script>\n")
+    (spit-file! root "workspace/package.json" "{\"name\":\"demo\",\"dependencies\":{\"react\":\"latest\"}}\n")
+    (spit-file! root "workspace/deno.json" "{\"imports\":{\"@std/path\":\"jsr:@std/path@^1.0.0\"}}\n")
+    (spit-file! root "workspace/composer.json" "{\"name\":\"acme/panels\",\"require\":{\"symfony/console\":\"^7.0\"}}\n")
+    (spit-file! root "workspace/go.work" "go 1.22\nuse ./services/api\n")
+    (spit-file! root "workspace/pnpm-workspace.yaml" "packages:\n  - apps/*\n")
+    (spit-file! root "workspace/turbo.json" "{\"tasks\":{\"build\":{}}}\n")
+    (spit-file! root "workspace/nx.json" "{\"targetDefaults\":{\"build\":{}},\"projects\":{\"web\":{}}}\n")
+    (spit-file! root "workspace/lerna.json" "{\"packages\":[\"packages/*\"],\"npmClient\":\"pnpm\"}\n")
+    (spit-file! root "workspace/rush.json" "{\"projects\":[{\"packageName\":\"@acme/web\"}],\"pnpmVersion\":\"9.0.0\"}\n")
+    (spit-file! root "python/Pipfile" "[packages]\nrequests = \">=2\"\n")
+    (spit-file! root "python/setup.cfg" "[metadata]\nname = panels-py\n[options]\ninstall_requires =\n  requests>=2\n")
+    (spit-file! root "python/setup.py" "from setuptools import setup\nsetup(name=\"panels-setup\", install_requires=[\"fastapi\"])\n")
+    (spit-file! root "src/ruby/panel_service.rb" "module Demo\n  class PanelService\n  end\nend\n")
+    (spit-file! root "src/ruby/Rakefile" "task :build\n")
+    (spit-file! root "src/ruby/Gemfile" "gem \"rails\"\n")
+    (spit-file! root "src/ruby/panels.gemspec" "Gem::Specification.new { |spec| spec.name = \"panels\" }\n")
+    (spit-file! root "src/groovy/PanelService.groovy" "package demo\nclass PanelService {}\n")
+    (spit-file! root "packaging/homebrew/Formula/demo.rb.template" "class Demo < Formula\nend\n")
+    (spit-file! root "src/native/panel_service.cpp" "#include <vector>\nint build_panel() { return 1; }\n")
+    (spit-file! root "src/native/panel_service.hpp" "class PanelService {};\n")
+    (spit-file! root "mobile/ios/PanelService.m" "#import <Foundation/Foundation.h>\n@implementation PanelService\n@end\n")
+    (spit-file! root "flutter/lib/panel_store.dart" "class PanelStore {}\n")
+    (spit-file! root "flutter/pubspec.yaml" "name: panels_flutter\ndependencies:\n  http: ^1.0.0\n")
+    (spit-file! root "src/scala/PanelService.scala" "package demo\nclass PanelService\n")
+    (spit-file! root "src/scala/build.sbt" "name := \"demo\"\n")
+    (spit-file! root "src/elixir/panel_service.ex" "defmodule Demo.PanelService do\nend\n")
+    (spit-file! root "src/elixir/mix.exs" "defmodule Demo.MixProject do\nend\n")
+    (spit-file! root "src/erlang/panel_service.erl" "-module(panel_service).\n")
+    (spit-file! root "src/erlang/rebar.config" "{deps, []}.\n")
+    (spit-file! root "src/lua/panel_service.lua" "local M = {}\n")
+    (spit-file! root "src/r/panel_service.R" "load_panel <- function(id) id\n")
+    (spit-file! root "src/r/DESCRIPTION" "Package: panels\nImports: dplyr\n")
+    (spit-file! root "src/r/NAMESPACE" "import(dplyr)\n")
+    (spit-file! root "src/julia/PanelService.jl" "module PanelService\nend\n")
+    (spit-file! root "src/julia/Project.toml" "name = \"Panels\"\n[deps]\nDataFrames = \"uuid\"\n")
+    (spit-file! root "src/ocaml/panel_service.ml" "open Core\nlet load_panel id = id\n")
+    (spit-file! root "src/ocaml/panel_service.mli" "val load_panel : string -> string\n")
+    (spit-file! root "src/perl/PanelService.pm" "package PanelService;\nsub load_panel {}\n")
+    (spit-file! root "src/perl/cpanfile" "requires 'Mojolicious';\n")
+    (spit-file! root "src/haskell/PanelService.hs" "module PanelService where\n")
+    (spit-file! root "src/haskell/panels.cabal" "name: panels\n")
+    (spit-file! root "src/haskell/stack.yaml" "packages:\n  panels: .\n")
+    (spit-file! root "src/odin/panel_service.odin" "package panels\nload_panel :: proc() {}\n")
+    (spit-file! root "src/odin/ols.json" "{\"name\":\"panels-odin\",\"collections\":{\"panels\":\"src/odin\"}}\n")
+    (spit-file! root "src/zig/panel_service.zig" "pub fn loadPanel() void {}\n")
+    (spit-file! root "tooling/jest.config.js" "module.exports = { testEnvironment: \"jsdom\" };\n")
+    (spit-file! root "tooling/playwright.config.ts" "export default { testDir: \"./e2e\" };\n")
+    (spit-file! root "tooling/eslint.config.js" "export default [{ rules: { semi: \"error\" } }];\n")
+    (spit-file! root ".prettierrc" "{\"semi\": false}\n")
+    (spit-file! root "tooling/stylelint.config.js" "module.exports = { extends: [\"stylelint-config-standard\"] };\n")
+    (spit-file! root "tooling/tsconfig.json" "{\"extends\":\"./tsconfig.base.json\"}\n")
+    (spit-file! root "tooling/vite.config.ts" "import react from '@vitejs/plugin-react';\n")
+    (spit-file! root "tooling/webpack.config.js" "module.exports = { entry: './src/index.ts' };\n")
+    (spit-file! root "tooling/tailwind.config.js" "module.exports = { content: ['./src/**/*.tsx'] };\n")
+    (spit-file! root "tooling/pytest.ini" "[pytest]\ntestpaths = tests\n")
+    (spit-file! root ".github/dependabot.yml" "version: 2\nupdates:\n  - package-ecosystem: npm\n")
+    (spit-file! root ".storybook/main.ts" "export default { stories: ['../src/**/*.stories.tsx'], addons: ['@storybook/addon-essentials'], framework: { name: '@storybook/react-vite' } };\n")
+    (spit-file! root "src/ui/Button.stories.tsx" "import { Button } from './Button';\nexport default { title: 'Components/Button', component: Button, tags: ['autodocs'] };\nexport const Primary = {};\n")
+    (spit-file! root "docs/components.mdx" "import { Button } from '../src/ui/Button';\n\n# Components\n\nSee [panels](./panels.md).\n")
+    (spit-file! root "tooling/renovate.json" "{\"extends\":[\"config:recommended\"]}\n")
+    (spit-file! root ".editorconfig" "root = true\nindent_style = space\n")
+    (spit-file! root "vimrc" "set number\n")
+    (spit-file! root ".vscode/settings.json" "{\"editor.formatOnSave\":true,\"files.trimTrailingWhitespace\":true}\n")
+    (spit-file! root ".vscode/tasks.json" "{\"version\":\"2.0.0\",\"tasks\":[{\"label\":\"lint\",\"type\":\"shell\",\"command\":\"bb lint\"}]}\n")
+    (spit-file! root ".vscode/extensions.json" "{\"recommendations\":[\"redhat.java\"]}\n")
+    (spit-file! root "panels.code-workspace" "{\"folders\":[{\"path\":\".\"}],\"settings\":{\"files.eol\":\"\\n\"}}\n")
+    (spit-file! root ".changeset/config.json" "{\"baseBranch\":\"main\",\"changelog\":\"@changesets/cli/changelog\"}\n")
+    (spit-file! root ".changeset/bright-panels.md" "---\n\"@acme/panels\": minor\n---\n\nAdd panels.\n")
+    (spit-file! root "release-please-config.json" "{\"packages\":{\".\":{\"release-type\":\"node\",\"package-name\":\"panels\",\"changelog-path\":\"CHANGELOG.md\"}}}\n")
+    (spit-file! root ".release-please-manifest.json" "{\".\":\"1.4.0\"}\n")
+    (spit-file! root ".releaserc.json" "{\"branches\":[\"main\"],\"plugins\":[\"@semantic-release/changelog\"]}\n")
+    (spit-file! root "standard-version.json" "{\"tagPrefix\":\"v\",\"types\":[{\"type\":\"feat\",\"section\":\"Features\"}]}\n")
+    (spit-file! root "CHANGELOG.md" "# Changelog\n\n## 1.4.0\n")
+    (spit-file! root "web-frameworks/next/next.config.mjs" "import analyzer from '@next/bundle-analyzer';\nexport default { basePath: '/panels' };\n")
+    (spit-file! root "web-frameworks/next/app/page.tsx" "export default function Page() { return null; }\n")
+    (spit-file! root "web-frameworks/next/app/panels/[id]/page.tsx" "export default function Page() { return null; }\n")
+    (spit-file! root "web-frameworks/svelte/svelte.config.js" "import adapter from '@sveltejs/adapter-auto';\nexport default { kit: { adapter: adapter() } };\n")
+    (spit-file! root "web-frameworks/svelte/src/routes/+page.svelte" "<h1>Panels</h1>\n")
+    (spit-file! root "web-frameworks/svelte/src/routes/panels/[id]/+page.svelte" "<h1>Panel</h1>\n")
+    (spit-file! root "web-frameworks/nuxt/nuxt.config.ts" "export default defineNuxtConfig({ modules: ['@nuxt/image'] });\n")
+    (spit-file! root "web-frameworks/nuxt/pages/index.vue" "<template><PanelList /></template>\n")
+    (spit-file! root "web-frameworks/nuxt/pages/panels/[id].vue" "<template><PanelDetails /></template>\n")
+    (spit-file! root "web-frameworks/astro/astro.config.mjs" "import node from '@astrojs/node';\nexport default { base: '/astro-panels', adapter: node() };\n")
+    (spit-file! root "web-frameworks/astro/src/pages/index.astro" "---\n---\n<h1>Panels</h1>\n")
+    (spit-file! root "web-frameworks/astro/src/pages/blog/[slug].astro" "---\n---\n<h1>Post</h1>\n")
+    (spit-file! root "web-frameworks/angular/angular.json" "{\"projects\":{\"panels-web\":{\"root\":\"projects/panels-web\",\"architect\":{\"build\":{\"builder\":\"@angular-devkit/build-angular:browser\"}}}}}\n")
+    (spit-file! root "web-frameworks/angular/src/app/app.routes.ts" "import { Routes } from '@angular/router';\nimport { PanelListComponent } from './panel-list.component';\nexport const routes: Routes = [\n  { path: '', component: PanelListComponent },\n  { path: 'reports', loadChildren: () => import('./reports/reports.routes') }\n];\n")
+    (spit-file! root "web-frameworks/remix/remix.config.mjs" "import { vitePlugin as remix } from '@remix-run/dev';\nexport default { appDirectory: 'app' };\n")
+    (spit-file! root "web-frameworks/remix/app/routes/_index.tsx" "export async function loader() { return null; }\nexport default function IndexRoute() { return null; }\n")
+    (spit-file! root "web-frameworks/remix/app/routes/panels.$id.tsx" "export async function loader() { return null; }\nexport const action = async () => null;\nexport default function PanelRoute() { return null; }\n")
+    (spit-file! root "web-frameworks/ember/app/router.js" "import EmberRouter from '@ember/routing/router';\nconst Router = EmberRouter.extend({});\nRouter.map(function () {\n  this.route('panels');\n});\n")
+    (spit-file! root "web-frameworks/ember/config/environment.js" "module.exports = function () {\n  let ENV = { modulePrefix: 'panels-web', rootURL: '/', locationType: 'history' };\n  return ENV;\n};\n")
+    (spit-file! root "web-frameworks/vite/vite.config.ts" "import react from '@vitejs/plugin-react';\nexport default { base: '/vite-panels', plugins: [react()] };\n")
+    (spit-file! root "workflows/airflow/panel_dag.py" "from airflow import DAG\nwith DAG(\"panel_refresh\", schedule_interval=\"0 2 * * *\") as dag:\n    extract >> transform\n")
+    (spit-file! root "workflows/dagster/assets.py" "from dagster import asset\n@asset\ndef panel_asset():\n    return []\n")
+    (spit-file! root "workflows/dagster/dagster.yaml" "module_name: panels.assets\n")
+    (spit-file! root "workflows/prefect/flows.py" "from prefect import flow\n@flow\ndef refresh_panels():\n    return None\n")
+    (spit-file! root "workflows/prefect/prefect.yaml" "name: panels-prefect\ndeployments:\n  refresh:\n    entrypoint: flows.py:refresh_panels\n")
+    (spit-file! root "workflows/temporal/workflow.ts" "import { proxyActivities } from '@temporalio/workflow';\nexport async function panelWorkflow() {}\n")
+    (spit-file! root "workflows/argo/workflow.yaml" "apiVersion: argoproj.io/v1alpha1\nkind: Workflow\nmetadata:\n  name: panel-refresh\n")
+    (spit-file! root "workflows/tekton/pipeline.yaml" "apiVersion: tekton.dev/v1\nkind: Pipeline\nmetadata:\n  name: panel-pipeline\n")
+    (spit-file! root "infra/docker-compose.yml" "services:\n  web:\n    image: ghcr.io/acme/web:latest\n    build: ./web\n    ports:\n      - \"8080:8080\"\n    environment:\n      PANEL_ENV: dev\n")
+    (spit-file! root "runtime/Dockerfile" "FROM alpine:3.20 AS runtime\nCMD [\"demo\"]\n")
+    (spit-file! root "runtime/Dockerfile.worker" "FROM alpine:3.20\nCMD [\"worker\"]\n")
+    (spit-file! root "runtime/Containerfile" "FROM busybox:1.36\nENTRYPOINT [\"demo\"]\n")
+    (spit-file! root "runtime/Procfile" "web: demo web\n")
+    (spit-file! root "infra/chart/Chart.yaml" "apiVersion: v2\nname: panels\nversion: 0.1.0\n")
+    (spit-file! root "infra/k8s/deployment.yaml" "kind: Deployment\nmetadata:\n  name: panels-web\n")
+    (spit-file! root "infra/k8s/crd.yaml" "apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: panels.example.com\n")
+    (spit-file! root "infra/k8s/crossplane.yaml" "apiVersion: s3.aws.upbound.io/v1beta1\nkind: Bucket\nmetadata:\n  name: panel-assets\nspec:\n  providerConfigRef:\n    name: aws-prod\n")
+    (spit-file! root "infra/k8s/argocd-application.yaml" "apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: panels\n")
+    (spit-file! root "infra/chart/templates/deployment.yaml" "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {{ include \"panels.fullname\" . }}\n")
+    (spit-file! root "infra/cloudformation.json" "{\"Resources\":{\"PanelQueue\":{\"Type\":\"AWS::SQS::Queue\"}}}\n")
+    (spit-file! root "ops/cloudformation.yaml" "AWSTemplateFormatVersion: \"2010-09-09\"\nResources:\n  PanelBucket:\n    Type: AWS::S3::Bucket\n")
+    (spit-file! root "ops/Pulumi.yaml" "name: panels-infra\nruntime: nodejs\n")
+    (spit-file! root "ops/playbook.yaml" "- hosts: web\n  tasks:\n    - name: Install nginx\n")
+    (spit-file! root "ops/nginx.conf" "server {\n  listen 8080;\n}\n")
+    (spit-file! root "ops/Caddyfile" ":8080\nrespond \"ok\"\n")
+    (spit-file! root "ops/sudoers" "%admin ALL=(ALL) NOPASSWD: ALL\n")
+    (spit-file! root "ops/apt.sources" "Types: deb\nURIs: https://deb.debian.org/debian\n")
+    (spit-file! root "ops/panels.service" "[Service]\nExecStart=/usr/bin/panels-worker\n")
+    (spit-file! root "web/widget.wasm" "\000asm\n")
+    (spit-file! root "package-lock.json" "{}\n")
+    (spit-file! root "pnpm-lock.yaml" "packages:\n  react@19.1.0:\n")
+    (spit-file! root "yarn.lock" "\"react@^19.0.0\":\n  version \"19.1.0\"\n")
+    (spit-file! root "Gemfile.lock" "GEM\n  specs:\n    rails (7.1.0)\n")
+    (spit-file! root "poetry.lock" "[[package]]\nname = \"requests\"\nversion = \"2.31.0\"\n")
+    (spit-file! root "uv.lock" "[[package]]\nname = \"ruff\"\nversion = \"0.5.0\"\n")
+    (spit-file! root "flake.lock" "{\"nodes\":{}}\n")
+    (spit-file! root "pixi.lock" "version: 6\n")
+    (spit-file! root "pubspec.lock" "packages:\n  http:\n    version: \"1.2.0\"\n")
+    (spit-file! root "composer.lock" "{\"packages\":[{\"name\":\"symfony/console\",\"version\":\"v7.0.0\"}]}\n")
+    (spit-file! root "Pipfile.lock" "{\"default\":{\"flask\":{\"version\":\"==3.0.0\"}}}\n")
+    (spit-file! root "mix.lock" "%{\"plug\": {:hex, :plug, \"1.15.3\", \"checksum\", [], \"hexpm\", \"checksum\"}}\n")
+    (spit-file! root "requirements.txt" "django==5.0.0\n")
+    (spit-file! root "bun.lock" "{\"packages\":{\"react\":\"19.1.0\"}}\n")
+    (spit-file! root ".github/workflows/ci.yml" "name: ci\n")
+    (spit-file! root "Jenkinsfile" "pipeline { stages { stage('test') { steps { sh 'bb test' } } } }\n")
+    (spit-file! root "azure-pipelines.yml" "trigger: [main]\njobs:\n  - job: test\n")
+    (spit-file! root ".circleci/config.yml" "version: 2.1\njobs:\n  test:\n    docker:\n      - image: cimg/clojure:1.11\n    steps:\n      - checkout\n      - run: bb test\nworkflows:\n  build:\n    jobs:\n      - test\n")
+    (spit-file! root ".buildkite/pipeline.yml" "steps:\n  - label: Test\n    key: test\n    command: bb test\n")
+    (spit-file! root "Makefile" "test:\n\tbb test\n")
+    (spit-file! root "build/toolchain.cmake" "add_library(shared src/shared.cpp)\n")
+    (spit-file! root "build/BUCK" "cxx_library(\n    name = \"core\",\n)\n")
+    (spit-file! root "target/generated.clj" "(ns generated)\n")
+    (spit-file! root "node_modules/pkg/index.js" "module.exports = {}\n")
+    (let [report (coverage/project-coverage
+                  {:id "fixture"
+                   :repos [{:id "app"
+                            :root root
+                            :role :application}]})]
+      (is (= coverage/schema (:schema report)))
+      (is (= {:files 275
+              :supported 274
+              :skipped 1}
+             (select-keys (:totals report) [:files :supported :skipped])))
+      (is (= 3 (:count (row-by :kind "build" (:files-by-kind report)))))
+      (is (= 5 (:count (row-by :kind "ci" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "apple-config" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "astro" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "codegen-config" (:files-by-kind report)))))
+      (is (= 3 (:count (row-by :kind "db-config" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "db-migration" (:files-by-kind report)))))
+      (is (= 14 (:count (row-by :kind "dependency-lock" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "java" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "groovy" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "kotlin" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "swift" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "objective-c" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "dotnet" (:files-by-kind report)))))
+      (is (= 3 (:count (row-by :kind "ruby" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "cpp" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "dart" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "scala" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "elixir" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "erlang" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "lua" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "r" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "julia" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "ocaml" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "perl" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "haskell" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "odin" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "zig" (:files-by-kind report)))))
+      (is (= 3 (:count (row-by :kind "test-config" (:files-by-kind report)))))
+      (is (= 8 (:count (row-by :kind "tool-config" (:files-by-kind report)))))
+      (is (= 6 (:count (row-by :kind "editor-config" (:files-by-kind report)))))
+      (is (= 7 (:count (row-by :kind "release-config" (:files-by-kind report)))))
+      (is (= 21 (:count (row-by :kind "web-framework" (:files-by-kind report)))))
+      (is (= 8 (:count (row-by :kind "workflow-orchestration" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "storybook" (:files-by-kind report)))))
+      (is (= 3 (:count (row-by :kind "docker" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "procfile" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "compose" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "helm" (:files-by-kind report)))))
+      (is (= 9 (:count (row-by :kind "ops-config" (:files-by-kind report)))))
+      (is (= 5 (:count (row-by :kind "yaml" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "graphql" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "asyncapi" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "json-schema" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "avro" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "php" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "prisma" (:files-by-kind report)))))
+      (is (= 4 (:count (row-by :kind "dbt" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "notebook" (:files-by-kind report)))))
+      (is (= 7 (:count (row-by :kind "data-science" (:files-by-kind report)))))
+      (is (= 7 (:count (row-by :kind "observability-config" (:files-by-kind report)))))
+      (is (= 12 (:count (row-by :kind "quality-config" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "devcontainer" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "kustomize" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "pre-commit-config" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "codeowners" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "task-runner" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "starlark" (:files-by-kind report)))))
+      (is (= 5 (:count (row-by :kind "tool-version-config" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "sql" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "protobuf" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "gettext" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "gettext-binary" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "svg" (:files-by-kind report)))))
+      (is (= 7 (:count (row-by :kind "image-asset" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "font-asset" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "media-asset" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "archive-asset" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "compiled-artifact" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "opaque-asset" (:files-by-kind report)))))
+      (is (= 3 (:count (row-by :kind "secret-material" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "html" (:files-by-kind report)))))
+      (is (= 2 (:count (row-by :kind "shell" (:files-by-kind report)))))
+      (is (= 8 (:count (row-by :kind "text" (:files-by-kind report)))))
+      (is (= 4 (:count (row-by :kind "config" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "env" (:files-by-kind report)))))
+      (is (= 35 (:count (row-by :kind "manifest" (:files-by-kind report)))))
+      (is (= 6 (:count (row-by :kind "governance" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "sbom" (:files-by-kind report)))))
+      (is (= 3 (:count (row-by :kind "xml" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "python" (:files-by-kind report)))))
+      (is (= 5 (:count (row-by :kind "doc" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "typescript" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "vue" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :kind "svelte" (:files-by-kind report)))))
+      (is (= 1 (:count (row-by :ext ".wasm" (:skipped-by-extension report)))))
+      (is (some #(and (= "python" (:kind %))
+                      (= 1 (:files %))
+                      (string? (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "java" (:kind %))
+                      (= "java/v2" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "groovy" (:kind %))
+                      (= "groovy/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "kotlin" (:kind %))
+                      (= "kotlin/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "swift" (:kind %))
+                      (= "swift/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "objective-c" (:kind %))
+                      (= "objective-c/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "dotnet" (:kind %))
+                      (= "dotnet/v2" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "ruby" (:kind %))
+                      (= "ruby/v1" (:extractor-version %))
+                      (= 3 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "cpp" (:kind %))
+                      (= "cpp/v1" (:extractor-version %))
+                      (= 2 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "dart" (:kind %))
+                      (= "dart/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "scala" (:kind %))
+                      (= "scala/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "elixir" (:kind %))
+                      (= "elixir/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "erlang" (:kind %))
+                      (= "erlang/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "lua" (:kind %))
+                      (= "lua/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "r" (:kind %))
+                      (= "r/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "julia" (:kind %))
+                      (= "julia/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "ocaml" (:kind %))
+                      (= "ocaml/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "perl" (:kind %))
+                      (= "perl/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "haskell" (:kind %))
+                      (= "haskell/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "odin" (:kind %))
+                      (= "odin/v1" (:extractor-version %))
+                      (= 2 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "zig" (:kind %))
+                      (= "zig/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "test-config" (:kind %))
+                      (= "test-config/v1" (:extractor-version %))
+                      (= 3 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "tool-config" (:kind %))
+                      (= "tool-config/v2" (:extractor-version %))
+                      (= 8 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "editor-config" (:kind %))
+                      (= "editor-config/v1" (:extractor-version %))
+                      (= 6 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "release-config" (:kind %))
+                      (= "release-config/v1" (:extractor-version %))
+                      (= 7 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "web-framework" (:kind %))
+                      (= "web-framework/v1" (:extractor-version %))
+                      (= 21 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "workflow-orchestration" (:kind %))
+                      (= "workflow-orchestration/v1" (:extractor-version %))
+                      (= 8 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "storybook" (:kind %))
+                      (= "storybook/v1" (:extractor-version %))
+                      (= 2 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "compose" (:kind %))
+                      (= "compose/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "helm" (:kind %))
+                      (= "helm/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "ops-config" (:kind %))
+                      (= "ops-config/v1" (:extractor-version %))
+                      (= 9 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "yaml" (:kind %))
+                      (= "yaml/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "apple-config" (:kind %))
+                      (= "apple-config/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "codegen-config" (:kind %))
+                      (= "codegen-config/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "db-config" (:kind %))
+                      (= "db-config/v2" (:extractor-version %))
+                      (= 3 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "db-migration" (:kind %))
+                      (= "db-migration/v2" (:extractor-version %))
+                      (= 2 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "dependency-lock" (:kind %))
+                      (= "dependency-lock/v1" (:extractor-version %))
+                      (= 14 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "image-asset" (:kind %))
+                      (= "asset/v1" (:extractor-version %))
+                      (= 7 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "font-asset" (:kind %))
+                      (= "asset/v1" (:extractor-version %))
+                      (= 2 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "media-asset" (:kind %))
+                      (= "asset/v1" (:extractor-version %))
+                      (= 2 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "archive-asset" (:kind %))
+                      (= "asset/v1" (:extractor-version %))
+                      (= 2 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "compiled-artifact" (:kind %))
+                      (= "asset/v1" (:extractor-version %))
+                      (= 1 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "opaque-asset" (:kind %))
+                      (= "asset/v1" (:extractor-version %))
+                      (= 1 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "secret-material" (:kind %))
+                      (= "secret-material/v1" (:extractor-version %))
+                      (= 3 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "gettext-binary" (:kind %))
+                      (= "gettext-binary/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "astro" (:kind %))
+                      (= "astro/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "graphql" (:kind %))
+                      (= "graphql/v2" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "asyncapi" (:kind %))
+                      (= "asyncapi/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "json-schema" (:kind %))
+                      (= "json-schema/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "avro" (:kind %))
+                      (= "avro/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "php" (:kind %))
+                      (= "php/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "prisma" (:kind %))
+                      (= "prisma/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "dbt" (:kind %))
+                      (= "dbt/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "docker" (:kind %))
+                      (= "docker/v1" (:extractor-version %))
+                      (= 3 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "procfile" (:kind %))
+                      (= "procfile/v1" (:extractor-version %))
+                      (= 1 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "governance" (:kind %))
+                      (= "governance/v1" (:extractor-version %))
+                      (= 6 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "sbom" (:kind %))
+                      (= "sbom/v1" (:extractor-version %))
+                      (= 1 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "notebook" (:kind %))
+                      (= "notebook/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "data-science" (:kind %))
+                      (= "data-science/v1" (:extractor-version %))
+                      (= 7 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "observability-config" (:kind %))
+                      (= "observability-config/v1" (:extractor-version %))
+                      (= 7 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "quality-config" (:kind %))
+                      (= "quality-config/v1" (:extractor-version %))
+                      (= 12 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "devcontainer" (:kind %))
+                      (= "devcontainer/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "kustomize" (:kind %))
+                      (= "kustomize/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "pre-commit-config" (:kind %))
+                      (= "pre-commit-config/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "codeowners" (:kind %))
+                      (= "codeowners/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "task-runner" (:kind %))
+                      (= "task-runner/v1" (:extractor-version %))
+                      (= 2 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "starlark" (:kind %))
+                      (= "starlark/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "tool-version-config" (:kind %))
+                      (= "tool-version-config/v1" (:extractor-version %))
+                      (= 5 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "sql" (:kind %))
+                      (= "sql/v2" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "protobuf" (:kind %))
+                      (= "protobuf/v2" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "gettext" (:kind %))
+                      (= "gettext/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "svg" (:kind %))
+                      (= "svg/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "html" (:kind %))
+                      (= "html/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "text" (:kind %))
+                      (= "text/v1" (:extractor-version %))
+                      (= 8 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "env" (:kind %))
+                      (= "env/v2" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "shell" (:kind %))
+                      (= "shell/v3" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "manifest" (:kind %))
+                      (= "manifest/v2" (:extractor-version %))
+                      (= 35 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "xml" (:kind %))
+                      (= "xml/v1" (:extractor-version %))
+                      (= 3 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "ci" (:kind %))
+                      (= "ci/v1" (:extractor-version %))
+                      (= 5 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "build" (:kind %))
+                      (= "build/v1" (:extractor-version %))
+                      (= 3 (:files %)))
+                (:extractors report)))
+      (is (some #(and (= "vue" (:kind %))
+                      (= "vue/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (some #(and (= "svelte" (:kind %))
+                      (= "svelte/v1" (:extractor-version %)))
+                (:extractors report)))
+      (is (= 0 (get-in report [:diagnostics :total]))))))

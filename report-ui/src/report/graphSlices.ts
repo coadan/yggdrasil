@@ -1,10 +1,10 @@
-import type { AGraphEdge, AGraphGraph, AGraphNode } from "../data/types";
+import type { YggEdge, YggGraph, YggNode } from "../data/types";
 
 export type GraphSlice = {
   id: string;
   label: string;
   description: string;
-  graph: AGraphGraph;
+  graph: YggGraph;
   priority: number;
 };
 
@@ -24,25 +24,25 @@ const configAuthKinds = new Set([
 ]);
 const packageRelations = new Set(["declares", "imports-package", "package-imports", "requires", "resolves"]);
 
-function nodeKind(node: AGraphNode): string {
+function nodeKind(node: YggNode): string {
   return String(node.kind || "");
 }
 
-function nodeTags(node: AGraphNode): string[] {
+function nodeTags(node: YggNode): string[] {
   return Array.isArray(node.tags) ? node.tags.map(String) : [];
 }
 
-function hasConfigAuthEvidence(node: AGraphNode): boolean {
+function hasConfigAuthEvidence(node: YggNode): boolean {
   const kind = nodeKind(node);
   if (configAuthKinds.has(kind)) return true;
   return nodeTags(node).some((tag) => configAuthKinds.has(tag));
 }
 
-function edgeTouches(edge: AGraphEdge, ids: Set<string>): boolean {
+function edgeTouches(edge: YggEdge, ids: Set<string>): boolean {
   return ids.has(edge.source) || ids.has(edge.target);
 }
 
-function subgraphByNodeIds(graph: AGraphGraph, nodeIds: Set<string>, title: string): AGraphGraph {
+function subgraphByNodeIds(graph: YggGraph, nodeIds: Set<string>, title: string): YggGraph {
   const nodes = graph.nodes.filter((node) => nodeIds.has(node.id));
   const retained = new Set(nodes.map((node) => node.id));
   return {
@@ -53,7 +53,7 @@ function subgraphByNodeIds(graph: AGraphGraph, nodeIds: Set<string>, title: stri
   };
 }
 
-function subgraphFromEdges(graph: AGraphGraph, edges: AGraphEdge[], title: string): AGraphGraph {
+function subgraphFromEdges(graph: YggGraph, edges: YggEdge[], title: string): YggGraph {
   const nodeIds = new Set(edges.flatMap((edge) => [edge.source, edge.target]));
   const nodes = graph.nodes.filter((node) => nodeIds.has(node.id));
   const retained = new Set(nodes.map((node) => node.id));
@@ -65,7 +65,7 @@ function subgraphFromEdges(graph: AGraphGraph, edges: AGraphEdge[], title: strin
   };
 }
 
-function degreeMap(edges: AGraphEdge[]): Map<string, number> {
+function degreeMap(edges: YggEdge[]): Map<string, number> {
   const degree = new Map<string, number>();
   for (const edge of edges) {
     degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
@@ -74,7 +74,7 @@ function degreeMap(edges: AGraphEdge[]): Map<string, number> {
   return degree;
 }
 
-function topNeighborhood(graph: AGraphGraph): GraphSlice | null {
+function topNeighborhood(graph: YggGraph): GraphSlice | null {
   if (graph.nodes.length === 0 || graph.edges.length === 0) return null;
   const degree = degreeMap(graph.edges);
   const top = [...graph.nodes]
@@ -93,7 +93,7 @@ function topNeighborhood(graph: AGraphGraph): GraphSlice | null {
   };
 }
 
-function externalSurface(graph: AGraphGraph): GraphSlice | null {
+function externalSurface(graph: YggGraph): GraphSlice | null {
   const externalIds = new Set(graph.nodes.filter((node) => node.kind === externalApiKind).map((node) => node.id));
   if (externalIds.size === 0) return null;
   const edges = graph.edges.filter((edge) => edgeTouches(edge, externalIds));
@@ -107,7 +107,7 @@ function externalSurface(graph: AGraphGraph): GraphSlice | null {
   };
 }
 
-function packageEvidence(graph: AGraphGraph): GraphSlice | null {
+function packageEvidence(graph: YggGraph): GraphSlice | null {
   const packageIds = new Set(
     graph.nodes
       .filter((node) => packageKinds.has(nodeKind(node)) || node.packageName || node.package_name || node.ecosystem)
@@ -129,7 +129,7 @@ function packageEvidence(graph: AGraphGraph): GraphSlice | null {
   };
 }
 
-function configAuthEvidence(graph: AGraphGraph): GraphSlice | null {
+function configAuthEvidence(graph: YggGraph): GraphSlice | null {
   const ids = new Set(graph.nodes.filter(hasConfigAuthEvidence).map((node) => node.id));
   if (ids.size === 0) return null;
   const edges = graph.edges.filter((edge) => edgeTouches(edge, ids));
@@ -142,7 +142,7 @@ function configAuthEvidence(graph: AGraphGraph): GraphSlice | null {
   };
 }
 
-export function graphSlices(graph: AGraphGraph): GraphSlice[] {
+export function graphSlices(graph: YggGraph): GraphSlice[] {
   return [externalSurface(graph), topNeighborhood(graph), packageEvidence(graph), configAuthEvidence(graph)]
     .filter((slice): slice is GraphSlice => Boolean(slice))
     .filter((slice) => slice.graph.nodes.length > 0)

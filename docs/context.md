@@ -1,18 +1,18 @@
 # Context Packets
 
-`agraph ask --json` is the preferred query path when a coding agent needs graph
+`ygg ask --json` is the preferred query path when a coding agent needs graph
 evidence in its prompt. It returns a compact JSON packet instead of dumping the
 full graph.
 
 ```sh
-agraph ask "where does the API gateway send requests" --project sample --json --budget 4000
+ygg ask "where does the API gateway send requests" --project sample --json --budget 4000
 ```
 
-The packet schema is `agraph.context/v1`:
+The packet schema is `ygg.context/v1`:
 
 ```json
 {
-  "schema": "agraph.context/v1",
+  "schema": "ygg.context/v1",
   "query": "where does the API gateway send requests",
   "budget": {"requested": 4000, "estimated": 900, "truncated": false},
   "entities": [],
@@ -31,7 +31,7 @@ The packet schema is `agraph.context/v1`:
   "activity": [],
   "docs": [],
   "sourceCoverage": {
-    "schema": "agraph.source-coverage.context/v1",
+    "schema": "ygg.source-coverage.context/v1",
     "basis": "indexed-graph",
     "totals": {"indexedFiles": 40, "diagnostics": 0, "fileKinds": 3},
     "topFileKinds": [],
@@ -84,7 +84,7 @@ The packet schema is `agraph.context/v1`:
 ```
 
 `budget.estimated` is a cheap JSON-size token estimate. If snippets do not fit,
-AGraph keeps the source reference and marks `snippetOmitted`; if even that does
+Yggdrasil keeps the source reference and marks `snippetOmitted`; if even that does
 not fit, the doc is omitted and a warning is added.
 `sourceCoverage` is trimmed before warnings and drilldowns when the packet is
 too small. Under tight budgets, `answerability` is compacted but keeps status,
@@ -97,13 +97,13 @@ Every context packet reports `answerability`: a mechanical summary of which
 evidence planes were available for the query and which were missing, weak, or
 not supported by the current model.
 
-Project-level reports and `agraph sync inspect <project.edn> --json` expose the same mechanical
-inventory as `agraph.evidence/v2`, including graph-basis freshness. Use that
+Project-level reports and `ygg sync inspect <project.edn> --json` expose the same mechanical
+inventory as `ygg.evidence/v2`, including graph-basis freshness. Use that
 evidence surface when an agent needs to see what can be asked about at a glance.
 Its `families` field is a bounded readiness table for source files, file facts,
 source graph rows, dependencies, docs, embeddings, system evidence, system graph
 rows, local activity, validation history, and accepted map overlay evidence.
-Use `agraph explore --json` when the agent has a concrete question and needs the
+Use `ygg explore --json` when the agent has a concrete question and needs the
 smaller query-scoped `answerability` packet plus matching entities, edges, docs,
 and activity.
 Both surfaces use `dependencies` for the evidence plane backed by package
@@ -121,7 +121,7 @@ benchmark-backed architecture understanding.
 - `missing`: supported evidence planes with no useful rows for this project or
   read context
 - `weak`: evidence exists, but did not match this query well
-- `unsupported`: useful evidence planes AGraph cannot model yet, currently
+- `unsupported`: useful evidence planes Yggdrasil cannot model yet, currently
   `remote-work` and `session-history`
 - `planes`: bounded per-plane status rows for agents that need a quick
   mechanical readiness table before reading raw counts. Rows can be `available`,
@@ -148,7 +148,7 @@ If `dependencies` is missing or weak, `next` points at the package report so
 agents can inspect whether the graph has package declarations, import evidence,
 conflicts, or unresolved imports before answering dependency-shaped questions.
 When unresolved imports are present, `next` also suggests
-`agraph sync <project.edn> --check --enqueue` so the package mapping can move
+`ygg sync <project.edn> --check --enqueue` so the package mapping can move
 through the review queue. When declared packages lack source import evidence or
 version conflicts are present, `next` includes the matching package-report
 filter command.
@@ -156,8 +156,8 @@ If `runtime-config` is missing or weak, agents should treat runtime/config
 answers as limited. Missing means no active system-evidence rows are indexed;
 weak means rows exist, but none matched the selected work area.
 If source files or source graph rows are missing, `warnings` names that source
-plane explicitly and `next` points at `agraph sync <project.edn>` or
-`agraph sync <project.edn> --check`. Agents should treat those as graph-basis
+plane explicitly and `next` points at `ygg sync <project.edn>` or
+`ygg sync <project.edn> --check`. Agents should treat those as graph-basis
 problems before concluding that code evidence does not exist.
 Machine consumers should prefer `nextActions` over parsing `next`; MCP clients
 should use `mcpTool`/`mcpArgs` when present. `next` stays as a compact
@@ -165,20 +165,20 @@ human-readable command list.
 
 Agents should treat `answerability` as a confidence boundary. Local queue
 activity and validation-shaped queue results are supported after
-`agraph sync activity <project.edn>`. Remote work tools and session history are
+`ygg sync activity <project.edn>`. Remote work tools and session history are
 still unsupported. If `status` is `empty` or `limited`, follow `next` or use the
 listed missing planes to decide whether to sync, embed, inspect coverage, import
 activity, or ask the user for another source of truth.
 When indexed diagnostics are present, `answerability.warnings` points agents to
-`sourceCoverage` and `agraph sync coverage`; this is a source-support signal, not
+`sourceCoverage` and `ygg sync coverage`; this is a source-support signal, not
 a semantic classification.
 
-Plain `agraph explore` prints a concise answerability warning only when no query
-results are found. Use `agraph explore --json` for the full structured packet.
-`agraph ask --json` returns the same one-shot packet for compatibility.
+Plain `ygg explore` prints a concise answerability warning only when no query
+results are found. Use `ygg explore --json` for the full structured packet.
+`ygg ask --json` returns the same one-shot packet for compatibility.
 Packet `drilldowns` favor agent-facing follow-ups: repeat the primary
-`agraph explore ... --json` packet, inspect `agraph view systems`, check
-`agraph sync inspect <project.edn> --json`, and run `agraph sync docs audit`
+`ygg explore ... --json` packet, inspect `ygg view systems`, check
+`ygg sync inspect <project.edn> --json`, and run `ygg sync docs audit`
 when a map is present.
 
 ## Source Coverage
@@ -200,12 +200,12 @@ edges. Isolation is not a semantic defect, but agents should treat it as a
 trust-boundary signal when a task depends on relationships.
 
 `sourceCoverage` does not scan the filesystem for unsupported files; use
-`agraph sync coverage <project.edn> --json` when an agent needs skipped or
+`ygg sync coverage <project.edn> --json` when an agent needs skipped or
 unsupported source candidates. When active indexed diagnostics or isolated
 indexed files exist, `sourceCoverage.nextActions` points at the same coverage
 inspection command. Project evidence and report packets include compact
 `skipped-by-extension` and `skipped-by-reason` rows with bounded samples for
-first-pass triage. `agraph sync inspect <project.edn> --json` also
+first-pass triage. `ygg sync inspect <project.edn> --json` also
 include bounded persisted extractor fingerprint groups under
 `coverage.extractorFingerprints` and diagnostic samples under
 `coverage.diagnostics.samples` when those rows are active, so agents can audit
@@ -227,7 +227,7 @@ Audit-scope reports group indexed rows into mechanical evidence families such as
 source, docs, dependencies, runtime config, containers, infra, assets,
 map corrections, and unknown text. They do not infer project meaning from path
 names or prose. `map-corrections` is backed by selected accepted map edges and
-selected rejected corrections from `agraph.map.json`, so agents can see prior
+selected rejected corrections from `ygg.map.json`, so agents can see prior
 review facts beside source/runtime/dependency evidence. When
 rows cannot be mapped to a known family, the report includes
 `unclassified-extractor` plus `registryDiagnostics`, grouped by source section
@@ -259,11 +259,11 @@ bulky audit details such as includes and evidence ids in `architecture`.
 
 When selected facts support an architecture packet, `architecture` separates
 accepted map corrections from neutral mechanical candidates. Accepted systems
-and map edges come from `agraph.map.json`; candidate systems, graph edges,
+and map edges come from `ygg.map.json`; candidate systems, graph edges,
 runtime/config rows, dependency rows, docs, and open decisions remain concrete
 evidence rows, not inferred project meaning.
 `architecture.rejectedCorrections` carries bounded `reject[]` rows from
-`agraph.map.json` when their match criteria mechanically overlap the selected
+`ygg.map.json` when their match criteria mechanically overlap the selected
 systems, candidate rows, or result paths. These rows are prior review
 corrections with `status: "rejected"` and `provenance: "map-overlay"`; agents
 should treat them as known false-positive evidence to avoid reopening the same
@@ -319,20 +319,20 @@ contract attachment needs repair before relying on it.
 ## Doc Attachments
 
 Docs are indexed as Markdown heading chunks with source lines, end lines,
-heading paths, and content hashes. Accepted docs live in `agraph.map.json` so
+heading paths, and content hashes. Accepted docs live in `ygg.map.json` so
 agents can maintain them alongside system boundaries.
 
 Find candidate snippets:
 
 ```sh
-agraph sync docs candidates system:sample:app:path/services/api-gateway --project sample --limit 6
+ygg sync docs candidates system:sample:app:path/services/api-gateway --project sample --limit 6
 ```
 
 Attach a reviewed snippet:
 
 ```sh
-agraph map docs attach "API Gateway" app:docs/api-gateway.md \
-  --map agraph.map.json \
+ygg map docs attach "API Gateway" app:docs/api-gateway.md \
+  --map ygg.map.json \
   --role contract \
   --heading "API Gateway" \
   --reason "Reviewed API contract"
@@ -341,13 +341,13 @@ agraph map docs attach "API Gateway" app:docs/api-gateway.md \
 Read attached docs for one target:
 
 ```sh
-agraph sync docs for "API Gateway" --project sample --map agraph.map.json
+ygg sync docs for "API Gateway" --project sample --map ygg.map.json
 ```
 
 Audit stale or missing docs:
 
 ```sh
-agraph sync docs audit --project sample --map agraph.map.json
+ygg sync docs audit --project sample --map ygg.map.json
 ```
 
 Use roles to tell agents how to treat the snippet:
@@ -362,55 +362,55 @@ Use roles to tell agents how to treat the snippet:
 
 ## Agent Workflow
 
-Start with `agraph ask --json` for the task question. Follow `drilldowns` only when
+Start with `ygg ask --json` for the task question. Follow `drilldowns` only when
 the packet is insufficient. During build or maintenance work, promote useful
-candidate docs into accepted map attachments and run `agraph sync docs audit`
+candidate docs into accepted map attachments and run `ygg sync docs audit`
 before handoff.
 
 Install project-local agent guidance when a coding assistant should discover
-AGraph automatically:
+Yggdrasil automatically:
 
 ```sh
-agraph agent install --platform codex --project
-agraph agent install --platform codex --project --hooks
-agraph agent install --platform codex --project --hooks --print-config
+ygg agent install --platform codex --project
+ygg agent install --platform codex --project --hooks
+ygg agent install --platform codex --project --hooks --print-config
 ```
 
-The installer edits only marked AGraph sections. Remove them with:
+The installer edits only marked Yggdrasil sections. Remove them with:
 
 ```sh
-agraph agent uninstall --platform codex --project
+ygg agent uninstall --platform codex --project
 ```
 
 For MCP clients, run:
 
 ```sh
-agraph-mcp --config project.edn --map agraph.map.json
+ygg-mcp --config project.edn --map ygg.map.json
 ```
 
 The MCP server returns the same packet schemas as the CLI. By default,
-`tools/list` exposes only `agraph_explore`, `agraph_node`, `agraph_status`, and
-`agraph_systems`. Use `--tools default,cursor,sync,work,ask` or
-`AGRAPH_MCP_TOOLS=all` to enable and list advanced cursor, sync, and queue
+`tools/list` exposes only `ygg_explore`, `ygg_node`, `ygg_status`, and
+`ygg_systems`. Use `--tools default,cursor,sync,work,ask` or
+`YGG_MCP_TOOLS=all` to enable and list advanced cursor, sync, and queue
 handoff tools; hidden advanced tools are rejected by default.
-Use `agraph_explore` as the primary one-shot MCP packet for structural
+Use `ygg_explore` as the primary one-shot MCP packet for structural
 questions; it returns graph-basis freshness, answerability, candidate files,
 docs, graph facts, plugin package caveats, and drilldowns without creating a
 cursor. MCP agents should inspect `freshness`, `evidence.families`,
 `answerability.planes`, `pluginPackages`, and `nextActions` before treating
 missing facts as absent.
-Use `agraph_node` for a single file, evidence row, package, node, or accepted
+Use `ygg_node` for a single file, evidence row, package, node, or accepted
 system; when map docs are attached, the node packet includes bounded
 line-numbered doc source windows when the file is available.
-`agraph_work_complete` records an explicit result artifact; applying validated
-results to `agraph.map.json` stays a separate CLI step.
+`ygg_work_complete` records an explicit result artifact; applying validated
+results to `ygg.map.json` stays a separate CLI step.
 
 ## Filesystem Queue
 
 Use `--enqueue` when a packet should be picked up by another agent, model, tool,
-or human process. AGraph writes an `agraph.queue.item/v1` JSON file to
-`.dev/agraph/queue/ready` and prints a compact receipt.
-Queue listings and claimed work summaries use `agraph.queue.summary/v1` and
+or human process. Yggdrasil writes an `ygg.queue.item/v1` JSON file to
+`.dev/ygg/queue/ready` and prints a compact receipt.
+Queue listings and claimed work summaries use `ygg.queue.summary/v1` and
 include `actions` rows with executable commands for inspecting payloads,
 claiming, extending leases, completing, releasing, rejecting, or applying work
 results. When a packet declares `expectedResultSchema`, summaries expose it as
@@ -422,14 +422,14 @@ Agents should use those commands instead of reconstructing queue paths or item
 ids from payloads.
 
 ```sh
-agraph sync check project.edn --map agraph.map.json --enqueue
-agraph explore create "projection boundary" --project sample --enqueue
-agraph sync work pull --project sample --agent codex
-agraph sync work heartbeat queue:abc123 --agent codex --lease-minutes 30
-agraph sync work complete queue:abc123 --result result.json
-agraph sync activity project.edn
-agraph sync work validate queue:abc123
-agraph sync work apply queue:abc123 --map agraph.map.json
+ygg sync check project.edn --map ygg.map.json --enqueue
+ygg explore create "projection boundary" --project sample --enqueue
+ygg sync work pull --project sample --agent codex
+ygg sync work heartbeat queue:abc123 --agent codex --lease-minutes 30
+ygg sync work complete queue:abc123 --result result.json
+ygg sync activity project.edn
+ygg sync work validate queue:abc123
+ygg sync work apply queue:abc123 --map ygg.map.json
 ```
 
 The queue is only the transport. The embedded payload remains unchanged, and the
@@ -452,28 +452,28 @@ result. The `sync activity --json` result also includes a bounded
 schema, actual schema, status, summary, and timestamps for direct audit.
 `sync work validate` checks supported result schemas without mutating the map.
 `sync work apply` revalidates before writing accepted changes to
-`agraph.map.json`.
+`ygg.map.json`.
 
 ## Explore Packets
 
-`agraph explore` is the progressive-disclosure query path for longer agent work.
+`ygg explore` is the progressive-disclosure query path for longer agent work.
 It stores a stable graph basis and returns small JSON packets that can be opened,
 expanded, searched, and revisited without dumping the full graph.
 
 ```sh
-agraph explore create "api gateway connections" --project sample --map agraph.map.json
-agraph explore open cursor:abc123 "API Gateway"
-agraph explore expand cursor:def456 "API Gateway"
-agraph explore docs cursor:def456 "API Gateway"
-agraph explore search cursor:def456 "gateway route"
+ygg explore create "api gateway connections" --project sample --map ygg.map.json
+ygg explore open cursor:abc123 "API Gateway"
+ygg explore expand cursor:def456 "API Gateway"
+ygg explore docs cursor:def456 "API Gateway"
+ygg explore search cursor:def456 "gateway route"
 ```
 
-Explore uses the `agraph.cursor.packet/v1` packet schema. Packets include
+Explore uses the `ygg.cursor.packet/v1` packet schema. Packets include
 `nextActions` rows with typed `kind`, `label`, `target`, and executable
 `command` fields for expanding the graph, inspecting docs, or searching within
 the fixed cursor basis. The legacy `next` field is derived from those rows for
 human-readable compatibility; agents should prefer `nextActions`.
 Each mutating explore command creates a new immutable revision with a parent
-cursor id. If `--map` is used, AGraph stores the parsed map correction layer
-inside the cursor row, so later edits to `agraph.map.json` do not change older
+cursor id. If `--map` is used, Yggdrasil stores the parsed map correction layer
+inside the cursor row, so later edits to `ygg.map.json` do not change older
 cursor revisions.

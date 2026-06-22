@@ -17,7 +17,7 @@ first_node = overview_nodes[0] if overview_nodes else {}
 
 json.dump(
     {
-        "schema": "agraph.report-plugin.result/v1",
+        "schema": "ygg.report-plugin.result/v1",
         "panels": [
             {
                 "id": "graph-crawl",

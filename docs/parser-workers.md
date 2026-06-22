@@ -1,8 +1,8 @@
 # Parser Workers
 
-AGraph extractors can delegate syntax parsing to external workers when a
+Yggdrasil extractors can delegate syntax parsing to external workers when a
 language has a mature parser outside the Clojure process. The worker boundary is
-provider-neutral: workers emit concrete parser facts, and AGraph converts those
+provider-neutral: workers emit concrete parser facts, and Yggdrasil converts those
 facts into canonical graph rows.
 
 The first worker prototype is `scripts/parser-worker.py`. It is a JSONL process:
@@ -12,7 +12,7 @@ Request:
 
 ```json
 {
-  "schema": "agraph.parser.request/v1",
+  "schema": "ygg.parser.request/v1",
   "id": "file-1",
   "kind": "python",
   "path": "src/app.py",
@@ -24,7 +24,7 @@ Response:
 
 ```json
 {
-  "schema": "agraph.parser.response/v1",
+  "schema": "ygg.parser.response/v1",
   "id": "file-1",
   "kind": "python",
   "path": "src/app.py",
@@ -52,8 +52,8 @@ Workers return syntax facts only:
   optional `endLine` when the parser can produce them without semantic guesses.
 - `diagnostics`: parser failures with `stage`, `line`, and `message`.
 
-Workers must not emit AGraph ids, systems, ownership, runtime classifications,
-or architecture labels. AGraph owns ids, row shape, relation names, storage, and
+Workers must not emit Yggdrasil ids, systems, ownership, runtime classifications,
+or architecture labels. Yggdrasil owns ids, row shape, relation names, storage, and
 all semantic corrections.
 
 ## Why Python
@@ -109,17 +109,17 @@ printf '%s\n' '{"id":"demo","kind":"java","path":"Demo.java","content":"package 
   | .dev/parser-worker-venv/bin/python scripts/parser-worker.py
 ```
 
-Run AGraph with the experimental Java worker adapter:
+Run Yggdrasil with the experimental Java worker adapter:
 
 ```sh
-AGRAPH_PARSER_WORKER=java \
-AGRAPH_PARSER_WORKER_PYTHON=.dev/parser-worker-venv/bin/python \
+YGG_PARSER_WORKER=java \
+YGG_PARSER_WORKER_PYTHON=.dev/parser-worker-venv/bin/python \
 bb bench agent-baseline .dev/benchmarks/oss-issue-replay.edn \
   --case junit-framework-4587-console-uid-selector \
-  --out .dev/agraph/bench-junit-worker-java
+  --out .dev/ygg/bench-junit-worker-java
 ```
 
-When indexing a repository, AGraph batches changed worker-enabled files through
+When indexing a repository, Yggdrasil batches changed worker-enabled files through
 one JSONL worker invocation before converting facts into canonical graph rows.
 Direct calls to `extract-file` still use a single-file fallback, so benchmark
 and production-style evaluations should go through normal indexing commands.
@@ -127,5 +127,5 @@ and production-style evaluations should go through normal indexing commands.
 Run the worker contract tests:
 
 ```sh
-clojure -M:test --focus agraph.parser-worker-test
+clojure -M:test --focus ygg.parser-worker-test
 ```

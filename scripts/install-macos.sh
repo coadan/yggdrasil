@@ -8,7 +8,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/install-macos.sh [--install-deps] [--prefix DIR]
 
-Installs local agraph and agraph-mcp entrypoints by linking them into DIR/bin.
+Installs local ygg and ygg-mcp entrypoints by linking them into DIR/bin.
 
 Options:
   --install-deps   Install missing dependencies with Homebrew.
@@ -39,7 +39,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ "$(uname -s)" != "Darwin" ]; then
-  echo "This installer is for macOS. Use bin/agraph directly or Docker on other platforms." >&2
+  echo "This installer is for macOS. Use bin/ygg directly or Docker on other platforms." >&2
   exit 2
 fi
 
@@ -68,12 +68,12 @@ if [ "${#missing[@]}" -gt 0 ]; then
 fi
 
 mkdir -p "$PREFIX/bin"
-ln -sfn "$REPO_DIR/bin/agraph" "$PREFIX/bin/agraph"
-ln -sfn "$REPO_DIR/bin/agraph-mcp" "$PREFIX/bin/agraph-mcp"
+ln -sfn "$REPO_DIR/bin/ygg" "$PREFIX/bin/ygg"
+ln -sfn "$REPO_DIR/bin/ygg-mcp" "$PREFIX/bin/ygg-mcp"
 
 echo "Installed:"
-echo "- $PREFIX/bin/agraph -> $REPO_DIR/bin/agraph"
-echo "- $PREFIX/bin/agraph-mcp -> $REPO_DIR/bin/agraph-mcp"
+echo "- $PREFIX/bin/ygg -> $REPO_DIR/bin/ygg"
+echo "- $PREFIX/bin/ygg-mcp -> $REPO_DIR/bin/ygg-mcp"
 
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$PREFIX/bin"; then
   echo
@@ -81,6 +81,6 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$PREFIX/bin"; then
   echo "export PATH=\"$PREFIX/bin:\$PATH\""
 fi
 
-"$PREFIX/bin/agraph" help >/dev/null
+"$PREFIX/bin/ygg" help >/dev/null
 echo
-echo "AGraph is ready."
+echo "Yggdrasil is ready."

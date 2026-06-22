@@ -5,22 +5,22 @@ with optional sync capture
 
 ## Goal
 
-Make the first successful AGraph run as simple as Graphify's folder-first
-experience while preserving AGraph's project model. Users should not need to
+Make the first successful Yggdrasil run as simple as Graphify's folder-first
+experience while preserving Yggdrasil's project model. Users should not need to
 hand-write `project.edn` before seeing value.
 
 ## Target Commands
 
 ```text
-agraph init <repo-or-workspace-root> [--project ID] [--name NAME] [--out project.edn]
-agraph init --workbench <root> [--task TASK] [--project ID] [--out project.edn]
-agraph init . --sync --map agraph.map.json
+ygg init <repo-or-workspace-root> [--project ID] [--name NAME] [--out project.edn]
+ygg init --workbench <root> [--task TASK] [--project ID] [--out project.edn]
+ygg init . --sync --map ygg.map.json
 ```
 
 Convenience command added after `init` stabilized:
 
 ```text
-agraph start .
+ygg start .
 ```
 
 `start` initializes or reuses `project.edn`, ensures an explicit map unless
@@ -46,8 +46,8 @@ For a workbench:
 
 With `--sync`:
 
-1. Run `agraph sync <project.edn> --check`.
-2. Generate or update `agraph.map.json` only when explicitly requested.
+1. Run `ygg sync <project.edn> --check`.
+2. Generate or update `ygg.map.json` only when explicitly requested.
 3. Print high-level indexed/skipped counts and top next commands.
 
 ## Output Shape
@@ -55,7 +55,7 @@ With `--sync`:
 The final output should be short:
 
 ```text
-# AGraph Project
+# Yggdrasil Project
 - project fixture
 - config project.edn
 - repos 1
@@ -63,14 +63,14 @@ The final output should be short:
 - system candidates 8
 
 Next:
-- agraph ask "where is auth handled" --project fixture --json
-- agraph view systems --project fixture
-- agraph install-agent --platform codex --project
+- ygg ask "where is auth handled" --project fixture --json
+- ygg view systems --project fixture
+- ygg install-agent --platform codex --project
 ```
 
 ## Implementation Areas
 
-- Extend `agraph.project` with project config generation helpers.
+- Extend `ygg.project` with project config generation helpers.
 - Reuse `sync add-repo` logic where possible.
 - Add CLI command under `init`.
 - Add careful path normalization for generated EDN.
@@ -94,16 +94,16 @@ Next:
 
 ## Done Criteria
 
-A new user can run `agraph init . --sync --map agraph.map.json` in a repository
+A new user can run `ygg init . --sync --map ygg.map.json` in a repository
 and immediately receive a valid project config, a completed sync, and clear next
 commands.
 
 Implemented surface:
 
-- `agraph init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force]`
-- `agraph init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]`
-- `agraph init <repo-root> --sync [--map agraph.map.json] [--query-index]`
-- `agraph start <repo-root> [--project ID] [--out project.edn] [--map agraph.map.json] [--report-out agraph-out]`
+- `ygg init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force]`
+- `ygg init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]`
+- `ygg init <repo-root> --sync [--map ygg.map.json] [--query-index]`
+- `ygg start <repo-root> [--project ID] [--out project.edn] [--map ygg.map.json] [--report-out ygg-out]`
 
 Notes:
 

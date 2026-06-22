@@ -1,6 +1,6 @@
 # Agent Efficiency Study
 
-This study measures whether AGraph makes coding-agent development easier and
+This study measures whether Yggdrasil makes coding-agent development easier and
 more efficient than standard CLI exploration alone. It intentionally uses the
 existing benchmark runner without changing benchmark scoring, prompts, or
 reporting internals.
@@ -11,20 +11,20 @@ Run the same benchmark cases twice:
 
 - `shell-only`: the agent may use normal repository tools such as `rg`, `git`,
   `find`, `sed`, test commands, and package-manager commands.
-- `agraph`: the same agent may use the same shell tools plus AGraph-generated
+- `ygg`: the same agent may use the same shell tools plus Yggdrasil-generated
   hints, context packets, and commands exposed by `bb bench agent-run`.
 
 Keep the model, agent command, timeout, benchmark suite, cases, parser-worker
 profile, and prompt profile identical across both modes. The mode should be the
 only intentional difference.
 
-Do not treat a win on simple file-localization issues as proof that AGraph is
+Do not treat a win on simple file-localization issues as proof that Yggdrasil is
 the right tool for all agent work. Tag every efficiency case with manually
 chosen problem-class tags such as `:problem-localization`,
 `:problem-cross-file-change`, `:problem-architecture`,
 `:problem-dependency-upgrade`, `:problem-runtime-config`,
 `:problem-api-contract`, or `:problem-refactor`. These are benchmark labels, not
-AGraph core semantics. `bb efficiency` compares the shared `byTag` groups from
+Yggdrasil core semantics. `bb efficiency` compares the shared `byTag` groups from
 each `agent-report.json`, so the summary can show which classes improve,
 regress, or remain shell-sufficient.
 
@@ -73,12 +73,12 @@ The tracked starter suite is `benchmarks/oss-architecture-synthetic.edn`. It
 expects local OSS checkouts under `.dev/oss-test-cases/repos/` and keeps all
 prepared cases, worktrees, graph stores, and reports under `.dev/` via `--out`.
 Use it as the architecture-class slice alongside historical issue replay; do
-not treat a simple localization-only suite as representative proof for AGraph.
+not treat a simple localization-only suite as representative proof for Yggdrasil.
 
 For the bounded architecture benchmark improvement slice, use
 `benchmarks/headline.edn` as the fixed five-case selector. It covers dependency
 and audit-scope evidence, runtime/config evidence, architecture boundaries, and
-one `:shell-sufficient-control` case where AGraph should not be expected to win
+one `:shell-sufficient-control` case where Yggdrasil should not be expected to win
 by construction. Stop after this fixed set produces one comparison report; do
 not keep adding cases to rescue a weak result.
 
@@ -89,19 +89,19 @@ Use separate generated output roots so artifacts cannot overwrite each other:
 ```sh
 bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --agent codex-efficiency \
-  --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$AGRAPH_BENCH_RESULT" - < "$AGRAPH_BENCH_PROMPT"' \
+  --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$YGG_BENCH_RESULT" - < "$YGG_BENCH_PROMPT"' \
   --mode shell-only \
   --prompt-profile fast \
   --timeout-ms 600000 \
-  --out .dev/agraph/agent-efficiency/shell-only
+  --out .dev/ygg/agent-efficiency/shell-only
 
 bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --agent codex-efficiency \
-  --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$AGRAPH_BENCH_RESULT" - < "$AGRAPH_BENCH_PROMPT"' \
-  --mode agraph \
+  --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$YGG_BENCH_RESULT" - < "$YGG_BENCH_PROMPT"' \
+  --mode ygg \
   --prompt-profile fast \
   --timeout-ms 600000 \
-  --out .dev/agraph/agent-efficiency/agraph
+  --out .dev/ygg/agent-efficiency/ygg
 ```
 
 DeepSeek v4 Pro can be run through the productized benchmark worker in
@@ -117,31 +117,31 @@ bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --mode shell-only \
   --prompt-profile fast \
   --timeout-ms 600000 \
-  --out .dev/agraph/agent-efficiency/deepseek-shell-only
+  --out .dev/ygg/agent-efficiency/deepseek-shell-only
 
 bb bench agent-run .dev/benchmarks/oss-issue-replay.edn \
   --agent deepseek-v4-pro \
   --command 'python3 scripts/deepseek-agent.py' \
-  --mode agraph \
+  --mode ygg \
   --prompt-profile fast \
   --timeout-ms 600000 \
-  --out .dev/agraph/agent-efficiency/deepseek-agraph
+  --out .dev/ygg/agent-efficiency/deepseek-ygg
 ```
 
 Codebase Memory MCP can be run as a deterministic comparison baseline, not as a
 same-agent MCP-assisted lane. Install or build `codebase-memory-mcp` separately,
-then point AGraph at the binary:
+then point Yggdrasil at the binary:
 
 ```sh
 bb bench agent-baseline benchmarks/headline.edn \
   --retriever codebase-memory \
   --codebase-memory-bin /path/to/codebase-memory-mcp \
-  --out .dev/agraph/headline-bench/codebase-memory
+  --out .dev/ygg/headline-bench/codebase-memory
 
 bb bench agent-report benchmarks/headline.edn \
   --mode codebase-memory \
-  --agent agraph-baseline-codebase-memory \
-  --out .dev/agraph/headline-bench/codebase-memory
+  --agent ygg-baseline-codebase-memory \
+  --out .dev/ygg/headline-bench/codebase-memory
 ```
 
 For the bounded helper workflow, `bb headline codebase-memory` runs only that
@@ -149,7 +149,7 @@ lane and `bb headline external-baselines` runs both deterministic baseline
 reports. Use this to compare structural retrieval/localization behavior before
 making a broader same-agent MCP plan.
 
-Treat AGraph's multi-repo model and plugin ecosystem as explicit benchmark
+Treat Yggdrasil's multi-repo model and plugin ecosystem as explicit benchmark
 hypotheses. Good comparison suites should include cross-repo ownership,
 dependency-flow, service-boundary, and plugin-covered project shapes where a
 generic structural graph may miss domain-specific facts. Claim an advantage only
@@ -161,13 +161,13 @@ Summarize each lane with existing reports:
 bb bench agent-report .dev/benchmarks/oss-issue-replay.edn \
   --mode shell-only \
   --agent codex-efficiency \
-  --out .dev/agraph/agent-efficiency/shell-only \
+  --out .dev/ygg/agent-efficiency/shell-only \
   --json
 
 bb bench agent-report .dev/benchmarks/oss-issue-replay.edn \
-  --mode agraph \
+  --mode ygg \
   --agent codex-efficiency \
-  --out .dev/agraph/agent-efficiency/agraph \
+  --out .dev/ygg/agent-efficiency/ygg \
   --json
 ```
 
@@ -175,9 +175,9 @@ Compare the two reports without changing benchmark scoring:
 
 ```sh
 bb efficiency \
-  .dev/agraph/agent-efficiency/shell-only/agent-report.json \
-  .dev/agraph/agent-efficiency/agraph/agent-report.json \
-  --out .dev/agraph/agent-efficiency/summary.json \
+  .dev/ygg/agent-efficiency/shell-only/agent-report.json \
+  .dev/ygg/agent-efficiency/ygg/agent-report.json \
+  --out .dev/ygg/agent-efficiency/summary.json \
   --json
 ```
 
@@ -191,7 +191,7 @@ bb headline all
 `claim-pack.json`, `CLAIM-PACK.md`, `efficiency-summary.json`,
 `efficiency-summary.md`, and `system-improvement-report.json` under the local
 headline output root. Use the lower-level `bb efficiency` command only when you
-need a raw shell-only versus AGraph comparison without the bundled proof
+need a raw shell-only versus Yggdrasil comparison without the bundled proof
 artifacts.
 
 Read `claim-pack.json` `summary.verdict` first, then inspect
@@ -211,8 +211,8 @@ Use existing benchmark report fields first:
   configured decision cases
 - result health: warning runs, empty result runs, commandless runs
 - command telemetry: `agentDiagnostics.commandTelemetry` command, search,
-  file-read, AGraph, and shell counts derived from cited benchmark commands
-  (`agraphCommandCount` is reported for interpretation, not treated as a
+  file-read, Yggdrasil, and shell counts derived from cited benchmark commands
+  (`yggCommandCount` is reported for interpretation, not treated as a
   lower-is-better regression gate; if only observed metrics are available,
   `bb efficiency` reports `observed-only` instead of a win or loss, and broad
   claim readiness remains blocked until directional metrics are available).
@@ -223,7 +223,7 @@ Use existing benchmark report fields first:
   cost totals when agent results include `tokenUsage`. `bb efficiency` compares
   these as lower-is-better and emits a `qualityCostTradeoff` summary when token
   telemetry is present. Agent wrappers can either write `tokenUsage` in the
-  result JSON or write a provider sidecar to `$AGRAPH_BENCH_TOKEN_USAGE`.
+  result JSON or write a provider sidecar to `$YGG_BENCH_TOKEN_USAGE`.
   `bb bench agent-check` can enforce aggregate and per-case budgets with
   `--max-total-tokens`, `--max-input-tokens`, `--max-output-tokens`,
   `--max-cost-usd`, `--max-case-total-tokens`, `--max-case-input-tokens`,
@@ -244,7 +244,7 @@ into benchmark core.
 
 ## Interpretation
 
-AGraph is useful if the `agraph` lane improves agent orientation without adding
+Yggdrasil is useful if the `ygg` lane improves agent orientation without adding
 unacceptable noise or runtime cost. Strong evidence includes:
 
 - higher recall or MRR at the same case count
@@ -252,11 +252,11 @@ unacceptable noise or runtime cost. Strong evidence includes:
 - higher citation rates
 - fewer opened files or shell commands when command telemetry is available
 - lower token or dollar cost at equal or better decision/localization quality,
-  or an explicit quality-versus-token tradeoff when AGraph spends more tokens
+  or an explicit quality-versus-token tradeoff when Yggdrasil spends more tokens
   to make better decisions on complex-system cases
 - equal or better patch success on task-completion runs
 
-Observed-only telemetry is useful for debugging how agents use AGraph, but it
+Observed-only telemetry is useful for debugging how agents use Yggdrasil, but it
 does not prove efficiency. Broad claims need directional metrics such as recall,
 noise, citation quality, elapsed time, command reductions, token/cost deltas,
 or patch outcomes.
@@ -267,13 +267,13 @@ view spreads indexing cost across a batch of agent tasks.
 
 ## Guardrails
 
-- Do not edit `src/agraph/benchmark.clj`, benchmark tests, or
+- Do not edit `src/ygg/benchmark.clj`, benchmark tests, or
   `docs/benchmarking.md` for this study.
 - Do not change benchmark scoring semantics while collecting the first results.
 - Do not claim broad agent efficiency from a suite that only contains simple
   localization cases. Cover several manually tagged problem classes, or state
-  the narrower class where AGraph helped.
-- Store generated outputs under `.dev/agraph/agent-efficiency/`.
+  the narrower class where Yggdrasil helped.
+- Store generated outputs under `.dev/ygg/agent-efficiency/`.
 - Keep ad hoc analysis scripts separate from benchmark core until their metrics
   are proven useful across multiple cases.
 - Treat historical issue text as the only task input. Do not expose fix diffs,

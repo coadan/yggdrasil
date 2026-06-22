@@ -21,7 +21,7 @@ is_source_file() {
 
 is_generated_exception() {
   case "$1" in
-    */package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|*/Cargo.lock|*/go.sum|resources/agraph/report-ui/assets/*)
+    */package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|*/Cargo.lock|*/go.sum|resources/ygg/report-ui/assets/*)
       return 0
       ;;
     *)

@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""DeepSeek Anthropic-compatible benchmark agent for AGraph issue replay.
+"""DeepSeek Anthropic-compatible benchmark agent for Yggdrasil issue replay.
 
 This script is a benchmark worker that uses the DeepSeek Anthropic-compatible
 Messages API with deepseek-v4-pro and max thinking to localize files for
 benchmark cases. It implements a tool-use agent loop: the model can read
 files, list directories, and run bounded shell commands (rg, bb ask, etc.)
-before writing the standard agent-result JSON to AGRAPH_BENCH_RESULT.
+before writing the standard agent-result JSON to YGG_BENCH_RESULT.
 
 Usage:
     python3 scripts/deepseek-agent.py
-    python3 scripts/deepseek-agent.py "$(cat "$AGRAPH_BENCH_PROMPT")"
+    python3 scripts/deepseek-agent.py "$(cat "$YGG_BENCH_PROMPT")"
 
 Environment:
-    AGRAPH_BENCH_RESULT          Required: path to write result JSON
-    AGRAPH_BENCH_WORKTREE        Required: repo checkout root
-    AGRAPH_BENCH_PACKET          Packet JSON path
-    AGRAPH_BENCH_AGRAPH_HINTS    AGraph hints JSON (optional, agraph mode)
-    AGRAPH_BENCH_AGRAPH_CONTEXT  AGraph context JSON (optional, agraph mode)
-    AGRAPH_BENCH_CASE_ID         Case ID
-    AGRAPH_BENCH_CASE_FINGERPRINT  Case fingerprint
-    AGRAPH_BENCH_AGENT_INPUT_FINGERPRINT  Agent input fingerprint (optional)
-    AGRAPH_BENCH_AGENT_ID        Agent ID
-    AGRAPH_BENCH_MODE            agraph | shell-only
-    AGRAPH_BENCH_PROJECT         Project config path
-    AGRAPH_BENCH_XTDB_PATH       XTDB path
+    YGG_BENCH_RESULT          Required: path to write result JSON
+    YGG_BENCH_WORKTREE        Required: repo checkout root
+    YGG_BENCH_PACKET          Packet JSON path
+    YGG_BENCH_YGG_HINTS    Yggdrasil hints JSON (optional, ygg mode)
+    YGG_BENCH_YGG_CONTEXT  Yggdrasil context JSON (optional, ygg mode)
+    YGG_BENCH_CASE_ID         Case ID
+    YGG_BENCH_CASE_FINGERPRINT  Case fingerprint
+    YGG_BENCH_AGENT_INPUT_FINGERPRINT  Agent input fingerprint (optional)
+    YGG_BENCH_AGENT_ID        Agent ID
+    YGG_BENCH_MODE            ygg | shell-only
+    YGG_BENCH_PROJECT         Project config path
+    YGG_BENCH_XTDB_PATH       XTDB path
     DEEPSEEK_API_KEY             Required: API key for DeepSeek
     DEEPSEEK_ENV_FILE            Optional: path to env file with DEEPSEEK_API_KEY
     DEEPSEEK_ENDPOINT            Optional: API endpoint override
@@ -86,7 +86,7 @@ DENIED_BB_FLAGS = {
     "--watch",
 }
 
-AGENT_RESULT_SCHEMA = "agraph.benchmark.agent-result/v2"
+AGENT_RESULT_SCHEMA = "ygg.benchmark.agent-result/v2"
 
 
 def env(name: str, default: str | None = None) -> str | None:
@@ -128,7 +128,7 @@ def read_json_file(path: str | None) -> dict:
 def read_prompt(argv: list[str]) -> str:
     if len(argv) >= 2:
         return argv[1]
-    prompt_path = env("AGRAPH_BENCH_PROMPT")
+    prompt_path = env("YGG_BENCH_PROMPT")
     if prompt_path and Path(prompt_path).is_file():
         return Path(prompt_path).read_text(encoding="utf-8")
     if not sys.stdin.isatty():
@@ -137,13 +137,13 @@ def read_prompt(argv: list[str]) -> str:
 
 
 def parser_worker_profile() -> dict:
-    mode = env("AGRAPH_BENCH_PARSER_WORKER") or env("AGRAPH_PARSER_WORKER") or "none"
-    source = "env" if env("AGRAPH_BENCH_PARSER_WORKER") or env("AGRAPH_PARSER_WORKER") else "default"
+    mode = env("YGG_BENCH_PARSER_WORKER") or env("YGG_PARSER_WORKER") or "none"
+    source = "env" if env("YGG_BENCH_PARSER_WORKER") or env("YGG_PARSER_WORKER") else "default"
     return {"mode": mode, "source": source}
 
 
 def selection_from_packet() -> dict:
-    context = read_json_file(env("AGRAPH_BENCH_AGRAPH_CONTEXT"))
+    context = read_json_file(env("YGG_BENCH_YGG_CONTEXT"))
     candidate_files = context.get("candidateFiles") or []
     coverage = context.get("coverage") or {}
     return {
@@ -156,18 +156,18 @@ def selection_from_packet() -> dict:
 
 
 def build_system_prompt(user_prompt: str) -> str:
-    worktree = env("AGRAPH_BENCH_WORKTREE", "")
-    mode = env("AGRAPH_BENCH_MODE", "shell-only")
-    hints_path = env("AGRAPH_BENCH_AGRAPH_HINTS")
-    context_path = env("AGRAPH_BENCH_AGRAPH_CONTEXT")
-    project = env("AGRAPH_BENCH_PROJECT")
-    xtdb_path = env("AGRAPH_BENCH_XTDB_PATH")
+    worktree = env("YGG_BENCH_WORKTREE", "")
+    mode = env("YGG_BENCH_MODE", "shell-only")
+    hints_path = env("YGG_BENCH_YGG_HINTS")
+    context_path = env("YGG_BENCH_YGG_CONTEXT")
+    project = env("YGG_BENCH_PROJECT")
+    xtdb_path = env("YGG_BENCH_XTDB_PATH")
 
     parts = [
-        "You are a benchmark agent for AGraph issue localization.",
+        "You are a benchmark agent for Yggdrasil issue localization.",
         f"Your working directory is: {worktree}",
         "",
-        "Use the available tools to inspect the repository and AGraph artifacts.",
+        "Use the available tools to inspect the repository and Yggdrasil artifacts.",
         "Read the benchmark prompt carefully and follow its instructions exactly.",
         "When you have identified the suspected files, use the write_result tool",
         "to write the final JSON result. The result must match the agent-result",
@@ -177,10 +177,10 @@ def build_system_prompt(user_prompt: str) -> str:
     ]
 
     if hints_path:
-        parts.append(f"AGraph hints JSON: {hints_path}")
+        parts.append(f"Yggdrasil hints JSON: {hints_path}")
         parts.append("Read this first for pre-computed file rankings and architecture context.")
     if context_path:
-        parts.append(f"AGraph context JSON: {context_path}")
+        parts.append(f"Yggdrasil context JSON: {context_path}")
     if project:
         parts.append(f"Project config: {project}")
     if xtdb_path:
@@ -188,7 +188,7 @@ def build_system_prompt(user_prompt: str) -> str:
 
     parts.extend([
         "",
-        "## Available AGraph commands (run via run_command tool):",
+        "## Available Yggdrasil commands (run via run_command tool):",
         "- bb ask \"<query>\" --project <project-id> --json",
         "- bb explore create \"<query>\" --project <project-id>",
         "- bb view systems --project <project-id>",
@@ -200,7 +200,7 @@ def build_system_prompt(user_prompt: str) -> str:
         "- Each suspected file needs at least one evidence string containing",
         "  its exact repo-relative path.",
         "- Cite the command or artifact that led you to each file.",
-        "- Prefer reading AGraph hints/context before broad shell search.",
+        "- Prefer reading Yggdrasil hints/context before broad shell search.",
         "- Use the write_result tool to finalize your answer.",
     ])
 
@@ -288,12 +288,12 @@ def resolve_path(path_str: str, worktree: str) -> Path:
 
 def allowed_artifact_paths() -> set[Path]:
     keys = [
-        "AGRAPH_BENCH_PACKET",
-        "AGRAPH_BENCH_AGRAPH_HINTS",
-        "AGRAPH_BENCH_AGRAPH_CONTEXT",
-        "AGRAPH_BENCH_OUTPUT_SCHEMA",
-        "AGRAPH_BENCH_PROMPT",
-        "AGRAPH_BENCH_PROJECT",
+        "YGG_BENCH_PACKET",
+        "YGG_BENCH_YGG_HINTS",
+        "YGG_BENCH_YGG_CONTEXT",
+        "YGG_BENCH_OUTPUT_SCHEMA",
+        "YGG_BENCH_PROMPT",
+        "YGG_BENCH_PROJECT",
     ]
     paths = set()
     for key in keys:
@@ -476,10 +476,10 @@ def build_result(
 ) -> dict:
     result = {
         "schema": AGENT_RESULT_SCHEMA,
-        "caseId": env("AGRAPH_BENCH_CASE_ID"),
-        "caseFingerprint": env("AGRAPH_BENCH_CASE_FINGERPRINT"),
-        "agentId": env("AGRAPH_BENCH_AGENT_ID", "deepseek-v4-pro-agent"),
-        "mode": env("AGRAPH_BENCH_MODE", "agraph"),
+        "caseId": env("YGG_BENCH_CASE_ID"),
+        "caseFingerprint": env("YGG_BENCH_CASE_FINGERPRINT"),
+        "agentId": env("YGG_BENCH_AGENT_ID", "deepseek-v4-pro-agent"),
+        "mode": env("YGG_BENCH_MODE", "ygg"),
         "selection": selection_from_packet(),
         "parserWorker": parser_worker_profile(),
         "suspectedFiles": suspected_files,
@@ -488,8 +488,8 @@ def build_result(
         "warnings": warnings,
         "summary": summary,
     }
-    if env("AGRAPH_BENCH_AGENT_INPUT_FINGERPRINT"):
-        result["agentInputFingerprint"] = env("AGRAPH_BENCH_AGENT_INPUT_FINGERPRINT")
+    if env("YGG_BENCH_AGENT_INPUT_FINGERPRINT"):
+        result["agentInputFingerprint"] = env("YGG_BENCH_AGENT_INPUT_FINGERPRINT")
     result["tokenUsage"] = {
         "inputTokens": token_usage.get("input_tokens", 0),
         "outputTokens": token_usage.get("output_tokens", 0),
@@ -503,10 +503,10 @@ def build_result(
 
 def normalize_result(result: dict, commands: list[str], warnings: list[str], token_usage: dict) -> dict:
     result.setdefault("schema", AGENT_RESULT_SCHEMA)
-    result.setdefault("caseId", env("AGRAPH_BENCH_CASE_ID"))
-    result.setdefault("caseFingerprint", env("AGRAPH_BENCH_CASE_FINGERPRINT"))
-    result.setdefault("agentId", env("AGRAPH_BENCH_AGENT_ID", "deepseek-v4-pro-agent"))
-    result.setdefault("mode", env("AGRAPH_BENCH_MODE", "agraph"))
+    result.setdefault("caseId", env("YGG_BENCH_CASE_ID"))
+    result.setdefault("caseFingerprint", env("YGG_BENCH_CASE_FINGERPRINT"))
+    result.setdefault("agentId", env("YGG_BENCH_AGENT_ID", "deepseek-v4-pro-agent"))
+    result.setdefault("mode", env("YGG_BENCH_MODE", "ygg"))
     result.setdefault("selection", selection_from_packet())
     result.setdefault("parserWorker", parser_worker_profile())
     result.setdefault("suspectedFiles", [])
@@ -514,8 +514,8 @@ def normalize_result(result: dict, commands: list[str], warnings: list[str], tok
     result.setdefault("commands", commands)
     result.setdefault("warnings", warnings)
     result.setdefault("summary", "DeepSeek v4-pro agent localization result.")
-    if env("AGRAPH_BENCH_AGENT_INPUT_FINGERPRINT"):
-        result.setdefault("agentInputFingerprint", env("AGRAPH_BENCH_AGENT_INPUT_FINGERPRINT"))
+    if env("YGG_BENCH_AGENT_INPUT_FINGERPRINT"):
+        result.setdefault("agentInputFingerprint", env("YGG_BENCH_AGENT_INPUT_FINGERPRINT"))
     result["tokenUsage"] = {
         "inputTokens": token_usage.get("input_tokens", 0),
         "outputTokens": token_usage.get("output_tokens", 0),
@@ -527,9 +527,9 @@ def normalize_result(result: dict, commands: list[str], warnings: list[str], tok
 
 
 def write_result_file(result: dict) -> None:
-    result_path = env("AGRAPH_BENCH_RESULT")
+    result_path = env("YGG_BENCH_RESULT")
     if not result_path:
-        raise SystemExit("AGRAPH_BENCH_RESULT is required.")
+        raise SystemExit("YGG_BENCH_RESULT is required.")
     path = Path(result_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
@@ -550,7 +550,7 @@ def main(argv: list[str]) -> int:
         print("Error: empty prompt.", file=sys.stderr)
         return 2
 
-    worktree = env("AGRAPH_BENCH_WORKTREE", os.getcwd())
+    worktree = env("YGG_BENCH_WORKTREE", os.getcwd())
     api_key = "mock" if env("DEEPSEEK_MOCK_RESPONSE") else load_api_key()
     endpoint = env("DEEPSEEK_ENDPOINT", DEFAULT_ENDPOINT)
     model = env("DEEPSEEK_MODEL", DEFAULT_MODEL)

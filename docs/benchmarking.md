@@ -1,6 +1,6 @@
-# Benchmarking AGraph
+# Benchmarking Yggdrasil
 
-AGraph benchmarks replay real project work from a historical source tree. The
+Yggdrasil benchmarks replay real project work from a historical source tree. The
 primary benchmark is agent issue replay: start from the commit before a fix,
 give an agent the issue text plus a base checkout, collect ranked suspected
 files, and compare that output with the actual fixing diff.
@@ -16,20 +16,20 @@ Tracked starter suites:
 - `benchmarks/oss-architecture-synthetic.edn`: diagnostic architecture-class
   suite with synthetic tasks on real OSS checkouts.
 - `benchmarks/headline.edn`: small architecture-first headline suite for
-  shell-only versus AGraph agent-efficiency runs. Generated lane outputs should
-  still live under `.dev/agraph/`.
+  shell-only versus Yggdrasil agent-efficiency runs. Generated lane outputs should
+  still live under `.dev/ygg/`.
 
 ## Headline Suite
 
-Use the tracked headline suite to compare shell-only and AGraph-assisted agents
+Use the tracked headline suite to compare shell-only and Yggdrasil-assisted agents
 on architecture-oriented tasks. Generated lane outputs stay under
-`.dev/agraph/headline-bench/` by default.
+`.dev/ygg/headline-bench/` by default.
 
 The bounded headline hypothesis is intentionally narrow; make it a claim only
 when the generated comparison report supports it for the named problem classes:
 
 > For architecture-class tasks involving dependencies, runtime/config, or
-> audit-scope evidence, AGraph may help agents find the right evidence with less
+> audit-scope evidence, Yggdrasil may help agents find the right evidence with less
 > exploratory work than shell-only workflows.
 
 The checked-in suite has five fixed cases, not an open-ended benchmark program:
@@ -37,7 +37,7 @@ docs route impact, dependency/config wiring, database runtime ownership,
 JavaScript runtime boundary, and Dapper JSONB dependency/container evidence. The
 Axios runtime-boundary case is tagged `:shell-sufficient-control` because it is
 expected to be comparatively easy for ordinary shell exploration; it keeps the
-comparison from only selecting cases where AGraph should obviously help. Add a
+comparison from only selecting cases where Yggdrasil should obviously help. Add a
 regression or inconclusive control only when there is an observed candidate from
 real lane output, not as synthetic ballast.
 
@@ -60,16 +60,16 @@ without launching agents.
 The helper wraps the existing benchmark commands. Use the raw command form below
 when debugging one lane or when a CI job needs each phase split explicitly.
 
-Deterministic AGraph baseline:
+Deterministic Yggdrasil baseline:
 
 ```sh
 bb bench agent-baseline benchmarks/headline.edn \
-  --out .dev/agraph/headline-bench/agraph-baseline
+  --out .dev/ygg/headline-bench/ygg-baseline
 
 bb bench agent-report benchmarks/headline.edn \
-  --mode agraph \
-  --agent agraph-baseline-lexical \
-  --out .dev/agraph/headline-bench/agraph-baseline
+  --mode ygg \
+  --agent ygg-baseline-lexical \
+  --out .dev/ygg/headline-bench/ygg-baseline
 ```
 
 Codebase Memory MCP comparison baseline:
@@ -77,12 +77,12 @@ Codebase Memory MCP comparison baseline:
 ```sh
 bb bench agent-baseline benchmarks/headline.edn \
   --retriever codebase-memory \
-  --out .dev/agraph/headline-bench/codebase-memory
+  --out .dev/ygg/headline-bench/codebase-memory
 
 bb bench agent-report benchmarks/headline.edn \
   --mode codebase-memory \
-  --agent agraph-baseline-codebase-memory \
-  --out .dev/agraph/headline-bench/codebase-memory
+  --agent ygg-baseline-codebase-memory \
+  --out .dev/ygg/headline-bench/codebase-memory
 ```
 
 External agent lanes:
@@ -91,16 +91,16 @@ External agent lanes:
 bb bench agent-run benchmarks/headline.edn \
   --mode shell-only \
   --agent codex \
-  --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' \
+  --command 'codex -a never exec --sandbox read-only --output-schema "$YGG_BENCH_OUTPUT_SCHEMA" -o "$YGG_BENCH_RESULT" "$(cat "$YGG_BENCH_PROMPT")"' \
   --prompt-profile fast \
-  --out .dev/agraph/headline-bench/shell-only
+  --out .dev/ygg/headline-bench/shell-only
 
 bb bench agent-run benchmarks/headline.edn \
-  --mode agraph \
+  --mode ygg \
   --agent codex \
-  --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' \
+  --command 'codex -a never exec --sandbox read-only --output-schema "$YGG_BENCH_OUTPUT_SCHEMA" -o "$YGG_BENCH_RESULT" "$(cat "$YGG_BENCH_PROMPT")"' \
   --prompt-profile fast \
-  --out .dev/agraph/headline-bench/agraph
+  --out .dev/ygg/headline-bench/ygg
 ```
 
 Generate lane reports and compare them:
@@ -109,18 +109,18 @@ Generate lane reports and compare them:
 bb bench agent-report benchmarks/headline.edn \
   --mode shell-only \
   --agent codex \
-  --out .dev/agraph/headline-bench/shell-only
+  --out .dev/ygg/headline-bench/shell-only
 
 bb bench agent-report benchmarks/headline.edn \
-  --mode agraph \
+  --mode ygg \
   --agent codex \
-  --out .dev/agraph/headline-bench/agraph
+  --out .dev/ygg/headline-bench/ygg
 
 bb efficiency \
-  .dev/agraph/headline-bench/shell-only/agent-report.json \
-  .dev/agraph/headline-bench/agraph/agent-report.json \
-  --out .dev/agraph/headline-bench/summary.json \
-  --markdown-out .dev/agraph/headline-bench/REPORT.md
+  .dev/ygg/headline-bench/shell-only/agent-report.json \
+  .dev/ygg/headline-bench/ygg/agent-report.json \
+  --out .dev/ygg/headline-bench/summary.json \
+  --markdown-out .dev/ygg/headline-bench/REPORT.md
 ```
 
 Read `Problem-class signals`, `Architecture-class signals`, and
@@ -137,7 +137,7 @@ readiness. Use `classSignals.summary.measuredProblemClasses` and
 `classSignals.summary.measuredArchitectureClasses` for automated gates. Treat
 `improvementTargetRuns` as lower-is-better: a run that improves recall but
 introduces more remediation targets is a mixed result, not a broad efficiency
-win. Generated files under `.dev/agraph/headline-bench/` are disposable
+win. Generated files under `.dev/ygg/headline-bench/` are disposable
 artifacts.
 Use `summary.json` for machine gates and `REPORT.md` for a compact human review
 of the same comparison.
@@ -170,21 +170,21 @@ bb bench agent-packet benchmark.edn --case penpot-example --json
 bb bench agent-baseline benchmark.edn --case penpot-example
 bb bench agent-baseline benchmark.edn --case penpot-example --retriever local-vector --vector-model sentence-transformers/all-MiniLM-L6-v2
 bb bench agent-baseline benchmark.edn --case penpot-example --retriever codebase-memory --codebase-memory-bin /path/to/codebase-memory-mcp
-bb bench agent-run benchmark.edn --agent codex --command 'codex -a never exec --sandbox read-only --output-schema "$AGRAPH_BENCH_OUTPUT_SCHEMA" -o "$AGRAPH_BENCH_RESULT" "$(cat "$AGRAPH_BENCH_PROMPT")"' --mode agraph --prompt-profile fast --timeout-ms 120000
+bb bench agent-run benchmark.edn --agent codex --command 'codex -a never exec --sandbox read-only --output-schema "$YGG_BENCH_OUTPUT_SCHEMA" -o "$YGG_BENCH_RESULT" "$(cat "$YGG_BENCH_PROMPT")"' --mode ygg --prompt-profile fast --timeout-ms 120000
 bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
 bb bench agent-report benchmark.edn
-bb bench improve benchmark.edn --mode agraph --agent agraph-baseline-lexical --out .dev/reports/bench
-bb bench agent-check benchmark.edn --mode agraph --agent agraph-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-total-tokens 120000 --max-case-total-tokens 30000 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
-bb bench agent-check benchmarks/decision-quality-pilot.edn --mode agraph --agent codex --min-decision-f1 0.8 --min-case-decision-f1 0.6 --min-decision-evidence-citation-rate 0.8 --max-missing-decision-runs 0
-bb bench agent-compare benchmark.edn --baseline-report .dev/agraph/bench-before/agent-report.json --candidate-report .dev/agraph/bench-after/agent-report.json
-bb bench claim-pack benchmark.edn --shell-report .dev/agraph/agent-efficiency/shell-only/agent-report.json --agraph-report .dev/agraph/agent-efficiency/agraph/agent-report.json --out .dev/reports/claim-pack
+bb bench improve benchmark.edn --mode ygg --agent ygg-baseline-lexical --out .dev/reports/bench
+bb bench agent-check benchmark.edn --mode ygg --agent ygg-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-total-tokens 120000 --max-case-total-tokens 30000 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
+bb bench agent-check benchmarks/decision-quality-pilot.edn --mode ygg --agent codex --min-decision-f1 0.8 --min-case-decision-f1 0.6 --min-decision-evidence-citation-rate 0.8 --max-missing-decision-runs 0
+bb bench agent-compare benchmark.edn --baseline-report .dev/ygg/bench-before/agent-report.json --candidate-report .dev/ygg/bench-after/agent-report.json
+bb bench claim-pack benchmark.edn --shell-report .dev/ygg/agent-efficiency/shell-only/agent-report.json --ygg-report .dev/ygg/agent-efficiency/ygg/agent-report.json --out .dev/reports/claim-pack
 bb bench run benchmark.edn
 bb bench report benchmark.edn
 bb bench show benchmark.edn --case penpot-example
 ```
 
 Generated worktrees, XTDB stores, and result JSON files live under
-`.dev/agraph/bench/<suite-id>/` by default. Use `--out` to choose another
+`.dev/ygg/bench/<suite-id>/` by default. Use `--out` to choose another
 generated output root.
 
 Decision-quality cases add visible `:decision-candidates` and hidden
@@ -213,9 +213,9 @@ plugin-fit choice, not just a shorter suspected-file list.
 - `bench prepare <suite.edn>` computes ground truth from `git diff
   <base-sha> <fix-sha>` and writes one prepared case artifact per case.
 - `bench agent-packet <suite.edn>` writes an agent-localization packet for each
-  selected case. Use `--case <case-id>` for one case, `--mode agraph` to give
-  the agent AGraph command hints, or `--mode shell-only` for a baseline.
-- `bench agent-baseline <suite.edn>` generates a deterministic AGraph-assisted
+  selected case. Use `--case <case-id>` for one case, `--mode ygg` to give
+  the agent Yggdrasil command hints, or `--mode shell-only` for a baseline.
+- `bench agent-baseline <suite.edn>` generates a deterministic Yggdrasil-assisted
   agent result from the same context docs/entities an agent receives, writes the
   agent-result JSON, and scores it. Use this as the repeatable regression
   baseline before running slower human or LLM agent trials. By default it keeps
@@ -225,7 +225,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   `--retrieval-limit <n>` to change the compact candidate-file pool without
   adding more snippets. The default retrieval limit is intentionally wider than
   the snippet limit so lower-ranked but relevant companion files can still be
-  selected. Limited AGraph baselines reserve a small slice of the shortlist for
+  selected. Limited Yggdrasil baselines reserve a small slice of the shortlist for
   candidate-file-only evidence so compact file/path matches are not completely
   crowded out by snippet-bearing retrieved docs.
   Use `--retriever local-vector` to run an optional local semantic-vector
@@ -234,18 +234,18 @@ plugin-fit choice, not just a shorter suspected-file list.
   `sentence-transformers` locally and writes the current agent-result contract,
   including the case fingerprint and citation evidence, for the existing
   scorer. Install the optional worker dependencies in a local
-  environment with `python3 -m venv .dev/agraph/local-vector-venv &&
-  .dev/agraph/local-vector-venv/bin/python -m pip install -r
+  environment with `python3 -m venv .dev/ygg/local-vector-venv &&
+  .dev/ygg/local-vector-venv/bin/python -m pip install -r
   scripts/local-vector-requirements.txt`, then pass
-  `--vector-command '.dev/agraph/local-vector-venv/bin/python
+  `--vector-command '.dev/ygg/local-vector-venv/bin/python
   scripts/local-vector-baseline.py'`. Use `--vector-model <model>` to choose a
   local model and `--vector-command <cmd>` to replace the worker. The command
   receives `REQUEST_JSON RESULT_JSON MODEL` arguments. This lane is for
-  benchmark diagnosis: if it beats the graph baseline, inspect whether AGraph is
+  benchmark diagnosis: if it beats the graph baseline, inspect whether Yggdrasil is
   missing extractor facts, ranking useful facts poorly, or losing on vocabulary
-  mismatch. It does not make AGraph core depend on a vector provider. Use
+  mismatch. It does not make Yggdrasil core depend on a vector provider. Use
   `--retriever codebase-memory` to run a Codebase Memory MCP comparison lane.
-  AGraph does not install or configure Codebase Memory; provide an installed
+  Yggdrasil does not install or configure Codebase Memory; provide an installed
   binary through `CODEBASE_MEMORY_MCP_BIN` or `--codebase-memory-bin`. The
   default worker is `python3 scripts/codebase-memory-baseline.py`; override it
   with `--codebase-memory-command <cmd>` when testing worker changes. Generated
@@ -262,7 +262,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   `bench agent-report`, writes an updated `agent-report.json`, and writes
   `system-improvement-report.json`. The report is dev-time guidance, not a
   repair workflow: it does not enqueue `sync work`, does not patch
-  `agraph.map.json`, and does not waive benchmark failures. It groups benchmark
+  `ygg.map.json`, and does not waive benchmark failures. It groups benchmark
   diagnostics into `maintenance-emitter-gap`, `indexing-gap`, `extractor-gap`,
   `retrieval-gap`, `decision-quality-gap`, `benchmark-suite-gap`, and
   `agent-protocol-gap` lanes with affected cases, declared
@@ -270,29 +270,29 @@ plugin-fit choice, not just a shorter suspected-file list.
   recommended system change.
 - `bench agent-run <suite.edn> --agent <id> --command <cmd>` prepares the same
   packet contract, runs an external coding-agent command from the base
-  worktree, and scores the JSON result written to `$AGRAPH_BENCH_RESULT`. The
-  command receives `$AGRAPH_BENCH_PROMPT`, `$AGRAPH_BENCH_PACKET`,
-  `$AGRAPH_BENCH_RESULT`, `$AGRAPH_BENCH_TOKEN_USAGE`,
-  `$AGRAPH_BENCH_WORKTREE`, `$AGRAPH_BENCH_PROJECT`,
-  `$AGRAPH_BENCH_XTDB_PATH`, `$AGRAPH_BENCH_CASE_ID`,
-  `$AGRAPH_BENCH_AGENT_ID`, `$AGRAPH_BENCH_MODE`, and
-  `$AGRAPH_BENCH_OUTPUT_SCHEMA`. In `--mode agraph`, the command also receives
-  `$AGRAPH_BENCH_AGRAPH_HINTS`, a compact agent-facing AGraph summary, and
-  `$AGRAPH_BENCH_AGRAPH_CONTEXT`, the fuller precomputed context JSON artifact;
+  worktree, and scores the JSON result written to `$YGG_BENCH_RESULT`. The
+  command receives `$YGG_BENCH_PROMPT`, `$YGG_BENCH_PACKET`,
+  `$YGG_BENCH_RESULT`, `$YGG_BENCH_TOKEN_USAGE`,
+  `$YGG_BENCH_WORKTREE`, `$YGG_BENCH_PROJECT`,
+  `$YGG_BENCH_XTDB_PATH`, `$YGG_BENCH_CASE_ID`,
+  `$YGG_BENCH_AGENT_ID`, `$YGG_BENCH_MODE`, and
+  `$YGG_BENCH_OUTPUT_SCHEMA`. In `--mode ygg`, the command also receives
+  `$YGG_BENCH_YGG_HINTS`, a compact agent-facing Yggdrasil summary, and
+  `$YGG_BENCH_YGG_CONTEXT`, the fuller precomputed context JSON artifact;
   both are generated from the base checkout. The prompt file is the stable
   agent input; it points to the packet and required result JSON path without
   exposing hidden ground truth. Use the schema env var with agent CLIs that
   support structured output; the generated schema is intentionally closed so
   strict structured output providers can validate it. For structured-output
-  runners that capture the final response into `$AGRAPH_BENCH_RESULT`, the
+  runners that capture the final response into `$YGG_BENCH_RESULT`, the
   agent should return the JSON as its final response instead of trying to write
   the file from inside its sandbox. Provider wrappers may write token usage to
-  `$AGRAPH_BENCH_TOKEN_USAGE` as JSON with `inputTokens`/`outputTokens` or
-  `input_tokens`/`output_tokens`; AGraph folds that sidecar into
+  `$YGG_BENCH_TOKEN_USAGE` as JSON with `inputTokens`/`outputTokens` or
+  `input_tokens`/`output_tokens`; Yggdrasil folds that sidecar into
   `tokenUsage` when the result JSON does not already contain token usage. Use
   `--prompt-profile fast` for short
   localization-only smoke runs that should avoid patching and full test suites;
-  omit it for the standard prompt. In `--mode agraph`, the graph, hints, and
+  omit it for the standard prompt. In `--mode ygg`, the graph, hints, and
   context artifacts are prepared before the command runs; in `--mode
   shell-only`, only the checkout and packet are provided. Prefer the hints
   artifact first and the context artifact for supporting snippets: sandboxed
@@ -315,7 +315,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   reports can distinguish audit-scope family gaps from ranking misses. Hint
   rows carry severity: info rows such as expected coverage filtering remain
   telemetry, while warning/error rows feed the generic `hint-diagnostics`
-  improvement target. Hints and deterministic AGraph baseline results flatten
+  improvement target. Hints and deterministic Yggdrasil baseline results flatten
   context
   drilldowns, legacy `answerability.next`, structured packet `nextActions`, and
   `architecture.validationGaps.nextActions` into `commands` so agents see
@@ -327,12 +327,12 @@ plugin-fit choice, not just a shorter suspected-file list.
   bound long-running agents. Use `--skip-existing` to resume interrupted agent
   runs with the same current-score matching rules as `agent-baseline`.
 - `bench agent-score <suite.edn> --case <case-id> --result result.json` scores
-  one agent result JSON against hidden ground truth. For AGraph-mode results,
+  one agent result JSON against hidden ground truth. For Yggdrasil-mode results,
   rescoring also refreshes compatible sibling context ranks, hint diagnostics,
   current graph expectations, and maintenance preflight from existing benchmark
   artifacts when the result path matches the recorded agent run.
 - `bench agent-report <suite.edn>` aggregates existing agent score artifacts
-  across selected cases. Use `--mode agraph` or `--mode shell-only` to compare
+  across selected cases. Use `--mode ygg` or `--mode shell-only` to compare
   one benchmark mode at a time, and `--agent <agent-id>` to target one
   repeatable agent run. Reports also include `caseProgress` and `timings`
   derived from each case `progress.json`, so interrupted or partial runs still
@@ -345,17 +345,17 @@ plugin-fit choice, not just a shorter suspected-file list.
   result also includes `localization`, a compact diagnostic with scoreable
   files, per-file ranks, misses, coverage exclusions, and files found outside
   the top 5, 10, and 20. Reports also include `agentDiagnostics`, which counts
-  empty rankable outputs, zero-candidate AGraph packets, coverage-filtered
+  empty rankable outputs, zero-candidate Yggdrasil packets, coverage-filtered
   runs and candidate files, warning-bearing runs, and missing predicted paths so
   benchmark failures point to the next mechanical fix instead of only reporting
-  a score. When AGraph-mode runs generated hint diagnostics, reports count
+  a score. When Yggdrasil-mode runs generated hint diagnostics, reports count
   all rows by kind, and separately count blocking warning/error rows for
   result-health improvement targets.
-  AGraph-mode reports also include `maintenancePreflightDiagnostics`, which
+  Yggdrasil-mode reports also include `maintenancePreflightDiagnostics`, which
   records whether each run had completed index and inference summaries,
   configured graph expectations where required, clean warning/error hint
   diagnostics, and a sync/check-equivalent validation-gaps status. Shell-only
-  reports mark this preflight as `not-applicable`; AGraph reports must pass it
+  reports mark this preflight as `not-applicable`; Yggdrasil reports must pass it
   before the lane is claim-ready for maintained-graph claims.
   Decision-quality reports include `decisionDiagnostics`, which counts
   configured decision runs, missing decision outputs, missed required choices,
@@ -411,7 +411,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   agents do not cite commands,
   `--max-warning-runs` to fail when scorer or agent warnings are present beyond
   the configured budget, `--max-hint-diagnostic-runs` to fail when score
-  artifacts include AGraph hint diagnostics,
+  artifacts include Yggdrasil hint diagnostics,
   `--max-identity-mismatch-runs` to fail when score
   artifacts report a wrong schema, case id, or case fingerprint,
   `--max-unverified-score-runs` to fail when
@@ -423,7 +423,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   `--max-context-rank-missing-runs`,
   `--max-missed-but-present-in-context-runs`, and
   `--max-missed-and-absent-from-context-runs` to separate agent selection misses
-  from AGraph retrieval or extraction misses, plus
+  from Yggdrasil retrieval or extraction misses, plus
   `--max-active-stage-ms` for partial or interrupted runs with a stuck active
   stage. Use
   `--agent <agent-id>` to avoid mixing baseline, shell-only, and ad hoc agent
@@ -439,7 +439,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   Token budget gates require agent result `tokenUsage`; if token usage is absent
   and a token gate is configured, `agent-check` fails instead of treating the
   missing measurement as zero.
-- `bench claim-pack <suite.edn> --shell-report <path> --agraph-report <path>`
+- `bench claim-pack <suite.edn> --shell-report <path> --ygg-report <path>`
   writes a replayable proof bundle under the benchmark output root:
   `efficiency-summary.json`, `efficiency-summary.md`,
   `system-improvement-report.json`, `claim-pack.json`, and `CLAIM-PACK.md`.
@@ -476,7 +476,7 @@ files, and docs across multiple public repositories. A repeatable deterministic
 baseline gate for that suite is:
 
 ```sh
-bb bench agent-check .dev/benchmarks/oss-issue-replay.edn --out .dev/agraph/bench-oss-wide-v4 --mode agraph --agent agraph-baseline-lexical --min-cases 14 --min-runs 14 --min-file-recall-at-5 0.55 --min-file-recall-at-10 0.68 --min-file-recall-at-20 0.68 --min-mrr 0.55 --max-noise-at-20 0.82 --max-input-hinted-cases 0 --max-unsupported-ground-truth-files 14
+bb bench agent-check .dev/benchmarks/oss-issue-replay.edn --out .dev/ygg/bench-oss-wide-v4 --mode ygg --agent ygg-baseline-lexical --min-cases 14 --min-runs 14 --min-file-recall-at-5 0.55 --min-file-recall-at-10 0.68 --min-file-recall-at-20 0.68 --min-mrr 0.55 --max-noise-at-20 0.82 --max-input-hinted-cases 0 --max-unsupported-ground-truth-files 14
 ```
 
 The lower wide-suite thresholds are deliberate. New source-kind cases should
@@ -492,7 +492,7 @@ penalizing newly added source kinds.
 
 Treat issue replay as the ratchet for source support and ranking changes. A
 change should name the benchmark case that motivated it, keep before and after
-outputs under `.dev/agraph/`, and record the exact `agent-check` or
+outputs under `.dev/ygg/`, and record the exact `agent-check` or
 `agent-compare` command that proves the candidate is no worse. Prefer a narrow
 case gate while developing the fix, then rerun the wide gate before relying on
 the result.
@@ -507,7 +507,7 @@ and tracked as a separate benchmark finding.
 Example narrow gate for the Bootstrap style case:
 
 ```sh
-bb bench agent-check .dev/benchmarks/oss-issue-replay.edn --out .dev/agraph/bench-bootstrap-style-rules-v1 --case bootstrap-34852-form-select-border-radius --mode agraph --agent agraph-baseline-lexical --min-case-file-recall-at-5 1.0 --min-file-recall-at-5 1.0 --max-missed-runs 0
+bb bench agent-check .dev/benchmarks/oss-issue-replay.edn --out .dev/ygg/bench-bootstrap-style-rules-v1 --case bootstrap-34852-form-select-border-radius --mode ygg --agent ygg-baseline-lexical --min-case-file-recall-at-5 1.0 --min-file-recall-at-5 1.0 --max-missed-runs 0
 ```
 
 When a benchmark miss points at extractor noise or missing syntax facts, prefer
@@ -535,10 +535,10 @@ failure mode without duplicating suites:
 Reports include `tags` and `byTag`, so one wide suite can still answer whether
 auth evidence, runtime config, package resolution, a specific language family,
 or a manually labeled problem class regressed. Problem-class tags are benchmark
-labels for analysis; they are not inferred by AGraph core and should not become
+labels for analysis; they are not inferred by Yggdrasil core and should not become
 path, host, or vocabulary heuristics.
 
-Use graph expectations when a benchmark is meant to prove AGraph extracted
+Use graph expectations when a benchmark is meant to prove Yggdrasil extracted
 specific bounded facts, not only that the agent ranked the changed file. The
 matching is exact over mechanical row fields, so these checks remain auditable
 and avoid semantic path or host heuristics:
@@ -553,7 +553,7 @@ and avoid semantic path or host heuristics:
                 :forbidden-edges [:shares-config]}}
 ```
 
-`run`, `agent-baseline`, and `agent-run --mode agraph` write
+`run`, `agent-baseline`, and `agent-run --mode ygg` write
 `graphExpectations` into their score/result artifacts after indexing and
 inference. `agent-report` aggregates those checks under
 `graphExpectationDiagnostics`, and `agent-check` can gate them with
@@ -573,7 +573,7 @@ question directly. Keep them replayable: use a real OSS base checkout, write
 fair issue text that asks about the architecture task, tag the case with
 `:synthetic` plus `:problem-architecture`, and provide curated
 `:ground-truth`/`:expectations` for the files or graph facts a competent agent
-should inspect. The tags are analysis labels only; AGraph core must still emit
+should inspect. The tags are analysis labels only; Yggdrasil core must still emit
 bounded facts and let the benchmark decide whether those facts helped.
 
 Synthetic architecture cases still need a checkout boundary. When there is no
@@ -608,24 +608,24 @@ historical fix commit, set `:fix-sha` to the same commit as `:base-sha` and use
 Other useful seeds for the current OSS corpus: Astro plugin config in
 Bootstrap, event-trigger ownership flow in Supabase Postgres, native proxy
 handling in Axios, and Dapper's PostgreSQL JSONB test stack. Give each one
-manual architecture problem tags and curated expectations; do not teach AGraph
+manual architecture problem tags and curated expectations; do not teach Yggdrasil
 core to infer those classes from names or paths.
 
 The tracked starter file `benchmarks/oss-architecture-synthetic.edn` contains
 the runnable Bootstrap, Supabase Postgres, and Axios cases. It expects the OSS
 corpus checkouts in `.dev/oss-test-cases/repos/`; keep generated benchmark
-outputs under `.dev/agraph/...` with `--out`.
+outputs under `.dev/ygg/...` with `--out`.
 
 Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
 agents through the filesystem queue:
 
 ```sh
-bb bench agent-packet benchmark.edn --case penpot-example --enqueue --queue-dir .dev/agraph/queue --json
-bb sync work pull --kind benchmark-agent --queue-dir .dev/agraph/queue --agent codex
+bb bench agent-packet benchmark.edn --case penpot-example --enqueue --queue-dir .dev/ygg/queue --json
+bb sync work pull --kind benchmark-agent --queue-dir .dev/ygg/queue --agent codex
 ```
 
 The queue item stores transport and lease state only. The embedded payload is
-the explicit `agraph.benchmark.agent-packet/v1` JSON artifact.
+the explicit `ygg.benchmark.agent-packet/v1` JSON artifact.
 
 ## Agent Result Contract
 
@@ -633,12 +633,12 @@ Agents should return JSON shaped like this:
 
 ```json
 {
-  "schema": "agraph.benchmark.agent-result/v2",
+  "schema": "ygg.benchmark.agent-result/v2",
   "caseId": "penpot-example",
   "caseFingerprint": "sha256:...",
   "agentInputFingerprint": "sha256:...",
   "agentId": "codex",
-  "mode": "agraph",
+  "mode": "ygg",
   "selection": {
     "rawCandidateFiles": 20,
     "candidateFiles": 20,
@@ -652,7 +652,7 @@ Agents should return JSON shaped like this:
       "rank": 1,
       "confidence": 0.84,
       "reason": "Short evidence-based reason.",
-      "evidence": ["command, snippet, or AGraph context row used"],
+      "evidence": ["command, snippet, or Yggdrasil context row used"],
       "metrics": {"rankScore": 1.2}
     }
   ],
@@ -669,8 +669,8 @@ agent input. New results should include both; the scorer accepts legacy results
 that only include `caseFingerprint`, but hidden expectation-only edits can make
 those legacy results report identity warnings until the agent run is refreshed.
 
-`mode` is one of `agraph`, `shell-only`, `local-vector`, or
-`codebase-memory`. `agent-run` only uses `agraph` and `shell-only`;
+`mode` is one of `ygg`, `shell-only`, `local-vector`, or
+`codebase-memory`. `agent-run` only uses `ygg` and `shell-only`;
 `local-vector` and `codebase-memory` are reserved for optional deterministic
 baseline lanes.
 
@@ -678,11 +678,11 @@ Recall, MRR, and noise use `suspectedFiles.path` and rank. The citation score
 uses the presence of non-empty `suspectedFiles[].evidence` rows. Reasons,
 commands, warnings, symbols, optional bounded `selection`, and optional bounded
 `suspectedFiles[].metrics` are still part of the artifact because they make
-failures auditable. For AGraph-generated artifacts, `commands` may include
+failures auditable. For Yggdrasil-generated artifacts, `commands` may include
 repair or inspection commands copied from structured `nextActions`; treat them
 as evidence of the graph checks available to the agent, not proof that the agent
 ran every command.
-AGraph-generated baseline evidence uses compact mechanical rows such as
+Yggdrasil-generated baseline evidence uses compact mechanical rows such as
 `context-doc:<path>`, `graph-entity:<label>`, and
 `candidate-file:<path> rank=<n> ... components=<score-components>` so candidate
 files remain traceable even when snippets are trimmed from the context packet.
@@ -723,7 +723,7 @@ data:
                 :changed-symbols ["app.core/start"]}}
 ```
 
-If explicit changed files are omitted, AGraph computes them from git. Unsupported
+If explicit changed files are omitted, Yggdrasil computes them from git. Unsupported
 or missing ground-truth files are reported so misses can be separated from
 retrieval quality.
 
@@ -736,7 +736,7 @@ depends on source inspection or graph context.
 ## Source Coverage
 
 Cases may include `:coverage {:source-kinds [...]}` to declare the file kinds the
-case is intended to exercise. These are benchmark labels, not AGraph semantics.
+case is intended to exercise. These are benchmark labels, not Yggdrasil semantics.
 Prepared and scored artifacts mechanically derive the scoreable changed files by
 kind from the base checkout, and reports aggregate them as `coverage`:
 
@@ -781,7 +781,7 @@ missing coverage diagnostic.
 The core scores are mechanical. Recall and MRR use scoreable localization files:
 the explicit `:localization-files` set when present, otherwise changed files,
 after removing files that did not exist in the base tree or were unsupported by
-AGraph. New files and unsupported file types are reported separately because an
+Yggdrasil. New files and unsupported file types are reported separately because an
 agent cannot reliably localize a file that did not exist in the checkout it was
 given.
 
@@ -822,19 +822,19 @@ given.
   not cite any commands. Gate this with `--max-commandless-runs` when
   auditability should require a visible command trail.
 - `agentDiagnostics.commandTelemetry`: aggregate counts derived from cited
-  `commands`, including `commandCount`, `agraphCommandCount`,
+  `commands`, including `commandCount`, `yggCommandCount`,
   `searchCommandCount`, `fileReadCommandCount`, and `shellCommandCount`.
   When a cited command contains multiple shell segments separated by pipes,
   `&&`, `||`, or `;`, reports also include `segmentCount`,
-  `agraphSegmentCount`, `searchSegmentCount`, `fileReadSegmentCount`, and
+  `yggSegmentCount`, `searchSegmentCount`, `fileReadSegmentCount`, and
   `shellSegmentCount` so compound commands cannot hide extra search/read work.
   Search counts cover command forms such as `rg`, `grep`, `git grep`, `fd`,
   and `find`; file-read counts cover common local read commands such as `cat`,
   `sed`, `head`, `tail`, `nl`, `awk`, and pagers. These are mechanical cited
   command counts, not provider-side tool logs. `agent-compare` treats increases
   in search, file-read, and generic shell command counts as lower-is-better
-  regressions when reports are comparable; AGraph command counts are reported
-  for interpretation but are not a regression gate. If AGraph command counts
+  regressions when reports are comparable; Yggdrasil command counts are reported
+  for interpretation but are not a regression gate. If Yggdrasil command counts
   are the only available shared metric, the comparison status is
   `observed-only`, not an improvement or regression claim.
 - `agentDiagnostics.missingPredictedFileRuns`: scored agent artifacts whose
@@ -848,7 +848,7 @@ given.
   `missingPredictedFileRuns`, command telemetry regressions, and
   `hintDiagnosticRuns` as lower-is-better regressions when the report case set
   and parser-worker profiles are comparable.
-- `agentDiagnostics.hintDiagnosticRuns`: scored AGraph-mode artifacts whose
+- `agentDiagnostics.hintDiagnosticRuns`: scored Yggdrasil-mode artifacts whose
   generated hint file reported help-quality diagnostics. Gate this with
   `--max-hint-diagnostic-runs` when the hints should be free of coverage,
   source-support, or zero-candidate warnings.
@@ -856,16 +856,16 @@ given.
   case id, or case fingerprint did not match the prepared case. These are also
   counted under `warningRuns`; gate them directly with
   `--max-identity-mismatch-runs`.
-- `localizationDiagnostics.contextRankMissingRuns`: AGraph-mode score artifacts
+- `localizationDiagnostics.contextRankMissingRuns`: Yggdrasil-mode score artifacts
   that do not include context ground-truth ranks. Gate this with
   `--max-context-rank-missing-runs` when reports must prove whether missed files
-  were absent from AGraph context or merely ignored by the agent.
+  were absent from Yggdrasil context or merely ignored by the agent.
 - `localizationDiagnostics.missedButPresentInContextRuns`: missed scoreable files
-  that were present in the AGraph context packet. Gate with
+  that were present in the Yggdrasil context packet. Gate with
   `--max-missed-but-present-in-context-runs` when prompt or agent selection
   quality should not regress.
 - `localizationDiagnostics.missedAndAbsentFromContextRuns`: missed scoreable
-  files that were absent from the AGraph context packet. Gate with
+  files that were absent from the Yggdrasil context packet. Gate with
   `--max-missed-and-absent-from-context-runs` when graph extraction, indexing, or
   retrieval coverage should not regress.
 - `coverageDiagnostics`: aggregate source-support counters. `agent-compare`
@@ -879,10 +879,10 @@ given.
   `improvementTargetRuns`, exposes `improvementTargetRunsByKind`, and treats
   total or per-kind increases as lower-is-better regressions when reports are
   comparable.
-- `maintenancePreflightDiagnostics`: AGraph-mode claim gate for maintained
+- `maintenancePreflightDiagnostics`: Yggdrasil-mode claim gate for maintained
   graph runs. It aggregates per-run index, inference, graph expectation, hint
   diagnostic, and sync/check-equivalent checks from the score artifact or
-  sibling agent artifacts. Failed or missing checks mark the AGraph lane
+  sibling agent artifacts. Failed or missing checks mark the Yggdrasil lane
   claim-ready `false`; the paired `improvementSummary` rows
   `maintenance-preflight` and `sync-check-gaps` point at the affected cases.
 - `artifactDiagnostics`: aggregate score-artifact freshness counters.
@@ -891,15 +891,15 @@ given.
   lower-is-better regressions when reports are comparable.
 
 Each result also records `groundTruthRanks.files`, which lists every scoreable
-localization file and the rank where AGraph found it, or `found? false` when it
+localization file and the rank where Yggdrasil found it, or `found? false` when it
 was outside the collected result window. Use that before tuning ranking;
 aggregate recall alone does not show whether a miss is close or completely
 absent. Agent reports also copy this into `localization.ranks` and summarize
 `rankedOutsideTop5`, `rankedOutsideTop10`, and `rankedOutsideTop20` for quick
 threshold debugging.
 
-Agent-style AGraph runs may also record `contextGroundTruthRanks`. This compares
-the scoreable localization files against the full AGraph context ranking before
+Agent-style Yggdrasil runs may also record `contextGroundTruthRanks`. This compares
+the scoreable localization files against the full Yggdrasil context ranking before
 the agent answer limit is applied. Use it to distinguish missing evidence from
 ranking/selection misses: if a target appears there but not in
 `groundTruthRanks`, the context had the file and the top-N answer needs work.
@@ -913,7 +913,7 @@ human or agent to use.
 ## Boundaries
 
 Benchmark code may fetch issue data, compute diffs, check out historical trees,
-run AGraph, and compare ranked output with the real fix. AGraph core must still
+run Yggdrasil, and compare ranked output with the real fix. Yggdrasil core must still
 avoid semantic shortcuts based on path names, issue vocabulary, host names, or
 project-specific labels.
 

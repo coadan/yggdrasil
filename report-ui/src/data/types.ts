@@ -12,7 +12,7 @@ export type EvidenceFamily = {
 };
 
 export type EvidenceSurface = {
-  schema: "agraph.evidence/v2";
+  schema: "ygg.evidence/v2";
   projectId?: string;
   project_id?: string;
   available: string[];
@@ -56,7 +56,7 @@ export type ReportPluginDiagnostic = {
 };
 
 export type ReportPlugins = {
-  schema: "agraph.report.plugins/v1";
+  schema: "ygg.report.plugins/v1";
   panels?: ReportPluginPanel[];
   diagnostics?: ReportPluginDiagnostic[];
   artifacts?: Array<Record<string, unknown>>;
@@ -67,8 +67,8 @@ export type PluginPackages = {
   packages?: Array<Record<string, unknown>>;
 };
 
-export type AGraphReport = {
-  schema: "agraph.report/v2";
+export type YggReport = {
+  schema: "ygg.report/v2";
   project: {
     id: string;
     name?: string;
@@ -110,7 +110,7 @@ export type AGraphReport = {
   commands: string[];
 };
 
-export type AGraphNode = {
+export type YggNode = {
   id: string;
   label?: string;
   kind?: string;
@@ -135,7 +135,7 @@ export type AGraphNode = {
   virtual?: boolean;
 };
 
-export type AGraphEdge = {
+export type YggEdge = {
   id?: string;
   source: string;
   target: string;
@@ -151,11 +151,11 @@ export type AGraphEdge = {
   virtual?: boolean;
 };
 
-export type AGraphGraph = {
-  schema: "agraph.graph/v2";
+export type YggGraph = {
+  schema: "ygg.graph/v2";
   title?: string;
-  nodes: AGraphNode[];
-  edges: AGraphEdge[];
+  nodes: YggNode[];
+  edges: YggEdge[];
   clusters?: Array<{
     id?: string;
     label?: string;

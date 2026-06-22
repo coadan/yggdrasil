@@ -10,7 +10,7 @@ node_id = f"node:plugin:{path}"
 
 json.dump(
     {
-        "schema": "agraph.extractor-plugin.result/v1",
+        "schema": "ygg.extractor-plugin.result/v1",
         "nodes": [
             {
                 "xt/id": node_id,

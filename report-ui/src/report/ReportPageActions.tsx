@@ -1,4 +1,4 @@
-import type { AGraphReport } from "../data/types";
+import type { YggReport } from "../data/types";
 import type { PluginPanelActions } from "./ReportPluginPanels";
 import type { ReviewQueueRow } from "./reviewQueue";
 import { displayValue } from "./valueFormat";
@@ -17,7 +17,7 @@ export function firstCommandMatching(commands: string[], pattern: RegExp): strin
   return commands.find((command) => pattern.test(command));
 }
 
-function reportOperator(report: AGraphReport): Record<string, unknown> {
+function reportOperator(report: YggReport): Record<string, unknown> {
   return (report.operator && typeof report.operator === "object" ? report.operator : {}) as Record<string, unknown>;
 }
 
@@ -35,7 +35,7 @@ function actionRowsByCommand(rows: Array<Record<string, unknown>>): Array<Record
   });
 }
 
-export function operatorNextActionRows(report: AGraphReport, fallbackRows: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
+export function operatorNextActionRows(report: YggReport, fallbackRows: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
   const operatorRows = asActionRows(reportOperator(report)["next-actions"] || reportOperator(report).nextActions);
   return actionRowsByCommand(operatorRows.length > 0 ? operatorRows : fallbackRows);
 }
@@ -47,7 +47,7 @@ export function enqueueWorkCommand(commands: string[]): string | undefined {
   return check && !/\s--enqueue\b/.test(check) ? `${check} --enqueue` : check;
 }
 
-export function reportActionCommands(report: AGraphReport): ReportActionCommand[] {
+export function reportActionCommands(report: YggReport): ReportActionCommand[] {
   const commands = report.commands || [];
   const operatorRows = operatorNextActionRows(report);
   const operatorCommands = operatorRows.map((row) => displayValue(row.command)).filter((command): command is string => Boolean(command));
@@ -118,7 +118,7 @@ export function ReportActions({
   onCopyCommand,
   onOpenTab
 }: {
-  report: AGraphReport;
+  report: YggReport;
   copiedKey: string | null;
   onAsk: (scope: AskScope) => void;
   onCopyCommand: (key: string, command: string) => void;
@@ -171,22 +171,22 @@ export function ReportActions({
   );
 }
 
-export function projectMapPath(report: AGraphReport): string {
-  return displayValue(report.project.mapPath || report.project.map_path || "agraph.map.json");
+export function projectMapPath(report: YggReport): string {
+  return displayValue(report.project.mapPath || report.project.map_path || "ygg.map.json");
 }
 
-export function correctionApplyCommands(report: AGraphReport): string[] {
+export function correctionApplyCommands(report: YggReport): string[] {
   return report.commands.filter((command) => /\bsync\s+work\s+apply\b/.test(command));
 }
 
-export function correctionCompleteCommands(report: AGraphReport): string[] {
+export function correctionCompleteCommands(report: YggReport): string[] {
   return report.commands.filter((command) => /\bsync\s+work\s+complete\b/.test(command));
 }
 
-export function correctionResultTemplate(report: AGraphReport): string {
+export function correctionResultTemplate(report: YggReport): string {
   return JSON.stringify(
     {
-      schema: "agraph.work.result/v1",
+      schema: "ygg.work.result/v1",
       project: report.project.id,
       status: "accepted",
       summary: "Describe the reviewed evidence and accepted correction.",
@@ -373,7 +373,7 @@ export function reviewEvidencePacket(row: ReviewQueueRow): string {
 export function reviewCorrectionTemplate(row: ReviewQueueRow, projectId: string): string {
   return JSON.stringify(
     {
-      schema: "agraph.work.result/v1",
+      schema: "ygg.work.result/v1",
       project: projectId,
       status: "accepted",
       summary: `Review ${row.label} and record the accepted correction.`,
@@ -397,7 +397,7 @@ export function quoteCommandArg(value: string): string {
 }
 
 export function reviewExplainCommand(row: ReviewQueueRow, mapPath: string): string {
-  return `agraph sync explain ${quoteCommandArg(row.source)} --map ${quoteCommandArg(mapPath)}`;
+  return `ygg sync explain ${quoteCommandArg(row.source)} --map ${quoteCommandArg(mapPath)}`;
 }
 
 export function pluginArtifactRefs(rows: Array<Record<string, unknown>>): string[] {
