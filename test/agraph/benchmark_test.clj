@@ -1649,14 +1649,17 @@
         (is (= "passed"
                (get-in scored
                        [:maintenancePreflight :checks :syncCheck :status])))
+        (is (= true (:claimReady scored)))
         (is (= (select-keys scored [:graphExpectations
                                     :contextGroundTruthRanks
                                     :agraphHints
-                                    :maintenancePreflight])
+                                    :maintenancePreflight
+                                    :claimReady])
                (select-keys written [:graphExpectations
                                      :contextGroundTruthRanks
                                      :agraphHints
-                                     :maintenancePreflight])))))))
+                                     :maintenancePreflight
+                                     :claimReady])))))))
 
 (deftest benchmark-agent-activity-rows-record-schema-validation-only
   (let [root (temp-dir "agraph-bench-activity-rows")

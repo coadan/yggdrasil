@@ -66,3 +66,16 @@
              :nextActions [{:kind :map-overlay
                             :command "agraph sync init project.edn"}]}]
            (:blockingValidationGaps sync-check)))))
+
+(deftest claim-readiness-requires-passed-maintenance-preflight
+  (is (true? (benchmark-preflight/claim-ready? {:status "passed"})))
+  (doseq [status ["failed" "not-run" "not-configured" nil]]
+    (is (false? (benchmark-preflight/claim-ready? {:status status}))))
+  (is (= {:maintenancePreflight {:status "failed"}
+          :claimReady false}
+         (benchmark-preflight/assoc-run-preflight {} {:status "failed"})))
+  (is (= {:maintenancePreflight {:status "passed"}
+          :claimReady true}
+         (benchmark-preflight/assoc-run-preflight {} {:status "passed"})))
+  (is (= {}
+         (benchmark-preflight/assoc-run-preflight {} nil))))

@@ -164,6 +164,8 @@
       (is (= :available (get-in family-by-name [:activity :status])))
       (is (= :available (get-in family-by-name [:validation-history :status])))
       (is (= :available (get-in family-by-name [:map-overlay :status])))
+      (is (= true (:claimReady score)))
+      (is (= true (:claimReady baseline)))
       (is (= "sync-inspect"
              (get-in baseline
                      [:maintenancePreflight :checks :syncCheck :source]))))))

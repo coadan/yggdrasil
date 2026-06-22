@@ -191,6 +191,19 @@
      :status (overall-status checks)
      :checks checks}))
 
+(defn claim-ready?
+  "Return true when a run can support maintained-graph benchmark claims."
+  [maintenance-preflight]
+  (= "passed" (normalized-name (:status maintenance-preflight))))
+
+(defn assoc-run-preflight
+  "Attach maintenance preflight and derived claim readiness to a run or score map."
+  [result maintenance-preflight]
+  (cond-> result
+    maintenance-preflight
+    (assoc :maintenancePreflight maintenance-preflight
+           :claimReady (claim-ready? maintenance-preflight))))
+
 (defn pass-status?
   [status]
   (contains? pass-statuses (str status)))

@@ -177,15 +177,15 @@
                       case
                       opts
                       :score-agent-result
-                      #(cond-> (assoc (benchmark-agent-score/score-agent-result prepared agent-result)
-                                      :agentResultPath (fs/canonical-path result-path)
-                                      :contextPacketPath (fs/canonical-path context-path)
-                                      :parserWorker parser-worker
-                                      :contextGroundTruthRanks (context-ground-truth-ranks
-                                                                prepared
-                                                                packet))
-                         maintenance-preflight
-                         (assoc :maintenancePreflight maintenance-preflight)
+                      #(cond-> (-> (benchmark-agent-score/score-agent-result prepared agent-result)
+                                   (assoc :agentResultPath (fs/canonical-path result-path)
+                                          :contextPacketPath (fs/canonical-path context-path)
+                                          :parserWorker parser-worker
+                                          :contextGroundTruthRanks (context-ground-truth-ranks
+                                                                    prepared
+                                                                    packet))
+                                   (benchmark-preflight/assoc-run-preflight
+                                    maintenance-preflight))
                          benchmark-activity
                          (assoc :benchmarkActivity (:activity benchmark-activity))
                          sync-inspect
@@ -227,6 +227,8 @@
                         :benchmarkActivity (:activity benchmark-activity)
                         :syncInspect sync-inspect
                         :maintenancePreflight maintenance-preflight
+                        :claimReady (benchmark-preflight/claim-ready?
+                                     maintenance-preflight)
                         :graphExpectations graph-expectations
                         :scores (:scores scored)}]
           (benchmark-progress/progress-stage!

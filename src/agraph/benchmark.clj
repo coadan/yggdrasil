@@ -728,19 +728,18 @@
                                     :expectations (:expectations prepared)
                                     :hints hints
                                     :sync-inspect sync-inspect}))]
-      (cond-> scored
-        context-ranks
-        (assoc :contextGroundTruthRanks context-ranks)
-        hint-diagnostics
-        (assoc :agraphHints {:diagnostics hint-diagnostics})
-        graph-expectations
-        (assoc :graphExpectations graph-expectations)
-        benchmark-activity
-        (assoc :benchmarkActivity (:activity benchmark-activity))
-        sync-inspect
-        (assoc :syncInspect sync-inspect)
-        maintenance-preflight
-        (assoc :maintenancePreflight maintenance-preflight)))
+      (-> (cond-> scored
+            context-ranks
+            (assoc :contextGroundTruthRanks context-ranks)
+            hint-diagnostics
+            (assoc :agraphHints {:diagnostics hint-diagnostics})
+            graph-expectations
+            (assoc :graphExpectations graph-expectations)
+            benchmark-activity
+            (assoc :benchmarkActivity (:activity benchmark-activity))
+            sync-inspect
+            (assoc :syncInspect sync-inspect))
+          (benchmark-preflight/assoc-run-preflight maintenance-preflight)))
     scored))
 
 (defn agent-run!
@@ -816,15 +815,15 @@
                                   :expectations (:expectations prepared)
                                   :hints hints
                                   :sync-inspect sync-inspect}))
-        scored (cond-> (assoc (score-agent-result prepared agent-result)
-                              :agentResultPath (fs/canonical-path result-path)
-                              :parserWorker (parser-worker-profile opts))
+        scored (cond-> (benchmark-preflight/assoc-run-preflight
+                        (assoc (score-agent-result prepared agent-result)
+                               :agentResultPath (fs/canonical-path result-path)
+                               :parserWorker (parser-worker-profile opts))
+                        maintenance-preflight)
                  context-ranks
                  (assoc :contextGroundTruthRanks context-ranks)
                  hint-diagnostics
                  (assoc :agraphHints {:diagnostics hint-diagnostics})
-                 maintenance-preflight
-                 (assoc :maintenancePreflight maintenance-preflight)
                  benchmark-activity
                  (assoc :benchmarkActivity (:activity benchmark-activity))
                  sync-inspect
@@ -860,6 +859,8 @@
              :benchmarkActivity (:activity benchmark-activity)
              :syncInspect sync-inspect
              :maintenancePreflight maintenance-preflight
+             :claimReady (benchmark-preflight/claim-ready?
+                          maintenance-preflight)
              :graphExpectations (:graphExpectations agraph-summary)
              :scores (:scores scored)
              :warnings (get-in scored [:agent :warnings])}]
