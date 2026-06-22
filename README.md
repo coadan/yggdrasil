@@ -1,18 +1,16 @@
 # AGraph
 
-AGraph is a local-first evidence graph for codebases. It helps coding agents
-answer structural questions, inspect repo-wide context, and carry forward
-reviewed project knowledge without stuffing the whole repository into the
-prompt.
+AGraph helps coding agents understand a codebase without rereading everything
+from scratch on every task. It builds a local, reviewable map of what is in the
+repo, where important pieces connect, and what the team has already accepted as
+true.
 
-Most agents rebuild context by searching and rereading files while they work.
-AGraph gives them a shared, queryable project record they can cite and update.
-In the language of agent tools, it can act as codebase memory, but its core job
-is keeping that memory grounded in reviewable evidence.
+Many agent tools call this codebase memory. AGraph is more specific: it keeps
+that memory tied to files, evidence, and reviewable corrections, so agents know
+where to look and teams can see why an answer was trusted.
 
-AGraph keeps trust boundaries explicit: evidence from the repo is separate from
-human or agent judgment, and performance claims should be backed by repeatable
-benchmarks.
+AGraph is designed to make agent work easier to verify. Claims about speed,
+cost, or effectiveness should come from repeatable benchmarks.
 
 ## Quickstart
 
@@ -38,18 +36,17 @@ different XTDB directory.
 
 ## Core Ideas
 
-- Evidence first: AGraph records what the repo shows before asking anyone to
-  decide what it means. Use `agraph sync coverage project.edn` for the current
+- Evidence first: AGraph starts from files and facts before asking anyone to
+  decide what they mean. Use `agraph sync coverage project.edn` for the current
   support breakdown.
 - Shared project memory: accepted corrections and useful context become part of
   the project record instead of disappearing with one agent session.
-- Progressive disclosure: agents start with compact status and graph views,
-  then drill into `ask`, `explore`, reports, and evidence only for the active
-  task.
+- Progressive disclosure: agents start with a compact view, then open more
+  detail only when the current task needs it.
 - Local handoff: queued work moves through local files with explicit results
   that can be reviewed before they change project memory.
 - Measured claims: improvements in speed, cost, or effectiveness should point
-  to replayable shell-only versus AGraph evidence.
+  to repeatable comparisons.
 
 ## Main Workflows
 
