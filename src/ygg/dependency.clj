@@ -154,6 +154,7 @@
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
          alias-nodes (filterv import-common/module-path-alias-node? nodes)
          module-nodes (dependency-imports/module-nodes nodes)
+         local-namespace-targets (import-common/local-namespace-targets nodes)
          packages-by-id (->> nodes
                              (filter package-node?)
                              (map (juxt :xt/id identity))
@@ -169,6 +170,7 @@
                                              :alias-nodes alias-nodes
                                              :module-nodes module-nodes
                                              :nodes-by-id nodes-by-id
+                                             :local-namespace-targets local-namespace-targets
                                              :edge %})))]
          (->> candidate-edges
               (keep (fn [edge]
@@ -391,6 +393,7 @@
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
          alias-nodes (filterv import-common/module-path-alias-node? nodes)
          module-nodes (dependency-imports/module-nodes nodes)
+         local-namespace-targets (import-common/local-namespace-targets nodes)
          packages (->> nodes (filter package-node?) sorted-values)
          packages-by-id (into {} (map (juxt :xt/id identity)) packages)
          versions (->> nodes
@@ -407,6 +410,7 @@
                                            :alias-nodes alias-nodes
                                            :module-nodes module-nodes
                                            :nodes-by-id nodes-by-id
+                                           :local-namespace-targets local-namespace-targets
                                            :edge %})
                                         source-edges)
          report-imports (vec (concat imports

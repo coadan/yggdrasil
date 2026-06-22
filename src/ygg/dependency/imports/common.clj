@@ -7,6 +7,12 @@
   (some-> (re-find #"node:namespace:(.+)$" (str target-id))
           second))
 
+(defn- dotted-prefixes
+  [value]
+  (let [parts (vec (remove str/blank? (str/split (str value) #"\.")))]
+    (mapv #(str/join "." (take % parts))
+          (range 1 (inc (count parts))))))
+
 (defn dirname
   [path]
   (let [idx (.lastIndexOf (str path) "/")]
@@ -41,25 +47,28 @@
   [target]
   (first (str/split (str target) #"/")))
 
+(defn local-namespace-targets
+  [nodes]
+  (->> nodes
+       (mapcat (fn [node]
+                 (when (seq (:path node))
+                   (if (= :namespace (:kind node))
+                     [(namespace-target (:xt/id node))]
+                     (some-> (or (:label node) (:name node))
+                             str
+                             (str/replace "/" ".")
+                             dotted-prefixes)))))
+       (remove str/blank?)
+       set))
+
 (defn local-namespace-import?
-  [nodes-by-id edge]
-  (let [target-node (get nodes-by-id (:target-id edge))
-        target (namespace-target (:target-id edge))
-        local-symbol? (fn [node]
-                        (let [label (or (:label node) (:name node))
-                              dotted-label (some-> label
-                                                   str
-                                                   (str/replace "/" "."))]
-                          (and (seq target)
-                               (seq dotted-label)
-                               (seq (:path node))
-                               (not= :namespace (:kind node))
-                               (or (= target dotted-label)
-                                   (str/starts-with? dotted-label
-                                                     (str target "."))))))]
-    (or (and (= :namespace (:kind target-node))
-             (seq (:path target-node)))
-        (some local-symbol? (vals nodes-by-id)))))
+  ([nodes-by-id edge]
+   (local-namespace-import? nodes-by-id
+                            (local-namespace-targets (vals nodes-by-id))
+                            edge))
+  ([_nodes-by-id local-namespace-targets edge]
+   (contains? local-namespace-targets
+              (namespace-target (:target-id edge)))))
 
 (defn module-path-alias-node?
   [node]

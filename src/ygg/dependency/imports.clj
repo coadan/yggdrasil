@@ -62,7 +62,12 @@
   (go/module-nodes nodes))
 
 (defn package-import-candidate?
-  [{:keys [files-by-path alias-nodes module-nodes nodes-by-id edge]}]
+  [{:keys [files-by-path
+           alias-nodes
+           module-nodes
+           nodes-by-id
+           local-namespace-targets
+           edge]}]
   (let [target (import-common/namespace-target (:target-id edge))
         kind (source-kind files-by-path (:path edge))
         context {:files-by-path files-by-path
@@ -73,7 +78,11 @@
                  :kind kind
                  :target target}]
     (and target
-         (not (import-common/local-namespace-import? nodes-by-id edge))
+         (not (import-common/local-namespace-import?
+               nodes-by-id
+               (or local-namespace-targets
+                   (import-common/local-namespace-targets (vals nodes-by-id)))
+               edge))
          (not (import-common/local-path-alias-import? alias-nodes edge target))
          (not (local-import? kind context))
          (supported-source-kind? kind)

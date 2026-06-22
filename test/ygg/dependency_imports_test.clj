@@ -1,5 +1,6 @@
 (ns ygg.dependency-imports-test
   (:require [ygg.dependency.imports :as dependency-imports]
+            [ygg.dependency.imports.common :as import-common]
             [clojure.test :refer [deftest is]]))
 
 (defn- import-edge
@@ -8,12 +9,13 @@
    :path path})
 
 (defn- candidate?
-  [{:keys [files nodes aliases modules edge]}]
+  [{:keys [files nodes aliases modules local-targets edge]}]
   (dependency-imports/package-import-candidate?
    {:files-by-path (into {} (map (juxt :path identity)) files)
     :nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
     :alias-nodes aliases
     :module-nodes modules
+    :local-namespace-targets local-targets
     :edge edge}))
 
 (deftest filters-language-runtime-imports
@@ -79,6 +81,22 @@
                          :kind :namespace
                          :path "src/Shared.java"}]
                 :edge (import-edge "src/App.java" "demo.Shared")}))))
+
+(deftest package-import-candidates-use-precomputed-local-namespace-targets
+  (let [local-targets (import-common/local-namespace-targets
+                       [{:xt/id "node:symbol:demo/Local"
+                         :kind :class
+                         :label "demo/Local"
+                         :path "src/main/java/demo/Local.java"}])]
+    (is (= #{"demo" "demo.Local"} local-targets))
+    (is (false? (candidate?
+                 {:files [{:path "src/main/java/demo/App.java" :kind :java}]
+                  :local-targets local-targets
+                  :edge (import-edge "src/main/java/demo/App.java" "demo")})))
+    (is (false? (candidate?
+                 {:files [{:path "src/main/java/demo/App.java" :kind :java}]
+                  :local-targets local-targets
+                  :edge (import-edge "src/main/java/demo/App.java" "demo.Local")})))))
 
 (deftest package-import-candidates-keep-external-imports
   (is (true? (candidate?
