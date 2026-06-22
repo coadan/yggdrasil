@@ -53,7 +53,8 @@
                         packet
                         {:root (:worktreeRoot prepared)
                          :roots (:worktreeRoots prepared)
-                         :coverage (:coverage prepared)})]
+                         :coverage (:coverage prepared)
+                         :result-scope (:resultScope prepared)})]
     {:files (benchmark-score/ground-truth-file-ranks
              (benchmark-score/scoreable-changed-files (:groundTruth prepared))
              (:suspectedFiles context-result))
@@ -153,6 +154,7 @@
                                :root (:worktreeRoot prepared)
                                :roots (:worktreeRoots prepared)
                                :coverage (:coverage prepared)
+                               :result-scope (:resultScope prepared)
                                :decision-candidates (:decisionCandidates prepared)
                                :decision-kind (get-in prepared [:decisionGroundTruth :kind])
                                :limit (agent-baseline-suspect-limit opts)})

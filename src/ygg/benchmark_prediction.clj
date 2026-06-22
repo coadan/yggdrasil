@@ -70,6 +70,8 @@
   3)
 (def ^:private robust-candidate-only-boost
   3.5)
+(def ^:private inspection-direct-file-quota
+  4)
 (defn- parse-double-safe
   [value]
   (try
@@ -130,6 +132,12 @@
     (keyword? value) (name value)
     (nil? value) nil
     :else (str value)))
+(defn- result-scope-name
+  [value]
+  (some-> value field-name))
+(defn- inspection-files-scope?
+  [result-scope]
+  (= "inspection-files" (result-scope-name result-scope)))
 (defn- decision-candidate-id
   [candidate]
   (some-> (:id candidate) str not-empty))
@@ -417,6 +425,10 @@
         file-root (row-root root roots {:repo-id source-repo-id :path path})]
     (when (existing-file-path? file-root path)
       (let [support-labels (vec (:supportLabels candidate))
+            target-kind (field-name (or (:targetKind candidate)
+                                        (:target-kind candidate)
+                                        (:resultKind candidate)
+                                        (:result-kind candidate)))
             evidence-text (str/join "\n"
                                     (remove benchmark-util/blankish?
                                             (concat [(:path candidate)
@@ -457,7 +469,7 @@
                  :evidence-kind :candidate-file
                  :retrieved-source? false
                  :exact-path-source? false
-                 :definition-kind (some-> (:targetKind candidate) name)
+                 :definition-kind target-kind
                  :matched-tokens matched-tokens
                  :matched-token-pairs matched-token-pairs
                  :matched-compound-token-pairs matched-compound-token-pairs
@@ -482,6 +494,9 @@
 
           (pos? source-graph-score)
           (assoc :candidate-source-rank candidate-rank)
+
+          (= "file" target-kind)
+          (assoc :direct-file-candidate? true)
 
           (and (pos? graph-score)
                graph-score-supported?)
@@ -751,6 +766,8 @@
                                                          ordered))
                              candidate-count (count (filter #(= :candidate-file (:evidence-kind %))
                                                             ordered))
+                             direct-file-candidate-count (count (filter :direct-file-candidate?
+                                                                        ordered))
                              decision-candidate-count (count (filter #(= :decision-candidate
                                                                          (:evidence-kind %))
                                                                      ordered))
@@ -856,9 +873,13 @@
                                               decision-candidate-count)
                                        (pos? source-rank-score)
                                        (assoc :sourceRankScore source-rank-score)
+                                       (pos? (long (or candidate-source-rank 0)))
+                                       (assoc :candidateSourceRank candidate-source-rank)
                                        (pos? candidate-source-rank-score)
-                                       (assoc :candidateSourceRank candidate-source-rank
-                                              :candidateSourceRankScore candidate-source-rank-score)
+                                       (assoc :candidateSourceRankScore candidate-source-rank-score)
+                                       (pos? direct-file-candidate-count)
+                                       (assoc :directFileCandidateCount
+                                              direct-file-candidate-count)
                                        (pos? candidate-only-robust-boost)
                                        (assoc :robustCandidateOnlyBoost candidate-only-robust-boost)
                                        (pos? graph-neighbor-score)
@@ -901,7 +922,8 @@
                                     :matched-compound-token-pairs
                                     :matched-identity-compound-token-pairs
                                     :matched-identity-compound-token-span-length
-                                    :definition-kind)
+                                    :definition-kind
+                                    :direct-file-candidate?)
                             (assoc :rank (inc idx)))))
          vec)))
 (defn- coverage-source-kinds
@@ -992,6 +1014,89 @@
                     limit (take (long limit)))]
         {:files (renumber-file-ranks files)
          :decisionSupportedFileSelected (count files)}))))
+(defn- positive-metric
+  [row k]
+  (long (or (get-in row [:metrics k]) 0)))
+(defn- source-graph-candidate-row?
+  [row]
+  (pos? (positive-metric row :candidateFileCount)))
+(defn- direct-file-candidate-row?
+  [row]
+  (pos? (positive-metric row :directFileCandidateCount)))
+(defn- row-candidate-source-rank
+  [row]
+  (long (or (get-in row [:metrics :candidateSourceRank])
+            Long/MAX_VALUE)))
+(defn- row-source-order-key
+  [row]
+  [(row-candidate-source-rank row)
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+(defn- inspection-direct-file-candidates
+  [candidate-files selection-limit]
+  (let [quota (min inspection-direct-file-quota selection-limit)]
+    (->> candidate-files
+         (filter direct-file-candidate-row?)
+         (sort-by row-source-order-key)
+         (take quota)
+         vec)))
+(defn- row-repo-counts
+  [rows]
+  (frequencies (keep :repo-id rows)))
+(defn- multi-repo-selection?
+  [candidate-files]
+  (< 1 (count (set (keep :repo-id candidate-files)))))
+(defn- best-source-candidate-by-repo
+  [candidate-files selected-paths]
+  (->> candidate-files
+       (filter #(and (:repo-id %)
+                     (source-graph-candidate-row? %)
+                     (not (contains? selected-paths (file-row-key %)))))
+       (group-by :repo-id)
+       (map (fn [[repo-id rows]]
+              [repo-id (first (sort-by row-source-order-key rows))]))
+       vec))
+(defn- inspection-repo-candidates
+  [candidate-files selected selection-limit]
+  (if (or (not (multi-repo-selection? candidate-files))
+          (<= selection-limit (count selected)))
+    []
+    (let [selected-paths (set (map file-row-key selected))
+          selected-counts (row-repo-counts selected)
+          remaining (- selection-limit (count selected))]
+      (->> (best-source-candidate-by-repo candidate-files selected-paths)
+           (sort-by (fn [[repo-id row]]
+                      [(long (or (get selected-counts repo-id) 0))
+                       (row-candidate-source-rank row)
+                       (:rank row)
+                       repo-id
+                       (:path row)]))
+           (map second)
+           (take remaining)
+           vec))))
+(defn- inspection-file-selection
+  [candidate-files limit]
+  (let [selection-limit (long (or limit (count candidate-files)))]
+    (when (and (pos? selection-limit) (seq candidate-files))
+      (let [direct (inspection-direct-file-candidates candidate-files selection-limit)
+            repo-candidates (inspection-repo-candidates candidate-files
+                                                        direct
+                                                        selection-limit)
+            frontloaded (vec (concat direct repo-candidates))
+            frontloaded-paths (set (map file-row-key frontloaded))]
+        (when (seq frontloaded)
+          (let [selected (->> (concat frontloaded
+                                      (remove #(contains? frontloaded-paths
+                                                          (file-row-key %))
+                                              candidate-files))
+                              (take selection-limit)
+                              vec)]
+            (cond-> {:files (renumber-file-ranks selected)
+                     :inspectionDirectFileSelected (count direct)}
+              (seq repo-candidates)
+              (assoc :inspectionRepoCandidateSelected
+                     (count repo-candidates)))))))))
 (defn- selected-source-kind-counts
   [kind-by-path rows]
   (frequencies
@@ -1041,8 +1146,10 @@
 (defn- select-limited-suspected-files
   ([candidate-files limit]
    (select-limited-suspected-files candidate-files limit {}))
-  ([candidate-files limit {:keys [source-kinds kind-by-path decision-candidates]}]
-   (or (compact-supported-decision-selection candidate-files
+  ([candidate-files limit {:keys [source-kinds kind-by-path decision-candidates result-scope]}]
+   (or (when (inspection-files-scope? result-scope)
+         (inspection-file-selection candidate-files limit))
+       (compact-supported-decision-selection candidate-files
                                              limit
                                              decision-candidates)
        (if-not limit
@@ -1249,7 +1356,7 @@
   truth or fix artifacts."
   ([packet]
    (context-packet->agent-result packet {}))
-  ([packet {:keys [agent-id mode case-id caseFingerprint agentInputFingerprint root roots limit coverage decision-candidates decision-kind]}]
+  ([packet {:keys [agent-id mode case-id caseFingerprint agentInputFingerprint root roots limit coverage decision-candidates decision-kind result-scope]}]
    (let [query-tokens (text/tokenize-all (:query packet))
          source-kinds (coverage-source-kinds coverage)
          kind-by-path (if (or (empty? source-kinds)
@@ -1292,7 +1399,8 @@
                          limit
                          {:source-kinds source-kinds
                           :kind-by-path kind-by-path
-                          :decision-candidates decision-candidates})
+                          :decision-candidates decision-candidates
+                          :result-scope result-scope})
          selection (cond-> {:rawCandidateFiles (count raw-candidate-files)
                             :candidateFiles (count candidate-files)
                             :coverageFilteredCandidateFiles filtered-files
@@ -1304,7 +1412,13 @@
          selection (cond-> selection
                      (:decisionSupportedFileSelected selected-files)
                      (assoc :decisionSupportedFileSelected
-                            (:decisionSupportedFileSelected selected-files)))
+                            (:decisionSupportedFileSelected selected-files))
+                     (:inspectionDirectFileSelected selected-files)
+                     (assoc :inspectionDirectFileSelected
+                            (:inspectionDirectFileSelected selected-files))
+                     (:inspectionRepoCandidateSelected selected-files)
+                     (assoc :inspectionRepoCandidateSelected
+                            (:inspectionRepoCandidateSelected selected-files)))
          suspected-files (:files selected-files)
          suspected-symbols (context-symbols packet)
          commands (packet-commands packet)

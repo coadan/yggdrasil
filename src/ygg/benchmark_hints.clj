@@ -193,7 +193,8 @@
                        :root (:worktreeRoot prepared)
                        :roots (:worktreeRoots prepared)
                        :limit limit
-                       :coverage (:coverage prepared)})
+                       :coverage (:coverage prepared)
+                       :result-scope (:resultScope prepared)})
         diagnostics (hint-diagnostics prepared packet (:selection agent-result))]
     (cond-> {:schema agent-hints-schema
              :suite-id (:suite-id prepared)

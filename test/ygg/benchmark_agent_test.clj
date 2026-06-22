@@ -2042,6 +2042,131 @@
             :candidateFileOnlyQuota 2
             :candidateFileOnlySelected 2}
            (:selection result)))))
+(deftest inspection-file-result-scope-frontloads-file-and-repo-candidate-lanes
+  (let [core-root (temp-dir "ygg-bench-inspection-core")
+        contrib-root (temp-dir "ygg-bench-inspection-contrib")
+        _ (doseq [[root paths] [[core-root ["connector/logs_router.go"
+                                            "connector/connector.go"
+                                            "consumer/consumer.go"
+                                            "component/component.go"]]
+                                [contrib-root ["connector/routingconnector/factory.go"
+                                               "connector/routingconnector/config.go"
+                                               "connector/routingconnector/logs.go"
+                                               "connector/routingconnector/router.go"]]]]
+            (doseq [path paths]
+              (spit-file! root path "package fixture\n")))
+        packet {:query "connector contract inspection"
+                :docs [{:source {:repo "core"
+                                 :path "connector/logs_router.go"
+                                 :heading "connector/logs_router/LogsRouterAndConsumer"}
+                        :score 8.0
+                        :snippet "connector contract inspection"
+                        :provenance "retrieved-doc"}
+                       {:source {:repo "contrib"
+                                 :path "connector/routingconnector/logs.go"
+                                 :heading "connector/routingconnector/logs/newLogsConnector"}
+                        :score 7.5
+                        :snippet "connector contract inspection"
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:repo "core"
+                                  :path "connector/logs_router.go"
+                                  :rank 2
+                                  :score 2.2
+                                  :targetKind "node"
+                                  :label "connector/logs_router/LogsRouterAndConsumer"
+                                  :scoreComponents {:sourceGraph 2.2
+                                                    :lexical 0.8
+                                                    :graph 0.2}}
+                                 {:repo "core"
+                                  :path "component/component.go"
+                                  :rank 3
+                                  :score 1.3
+                                  :targetKind "file"
+                                  :label "component/component.go"
+                                  :scoreComponents {:sourceGraph 1.3
+                                                    :lexical 0.7}}
+                                 {:repo "core"
+                                  :path "consumer/consumer.go"
+                                  :rank 4
+                                  :score 1.3
+                                  :targetKind "file"
+                                  :label "consumer/consumer.go"
+                                  :scoreComponents {:sourceGraph 1.3
+                                                    :lexical 0.7}}
+                                 {:repo "contrib"
+                                  :path "connector/routingconnector/config.go"
+                                  :rank 11
+                                  :score 2.1
+                                  :targetKind "node"
+                                  :label "connector/routingconnector/config/Config"
+                                  :scoreComponents {:sourceGraph 2.1
+                                                    :lexical 0.8
+                                                    :graph 0.2}}
+                                 {:repo "contrib"
+                                  :path "connector/routingconnector/router.go"
+                                  :rank 12
+                                  :score 2.0
+                                  :targetKind "node"
+                                  :label "connector/routingconnector/router/router"
+                                  :scoreComponents {:sourceGraph 2.0
+                                                    :lexical 0.8
+                                                    :graph 0.2}}
+                                 {:repo "core"
+                                  :path "connector/connector.go"
+                                  :rank 15
+                                  :score 1.3
+                                  :targetKind "file"
+                                  :label "connector/connector.go"
+                                  :scoreComponents {:sourceGraph 1.3
+                                                    :lexical 0.4}}
+                                 {:repo "contrib"
+                                  :path "connector/routingconnector/factory.go"
+                                  :rank 24
+                                  :score 1.2
+                                  :targetKind "file"
+                                  :label "connector/routingconnector/factory.go"
+                                  :scoreComponents {:sourceGraph 1.2
+                                                    :lexical 0.9}}
+                                 {:repo "contrib"
+                                  :path "connector/routingconnector/logs.go"
+                                  :rank 25
+                                  :score 1.2
+                                  :targetKind "file"
+                                  :label "connector/routingconnector/logs.go"
+                                  :scoreComponents {:sourceGraph 1.2
+                                                    :lexical 0.9}}]}
+        result (benchmark/context-packet->agent-result
+                packet
+                {:roots {"core" core-root
+                         "contrib" contrib-root}
+                 :limit 5
+                 :result-scope :inspection-files})
+        files (:suspectedFiles result)]
+    (is (= [{:repo-id "core"
+             :path "component/component.go"
+             :rank 1}
+            {:repo-id "core"
+             :path "consumer/consumer.go"
+             :rank 2}
+            {:repo-id "core"
+             :path "connector/connector.go"
+             :rank 3}
+            {:repo-id "contrib"
+             :path "connector/routingconnector/factory.go"
+             :rank 4}
+            {:repo-id "contrib"
+             :path "connector/routingconnector/config.go"
+             :rank 5}]
+           (mapv #(select-keys % [:repo-id :path :rank]) files)))
+    (is (= 24 (get-in files [3 :metrics :candidateSourceRank])))
+    (is (= {:rawCandidateFiles 8
+            :candidateFiles 8
+            :coverageFilteredCandidateFiles 0
+            :limit 5
+            :coverageSourceKinds []
+            :inspectionDirectFileSelected 4
+            :inspectionRepoCandidateSelected 1}
+           (:selection result)))))
 (deftest file-ranking-preserves-early-retrieved-source-order
   (let [root (temp-dir "ygg-bench-retrieved-rank")
         _ (spit-file! root "src/early.clj" "(ns early)\n")
