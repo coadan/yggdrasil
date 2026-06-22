@@ -57,7 +57,7 @@
           [:type :url :rev :ref :subdir :path]))
 
 (def project-with-plugin-package
-  (assoc project-fixture :plugin-packages [plugin-package-fixture]))
+  (assoc-in project-fixture [:plugins :packages] [plugin-package-fixture]))
 
 (defn- request
   [id method params]
@@ -217,7 +217,7 @@
                                             :query query-text
                                             :project-id (:project-id opts)
                                             :retriever (name (:retriever opts))
-                                            :pluginPackages (:plugin-packages opts)
+                                            :pluginPackages (get-in opts [:plugins :packages])
                                             :freshness (:freshness opts)})]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"
@@ -257,7 +257,7 @@
                                           :candidateFiles [{:repo "app"
                                                             :path "src/app.clj"}]
                                           :answerability {:status :usable}
-                                          :pluginPackages (:plugin-packages opts)
+                                          :pluginPackages (get-in opts [:plugins :packages])
                                           :freshness (:freshness opts)
                                           :drilldowns ["ygg query \"where auth\" --project fixture"]})
                 evidence/summarize (fn [xtdb project opts]

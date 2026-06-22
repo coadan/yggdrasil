@@ -2304,7 +2304,7 @@
                                 :edges 0}
                       :dependencies {:packages 0}}
               :plugins {:packages plugin-packages}}
-     :plugin-packages plugin-packages
+     :plugin-package-summary plugin-packages
      :graph {:nodes []
              :edges []}
      :systems {:nodes []

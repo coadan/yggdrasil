@@ -125,7 +125,7 @@
   (let [map-path (default-map-path args)
         project-info (matching-context-project args project-id)
         freshness (context-packet-freshness xtdb project-info map-path)
-        plugin-packages (seq (get-in project-info [:project :plugin-packages]))]
+        plugins (not-empty (get-in project-info [:project :plugins]))]
     (cond-> {:project-id project-id
              :repo-id repo-id
              :retriever retriever
@@ -153,8 +153,8 @@
       freshness
       (assoc :freshness freshness)
 
-      plugin-packages
-      (assoc :plugin-packages (vec plugin-packages)))))
+      plugins
+      (assoc :plugins plugins))))
 
 (defn- required-map-path
   [args]

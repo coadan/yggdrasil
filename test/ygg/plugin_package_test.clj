@@ -170,8 +170,8 @@
                                                         {:kind "report"
                                                          :query "missing"})
           loaded (project/read-project (.getPath project-edn))
-          extractor (first (:extractor-plugins loaded))
-          report (first (:report-plugins loaded))]
+          extractor (first (project/extractor-plugins loaded))
+          report (first (project/report-plugins loaded))]
       (is (= plugin-package/install-schema (:schema install-result)))
       (is (= "sample-plugin-pack" (get-in install-result [:package :id])))
       (is (= "plugin-fixture" (:project-id install-result)))
@@ -206,6 +206,15 @@
              (get-in missing-filter [:next-actions 1 :command])))
       (is (= "bb plugin gap report '<package-dir>' --json"
              (get-in missing-filter [:next-actions 2 :command])))
+      (is (not (contains? loaded :plugin-packages)))
+      (is (not (contains? loaded :extractor-plugins)))
+      (is (not (contains? loaded :report-plugins)))
+      (is (= "sample-plugin-pack"
+             (get-in loaded [:plugins :packages 0 :id])))
+      (is (= "sample-extractor"
+             (get-in loaded [:plugins :extractors 0 :id])))
+      (is (= "sample-report"
+             (get-in loaded [:plugins :reports 0 :id])))
       (is (= {:total 2
               :extractor 1
               :report 1}

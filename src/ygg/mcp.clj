@@ -421,7 +421,7 @@
                                  :retriever (keyword (or (:retriever args) "lexical"))
                                  :map-overlay overlay
                                  :budget (or (:budget args) context/default-budget)
-                                 :plugin-packages (:plugin-packages project)
+                                 :plugins (:plugins project)
                                  :freshness (context-packet-freshness xtdb
                                                                       project
                                                                       ctx
@@ -448,7 +448,7 @@
                                    :retriever (keyword (or (:retriever args) "lexical"))
                                    :map-overlay overlay
                                    :budget (or (:budget args) context/default-budget)
-                                   :plugin-packages (:plugin-packages project)
+                                   :plugins (:plugins project)
                                    :freshness freshness}))))))
 
 (def node-inspect-schema
@@ -1059,7 +1059,7 @@
 
 (defn- plugin-package-caveats
   [project]
-  (plugin-package-view/caveats (:plugin-packages project)))
+  (plugin-package-view/caveats (project/plugin-packages project)))
 
 (defn- sync-inspect
   [ctx args]

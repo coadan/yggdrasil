@@ -1383,7 +1383,7 @@
   [xtdb query-text {:keys [budget entity-limit edge-limit doc-limit snippet-chars
                            retrieval-limit
                            retriever embedding-client project-id repo-id map-path
-                           map-overlay min-confidence read-context freshness plugin-packages]
+                           map-overlay min-confidence read-context freshness plugins]
                     :or {budget default-budget
                          entity-limit default-entity-limit
                          edge-limit default-edge-limit
@@ -1500,6 +1500,7 @@
                        :dependency-evidence (:dependencyEvidence architecture)
                        :rejected-corrections (:rejectedCorrections architecture)
                        :docs (:docs architecture)})
+        plugin-packages (get plugins :packages)
         blast-radius (blast-radius entities edges)]
     (fit-budget (base-packet query-text
                              budget

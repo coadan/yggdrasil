@@ -32,9 +32,9 @@
                    :repos [{:id "repo"
                             :root (.getPath repo-root)}]
                    :plugins [(assoc (plugin-config) :kind :report)]}))
-    (let [plugin (-> (project/read-project (.getPath project-edn))
-                     :report-plugins
-                     first)]
+    (let [loaded (project/read-project (.getPath project-edn))
+          plugin (first (project/report-plugins loaded))]
+      (is (not (contains? loaded :report-plugins)))
       (is (= "graph-crawl-plugin" (:id plugin)))
       (is (= "0.1.0" (:version plugin)))
       (is (= ["plugins"] (:slots plugin)))
@@ -81,7 +81,7 @@
                 :maintenance {}
                 :evidence {}
                 :package-report {}
-                :plugin-packages plugin-packages
+                :plugin-package-summary plugin-packages
                 :artifacts {}}
                plugin)]
     (is (= plugin-packages (:pluginPackages input)))

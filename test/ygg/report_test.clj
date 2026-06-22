@@ -31,41 +31,42 @@
                            :name "Fixture"
                            :path "project.edn"
                            :repos []
-                           :plugin-packages
-                           [{:id "datastar-hiccup"
-                             :name "Datastar Hiccup"
-                             :version "0.1.0"
-                             :path ".dev/ygg/plugins/cache/datastar"
-                             :source {:type :git
-                                      :url "https://example.test/datastar.git"
-                                      :rev "abc123"
-                                      :extra "drop"}
-                             :visibility :public
-                             :license {:spdx "MIT"}
-                             :scope {:kind :base}
-                             :benchmark-status :unbenchmarked
-                             :benchmark-cases {:artifacts 1
-                                               :case-ids ["datastar-hiccup-architecture"]
-                                               :problem-classes ["architecture-understanding"]}
-                             :claim-authority {:status :non-authoritative
-                                               :public-claims? false
-                                               :review-required? false
-                                               :blockers [{:code :unbenchmarked
-                                                           :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
-                             :manifest-fingerprint "sha256:manifest"
-                             :expected-package-id "datastar-hiccup"
-                             :expected-manifest-fingerprint "sha256:manifest"
-                             :plugins {:total 2
-                                       :extractor 1
-                                       :report 1}
-                             :diagnostics [{:code :unbenchmarked
-                                            :severity :warning
-                                            :applies-to [:claims :core-promotion]
-                                            :message "datastar-hiccup is unbenchmarked"}]
-                             :diagnostic-counts {:total 1
-                                                 :errors 0
-                                                 :warnings 1}
-                             :warnings ["datastar-hiccup is unbenchmarked"]}]}
+                           :plugins
+                           {:packages
+                            [{:id "datastar-hiccup"
+                              :name "Datastar Hiccup"
+                              :version "0.1.0"
+                              :path ".dev/ygg/plugins/cache/datastar"
+                              :source {:type :git
+                                       :url "https://example.test/datastar.git"
+                                       :rev "abc123"
+                                       :extra "drop"}
+                              :visibility :public
+                              :license {:spdx "MIT"}
+                              :scope {:kind :base}
+                              :benchmark-status :unbenchmarked
+                              :benchmark-cases {:artifacts 1
+                                                :case-ids ["datastar-hiccup-architecture"]
+                                                :problem-classes ["architecture-understanding"]}
+                              :claim-authority {:status :non-authoritative
+                                                :public-claims? false
+                                                :review-required? false
+                                                :blockers [{:code :unbenchmarked
+                                                            :message "Unbenchmarked package output is useful for review but non-authoritative for public claims."}]}
+                              :manifest-fingerprint "sha256:manifest"
+                              :expected-package-id "datastar-hiccup"
+                              :expected-manifest-fingerprint "sha256:manifest"
+                              :plugins {:total 2
+                                        :extractor 1
+                                        :report 1}
+                              :diagnostics [{:code :unbenchmarked
+                                             :severity :warning
+                                             :applies-to [:claims :core-promotion]
+                                             :message "datastar-hiccup is unbenchmarked"}]
+                              :diagnostic-counts {:total 1
+                                                  :errors 0
+                                                  :warnings 1}
+                              :warnings ["datastar-hiccup is unbenchmarked"]}]}}
                  :detail :primary
                  :generated-at-ms 1
                  :graph-data {:nodes [] :edges []}

@@ -60,7 +60,7 @@
    :warnings ["datastar-hiccup is unbenchmarked"]})
 
 (def project-with-plugin-package
-  (assoc project-fixture :plugin-packages [plugin-package-fixture]))
+  (assoc-in project-fixture [:plugins :packages] [plugin-package-fixture]))
 
 (deftest init-command-can-run-sync-and-create-explicit-map
   (let [root (temp-dir "ygg-cli-init")
@@ -1489,7 +1489,7 @@
                                             :xtdb xtdb
                                             :query query-text
                                             :project-id (:project-id opts)
-                                            :pluginPackages (:plugin-packages opts)
+                                            :pluginPackages (get-in opts [:plugins :packages])
                                             :freshness (:freshness opts)})]
       (let [out (with-out-str
                   (cli/dispatch "ask"
@@ -1526,7 +1526,7 @@
                                           :project-id (:project-id opts)
                                           :retriever (:retriever opts)
                                           :freshness (:freshness opts)
-                                          :pluginPackages (:plugin-packages opts)
+                                          :pluginPackages (get-in opts [:plugins :packages])
                                           :answerability {:status :usable}})]
     (let [out (with-out-str
                 (cli/dispatch "explore"

@@ -151,31 +151,43 @@
     :package
     (let [package (plugin-package/read-package base entry)]
       {:packages [package]
-       :extractor-plugins (:resolved-extractor-plugins package)
-       :report-plugins (:resolved-report-plugins package)})
+       :extractors (:resolved-extractor-plugins package)
+       :reports (:resolved-report-plugins package)})
 
     :extractor
     {:packages []
-     :extractor-plugins [(dissoc entry :kind)]
-     :report-plugins []}
+     :extractors [(dissoc entry :kind)]
+     :reports []}
 
     :report
     {:packages []
-     :extractor-plugins []
-     :report-plugins [(dissoc entry :kind)]}))
+     :extractors []
+     :reports [(dissoc entry :kind)]}))
 
 (defn- plugin-config
   [base data]
   (let [resolved (mapv #(resolve-plugin-entry base %) (plugin-entries data))
         packages (vec (mapcat :packages resolved))
-        extractor-plugins (vec (mapcat :extractor-plugins resolved))
-        report-plugins (vec (mapcat :report-plugins resolved))
-        normalized-extractors (extractor-plugin/normalize-plugins extractor-plugins)
-        normalized-reports (report-plugin/normalize-plugins report-plugins)]
-    {:packages packages
-     :package-summaries (mapv plugin-package/package-summary packages)
-     :extractor-plugins normalized-extractors
-     :report-plugins normalized-reports}))
+        extractors (vec (mapcat :extractors resolved))
+        reports (vec (mapcat :reports resolved))]
+    {:packages (mapv plugin-package/package-summary packages)
+     :extractors (extractor-plugin/normalize-plugins extractors)
+     :reports (report-plugin/normalize-plugins reports)}))
+
+(defn plugin-packages
+  "Return normalized installed plugin package summaries for a project."
+  [project]
+  (vec (get-in project [:plugins :packages])))
+
+(defn extractor-plugins
+  "Return normalized extractor plugins for a project."
+  [project]
+  (vec (get-in project [:plugins :extractors])))
+
+(defn report-plugins
+  "Return normalized report plugins for a project."
+  [project]
+  (vec (get-in project [:plugins :reports])))
 
 (defn read-project
   "Read and normalize a project.edn file."
@@ -190,21 +202,8 @@
              :name (str (or (:name data) project-id))
              :path (fs/canonical-path path)
              :repos (normalize-repos base data)}
-      (or (seq (:package-summaries plugins))
-          (seq (:extractor-plugins plugins))
-          (seq (:report-plugins plugins)))
-      (assoc :plugins {:packages (:package-summaries plugins)
-                       :extractors (:extractor-plugins plugins)
-                       :reports (:report-plugins plugins)})
-
-      (seq (:package-summaries plugins))
-      (assoc :plugin-packages (:package-summaries plugins))
-
-      (seq (:extractor-plugins plugins))
-      (assoc :extractor-plugins (:extractor-plugins plugins))
-
-      (seq (:report-plugins plugins))
-      (assoc :report-plugins (:report-plugins plugins)))))
+      (some seq (vals plugins))
+      (assoc :plugins plugins))))
 
 (defn add-repo-to-config!
   "Add a repo entry to project config and return the normalized project.
@@ -284,7 +283,7 @@
                                          :index-deadline-ns index-deadline-ns
                                          :progress-fn progress-fn
                                          :progress-interval progress-interval
-                                         :extractor-plugins (:extractor-plugins project)})]
+                                         :extractor-plugins (extractor-plugins project)})]
     (if dry-run?
       {:project-id (:id project)
        :status :dry-run
@@ -327,7 +326,7 @@
                                          :index-deadline-ns index-deadline-ns
                                          :progress-fn progress-fn
                                          :progress-interval progress-interval
-                                         :extractor-plugins (:extractor-plugins project)})]
+                                         :extractor-plugins (extractor-plugins project)})]
     (if dry-run?
       (index/index-repo! nil
                          (:root repo)

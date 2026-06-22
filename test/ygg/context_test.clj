@@ -995,7 +995,7 @@
                                          "auth"
                                          {:project-id "fixture"
                                           :retriever :lexical
-                                          :plugin-packages [plugin-package-fixture]
+                                          :plugins {:packages [plugin-package-fixture]}
                                           :freshness {:status :current
                                                       :counts {:indexed 1
                                                                :current 1

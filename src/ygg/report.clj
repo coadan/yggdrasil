@@ -343,7 +343,7 @@
 
 (defn- plugin-package-summary
   [project]
-  (let [packages (mapv compact-plugin-package (:plugin-packages project))
+  (let [packages (mapv compact-plugin-package (project/plugin-packages project))
         warning-count (reduce + 0 (map (comp count :warnings) packages))
         by-benchmark (frequencies (map :benchmark-status packages))]
     {:counts {:packages (count packages)
@@ -596,7 +596,7 @@
 (defn report-data
   "Return the canonical project report packet for a generated report bundle."
   [{:keys [project map-path detail generated-at-ms graph-data systems-data coverage
-           maintenance context-example evidence package-report audit-report artifacts report-plugins]}]
+           maintenance context-example evidence package-report audit-report artifacts plugin-bundle]}]
   (let [audit-report (or audit-report
                          {:schema audit-scope/report-schema
                           :project-id (:id project)
@@ -611,7 +611,7 @@
                               :evidence evidence
                               :package-report package-report})
         plugin-packages (plugin-package-summary project)
-        plugins (assoc (or report-plugins empty-plugin-bundle)
+        plugins (assoc (or plugin-bundle empty-plugin-bundle)
                        :packages plugin-packages)]
     {:schema schema
      :project {:id (:id project)
@@ -813,7 +813,7 @@
                           {:project-id (:id project)
                            :retriever :lexical
                            :map-path map-path
-                           :plugin-packages (:plugin-packages project)
+                           :plugins (:plugins project)
                            :budget context/default-budget}))
 
 (defn bundle!
@@ -870,9 +870,9 @@
                                          :package-report package-report
                                          :audit-report audit-report
                                          :artifacts artifacts
-                                         :report-plugins (assoc empty-plugin-bundle
-                                                                :packages
-                                                                plugin-packages)})
+                                         :plugin-bundle (assoc empty-plugin-bundle
+                                                               :packages
+                                                               plugin-packages)})
         plugin-bundle (report-plugin/bundle {:project project
                                              :generated-at-ms generated-at-ms
                                              :report base-report-packet
@@ -882,9 +882,9 @@
                                              :maintenance maintenance
                                              :evidence evidence-summary
                                              :package-report package-report
-                                             :plugin-packages plugin-packages
+                                             :plugin-package-summary plugin-packages
                                              :artifacts artifacts
-                                             :plugins (:report-plugins project)})
+                                             :plugins (project/report-plugins project)})
         report-packet (assoc base-report-packet :plugins plugin-bundle)
         report (report-mdx {:project project
                             :map-path map-path

@@ -188,9 +188,9 @@
                    :repos [{:id "repo"
                             :root (.getPath repo-root)}]
                    :plugins [(assoc (plugin-config) :kind :extractor)]}))
-    (let [plugin (-> (project/read-project (.getPath project-edn))
-                     :extractor-plugins
-                     first)]
+    (let [loaded (project/read-project (.getPath project-edn))
+          plugin (first (project/extractor-plugins loaded))]
+      (is (not (contains? loaded :extractor-plugins)))
       (is (= "panel-plugin" (:id plugin)))
       (is (= #{:enhance :scan} (:modes plugin)))
       (is (= :panel (get-in plugin [:scan :file-kind])))
