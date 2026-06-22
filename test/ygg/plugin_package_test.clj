@@ -1,6 +1,7 @@
 (ns ygg.plugin-package-test
   (:require [ygg.plugin-package :as plugin-package]
             [ygg.project :as project]
+            [ygg.xtdb :as store]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -832,6 +833,126 @@
                 (:row-requirements output-contract)))
       (is (some #(str/includes? % "external-package")
                 (:row-requirements output-contract))))))
+
+(deftest project-sync-dogfoods-plugin-overrides-and-dependency-rows
+  (let [workspace (temp-dir "ygg-plugin-sync-dogfood")
+        repo-root (io/file workspace "repo")
+        package-dir (io/file workspace "plugins" "override-deps")
+        project-edn (io/file workspace "project.edn")
+        xtdb-path (temp-dir "ygg-plugin-sync-dogfood-xtdb")
+        package-source {:type :local
+                        :path (.getPath package-dir)}]
+    (write-file! repo-root
+                 "package.json"
+                 "{\"name\":\"dogfood-app\",\"dependencies\":{}}\n")
+    (write-file! repo-root
+                 "src/app.js"
+                 "import pluginLib from \"plugin-lib\";\nconsole.log(pluginLib);\n")
+    (write-file!
+     package-dir
+     "extract.py"
+     (str "import json, sys\n"
+          "packet=json.load(sys.stdin)\n"
+          "manifest=next(node for node in packet['core']['nodes'] "
+          "if str(node.get('kind')).endswith('manifest'))\n"
+          "manifest_id=manifest['xt/id']\n"
+          "package_id='node:external-package:npm:plugin-lib'\n"
+          "json.dump({'schema':'ygg.extractor-plugin.result/v1',"
+          "'nodes':[{'xt/id':manifest_id,"
+          "'kind':'manifest',"
+          "'label':'plugin manifest override',"
+          "'sourceLine':1},"
+          "{'xt/id':package_id,"
+          "'kind':'external-package',"
+          "'label':'npm:plugin-lib',"
+          "'ecosystem':'npm',"
+          "'packageName':'plugin-lib',"
+          "'sourceLine':1}],"
+          "'edges':[{'sourceId':manifest_id,"
+          "'targetId':package_id,"
+          "'relation':'requires',"
+          "'ecosystem':'npm',"
+          "'packageName':'plugin-lib',"
+          "'versionRange':'^1.0.0',"
+          "'sourceLine':1}]}, sys.stdout)\n"))
+    (write-file!
+     package-dir
+     plugin-package/manifest-filename
+     (pr-str {:schema plugin-package/manifest-schema
+              :id "override-deps"
+              :name "Override Dependencies"
+              :version "0.1.0"
+              :license {:spdx "MIT"}
+              :distribution {:visibility :private
+                             :commercial? false}
+              :scope {:kind :project-local
+                      :reason "Dogfood package for end-to-end plugin sync."}
+              :benchmark {:status :unbenchmarked}
+              :plugins [{:kind :extractor
+                         :id "override-deps-extractor"
+                         :command ["python3" "extract.py"]
+                         :modes [:enhance :override]
+                         :applies-to {:file-kinds [:manifest]
+                                      :path-globs ["package.json"]}
+                         :emits [:external-package]}]}))
+    (spit project-edn
+          (pr-str {:id "plugin-sync-dogfood"
+                   :repos [{:id "app"
+                            :root (.getPath repo-root)}]
+                   :plugins [{:kind :package
+                              :id "override-deps"
+                              :path (.getPath package-dir)
+                              :source package-source}]}))
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [loaded (project/read-project (.getPath project-edn))
+              summary (project/index-project! xtdb loaded {})
+              repo-summary (first (:repos summary))
+              nodes (store/rows-by-field xtdb
+                                         (:nodes store/tables)
+                                         :project-id
+                                         "plugin-sync-dogfood")
+              edges (store/rows-by-field xtdb
+                                         (:edges store/tables)
+                                         :project-id
+                                         "plugin-sync-dogfood")
+              override-node (some #(when (= "plugin manifest override"
+                                            (:label %))
+                                     %)
+                                  nodes)
+              package-node (some #(when (and (= :external-package (:kind %))
+                                             (= "plugin-lib" (:package-name %)))
+                                    %)
+                                 nodes)
+              requires-edge (some #(when (and (= :requires (:relation %))
+                                              (= "plugin-lib" (:package-name %)))
+                                     %)
+                                  edges)
+              dependency-edge (some #(when (and (= :imports-package (:relation %))
+                                                (= "plugin-lib" (:package-name %)))
+                                       %)
+                                    edges)]
+          (is (= :completed (:status summary)))
+          (is (= :completed (:status repo-summary)))
+          (is (= 1 (get-in repo-summary [:stats :dependency-edges])))
+          (is (= {:provenance :plugin
+                  :plugin-id "override-deps-extractor"
+                  :plugin-package-id "override-deps"
+                  :plugin-package-source package-source
+                  :benchmark-status :unbenchmarked}
+                 (select-keys override-node
+                              [:provenance
+                               :plugin-id
+                               :plugin-package-id
+                               :plugin-package-source
+                               :benchmark-status])))
+          (is (str/starts-with? (:plugin-package-manifest-fingerprint override-node)
+                                "sha256:"))
+          (is (= "override-deps" (:plugin-package-id package-node)))
+          (is (= "override-deps" (:plugin-package-id requires-edge)))
+          (is (= :declared (:resolution-source dependency-edge)))
+          (is (= :npm (:ecosystem dependency-edge)))
+          (is (= "src/app.js" (:path dependency-edge))))))))
 
 (deftest scaffold-can-create-explicit-public-base-package
   (let [workspace (temp-dir "ygg-plugin-public-base")
