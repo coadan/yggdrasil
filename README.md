@@ -1,13 +1,18 @@
 # AGraph
 
 Real-world systems are more than code files. They are services, configs,
-dependencies, docs, deployments, ownership decisions, and half-remembered fixes
-spread across a repo over time.
+dependencies, docs, deployments, ownership decisions, architectural choices,
+and half-remembered fixes spread across a repo over time.
 
 AGraph helps coding agents work in that reality. It builds a local, reviewable
-map of what exists, how important pieces connect, and what the team has already
-accepted as true, so agents can find the right context without rereading
+map of what exists, how important pieces connect, and what the team has learned
+about the system, so agents can find the right context without rereading
 everything from scratch.
+
+As a project grows, an agentic development tool needs to preserve more than
+search results. It needs a maintainable way to encode the team's tribal
+knowledge about architecture, boundaries, ownership, and recurring fixes, then
+keep that knowledge easy to review and update as the system changes.
 
 Many agent tools call this codebase memory. AGraph is more specific: it keeps
 that memory tied to files, evidence, and reviewable corrections, so teams can
@@ -41,8 +46,11 @@ different XTDB directory.
 - Real systems first: AGraph looks beyond source files to the repo evidence
   agents need for real maintenance work. Use `agraph sync coverage project.edn`
   for the current support breakdown.
-- Shared project memory: accepted corrections and useful context become part of
-  the project record instead of disappearing with one agent session.
+- Architecture and tribal knowledge: accepted corrections, boundaries, and
+  useful context become part of the project record instead of disappearing with
+  one agent session.
+- Easy upkeep: project knowledge has to stay cheap to review and update, or it
+  stops helping in complex environments.
 - Progressive disclosure: agents start with a compact view, then open more
   detail only when the current task needs it.
 - Local handoff: queued work moves through local files with explicit results
