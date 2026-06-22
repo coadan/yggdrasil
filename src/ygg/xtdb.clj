@@ -548,7 +548,10 @@
   "Return graph cursor revisions, optionally scoped to project."
   ([xtdb] (graph-cursors xtdb {}))
   ([xtdb {:keys [project-id]}]
-   (->> (all-rows xtdb (:graph-cursors tables))
+   (->> (constrained-rows xtdb
+                          (:graph-cursors tables)
+                          (cond-> {}
+                            project-id (assoc :project-id project-id)))
         (filter #(or (nil? project-id) (= project-id (:project-id %))))
         (filter #(not= false (:active? %)))
         (map validate-graph-cursor-row)
@@ -574,7 +577,11 @@
                     (= repo-id (:repo-id %))
                     (= path (:path %)))
            %)
-        (rows-by-field xtdb (:files tables) :project-id project-id)))
+        (constrained-rows xtdb
+                          (:files tables)
+                          (cond-> {:path path}
+                            project-id (assoc :project-id project-id)
+                            repo-id (assoc :repo-id repo-id)))))
 
 (defn file-scoped-rows
   "Return existing rows owned by file id."
@@ -748,7 +755,10 @@
 
 (defn- project-rows
   [xtdb table project-id]
-  (rows-by-field xtdb table :project-id project-id))
+  (constrained-rows xtdb
+                    table
+                    (cond-> {}
+                      project-id (assoc :project-id project-id))))
 
 (defn commit-system-graph!
   "Replace derived system graph rows for project."
