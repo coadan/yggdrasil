@@ -163,6 +163,28 @@
             "consumer/logs.go"]
            (mapv #(get-in % [:source :path]) docs)))))
 
+(deftest diversify-docs-tokenizes-definition-kind-once-per-doc
+  (let [diversify-docs @#'context/diversify-docs
+        tokenize text/tokenize
+        calls (atom 0)
+        query-tokens (tokenize "component type")
+        docs (mapv (fn [idx]
+                     {:target (str "chunk:" idx)
+                      :score (- 10 idx)
+                      :retrievedSource true
+                      :source {:repo "app"
+                               :path (str "src/" idx ".clj")
+                               :definitionKind (if (even? idx)
+                                                 :type
+                                                 :function)}})
+                   (range 8))]
+    (with-redefs [text/tokenize (fn [value]
+                                  (swap! calls inc)
+                                  (tokenize value))]
+      (is (= (count docs)
+             (count (diversify-docs query-tokens docs)))))
+    (is (= (count docs) @calls))))
+
 (deftest select-docs-preserves-top-retrieved-path-coverage
   (let [select-docs @#'context/select-docs
         crowded-docs (for [idx (range 20)]
