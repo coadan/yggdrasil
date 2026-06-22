@@ -25,11 +25,12 @@
    (strict-schema-required-mismatches [] schema))
   ([path schema]
    (let [properties (:properties schema)
+         required (set (map name (:required schema)))
          missing (when (and (object-schema? schema)
                             (= false (:additionalProperties schema))
                             (map? properties))
                    (->> (keys properties)
-                        (remove (set (:required schema)))
+                        (remove #(contains? required (name %)))
                         (map name)
                         sort
                         vec))

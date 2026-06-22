@@ -21,6 +21,9 @@
 (defn worktree-dir
   [suite case opts]
   (io/file (case-output-dir suite case opts) "worktree"))
+(defn graph-index-dir
+  [suite case opts]
+  (io/file (case-output-dir suite case opts) "graph-index"))
 (defn xtdb-dir
   [suite case opts]
   (.getPath (io/file (case-output-dir suite case opts) "xtdb")))

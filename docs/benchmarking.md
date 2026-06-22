@@ -670,10 +670,15 @@ identity, so the same relative path in two repos remains distinct:
  :repos [{:repo-id "opentelemetry-collector"
           :base-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
           :fix-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
+          :index-files ["connector/connector.go"
+                        "consumer/consumer.go"
+                        "component/component.go"]
           :ground-truth {:localization-files ["connector/connector.go"]}}
          {:repo-id "opentelemetry-collector-contrib"
           :base-sha "2cbb0058d8b68628a04343e03f800863b86713bd"
           :fix-sha "2cbb0058d8b68628a04343e03f800863b86713bd"
+          :index-files ["connector/routingconnector/factory.go"
+                        "connector/routingconnector/config.go"]
           :ground-truth {:localization-files ["connector/routingconnector/factory.go"]}}]
  :tags [:synthetic :problem-architecture :multi-repo-quality]
  :issue {:title "Trace connector contract changes from Collector core into contrib routing connector"}}
@@ -682,6 +687,15 @@ identity, so the same relative path in two repos remains distinct:
 Agent result rows for multi-repo cases should include `repoId` alongside the
 repo-relative `path`. Yggdrasil packets expose all checkout roots in `repos` and
 `YGG_BENCH_WORKTREES`; single-repo cases keep accepting path-only rows.
+
+Use `:index-files` only when a case needs a bounded graph setup. The listed
+paths are exact repo-relative files copied into generated `graph-index/` mirror
+roots under the case output directory. Yggdrasil sync indexes those mirror roots,
+while shell-only agents and result validation still use the full detached
+worktrees. Keep the list curated and auditable: include ground-truth files and
+mechanical support files needed for imports, manifests, routes, or graph
+expectations. Do not populate it with path-name heuristics or inferred project
+semantics.
 
 Other useful seeds for the current benchmark corpus: Astro plugin config in
 Bootstrap, event-trigger ownership flow in Supabase Postgres, native proxy

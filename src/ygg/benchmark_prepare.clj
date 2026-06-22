@@ -118,6 +118,47 @@
         (.mkdirs (.getParentFile path-file))
         (run-git! repo-root ["worktree" "add" "--detach" (.getPath path-file) base-sha])))
     (.getPath path-file)))
+(defn- delete-file-tree!
+  [path]
+  (let [file (io/file path)]
+    (when (.exists file)
+      (doseq [entry (reverse (file-seq file))]
+        (when-not (.delete entry)
+          (throw (ex-info "Failed to delete generated benchmark file."
+                          {:path (.getPath entry)})))))))
+(defn- safe-relative-file
+  [root rel-path]
+  (let [root-file (.getCanonicalFile (io/file root))
+        file (.getCanonicalFile (io/file root-file rel-path))
+        root-path (.toPath root-file)
+        file-path (.toPath file)]
+    (when-not (.startsWith file-path root-path)
+      (throw (ex-info "Benchmark index file path must stay under repo root."
+                      {:root (.getPath root-file)
+                       :path rel-path})))
+    file))
+(defn- copy-index-file!
+  [source-root target-root rel-path]
+  (let [source (safe-relative-file source-root rel-path)
+        target (safe-relative-file target-root rel-path)]
+    (when-not (.isFile source)
+      (throw (ex-info "Benchmark index file does not exist."
+                      {:root source-root
+                       :path rel-path})))
+    (.mkdirs (.getParentFile target))
+    (io/copy source target)))
+(defn- ensure-index-root!
+  [suite case opts repo-id worktree-root index-files]
+  (if (seq index-files)
+    (let [target-root (.getCanonicalFile
+                       (io/file (benchmark-paths/graph-index-dir suite case opts)
+                                (benchmark-paths/safe-id repo-id)))]
+      (delete-file-tree! target-root)
+      (.mkdirs target-root)
+      (doseq [path index-files]
+        (copy-index-file! worktree-root (.getPath target-root) path))
+      (.getPath target-root))
+    worktree-root))
 (defn case-repo
   [suite case]
   (let [repo-id (str (:repo-id case))]
@@ -133,6 +174,7 @@
     [{:repo-id (:repo-id case)
       :base-sha (:base-sha case)
       :fix-sha (:fix-sha case)
+      :index-files (:index-files case)
       :ground-truth (:ground-truth case)}]))
 (defn- resolve-case-repo
   [suite case repo-ref]
@@ -450,7 +492,7 @@
      :mentionedChangedFileCount (count mentioned-files)
      :changedFileCount (count (:changedFiles truth))}))
 (defn prepared-case
-  [suite case repos worktree-roots truth]
+  [suite case repos worktree-roots graph-roots truth]
   (let [input-text (issue-text case)
         score-fingerprint (case-fingerprint suite case)
         agent-input-fingerprint (agent-input-fingerprint suite case)
@@ -469,9 +511,11 @@
              :repos (mapv (fn [repo]
                             {:id (:id repo)
                              :root (get worktree-roots (:id repo))
+                             :graphRoot (get graph-roots (:id repo))
                              :role (:role repo)
                              :baseSha (:base-sha repo)
-                             :fixSha (:fix-sha repo)})
+                             :fixSha (:fix-sha repo)
+                             :indexFiles (vec (:index-files repo))})
                           repos)
              :project-id (str (:project-id suite) "-" (:id case))
              :caseFingerprint score-fingerprint
@@ -482,6 +526,15 @@
              :fixSha (:fix-sha repo)
              :worktreeRoot primary-worktree-root
              :worktreeRoots worktree-roots
+             :graphRoots graph-roots
+             :graphIndex (let [bounded (->> repos
+                                            (filter #(seq (:index-files %)))
+                                            (mapv (fn [repo]
+                                                    {:repo-id (:id repo)
+                                                     :root (get graph-roots (:id repo))
+                                                     :files (vec (:index-files repo))})))]
+                           {:bounded? (boolean (seq bounded))
+                            :repos bounded})
              :input {:issueId (get-in case [:issue :id])
                      :title (get-in case [:issue :title])
                      :body (get-in case [:issue :body])
@@ -531,7 +584,24 @@
                (fn [truth]
                  {:changedFiles (count (:changedFiles truth))
                   :localizationFiles (count (:localizationFiles truth))}))
-        prepared (prepared-case suite case repos worktree-roots truth)]
+        graph-roots (benchmark-progress/progress-stage!
+                     suite
+                     case
+                     opts
+                     :prepare-graph-index
+                     #(->> repos
+                           (map (fn [{:keys [id index-files]}]
+                                  [id (ensure-index-root! suite
+                                                          case
+                                                          opts
+                                                          id
+                                                          (get worktree-roots id)
+                                                          index-files)]))
+                           (into {}))
+                     (fn [roots]
+                       {:graphRoots roots
+                        :boundedRepos (count (filter #(seq (:index-files %)) repos))}))
+        prepared (prepared-case suite case repos worktree-roots graph-roots truth)]
     (benchmark-progress/progress-stage!
      suite
      case

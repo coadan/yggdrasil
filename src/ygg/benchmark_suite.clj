@@ -3,7 +3,8 @@
             [ygg.benchmark-util :as benchmark-util]
             [ygg.fs :as fs]
             [clojure.edn :as edn]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [clojure.string :as str]))
 
 (def suite-schema
   "ygg.benchmark.suite/v1")
@@ -55,6 +56,24 @@
   [case]
   (when-let [expectations (:expectations case)]
     expectations))
+(defn- normalize-index-file
+  [path]
+  (let [path (some-> path str (str/replace "\\" "/") str/trim)]
+    (when (benchmark-util/blankish? path)
+      (throw (ex-info "Benchmark index file path is blank." {:path path})))
+    (when (or (.isAbsolute (io/file path))
+              (some #{".."} (str/split path #"/+")))
+      (throw (ex-info "Benchmark index file path must stay repo-relative."
+                      {:path path})))
+    (str/replace path #"^\./+" "")))
+(defn- normalize-index-files
+  [repo]
+  (when (seq (:index-files repo))
+    (->> (:index-files repo)
+         (map normalize-index-file)
+         distinct
+         sort
+         vec)))
 (defn- normalize-case-repo
   [case-id repo]
   (let [repo-id (some-> (or (:repo-id repo) (:id repo)) str)]
@@ -65,7 +84,8 @@
     (cond-> (assoc repo :repo-id repo-id)
       (:base-sha repo) (assoc :base-sha (str (:base-sha repo)))
       (:fix-sha repo) (assoc :fix-sha (str (:fix-sha repo)))
-      (:role repo) (assoc :role (keyword (:role repo))))))
+      (:role repo) (assoc :role (keyword (:role repo)))
+      (seq (:index-files repo)) (assoc :index-files (normalize-index-files repo)))))
 (defn case-repo-ids
   [case]
   (if (seq (:repos case))

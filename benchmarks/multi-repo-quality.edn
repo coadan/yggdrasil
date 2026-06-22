@@ -11,12 +11,27 @@
           :repos [{:repo-id "opentelemetry-collector"
                    :base-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
                    :fix-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
+                   :index-files ["go.mod"
+                                 "connector/connector.go"
+                                 "connector/traces_router.go"
+                                 "connector/metrics_router.go"
+                                 "connector/logs_router.go"
+                                 "consumer/consumer.go"
+                                 "component/component.go"]
                    :ground-truth {:localization-files ["connector/connector.go"
                                                        "consumer/consumer.go"
                                                        "component/component.go"]}}
                   {:repo-id "opentelemetry-collector-contrib"
                    :base-sha "2cbb0058d8b68628a04343e03f800863b86713bd"
                    :fix-sha "2cbb0058d8b68628a04343e03f800863b86713bd"
+                   :index-files ["go.mod"
+                                 "connector/routingconnector/factory.go"
+                                 "connector/routingconnector/config.go"
+                                 "connector/routingconnector/router.go"
+                                 "connector/routingconnector/traces.go"
+                                 "connector/routingconnector/metrics.go"
+                                 "connector/routingconnector/logs.go"
+                                 "connector/routingconnector/request.go"]
                    :ground-truth {:localization-files ["connector/routingconnector/factory.go"
                                                        "connector/routingconnector/config.go"]}}]
           :coverage {:source-kinds [:go]}

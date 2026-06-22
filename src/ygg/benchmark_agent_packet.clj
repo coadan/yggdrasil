@@ -94,9 +94,9 @@
   [prepared]
   {:id (:project-id prepared)
    :name (:case-id prepared)
-   :repos (let [repos (mapv (fn [{:keys [id root role]}]
+   :repos (let [repos (mapv (fn [{:keys [id root graphRoot role]}]
                               {:id id
-                               :root root
+                               :root (or graphRoot root)
                                :role (keyword (or role :application))})
                             (:repos prepared))]
             (if (seq repos)

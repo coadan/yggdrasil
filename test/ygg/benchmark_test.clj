@@ -871,6 +871,7 @@
           (is (= "ygg.benchmark.case-progress/v1" (:schema progress)))
           (is (= #{"prepare-worktree"
                    "prepare-ground-truth"
+                   "prepare-graph-index"
                    "write-prepared-case"}
                  (set (map :stage (:events progress)))))
           (is (every? pos?
@@ -889,10 +890,12 @@
       (git! root "config" "user.email" "ygg@example.test")
       (git! root "config" "user.name" "Yggdrasil Test"))
     (spit-file! provider-root "src/contract.clj" "(ns provider.contract)\n(defn encode [] :old)\n")
+    (spit-file! provider-root "src/noise.clj" "(ns provider.noise)\n(defn unrelated [] :noise)\n")
     (let [provider-base (commit! provider-root "provider base")]
       (spit-file! provider-root "src/contract.clj" "(ns provider.contract)\n(defn encode [] :new)\n")
       (let [provider-fix (commit! provider-root "provider fix")]
         (spit-file! consumer-root "src/contract.clj" "(ns consumer.contract)\n(defn decode [] :old)\n")
+        (spit-file! consumer-root "src/noise.clj" "(ns consumer.noise)\n(defn unrelated [] :noise)\n")
         (let [consumer-base (commit! consumer-root "consumer base")]
           (spit-file! consumer-root "src/contract.clj" "(ns consumer.contract)\n(defn decode [] :new)\n")
           (let [consumer-fix (commit! consumer-root "consumer fix")]
@@ -908,10 +911,12 @@
                                     :repos [{:repo-id "provider"
                                              :base-sha provider-base
                                              :fix-sha provider-fix
+                                             :index-files ["src/contract.clj"]
                                              :ground-truth {:localization-files ["src/contract.clj"]}}
                                             {:repo-id "consumer"
                                              :base-sha consumer-base
                                              :fix-sha consumer-fix
+                                             :index-files ["src/contract.clj"]
                                              :ground-truth {:localization-files ["src/contract.clj"]}}]
                                     :coverage {:source-kinds [:code]}
                                     :tags [:synthetic
@@ -926,8 +931,28 @@
               (is (= "provider" (:repo-id prepared)))
               (is (= ["provider" "consumer"] (:repoIds prepared)))
               (is (= #{"provider" "consumer"} (set (keys (:worktreeRoots prepared)))))
+              (is (= #{"provider" "consumer"} (set (keys (:graphRoots prepared)))))
               (is (every? #(.isDirectory (io/file %))
                           (vals (:worktreeRoots prepared))))
+              (is (every? #(.isDirectory (io/file %))
+                          (vals (:graphRoots prepared))))
+              (is (every? (fn [[repo-id graph-root]]
+                            (not= graph-root (get-in prepared [:worktreeRoots repo-id])))
+                          (:graphRoots prepared)))
+              (is (every? (fn [[_ graph-root]]
+                            (.isFile (io/file graph-root "src/contract.clj")))
+                          (:graphRoots prepared)))
+              (is (every? (fn [[_ graph-root]]
+                            (not (.exists (io/file graph-root "src/noise.clj"))))
+                          (:graphRoots prepared)))
+              (is (= {:bounded? true
+                      :repos [{:repo-id "provider"
+                               :root (get-in prepared [:graphRoots "provider"])
+                               :files ["src/contract.clj"]}
+                              {:repo-id "consumer"
+                               :root (get-in prepared [:graphRoots "consumer"])
+                               :files ["src/contract.clj"]}]}
+                     (:graphIndex prepared)))
               (is (= [{:repo-id "provider"
                        :path "src/contract.clj"}
                       {:repo-id "consumer"
@@ -948,10 +973,10 @@
                       :changedFileCount 2}
                      (:inputHints prepared)))
               (is (= [{:id "provider"
-                       :root (get-in prepared [:worktreeRoots "provider"])
+                       :root (get-in prepared [:graphRoots "provider"])
                        :role :library}
                       {:id "consumer"
-                       :root (get-in prepared [:worktreeRoots "consumer"])
+                       :root (get-in prepared [:graphRoots "consumer"])
                        :role :application}]
                      (:repos project))))))))))
 
