@@ -433,6 +433,8 @@ plugin-fit choice, not just a shorter suspected-file list.
   matching score artifacts are legacy or stale relative to the current suite file,
   `--max-graph-expectation-failures` to fail when graph/evidence expectations
   do not match the indexed facts,
+  `--max-maintenance-preflight-blockers` to fail when maintained-graph preflight
+  checks block Yggdrasil-mode claims,
   `--max-missing-declared-source-kind-runs` to fail when selected cases declare
   source kinds that produce no scoreable coverage, `--max-missed-runs`,
   `--max-context-rank-missing-runs`,
@@ -904,6 +906,8 @@ given.
   sibling agent artifacts. Failed or missing checks mark the Yggdrasil lane
   claim-ready `false`; the paired `improvementSummary` rows
   `maintenance-preflight` and `sync-check-gaps` point at the affected cases.
+  Use `--max-maintenance-preflight-blockers 0` when `agent-check` should reject
+  reports that are not claim-ready.
 - `artifactDiagnostics`: aggregate score-artifact freshness counters.
   `agent-compare` treats increases in unverified score runs, obsolete score
   schema runs, obsolete agent-result schema runs, and stale score runs as

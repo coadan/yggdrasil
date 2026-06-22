@@ -143,7 +143,9 @@
         source-kinds (set (mapcat #(get-in % [:coverage :source-kinds]) cases))
         evidence-kinds (set (mapcat #(map :kind (get-in % [:expectations :evidence])) cases))
         node-kinds (set (mapcat #(map :kind (get-in % [:expectations :nodes])) cases))
-        cases-by-id (into {} (map (juxt :id identity)) cases)]
+        cases-by-id (into {} (map (juxt :id identity)) cases)
+        citation-graph-case-ids ["bootstrap-synthetic-docs-route-impact"
+                                 "bootstrap-synthetic-astro-plugin-config"]]
     (is (= "architecture-synthetic" (:id suite)))
     (is (<= 4 (count cases)))
     (is (every? #(contains? (set (:tags %)) "synthetic") cases))
@@ -174,6 +176,13 @@
                  "bootstrap-synthetic-astro-plugin-config"
                  "supabase-postgres-synthetic-trigger-ownership-flow"
                  "axios-synthetic-native-proxy-boundary"]))
+    (doseq [case-id citation-graph-case-ids
+            :let [expectations (get-in cases-by-id [case-id :expectations])]]
+      (is (contains? expectations :graph-evidence))
+      (is (empty? (:graph-evidence expectations)))
+      (is (or (seq (:nodes expectations))
+              (seq (:chunks expectations))
+              (seq (:edges expectations)))))
     (is (every? tags
                 ["architecture-cross-system-impact"
                  "architecture-dependency-flow"

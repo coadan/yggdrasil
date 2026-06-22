@@ -49,7 +49,8 @@
                          :chunks [{:kind :astro-file
                                    :path "site/src/pages/index.astro"}
                                   {:kind :astro-file
-                                   :path "site/src/pages/docs/[version]/examples/index.astro"}]}
+                                   :path "site/src/pages/docs/[version]/examples/index.astro"}]
+                         :graph-evidence []}
           :issue {:id "synthetic-bootstrap-docs-route-impact"
                   :url "local:synthetic/bootstrap/docs-route-impact"
                   :title "Identify docs route impact before removing theme components"
@@ -86,7 +87,8 @@
                                  {:kind :web-framework-plugin
                                   :path "site/astro.config.ts"}]
                          :chunks [{:kind :web-framework-file
-                                   :path "site/astro.config.ts"}]}
+                                   :path "site/astro.config.ts"}]
+                         :graph-evidence []}
           :issue {:id "synthetic-bootstrap-astro-plugin-config"
                   :url "local:synthetic/bootstrap/astro-plugin-config"
                   :title "Wire a docs build integration through Astro config"
@@ -103,6 +105,11 @@
                  :database]
           :base-sha "948b5feb51b9605babc6820475b5ccff44f29552"
           :fix-sha "948b5feb51b9605babc6820475b5ccff44f29552"
+          :map-overlay {:packageImports [{:repo "supabase-postgres"
+                                           :import "testinfra"
+                                           :ecosystem "pypi"
+                                           :package "pytest-testinfra"
+                                           :reason "The testinfra benchmark imports the testinfra module from the declared pytest-testinfra package."}]}
           :ground-truth {:localization-files ["migrations/db/init-scripts/00000000000003-post-setup.sql"
                                               "migrations/.env"]}
           :expectations {:evidence [{:kind :env-var
@@ -152,6 +159,11 @@
                  :container]
           :base-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
           :fix-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
+          :map-overlay {:packageImports [{:repo "dapper"
+                                           :import "LinqToDB"
+                                           :ecosystem "nuget"
+                                           :package "linq2db.SqlServer"
+                                           :reason "Dapper performance benchmarks import LinqToDB namespaces from the declared linq2db.SqlServer NuGet package."}]}
           :ground-truth {:localization-files ["Dapper/SqlMapper.cs"
                                               "tests/Dapper.Tests/TypeHandlerTests.cs"
                                               "tests/docker-compose.yml"]}

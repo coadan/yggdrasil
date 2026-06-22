@@ -259,6 +259,11 @@
                                                                      (parse-optional-double
                                                                       args
                                                                       "--max-graph-expectation-failures"))
+    (parse-optional-double args "--max-maintenance-preflight-blockers") (assoc
+                                                                         :max-maintenance-preflight-blockers
+                                                                         (parse-optional-double
+                                                                          args
+                                                                          "--max-maintenance-preflight-blockers"))
     (parse-optional-double args "--max-missing-declared-source-kind-runs") (assoc
                                                                             :max-missing-declared-source-kind-runs
                                                                             (parse-optional-double

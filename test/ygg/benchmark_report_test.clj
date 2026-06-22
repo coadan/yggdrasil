@@ -1507,6 +1507,16 @@
                                               :failedCaseIds ["case-1"]
                                               :notRunRuns 0
                                               :notRunCaseIds []}
+                :maintenancePreflightDiagnostics {:status "failed"
+                                                  :runs 1
+                                                  :passedRuns 0
+                                                  :failedRuns 1
+                                                  :blockedRuns 1
+                                                  :blockedCaseIds ["case-1"]
+                                                  :checks [{:check "syncCheck"
+                                                            :status "failed"
+                                                            :failedRuns 1
+                                                            :failedCaseIds ["case-1"]}]}
                 :localizationDiagnostics {:missedRuns 1
                                           :missedCaseIds ["case-1"]
                                           :contextRankMissingRuns 1
@@ -1586,6 +1596,7 @@
                  :max-identity-mismatch-runs 0
                  :max-unverified-score-runs 0
                  :max-graph-expectation-failures 0
+                 :max-maintenance-preflight-blockers 0
                  :max-missing-declared-source-kind-runs 0
                  :max-missed-runs 0
                  :max-context-rank-missing-runs 0
@@ -1656,6 +1667,7 @@
                  :max-identity-mismatch-runs 1
                  :max-unverified-score-runs 1
                  :max-graph-expectation-failures 1
+                 :max-maintenance-preflight-blockers 1
                  :max-missing-declared-source-kind-runs 1
                  :max-missed-runs 1
                  :max-context-rank-missing-runs 0
@@ -1694,6 +1706,7 @@
              "identityMismatchRuns"
              "unverifiedScoreRuns"
              "graphExpectationFailures"
+             "maintenancePreflightBlockers"
              "missingDeclaredSourceKindRuns"
              "case.graphExpectations"
              "missedRuns"
@@ -1730,6 +1743,7 @@
                    "case.pathEvidenceCitationRate"
                    "case.noiseRatioAt20"
                    "case.graphExpectations"
+                   "maintenancePreflightBlockers"
                    "missingPredictedFileRuns"
                    "hintDiagnosticRuns"
                    "contextRankMissingRuns"
@@ -1802,6 +1816,7 @@
             :maxIdentityMismatchRuns 0.0
             :maxUnverifiedScoreRuns 0.0
             :maxGraphExpectationFailures 0.0
+            :maxMaintenancePreflightBlockers 0.0
             :maxMissingDeclaredSourceKindRuns 0.0
             :maxMissedRuns 0.0
             :maxContextRankMissingRuns 0.0
