@@ -1157,20 +1157,19 @@
             repo-candidates (inspection-repo-candidates candidate-files
                                                         direct
                                                         selection-limit)
-            frontloaded (vec (concat direct repo-candidates))
-            frontloaded-paths (set (map file-row-key frontloaded))]
+            frontloaded (vec (concat direct repo-candidates))]
         (when (seq frontloaded)
-          (let [selected (->> (concat frontloaded
-                                      (remove #(contains? frontloaded-paths
-                                                          (file-row-key %))
-                                              candidate-files))
+          (let [selected (->> frontloaded
                               (take selection-limit)
-                              vec)]
+                              vec)
+                skipped (- (count candidate-files) (count selected))]
             (cond-> {:files (renumber-file-ranks selected)
                      :inspectionDirectFileSelected (count direct)}
               (seq repo-candidates)
               (assoc :inspectionRepoCandidateSelected
-                     (count repo-candidates)))))))))
+                     (count repo-candidates))
+              (pos? skipped)
+              (assoc :inspectionCandidateFillSkipped skipped))))))))
 (defn- selected-source-kind-counts
   [kind-by-path rows]
   (frequencies
@@ -1493,7 +1492,10 @@
                             (:inspectionDirectFileSelected selected-files))
                      (:inspectionRepoCandidateSelected selected-files)
                      (assoc :inspectionRepoCandidateSelected
-                            (:inspectionRepoCandidateSelected selected-files)))
+                            (:inspectionRepoCandidateSelected selected-files))
+                     (:inspectionCandidateFillSkipped selected-files)
+                     (assoc :inspectionCandidateFillSkipped
+                            (:inspectionCandidateFillSkipped selected-files)))
          suspected-files (:files selected-files)
          suspected-symbols (context-symbols packet)
          commands (packet-commands packet)

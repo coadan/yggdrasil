@@ -2210,7 +2210,8 @@
             :limit 5
             :coverageSourceKinds []
             :inspectionDirectFileSelected 4
-            :inspectionRepoCandidateSelected 1}
+            :inspectionRepoCandidateSelected 1
+            :inspectionCandidateFillSkipped 4}
            (:selection result)))))
 (deftest file-ranking-preserves-early-retrieved-source-order
   (let [root (temp-dir "ygg-bench-retrieved-rank")

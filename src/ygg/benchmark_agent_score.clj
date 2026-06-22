@@ -82,7 +82,13 @@
                  "candidateFileOnlyQuota" {"type" "integer"
                                            "minimum" 0}
                  "candidateFileOnlySelected" {"type" "integer"
-                                              "minimum" 0}}})
+                                              "minimum" 0}
+                 "inspectionDirectFileSelected" {"type" "integer"
+                                                 "minimum" 0}
+                 "inspectionRepoCandidateSelected" {"type" "integer"
+                                                    "minimum" 0}
+                 "inspectionCandidateFillSkipped" {"type" "integer"
+                                                   "minimum" 0}}})
 (defn agent-result-decision-choice-json-schema
   []
   {"type" "object"
