@@ -329,6 +329,55 @@
   (->> rows
        (sort-by #(evidence-sort-key selected-ids %))
        vec))
+(defn- evidence-path-covered?
+  [selected path]
+  (some #(= path (:path %)) selected))
+(defn- selected-evidence-ids
+  [selected]
+  (set (keep :id selected)))
+(def ^:private selected-path-dependency-evidence-min-score
+  1.75)
+(defn- preservable-selected-path-evidence?
+  [row]
+  (<= selected-path-dependency-evidence-min-score
+      (double (or (:score row) 0.0))))
+(defn- best-evidence-path-candidate
+  [rows selected-ids path]
+  (some #(when (and (= path (:path %))
+                    (preservable-selected-path-evidence? %)
+                    (not (contains? selected-ids (:id %))))
+           %)
+        rows))
+(defn- evidence-path-replacement-index
+  [selected protected-paths]
+  (or (->> selected
+           (map-indexed vector)
+           reverse
+           (some (fn [[idx row]]
+                   (when-not (contains? protected-paths (:path row))
+                     idx))))
+      (when (seq selected)
+        (dec (count selected)))))
+(defn- preserve-evidence-result-path-coverage
+  [rows selected selected-path-order]
+  (loop [selected (vec selected)
+         missing-paths (vec selected-path-order)
+         protected-paths #{}]
+    (if-let [path (first missing-paths)]
+      (let [protected-paths (if (evidence-path-covered? selected path)
+                              (conj protected-paths path)
+                              protected-paths)
+            selected-ids (selected-evidence-ids selected)
+            candidate (best-evidence-path-candidate rows selected-ids path)
+            replace-idx (evidence-path-replacement-index selected protected-paths)]
+        (recur (if (and candidate replace-idx)
+                 (assoc selected replace-idx candidate)
+                 selected)
+               (subvec missing-paths 1)
+               (if candidate
+                 (conj protected-paths path)
+                 protected-paths)))
+      selected)))
 (defn- relationship-target-row
   [edge]
   (cond-> {:id (:id edge)
@@ -684,12 +733,18 @@
     (:version-range source) (assoc :versionRange (:version-range source))
     (:dependency-scope source) (assoc :dependencyScope (display-name (:dependency-scope source)))))
 (defn- selected-source-paths
-  [results accepted-systems candidate-systems]
-  (let [result-paths (ranked-result-paths results dependency-result-path-limit)
-        system-prefixes (mapcat system-source-prefixes
-                                (concat accepted-systems candidate-systems))]
-    {:result-paths result-paths
-     :system-prefixes system-prefixes}))
+  ([results accepted-systems candidate-systems]
+   (selected-source-paths results accepted-systems candidate-systems nil))
+  ([results accepted-systems candidate-systems candidate-inputs]
+   (let [selected-inputs (if (seq candidate-inputs)
+                           candidate-inputs
+                           results)
+         result-paths (ranked-result-paths selected-inputs
+                                           dependency-result-path-limit)
+         system-prefixes (mapcat system-source-prefixes
+                                 (concat accepted-systems candidate-systems))]
+     {:result-paths result-paths
+      :system-prefixes system-prefixes})))
 (defn- source-path-selected?
   [{:keys [result-paths system-prefixes]} source]
   (let [path (:path source)
@@ -740,8 +795,8 @@
                        :source-score (package-import-source-score query-tokens
                                                                   package
                                                                   source))))))
-         (sort-by (juxt (comp - #(double (or (:source-score %) 0.0)))
-                        (comp not :source-selected?)
+         (sort-by (juxt (comp not :source-selected?)
+                        (comp - #(double (or (:source-score %) 0.0)))
                         :path
                         :line))
          (take package-import-source-limit)
@@ -825,28 +880,38 @@
                                             (assoc conflict
                                                    :kind "package-version-conflict"))))})))
 (defn- dependency-report-evidence
-  [query-tokens results accepted-systems candidate-systems dependency-report]
-  (let [selection (selected-source-paths results accepted-systems candidate-systems)
-        packages-by-id (into {} (map (juxt :id identity))
-                             (:packages dependency-report))]
-    (->> (concat
-          (mapcat #(package-import-evidence-rows selection query-tokens %)
-                  (:packages dependency-report))
-          (keep #(unresolved-import-evidence-row selection query-tokens %)
-                (:unresolved-imports dependency-report))
-          (map #(declared-without-import-evidence-row selection query-tokens %)
-               (:declared-without-import-evidence dependency-report))
-          (map #(version-conflict-evidence-row selection query-tokens packages-by-id %)
-               (:version-conflicts dependency-report)))
-         (keep identity)
-         (sort-by (juxt (comp - #(double (or (:score %) 0.0)))
-                        :kind
-                        :ecosystem
-                        :package
-                        :path
-                        :sourceLine
-                        :id))
-         vec)))
+  ([query-tokens results accepted-systems candidate-systems dependency-report]
+   (dependency-report-evidence query-tokens
+                               results
+                               accepted-systems
+                               candidate-systems
+                               dependency-report
+                               nil))
+  ([query-tokens results accepted-systems candidate-systems dependency-report candidate-inputs]
+   (let [selection (selected-source-paths results
+                                          accepted-systems
+                                          candidate-systems
+                                          candidate-inputs)
+         packages-by-id (into {} (map (juxt :id identity))
+                              (:packages dependency-report))]
+     (->> (concat
+           (mapcat #(package-import-evidence-rows selection query-tokens %)
+                   (:packages dependency-report))
+           (keep #(unresolved-import-evidence-row selection query-tokens %)
+                 (:unresolved-imports dependency-report))
+           (map #(declared-without-import-evidence-row selection query-tokens %)
+                (:declared-without-import-evidence dependency-report))
+           (map #(version-conflict-evidence-row selection query-tokens packages-by-id %)
+                (:version-conflicts dependency-report)))
+          (keep identity)
+          (sort-by (juxt (comp - #(double (or (:score %) 0.0)))
+                         :kind
+                         :ecosystem
+                         :package
+                         :path
+                         :sourceLine
+                         :id))
+          vec))))
 (defn- architecture-doc-row
   [doc]
   (cond-> (select-keys doc [:target
@@ -1240,7 +1305,7 @@
   (vec (take 5 (concat (:warnings freshness)
                        (:warnings evidence)))))
 (defn architecture-section
-  [{:keys [overlay entities results edges runtime-evidence dependency-report docs activity evidence freshness
+  [{:keys [overlay entities results candidate-inputs edges runtime-evidence dependency-report docs activity evidence freshness
            accepted-systems query-tokens]}]
   (let [accepted-systems (or accepted-systems
                              (selected-accepted-systems overlay entities results))
@@ -1258,18 +1323,27 @@
                                       selected-ids
                                       (concat map-edges
                                               (map graph-edge-evidence-row edges)))))
-        dependency-evidence (vec (take 8
-                                       (ranked-evidence
-                                        selected-ids
-                                        (concat
-                                         (map graph-edge-evidence-row
-                                              (filter dependency-evidence? edges))
-                                         (dependency-report-evidence
-                                          query-tokens
-                                          results
-                                          accepted-systems
-                                          candidate-systems
-                                          dependency-report)))))
+        dependency-rows (ranked-evidence
+                         selected-ids
+                         (concat
+                          (map graph-edge-evidence-row
+                               (filter dependency-evidence? edges))
+                          (dependency-report-evidence
+                           query-tokens
+                           results
+                           accepted-systems
+                           candidate-systems
+                           dependency-report
+                           candidate-inputs)))
+        dependency-evidence (vec
+                             (preserve-evidence-result-path-coverage
+                              dependency-rows
+                              (take 8 dependency-rows)
+                              (ranked-result-path-order
+                               (if (seq candidate-inputs)
+                                 candidate-inputs
+                                 results)
+                               dependency-result-path-limit)))
         deploy-evidence (deploy-evidence-rows runtime-evidence)
         architecture-docs (mapv architecture-doc-row
                                 (take 8 (filter accepted-architecture-doc? docs)))

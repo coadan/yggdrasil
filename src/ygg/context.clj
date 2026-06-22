@@ -1833,6 +1833,7 @@
         architecture (architecture-section {:overlay overlay
                                             :entities entities
                                             :results results
+                                            :candidate-inputs candidate-inputs
                                             :edges edges
                                             :accepted-systems accepted-systems
                                             :query-tokens query-tokens

@@ -1915,6 +1915,95 @@
            (mapv #(dissoc % :score) rows)))
     (is (< 1.0 (:score (first rows))))))
 
+(deftest dependency-evidence-preserves-selected-package-import-source
+  (let [dependency-report (assoc (empty-dependency-report)
+                                 :packages
+                                 [{:id "node:pkg:proxy-lib"
+                                   :package-name "proxy-lib"
+                                   :label "npm:proxy-lib"
+                                   :ecosystem :npm
+                                   :imported-by (vec
+                                                 (concat
+                                                  [{:path "src/core.js"
+                                                    :line 5
+                                                    :kind :javascript
+                                                    :import-name "proxy-lib"}]
+                                                  (for [idx (range 1 6)]
+                                                    {:path (str "tests/proxy-test-"
+                                                                idx
+                                                                ".js")
+                                                     :line idx
+                                                     :kind :javascript
+                                                     :import-name "proxy-lib"})))}])
+        rows (#'context-architecture/dependency-report-evidence
+              ["proxy" "test"]
+              [{:path "src/core.js"}]
+              []
+              []
+              dependency-report)]
+    (is (= 4 (count rows)))
+    (is (some #{"src/core.js"} (map :path rows)))))
+
+(deftest architecture-dependency-evidence-preserves-selected-path-through-limit
+  (let [target-package {:id "node:pkg:proxy-lib"
+                        :package-name "proxy-lib"
+                        :label "npm:proxy-lib"
+                        :ecosystem :npm
+                        :imported-by [{:path "src/core.js"
+                                       :line 5
+                                       :kind :javascript
+                                       :import-name "proxy-test-lib"}
+                                      {:path "tests/proxy-test-target-1.js"
+                                       :line 1
+                                       :kind :javascript
+                                       :import-name "proxy-lib"}
+                                      {:path "tests/proxy-test-target-2.js"
+                                       :line 2
+                                       :kind :javascript
+                                       :import-name "proxy-lib"}
+                                      {:path "tests/proxy-test-target-3.js"
+                                       :line 3
+                                       :kind :javascript
+                                       :import-name "proxy-lib"}]}
+        noise-packages (mapv
+                        (fn [pkg-idx]
+                          {:id (str "node:pkg:proxy-test-lib-" pkg-idx)
+                           :package-name (str "proxy-test-lib-" pkg-idx)
+                           :label (str "npm:proxy-test-lib-" pkg-idx)
+                           :ecosystem :npm
+                           :imported-by (mapv
+                                         (fn [source-idx]
+                                           {:path (str "tests/proxy-test-"
+                                                       pkg-idx
+                                                       "-"
+                                                       source-idx
+                                                       ".js")
+                                            :line source-idx
+                                            :kind :javascript
+                                            :import-name (str "proxy-test-lib-"
+                                                              pkg-idx)})
+                                         (range 1 5))})
+                        (range 1 4))
+        dependency-report (assoc (empty-dependency-report)
+                                 :packages
+                                 (vec (cons target-package noise-packages)))
+        section (context-architecture/architecture-section
+                 {:overlay {}
+                  :entities []
+                  :results []
+                  :candidate-inputs [{:path "src/core.js"}]
+                  :edges []
+                  :runtime-evidence []
+                  :dependency-report dependency-report
+                  :docs []
+                  :activity []
+                  :evidence {:warnings []}
+                  :freshness {:warnings []}
+                  :accepted-systems []
+                  :query-tokens ["proxy" "test"]})]
+    (is (= 8 (count (:dependencyEvidence section))))
+    (is (some #{"src/core.js"} (map :path (:dependencyEvidence section))))))
+
 (deftest context-packet-scores-dependencies-before-display-limiting
   (with-redefs [query/search-report (fn [_ query-text opts]
                                       {:schema query/search-report-schema
