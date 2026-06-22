@@ -1018,6 +1018,55 @@
                        :role :application}]
                      (:repos project))))))))))
 
+(deftest bounded-index-includes-ancestor-manifest-context
+  (let [repo-root (temp-dir "ygg-bench-index-context-repo")
+        out (temp-dir "ygg-bench-index-context-out")
+        suite-dir (temp-dir "ygg-bench-index-context-suite")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))]
+    (git! repo-root "init")
+    (git! repo-root "config" "user.email" "ygg@example.test")
+    (git! repo-root "config" "user.name" "Yggdrasil Test")
+    (spit-file! repo-root "go.mod" "module example.com/root\n")
+    (spit-file! repo-root "connector/routingconnector/go.mod"
+                "module example.com/root/connector/routingconnector\n")
+    (spit-file! repo-root "connector/routingconnector/go.sum"
+                "go.opentelemetry.io/collector v0.0.0 h1:test\n")
+    (spit-file! repo-root "connector/routingconnector/factory.go"
+                "package routingconnector\n")
+    (spit-file! repo-root "other/go.mod" "module example.com/root/other\n")
+    (let [base-sha (commit! repo-root "base")]
+      (spit-file! repo-root "connector/routingconnector/factory.go"
+                  "package routingconnector\nconst fixed = true\n")
+      (let [fix-sha (commit! repo-root "fix")]
+        (spit suite-path
+              (pr-str {:id "index-context"
+                       :repos [{:id "repo"
+                                :root repo-root}]
+                       :cases [{:id "nested-go-module"
+                                :repo-id "repo"
+                                :base-sha base-sha
+                                :fix-sha fix-sha
+                                :index-files ["connector/routingconnector/factory.go"]
+                                :ground-truth {:localization-files
+                                               ["connector/routingconnector/factory.go"]}
+                                :issue {:id "nested-go-module"
+                                        :title "Nested Go module"
+                                        :body "Inspect the routing connector factory."}}]}))
+        (let [suite (benchmark/read-suite suite-path)
+              prepared (first (:cases (benchmark/prepare-suite! suite {:out out})))
+              graph-root (get-in prepared [:graphRoots "repo"])
+              indexed-files (get-in prepared [:repos 0 :indexFiles])]
+          (is (= ["connector/routingconnector/factory.go"
+                  "connector/routingconnector/go.mod"
+                  "connector/routingconnector/go.sum"
+                  "go.mod"]
+                 indexed-files))
+          (is (.isFile (io/file graph-root "connector/routingconnector/factory.go")))
+          (is (.isFile (io/file graph-root "connector/routingconnector/go.mod")))
+          (is (.isFile (io/file graph-root "connector/routingconnector/go.sum")))
+          (is (.isFile (io/file graph-root "go.mod")))
+          (is (false? (.exists (io/file graph-root "other/go.mod")))))))))
+
 (deftest progress-stage-records-shutdown-interruption
   (let [out (temp-dir "ygg-bench-progress-shutdown")
         expr (pr-str

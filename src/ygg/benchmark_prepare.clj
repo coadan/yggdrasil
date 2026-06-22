@@ -147,6 +147,43 @@
                        :path rel-path})))
     (.mkdirs (.getParentFile target))
     (io/copy source target)))
+
+(def ^:private bounded-index-context-kinds
+  #{:manifest :dependency-lock})
+
+(defn- ancestor-directories
+  [rel-path]
+  (let [parts (vec (butlast (str/split (str rel-path) #"/")))]
+    (loop [parts parts
+           dirs []]
+      (if (seq parts)
+        (recur (pop parts)
+               (conj dirs (str/join "/" parts)))
+        (conj dirs "")))))
+
+(defn- direct-index-context-files
+  [source-root dir-path]
+  (let [dir (safe-relative-file source-root dir-path)]
+    (when (.isDirectory dir)
+      (->> (.listFiles dir)
+           (filter #(.isFile %))
+           (keep (fn [file]
+                   (let [rel (fs/relative-path source-root file)
+                         kind (fs/file-kind rel)]
+                     (when (contains? bounded-index-context-kinds kind)
+                       rel))))
+           sort))))
+
+(defn- index-files-with-ancestor-context
+  [source-root index-files]
+  (->> index-files
+       (mapcat (fn [path]
+                 (cons path
+                       (mapcat #(direct-index-context-files source-root %)
+                               (ancestor-directories path)))))
+       distinct
+       vec))
+
 (defn- ensure-index-root!
   [suite case opts repo-id worktree-root index-files]
   (if (seq index-files)
@@ -592,6 +629,15 @@
                (fn [truth]
                  {:changedFiles (count (:changedFiles truth))
                   :localizationFiles (count (:localizationFiles truth))}))
+        repos (mapv (fn [{:keys [id index-files] :as repo}]
+                      (if (seq index-files)
+                        (assoc repo
+                               :index-files
+                               (index-files-with-ancestor-context
+                                (get worktree-roots id)
+                                index-files))
+                        repo))
+                    repos)
         graph-roots (benchmark-progress/progress-stage!
                      suite
                      case
