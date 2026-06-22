@@ -8,7 +8,7 @@ DEFAULT_COMMAND='codex -a never exec --sandbox read-only --output-schema "$AGRAP
 
 usage() {
   cat <<'EOF'
-Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|all [options]
+Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|claim-pack|all [options]
 
 Options:
   --suite PATH            Benchmark suite EDN. Default: benchmarks/headline.edn
@@ -34,7 +34,8 @@ Commands:
   agents      Run both external lanes.
   reports     Generate shell-only and AGraph lane reports.
   compare     Compare lane reports with bb efficiency.
-  all         Run baseline, both external lanes, reports, and comparison.
+  claim-pack  Write bundled efficiency, token, and improvement proof artifacts.
+  all         Run baseline, both external lanes, reports, and claim pack.
 EOF
 }
 
@@ -206,6 +207,13 @@ compare() {
     --markdown-out "$out/REPORT.md"
 }
 
+claim_pack() {
+  run bb bench claim-pack "$suite" \
+    --shell-report "$(report_path shell-only)" \
+    --agraph-report "$(report_path agraph)" \
+    --out "$out/claim-pack"
+}
+
 case "$action" in
   baseline)
     baseline
@@ -232,12 +240,15 @@ case "$action" in
   compare)
     compare
     ;;
+  claim-pack)
+    claim_pack
+    ;;
   all)
     baseline
     shell_only
     agraph
     reports
-    compare
+    claim_pack
     ;;
   -h|--help)
     usage

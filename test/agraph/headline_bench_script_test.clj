@@ -37,10 +37,13 @@
     (is (str/includes? (nth lines 4) "--mode shell-only"))
     (is (str/includes? (nth lines 5) "--mode agraph"))
     (is (str/includes? (nth lines 6)
-                       "bb efficiency .dev/agraph/headline-bench/custom/shell-only/\\*/agent-report.json"))
-    (is (str/includes? (nth lines 6) "--markdown-out"))
+                       "bb bench claim-pack benchmarks/custom-headline.edn"))
     (is (str/includes? (nth lines 6)
-                       ".dev/agraph/headline-bench/custom/REPORT.md"))
+                       "--shell-report .dev/agraph/headline-bench/custom/shell-only/\\*/agent-report.json"))
+    (is (str/includes? (nth lines 6)
+                       "--agraph-report .dev/agraph/headline-bench/custom/agraph/\\*/agent-report.json"))
+    (is (str/includes? (nth lines 6)
+                       "--out .dev/agraph/headline-bench/custom/claim-pack"))
     (is (every? #(str/includes? % ".dev/agraph/headline-bench/custom")
                 lines))))
 
@@ -48,7 +51,7 @@
   (let [result (run-headline "--help")]
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result)
-                       "baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|all"))
+                       "baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|claim-pack|all"))
     (is (str/includes? (:out result) "--dry-run"))))
 
 (deftest dry-run-prints-codebase-memory-workflow

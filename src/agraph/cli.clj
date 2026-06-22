@@ -28,6 +28,8 @@
             [agraph.index :as index]
             [agraph.infra-review :as infra-review]
             [agraph.map :as graph-map]
+            [agraph.map-api :as map-api]
+            [agraph.map-store :as map-store]
             [agraph.metadata :as metadata]
             [agraph.mcp :as mcp]
             [agraph.cli-plugin :as cli-plugin]
@@ -65,7 +67,7 @@
   (cond
     (some #{"--no-map"} args) nil
     (option-value args "--map") (option-value args "--map")
-    (graph-map/file-exists? graph-map/default-path) graph-map/default-path
+    (map-store/file-exists? graph-map/default-path) graph-map/default-path
     :else nil))
 
 (defn- context-config-ref
@@ -109,8 +111,8 @@
 (defn- context-packet-freshness
   [xtdb project-info map-path]
   (when-let [{:keys [project config-path]} project-info]
-    (let [overlay (when (and map-path (graph-map/file-exists? map-path))
-                    (graph-map/read-map map-path))
+    (let [overlay (when (and map-path (map-store/file-exists? map-path))
+                    (map-store/read-map map-path))
           summary (evidence/summarize xtdb
                                       project
                                       {:map-overlay overlay
@@ -366,39 +368,6 @@
        (filter :active?)
        vec))
 
-(defn- active-project-system-edges
-  [xtdb project-id]
-  (->> (store/rows-by-field xtdb (:system-edges store/tables) :project-id project-id)
-       (filter :active?)
-       vec))
-
-(defn- parse-include
-  [value]
-  (let [idx (.indexOf value ":")]
-    (when (neg? idx)
-      (throw (ex-info "Include must use repo:path." {:value value})))
-    {:repo (subs value 0 idx)
-     :path (subs value (inc idx))}))
-
-(defn- parse-source
-  [value]
-  (parse-include value))
-
-(defn- parse-package-target
-  [value]
-  (let [idx (.indexOf (str value) ":")]
-    (when (neg? idx)
-      (throw (ex-info "Package target must use ecosystem:package."
-                      {:value value})))
-    {:ecosystem (subs value 0 idx)
-     :package (subs value (inc idx))}))
-
-(defn- reject-match
-  [kind value]
-  (case kind
-    "external-api" {:kind "external-api" :host value}
-    {:kind kind :label value}))
-
 (defn- project-deps
   []
   {:usage usage
@@ -449,6 +418,12 @@
 (defn- print-map-system
   [system]
   (cli-project/print-map-system system))
+
+(defn- print-map-write-result
+  [args result]
+  (if (json-output? args)
+    (print-json result)
+    (print-map-summary (:path result) (map-store/read-map (:path result)))))
 
 (defn- sync-deps
   []
@@ -614,14 +589,7 @@
     "  sync activity <project.edn> [--queue-dir DIR] [--json]"
     "  sync add-repo <project.edn> <repo-path> [--repo ID] [--role ROLE]"
     "  sync check <project.edn> [--map PATH] [--json] [--enqueue] [--queue-dir DIR]"
-    "  sync init|propose <project.edn> [--out agraph.map.json]"
-    "  sync explain <target> [--map agraph.map.json]"
-    "  sync set-kind <target> <kind> [--map agraph.map.json]"
-    "  sync include <target> <repo>:<path> [--map agraph.map.json]"
-    "  sync ignore external-api <host> [--map agraph.map.json] [--reason TEXT]"
-    "  sync package import <import-prefix> <ecosystem>:<package> [--repo ID] [--map agraph.map.json] [--reason TEXT]"
     "  sync docs candidates <target> [--project ID] [--limit N] [--snippet-chars N]"
-    "  sync docs attach <target> <repo>:<path> [--map agraph.map.json] [--role ROLE] [--heading HEADING] [--start-line N] [--end-line N] [--reason TEXT]"
     "  sync docs for <target> [--project ID] [--map PATH] [--snippet-chars N]"
     "  sync docs audit [--project ID] [--map PATH]"
     "  sync meta defs|set|get|unset ..."
@@ -635,6 +603,17 @@
     "  sync work reject <work-id> --reason TEXT [--queue-dir DIR]"
     "  sync work release <work-id> [--reason TEXT] [--queue-dir DIR]"
     "  sync work heartbeat <work-id> [--queue-dir DIR] [--agent ID] [--lease-minutes N]"
+    "  map init <project.edn> [--map agraph.map.json]"
+    "  map status <project.edn> [--map agraph.map.json] [--json]"
+    "  map review <project.edn> [--map agraph.map.json] [--limit N] [--json]"
+    "  map accept system <target> --kind KIND --label LABEL --include repo:path --reason TEXT [--map agraph.map.json]"
+    "  map set-kind <target> <kind> --reason TEXT [--map agraph.map.json]"
+    "  map include <target> <repo>:<path> --reason TEXT [--map agraph.map.json]"
+    "  map reject <kind> <value> --reason TEXT [--map agraph.map.json]"
+    "  map edge add <source> <target> <relation> --reason TEXT [--map agraph.map.json]"
+    "  map docs attach <target> <repo>:<path> --role ROLE --reason TEXT [--map agraph.map.json]"
+    "  map package import <import-prefix> <ecosystem>:<package> [--repo ID] --reason TEXT [--map agraph.map.json]"
+    "  map work apply <work-id> --map agraph.map.json [--queue-dir DIR]"
     ""
     "Ask and explore:"
     "  ask <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
@@ -691,6 +670,7 @@
     "  bench improve <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--allow-unverified-scores] [--out DIR] [--json]"
     "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode agraph|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--min-evidence-citation-rate N] [--min-path-evidence-citation-rate N] [--min-decision-f1 N] [--min-decision-evidence-citation-rate N] [--min-case-evidence-citation-rate N] [--min-case-path-evidence-citation-rate N] [--min-case-decision-f1 N] [--max-total-tokens N] [--max-input-tokens N] [--max-output-tokens N] [--max-cost-usd N] [--max-case-total-tokens N] [--max-case-input-tokens N] [--max-case-output-tokens N] [--max-case-cost-usd N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-missing-predicted-file-runs N] [--max-missing-decision-runs N] [--max-commandless-runs N] [--max-warning-runs N] [--max-hint-diagnostic-runs N] [--max-identity-mismatch-runs N] [--max-unverified-score-runs N] [--max-graph-expectation-failures N] [--max-missing-declared-source-kind-runs N] [--max-missed-runs N] [--max-context-rank-missing-runs N] [--max-missed-but-present-in-context-runs N] [--max-missed-and-absent-from-context-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-improvement-target-runs N] [--max-improvement-target-kind-runs KIND=N] [--max-active-stage-ms N] [--max-parser-worker-profiles N] [--min-measured-problem-classes N] [--min-measured-architecture-classes N] [--require-parser-worker none|java|dotnet|all] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"
     "  bench agent-compare <benchmark.edn> --baseline-report before.json --candidate-report after.json [--regression-tolerance N] [--out DIR] [--json]"
+    "  bench claim-pack <benchmark.edn> --shell-report shell/agent-report.json --agraph-report agraph/agent-report.json [--min-shared-cases N] [--out DIR] [--json]"
     "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
     ""
     "Compatibility commands remain during migration: index, project, systems, classify, queue, map, docs, meta, views, context, cursor, query, graph, deps, path."]))
@@ -973,73 +953,172 @@
       (case action
         :init
         (let [config-path (first (positional-args map-args))
-              out (or (option-value map-args "--out") graph-map/default-path)]
+              out (or (option-value map-args "--map")
+                      (option-value map-args "--out")
+                      graph-map/default-path)]
           (when-not config-path
             (throw (ex-info "Missing project config path." {:usage (usage)})))
-          (let [project (project/read-project config-path)
-                data (graph-map/empty-map (:id project))]
-            (print-map-summary (graph-map/write-map! out data) data)))
+          (let [project (project/read-project config-path)]
+            (print-map-write-result map-args (map-api/init! out (:id project)))))
 
-        :propose
+        :status
         (let [config-path (first (positional-args map-args))
-              out (or (option-value map-args "--out") graph-map/default-path)]
+              map-path (or (option-value map-args "--map") graph-map/default-path)]
+          (when-not config-path
+            (throw (ex-info "Missing project config path." {:usage (usage)})))
+          (let [project (project/read-project config-path)]
+            (print-json (map-api/status map-path (:id project)))))
+
+        :review
+        (let [config-path (first (positional-args map-args))
+              map-path (default-map-path map-args)
+              limit (parse-limit map-args)]
           (when-not config-path
             (throw (ex-info "Missing project config path." {:usage (usage)})))
           (let [project (project/read-project config-path)]
             (store/with-node (store/storage-path)
               (fn [xtdb]
-                (let [systems (active-project-systems xtdb (:id project))
-                      edges (active-project-system-edges xtdb (:id project))
-                      data (graph-map/propose-map (:id project) systems edges)]
-                  (print-map-summary (graph-map/write-map! out data) data))))))
+                (print-json (map-api/review xtdb
+                                            project
+                                            {:map-path map-path
+                                             :limit limit}))))))
 
         :explain
-        (let [[map-path value] (positional-args map-args)]
-          (when-not (and map-path value)
-            (throw (ex-info "Missing map path or system id/label." {:usage (usage)})))
-          (print-map-system (graph-map/system-by-id-or-label (graph-map/read-map map-path) value)))
+        (let [value (first (positional-args map-args))
+              map-path (required-map-path map-args)]
+          (when-not value
+            (throw (ex-info "Missing system id/label." {:usage (usage)})))
+          (print-map-system (map-api/explain map-path value)))
+
+        :accept
+        (let [[kind target] (positional-args map-args)
+              map-path (required-map-path map-args)]
+          (case (keyword kind)
+            :system
+            (do
+              (when-not target
+                (throw (ex-info "Missing system target." {:usage (usage)})))
+              (print-map-write-result
+               map-args
+               (map-api/accept-system!
+                map-path
+                target
+                {:kind (option-value map-args "--kind")
+                 :label (option-value map-args "--label")
+                 :include (some-> (option-value map-args "--include")
+                                  map-api/parse-include)
+                 :reason (option-value map-args "--reason")})))
+
+            (throw (ex-info "Unknown map accept kind." {:kind kind
+                                                        :usage (usage)}))))
 
         :set-kind
-        (let [[map-path value kind] (positional-args map-args)]
-          (when-not (and map-path value kind)
-            (throw (ex-info "Missing map path, system id/label, or kind." {:usage (usage)})))
-          (let [data (graph-map/set-kind (graph-map/read-map map-path) value kind)]
-            (print-map-summary (graph-map/write-map! map-path data) data)))
+        (let [[value kind] (positional-args map-args)
+              map-path (required-map-path map-args)]
+          (when-not (and value kind)
+            (throw (ex-info "Missing system id/label or kind." {:usage (usage)})))
+          (print-map-write-result
+           map-args
+           (map-api/set-kind! map-path value kind (option-value map-args "--reason"))))
 
         :include
-        (let [[map-path value include] (positional-args map-args)]
-          (when-not (and map-path value include)
-            (throw (ex-info "Missing map path, system id/label, or repo:path include."
+        (let [[value include] (positional-args map-args)
+              map-path (required-map-path map-args)]
+          (when-not (and value include)
+            (throw (ex-info "Missing system id/label or repo:path include."
                             {:usage (usage)})))
-          (let [data (graph-map/add-include (graph-map/read-map map-path)
-                                            value
-                                            (parse-include include))]
-            (print-map-summary (graph-map/write-map! map-path data) data)))
+          (print-map-write-result
+           map-args
+           (map-api/include! map-path
+                             value
+                             (map-api/parse-include include)
+                             (option-value map-args "--reason"))))
 
         :reject
-        (let [[map-path kind value] (positional-args map-args)
+        (let [[kind value] (positional-args map-args)
+              map-path (required-map-path map-args)
               reason (option-value map-args "--reason")]
-          (when-not (and map-path kind value)
-            (throw (ex-info "Missing map path, reject kind, or reject value."
+          (when-not (and kind value)
+            (throw (ex-info "Missing reject kind or reject value."
                             {:usage (usage)})))
-          (let [data (graph-map/add-reject (graph-map/read-map map-path)
-                                           (reject-match kind value)
-                                           reason)]
-            (print-map-summary (graph-map/write-map! map-path data) data)))
+          (print-map-write-result map-args (map-api/reject! map-path kind value reason)))
+
+        :package
+        (let [[subcommand import-prefix package-target] (positional-args map-args)
+              map-path (required-map-path map-args)]
+          (when-not (= "import" subcommand)
+            (throw (ex-info "Unknown map package command." {:command subcommand
+                                                            :usage (usage)})))
+          (when-not (and import-prefix package-target)
+            (throw (ex-info "Missing import prefix or ecosystem:package target."
+                            {:usage (usage)})))
+          (print-map-write-result
+           map-args
+           (map-api/package-import! map-path
+                                    import-prefix
+                                    package-target
+                                    {:repo (option-value map-args "--repo")
+                                     :reason (option-value map-args "--reason")})))
 
         :package-import
-        (let [[map-path import-prefix package-target] (positional-args map-args)
-              target (some-> package-target parse-package-target)]
-          (when-not (and map-path import-prefix package-target)
-            (throw (ex-info "Missing map path, import prefix, or ecosystem:package target."
+        (throw (ex-info "Package import corrections use map package import."
+                        {:command "map package-import"
+                         :replacement "agraph map package import"
+                         :usage (usage)}))
+
+        :docs
+        (let [[subcommand target source-value] (positional-args map-args)
+              map-path (required-map-path map-args)]
+          (when-not (= "attach" subcommand)
+            (throw (ex-info "Unknown map docs command." {:command subcommand
+                                                         :usage (usage)})))
+          (when-not (and target source-value)
+            (throw (ex-info "Missing docs target or repo:path source."
                             {:usage (usage)})))
-          (let [data (graph-map/add-package-import
-                      (graph-map/read-map map-path)
-                      (merge target
-                             {:import import-prefix
-                              :repo (option-value map-args "--repo")
-                              :reason (option-value map-args "--reason")}))]
-            (print-map-summary (graph-map/write-map! map-path data) data)))
+          (print-map-write-result
+           map-args
+           (map-api/docs-attach! map-path
+                                 target
+                                 (map-api/parse-source source-value)
+                                 {:role (option-value map-args "--role")
+                                  :heading (option-value map-args "--heading")
+                                  :start-line (parse-optional-long map-args "--start-line")
+                                  :end-line (parse-optional-long map-args "--end-line")
+                                  :reason (option-value map-args "--reason")})))
+
+        :edge
+        (let [[subcommand source target relation] (positional-args map-args)
+              map-path (required-map-path map-args)]
+          (when-not (= "add" subcommand)
+            (throw (ex-info "Unknown map edge command." {:command subcommand
+                                                         :usage (usage)})))
+          (when-not (and source target relation)
+            (throw (ex-info "Missing source, target, or relation." {:usage (usage)})))
+          (print-map-write-result
+           map-args
+           (map-api/edge-add! map-path
+                              (cond-> {:source source
+                                       :target target
+                                       :relation relation
+                                       :reason (option-value map-args "--reason")}
+                                (option-value map-args "--visibility")
+                                (assoc :visibility (option-value map-args "--visibility"))
+                                (option-value map-args "--importance")
+                                (assoc :importance (option-value map-args "--importance"))
+                                (option-value map-args "--confidence")
+                                (assoc :confidence (Double/parseDouble
+                                                    (option-value map-args "--confidence")))))))
+
+        :work
+        (let [[subcommand id] (positional-args map-args)
+              map-path (required-map-path map-args)
+              root (queue-root map-args)]
+          (when-not (= "apply" subcommand)
+            (throw (ex-info "Unknown map work command." {:command subcommand
+                                                         :usage (usage)})))
+          (when-not id
+            (throw (ex-info "Missing work id." {:usage (usage)})))
+          (print-json (apply-work-result! root id map-path)))
 
         (throw (ex-info "Unknown map command." {:command action
                                                 :usage (usage)}))))
@@ -1067,20 +1146,10 @@
                                                    :snippet-chars snippet-chars})))))
 
         :attach
-        (let [[map-path target source-value] positional
-              _ (when-not (and map-path target source-value)
-                  (throw (ex-info "Missing map path, target, or repo:path source."
-                                  {:usage (usage)})))
-              source (parse-source source-value)
-              data (graph-map/add-doc (graph-map/read-map map-path)
-                                      target
-                                      source
-                                      {:role (option-value docs-args "--role")
-                                       :heading (option-value docs-args "--heading")
-                                       :start-line (parse-optional-long docs-args "--start-line")
-                                       :end-line (parse-optional-long docs-args "--end-line")
-                                       :reason (option-value docs-args "--reason")})]
-          (print-map-summary (graph-map/write-map! map-path data) data))
+        (throw (ex-info "Map doc attachments are handled by the agraph map API."
+                        {:command "docs attach"
+                         :replacement "agraph map docs attach"
+                         :usage (usage)}))
 
         :for
         (let [target (first positional)
@@ -1445,7 +1514,7 @@
                                                     "--min-confidence"
                                                     0.60)
                                :map-overlay (when map-path
-                                              (graph-map/read-map map-path))})]
+                                              (map-store/read-map map-path))})]
                   (if (json-output? project-args)
                     (print-json report)
                     (print-maintenance-report report)))))
@@ -1498,7 +1567,7 @@
                  (some #{"--with-conflicts"} args) (assoc :with-conflicts? true)
                  (some #{"--without-import-evidence"} args)
                  (assoc :without-import-evidence? true)
-                 map-path (assoc :map-overlay (graph-map/read-map map-path)))]
+                 map-path (assoc :map-overlay (map-store/read-map map-path)))]
       (store/with-node (store/storage-path)
         (fn [xtdb]
           (let [report (dependency/package-report xtdb scope opts)]

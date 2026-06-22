@@ -99,6 +99,11 @@
   (io/file (case-output-dir suite case opts)
            "agent-contexts"
            (str (agent-run-id opts) ".agraph-hints.json")))
+(defn agent-run-token-usage-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-results"
+           (str (agent-run-id opts) ".token-usage.json")))
 (defn agent-run-path
   [suite case opts]
   (io/file (case-output-dir suite case opts)
@@ -127,6 +132,18 @@
 (defn system-improvement-report-path
   [suite opts]
   (io/file (output-root suite opts) "system-improvement-report.json"))
+(defn efficiency-summary-path
+  [suite opts]
+  (io/file (output-root suite opts) "efficiency-summary.json"))
+(defn efficiency-markdown-path
+  [suite opts]
+  (io/file (output-root suite opts) "efficiency-summary.md"))
+(defn claim-pack-path
+  [suite opts]
+  (io/file (output-root suite opts) "claim-pack.json"))
+(defn claim-pack-markdown-path
+  [suite opts]
+  (io/file (output-root suite opts) "CLAIM-PACK.md"))
 (defn progress-path
   [suite case opts]
   (io/file (case-output-dir suite case opts) "progress.json"))

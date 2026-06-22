@@ -25,11 +25,11 @@
             :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "packages"
                          *command-line-args*)}
 
-  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-baseline|agent-run|agent-score|agent-report|agent-check|improve|run|report|show <benchmark.edn>"
+  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-baseline|agent-run|agent-score|agent-report|agent-check|claim-pack|improve|run|report|show <benchmark.edn>"
          :task (apply shell "clojure" "-M:run" "-m" "agraph.cli" "bench"
                       *command-line-args*)}
 
-  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
+  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|agraph|agents|reports|compare|claim-pack|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
             :task (apply shell "bash" "scripts/headline-bench.sh"
                          *command-line-args*)}
 

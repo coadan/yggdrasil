@@ -329,6 +329,8 @@
            "AGRAPH_BENCH_PROJECT" (get-in packet [:artifacts :projectConfig])
            "AGRAPH_BENCH_XTDB_PATH" (get-in packet [:artifacts :xtdbPath])
            "AGRAPH_XTDB_PATH" (get-in packet [:artifacts :xtdbPath])}
+    (:token-usage-path opts)
+    (assoc "AGRAPH_BENCH_TOKEN_USAGE" (:token-usage-path opts))
     (parser-worker-option opts)
     (assoc "AGRAPH_BENCH_PARSER_WORKER" (parser-worker-option opts)
            "AGRAPH_PARSER_WORKER" (parser-worker-option opts))

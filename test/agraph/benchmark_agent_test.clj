@@ -638,6 +638,79 @@
           (is (= ["Agent command exited with status 7."
                   "agent result did not contain suspected files"]
                  (get-in score [:agent :warnings]))))))))
+
+(deftest external-agent-token-usage-sidecar-is-merged-into-result
+  (let [root (temp-dir "agraph-bench-agent-token-repo")
+        out (temp-dir "agraph-bench-agent-token-out")
+        suite-dir (temp-dir "agraph-bench-agent-token-suite")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))
+        script-path (.getPath (io/file suite-dir "agent.sh"))]
+    (git! root "init")
+    (git! root "config" "user.email" "agraph@example.test")
+    (git! root "config" "user.name" "AGraph Test")
+    (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (let [base-sha (commit! root "base")]
+      (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :fixed)\n")
+      (let [fix-sha (commit! root "fix")]
+        (spit suite-path
+              (pr-str {:id "agent-token-fixture"
+                       :repos [{:id "repo"
+                                :root root}]
+                       :cases [{:id "case-1"
+                                :repo-id "repo"
+                                :base-sha base-sha
+                                :fix-sha fix-sha
+                                :issue {:id 1
+                                        :title "broken app"
+                                        :body "The app returns the old value."}}]}))
+        (spit script-path
+              (str "cat > \"$AGRAPH_BENCH_RESULT\" <<JSON\n"
+                   "{\"schema\":\"" benchmark/agent-result-schema "\","
+                   "\"caseId\":\"case-1\","
+                   "\"caseFingerprint\":\"$AGRAPH_BENCH_CASE_FINGERPRINT\","
+                   "\"agentInputFingerprint\":\"$AGRAPH_BENCH_AGENT_INPUT_FINGERPRINT\","
+                   "\"agentId\":\"token-agent\","
+                   "\"mode\":\"shell-only\","
+                   "\"suspectedFiles\":[{\"path\":\"src/app.clj\","
+                   "\"rank\":1,\"confidence\":1.0,\"reason\":\"script\","
+                   "\"evidence\":[\"rg broken src/app.clj\"]}],"
+                   "\"suspectedSymbols\":[],"
+                   "\"commands\":[\"rg broken src/app.clj\"],"
+                   "\"warnings\":[],"
+                   "\"summary\":\"script result\"}\n"
+                   "JSON\n"
+                   "cat > \"$AGRAPH_BENCH_TOKEN_USAGE\" <<'JSON'\n"
+                   "{\"input_tokens\":120,\"output_tokens\":30,"
+                   "\"cost_usd\":0.01,\"provider\":\"test-provider\","
+                   "\"model\":\"test-model\"}\n"
+                   "JSON\n"))
+        (let [suite (benchmark/read-suite suite-path)
+              result (benchmark/agent-runs! suite {:out out
+                                                   :case-id "case-1"
+                                                   :agent-id "token-agent"
+                                                   :mode "shell-only"
+                                                   :command (str "sh " script-path)})
+              run (first (:runs result))
+              score (json/read-json
+                     (slurp (get-in run [:artifacts :agentScorePath]))
+                     :key-fn keyword)
+              report (benchmark/report-agent-suite suite {:out out
+                                                          :agent-id "token-agent"})]
+          (is (= "passed" (:status run)))
+          (is (.isFile (io/file (get-in run [:artifacts :tokenUsagePath]))))
+          (is (= {:inputTokens 120
+                  :outputTokens 30
+                  :totalTokens 150
+                  :costUsd 0.01
+                  :source "sidecar"
+                  :model "test-model"
+                  :provider "test-provider"}
+                 (get-in score [:agent :tokenUsage])))
+          (is (= {:inputTokens 120
+                  :outputTokens 30
+                  :totalTokens 150
+                  :costUsd 0.01}
+                 (get-in report [:agentDiagnostics :tokenTelemetry]))))))))
 (deftest context-packet-can-be-written-as-agent-result
   (let [root (temp-dir "agraph-bench-context-result")
         _ (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")

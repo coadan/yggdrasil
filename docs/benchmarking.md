@@ -177,6 +177,7 @@ bb bench improve benchmark.edn --mode agraph --agent agraph-baseline-lexical --o
 bb bench agent-check benchmark.edn --mode agraph --agent agraph-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-total-tokens 120000 --max-case-total-tokens 30000 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
 bb bench agent-check benchmarks/decision-quality-pilot.edn --mode agraph --agent codex --min-decision-f1 0.8 --min-case-decision-f1 0.6 --min-decision-evidence-citation-rate 0.8 --max-missing-decision-runs 0
 bb bench agent-compare benchmark.edn --baseline-report .dev/agraph/bench-before/agent-report.json --candidate-report .dev/agraph/bench-after/agent-report.json
+bb bench claim-pack benchmark.edn --shell-report .dev/agraph/agent-efficiency/shell-only/agent-report.json --agraph-report .dev/agraph/agent-efficiency/agraph/agent-report.json --out .dev/reports/claim-pack
 bb bench run benchmark.edn
 bb bench report benchmark.edn
 bb bench show benchmark.edn --case penpot-example
@@ -263,14 +264,16 @@ plugin-fit choice, not just a shorter suspected-file list.
   repair workflow: it does not enqueue `sync work`, does not patch
   `agraph.map.json`, and does not waive benchmark failures. It groups benchmark
   diagnostics into `maintenance-emitter-gap`, `indexing-gap`, `extractor-gap`,
-  `retrieval-gap`, `benchmark-suite-gap`, and `agent-protocol-gap` lanes with
-  affected cases, declared problem/architecture class rollups, evidence,
-  owner area, confidence, and a recommended system change.
+  `retrieval-gap`, `decision-quality-gap`, `benchmark-suite-gap`, and
+  `agent-protocol-gap` lanes with affected cases, declared
+  problem/architecture class rollups, evidence, owner area, confidence, and a
+  recommended system change.
 - `bench agent-run <suite.edn> --agent <id> --command <cmd>` prepares the same
   packet contract, runs an external coding-agent command from the base
   worktree, and scores the JSON result written to `$AGRAPH_BENCH_RESULT`. The
   command receives `$AGRAPH_BENCH_PROMPT`, `$AGRAPH_BENCH_PACKET`,
-  `$AGRAPH_BENCH_RESULT`, `$AGRAPH_BENCH_WORKTREE`, `$AGRAPH_BENCH_PROJECT`,
+  `$AGRAPH_BENCH_RESULT`, `$AGRAPH_BENCH_TOKEN_USAGE`,
+  `$AGRAPH_BENCH_WORKTREE`, `$AGRAPH_BENCH_PROJECT`,
   `$AGRAPH_BENCH_XTDB_PATH`, `$AGRAPH_BENCH_CASE_ID`,
   `$AGRAPH_BENCH_AGENT_ID`, `$AGRAPH_BENCH_MODE`, and
   `$AGRAPH_BENCH_OUTPUT_SCHEMA`. In `--mode agraph`, the command also receives
@@ -283,7 +286,11 @@ plugin-fit choice, not just a shorter suspected-file list.
   strict structured output providers can validate it. For structured-output
   runners that capture the final response into `$AGRAPH_BENCH_RESULT`, the
   agent should return the JSON as its final response instead of trying to write
-  the file from inside its sandbox. Use `--prompt-profile fast` for short
+  the file from inside its sandbox. Provider wrappers may write token usage to
+  `$AGRAPH_BENCH_TOKEN_USAGE` as JSON with `inputTokens`/`outputTokens` or
+  `input_tokens`/`output_tokens`; AGraph folds that sidecar into
+  `tokenUsage` when the result JSON does not already contain token usage. Use
+  `--prompt-profile fast` for short
   localization-only smoke runs that should avoid patching and full test suites;
   omit it for the standard prompt. In `--mode agraph`, the graph, hints, and
   context artifacts are prepared before the command runs; in `--mode
@@ -432,6 +439,14 @@ plugin-fit choice, not just a shorter suspected-file list.
   Token budget gates require agent result `tokenUsage`; if token usage is absent
   and a token gate is configured, `agent-check` fails instead of treating the
   missing measurement as zero.
+- `bench claim-pack <suite.edn> --shell-report <path> --agraph-report <path>`
+  writes a replayable proof bundle under the benchmark output root:
+  `efficiency-summary.json`, `efficiency-summary.md`,
+  `system-improvement-report.json`, `claim-pack.json`, and `CLAIM-PACK.md`.
+  Use it after both lane reports exist when you need one artifact set for
+  decision quality, token/cost tradeoffs, claim readiness, and system
+  improvement lanes. It consumes reports; it does not run agents or hide the
+  cost of generating those reports.
 - `bench agent-compare <suite.edn>` compares two `agent-report.json` files and
   exits non-zero when aggregate or per-case recall/MRR/noise regress beyond
   `--regression-tolerance` (default `0`). Use this after a candidate change to

@@ -37,6 +37,12 @@
                                                    (option-value args "--baseline-report"))
     (option-value args "--candidate-report") (assoc :candidate-report
                                                     (option-value args "--candidate-report"))
+    (option-value args "--shell-report") (assoc :shell-report
+                                                (option-value args
+                                                              "--shell-report"))
+    (option-value args "--agraph-report") (assoc :agraph-report
+                                                 (option-value args
+                                                               "--agraph-report"))
     (option-value args "--vector-command") (assoc :vector-command
                                                   (option-value args "--vector-command"))
     (option-value args "--vector-model") (assoc :vector-model
@@ -68,6 +74,11 @@
     (parse-optional-long args "--min-runs") (assoc :min-runs
                                                    (parse-optional-long args
                                                                         "--min-runs"))
+    (parse-optional-long args "--min-shared-cases") (assoc
+                                                     :min-shared-cases
+                                                     (parse-optional-long
+                                                      args
+                                                      "--min-shared-cases"))
     (parse-optional-long args "--budget") (assoc :budget (parse-optional-long args "--budget"))
     (parse-optional-long args "--doc-limit") (assoc :doc-limit (parse-optional-long args "--doc-limit"))
     (parse-optional-long args "--retrieval-limit") (assoc :retrieval-limit
@@ -580,6 +591,18 @@
                  "confidence"
                  (:confidence lane))))
 
+    (= benchmark/claim-pack-schema (:schema result))
+    (do
+      (println "- verdict" (get-in result [:summary :verdict]))
+      (println "- claim-readiness" (get-in result [:summary :claimReadiness]))
+      (println "- quality-token-tradeoff"
+               (or (get-in result
+                           [:summary :qualityCostTradeoff :status])
+                   "unavailable"))
+      (println "- claim-pack" (get-in result [:artifacts :claimPackPath]))
+      (println "- markdown" (get-in result
+                                    [:artifacts :claimPackMarkdownPath])))
+
     (:cases result)
     (doseq [case (:cases result)]
       (if (:scores case)
@@ -716,6 +739,7 @@
                    :agent-rerun (benchmark/rerun-agent-lane! suite opts)
                    :agent-check (benchmark/check-agent-suite suite opts)
                    :agent-compare (benchmark/compare-agent-report-files! suite opts)
+                   :claim-pack (benchmark/claim-pack! suite opts)
                    :show (benchmark/show-case suite
                                               (or (:case-id opts)
                                                   (throw (ex-info "Missing --case."

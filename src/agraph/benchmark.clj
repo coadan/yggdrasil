@@ -27,6 +27,7 @@
             [agraph.benchmark-report :as benchmark-report]
             [agraph.benchmark-check :as benchmark-check]
             [agraph.benchmark-compare :as benchmark-compare]
+            [agraph.benchmark-claim-pack :as benchmark-claim-pack]
             [agraph.benchmark-system-improvement :as benchmark-system-improvement]
             [agraph.benchmark-util :as benchmark-util]
             [clojure.string :as str]))
@@ -69,6 +70,9 @@
 
 (def system-improvement-report-schema
   "agraph.benchmark.system-improvement-report/v1")
+
+(def claim-pack-schema
+  "agraph.benchmark.claim-pack/v1")
 
 (def agent-baseline-schema
   "agraph.benchmark.agent-baseline/v1")
@@ -523,37 +527,104 @@
    :warnings [warning]
    :summary warning})
 
+(defn- token-usage-value
+  [usage & keys]
+  (some #(get usage %) keys))
+
+(defn- long-token-value
+  [value]
+  (long (or value 0)))
+
+(defn- double-token-value
+  [value]
+  (double (or value 0.0)))
+
+(defn- normalize-token-usage
+  [usage]
+  (when (map? usage)
+    (let [usage (or (:tokenUsage usage) usage)
+          input (long-token-value
+                 (token-usage-value usage
+                                    :inputTokens
+                                    :input_tokens
+                                    :promptTokens
+                                    :prompt_tokens))
+          output (long-token-value
+                  (token-usage-value usage
+                                     :outputTokens
+                                     :output_tokens
+                                     :completionTokens
+                                     :completion_tokens))
+          total (long-token-value
+                 (or (token-usage-value usage :totalTokens :total_tokens)
+                     (+ input output)))]
+      (cond-> {:inputTokens input
+               :outputTokens output
+               :totalTokens total
+               :costUsd (double-token-value
+                         (token-usage-value usage :costUsd :cost_usd))
+               :source (str (or (:source usage) "sidecar"))}
+        (:model usage)
+        (assoc :model (:model usage))
+
+        (:provider usage)
+        (assoc :provider (:provider usage))))))
+
+(defn- read-token-usage-sidecar
+  [opts]
+  (when-let [path (:token-usage-path opts)]
+    (when (.isFile (io/file path))
+      (try
+        (normalize-token-usage (benchmark-io/read-json-file path))
+        (catch Exception _
+          nil)))))
+
+(defn- merge-token-usage-sidecar
+  [agent-result opts]
+  (if (:tokenUsage agent-result)
+    agent-result
+    (if-let [token-usage (read-token-usage-sidecar opts)]
+      (assoc agent-result :tokenUsage token-usage)
+      agent-result)))
+
 (defn- read-agent-run-result
   [prepared result-path opts process-result]
-  (cond
-    (not (zero? (:exit process-result)))
-    {:agent-result (failure-agent-result
-                    prepared
-                    opts
-                    (if (:timedOut process-result)
-                      (str "Agent command timed out after "
-                           (agent-run-timeout-ms opts)
-                           " ms.")
-                      (str "Agent command exited with status " (:exit process-result) ".")))
-     :artifact-ok? false}
+  (let [result (cond
+                 (not (zero? (:exit process-result)))
+                 {:agent-result (failure-agent-result
+                                 prepared
+                                 opts
+                                 (if (:timedOut process-result)
+                                   (str "Agent command timed out after "
+                                        (agent-run-timeout-ms opts)
+                                        " ms.")
+                                   (str "Agent command exited with status "
+                                        (:exit process-result)
+                                        ".")))
+                  :artifact-ok? false}
 
-    (not (.isFile (io/file result-path)))
-    {:agent-result (failure-agent-result
-                    prepared
-                    opts
-                    "Agent command completed but did not write the result JSON artifact.")
-     :artifact-ok? false}
+                 (not (.isFile (io/file result-path)))
+                 {:agent-result (failure-agent-result
+                                 prepared
+                                 opts
+                                 "Agent command completed but did not write the result JSON artifact.")
+                  :artifact-ok? false}
 
-    :else
-    (try
-      {:agent-result (normalize-agent-run-result prepared (benchmark-io/read-json-file result-path) opts)
-       :artifact-ok? true}
-      (catch Exception e
-        {:agent-result (failure-agent-result
-                        prepared
-                        opts
-                        (str "Agent command wrote unreadable result JSON: " (.getMessage e)))
-         :artifact-ok? false}))))
+                 :else
+                 (try
+                   {:agent-result (normalize-agent-run-result
+                                   prepared
+                                   (benchmark-io/read-json-file result-path)
+                                   opts)
+                    :artifact-ok? true}
+                   (catch Exception e
+                     {:agent-result (failure-agent-result
+                                     prepared
+                                     opts
+                                     (str "Agent command wrote unreadable result JSON: "
+                                          (.getMessage e)))
+                      :artifact-ok? false})))]
+    (update result :agent-result merge-token-usage-sidecar opts)))
 
 (defn- prepare-agent-graph-and-artifacts!
   [suite case prepared opts]
@@ -761,6 +832,12 @@
                                               (assoc :agraph-hints-path
                                                      (:hints-path agraph-artifacts))))
         result-path (benchmark-paths/agent-run-result-path suite case opts)
+        token-usage-path (benchmark-paths/agent-run-token-usage-path suite
+                                                                     case
+                                                                     opts)
+        run-opts (assoc opts
+                        :token-usage-path
+                        (fs/canonical-path token-usage-path))
         run-path (benchmark-paths/agent-run-path suite case opts)
         score-path (benchmark-paths/agent-score-path suite case opts result-path)
         output-schema-path (write-agent-output-schema! suite case opts)
@@ -779,10 +856,13 @@
                                                     result-path
                                                     prompt-path
                                                     output-schema-path
-                                                    opts)
+                                                    run-opts)
                                      timeout-ms)
         logs (write-agent-run-logs! suite case opts process-result)
-        read-result (read-agent-run-result prepared result-path opts process-result)
+        read-result (read-agent-run-result prepared
+                                           result-path
+                                           run-opts
+                                           process-result)
         agent-result (:agent-result read-result)
         _ (benchmark-io/write-json-file! result-path agent-result)
         context-ranks (context-ground-truth-ranks-from-path
@@ -852,6 +932,7 @@
                                 :projectConfig (get-in packet [:artifacts :projectConfig])
                                 :xtdbPath (get-in packet [:artifacts :xtdbPath])
                                 :agentResultPath (fs/canonical-path result-path)
+                                :tokenUsagePath (fs/canonical-path token-usage-path)
                                 :agentScorePath (fs/canonical-path score-path)
                                 :agentRunPath (fs/canonical-path run-path)}
                                logs)
@@ -1024,6 +1105,11 @@
   "Read, compare, and write an agent report comparison artifact."
   [suite opts]
   (benchmark-compare/compare-agent-report-files! suite opts))
+
+(defn claim-pack!
+  "Write a benchmark claim pack from shell-only and AGraph agent reports."
+  [suite opts]
+  (benchmark-claim-pack/write-claim-pack! suite opts))
 
 (defn report-suite
   "Aggregate existing benchmark result artifacts."

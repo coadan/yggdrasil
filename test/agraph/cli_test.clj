@@ -96,6 +96,7 @@
     (is (str/includes? usage "bench improve"))
     (is (str/includes? usage "bench agent-check"))
     (is (str/includes? usage "bench agent-compare"))
+    (is (str/includes? usage "bench claim-pack"))
     (is (str/includes? usage "sync work heartbeat"))
     (is (str/includes? usage "--cases ID,ID"))
     (is (str/includes? usage "--min-evidence-citation-rate N"))
@@ -1911,4 +1912,46 @@
                   :baseline-report "before.json"
                   :candidate-report "after.json"
                   :regression-tolerance 0.01}]]
+               @calls))))))
+
+(deftest bench-claim-pack-dispatches-to-claim-pack-writer
+  (let [calls (atom [])]
+    (with-redefs [benchmark/read-suite (fn [path]
+                                         (swap! calls conj [:read path])
+                                         {:id "suite"})
+                  benchmark/claim-pack! (fn [suite opts]
+                                          (swap! calls conj [:claim-pack
+                                                             suite
+                                                             opts])
+                                          {:schema benchmark/claim-pack-schema
+                                           :suiteId (:id suite)
+                                           :summary {:verdict "helped"
+                                                     :claimReadiness "supported"
+                                                     :qualityCostTradeoff
+                                                     {:status "better-quality-lower-token-cost"}}
+                                           :artifacts {:claimPackPath "claim-pack.json"
+                                                       :claimPackMarkdownPath
+                                                       "CLAIM-PACK.md"}})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["claim-pack" "benchmark.edn"
+                                 "--shell-report" "shell/agent-report.json"
+                                 "--agraph-report" "agraph/agent-report.json"
+                                 "--min-shared-cases" "4"
+                                 "--out" ".dev/reports/claim-pack"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= benchmark/claim-pack-schema (:schema parsed)))
+        (is (= [[:read "benchmark.edn"]
+                [:claim-pack {:id "suite"}
+                 {:case-id nil
+                  :out ".dev/reports/claim-pack"
+                  :retriever nil
+                  :parser-worker nil
+                  :mode nil
+                  :result-path nil
+                  :command nil
+                  :shell-report "shell/agent-report.json"
+                  :agraph-report "agraph/agent-report.json"
+                  :min-shared-cases 4}]]
                @calls))))))

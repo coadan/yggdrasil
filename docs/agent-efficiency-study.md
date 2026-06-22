@@ -185,16 +185,18 @@ For headline runs, prefer the bounded helper:
 
 ```sh
 bb headline all
-bb efficiency \
-  .dev/agraph/headline-bench/shell-only/agent-report.json \
-  .dev/agraph/headline-bench/agraph/agent-report.json \
-  --out .dev/reports/architecture-benchmark-improvement-summary.json \
-  --markdown-out .dev/reports/architecture-benchmark-improvement-summary.md
 ```
 
-Read `compactSummary.verdict` as the compact result: `helped`, `regressed`, or
-`inconclusive`. The `why` rows are the minimum explanation that should appear in
-status updates or release notes. If the verdict is `inconclusive`, do not
+`bb headline all` ends by running `bb bench claim-pack`, which writes
+`claim-pack.json`, `CLAIM-PACK.md`, `efficiency-summary.json`,
+`efficiency-summary.md`, and `system-improvement-report.json` under the local
+headline output root. Use the lower-level `bb efficiency` command only when you
+need a raw shell-only versus AGraph comparison without the bundled proof
+artifacts.
+
+Read `claim-pack.json` `summary.verdict` first, then inspect
+`efficiency.compactSummary.why` for the minimum explanation that should appear
+in status updates or release notes. If the verdict is `inconclusive`, do not
 promote the bounded claim even when some individual metrics improved.
 
 ## Metrics
@@ -220,11 +222,13 @@ Use existing benchmark report fields first:
 - token cost: `agentDiagnostics.tokenTelemetry` input, output, total token, and
   cost totals when agent results include `tokenUsage`. `bb efficiency` compares
   these as lower-is-better and emits a `qualityCostTradeoff` summary when token
-  telemetry is present. `bb bench agent-check` can enforce aggregate and
-  per-case budgets with `--max-total-tokens`, `--max-input-tokens`,
-  `--max-output-tokens`, `--max-cost-usd`, `--max-case-total-tokens`,
-  `--max-case-input-tokens`, `--max-case-output-tokens`, and
-  `--max-case-cost-usd`; configured token gates fail when token usage is absent.
+  telemetry is present. Agent wrappers can either write `tokenUsage` in the
+  result JSON or write a provider sidecar to `$AGRAPH_BENCH_TOKEN_USAGE`.
+  `bb bench agent-check` can enforce aggregate and per-case budgets with
+  `--max-total-tokens`, `--max-input-tokens`, `--max-output-tokens`,
+  `--max-cost-usd`, `--max-case-total-tokens`, `--max-case-input-tokens`,
+  `--max-case-output-tokens`, and `--max-case-cost-usd`; configured token gates
+  fail when token usage is absent.
 - task fit: `bb efficiency` `classSignals` for compact problem-class and
   architecture-class rows. Use each row's `measured` flag to distinguish a
   shared class-shaped tag from a class that counts toward claim readiness; fall
