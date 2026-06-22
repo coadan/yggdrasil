@@ -971,8 +971,18 @@
                                                   :end-line 18}]})
                 graph/system-graph (fn [_ project-id _]
                                      {:basis {:project-id project-id}
-                                      :nodes []
-                                      :edges []
+                                      :nodes [{:id "system:alpha"
+                                               :label "Alpha"
+                                               :kind :accepted-system
+                                               :degree 3}
+                                              {:id "system:beta"
+                                               :label "Beta"
+                                               :kind :candidate-system
+                                               :degree 1}]
+                                      :edges [{:id "edge:alpha-beta"
+                                               :source "system:alpha"
+                                               :target "system:beta"
+                                               :relation :depends-on}]
                                       :clusters []})
                 query/all-chunks (fn [& _]
                                    (throw (ex-info "unexpected broad chunk scan" {})))
@@ -981,7 +991,20 @@
                 query/all-system-evidence (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
-                context/query-evidence (fn [& _] {:status :ready})
+                context/query-evidence (fn [& _]
+                                         {:status :ready
+                                          :counts {:files 4
+                                                   :nodes 7
+                                                   :edges 9
+                                                   :system-nodes 2
+                                                   :system-edges 1
+                                                   :search-docs 1
+                                                   :chunks 3
+                                                   :embeddings 0
+                                                   :map-systems 1
+                                                   :activity-items 0}
+                                          :missing [:embeddings]
+                                          :weak []})
                 coverage/context-summary (fn [& _]
                                            {:schema "ygg.source-coverage.context/v1"
                                             :totals {:indexedFiles 1}})]
@@ -1003,6 +1026,38 @@
                        :current 1
                        :changed 0}}
              (:freshness packet)))
+      (is (= {:schema "ygg.graph-readiness/v1"
+              :status :ready
+              :rowCounts {:sourceFiles 4
+                          :sourceNodes 7
+                          :sourceEdges 9
+                          :systemNodes 2
+                          :systemEdges 1
+                          :searchDocs 1
+                          :chunks 3
+                          :embeddings 0
+                          :mapSystems 1
+                          :activityItems 0}
+              :systemGraph {:nodeKinds [{:value "accepted-system"
+                                          :count 1}
+                                         {:value "candidate-system"
+                                          :count 1}]
+                            :relations [{:value "depends-on"
+                                         :count 1}]
+                            :representativeNodes [{:id "system:alpha"
+                                                   :label "Alpha"
+                                                   :kind :accepted-system
+                                                   :degree 3}
+                                                  {:id "system:beta"
+                                                   :label "Beta"
+                                                   :kind :candidate-system
+                                                   :degree 1}]}
+              :retrieval {:search-docs 1
+                          :returned-count 1
+                          :context-chunks 0}
+              :missingPlanes [:embeddings]
+              :weakPlanes []}
+             (get-in packet [:graph :readiness])))
       (is (= {:indexedFiles 1}
              (get-in packet [:sourceCoverage :totals])))
       (is (= {:counts {:packages 1

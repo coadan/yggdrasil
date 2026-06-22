@@ -648,12 +648,84 @@
          vals
          vec)))
 
+(defn- frequency-summary
+  [f rows limit]
+  (->> rows
+       (keep f)
+       frequencies
+       (sort-by (juxt (comp - val) (comp str key)))
+       (take limit)
+       (mapv (fn [[value n]]
+               {:value (display-name value)
+                :count n}))))
+
+(defn- representative-graph-nodes
+  [nodes limit]
+  (->> nodes
+       (sort-by (juxt #(- (long (or (:degree %) 0)))
+                      #(or (:label %) "")
+                      #(or (:id %) "")))
+       (take limit)
+       (mapv (fn [node]
+               (cond-> {:id (:id node)
+                        :label (:label node)
+                        :kind (:kind node)}
+                 (:repo node) (assoc :repo (:repo node))
+                 (:path node) (assoc :path (:path node))
+                 (:pathPrefix node) (assoc :pathPrefix (:pathPrefix node))
+                 (:degree node) (assoc :degree (:degree node)))))))
+
+(defn- readiness-row-counts
+  [counts graph-data]
+  {:sourceFiles (long (or (:files counts) 0))
+   :sourceNodes (long (or (:nodes counts) 0))
+   :sourceEdges (long (or (:edges counts) 0))
+   :systemNodes (long (or (:system-nodes counts)
+                          (count (:nodes graph-data))))
+   :systemEdges (long (or (:system-edges counts)
+                          (count (:edges graph-data))))
+   :searchDocs (long (or (:search-docs counts) 0))
+   :chunks (long (or (:chunks counts) 0))
+   :embeddings (long (or (:embeddings counts) 0))
+   :mapSystems (long (or (:map-systems counts) 0))
+   :activityItems (long (or (:activity-items counts) 0))})
+
+(defn- retrieval-shape
+  [search-context]
+  (let [instrumentation (:instrumentation search-context)]
+    (select-keys instrumentation
+                 [:search-docs
+                  :seed-count
+                  :same-label-seed-count
+                  :graph-edges-loaded
+                  :neighbor-count
+                  :candidate-count
+                  :ranked-count
+                  :returned-count
+                  :context-chunks])))
+
+(defn- graph-readiness
+  [graph-data evidence search-context]
+  (let [counts (:counts evidence)]
+    {:schema "ygg.graph-readiness/v1"
+     :status (:status evidence)
+     :rowCounts (readiness-row-counts counts graph-data)
+     :systemGraph {:nodeKinds (frequency-summary :kind (:nodes graph-data) 8)
+                   :relations (frequency-summary :relation (:edges graph-data) 8)
+                   :representativeNodes (representative-graph-nodes
+                                         (:nodes graph-data)
+                                         5)}
+     :retrieval (retrieval-shape search-context)
+     :missingPlanes (vec (:missing evidence))
+     :weakPlanes (vec (:weak evidence))}))
+
 (defn- graph-summary
-  [graph-data]
+  [graph-data evidence search-context]
   {:basis (:basis graph-data)
    :counts {:nodes (count (:nodes graph-data))
             :edges (count (:edges graph-data))
             :clusters (count (:clusters graph-data))}
+   :readiness (graph-readiness graph-data evidence search-context)
    :defaultDetail "primary"})
 
 (defn- candidate-files
@@ -893,7 +965,7 @@
    relationships blast-radius candidate-files plugin-packages]
   (cond-> {:schema schema
            :query query-text
-           :graph (graph-summary graph-data)
+           :graph (graph-summary graph-data evidence search-instrumentation)
            :budget {:requested budget}
            :entities entities
            :edges edges
