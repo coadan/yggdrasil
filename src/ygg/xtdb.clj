@@ -169,6 +169,51 @@
             (= value (get row field)))
           constraints))
 
+(declare rows-by-field)
+
+(def ^:private fallback-miss
+  ::fallback-miss)
+
+(defn- try-fallback-read
+  [f]
+  (try
+    (vec (f))
+    (catch Exception _
+      fallback-miss)))
+
+(defn- fallback-q
+  [xtdb query ctx]
+  (try
+    (q xtdb query ctx)
+    (catch clojure.lang.ArityException e
+      (if (seq ctx)
+        (throw e)
+        (q xtdb query)))))
+
+(defn- fallback-rows-by-field
+  [xtdb table field value ctx]
+  (try
+    (rows-by-field xtdb table field value ctx)
+    (catch clojure.lang.ArityException e
+      (if (seq ctx)
+        (throw e)
+        (rows-by-field xtdb table field value)))))
+
+(defn- relation-scope-query
+  [table scope-field]
+  (list 'fn
+        ['scope-value 'relation-value]
+        (list 'from table [{scope-field 'scope-value
+                            :relation 'relation-value}
+                           '*])))
+
+(defn- preferred-fallback-scope
+  [constraints]
+  (some (fn [field]
+          (when (contains? constraints field)
+            [field (get constraints field)]))
+        [:repo-id :project-id :file-id :path :target-id :source-id :xt/id :relation]))
+
 (defn rows-by-fields
   "Return rows from table where every field in constraints equals its value."
   ([xtdb table constraints] (rows-by-fields xtdb table constraints {}))
@@ -207,18 +252,42 @@
         (throw e)
         (all-rows xtdb table)))))
 
+(defn- fallback-constrained-rows
+  [xtdb table constraints ctx]
+  (let [scoped-relation-rows (fn [scope-field scope-value relation]
+                               (try-fallback-read
+                                #(fallback-q xtdb
+                                             [(relation-scope-query table scope-field)
+                                              scope-value
+                                              relation]
+                                             ctx)))
+        scoped-rows (fn [field value]
+                      (try-fallback-read
+                       #(fallback-rows-by-field xtdb table field value ctx)))
+        rows (or (when-let [relation (:relation constraints)]
+                   (or (when-let [repo-id (:repo-id constraints)]
+                         (let [rows (scoped-relation-rows :repo-id repo-id relation)]
+                           (when-not (= fallback-miss rows) rows)))
+                       (when-let [project-id (:project-id constraints)]
+                         (let [rows (scoped-relation-rows :project-id project-id relation)]
+                           (when-not (= fallback-miss rows) rows)))))
+                 (when-let [[field value] (preferred-fallback-scope constraints)]
+                   (let [rows (scoped-rows field value)]
+                     (when-not (= fallback-miss rows) rows)))
+                 (fallback-all-rows xtdb table ctx))]
+    (filter #(constraints-match? constraints %) rows)))
+
 (defn constrained-rows
   "Return rows matching equality constraints.
 
-  Uses XTQL constraints for real XTDB handles and preserves test-stub behavior by
-  falling back to all rows plus the same equality filter."
+  Uses XTQL constraints for real XTDB handles. Non-XTDB values are test doubles:
+  use narrow legacy stubs where available, then apply the same equality filter."
   ([xtdb table constraints] (constrained-rows xtdb table constraints {}))
   ([xtdb table constraints ctx]
    (let [constraints (clean-constraints constraints)]
      (if (and (seq constraints) (xtdb-handle? xtdb))
        (rows-by-fields xtdb table constraints ctx)
-       (->> (fallback-all-rows xtdb table ctx)
-            (filter #(constraints-match? constraints %)))))))
+       (fallback-constrained-rows xtdb table constraints ctx)))))
 
 (defn row-by-id
   "Return row by id from table."

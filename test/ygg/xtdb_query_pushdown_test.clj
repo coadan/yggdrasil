@@ -51,3 +51,57 @@
                                                {:project-id "project-a"})))))
     (is (= [[(:graph-cursors store/tables) {:project-id "project-a"}]]
            @calls))))
+
+(deftest constrained-rows-supports-legacy-non-xtdb-row-stubs
+  (let [calls (atom [])]
+    (with-redefs [store/rows-by-field
+                  (fn [_ table field value _ctx]
+                    (swap! calls conj [table field value])
+                    [{:xt/id "file:a"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :active? true}
+                     {:xt/id "file:inactive"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :active? false}
+                     {:xt/id "file:other"
+                      :project-id "project-b"
+                      :repo-id "app"
+                      :active? true}])]
+      (is (= ["file:a"]
+             (mapv :xt/id
+                   (store/constrained-rows
+                    :xtdb
+                    (:files store/tables)
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :active? true})))))
+    (is (= [[(:files store/tables) :repo-id "app"]]
+           @calls))))
+
+(deftest constrained-rows-supports-legacy-non-xtdb-relation-stubs
+  (let [queries (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query _ctx]
+                    (swap! queries conj query)
+                    [{:xt/id "edge:a"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :relation :imports
+                      :active? true}
+                     {:xt/id "edge:inactive"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :relation :imports
+                      :active? false}])]
+      (is (= ["edge:a"]
+             (mapv :xt/id
+                   (store/constrained-rows
+                    :xtdb
+                    (:edges store/tables)
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :relation :imports
+                     :active? true})))))
+    (is (= :imports (last (first @queries))))))

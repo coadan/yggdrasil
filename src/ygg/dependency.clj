@@ -10,62 +10,23 @@
 
 (defn- active-scope-rows
   [xtdb table {:keys [project-id repo-id]}]
-  (if (store/xtdb-handle? xtdb)
-    (vec (store/constrained-rows xtdb
-                                 table
-                                 {:project-id project-id
-                                  :repo-id repo-id
-                                  :active? true}))
-    (cond->> (cond
-               repo-id (store/rows-by-field xtdb table :repo-id repo-id)
-               project-id (store/rows-by-field xtdb table :project-id project-id)
-               :else (store/all-rows xtdb table))
-      true (filter :active?)
-      project-id (filter #(= project-id (:project-id %)))
-      repo-id (filter #(= repo-id (:repo-id %)))
-      true vec)))
-
-(defn- relation-scope-query
-  [table scope-field]
-  (list 'fn
-        ['scope-value 'relation-value]
-        (list 'from table [{scope-field 'scope-value
-                            :relation 'relation-value}
-                           '*])))
+  (vec (store/constrained-rows xtdb
+                               table
+                               {:project-id project-id
+                                :repo-id repo-id
+                                :active? true})))
 
 (defn- active-scope-edge-rows
-  [xtdb {:keys [project-id repo-id] :as scope} relations]
-  (if (store/xtdb-handle? xtdb)
-    (->> relations
-         (mapcat (fn [relation]
-                   (store/constrained-rows xtdb
-                                           (:edges store/tables)
-                                           {:project-id project-id
-                                            :repo-id repo-id
-                                            :relation relation
-                                            :active? true})))
-         vec)
-    (->> relations
-         (mapcat (fn [relation]
-                   (cond
-                     repo-id
-                     (store/q xtdb
-                              [(relation-scope-query (:edges store/tables) :repo-id)
-                               repo-id
-                               relation])
-
-                     project-id
-                     (store/q xtdb
-                              [(relation-scope-query (:edges store/tables) :project-id)
-                               project-id
-                               relation])
-
-                     :else
-                     (active-scope-rows xtdb (:edges store/tables) scope))))
-         (filter :active?)
-         (filter #(or (nil? project-id) (= project-id (:project-id %))))
-         (filter #(or (nil? repo-id) (= repo-id (:repo-id %))))
-         vec)))
+  [xtdb {:keys [project-id repo-id]} relations]
+  (->> relations
+       (mapcat (fn [relation]
+                 (store/constrained-rows xtdb
+                                         (:edges store/tables)
+                                         {:project-id project-id
+                                          :repo-id repo-id
+                                          :relation relation
+                                          :active? true})))
+       vec))
 
 (defn- package-node?
   [node]
