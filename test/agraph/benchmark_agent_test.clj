@@ -1382,6 +1382,34 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-uses-identity-compound-token-spans
+  (let [root (temp-dir "agraph-bench-identity-compound-token-spans")
+        _ (spit-file! root "src/TargetEngineDescriptor.java" "class TargetEngineDescriptor {}\n")
+        _ (spit-file! root "src/GenericDescriptor.java" "class GenericDescriptor {}\n")
+        packet {:query "Trace TargetEngineDescriptor ownership"
+                :candidateFiles [{:path "src/GenericDescriptor.java"
+                                  :rank 1
+                                  :score 1.1
+                                  :targetKind "node"
+                                  :label "GenericDescriptor.prepare"
+                                  :supportLabels ["generic engine descriptor"]
+                                  :scoreComponents {:lexical 0.6
+                                                    :graph 1.0}}
+                                 {:path "src/TargetEngineDescriptor.java"
+                                  :rank 2
+                                  :score 0.9
+                                  :targetKind "node"
+                                  :label "TargetEngineDescriptor.cleanUp"
+                                  :supportLabels ["TargetEngineDescriptor"]
+                                  :scoreComponents {:lexical 0.7
+                                                    :graph 0.0}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/TargetEngineDescriptor.java" "src/GenericDescriptor.java"]
+           (mapv :path files)))
+    (is (<= 3 (get-in files [0 :metrics :matchedIdentityCompoundTokenSpanLength])))
+    (is (pos? (get-in files [0 :metrics :identityCompoundTokenSpanScore])))))
+
 (deftest file-ranking-uses-doc-identity-compound-token-pairs
   (let [root (temp-dir "agraph-bench-doc-identity-compound-token-pairs")
         _ (spit-file! root "tests/Demo/TypeHandlerTests.cs" "class TypeHandlerTests {}\n")

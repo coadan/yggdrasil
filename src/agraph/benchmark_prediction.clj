@@ -23,6 +23,12 @@
   0.12)
 (def ^:private rank-score-identity-compound-pair-weight
   1.00)
+(def ^:private rank-score-identity-compound-span-min
+  3)
+(def ^:private rank-score-identity-compound-span-cap
+  2)
+(def ^:private rank-score-identity-compound-span-weight
+  0.8)
 (def ^:private rank-score-candidate-only-graph-weight
   3.0)
 (def ^:private rank-score-doc-supported-graph-weight
@@ -107,9 +113,53 @@
 (defn- identity-text
   [& values]
   (str/join "\n" (remove benchmark-util/blankish? values)))
+(defn- identity-tail
+  [value]
+  (when-not (benchmark-util/blankish? value)
+    (let [value (str value)
+          slash-tail (last (str/split value #"/"))
+          file-tail (str/replace slash-tail #"\.[A-Za-z0-9]+$" "")]
+      file-tail)))
+(defn- identity-tail-values
+  [& values]
+  (->> values
+       flatten
+       (keep identity-tail)
+       (remove benchmark-util/blankish?)))
 (defn- identity-compound-token-pair-matches
   [query-tokens & values]
   (compact-compound-token-pair-matches query-tokens (apply identity-text values)))
+(defn- token-windows
+  [n tokens]
+  (let [tokens (vec tokens)
+        n (long n)]
+    (when (and (pos? n)
+               (<= n (count tokens)))
+      (map #(subvec tokens % (+ % n))
+           (range (inc (- (count tokens) n)))))))
+(defn- token-window-match?
+  [tokens window]
+  (some #(= window %) (token-windows (count window) tokens)))
+(defn- identity-compound-token-span-length
+  [query-tokens & values]
+  (let [candidate-tokens (text/tokenize-all
+                          (apply identity-text
+                                 (apply identity-tail-values values)))
+        max-window (min (count query-tokens) (count candidate-tokens))]
+    (or (some (fn [n]
+                (when (some #(token-window-match? candidate-tokens %)
+                            (token-windows n query-tokens))
+                  n))
+              (range max-window
+                     (dec rank-score-identity-compound-span-min)
+                     -1))
+        0)))
+(defn- identity-compound-token-span-score
+  [span-length]
+  (* rank-score-identity-compound-span-weight
+     (min rank-score-identity-compound-span-cap
+          (max 0 (- (long (or span-length 0))
+                    (dec rank-score-identity-compound-span-min))))))
 (defn- retrieved-source-rank-score
   [retrieved-source-count first-source-rank]
   (if (and (pos? retrieved-source-count)
@@ -147,6 +197,8 @@
        :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
                                                query-tokens
                                                path)
+       :matched-identity-compound-token-span-length
+       (identity-compound-token-span-length query-tokens path (:heading source))
        :evidence [(str "context-doc:"
                        path
                        (line-label source)
@@ -190,6 +242,10 @@
                                                query-tokens
                                                (:path entity)
                                                (:label entity))
+       :matched-identity-compound-token-span-length
+       (identity-compound-token-span-length query-tokens
+                                            (:path entity)
+                                            (:label entity))
        :evidence [(str "graph-entity:"
                        (or (:label entity) path)
                        " path="
@@ -284,6 +340,12 @@
                  :matched-token-pairs matched-token-pairs
                  :matched-compound-token-pairs matched-compound-token-pairs
                  :matched-identity-compound-token-pairs matched-identity-compound-token-pairs
+                 :matched-identity-compound-token-span-length
+                 (apply identity-compound-token-span-length
+                        query-tokens
+                        (:path candidate)
+                        (:label candidate)
+                        support-labels)
                  :evidence [(candidate-file-evidence candidate
                                                      score-components
                                                      path)]
@@ -401,6 +463,11 @@
                                                  (:label row)
                                                  (:kind row)
                                                  (:relation row))
+         :matched-identity-compound-token-span-length
+         (identity-compound-token-span-length query-tokens
+                                              (:label row)
+                                              (:kind row)
+                                              (:relation row))
          :evidence [(architecture-file-evidence section row path)]
          :reason (str "AGraph architecture "
                       section
@@ -459,6 +526,14 @@
                              matched-identity-compound-token-pairs (->> ordered
                                                                         (mapcat :matched-identity-compound-token-pairs)
                                                                         set)
+                             matched-identity-compound-token-span-length
+                             (apply max
+                                    0
+                                    (keep :matched-identity-compound-token-span-length
+                                          ordered))
+                             identity-compound-span-score
+                             (identity-compound-token-span-score
+                              matched-identity-compound-token-span-length)
                              evidence (->> ordered
                                            (mapcat :evidence)
                                            (remove benchmark-util/blankish?)
@@ -510,6 +585,7 @@
                                            (* rank-score-identity-compound-pair-weight
                                               (min rank-score-ordered-pair-cap
                                                    (count matched-identity-compound-token-pairs)))
+                                           identity-compound-span-score
                                            (* 0.08 (min rank-score-support-count-cap
                                                         support-count))
                                            (* 0.08 (min rank-score-retrieved-source-count-cap
@@ -541,6 +617,12 @@
                                        (seq matched-identity-compound-token-pairs)
                                        (assoc :matchedIdentityCompoundTokenPairCount
                                               (count matched-identity-compound-token-pairs))
+                                       (pos? matched-identity-compound-token-span-length)
+                                       (assoc :matchedIdentityCompoundTokenSpanLength
+                                              matched-identity-compound-token-span-length)
+                                       (pos? identity-compound-span-score)
+                                       (assoc :identityCompoundTokenSpanScore
+                                              identity-compound-span-score)
                                        (pos? source-rank-score)
                                        (assoc :sourceRankScore source-rank-score)
                                        (pos? graph-neighbor-score)
@@ -581,6 +663,7 @@
                                     :matched-token-pairs
                                     :matched-compound-token-pairs
                                     :matched-identity-compound-token-pairs
+                                    :matched-identity-compound-token-span-length
                                     :definition-kind)
                             (assoc :rank (inc idx)))))
          vec)))
