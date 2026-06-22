@@ -268,7 +268,7 @@
            selection
            file
            core-counts
-           enhanced-counts
+           transformed-counts
            counts
            diagnostics]}]
   (println "# Plugin Dry Run")
@@ -298,8 +298,8 @@
   (print-plugin-selection selection)
   (when core-counts
     (println "- core" core-counts))
-  (when enhanced-counts
-    (println "- enhanced" enhanced-counts))
+  (when transformed-counts
+    (println "- transformed" transformed-counts))
   (when counts
     (println "- output" counts))
   (when (seq diagnostics)

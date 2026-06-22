@@ -599,8 +599,8 @@
                        :selected 1
                        :skipped 0}}
              (:selection dry-run)))
-      (is (pos? (get-in dry-run [:enhanced-counts :file-facts])))
-      (is (pos? (get-in dry-run [:enhanced-counts :chunks])))
+      (is (pos? (get-in dry-run [:transformed-counts :file-facts])))
+      (is (pos? (get-in dry-run [:transformed-counts :chunks])))
       (is (some #(= "demo-plugin-extractor" (:plugin-id %))
                 (get-in dry-run [:rows :file-facts])))
       (is (= "demo-plugin"
@@ -855,8 +855,8 @@
       (is (= :htmx (get-in dry-run [:file :kind])))
       (is (= true (get-in dry-run [:file :plugin-scanned?])))
       (is (= ["htmx-plugin-extractor"] (get-in dry-run [:file :plugin-ids])))
-      (is (pos? (get-in dry-run [:enhanced-counts :file-facts])))
-      (is (pos? (get-in dry-run [:enhanced-counts :chunks]))))))
+      (is (pos? (get-in dry-run [:transformed-counts :file-facts])))
+      (is (pos? (get-in dry-run [:transformed-counts :chunks]))))))
 
 (deftest dry-run-fails-when-package-has-no-plugin-for-selected-lane
   (let [workspace (temp-dir "ygg-plugin-empty-lane")

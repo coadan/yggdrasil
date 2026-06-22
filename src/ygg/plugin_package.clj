@@ -1909,7 +1909,7 @@
      :file {:path (str file)
             :root root-path}
      :core-counts (counts rows)
-     :enhanced-counts (counts rows)
+     :transformed-counts (counts rows)
      :diagnostics diagnostics
      :rows rows}))
 
@@ -2280,32 +2280,32 @@
              :file {:path (str file)
                     :root root-path}
              :core-counts (counts rows)
-             :enhanced-counts (counts rows)
+             :transformed-counts (counts rows)
              :diagnostics diagnostics
              :rows (assoc rows :diagnostics diagnostics)})
           (let [file-record (file-record-for-dry-run root-path file plugins)
                 run-id "run:plugin-dry-run"
                 extract-file (requiring-resolve 'ygg.extract/extract-file)
                 core (extract-file run-id file-record)
-                enhanced (extractor-plugin/enhance-extraction
-                          {:plugins plugins
-                           :run-id run-id
-                           :project-id "plugin-dry-run"
-                           :repo-id "repo"
-                           :root-path root-path
-                           :file file-record}
-                          core)]
+                transformed (extractor-plugin/transform-extraction
+                             {:plugins plugins
+                              :run-id run-id
+                              :project-id "plugin-dry-run"
+                              :repo-id "repo"
+                              :root-path root-path
+                              :file file-record}
+                             core)]
             {:schema dry-run-schema
              :kind :extractor
-             :status (if (seq (:diagnostics enhanced)) :warning :passed)
+             :status (if (seq (:diagnostics transformed)) :warning :passed)
              :package (package-summary package)
              :plugins plugin-summaries
              :selection selection
              :file (select-keys file-record [:file-id :path :kind :plugin-scanned? :plugin-ids])
              :core-counts (counts core)
-             :enhanced-counts (counts enhanced)
-             :diagnostics (:diagnostics enhanced)
-             :rows enhanced}))))))
+             :transformed-counts (counts transformed)
+             :diagnostics (:diagnostics transformed)
+             :rows transformed}))))))
 
 (defn- report-dry-run-context
   [package-dir package]

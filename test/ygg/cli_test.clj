@@ -480,7 +480,7 @@
                                                       :file {:path file
                                                              :kind :code}
                                                       :core-counts {:nodes 1}
-                                                      :enhanced-counts {:nodes 2}
+                                                      :transformed-counts {:nodes 2}
                                                       :diagnostics []})
                   plugin-package/dry-run-report (fn [dir opts]
                                                   (swap! calls conj [:dry-run-report dir opts])
@@ -949,7 +949,7 @@
                      :plugins []
                      :file {:path file}
                      :core-counts {:nodes 0}
-                     :enhanced-counts {:nodes 0}
+                     :transformed-counts {:nodes 0}
                      :diagnostics [diagnostic]
                      :rows {:diagnostics [diagnostic]}})]
       (let [error (atom nil)

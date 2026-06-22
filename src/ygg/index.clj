@@ -497,7 +497,7 @@
                                                                    facts)
                                                             file)
                                                      core-extraction (extract/extract-file run-id file)
-                                                     extraction (extractor-plugin/enhance-extraction
+                                                     extraction (extractor-plugin/transform-extraction
                                                                  {:plugins extractors
                                                                   :run-id run-id
                                                                   :project-id project-id

@@ -240,12 +240,12 @@
 (defn applicable-plugins
   "Return normalized plugins that should run for `file`."
   [plugins file]
-  (let [enhancers (filter #(plugin-applies-to-file? % file) plugins)
+  (let [transformers (filter #(plugin-applies-to-file? % file) plugins)
         scanned-ids (set (:plugin-ids file))
         scanners (filter #(and (contains? (:modes %) :scan)
                                (contains? scanned-ids (:id %)))
                          plugins)]
-    (->> (concat enhancers scanners)
+    (->> (concat transformers scanners)
          (distinct)
          vec)))
 
@@ -636,7 +636,7 @@
             extraction
             row-buckets)))
 
-(defn enhance-extraction
+(defn transform-extraction
   "Run applicable plugins for a file and merge valid plugin output over core rows."
   [{:keys [plugins file] :as ctx} extraction]
   (let [applicable (applicable-plugins plugins file)]
