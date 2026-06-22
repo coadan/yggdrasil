@@ -372,6 +372,7 @@
                  :status :running
                  :started-at-ms started
                  :finished-at-ms nil
+                 :active? true
                  :stats {:files-scanned (count files)
                          :files-indexed 0
                          :files-skipped 0

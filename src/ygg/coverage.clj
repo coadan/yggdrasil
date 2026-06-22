@@ -202,7 +202,7 @@
 
 (defn- active-index-row?
   [row]
-  (not= false (:active? row)))
+  (true? (:active? row)))
 
 (defn- scope-match?
   [{:keys [project-id repo-id]} row]
@@ -217,7 +217,9 @@
                                  (not (str/blank? (str project-id)))
                                  (assoc :project-id project-id)
                                  (not (str/blank? (str repo-id)))
-                                 (assoc :repo-id repo-id))
+                                 (assoc :repo-id repo-id)
+                                 true
+                                 (assoc :active? true))
                                (store/read-context read-context))
        (filter active-index-row?)
        (filter #(scope-match? {:project-id project-id :repo-id repo-id} %))

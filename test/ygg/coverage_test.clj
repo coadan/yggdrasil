@@ -79,7 +79,8 @@
     (spit-file! root "src/app.clj" "(ns app)\n")
     (with-redefs [store/constrained-rows (fn [_ table constraints & [_ctx]]
                                            (case [table constraints]
-                                             [:ygg/files {:project-id "fixture"}]
+                                             [:ygg/files {:project-id "fixture"
+                                                          :active? true}]
                                              [{:xt/id "file:app"
                                                :project-id "fixture"
                                                :repo-id "app"
@@ -87,7 +88,8 @@
                                                :kind :code
                                                :active? true}]
 
-                                             [:ygg/index-diagnostics {:project-id "fixture"}]
+                                             [:ygg/index-diagnostics {:project-id "fixture"
+                                                                      :active? true}]
                                              [{:file-id "file:app"
                                                :project-id "fixture"
                                                :repo-id "app"
@@ -301,24 +303,28 @@
                                      :repo-id "app"
                                      :status :completed
                                      :finished-at-ms 10
+                                     :active? true
                                      :stats {:files-skipped 5}}
                                     {:xt/id "run:latest"
                                      :project-id "fixture"
                                      :repo-id "app"
                                      :status :completed
                                      :finished-at-ms 20
+                                     :active? true
                                      :stats {:files-skipped 2}}
                                     {:xt/id "run:running"
                                      :project-id "fixture"
                                      :repo-id "app"
                                      :status :running
                                      :finished-at-ms 30
+                                     :active? true
                                      :stats {:files-skipped 9}}
                                     {:xt/id "run:other"
                                      :project-id "fixture"
                                      :repo-id "other"
                                      :status :completed
                                      :finished-at-ms 30
+                                     :active? true
                                      :stats {:files-skipped 7}}]
                                    []))]
     (let [summary (coverage/context-summary
@@ -370,7 +376,8 @@
     (spit-file! root "src/app.clj" "(ns app)\n")
     (with-redefs [store/constrained-rows (fn [_ table constraints & [_ctx]]
                                            (case [table constraints]
-                                             [:ygg/files {:project-id "fixture"}]
+                                             [:ygg/files {:project-id "fixture"
+                                                          :active? true}]
                                              [{:xt/id "file:app"
                                                :project-id "fixture"
                                                :repo-id "app"
@@ -393,7 +400,8 @@
                                                :extractor-fingerprint "extractor:java-old"
                                                :active? false}]
 
-                                             [:ygg/index-diagnostics {:project-id "fixture"}]
+                                             [:ygg/index-diagnostics {:project-id "fixture"
+                                                                      :active? true}]
                                              []
 
                                              []))]
@@ -419,7 +427,8 @@
     (spit-file! root "src/app.clj" "(ns app)\n")
     (with-redefs [store/constrained-rows (fn [_ table constraints & [_ctx]]
                                            (case [table constraints]
-                                             [:ygg/files {:project-id "fixture"}]
+                                             [:ygg/files {:project-id "fixture"
+                                                          :active? true}]
                                              [{:xt/id "file:app"
                                                :project-id "fixture"
                                                :repo-id "app"
@@ -451,7 +460,8 @@
                                                :kind :java
                                                :active? false}]
 
-                                             [:ygg/nodes {:project-id "fixture"}]
+                                             [:ygg/nodes {:project-id "fixture"
+                                                          :active? true}]
                                              [{:xt/id "node:app"
                                                :project-id "fixture"
                                                :repo-id "app"
@@ -478,7 +488,8 @@
                                                :file-id "file:inactive"
                                                :active? false}]
 
-                                             [:ygg/edges {:project-id "fixture"}]
+                                             [:ygg/edges {:project-id "fixture"
+                                                          :active? true}]
                                              [{:xt/id "edge:app-helper"
                                                :project-id "fixture"
                                                :repo-id "app"
@@ -498,7 +509,8 @@
                                                :target-id "node:inactive"
                                                :active? false}]
 
-                                             [:ygg/index-diagnostics {:project-id "fixture"}]
+                                             [:ygg/index-diagnostics {:project-id "fixture"
+                                                                      :active? true}]
                                              []
 
                                              []))]
