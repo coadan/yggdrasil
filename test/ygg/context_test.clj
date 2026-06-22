@@ -6,6 +6,7 @@
             [ygg.dependency :as dependency]
             [ygg.graph :as graph]
             [ygg.query :as query]
+            [ygg.text :as text]
             [ygg.xtdb :as store]
             [clojure.test :refer [deftest is]]))
 
@@ -1860,6 +1861,149 @@
                :scoreComponents {:lexical 0.2
                                  :graph 0.6}}]
              (:candidateFiles packet))))))
+
+(deftest source-graph-candidates-surface-query-matched-source-rows
+  (with-redefs [store/xtdb-handle? (constantly true)
+                query/all-nodes (fn [_ opts]
+                                  (is (= {:project-id "fixture"
+                                          :repo-id "app"
+                                          :read-context {:valid-at "t"}}
+                                         opts))
+                                  [{:xt/id "node:config"
+                                    :project-id "fixture"
+                                    :repo-id "app"
+                                    :path "site/astro.config.ts"
+                                    :kind :web-framework-plugin
+                                    :label "bootstrap"
+                                    :source-line 12}
+                                   {:xt/id "node:unrelated"
+                                    :project-id "fixture"
+                                    :repo-id "app"
+                                    :path "src/other.clj"
+                                    :kind :namespace
+                                    :label "unrelated"}])
+                query/all-files (fn [_ opts]
+                                  (is (= {:project-id "fixture"
+                                          :repo-id "app"
+                                          :read-context {:valid-at "t"}}
+                                         opts))
+                                  [{:xt/id "file:astro"
+                                    :project-id "fixture"
+                                    :repo-id "app"
+                                    :path "site/astro.config.ts"
+                                    :kind :javascript
+                                    :active? true}
+                                   {:xt/id "file:other"
+                                    :project-id "fixture"
+                                    :repo-id "app"
+                                    :path "src/other.clj"
+                                    :kind :clojure
+                                    :active? true}])]
+    (let [rows (#'context/source-graph-candidates
+                :xtdb
+                (text/tokenize-all "Astro config bootstrap")
+                {:project-id "fixture"
+                 :repo-id "app"
+                 :read-context {:valid-at "t"}})
+          by-kind (group-by :target-kind rows)]
+      (is (= [{:path "site/astro.config.ts"
+               :target-kind :node
+               :label "bootstrap"
+               :kind :web-framework-plugin
+               :result-kind :node
+               :reason "query-matched source graph row"
+               :repo-id "app"
+               :repo "app"
+               :source-line 12}]
+             (mapv #(select-keys % [:path
+                                    :target-kind
+                                    :label
+                                    :kind
+                                    :result-kind
+                                    :reason
+                                    :repo-id
+                                    :repo
+                                    :source-line])
+                   (:node by-kind))))
+      (is (= [{:path "site/astro.config.ts"
+               :target-kind :file
+               :label "site/astro.config.ts"
+               :kind :javascript
+               :result-kind :file
+               :reason "query-matched source graph row"
+               :repo-id "app"
+               :repo "app"}]
+             (mapv #(select-keys % [:path
+                                    :target-kind
+                                    :label
+                                    :kind
+                                    :result-kind
+                                    :reason
+                                    :repo-id
+                                    :repo])
+                   (:file by-kind)))))))
+
+(deftest context-packet-ranks-source-graph-candidates-before-low-score-results
+  (with-redefs [store/xtdb-handle? (constantly true)
+                query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :instrumentation {:search-docs 1
+                                                         :returned-count 1}
+                                       :results [{:path "site/src/pages/docs/index.astro"
+                                                  :score 0.9
+                                                  :target-kind :node
+                                                  :target-id "node:docs"
+                                                  :label "site.src.pages.docs.index"}]})
+                query/all-nodes (fn [_ _]
+                                  [{:xt/id "node:config"
+                                    :project-id "fixture"
+                                    :repo-id "app"
+                                    :path "site/astro.config.ts"
+                                    :kind :web-framework-plugin
+                                    :label "bootstrap"
+                                    :source-line 12}])
+                query/all-files (fn [_ _] [])
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "Astro config bootstrap"
+                                         {:project-id "fixture"
+                                          :repo-id "app"
+                                          :retriever :lexical})]
+      (is (= {:path "site/astro.config.ts"
+              :rank 1
+              :targetKind "node"
+              :label "bootstrap"
+              :kind "web-framework-plugin"
+              :resultKind "node"
+              :reason "query-matched source graph row"
+              :repo "app"
+              :sourceLine 12}
+             (select-keys (first (:candidateFiles packet))
+                          [:path
+                           :rank
+                           :targetKind
+                           :label
+                           :kind
+                           :resultKind
+                           :reason
+                           :repo
+                           :sourceLine])))
+      (is (= (:score (first (:candidateFiles packet)))
+             (get-in (first (:candidateFiles packet))
+                     [:scoreComponents :sourceGraph]))))))
 
 (deftest candidate-files-merge-line-range-from-duplicate-results
   (with-redefs [query/search-report (fn [_ _ _]

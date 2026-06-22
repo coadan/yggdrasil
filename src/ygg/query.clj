@@ -112,6 +112,11 @@
   ([xtdb opts]
    (scoped-rows xtdb (:nodes store/tables) opts)))
 
+(defn all-files
+  ([xtdb] (all-files xtdb {}))
+  ([xtdb opts]
+   (scoped-rows xtdb (:files store/tables) opts {:active? true})))
+
 (defn all-edges
   ([xtdb] (all-edges xtdb {}))
   ([xtdb opts]

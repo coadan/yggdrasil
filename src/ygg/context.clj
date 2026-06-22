@@ -39,6 +39,12 @@
 (def default-retrieval-limit
   40)
 
+(def ^:private source-graph-candidate-limit
+  40)
+
+(def ^:private source-graph-candidate-min-score
+  1.0)
+
 (def unsupported-planes
   [:remote-work :session-history])
 
@@ -722,6 +728,72 @@
          vals
          (sort-by (juxt :rank :repo :path))
          vec)))
+
+(defn- source-graph-candidate-score
+  [query-tokens row]
+  (token-score query-tokens
+               (text/tokenize-all
+                (compact (:path row)
+                         (:label row)
+                         (:name row)
+                         (:kind row)))))
+
+(defn- source-graph-candidates
+  [xtdb query-tokens {:keys [project-id repo-id read-context]}]
+  (if-not (store/xtdb-handle? xtdb)
+    []
+    (->> (concat
+          (query/all-nodes xtdb
+                           {:project-id project-id
+                            :repo-id repo-id
+                            :read-context read-context})
+          (query/all-files xtdb
+                           {:project-id project-id
+                            :repo-id repo-id
+                            :read-context read-context}))
+         (keep (fn [row]
+                 (let [path (not-empty (str (:path row)))
+                       score (source-graph-candidate-score query-tokens row)]
+                   (when (and path
+                              (<= source-graph-candidate-min-score score))
+                     (cond-> {:path path
+                              :rank 0
+                              :score score
+                              :target-kind (if (:label row) :node :file)
+                              :label (or (:label row) (:path row))
+                              :kind (:kind row)
+                              :result-kind (if (:label row) :node :file)
+                              :reason "query-matched source graph row"
+                              :score-components {:sourceGraph score}}
+                       (:repo-id row) (assoc :repo-id (:repo-id row)
+                                             :repo (:repo-id row))
+                       (:source-line row) (assoc :source-line (:source-line row))
+                       (:end-line row) (assoc :end-line (:end-line row)))))))
+         (sort-by (juxt (comp - :score)
+                        :repo
+                        :path
+                        :label))
+         (take source-graph-candidate-limit)
+         (map-indexed #(assoc %2 :rank (inc %1)))
+         vec)))
+
+(defn- candidate-input-score
+  [row]
+  (double (or (:score row) 0.0)))
+
+(defn- ranked-candidate-inputs
+  [results source-candidates]
+  (if-not (seq source-candidates)
+    results
+    (->> (concat results source-candidates)
+         (map-indexed (fn [idx row]
+                        (assoc row ::candidate-input-index idx)))
+         (sort-by (juxt (comp - candidate-input-score)
+                        #(or (:repo-id %) (:repo %) "")
+                        #(or (:path %) "")
+                        #(or (:label %) "")
+                        ::candidate-input-index))
+         (map #(dissoc % ::candidate-input-index)))))
 
 (defn- relationship-groups
   [edges]
@@ -1409,6 +1481,12 @@
                                             :repo-id repo-id
                                             :read-context read-context})
         results (:results search-report)
+        source-candidates (source-graph-candidates
+                           xtdb
+                           query-tokens
+                           {:project-id project-id
+                            :repo-id repo-id
+                            :read-context read-context})
         graph-data (graph/system-graph xtdb
                                        project-id
                                        {:limit graph/default-node-limit
@@ -1521,7 +1599,8 @@
                              audit-scopes
                              (relationship-groups edges)
                              blast-radius
-                             (candidate-files results)
+                             (candidate-files
+                              (ranked-candidate-inputs results source-candidates))
                              plugin-packages)
                 docs
                 budget)))
