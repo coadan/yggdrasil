@@ -326,6 +326,63 @@
                        (list 'return return-projections)))]
           values)))
 
+(defn- tuple-values-query
+  [table tuple-fields tuples constraints return-fields]
+  (let [match-keys (mapv #(keyword (str "match" %)) (range (count tuple-fields)))
+        match-symbols (mapv #(symbol (str "match" %)) (range (count tuple-fields)))
+        tuple-rows (mapv (fn [tuple]
+                           (into {}
+                                 (map (fn [[match-key field]]
+                                        [match-key (get tuple field)]))
+                                 (map vector match-keys tuple-fields)))
+                         tuples)
+        constraints (->> (apply dissoc
+                                (clean-constraints constraints)
+                                tuple-fields)
+                         (sort-by (comp str key))
+                         vec)
+        terms (map-indexed (fn [idx [constraint-field value]]
+                             [constraint-field (symbol (str "v" idx)) value])
+                           constraints)
+        args (mapv second terms)
+        base-bindings (into (zipmap tuple-fields match-symbols)
+                            (map (fn [[constraint-field arg _]]
+                                   [constraint-field arg]))
+                            terms)
+        return-fields (vec (distinct return-fields))
+        return-bindings (->> return-fields
+                             (remove #(contains? base-bindings %))
+                             (map-indexed (fn [idx return-field]
+                                            [return-field
+                                             (symbol (str "ret" idx))]))
+                             (into {}))
+        bindings (merge base-bindings return-bindings)
+        return-projections (into {}
+                                 (map (fn [return-field]
+                                        [return-field
+                                         (get bindings return-field)]))
+                                 return-fields)
+        values (mapv (fn [[_ _ value]] value) terms)]
+    (into [(list 'fn
+                 args
+                 (list '->
+                       (list 'unify
+                             (list 'rel tuple-rows match-symbols)
+                             (list 'from table [bindings]))
+                       (list 'return return-projections)))]
+          values)))
+
+(defn- normalize-match-tuple
+  [tuple-fields tuple]
+  (let [tuple (cond
+                (map? tuple) tuple
+                (sequential? tuple) (zipmap tuple-fields tuple)
+                :else nil)
+        values (mapv #(get tuple %) tuple-fields)]
+    (when-not (or (nil? tuple)
+                  (some nil? values))
+      (zipmap tuple-fields values))))
+
 (defn rows-with-field-values
   "Return rows where field equals any value.
 
@@ -349,6 +406,35 @@
       (let [value-set (set values)]
         (->> (fallback-constrained-rows xtdb table constraints read-context)
              (filter #(contains? value-set (get % field))))))))
+
+(defn rows-with-field-tuples
+  "Return rows where tuple-fields equal any supplied tuple.
+
+  This is the multi-column form of `rows-with-field-values`, intended for exact
+  bounded lookups such as current embedding `(target-id, input-sha)` pairs. Real
+  XTDB handles use XTQL `rel`/`unify` with explicit projections."
+  [xtdb {:keys [table tuple-fields tuples constraints return-fields read-context]
+         :or {constraints {}
+              read-context {}}}]
+  (let [tuple-fields (vec tuple-fields)
+        tuples (->> tuples
+                    (keep #(normalize-match-tuple tuple-fields %))
+                    distinct
+                    vec)
+        tuple-key (fn [row] (mapv #(get row %) tuple-fields))]
+    (cond
+      (or (empty? tuple-fields) (empty? tuples))
+      []
+
+      (xtdb-handle? xtdb)
+      (q xtdb
+         (tuple-values-query table tuple-fields tuples constraints return-fields)
+         read-context)
+
+      :else
+      (let [tuple-set (set (map tuple-key tuples))]
+        (->> (fallback-constrained-rows xtdb table constraints read-context)
+             (filter #(contains? tuple-set (tuple-key %))))))))
 
 (defn edge-rows-touching-ids
   "Return source graph edges whose source or target is in ids.

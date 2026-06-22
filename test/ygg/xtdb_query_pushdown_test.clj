@@ -140,6 +140,50 @@
       (is (some #(str/includes? % ":target-id match-value") queries))
       (is (not-any? #(str/includes? % "*") queries)))))
 
+(deftest rows-with-field-tuples-uses-bounded-xtql-unify-query
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (swap! calls conj {:query query
+                                       :ctx ctx})
+                    [{:xt/id "embedding:a"
+                      :target-id "target:a"
+                      :input-sha "sha:a"}])]
+      (is (= ["embedding:a"]
+             (mapv :xt/id
+                   (store/rows-with-field-tuples
+                    {:node :stub}
+                    {:table (:embeddings store/tables)
+                     :tuple-fields [:target-id :input-sha]
+                     :tuples [{:target-id "target:a" :input-sha "sha:a"}
+                              {:target-id "target:b" :input-sha "sha:b"}
+                              {:target-id "target:a" :input-sha "sha:a"}
+                              {:target-id "target:c"}]
+                     :constraints {:project-id "project-a"
+                                   :provider :fake
+                                   :model "fake-model"
+                                   :active? true}
+                     :return-fields [:xt/id
+                                     :project-id
+                                     :target-id
+                                     :provider
+                                     :model
+                                     :input-sha
+                                     :active?]
+                     :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})))))
+    (is (= 1 (count @calls)))
+    (is (= {:valid-at #inst "2026-01-01T00:00:00Z"} (:ctx (first @calls))))
+    (let [query-text (pr-str (:query (first @calls)))]
+      (is (str/includes? query-text "unify"))
+      (is (str/includes? query-text "rel"))
+      (is (str/includes? query-text ":target-id match0"))
+      (is (str/includes? query-text ":input-sha match1"))
+      (is (str/includes? query-text ":project-id v"))
+      (is (str/includes? query-text ":provider v"))
+      (is (not (str/includes? query-text "*")))
+      (is (= 1 (count (re-seq #"target:a" query-text))))
+      (is (not (str/includes? query-text "target:c"))))))
+
 (deftest system-edges-touching-ids-use-bounded-xtql-unify-queries
   (let [calls (atom [])]
     (with-redefs [store/q

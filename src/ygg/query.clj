@@ -818,7 +818,12 @@
                                                                      query-text))
                                      [embeddings timings] (timed timings
                                                                  :load-embeddings-ms
-                                                                 #(vec (all-embeddings xtdb scope)))]
+                                                                 #(vec (embedding/current-embeddings-for-docs
+                                                                        xtdb
+                                                                        docs
+                                                                        (assoc scope
+                                                                               :provider (:provider embedding-client)
+                                                                               :model (:model embedding-client)))))]
                                  (timed timings
                                         :semantic-score-ms
                                         #(semantic-scores query-vector

@@ -72,19 +72,54 @@
                             :model model
                             :active? true})))
 
+(def embedding-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :target-id
+   :provider
+   :model
+   :dims
+   :input-sha
+   :vector
+   :created-at-ms
+   :active?])
+
 (defn- embedded-key
   [{:keys [target-id provider model input-sha]}]
   [target-id provider model input-sha])
 
+(defn current-embeddings-for-docs
+  "Return active embedding rows that exactly match docs' target/input tuples."
+  [xtdb docs {:keys [project-id repo-id provider model read-context]}]
+  (let [tuples (map #(select-keys % [:target-id :input-sha]) docs)]
+    (store/rows-with-field-tuples
+     xtdb
+     {:table (:embeddings store/tables)
+      :tuple-fields [:target-id :input-sha]
+      :tuples tuples
+      :constraints {:project-id project-id
+                    :repo-id repo-id
+                    :provider provider
+                    :model model
+                    :active? true}
+      :return-fields embedding-row-query-fields
+      :read-context read-context})))
+
 (defn pending-search-docs
   "Return search docs without a current embedding for provider/model/input."
   [xtdb {:keys [provider model limit project-id repo-id]}]
-  (let [done (into #{} (map embedded-key) (all-embeddings xtdb {:project-id project-id
-                                                                :repo-id repo-id
-                                                                :provider provider
-                                                                :model model}))
-        docs (->> (all-search-docs xtdb {:project-id project-id :repo-id repo-id})
-                  (remove #(contains? done [(:target-id %) provider model (:input-sha %)])))]
+  (let [docs (vec (all-search-docs xtdb {:project-id project-id
+                                         :repo-id repo-id}))
+        done (into #{} (map embedded-key) (current-embeddings-for-docs
+                                           xtdb
+                                           docs
+                                           {:project-id project-id
+                                            :repo-id repo-id
+                                            :provider provider
+                                            :model model}))
+        docs (remove #(contains? done [(:target-id %) provider model (:input-sha %)])
+                     docs)]
     (if limit
       (take limit docs)
       docs)))
