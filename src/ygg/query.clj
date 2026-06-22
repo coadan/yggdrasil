@@ -95,6 +95,31 @@
            [[] #{}]
            coll)))
 
+(declare all-nodes all-system-nodes)
+
+(defn- rows-by-ids
+  [xtdb table ids opts all-fn]
+  (let [ids (distinct-by identity ids)
+        id-set (set ids)
+        rows (if (xtdb-handle? xtdb)
+               (keep #(store/row-by-id xtdb table % (read-context opts)) ids)
+               (filter #(contains? id-set (:xt/id %)) (all-fn xtdb opts)))]
+    (filter-scope rows opts)))
+
+(defn- nodes-by-ids
+  [xtdb ids opts]
+  (rows-by-ids xtdb (:nodes store/tables) ids opts all-nodes))
+
+(defn- system-nodes-by-ids
+  [xtdb ids opts]
+  (filter :active?
+          (rows-by-ids xtdb (:system-nodes store/tables) ids opts all-system-nodes)))
+
+(defn- first-scoped-row-by-id
+  [xtdb table id opts all-fn]
+  (when id
+    (first (rows-by-ids xtdb table [id] opts all-fn))))
+
 (defn all-nodes
   ([xtdb] (all-nodes xtdb {}))
   ([xtdb opts]
@@ -175,6 +200,14 @@
                opts
                {field id}))
 
+(defn- system-edges-by-endpoint
+  [xtdb field id opts]
+  (scoped-rows xtdb
+               (:system-edges store/tables)
+               opts
+               {:active? true
+                field id}))
+
 (defn- edges-touching-ids
   [xtdb ids opts]
   (->> ids
@@ -190,35 +223,61 @@
   ([xtdb value] (find-node xtdb value {}))
   ([xtdb value opts]
    (let [needle (str/lower-case (str value))
-         nodes (all-nodes xtdb opts)]
-     (or (some #(when (or (= value (:xt/id %))
-                          (= value (:label %)))
-                  %)
-               nodes)
-         (some #(when (and (= :namespace (:kind %))
-                           (or (= value (:namespace %))
-                               (= value (:name %))))
-                  %)
-               nodes)
-         (some #(when (= value (:name %)) %) nodes)
+         exact-id (first-scoped-row-by-id xtdb (:nodes store/tables) value opts all-nodes)
+         exact-label (first (scoped-rows xtdb
+                                         (:nodes store/tables)
+                                         opts
+                                         {:label value}))
+         exact-namespace (or (first (scoped-rows xtdb
+                                                 (:nodes store/tables)
+                                                 opts
+                                                 {:kind :namespace
+                                                  :namespace value}))
+                             (first (scoped-rows xtdb
+                                                 (:nodes store/tables)
+                                                 opts
+                                                 {:kind :namespace
+                                                  :name value})))
+         exact-name (first (scoped-rows xtdb
+                                        (:nodes store/tables)
+                                        opts
+                                        {:name value}))]
+     (or exact-id
+         exact-label
+         exact-namespace
+         exact-name
          (some #(when (str/includes? (str/lower-case (:label %)) needle) %)
-               nodes)))))
+               (all-nodes xtdb opts))))))
 
 (defn find-system-node
   "Find system node by exact id, label, system key, or substring."
   ([xtdb value] (find-system-node xtdb value {}))
   ([xtdb value opts]
    (let [needle (str/lower-case (str value))
-         nodes (all-system-nodes xtdb opts)]
-     (or (some #(when (or (= value (:xt/id %))
-                          (= value (:label %))
-                          (= value (:system-key %)))
-                  %)
-               nodes)
-         (some #(when (str/includes? (str/lower-case (:label %)) needle) %)
-               nodes)
-         (some #(when (str/includes? (str/lower-case (:system-key %)) needle) %)
-               nodes)))))
+         exact-id-row (first-scoped-row-by-id xtdb
+                                              (:system-nodes store/tables)
+                                              value
+                                              opts
+                                              all-system-nodes)
+         exact-id (when (:active? exact-id-row) exact-id-row)
+         exact-label (first (scoped-rows xtdb
+                                         (:system-nodes store/tables)
+                                         opts
+                                         {:active? true
+                                          :label value}))
+         exact-system-key (first (scoped-rows xtdb
+                                              (:system-nodes store/tables)
+                                              opts
+                                              {:active? true
+                                               :system-key value}))]
+     (or exact-id
+         exact-label
+         exact-system-key
+         (let [nodes (all-system-nodes xtdb opts)]
+           (or (some #(when (str/includes? (str/lower-case (:label %)) needle) %)
+                     nodes)
+               (some #(when (str/includes? (str/lower-case (:system-key %)) needle) %)
+                     nodes)))))))
 
 (defn deps
   "Return incoming/outgoing dependencies for node."
@@ -226,8 +285,13 @@
   ([xtdb value opts]
    (let [node (find-node xtdb value opts)
          id (:xt/id node)
-         nodes-by-id (into {} (map (juxt :xt/id identity)) (all-nodes xtdb opts))
-         edges (all-edges xtdb opts)
+         edges (if id
+                 (edges-touching-ids xtdb [id] opts)
+                 [])
+         endpoint-ids (mapcat (juxt :source-id :target-id) edges)
+         nodes-by-id (into {} (map (juxt :xt/id identity)) (nodes-by-ids xtdb
+                                                                         endpoint-ids
+                                                                         opts))
          with-target #(assoc % :target (get nodes-by-id (:target-id %)))
          with-source #(assoc % :source (get nodes-by-id (:source-id %)))]
      {:node node
@@ -669,21 +733,27 @@
   [model]
   (openai/client {:model (or model openai/default-model)}))
 
-(defn- shortest-directed-path
-  [source-id target-id nodes-by-id edges]
-  (let [outgoing (group-by :source-id edges)]
-    (loop [queue (conj clojure.lang.PersistentQueue/EMPTY [source-id])
-           seen #{source-id}]
-      (when-let [path (peek queue)]
-        (let [current (peek path)]
-          (if (= current target-id)
-            (mapv #(get nodes-by-id %) path)
-            (let [neighbors (->> (get outgoing current)
-                                 (map :target-id)
-                                 (remove seen))
-                  next-paths (map #(conj path %) neighbors)]
-              (recur (into (pop queue) next-paths)
-                     (into seen neighbors)))))))))
+(defn- shortest-directed-path-ids
+  [source-id target-id outgoing-target-ids]
+  (loop [queue (conj clojure.lang.PersistentQueue/EMPTY [source-id])
+         seen #{source-id}]
+    (when-let [path (peek queue)]
+      (let [current (peek path)]
+        (if (= current target-id)
+          path
+          (let [neighbors (->> (outgoing-target-ids current)
+                               (remove seen)
+                               vec)
+                next-paths (map #(conj path %) neighbors)]
+            (recur (into (pop queue) next-paths)
+                   (into seen neighbors))))))))
+
+(defn- path-rows
+  [xtdb path-ids opts nodes-by-id]
+  (let [nodes-by-id (into nodes-by-id
+                          (map (juxt :xt/id identity))
+                          (nodes-by-ids xtdb path-ids opts))]
+    (mapv #(get nodes-by-id %) path-ids)))
 
 (defn graph-path
   "Return shortest directed path between two node queries."
@@ -691,11 +761,17 @@
   ([xtdb source-value target-value opts]
    (let [source (find-node xtdb source-value opts)
          target (find-node xtdb target-value opts)
-         target-id (:xt/id target)
-         nodes-by-id (into {} (map (juxt :xt/id identity)) (all-nodes xtdb opts))
-         edges (all-edges xtdb opts)]
+         target-id (:xt/id target)]
      (when (and source target)
-       (shortest-directed-path (:xt/id source) target-id nodes-by-id edges)))))
+       (when-let [path-ids (shortest-directed-path-ids
+                            (:xt/id source)
+                            target-id
+                            #(map :target-id (edges-by-endpoint xtdb :source-id % opts)))]
+         (path-rows xtdb
+                    path-ids
+                    opts
+                    {(:xt/id source) source
+                     target-id target}))))))
 
 (defn system-path
   "Return shortest directed path between two system queries."
@@ -703,11 +779,20 @@
   ([xtdb source-value target-value opts]
    (let [source (find-system-node xtdb source-value opts)
          target (find-system-node xtdb target-value opts)
-         target-id (:xt/id target)
-         nodes-by-id (into {} (map (juxt :xt/id identity)) (all-system-nodes xtdb opts))
-         edges (all-system-edges xtdb opts)]
+         target-id (:xt/id target)]
      (when (and source target)
-       (shortest-directed-path (:xt/id source) target-id nodes-by-id edges)))))
+       (when-let [path-ids (shortest-directed-path-ids
+                            (:xt/id source)
+                            target-id
+                            #(map :target-id (system-edges-by-endpoint xtdb
+                                                                       :source-id
+                                                                       %
+                                                                       opts)))]
+         (let [nodes-by-id (into {(:xt/id source) source
+                                  target-id target}
+                                 (map (juxt :xt/id identity))
+                                 (system-nodes-by-ids xtdb path-ids opts))]
+           (mapv #(get nodes-by-id %) path-ids)))))))
 
 (defn report
   "Return aggregate report data."

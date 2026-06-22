@@ -553,6 +553,166 @@
                           (= 1.0 (get-in % [:score-components :graph])))
                     results)))))))
 
+(deftest deps-and-path-use-bounded-xtdb-lookups
+  (store/with-node (temp-dir "ygg-query-navigation-pushdown-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :nodes)
+                      {:xt/id "node:alpha"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :label "alpha"
+                       :kind :namespace
+                       :file-id "file:alpha"
+                       :path "src/alpha.clj"
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :nodes)
+                      {:xt/id "node:beta"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :label "beta"
+                       :kind :namespace
+                       :file-id "file:beta"
+                       :path "src/beta.clj"
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :nodes)
+                      {:xt/id "node:gamma"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :label "gamma"
+                       :kind :namespace
+                       :file-id "file:gamma"
+                       :path "src/gamma.clj"
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :nodes)
+                      {:xt/id "node:noise"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :label "noise"
+                       :kind :namespace
+                       :file-id "file:noise"
+                       :path "src/noise.clj"
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:alpha:beta"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :source-id "node:alpha"
+                       :target-id "node:beta"
+                       :relation :requires
+                       :confidence :high
+                       :file-id "file:alpha"
+                       :path "src/alpha.clj"
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:beta:gamma"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :source-id "node:beta"
+                       :target-id "node:gamma"
+                       :relation :requires
+                       :confidence :high
+                       :file-id "file:beta"
+                       :path "src/beta.clj"
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:noise:other"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :source-id "node:noise"
+                       :target-id "node:other"
+                       :relation :requires
+                       :confidence :high
+                       :file-id "file:noise"
+                       :path "src/noise.clj"
+                       :active? true
+                       :run-id "run"})])
+      (with-redefs [query/all-nodes (fn [& _]
+                                      (throw (ex-info "Unexpected full node load." {})))
+                    query/all-edges (fn [& _]
+                                      (throw (ex-info "Unexpected full edge load." {})))]
+        (let [scope {:project-id "pushdown"
+                     :repo-id "app"}
+              deps (query/deps xtdb "alpha" scope)
+              path (query/graph-path xtdb "alpha" "gamma" scope)]
+          (is (= ["beta"] (mapv (comp :label :target) (:outgoing deps))))
+          (is (empty? (:incoming deps)))
+          (is (= ["alpha" "beta" "gamma"] (mapv :label path))))))))
+
+(deftest system-path-uses-bounded-xtdb-lookups
+  (store/with-node (temp-dir "ygg-query-system-path-pushdown-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :system-nodes)
+                      {:xt/id "system:api"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :system-key "api"
+                       :label "api"
+                       :kind :candidate-system
+                       :aliases []
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :system-nodes)
+                      {:xt/id "system:core"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :system-key "core"
+                       :label "core"
+                       :kind :candidate-system
+                       :aliases []
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :system-nodes)
+                      {:xt/id "system:noise"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :system-key "noise"
+                       :label "noise"
+                       :kind :candidate-system
+                       :aliases []
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :system-edges)
+                      {:xt/id "system-edge:api:core"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :source-id "system:api"
+                       :target-id "system:core"
+                       :relation :code-depends-on
+                       :evidence-count 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :system-edges)
+                      {:xt/id "system-edge:noise:other"
+                       :project-id "pushdown"
+                       :repo-id "app"
+                       :source-id "system:noise"
+                       :target-id "system:other"
+                       :relation :code-depends-on
+                       :evidence-count 1
+                       :active? true
+                       :run-id "run"})])
+      (with-redefs [query/all-system-nodes (fn [& _]
+                                             (throw (ex-info "Unexpected full system node load." {})))
+                    query/all-system-edges (fn [& _]
+                                             (throw (ex-info "Unexpected full system edge load." {})))]
+        (is (= ["api" "core"]
+               (mapv :label
+                     (query/system-path xtdb
+                                        "api"
+                                        "core"
+                                        {:project-id "pushdown"
+                                         :repo-id "app"}))))))))
+
 (deftest lexical-query-keeps-strong-lexical-results-ahead-of-weak-graph-neighbors
   (store/with-node (temp-dir "ygg-query-graph-neighbor-rank-xtdb")
     (fn [xtdb]
