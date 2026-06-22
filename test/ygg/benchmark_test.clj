@@ -1688,6 +1688,64 @@
             "agent result suspectedSymbols row 1 path src/app.clj unknown field extraSymbol"]
            (get-in scored [:agent :warnings])))))
 
+(deftest score-agent-result-accepts-current-ygg-file-metrics
+  (let [root (temp-dir "ygg-bench-agent-score-current-metrics")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :caseId "case-1"
+                      :caseFingerprint "sha256:test-case"
+                      :agentId "codex"
+                      :mode "ygg"
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.8
+                                        :reason "candidate"
+                                        :evidence ["src/app.clj cited"]
+                                        :metrics {:firstSourceRank 1
+                                                  :supportCount 2
+                                                  :docCount 1
+                                                  :entityCount 0
+                                                  :candidateFileCount 1
+                                                  :candidateSourceRank 3
+                                                  :candidateSourceRankScore 0.18
+                                                  :candidateSupportLabelCount 4
+                                                  :candidateSupportLabelScore 0.24
+                                                  :decisionCandidateCount 1
+                                                  :directFileCandidateCount 1
+                                                  :retrievedSourceCount 1
+                                                  :exactPathSourceCount 0
+                                                  :maxConfidence 0.8
+                                                  :rankScore 12.4
+                                                  :matchedTokenCount 3
+                                                  :matchedTokenPairCount 2
+                                                  :matchedCompoundTokenPairCount 2
+                                                  :matchedIdentityCompoundTokenPairCount 1
+                                                  :matchedIdentityCompoundTokenSpanLength 4
+                                                  :identityCompoundTokenSpanScore 1.6
+                                                  :retrievedLongIdentityCompoundTokenSpanScore 2.25
+                                                  :retrievedEarlyLongIdentityCompoundTokenSpanScore 2.0
+                                                  :definitionKinds ["file"]
+                                                  :sourceRankScore 4.1
+                                                  :graphNeighborScore 1.0
+                                                  :graphNeighborBoost 0.5
+                                                  :robustCandidateOnlyBoost 3.5}}]
+                      :suspectedSymbols []
+                      :commands []
+                      :warnings []
+                      :summary "Found candidates."}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (= [] (get-in scored [:agent :warnings])))))
+
 (deftest score-agent-result-warns-on-invalid-rankable-values
   (let [root (temp-dir "ygg-bench-agent-score-values")
         _ (spit-file! root "src/app.clj" "(ns app)\n")

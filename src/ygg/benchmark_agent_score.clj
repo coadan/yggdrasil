@@ -40,6 +40,16 @@
                                 "minimum" 0}
                  "candidateFileCount" {"type" "integer"
                                        "minimum" 0}
+                 "candidateSourceRank" {"type" "integer"
+                                        "minimum" 1}
+                 "candidateSourceRankScore" {"type" "number"}
+                 "candidateSupportLabelCount" {"type" "integer"
+                                               "minimum" 0}
+                 "candidateSupportLabelScore" {"type" "number"}
+                 "decisionCandidateCount" {"type" "integer"
+                                           "minimum" 0}
+                 "directFileCandidateCount" {"type" "integer"
+                                             "minimum" 0}
                  "retrievedSourceCount" {"type" "integer"
                                          "minimum" 0}
                  "exactPathSourceCount" {"type" "integer"
@@ -56,11 +66,17 @@
                                                   "minimum" 0}
                  "matchedIdentityCompoundTokenPairCount" {"type" "integer"
                                                           "minimum" 0}
+                 "matchedIdentityCompoundTokenSpanLength" {"type" "integer"
+                                                           "minimum" 0}
+                 "identityCompoundTokenSpanScore" {"type" "number"}
+                 "retrievedLongIdentityCompoundTokenSpanScore" {"type" "number"}
+                 "retrievedEarlyLongIdentityCompoundTokenSpanScore" {"type" "number"}
                  "definitionKinds" {"type" "array"
                                     "items" {"type" "string"}}
                  "sourceRankScore" {"type" "number"}
                  "graphNeighborScore" {"type" "number"}
                  "graphNeighborBoost" {"type" "number"}
+                 "robustCandidateOnlyBoost" {"type" "number"}
                  "cosine" {"type" "number"
                            "minimum" -1
                            "maximum" 1}

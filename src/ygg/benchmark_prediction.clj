@@ -988,7 +988,9 @@
                                     :matched-identity-compound-token-pairs
                                     :matched-identity-compound-token-span-length
                                     :definition-kind
-                                    :direct-file-candidate?)
+                                    :direct-file-candidate?
+                                    :candidate-source-rank
+                                    :candidate-support-label-count)
                             (assoc :rank (inc idx)))))
          vec)))
 (defn- coverage-source-kinds

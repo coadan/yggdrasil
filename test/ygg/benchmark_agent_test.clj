@@ -1947,6 +1947,26 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-keeps-candidate-debug-fields-in-metrics
+  (let [root (temp-dir "ygg-bench-candidate-debug-field-scope")
+        _ (spit-file! root "src/app.js" "export const value = 1;\n")
+        packet {:query "adapter lifecycle"
+                :candidateFiles [{:path "src/app.js"
+                                  :rank 7
+                                  :score 1.0
+                                  :targetKind "node"
+                                  :label "adapter lifecycle"
+                                  :supportLabels ["support-a" "support-b"]
+                                  :scoreComponents {:sourceGraph 1.0
+                                                    :lexical 0.6}}]}
+        file (-> (benchmark/context-packet->agent-result packet {:root root})
+                 :suspectedFiles
+                 first)]
+    (is (false? (contains? file :candidate-source-rank)))
+    (is (false? (contains? file :candidate-support-label-count)))
+    (is (= 7 (get-in file [:metrics :candidateSourceRank])))
+    (is (= 2 (get-in file [:metrics :candidateSupportLabelCount])))))
+
 (deftest file-ranking-uses-source-graph-candidate-rank-as-tiebreaker
   (let [root (temp-dir "ygg-bench-source-graph-candidate-rank")
         _ (spit-file! root "lib/adapters/http.js" "export default function httpAdapter() {}\n")
