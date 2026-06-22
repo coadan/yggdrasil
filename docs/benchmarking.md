@@ -19,6 +19,21 @@ Tracked starter suites:
   shell-only versus Yggdrasil agent-efficiency runs. Generated lane outputs should
   still live under `.dev/ygg/`.
 
+Tracked benchmark suites use local checkout inputs under
+`.dev/ygg/benchmark-repos/`. The manifest `benchmarks/repos.edn` records the
+repo ids, clone URLs, cache dirs, and commits required by tracked suites. Check
+setup before running a gate:
+
+```sh
+bb bench:repos check --suite benchmarks/architecture-synthetic.edn
+bb bench:gate --setup-check
+```
+
+`bb bench:gate` runs the same setup check before deterministic baseline work.
+If a checkout exists only under the legacy `.dev/oss-test-cases/repos/` cache,
+the preflight reports that path so it can be moved or symlinked into the common
+cache without committing generated files.
+
 ## Headline Suite
 
 Use the tracked headline suite to compare shell-only and Yggdrasil-assisted agents

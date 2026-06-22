@@ -13,6 +13,7 @@
             [ygg.map-store :as map-store]
             [ygg.xtdb :as store]
             [charred.api :as json]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
@@ -180,18 +181,23 @@
                  "architecture-runtime-boundary"
                  "audit-scope-dependencies"]))))
 
+(defn- benchmark-suite-file?
+  [file]
+  (and (.isFile file)
+       (str/ends-with? (.getName file) ".edn")
+       (seq (:cases (edn/read-string (slurp file))))))
+
 (deftest tracked-benchmark-suites-use-common-local-artifact-space
   (let [suite-files (->> (file-seq (io/file "benchmarks"))
-                         (filter #(and (.isFile %)
-                                       (str/ends-with? (.getName %) ".edn")))
+                         (filter benchmark-suite-file?)
                          (sort-by #(.getPath %))
                          vec)
         suites (mapv #(benchmark/read-suite (.getPath %)) suite-files)]
     (is (seq suite-files))
     (is (some #(= "architecture-synthetic" (:id %)) suites))
     (is (every? #(not (str/includes? (.getName %) "oss-")) suite-files))
-    (doseq [suite suites
-            repo (:repos suite)]
+    (doseq [suite-file suite-files
+            repo (:repos (edn/read-string (slurp suite-file)))]
       (is (str/includes? (:root repo) "/.dev/ygg/benchmark-repos/")))))
 
 (deftest headline-suite-covers-architecture-first-agent-questions

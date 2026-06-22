@@ -1,0 +1,36 @@
+{:schema "ygg.benchmark.repos/v1"
+ :cache-root ".dev/ygg/benchmark-repos"
+ :legacy-cache-root ".dev/oss-test-cases/repos"
+ :repos [{:id "bootstrap"
+          :url "https://github.com/twbs/bootstrap.git"
+          :dir "bootstrap"
+          :required-shas ["320f7139052be98339726cac20895f50172000f9"
+                          "c82919e8970c7ebebb87ded191b815c76737cd04"]}
+         {:id "supabase-postgres"
+          :url "https://github.com/supabase/postgres.git"
+          :dir "supabase-postgres"
+          :required-shas ["948b5feb51b9605babc6820475b5ccff44f29552"]}
+         {:id "axios"
+          :url "https://github.com/axios/axios.git"
+          :dir "axios"
+          :required-shas ["e64bcf9c5af231d6f37d8389b1e57ded314fff86"]}
+         {:id "dapper"
+          :url "https://github.com/DapperLib/Dapper.git"
+          :dir "dapper"
+          :required-shas ["360367ca5475425944fb390433cb0f1817ad2dcb"]}
+         {:id "opentelemetry-collector"
+          :url "https://github.com/open-telemetry/opentelemetry-collector.git"
+          :dir "opentelemetry-collector"
+          :required-shas ["5a9e6074d2d890ee1db3cf990e414831d068bcdb"]}
+         {:id "terraform-aws-vpc"
+          :url "https://github.com/terraform-aws-modules/terraform-aws-vpc.git"
+          :dir "terraform-aws-vpc"
+          :required-shas ["3ffbd46fb1c7733e1b34d8666893280454e27436"]}
+         {:id "flask"
+          :url "https://github.com/pallets/flask.git"
+          :dir "flask"
+          :required-shas ["36e4a824f340fdee7ed50937ba8e7f6bc7d17f81"]}
+         {:id "junit-framework"
+          :url "https://github.com/junit-team/junit-framework.git"
+          :dir "junit-framework"
+          :required-shas ["b040e97f4890dc914f41d86ee2caddb2df6b1f68"]}]}
