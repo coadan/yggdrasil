@@ -52,17 +52,45 @@
    :created-at-ms (long (or created-at-ms (now-ms)))
    :active? true})
 
+(defn- clean-constraints
+  [m]
+  (->> m
+       (remove (comp nil? val))
+       (into {})))
+
+(defn- xtdb-handle?
+  [xtdb]
+  (and (map? xtdb) (contains? xtdb :node)))
+
+(defn- constrained-rows
+  [xtdb table raw-constraints]
+  (let [query-constraints (clean-constraints raw-constraints)]
+    (if (and (seq query-constraints) (xtdb-handle? xtdb))
+      (store/rows-by-fields xtdb table query-constraints)
+      (->> (store/all-rows xtdb table)
+           (filter #(every? (fn [[field value]]
+                              (= value (get % field)))
+                            query-constraints))))))
+
 (defn all-search-docs
   ([xtdb] (all-search-docs xtdb {}))
   ([xtdb {:keys [project-id repo-id]}]
-   (filter #(and (:active? %)
-                 (or (nil? project-id) (= project-id (:project-id %)))
-                 (or (nil? repo-id) (= repo-id (:repo-id %))))
-           (store/all-rows xtdb (:search-docs store/tables)))))
+   (constrained-rows xtdb
+                     (:search-docs store/tables)
+                     {:project-id project-id
+                      :repo-id repo-id
+                      :active? true})))
 
 (defn all-embeddings
-  [xtdb]
-  (filter :active? (store/all-rows xtdb (:embeddings store/tables))))
+  ([xtdb] (all-embeddings xtdb {}))
+  ([xtdb {:keys [project-id repo-id provider model]}]
+   (constrained-rows xtdb
+                     (:embeddings store/tables)
+                     {:project-id project-id
+                      :repo-id repo-id
+                      :provider provider
+                      :model model
+                      :active? true})))
 
 (defn- embedded-key
   [{:keys [target-id provider model input-sha]}]
@@ -71,7 +99,10 @@
 (defn pending-search-docs
   "Return search docs without a current embedding for provider/model/input."
   [xtdb {:keys [provider model limit project-id repo-id]}]
-  (let [done (into #{} (map embedded-key) (all-embeddings xtdb))
+  (let [done (into #{} (map embedded-key) (all-embeddings xtdb {:project-id project-id
+                                                                :repo-id repo-id
+                                                                :provider provider
+                                                                :model model}))
         docs (->> (all-search-docs xtdb {:project-id project-id :repo-id repo-id})
                   (remove #(contains? done [(:target-id %) provider model (:input-sha %)])))]
     (if limit

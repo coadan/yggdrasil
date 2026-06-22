@@ -55,27 +55,67 @@
   [rows opts]
   (filter #(scope-match? (effective-scope opts) %) rows))
 
+(defn- scope-constraints
+  [opts]
+  (->> (select-keys (effective-scope opts) [:project-id :repo-id])
+       (remove (comp nil? val))
+       (into {})))
+
+(defn- xtdb-handle?
+  [xtdb]
+  (and (map? xtdb) (contains? xtdb :node)))
+
+(defn- constraints-match?
+  [constraints row]
+  (every? (fn [[field value]]
+            (= value (get row field)))
+          constraints))
+
+(defn- scoped-rows
+  ([xtdb table opts] (scoped-rows xtdb table opts {}))
+  ([xtdb table opts constraints]
+   (let [constraints (merge (scope-constraints opts)
+                            (->> constraints
+                                 (remove (comp nil? val))
+                                 (into {})))
+         ctx (read-context opts)
+         rows (if (and (seq constraints) (xtdb-handle? xtdb))
+                (store/rows-by-fields xtdb table constraints ctx)
+                (store/all-rows xtdb table ctx))]
+     (filter-scope (filter #(constraints-match? constraints %) rows) opts))))
+
+(defn- distinct-by
+  [f coll]
+  (first
+   (reduce (fn [[rows seen] row]
+             (let [k (f row)]
+               (if (contains? seen k)
+                 [rows seen]
+                 [(conj rows row) (conj seen k)])))
+           [[] #{}]
+           coll)))
+
 (defn all-nodes
   ([xtdb] (all-nodes xtdb {}))
   ([xtdb opts]
-   (filter-scope (store/all-rows xtdb (:nodes store/tables) (read-context opts)) opts)))
+   (scoped-rows xtdb (:nodes store/tables) opts)))
 
 (defn all-edges
   ([xtdb] (all-edges xtdb {}))
   ([xtdb opts]
-   (filter-scope (store/all-rows xtdb (:edges store/tables) (read-context opts)) opts)))
+   (scoped-rows xtdb (:edges store/tables) opts)))
 
 (defn all-chunks
   ([xtdb] (all-chunks xtdb {}))
   ([xtdb opts]
-   (filter-scope (store/all-rows xtdb (:chunks store/tables) (read-context opts)) opts)))
+   (scoped-rows xtdb (:chunks store/tables) opts)))
 
 (defn chunks-by-ids
   "Return chunk rows for concrete chunk ids within the requested scope."
   [xtdb ids opts]
   (let [ctx (read-context opts)]
     (->> ids
-         distinct
+         (distinct-by identity)
          (keep #(store/row-by-id xtdb (:chunks store/tables) % ctx))
          (#(filter-scope % opts)))))
 
@@ -84,31 +124,24 @@
   [xtdb paths opts]
   (let [ctx (read-context opts)]
     (->> paths
-         distinct
+         (distinct-by identity)
          (mapcat #(store/rows-by-field xtdb (:chunks store/tables) :path % ctx))
          (#(filter-scope % opts)))))
 
 (defn all-diagnostics
   ([xtdb] (all-diagnostics xtdb {}))
   ([xtdb opts]
-   (filter-scope (store/all-rows xtdb (:diagnostics store/tables) (read-context opts))
-                 opts)))
+   (scoped-rows xtdb (:diagnostics store/tables) opts)))
 
 (defn all-search-docs
   ([xtdb] (all-search-docs xtdb {}))
   ([xtdb opts]
-   (filter-scope (filter :active? (store/all-rows xtdb
-                                                  (:search-docs store/tables)
-                                                  (read-context opts)))
-                 opts)))
+   (scoped-rows xtdb (:search-docs store/tables) opts {:active? true})))
 
 (defn all-embeddings
   ([xtdb] (all-embeddings xtdb {}))
   ([xtdb opts]
-   (filter-scope (filter :active? (store/all-rows xtdb
-                                                  (:embeddings store/tables)
-                                                  (read-context opts)))
-                 opts)))
+   (scoped-rows xtdb (:embeddings store/tables) opts {:active? true})))
 
 (defn display-id
   "Return a readable label for an id when the target row is missing."
@@ -123,26 +156,34 @@
 (defn all-system-nodes
   ([xtdb] (all-system-nodes xtdb {}))
   ([xtdb opts]
-   (filter-scope (filter :active? (store/all-rows xtdb
-                                                  (:system-nodes store/tables)
-                                                  (read-context opts)))
-                 opts)))
+   (scoped-rows xtdb (:system-nodes store/tables) opts {:active? true})))
 
 (defn all-system-edges
   ([xtdb] (all-system-edges xtdb {}))
   ([xtdb opts]
-   (filter-scope (filter :active? (store/all-rows xtdb
-                                                  (:system-edges store/tables)
-                                                  (read-context opts)))
-                 opts)))
+   (scoped-rows xtdb (:system-edges store/tables) opts {:active? true})))
 
 (defn all-system-evidence
   ([xtdb] (all-system-evidence xtdb {}))
   ([xtdb opts]
-   (filter-scope (filter :active? (store/all-rows xtdb
-                                                  (:system-evidence store/tables)
-                                                  (read-context opts)))
-                 opts)))
+   (scoped-rows xtdb (:system-evidence store/tables) opts {:active? true})))
+
+(defn- edges-by-endpoint
+  [xtdb field id opts]
+  (scoped-rows xtdb
+               (:edges store/tables)
+               opts
+               {field id}))
+
+(defn- edges-touching-ids
+  [xtdb ids opts]
+  (->> ids
+       (distinct-by identity)
+       (mapcat (fn [id]
+                 (concat (edges-by-endpoint xtdb :source-id id opts)
+                         (edges-by-endpoint xtdb :target-id id opts))))
+       (distinct-by :xt/id)
+       vec))
 
 (defn find-node
   "Find node by exact id, label, namespace, name, or substring."
@@ -555,7 +596,9 @@
                                        :same-label-ids same-label-ids
                                        :seed-ids (set (concat base-seed-ids
                                                               same-label-ids))}))
-        [edges timings] (timed timings :load-edges-ms #(vec (all-edges xtdb scope)))
+        [edges timings] (timed timings
+                               :load-edges-ms
+                               #(edges-touching-ids xtdb (:seed-ids seed-data) scope))
         [neighbor-scores timings] (timed timings
                                          :graph-expansion-ms
                                          #(graph-neighbor-scores edges (:seed-ids seed-data)))
@@ -582,6 +625,7 @@
                                :semantic-positive (positive-count semantic)
                                :seed-count (count (:seed-ids seed-data))
                                :same-label-seed-count (count (:same-label-ids seed-data))
+                               :graph-edges-loaded (count edges)
                                :neighbor-count (count neighbor-scores)
                                :exact-path-candidates (count (:exact-path-candidates ranked-data))
                                :path-token-candidates (count (:path-token-candidates ranked-data))

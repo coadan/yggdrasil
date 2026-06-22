@@ -461,6 +461,98 @@
                           (= 1.0 (get-in % [:score-components :graph])))
                     results)))))))
 
+(deftest lexical-query-loads-only-seed-adjacent-edges
+  (store/with-node (temp-dir "ygg-query-seed-edge-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:seed"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :target-id "node:seed"
+                       :target-kind :node
+                       :file-id "file:seed"
+                       :path "src/seed.clj"
+                       :kind :var
+                       :label "demo/seed"
+                       :text "alpha"
+                       :tokens ["alpha"]
+                       :input-sha "seed"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:neighbor"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :target-id "node:neighbor"
+                       :target-kind :node
+                       :file-id "file:neighbor"
+                       :path "src/neighbor.clj"
+                       :kind :var
+                       :label "demo/neighbor"
+                       :text "demo/neighbor"
+                       :tokens []
+                       :input-sha "neighbor"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:noise"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :target-id "node:noise"
+                       :target-kind :node
+                       :file-id "file:noise"
+                       :path "src/noise.clj"
+                       :kind :var
+                       :label "demo/noise"
+                       :text "demo/noise"
+                       :tokens []
+                       :input-sha "noise"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:seed:neighbor"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :source-id "node:seed"
+                       :target-id "node:neighbor"
+                       :relation :references
+                       :confidence :high
+                       :file-id "file:seed"
+                       :path "src/seed.clj"
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :edges)
+                      {:xt/id "edge:noise:other"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :source-id "node:noise"
+                       :target-id "node:other"
+                       :relation :references
+                       :confidence :high
+                       :file-id "file:noise"
+                       :path "src/noise.clj"
+                       :active? true
+                       :run-id "run"})])
+      (with-redefs [query/default-lexical-candidates 1
+                    query/default-kind-candidates 0
+                    query/default-seed-count 1]
+        (let [report (query/search-report xtdb
+                                          "alpha"
+                                          {:retriever :lexical
+                                           :project-id "fixture"
+                                           :repo-id "app"
+                                           :limit 5})
+              results (:results report)]
+          (is (= 1 (get-in report [:instrumentation :graph-edges-loaded])))
+          (is (some #(and (= "src/neighbor.clj" (:path %))
+                          (= 1.0 (get-in % [:score-components :graph])))
+                    results)))))))
+
 (deftest lexical-query-keeps-strong-lexical-results-ahead-of-weak-graph-neighbors
   (store/with-node (temp-dir "ygg-query-graph-neighbor-rank-xtdb")
     (fn [xtdb]

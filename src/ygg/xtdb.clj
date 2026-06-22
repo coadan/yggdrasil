@@ -152,13 +152,35 @@
   ([xtdb table ctx]
    (q xtdb (list 'from table '[*]) ctx)))
 
+(defn rows-by-fields
+  "Return rows from table where every field in constraints equals its value."
+  ([xtdb table constraints] (rows-by-fields xtdb table constraints {}))
+  ([xtdb table constraints ctx]
+   (let [constraints (->> constraints
+                          (remove (comp nil? val))
+                          (sort-by (comp str key))
+                          vec)]
+     (if (seq constraints)
+       (let [terms (map-indexed (fn [idx [field value]]
+                                  [field (symbol (str "v" idx)) value])
+                                constraints)
+             args (mapv second terms)
+             bindings (into {}
+                            (map (fn [[field arg _]]
+                                   [field arg]))
+                            terms)
+             values (mapv (fn [[_ _ value]] value) terms)]
+         (q xtdb
+            (into [(list 'fn args (list 'from table [bindings '*]))]
+                  values)
+            ctx))
+       (all-rows xtdb table ctx)))))
+
 (defn rows-by-field
   "Return rows from table where field equals value."
   ([xtdb table field value] (rows-by-field xtdb table field value {}))
   ([xtdb table field value ctx]
-   (q xtdb
-      [(list 'fn ['v] (list 'from table [{field 'v} '*])) value]
-      ctx)))
+   (rows-by-fields xtdb table {field value} ctx)))
 
 (defn row-by-id
   "Return row by id from table."
