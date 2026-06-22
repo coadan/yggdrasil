@@ -42,6 +42,12 @@
 (def ^:private source-graph-candidate-limit
   40)
 
+(def ^:private source-graph-file-candidate-limit
+  80)
+
+(def ^:private candidate-input-root-diversity-limit
+  8)
+
 (def ^:private source-graph-candidate-min-score
   1.0)
 
@@ -738,48 +744,84 @@
                          (:name row)
                          (:kind row)))))
 
+(defn- source-graph-candidate-row
+  [query-tokens row]
+  (let [path (not-empty (str (:path row)))
+        score (source-graph-candidate-score query-tokens row)]
+    (when (and path
+               (<= source-graph-candidate-min-score score))
+      (let [file-row? (nil? (:label row))]
+        (cond-> {:path path
+                 :rank 0
+                 :score score
+                 :target-kind (if file-row? :file :node)
+                 :label (or (:label row) path)
+                 :kind (:kind row)
+                 :result-kind (if file-row? :file :node)
+                 :reason "query-matched source row"
+                 :score-components {:sourceGraph score}}
+          (:repo-id row) (assoc :repo-id (:repo-id row)
+                                :repo (:repo-id row))
+          (:source-line row) (assoc :source-line (:source-line row))
+          (:end-line row) (assoc :end-line (:end-line row)))))))
+
+(defn- ranked-source-graph-candidates
+  [query-tokens rows limit]
+  (->> rows
+       (keep #(source-graph-candidate-row query-tokens %))
+       (sort-by (juxt (comp - :score)
+                      :repo
+                      :path
+                      :label))
+       (take limit)
+       (map-indexed #(assoc %2 :rank (inc %1)))
+       vec))
+
 (defn- source-graph-candidates
   [xtdb query-tokens {:keys [project-id repo-id read-context]}]
   (if-not (store/xtdb-handle? xtdb)
     []
-    (->> (concat
-          (query/all-nodes xtdb
-                           {:project-id project-id
-                            :repo-id repo-id
-                            :read-context read-context})
-          (query/all-files xtdb
-                           {:project-id project-id
-                            :repo-id repo-id
-                            :read-context read-context}))
-         (keep (fn [row]
-                 (let [path (not-empty (str (:path row)))
-                       score (source-graph-candidate-score query-tokens row)]
-                   (when (and path
-                              (<= source-graph-candidate-min-score score))
-                     (cond-> {:path path
-                              :rank 0
-                              :score score
-                              :target-kind (if (:label row) :node :file)
-                              :label (or (:label row) (:path row))
-                              :kind (:kind row)
-                              :result-kind (if (:label row) :node :file)
-                              :reason "query-matched source graph row"
-                              :score-components {:sourceGraph score}}
-                       (:repo-id row) (assoc :repo-id (:repo-id row)
-                                             :repo (:repo-id row))
-                       (:source-line row) (assoc :source-line (:source-line row))
-                       (:end-line row) (assoc :end-line (:end-line row)))))))
-         (sort-by (juxt (comp - :score)
-                        :repo
-                        :path
-                        :label))
-         (take source-graph-candidate-limit)
-         (map-indexed #(assoc %2 :rank (inc %1)))
-         vec)))
+    (let [scope {:project-id project-id
+                 :repo-id repo-id
+                 :read-context read-context}]
+      (vec
+       (concat
+        (ranked-source-graph-candidates query-tokens
+                                        (query/all-nodes xtdb scope)
+                                        source-graph-candidate-limit)
+        (ranked-source-graph-candidates query-tokens
+                                        (query/all-files xtdb scope)
+                                        source-graph-file-candidate-limit))))))
 
 (defn- candidate-input-score
   [row]
   (double (or (:score row) 0.0)))
+
+(defn- candidate-input-root
+  [row]
+  (let [path (str (:path row))]
+    (or (first (str/split path #"/"))
+        path)))
+
+(defn- preserve-candidate-input-root-diversity
+  [rows]
+  (let [selected (->> rows
+                      (reduce (fn [{:keys [seen selected] :as state} row]
+                                (let [root (candidate-input-root row)]
+                                  (if (or (contains? seen root)
+                                          (<= candidate-input-root-diversity-limit
+                                              (count selected)))
+                                    state
+                                    {:seen (conj seen root)
+                                     :selected (conj selected row)})))
+                              {:seen #{}
+                               :selected []})
+                      :selected)
+        selected-indexes (set (map ::candidate-input-index selected))]
+    (concat selected
+            (remove #(contains? selected-indexes
+                                (::candidate-input-index %))
+                    rows))))
 
 (defn- ranked-candidate-inputs
   [results source-candidates]
@@ -793,6 +835,7 @@
                         #(or (:path %) "")
                         #(or (:label %) "")
                         ::candidate-input-index))
+         preserve-candidate-input-root-diversity
          (map #(dissoc % ::candidate-input-index)))))
 
 (defn- relationship-groups

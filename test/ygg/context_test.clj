@@ -1911,7 +1911,7 @@
                :label "bootstrap"
                :kind :web-framework-plugin
                :result-kind :node
-               :reason "query-matched source graph row"
+               :reason "query-matched source row"
                :repo-id "app"
                :repo "app"
                :source-line 12}]
@@ -1930,7 +1930,7 @@
                :label "site/astro.config.ts"
                :kind :javascript
                :result-kind :file
-               :reason "query-matched source graph row"
+               :reason "query-matched source row"
                :repo-id "app"
                :repo "app"}]
              (mapv #(select-keys % [:path
@@ -1942,6 +1942,69 @@
                                     :repo-id
                                     :repo])
                    (:file by-kind)))))))
+
+(deftest source-graph-candidates-preserve-file-lane-when-nodes-dominate
+  (with-redefs [store/xtdb-handle? (constantly true)
+                query/all-nodes (fn [& _]
+                                  (mapv (fn [idx]
+                                          {:xt/id (str "node:test:" idx)
+                                           :project-id "fixture"
+                                           :repo-id "app"
+                                           :path (str "tests/unit/adapters/http"
+                                                      idx
+                                                      ".test.js")
+                                           :kind :function
+                                           :label (str "tests.unit.adapters.http"
+                                                       idx
+                                                       ".test/createHttp2Axios")})
+                                        (range 45)))
+                query/all-files (fn [& _]
+                                  [{:xt/id "file:adapter"
+                                    :project-id "fixture"
+                                    :repo-id "app"
+                                    :path "lib/adapters/http.js"
+                                    :kind :javascript
+                                    :active? true}])]
+    (let [rows (#'context/source-graph-candidates
+                :xtdb
+                (text/tokenize-all "http adapter")
+                {:project-id "fixture"
+                 :repo-id "app"})
+          files (filter #(= :file (:target-kind %)) rows)]
+      (is (= ["lib/adapters/http.js"]
+             (mapv :path files))))))
+
+(deftest source-graph-candidates-use-wider-file-lane
+  (with-redefs [store/xtdb-handle? (constantly true)
+                query/all-nodes (fn [& _] [])
+                query/all-files (fn [& _]
+                                  (mapv (fn [idx]
+                                          {:xt/id (str "file:adapter:" idx)
+                                           :project-id "fixture"
+                                           :repo-id "app"
+                                           :path (format "lib/adapters/http_%02d.js"
+                                                         idx)
+                                           :kind :javascript
+                                           :active? true})
+                                        (range 45)))]
+    (let [rows (#'context/source-graph-candidates
+                :xtdb
+                (text/tokenize-all "http adapter")
+                {:project-id "fixture"
+                 :repo-id "app"})]
+      (is (= 45 (count (filter #(= :file (:target-kind %)) rows)))))))
+
+(deftest candidate-input-ranking-preserves-root-diversity
+  (let [ranked (#'context/ranked-candidate-inputs
+                [{:path "tests/first.js" :score 9.0}
+                 {:path "tests/second.js" :score 8.0}]
+                [{:path "lib/adapter.js" :score 3.0}
+                 {:path "docs/guide.md" :score 2.0}])]
+    (is (= ["tests/first.js"
+            "lib/adapter.js"
+            "docs/guide.md"
+            "tests/second.js"]
+           (mapv :path ranked)))))
 
 (deftest context-packet-ranks-source-graph-candidates-before-low-score-results
   (with-redefs [store/xtdb-handle? (constantly true)
@@ -1988,7 +2051,7 @@
               :label "bootstrap"
               :kind "web-framework-plugin"
               :resultKind "node"
-              :reason "query-matched source graph row"
+              :reason "query-matched source row"
               :repo "app"
               :sourceLine 12}
              (select-keys (first (:candidateFiles packet))

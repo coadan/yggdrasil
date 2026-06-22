@@ -66,13 +66,33 @@
    "var" ["variable"]
    "variable" ["var"]})
 
+(defn- singular-token
+  [token]
+  (let [token (str token)]
+    (cond
+      (and (< 4 (count token))
+           (str/ends-with? token "ies"))
+      (str (subs token 0 (- (count token) 3)) "y")
+
+      (and (< 4 (count token))
+           (or (str/ends-with? token "ers")
+               (str/ends-with? token "ors")))
+      (subs token 0 (dec (count token))))))
+
 (defn- expanded-token
   [token]
   (let [token (str token)
-        base (cons (str/lower-case token)
-                   (concat (token-parts token)
-                           (camel-compound-parts token)))]
-    (distinct (mapcat #(cons % (get token-aliases %)) base))))
+        raw-token (str/lower-case token)
+        parts (concat (token-parts token)
+                      (camel-compound-parts token))]
+    (distinct
+     (concat
+      (cons raw-token (get token-aliases raw-token))
+      (mapcat (fn [part]
+                (concat (cons part (get token-aliases part))
+                        (when-let [singular (singular-token part)]
+                          [singular])))
+              parts)))))
 
 (defn- keep-token?
   [token]

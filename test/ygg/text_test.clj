@@ -48,6 +48,15 @@
           "proxy"]
          (text/tokenize "environment-variable process.env.HTTP_PROXY"))))
 
+(deftest tokenization-expands-common-plural-agent-nouns
+  (is (= ["lib/adapters/http.js"
+          "lib"
+          "adapters"
+          "adapter"
+          "http"
+          "js"]
+         (text/tokenize "lib/adapters/http.js"))))
+
 (deftest tokenization-expands-camel-and-pascal-identifiers
   (is (= ["typehandlertests"
           "type"
