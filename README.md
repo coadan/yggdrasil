@@ -5,18 +5,18 @@ dependencies, docs, deployments, ownership decisions, architectural choices,
 and half-remembered fixes spread across a repo over time.
 
 AGraph helps coding agents work in that reality. It builds a local, reviewable
-map of what exists, how important pieces connect, and what the team has learned
+map of what exists, how important pieces connect, and what has been accepted
 about the system, so agents can find the right context without rereading
 everything from scratch.
 
 As a project grows, an agentic development tool needs to preserve more than
-search results. It needs a maintainable way to encode the team's tribal
+search results. It needs a maintainable way to encode project-specific tribal
 knowledge about architecture, boundaries, ownership, and recurring fixes, then
 keep that knowledge easy to review and update as the system changes.
 
 Many agent tools call this codebase memory. AGraph is more specific: it keeps
-that memory tied to files, evidence, and reviewable corrections, so teams can
-see why an answer was trusted. Claims about speed, cost, or effectiveness
+that memory tied to files, evidence, and reviewable corrections, so maintainers
+can see why an answer was trusted. Claims about speed, cost, or effectiveness
 should come from repeatable benchmarks.
 
 ## Quickstart
