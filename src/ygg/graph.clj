@@ -470,21 +470,19 @@
 
 (defn- active-system-nodes
   [xtdb project-id opts]
-  (->> (store/rows-by-field xtdb
-                            (:system-nodes store/tables)
-                            :project-id
-                            project-id
-                            (store/read-context opts))
-       (filter :active?)))
+  (store/constrained-rows xtdb
+                          (:system-nodes store/tables)
+                          {:project-id project-id
+                           :active? true}
+                          (store/read-context opts)))
 
 (defn- active-system-edges
   [xtdb project-id min-confidence opts]
-  (->> (store/rows-by-field xtdb
-                            (:system-edges store/tables)
-                            :project-id
-                            project-id
-                            (store/read-context opts))
-       (filter :active?)
+  (->> (store/constrained-rows xtdb
+                               (:system-edges store/tables)
+                               {:project-id project-id
+                                :active? true}
+                               (store/read-context opts))
        (filter #(<= (double min-confidence) (double (:confidence %))))))
 
 (defn system-graph

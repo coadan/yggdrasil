@@ -764,15 +764,18 @@
   "Return read-only maintenance findings for a project's current system graph."
   [xtdb project-id {:keys [low-confidence-threshold map-overlay]
                     :or {low-confidence-threshold 0.60}}]
-  (let [raw-systems (->> (store/rows-by-field xtdb (:system-nodes store/tables) :project-id project-id)
-                         (filter :active?)
-                         vec)
-        raw-edges (->> (store/rows-by-field xtdb (:system-edges store/tables) :project-id project-id)
-                       (filter :active?)
-                       vec)
-        raw-evidence (->> (store/rows-by-field xtdb (:system-evidence store/tables) :project-id project-id)
-                          (filter :active?)
-                          vec)
+  (let [raw-systems (vec (store/constrained-rows xtdb
+                                                 (:system-nodes store/tables)
+                                                 {:project-id project-id
+                                                  :active? true}))
+        raw-edges (vec (store/constrained-rows xtdb
+                                               (:system-edges store/tables)
+                                               {:project-id project-id
+                                                :active? true}))
+        raw-evidence (vec (store/constrained-rows xtdb
+                                                  (:system-evidence store/tables)
+                                                  {:project-id project-id
+                                                   :active? true}))
         overlay-result (apply-maintenance-overlay raw-systems raw-edges raw-evidence map-overlay)
         systems (:systems overlay-result)
         edges (:edges overlay-result)

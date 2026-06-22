@@ -1,6 +1,7 @@
 (ns ygg.project-system-test
   (:require [ygg.activity :as activity]
             [ygg.context :as context]
+            [ygg.dependency :as dependency]
             [ygg.graph :as graph]
             [ygg.infra-review :as infra-review]
             [ygg.map :as graph-map]
@@ -19,6 +20,76 @@
   (let [file (java.nio.file.Files/createTempDirectory prefix
                                                       (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
+
+(deftest system-project-active-reads-use-constrained-store-queries
+  (let [calls (atom [])
+        system-a {:xt/id "system:a"
+                  :project-id "project-a"
+                  :repo-id "app"
+                  :label "A"
+                  :kind "service"
+                  :active? true}
+        system-b {:xt/id "system:b"
+                  :project-id "project-a"
+                  :repo-id "app"
+                  :label "B"
+                  :kind "service"
+                  :active? true}
+        system-edge {:xt/id "system-edge:a:b"
+                     :project-id "project-a"
+                     :source-id "system:a"
+                     :target-id "system:b"
+                     :relation "uses"
+                     :confidence 0.9
+                     :active? true}]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table constraints & [_ctx]]
+                    (swap! calls conj [table constraints])
+                    (case table
+                      :ygg/files [{:xt/id "file:app"
+                                   :project-id "project-a"
+                                   :active? true}]
+                      :ygg/nodes [{:xt/id "node:app"
+                                   :project-id "project-a"
+                                   :active? true}]
+                      :ygg/edges [{:xt/id "edge:app"
+                                   :project-id "project-a"
+                                   :active? true}]
+                      :ygg/file-facts [{:xt/id "fact:app"
+                                        :project-id "project-a"
+                                        :active? true}]
+                      :ygg/system-nodes [system-a system-b]
+                      :ygg/system-edges [system-edge]
+                      :ygg/system-evidence []))
+                  dependency/package-report
+                  (fn [& _]
+                    {:packages []
+                     :unresolved-imports []
+                     :counts {:packages 0}})]
+      (is (= ["file:app"]
+             (mapv :xt/id (#'system/active-files :xtdb "project-a"))))
+      (is (= ["node:app"]
+             (mapv :xt/id (#'system/active-nodes :xtdb "project-a"))))
+      (is (= ["edge:app"]
+             (mapv :xt/id (#'system/active-edges :xtdb "project-a"))))
+      (is (= ["fact:app"]
+             (mapv :xt/id (#'system/active-file-facts :xtdb "project-a"))))
+      (is (= ["system:a" "system:b"]
+             (mapv :xt/id (#'graph/active-system-nodes :xtdb "project-a" {}))))
+      (is (= ["system-edge:a:b"]
+             (mapv :xt/id (#'graph/active-system-edges :xtdb "project-a" 0.5 {}))))
+      (is (= "project-a"
+             (:project-id (system-report/maintenance-report :xtdb "project-a" {})))))
+    (let [observed (set @calls)
+          active-project {:project-id "project-a" :active? true}]
+      (doseq [table [(:files store/tables)
+                     (:nodes store/tables)
+                     (:edges store/tables)
+                     (:file-facts store/tables)
+                     (:system-nodes store/tables)
+                     (:system-edges store/tables)
+                     (:system-evidence store/tables)]]
+        (is (contains? observed [table active-project]))))))
 
 (defn- spit-file!
   [root path content]

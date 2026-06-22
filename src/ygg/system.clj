@@ -149,23 +149,31 @@
 
 (defn- active-files
   [xtdb project-id]
-  (->> (store/rows-by-field xtdb (:files store/tables) :project-id project-id)
-       (filter :active?)))
+  (store/constrained-rows xtdb
+                          (:files store/tables)
+                          {:project-id project-id
+                           :active? true}))
 
 (defn- active-nodes
   [xtdb project-id]
-  (->> (store/rows-by-field xtdb (:nodes store/tables) :project-id project-id)
-       (filter :active?)))
+  (store/constrained-rows xtdb
+                          (:nodes store/tables)
+                          {:project-id project-id
+                           :active? true}))
 
 (defn- active-edges
   [xtdb project-id]
-  (->> (store/rows-by-field xtdb (:edges store/tables) :project-id project-id)
-       (filter :active?)))
+  (store/constrained-rows xtdb
+                          (:edges store/tables)
+                          {:project-id project-id
+                           :active? true}))
 
 (defn- active-file-facts
   [xtdb project-id]
-  (->> (store/rows-by-field xtdb (:file-facts store/tables) :project-id project-id)
-       (filter :active?)))
+  (store/constrained-rows xtdb
+                          (:file-facts store/tables)
+                          {:project-id project-id
+                           :active? true}))
 
 (defn- evidence-id
   [project-id repo-id system-id kind path line normalized-value]

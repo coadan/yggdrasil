@@ -364,9 +364,10 @@
 
 (defn- active-project-systems
   [xtdb project-id]
-  (->> (store/rows-by-field xtdb (:system-nodes store/tables) :project-id project-id)
-       (filter :active?)
-       vec))
+  (vec (store/constrained-rows xtdb
+                               (:system-nodes store/tables)
+                               {:project-id project-id
+                                :active? true})))
 
 (defn- project-deps
   []
