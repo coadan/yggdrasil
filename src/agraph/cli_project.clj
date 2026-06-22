@@ -3,7 +3,7 @@
             [agraph.cli-options :refer [json-output? option-value positional-args]]
             [agraph.evidence :as evidence]
             [agraph.index :as index]
-            [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.project :as project]
             [agraph.xtdb :as store]
             [clojure.string :as str]))
@@ -23,8 +23,8 @@
 
 (defn- project-inspect-result
   [xtdb project {:keys [config-path map-path]}]
-  (let [overlay (when (and map-path (graph-map/file-exists? map-path))
-                  (graph-map/read-map map-path))
+  (let [overlay (when (and map-path (map-store/file-exists? map-path))
+                  (map-store/read-map map-path))
         evidence-summary (evidence/summarize xtdb
                                              project
                                              {:map-overlay overlay

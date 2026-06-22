@@ -4,9 +4,8 @@
             [agraph.context :as context]
             [agraph.graph :as graph]
             [agraph.hash :as hash]
-            [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.xtdb :as store]
-            [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.string :as str])
   (:import [java.util Date]))
@@ -95,11 +94,11 @@
 
 (defn- map-snapshot
   [path]
-  (when (and path (graph-map/file-exists? path))
+  (when (and path (map-store/file-exists? path))
     (let [contents (slurp (io/file path))]
       {:map-path path
        :map-sha (hash/short-hash contents)
-       :map-overlay (json/read-json contents :key-fn keyword)})))
+       :map-overlay (map-store/read-map path)})))
 
 (defn- read-context-from-basis
   [basis]

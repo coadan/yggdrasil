@@ -7,7 +7,7 @@
             [agraph.dependency :as dependency]
             [agraph.evidence :as evidence]
             [agraph.graph :as graph]
-            [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.project :as project]
             [agraph.report-plugin :as report-plugin]
             [charred.api :as json]
@@ -399,7 +399,7 @@
       (conj {:kind :dependency-correction
              :label "Apply accepted import-to-package correction"
              :count (get package-counts :unresolved-imports 0)
-             :command "agraph sync package import <import-prefix> <ecosystem>:<package>"})
+             :command "agraph map package import <import-prefix> <ecosystem>:<package>"})
 
       (pos? (long (get package-counts :version-conflicts 0)))
       (conj {:kind :dependency-review
@@ -823,7 +823,7 @@
   (let [detail (keyword detail)
         generated-at-ms (or generated-at-ms (now-ms))
         out-dir (prepare-output-dir! out force?)
-        overlay (when map-path (graph-map/read-map map-path))
+        overlay (when map-path (map-store/read-map map-path))
         graph-data (graph/overview-graph xtdb {:project-id (:id project)})
         systems-data (graph/system-graph xtdb
                                          (:id project)

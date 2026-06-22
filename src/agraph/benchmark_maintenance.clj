@@ -10,6 +10,8 @@
             [agraph.fs :as fs]
             [agraph.hash :as hash]
             [agraph.map :as graph-map]
+            [agraph.map-api :as map-api]
+            [agraph.map-store :as map-store]
             [agraph.text :as text]
             [agraph.xtdb :as store]
             [clojure.java.io :as io]
@@ -76,20 +78,20 @@
   "Ensure the benchmark case has an `agraph.map.json`, seed case overlay corrections, and return its canonical path."
   [suite case prepared opts]
   (let [path (benchmark-paths/agent-map-path suite case opts)
-        existing? (graph-map/file-exists? path)
+        existing? (map-store/file-exists? path)
         before (if existing?
-                 (graph-map/read-map path)
+                 (map-store/read-map path)
                  (graph-map/empty-map (:project-id prepared)))
         after (seed-case-map-overlay before case)]
     (when (or (not existing?) (not= before after))
-      (graph-map/write-map! path after))
+      (map-api/apply-overlay! path (:project-id prepared) (constantly after)))
     (fs/canonical-path path)))
 
 (defn agent-map-overlay
   "Read a benchmark map overlay when the map file exists."
   [map-path]
-  (when (graph-map/file-exists? map-path)
-    (graph-map/read-map map-path)))
+  (when (map-store/file-exists? map-path)
+    (map-store/read-map map-path)))
 
 (defn sync-inspect-summary
   "Return a bounded sync/check-equivalent evidence summary for one benchmark case."

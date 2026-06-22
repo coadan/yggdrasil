@@ -18,28 +18,37 @@ subsystem matters for a use case, put the answer in `agraph.map.json`. Humans or
 LLM-backed tools can make those judgments from evidence without turning AGraph
 into a pile of path-name rules or text matching.
 
-`agraph.map.json` is the durable correction layer. It is versionable JSON that
-an agent or human can update while doing normal coding work.
+`agraph.map.json` is the durable correction layer. It is compact, versionable
+JSON owned by the `agraph map` CLI API. Read it for audit and review, but write
+accepted corrections through `agraph map` so validation, required reasons, and
+normalization stay in one place.
+
+Generated candidates do not belong in the persisted map. `agraph map review`
+prints a bounded review packet from the current graph and existing accepted
+corrections, then exits without writing candidate systems to `agraph.map.json`.
 
 ## Workflow
 
-Start from generated candidates:
+Initialize the backing file, then inspect generated candidates without writing
+them into the map:
 
 ```sh
 agraph sync add-repo project.edn /path/to/repo --repo app --role application
 agraph sync project.edn
-agraph sync propose project.edn --out agraph.map.json
+agraph map init project.edn --map agraph.map.json
+agraph map review project.edn --map agraph.map.json --json
 ```
 
 Then accept or correct what research proves:
 
 ```sh
-agraph sync set-kind "services/api-gateway" service --map agraph.map.json
-agraph sync include "API Gateway" app:services/api-gateway --map agraph.map.json
-agraph sync ignore external-api docs.xtdb.com --map agraph.map.json --reason "Documentation reference"
-agraph sync package import org.slf4j maven:org.slf4j:slf4j-api --map agraph.map.json --reason "slf4j-api exports org.slf4j"
-agraph sync docs attach "API Gateway" app:docs/api-gateway.md --map agraph.map.json --role contract --heading "API Gateway"
-agraph sync explain "API Gateway" --map agraph.map.json
+agraph map accept system "services/api-gateway" --kind service --label "API Gateway" --include app:services/api-gateway --map agraph.map.json --reason "Reviewed runtime gateway boundary"
+agraph map set-kind "API Gateway" service --map agraph.map.json --reason "Reviewed runtime gateway boundary"
+agraph map include "API Gateway" app:services/api-gateway --map agraph.map.json --reason "Reviewed source ownership"
+agraph map reject external-api docs.xtdb.com --map agraph.map.json --reason "Documentation reference"
+agraph map package import org.slf4j maven:org.slf4j:slf4j-api --map agraph.map.json --reason "slf4j-api exports org.slf4j"
+agraph map docs attach "API Gateway" app:docs/api-gateway.md --map agraph.map.json --role contract --heading "API Gateway" --reason "Reviewed API contract"
+agraph map explain "API Gateway" --map agraph.map.json
 ```
 
 System graph exports apply `agraph.map.json` automatically when it exists in the
@@ -56,7 +65,7 @@ agraph view systems --project sample --format json --no-map --out .dev/reports/r
 
 ```json
 {
-  "schema": "agraph.map/v1",
+  "schema": "agraph.map/v2",
   "project": "sample",
   "systems": [
     {
@@ -112,6 +121,11 @@ agraph view systems --project sample --format json --no-map --out .dev/reports/r
   ]
 }
 ```
+
+Only accepted corrections are persisted. If an older or generated map contains
+candidate systems, provenance, metrics, or evidence payloads from automatic
+review output, the store boundary normalizes the file back to compact
+`agraph.map/v2` rows and drops unaccepted generated candidates.
 
 `systems[].includes` merge generated graph nodes into the accepted system node.
 Edges attached to the generated nodes are rewired to the accepted node.

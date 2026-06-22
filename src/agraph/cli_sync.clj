@@ -1,11 +1,11 @@
 (ns agraph.cli-sync
   (:require [agraph.activity :as activity]
-            [agraph.cli-options :refer [append-option dry-run? json-output? option-value parse-double-option parse-limit positional-args]]
+            [agraph.cli-options :refer [dry-run? json-output? option-value parse-double-option parse-limit positional-args]]
             [agraph.coverage :as coverage]
             [agraph.dependency-review :as dependency-review]
             [agraph.infra-review :as infra-review]
             [agraph.index :as index]
-            [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.project :as project]
             [agraph.queue :as queue]
             [agraph.system.decision-classifier :as decision-classifier]
@@ -279,7 +279,7 @@
          opts (cond-> {:dry-run? (dry-run? args)
                        :index-profile (sync-index-profile args)
                        :map-overlay (when map-path
-                                      (graph-map/read-map map-path))}
+                                      (map-store/read-map map-path))}
                 progress-fn (assoc :progress-fn progress-fn))]
      (if-let [repo-id (option-value args "--repo")]
        (let [run (project/index-project-repo! xtdb project repo-id opts)]
@@ -298,7 +298,7 @@
       project
       {:low-confidence-threshold (parse-double-option args "--min-confidence" 0.60)
        :map-overlay (when map-path
-                      (graph-map/read-map map-path))})))
+                      (map-store/read-map map-path))})))
   ([xtdb project args deps]
    (binding [*deps* deps]
      (maintenance-report xtdb project args))))
@@ -574,77 +574,22 @@
 
       (throw (ex-info "Unknown sync work command." {:command action
                                                     :usage (usage)})))))
-(defn- sync-map-command!
-  [action args]
-  (case action
-    (:init :propose)
-    (dispatch "map" (into [(name action)] args))
+(defn- retired-sync-map-command!
+  [action]
+  (throw (ex-info "Map corrections are handled by the agraph map API."
+                  {:command (name action)
+                   :replacement "agraph map"
+                   :usage (usage)})))
 
-    :explain
-    (let [target (first (positional-args args))]
-      (when-not target
-        (throw (ex-info "Missing sync target." {:usage (usage)})))
-      (dispatch "map" ["explain" (required-map-path args) target]))
-
-    :set-kind
-    (let [[target kind] (positional-args args)]
-      (when-not (and target kind)
-        (throw (ex-info "Missing sync target or kind." {:usage (usage)})))
-      (dispatch "map" ["set-kind" (required-map-path args) target kind]))
-
-    :include
-    (let [[target include] (positional-args args)]
-      (when-not (and target include)
-        (throw (ex-info "Missing sync target or repo:path include."
-                        {:usage (usage)})))
-      (dispatch "map" ["include" (required-map-path args) target include]))
-
-    :ignore
-    (let [[kind value] (positional-args args)
-          map-args (append-option ["reject" (required-map-path args) kind value]
-                                  "--reason"
-                                  (option-value args "--reason"))]
-      (when-not (and kind value)
-        (throw (ex-info "Missing ignore kind or value." {:usage (usage)})))
-      (dispatch "map" map-args))
-
-    :package
-    (let [[subcommand import-prefix package-target] (positional-args args)]
-      (when-not (= "import" subcommand)
-        (throw (ex-info "Unknown sync package command."
-                        {:command subcommand
-                         :usage (usage)})))
-      (when-not (and import-prefix package-target)
-        (throw (ex-info "Missing package import prefix or ecosystem:package target."
-                        {:usage (usage)})))
-      (dispatch "map"
-                (-> ["package-import"
-                     (required-map-path args)
-                     import-prefix
-                     package-target]
-                    (append-option "--repo" (option-value args "--repo"))
-                    (append-option "--reason" (option-value args "--reason")))))
-
-    (throw (ex-info "Unknown sync command." {:command action
-                                             :usage (usage)}))))
 (defn- sync-docs!
   [args]
-  (let [action (keyword (first args))
-        docs-args (vec (rest args))]
+  (let [action (keyword (first args))]
     (case action
       :attach
-      (let [[target source] (positional-args docs-args)
-            map-path (required-map-path docs-args)
-            forwarded (-> ["attach" map-path target source]
-                          (append-option "--role" (option-value docs-args "--role"))
-                          (append-option "--heading" (option-value docs-args "--heading"))
-                          (append-option "--start-line" (option-value docs-args "--start-line"))
-                          (append-option "--end-line" (option-value docs-args "--end-line"))
-                          (append-option "--reason" (option-value docs-args "--reason")))]
-        (when-not (and target source)
-          (throw (ex-info "Missing docs target or repo:path source."
-                          {:usage (usage)})))
-        (dispatch "docs" forwarded))
+      (throw (ex-info "Map doc attachments are handled by the agraph map API."
+                      {:command "sync docs attach"
+                       :replacement "agraph map docs attach"
+                       :usage (usage)}))
 
       (:candidates :for :audit)
       (dispatch "docs" args)
@@ -686,7 +631,7 @@
        (dispatch "views" action-args)
 
        (:init :propose :explain :set-kind :include :ignore :package)
-       (sync-map-command! action action-args)
+       (retired-sync-map-command! action)
 
        (if action-name
          (sync-project! args)

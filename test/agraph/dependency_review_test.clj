@@ -1,6 +1,6 @@
 (ns agraph.dependency-review-test
   (:require [agraph.dependency-review :as dependency-review]
-            [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.queue :as queue]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]))
@@ -79,7 +79,7 @@
                                   :evidence [evidence-id]
                                   :reason "The package declares the matching API."}]})
     (let [applied (dependency-review/apply-work-result! root id map-path)
-          map-data (graph-map/read-map map-path)
+          map-data (map-store/read-map map-path)
           package-import (first (:packageImports map-data))]
       (is (= dependency-review/apply-schema (:schema applied)))
       (is (= "applied" (:status applied)))

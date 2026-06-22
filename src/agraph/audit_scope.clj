@@ -2,7 +2,7 @@
   "Mechanical audit-scope summaries for selected graph evidence."
   (:require [agraph.command :as command]
             [agraph.coverage :as coverage]
-            [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.xtdb :as store]
             [clojure.set :as set]
             [clojure.string :as str]))
@@ -706,8 +706,8 @@
 (defn- map-overlay
   [{:keys [map-overlay map-path]}]
   (or map-overlay
-      (when (and map-path (graph-map/file-exists? map-path))
-        (graph-map/read-map map-path))))
+      (when (and map-path (map-store/file-exists? map-path))
+        (map-store/read-map map-path))))
 
 (defn report
   "Return a mechanical audit-scope report for the indexed project graph."

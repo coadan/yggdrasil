@@ -591,7 +591,7 @@
     (pos? (long (or (:unresolved-imports counts) 0)))
     (conj {:kind :package-import
            :label "Record a reviewed import-package correction directly"
-           :command (str "agraph sync package import <import-prefix> <ecosystem>:<package>"
+           :command (str "agraph map package import <import-prefix> <ecosystem>:<package>"
                          " --map agraph.map.json --reason <reason>")})))
 
 (defn package-report

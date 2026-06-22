@@ -331,10 +331,11 @@ agraph sync docs candidates system:sample:app:path/services/api-gateway --projec
 Attach a reviewed snippet:
 
 ```sh
-agraph sync docs attach "API Gateway" app:docs/api-gateway.md \
+agraph map docs attach "API Gateway" app:docs/api-gateway.md \
   --map agraph.map.json \
   --role contract \
-  --heading "API Gateway"
+  --heading "API Gateway" \
+  --reason "Reviewed API contract"
 ```
 
 Read attached docs for one target:

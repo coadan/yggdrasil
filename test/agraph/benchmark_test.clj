@@ -10,7 +10,7 @@
                                                    spit-file!
                                                    spit-json!
                                                    temp-dir]]
-            [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -1765,7 +1765,7 @@
         prepared {:project-id "suite-case-1"}
         map-path (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
         _ (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
-        overlay (graph-map/read-map map-path)]
+        overlay (map-store/read-map map-path)]
     (is (= "suite-case-1" (:project overlay)))
     (is (= [{:import "LinqToDB"
              :ecosystem "nuget"

@@ -1,11 +1,12 @@
 (ns agraph.map
   "Editable system-map overlay for agent-maintained graph meaning."
   (:require [agraph.hash :as hash]
-            [charred.api :as json]
-            [clojure.java.io :as io]
             [clojure.string :as str]))
 
 (def schema
+  "agraph.map/v2")
+
+(def legacy-schema
   "agraph.map/v1")
 
 (def default-path
@@ -26,25 +27,6 @@
    :docs []
    :packageImports []
    :updated-at-ms (now-ms)})
-
-(defn read-map
-  "Read agraph.map/v1 JSON."
-  [path]
-  (json/read-json (slurp (io/file path)) :key-fn keyword))
-
-(defn write-map!
-  "Write agraph.map/v1 JSON."
-  [path data]
-  (let [file (io/file path)
-        data (assoc data :schema schema :updated-at-ms (now-ms))]
-    (when-let [parent (.getParentFile file)]
-      (.mkdirs parent))
-    (spit file (str (json/write-json-str data {:indent-str "  "}) "\n"))
-    (.getPath file)))
-
-(defn file-exists?
-  [path]
-  (.isFile (io/file path)))
 
 (defn- s
   [value]
@@ -256,11 +238,6 @@
                  :packageImports (count (or (:packageImports overlay)
                                             (:package-imports overlay)))})))
 
-(defn apply-file
-  "Apply map overlay from path to canonical graph data."
-  [graph-data path]
-  (apply-overlay graph-data (read-map path)))
-
 (defn system-entry
   "Return an editable map system candidate from stored system node."
   [node]
@@ -294,6 +271,103 @@
    :docs []
    :packageImports []
    :updated-at-ms (now-ms)})
+
+(defn- generated-candidate-system?
+  [system]
+  (and (not= "accepted" (s (:status system)))
+       (or (= "candidate" (s (:status system)))
+           (= "generated-by-agraph" (s (:provenance system))))))
+
+(defn- normalize-include
+  [include]
+  (cond-> {}
+    (:repo include) (assoc :repo (s (:repo include)))
+    (:path include) (assoc :path (s (:path include)))
+    (:id include) (assoc :id (s (:id include)))))
+
+(defn- normalize-system
+  [system]
+  (cond-> {:id (s (:id system))
+           :label (or (s (:label system)) (s (:id system)))
+           :kind (or (kname (:kind system)) "system")
+           :includes (mapv normalize-include (:includes system))
+           :status "accepted"}
+    (:repo system) (assoc :repo (s (:repo system)))
+    (or (:pathPrefix system) (:path-prefix system))
+    (assoc :pathPrefix (s (or (:pathPrefix system) (:path-prefix system))))
+    (seq (:aliases system)) (assoc :aliases (mapv s (:aliases system)))
+    (seq (:tags system)) (assoc :tags (mapv s (:tags system)))
+    (:lifecycle system) (assoc :lifecycle (s (:lifecycle system)))
+    (or (:clusterHint system) (:cluster-hint system))
+    (assoc :clusterHint (s (or (:clusterHint system) (:cluster-hint system))))
+    (:reason system) (assoc :reason (s (:reason system)))))
+
+(defn- normalize-reject
+  [reject]
+  (cond-> {:match (:match reject)}
+    (:reason reject) (assoc :reason (s (:reason reject)))))
+
+(defn- normalize-edge
+  [edge]
+  (cond-> {:source (s (:source edge))
+           :target (s (:target edge))
+           :relation (s (:relation edge))
+           :status "accepted"}
+    (:id edge) (assoc :id (s (:id edge)))
+    (:visibility edge) (assoc :visibility (s (:visibility edge)))
+    (:importance edge) (assoc :importance (s (:importance edge)))
+    (:confidence edge) (assoc :confidence (numeric (:confidence edge)))
+    (:salience edge) (assoc :salience (:salience edge))
+    (:rules edge) (assoc :rules (s (:rules edge)))
+    (:evidence edge) (assoc :evidence (:evidence edge))
+    (:reason edge) (assoc :reason (s (:reason edge)))
+    (seq (:tags edge)) (assoc :tags (mapv s (:tags edge)))))
+
+(defn- normalize-doc
+  [doc]
+  (cond-> {:target (s (:target doc))
+           :role (or (s (:role doc)) "reference")
+           :source (:source doc)
+           :status "accepted"}
+    (:reason doc) (assoc :reason (s (:reason doc)))))
+
+(defn- normalize-package-import
+  [package-import]
+  (cond-> {:import (s (:import package-import))
+           :ecosystem (s (:ecosystem package-import))
+           :package (s (:package package-import))
+           :status "accepted"}
+    (:repo package-import) (assoc :repo (s (:repo package-import)))
+    (seq (:evidence package-import)) (assoc :evidence (vec (:evidence package-import)))
+    (seq (:rules package-import)) (assoc :rules (:rules package-import))
+    (seq (:reviewId package-import)) (assoc :reviewId (s (:reviewId package-import)))
+    (contains? package-import :confidence) (assoc :confidence (numeric (:confidence package-import)))
+    (:reason package-import) (assoc :reason (s (:reason package-import)))))
+
+(defn normalize-map
+  "Return a compact agraph.map/v2 overlay containing accepted corrections only."
+  [overlay]
+  {:schema schema
+   :project (:project overlay)
+   :systems (->> (:systems overlay)
+                 (remove generated-candidate-system?)
+                 (mapv normalize-system))
+   :reject (mapv normalize-reject (:reject overlay))
+   :edges (mapv normalize-edge (:edges overlay))
+   :docs (mapv normalize-doc (:docs overlay))
+   :packageImports (mapv normalize-package-import
+                         (concat (:packageImports overlay)
+                                 (:package-imports overlay)))
+   :updated-at-ms (or (:updated-at-ms overlay) (now-ms))})
+
+(defn overlay-counts
+  [overlay]
+  {:systems (count (:systems overlay))
+   :rejects (count (:reject overlay))
+   :edges (count (:edges overlay))
+   :docs (count (:docs overlay))
+   :packageImports (count (or (:packageImports overlay)
+                              (:package-imports overlay)))})
 
 (defn- find-system-index
   [overlay value]

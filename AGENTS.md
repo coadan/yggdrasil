@@ -93,15 +93,15 @@ context unless the task explicitly needs broad inventory. Use `bb view` only
 when a rendered or exported graph slice helps.
 
 If sync reports maintenance work, claim one bounded item at a time and inspect
-the evidence. For manual corrections, use the relevant `bb sync` command before
-completion. For structured work results, complete the item first, then run
-`bb sync work apply` so AGraph validates the result before editing
-`agraph.map.json`:
+the evidence. For manual corrections, use `agraph map` before completion so
+`agraph.map.json` stays behind the validated correction API. For structured
+work results, complete the item first, then run `bb sync work apply` so AGraph
+validates the result before editing `agraph.map.json`:
 
 ```sh
 bb sync work pull --project <project-id> --agent <agent-id>
-bb sync explain <target> --map agraph.map.json
-bb sync ignore external-api <host> --map agraph.map.json --reason "<reason>"
+agraph map explain <target> --map agraph.map.json
+agraph map reject external-api <host> --map agraph.map.json --reason "<reason>"
 bb sync work complete <work-id> --result result.json
 bb sync work apply <work-id> --map agraph.map.json
 ```

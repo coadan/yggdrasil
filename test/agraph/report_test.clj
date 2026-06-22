@@ -217,7 +217,7 @@
             :result-schema-mismatch-events 1}
            (get-in packet [:atlas :activity])))
     (is (= #{"agraph packages --project fixture --json"
-             "agraph sync package import <import-prefix> <ecosystem>:<package>"
+             "agraph map package import <import-prefix> <ecosystem>:<package>"
              "agraph packages --project fixture --with-conflicts --json"
              "agraph sync coverage project.edn --json"
              "agraph sync activity project.edn --json"}

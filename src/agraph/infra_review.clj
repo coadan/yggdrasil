@@ -2,6 +2,7 @@
   "Bounded infrastructure graph review packets and result application."
   (:require [agraph.hash :as hash]
             [agraph.map :as graph-map]
+            [agraph.map-api :as map-api]
             [agraph.queue :as queue]
             [charred.api :as json]
             [clojure.string :as str]))
@@ -369,16 +370,14 @@
          :item (queue/item-summary failed)})
       (let [packet (payload item)
             result (result item)
-            overlay (if (graph-map/file-exists? map-path)
-                      (graph-map/read-map map-path)
-                      (graph-map/empty-map (:project-id packet)))
-            updated (apply-patches overlay packet result)
-            applied-count (- (count (:edges updated))
-                             (count (:edges overlay)))
-            written (graph-map/write-map! map-path updated)]
+            write-result (map-api/apply-overlay!
+                          map-path
+                          (:project-id packet)
+                          #(apply-patches % packet result))]
         {:schema apply-schema
          :status "applied"
          :workId (:id item)
          :reviewId (:reviewId packet)
-         :mapPath written
-         :patchesApplied applied-count}))))
+         :mapPath (:path write-result)
+         :patchesApplied (max 0 (- (get-in write-result [:after :edges] 0)
+                                   (get-in write-result [:before :edges] 0)))}))))

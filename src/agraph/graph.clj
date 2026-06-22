@@ -1,6 +1,7 @@
 (ns agraph.graph
   "Build and render graph slices."
   (:require [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.metadata :as metadata]
             [agraph.query :as query]
             [agraph.system.cluster :as cluster]
@@ -535,7 +536,7 @@
                           :detail detail})
         data (cond
                map-overlay (graph-map/apply-overlay data map-overlay)
-               map-path (graph-map/apply-file data map-path)
+               map-path (map-store/apply-file data map-path)
                :else data)]
     (enrich-graph xtdb
                   (if (= :raw detail)

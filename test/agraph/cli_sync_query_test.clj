@@ -12,7 +12,7 @@
             [agraph.graph :as graph]
             [agraph.infra-review :as infra-review]
             [agraph.init :as init]
-            [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.project :as project]
             [agraph.queue :as queue]
             [agraph.query :as query]
@@ -98,11 +98,11 @@
         (is (= init/schema (:schema parsed)))
         (is (= "fixture" (:project-id parsed)))
         (is (str/includes? (:sync-output parsed) "# Sync"))
-        (is (graph-map/file-exists? map-path))
+        (is (map-store/file-exists? map-path))
         (is (= [[:read config-path]
                 [:index :xtdb "fixture" {:dry-run? false
                                          :index-profile :graph
-                                         :map-overlay {:schema "agraph.map/v1"
+                                         :map-overlay {:schema "agraph.map/v2"
                                                        :project "fixture"
                                                        :systems []
                                                        :reject []
@@ -110,7 +110,7 @@
                                                        :docs []}}]
                 [:infer :xtdb "fixture"]
                 [:check :xtdb "fixture" {:low-confidence-threshold 0.6
-                                         :map-overlay {:schema "agraph.map/v1"
+                                         :map-overlay {:schema "agraph.map/v2"
                                                        :project "fixture"
                                                        :systems []
                                                        :reject []
@@ -127,7 +127,7 @@
                                                                          :docs]))
                          call))
                      @calls))))
-      (is (= {:schema "agraph.map/v1"
+      (is (= {:schema "agraph.map/v2"
               :project "fixture"
               :systems []
               :reject []
@@ -234,7 +234,7 @@
                 :validation-events 0
                 :result-schema-mismatch-events 0}
                (get-in parsed [:counts :activity])))
-        (is (graph-map/file-exists? map-path))
+        (is (map-store/file-exists? map-path))
         (is (some #(str/includes? % "agraph ask")
                   (:next parsed)))
         (is (some #(= {:kind "ask"
@@ -246,7 +246,7 @@
                (set (map :command (:nextActions parsed)))))
         (is (= [[:index :xtdb "fixture" {:dry-run? false
                                          :index-profile :graph
-                                         :map-overlay {:schema "agraph.map/v1"
+                                         :map-overlay {:schema "agraph.map/v2"
                                                        :project "fixture"
                                                        :systems []
                                                        :reject []
@@ -254,7 +254,7 @@
                                                        :docs []}}]
                 [:infer :xtdb "fixture"]
                 [:check :xtdb "fixture" {:low-confidence-threshold 0.6
-                                         :map-overlay {:schema "agraph.map/v1"
+                                         :map-overlay {:schema "agraph.map/v2"
                                                        :project "fixture"
                                                        :systems []
                                                        :reject []
@@ -318,7 +318,7 @@
                   (:next parsed)))
         (is (= [[:index :xtdb "existing" {:dry-run? false
                                           :index-profile :graph
-                                          :map-overlay {:schema "agraph.map/v1"
+                                          :map-overlay {:schema "agraph.map/v2"
                                                         :project "existing"
                                                         :systems []
                                                         :reject []
@@ -532,7 +532,7 @@
 (deftest audit-scope-command-returns-core-scope-report
   (with-redefs [project/read-project (constantly project-fixture)
                 store/with-node (fn [_ f] (f :xtdb))
-                graph-map/file-exists? (constantly false)
+                map-store/file-exists? (constantly false)
                 audit-scope/report (fn [xtdb project opts]
                                      {:schema audit-scope/report-schema
                                       :xtdb xtdb
@@ -583,7 +583,7 @@
       (is (str/includes? plain-out "- agraph sync coverage project.edn --json")))))
 (deftest sync-inspect-json-includes-evidence-surface
   (with-redefs [project/read-project (constantly project-fixture)
-                graph-map/file-exists? (constantly false)
+                map-store/file-exists? (constantly false)
                 store/with-node (fn [_ f] (f :xtdb))
                 evidence/summarize (fn [xtdb project opts]
                                      {:schema evidence/schema
@@ -880,7 +880,7 @@
                                "--map" map-path
                                "--queue-dir" root]))
           parsed (read-json-output out)
-          map-data (graph-map/read-map map-path)
+          map-data (map-store/read-map map-path)
           edge (first (:edges map-data))]
       (is (= infra-review/apply-schema (:schema parsed)))
       (is (= "applied" (:status parsed)))
@@ -941,7 +941,7 @@
       (is (= [{:path ["mapPatch" 0 "evidence"]
                :error "Edge patch must cite at least one facts.evidence[].id."}]
              (:errors parsed)))
-      (is (false? (graph-map/file-exists? map-path))))))
+      (is (false? (map-store/file-exists? map-path))))))
 (deftest sync-work-apply-valid-dependency-review-result-updates-map
   (let [root (temp-dir "agraph-cli-work-dependency-apply")
         dir (temp-dir "agraph-cli-work-dependency-map")
@@ -991,7 +991,7 @@
                                "--map" map-path
                                "--queue-dir" root]))
           parsed (read-json-output out)
-          package-import (first (:packageImports (graph-map/read-map map-path)))]
+          package-import (first (:packageImports (map-store/read-map map-path)))]
       (is (= dependency-review/apply-schema (:schema parsed)))
       (is (= "applied" (:status parsed)))
       (is (= 1 (:patchesApplied parsed)))
@@ -1236,7 +1236,7 @@
       (is (= "applied" (:status valid)))
       (is (= "valid" (get-in valid [:validation :status])))
       (is (= "org.slf4j"
-             (:import (first (:packageImports (graph-map/read-map valid-map-path))))))
+             (:import (first (:packageImports (map-store/read-map valid-map-path))))))
       (is (= dependency-review/apply-schema (:schema invalid)))
       (is (= "failed" (:status invalid)))
       (is (= "invalid" (get-in invalid [:validation :status])))
@@ -1245,7 +1245,7 @@
                :error "Result recommendation is required and must be supported."
                :value "maybe"}]
              (:errors invalid)))
-      (is (false? (graph-map/file-exists? invalid-map-path)))
+      (is (false? (map-store/file-exists? invalid-map-path)))
       (is (= "failed" (:status not-done)))
       (is (= "not-done" (get-in not-done [:validation :status])))
       (is (= "ready" (get-in not-done [:item :status])))
@@ -1253,7 +1253,7 @@
                :error "Work result must validate before apply."
                :value "not-done"}]
              (:errors not-done)))
-      (is (false? (graph-map/file-exists? ready-map-path)))
+      (is (false? (map-store/file-exists? ready-map-path)))
       (is (= "agraph.sync.work.apply/v1" (:schema unsupported)))
       (is (= "failed" (:status unsupported)))
       (is (= "unsupported" (get-in unsupported [:validation :status])))
@@ -1262,7 +1262,7 @@
                :error "No validation handler for work item payload schema."
                :value "agraph.custom.work/v1"}]
              (:errors unsupported)))
-      (is (false? (graph-map/file-exists? unsupported-map-path))))))
+      (is (false? (map-store/file-exists? unsupported-map-path))))))
 (deftest infra-review-result-requires-supported-recommendation-and-reason
   (let [packet {:schema infra-review/packet-schema
                 :reviewId "infra-review:test"
@@ -1349,7 +1349,7 @@
                                "--map" map-path
                                "--queue-dir" root]))
           parsed (read-json-output out)
-          map-data (graph-map/read-map map-path)
+          map-data (map-store/read-map map-path)
           system (first (:systems map-data))
           edge (first (:edges map-data))]
       (is (= infra-review/apply-schema (:schema parsed)))
@@ -1680,18 +1680,18 @@
         (cli/dispatch "view" ["overview" "--format" "json" "--out" "graph.json"]))
       (is (= "graph.json" (:path @written)))
       (is (= graph/schema (get-in @written [:data :schema]))))))
-(deftest sync-ignore-updates-map-file
+(deftest map-reject-updates-map-file
   (let [dir (temp-dir "agraph-cli-map")
         map-path (.getPath (io/file dir "agraph.map.json"))]
-    (spit map-path (json/write-json-str {:schema "agraph.map/v1"
+    (spit map-path (json/write-json-str {:schema "agraph.map/v2"
                                          :project "fixture"
                                          :systems []
                                          :reject []
                                          :edges []
                                          :docs []}))
     (with-out-str
-      (cli/dispatch "sync"
-                    ["ignore" "external-api" "docs.example.com"
+      (cli/dispatch "map"
+                    ["reject" "external-api" "docs.example.com"
                      "--map" map-path
                      "--reason" "Documentation reference"]))
     (let [data (json/read-json (slurp map-path) :key-fn keyword)]
@@ -1699,10 +1699,10 @@
                        :host "docs.example.com"}
                :reason "Documentation reference"}]
              (:reject data))))))
-(deftest sync-package-import-updates-map-file
+(deftest map-package-import-updates-map-file
   (let [dir (temp-dir "agraph-cli-package-import-map")
         map-path (.getPath (io/file dir "agraph.map.json"))]
-    (spit map-path (json/write-json-str {:schema "agraph.map/v1"
+    (spit map-path (json/write-json-str {:schema "agraph.map/v2"
                                          :project "fixture"
                                          :systems []
                                          :reject []
@@ -1710,7 +1710,7 @@
                                          :docs []
                                          :packageImports []}))
     (with-out-str
-      (cli/dispatch "sync"
+      (cli/dispatch "map"
                     ["package" "import" "org.slf4j" "maven:org.slf4j:slf4j-api"
                      "--repo" "app"
                      "--map" map-path

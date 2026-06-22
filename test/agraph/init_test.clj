@@ -1,7 +1,7 @@
 (ns agraph.init-test
   (:require [agraph.fs :as fs]
             [agraph.init :as init]
-            [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.project :as project]
             [charred.api :as json]
             [clojure.edn :as edn]
@@ -97,7 +97,7 @@
                    :command (str "agraph sync " out " --check --map agraph.map.json")}
                   %)
               (:nextActions result)))
-    (is (not (graph-map/file-exists? (io/file root "agraph.map.json"))))))
+    (is (not (map-store/file-exists? (io/file root "agraph.map.json"))))))
 
 (deftest next-actions-quote-shell-sensitive-paths
   (let [root (temp-dir "agraph-init next")

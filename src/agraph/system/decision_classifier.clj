@@ -1,6 +1,7 @@
 (ns agraph.system.decision-classifier
   "Focused classifier for one maintenance decision at a time."
   (:require [agraph.map :as graph-map]
+            [agraph.map-api :as map-api]
             [agraph.queue :as queue]
             [charred.api :as json]
             [clojure.string :as str]))
@@ -335,6 +336,7 @@
 
       "accept-system"
       (upsert-system overlay (cond-> (target-system-row packet)
+                               true (assoc :status "accepted")
                                reason (assoc :reason reason)))
 
       "reject-system"
@@ -362,12 +364,6 @@
           overlay
           (map-patch result)))
 
-(defn- overlay-counts
-  [overlay]
-  {:systems (count (:systems overlay))
-   :reject (count (:reject overlay))
-   :edges (count (:edges overlay))})
-
 (defn apply-work-result!
   "Validate and apply a completed maintenance-decision queue item to a map file."
   [root id map-path]
@@ -386,17 +382,15 @@
          :item (queue/item-summary failed)})
       (let [packet (payload item)
             result (result item)
-            overlay (if (graph-map/file-exists? map-path)
-                      (graph-map/read-map map-path)
-                      (graph-map/empty-map (:project-id packet)))
-            before (overlay-counts overlay)
-            updated (apply-patches overlay packet result)
-            after (overlay-counts updated)
-            written (graph-map/write-map! map-path updated)]
+            write-result (map-api/apply-overlay!
+                          map-path
+                          (:project-id packet)
+                          #(apply-patches % packet result))]
         {:schema apply-schema
          :status "applied"
          :workId (:id item)
          :decisionId (:decisionId packet)
-         :mapPath written
-         :patchesApplied (reduce + (map #(max 0 (- (get after %) (get before %)))
-                                        [:systems :reject :edges]))}))))
+         :mapPath (:path write-result)
+         :patchesApplied (reduce + (map #(max 0 (- (get-in write-result [:after %] 0)
+                                                   (get-in write-result [:before %] 0)))
+                                        [:systems :rejects :edges]))}))))

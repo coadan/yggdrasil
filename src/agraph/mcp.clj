@@ -5,7 +5,7 @@
             [agraph.cursor :as cursor]
             [agraph.evidence :as evidence]
             [agraph.graph :as graph]
-            [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.plugin-package-view :as plugin-package-view]
             [agraph.project :as project]
             [agraph.query :as query]
@@ -357,8 +357,8 @@
 (defn- map-overlay
   [ctx args]
   (let [path (or (:mapPath args) (:map-path ctx))]
-    (when (and path (graph-map/file-exists? path))
-      (graph-map/read-map path))))
+    (when (and path (map-store/file-exists? path))
+      (map-store/read-map path))))
 
 (defn- context-packet-freshness
   [xtdb project ctx args overlay]

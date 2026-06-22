@@ -81,7 +81,7 @@ one package from the packet. Applied corrections retain the dependency review id
 rules source, evidence ids, reason, and result or patch confidence for audit.
 Use `agraph sync work validate <work-id>` before `apply` when a human or agent
 has written the result JSON and wants a non-mutating schema/evidence check.
-When the reviewer already knows the mapping, `agraph sync package import
+When the reviewer already knows the mapping, `agraph map package import
 <import-prefix> <ecosystem>:<package> --map agraph.map.json` records the same
 accepted correction path directly.
 Packets include `facts.packageSelection` with total package rows, included rows,
@@ -113,7 +113,7 @@ JVM package imports are resolved only through accepted map corrections because
 Maven coordinates do not mechanically imply Java package roots:
 
 ```sh
-bb sync package import org.slf4j maven:org.slf4j:slf4j-api \
+agraph map package import org.slf4j maven:org.slf4j:slf4j-api \
   --map agraph.map.json \
   --reason "slf4j-api exports org.slf4j"
 ```

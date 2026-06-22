@@ -4,6 +4,7 @@
             [agraph.graph :as graph]
             [agraph.infra-review :as infra-review]
             [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.project :as project]
             [agraph.query :as query]
             [agraph.system :as system]
@@ -581,7 +582,7 @@
       (fn [xtdb]
         (project/index-project! xtdb project {})
         (project/infer-project! xtdb project)
-        (graph-map/write-map!
+        (map-store/write-map!
          map-path
          {:schema graph-map/schema
           :project "fixture"
@@ -630,7 +631,7 @@
                         {:repo "app" :path "docs/api.md"}
                         {:role "runbook" :heading "Fixture API"})]
           (is (= accepted-id (get-in map-data [:docs 0 :target])))
-          (graph-map/write-map! map-path map-data))
+          (map-store/write-map! map-path map-data))
         (let [packet (context/context-packet xtdb
                                              "fixture api runtime"
                                              {:project-id "fixture"

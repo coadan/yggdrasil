@@ -1,6 +1,7 @@
 (ns agraph.cursor-test
   (:require [agraph.cursor :as cursor]
             [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.xtdb :as store]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -144,7 +145,7 @@
     (store/with-node (temp-dir "agraph-cursor-map-xtdb")
       (fn [xtdb]
         (seed-system-graph! xtdb)
-        (graph-map/write-map!
+        (map-store/write-map!
          map-path
          (graph-map/add-doc
           {:schema graph-map/schema
@@ -168,7 +169,7 @@
                                        :node-limit 1})
               cursor-id (get-in created [:cursor :id])]
           (is (= ["Accepted API"] (mapv :label (:focus created))))
-          (graph-map/write-map!
+          (map-store/write-map!
            map-path
            {:schema graph-map/schema
             :project "test"

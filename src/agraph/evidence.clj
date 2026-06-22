@@ -516,7 +516,7 @@
       (conj {:kind :dependency-correction
              :label "Apply accepted import-to-package correction"
              :count unresolved-imports
-             :command (str "agraph sync package import <import-prefix> <ecosystem>:<package>"
+             :command (str "agraph map package import <import-prefix> <ecosystem>:<package>"
                            (when map-path
                              (str " --map " (command/shell-token map-path))))}))))
 

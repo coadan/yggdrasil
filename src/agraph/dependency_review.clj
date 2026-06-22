@@ -2,6 +2,7 @@
   "Bounded dependency import review packets and result application."
   (:require [agraph.hash :as hash]
             [agraph.map :as graph-map]
+            [agraph.map-api :as map-api]
             [agraph.queue :as queue]
             [charred.api :as json]
             [clojure.string :as str]))
@@ -447,10 +448,6 @@
           overlay
           (map-patch result)))
 
-(defn- overlay-counts
-  [overlay]
-  {:packageImports (count (:packageImports overlay))})
-
 (defn apply-work-result!
   "Validate and apply a completed dependency-review queue item to a map file."
   [root id map-path]
@@ -469,17 +466,14 @@
          :item (queue/item-summary failed)})
       (let [packet (payload item)
             result (result item)
-            overlay (if (graph-map/file-exists? map-path)
-                      (graph-map/read-map map-path)
-                      (graph-map/empty-map (:project-id packet)))
-            before (overlay-counts overlay)
-            updated (apply-patches overlay packet result)
-            after (overlay-counts updated)
-            written (graph-map/write-map! map-path updated)]
+            write-result (map-api/apply-overlay!
+                          map-path
+                          (:project-id packet)
+                          #(apply-patches % packet result))]
         {:schema apply-schema
          :status "applied"
          :workId (:id item)
          :reviewId (:reviewId packet)
-         :mapPath written
-         :patchesApplied (max 0 (- (:packageImports after)
-                                   (:packageImports before)))}))))
+         :mapPath (:path write-result)
+         :patchesApplied (max 0 (- (get-in write-result [:after :packageImports] 0)
+                                   (get-in write-result [:before :packageImports] 0)))}))))

@@ -3,6 +3,8 @@
             [agraph.cli-options :refer [option-value positional-args]]
             [agraph.command :as command]
             [agraph.map :as graph-map]
+            [agraph.map-api :as map-api]
+            [agraph.map-store :as map-store]
             [agraph.init :as init]
             [agraph.project :as project]
             [agraph.report :as report]
@@ -54,8 +56,8 @@
 (defn- ensure-init-map!
   [project-id map-path]
   (when (and map-path
-             (not (graph-map/file-exists? map-path)))
-    (graph-map/write-map! map-path (graph-map/empty-map project-id))))
+             (not (map-store/file-exists? map-path)))
+    (map-api/init! map-path project-id)))
 (defn- start-map-path
   [args]
   (cond

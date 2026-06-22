@@ -9,6 +9,7 @@
             [agraph.dependency :as dependency]
             [agraph.graph :as graph]
             [agraph.map :as graph-map]
+            [agraph.map-store :as map-store]
             [agraph.plugin-package-view :as plugin-package-view]
             [agraph.query :as query]
             [agraph.text :as text]
@@ -784,7 +785,7 @@
   [path overlay project-id]
   (cond
     overlay overlay
-    (and path (graph-map/file-exists? path)) (graph-map/read-map path)
+    (and path (map-store/file-exists? path)) (map-store/read-map path)
     :else (graph-map/empty-map project-id)))
 
 (defn- active-row?
