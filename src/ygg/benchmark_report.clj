@@ -11,6 +11,7 @@
             [ygg.benchmark-score :as benchmark-score]
             [ygg.benchmark-score-artifacts :as benchmark-score-artifacts]
             [ygg.benchmark-context-artifacts :as benchmark-context-artifacts]
+            [ygg.benchmark-dataset-diagnostics :as benchmark-dataset-diagnostics]
             [ygg.benchmark-suite :as benchmark-suite]
             [ygg.benchmark-system-improvement :as benchmark-system-improvement]
             [ygg.benchmark-util :as benchmark-util]
@@ -1008,6 +1009,7 @@
 (defn- report-claim-readiness
   [report]
   (let [problem-classes (:problemClasses report)
+        dataset-diagnostics (:datasetDiagnostics report)
         measured-problem-tags (measured-class-tags problem-classes :classes)
         measured-architecture-tags (measured-class-tags problem-classes
                                                         :architectureClasses)
@@ -1099,7 +1101,10 @@
                  (conj "Command telemetry is unavailable; shell/search/read-loop costs are unproven.")
 
                  (not maintenance-preflight?)
-                 (conj "Yggdrasil maintenance preflight did not pass; index, inference, graph expectations, hint diagnostics, and sync/check-equivalent status must pass before making maintained-graph claims."))}))
+                 (conj "Yggdrasil maintenance preflight did not pass; index, inference, graph expectations, hint diagnostics, and sync/check-equivalent status must pass before making maintained-graph claims.")
+
+                 (:syntheticOnly dataset-diagnostics)
+                 (conj "Selected benchmark cases are all synthetic; restrict broad efficiency claims or add non-synthetic replay cases."))}))
 (defn- improvement-row
   [{:keys [kind area runs case-ids message details]}]
   (when (pos? (long (or runs 0)))
@@ -1712,6 +1717,8 @@
                                                       results
                                                       allow-unverified?)
                      :coverage (aggregate-coverage results)
+                     :datasetDiagnostics (benchmark-dataset-diagnostics/dataset-diagnostics
+                                          cases)
                      :tags (aggregate-case-tags cases)
                      :problemClasses (problem-class-summary report-context results)
                      :timings (benchmark-results/aggregate-progress progress)
