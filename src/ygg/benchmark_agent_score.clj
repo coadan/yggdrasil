@@ -78,6 +78,7 @@
                  "graphNeighborBoost" {"type" "number"}
                  "docSupportedCandidateEvidenceBoost" {"type" "number"}
                  "architectureSupportBoost" {"type" "number"}
+                 "candidateLexicalComponentBoost" {"type" "number"}
                  "robustCandidateOnlyBoost" {"type" "number"}
                  "cosine" {"type" "number"
                            "minimum" -1

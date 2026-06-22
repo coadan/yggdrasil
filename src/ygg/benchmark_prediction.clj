@@ -58,6 +58,14 @@
   0.45)
 (def ^:private rank-score-architecture-support-cap
   1.0)
+(def ^:private rank-score-query-supported-architecture-only-weight
+  0.45)
+(def ^:private rank-score-query-supported-architecture-only-cap
+  2.0)
+(def ^:private rank-score-candidate-lexical-component-weight
+  0.15)
+(def ^:private rank-score-candidate-lexical-component-cap
+  0.2)
 (def ^:private rank-score-graph-support-min
   0.5)
 (def ^:private rank-score-graph-lexical-support-min
@@ -350,6 +358,26 @@
          (* rank-score-architecture-support-weight
             (double architecture-evidence-score)))
     0.0))
+(defn- query-supported-architecture-only-boost
+  [support-count
+   architecture-evidence-count
+   query-supported-architecture-evidence-count
+   architecture-evidence-score]
+  (if (and (pos? (long architecture-evidence-count))
+           (= (long architecture-evidence-count) (long support-count))
+           (pos? (long query-supported-architecture-evidence-count))
+           (pos? (double architecture-evidence-score)))
+    (min rank-score-query-supported-architecture-only-cap
+         (* rank-score-query-supported-architecture-only-weight
+            (double architecture-evidence-score)))
+    0.0))
+(defn- candidate-lexical-component-boost
+  [candidate-lexical-score]
+  (if (pos? (double candidate-lexical-score))
+    (min rank-score-candidate-lexical-component-cap
+         (* rank-score-candidate-lexical-component-weight
+            (double candidate-lexical-score)))
+    0.0))
 (defn- doc-prediction
   [root roots query-tokens idx doc]
   (let [source (:source doc)
@@ -554,6 +582,9 @@
           (pos? source-graph-score)
           (assoc :candidate-source-rank candidate-rank)
 
+          (pos? lexical-score)
+          (assoc :candidate-lexical-score lexical-score)
+
           (= "file" target-kind)
           (assoc :direct-file-candidate? true)
 
@@ -744,6 +775,8 @@
                  :architecture-support-score (architecture-support-score query-tokens
                                                                          section
                                                                          row)
+                 :query-supported-architecture-evidence?
+                 (architecture-query-supported? query-tokens row)
                  :evidence-kind :candidate-file
                  :architecture-evidence? true
                  :retrieved-source? false
@@ -854,6 +887,9 @@
                                                                      ordered))
                              architecture-evidence-count (count (filter :architecture-evidence?
                                                                         ordered))
+                             query-supported-architecture-evidence-count
+                             (count (filter :query-supported-architecture-evidence?
+                                            ordered))
                              graph-neighbor-score (apply max
                                                          0.0
                                                          (keep :graph-neighbor-score
@@ -864,11 +900,20 @@
                                     (keep #(when (:candidate-source-rank %)
                                              (:evidence-score %))
                                           ordered))
+                             candidate-lexical-score (apply max
+                                                            0.0
+                                                            (keep :candidate-lexical-score
+                                                                  ordered))
                              architecture-evidence-score (apply max
                                                                 0.0
                                                                 (keep #(when (:architecture-evidence? %)
-                                                                         (:architecture-support-score %))
+                                                                         (:evidence-score %))
                                                                       ordered))
+                             architecture-support-evidence-score (apply max
+                                                                        0.0
+                                                                        (keep #(when (:architecture-evidence? %)
+                                                                                 (:architecture-support-score %))
+                                                                              ordered))
                              candidate-only-compound-pair-count (if (zero? doc-count)
                                                                   (count matched-compound-token-pairs)
                                                                   0)
@@ -926,7 +971,18 @@
                              architecture-support-boost (architecture-support-boost
                                                          support-count
                                                          architecture-evidence-count
-                                                         architecture-evidence-score)
+                                                         architecture-support-evidence-score)
+                             query-supported-architecture-only-boost
+                             (query-supported-architecture-only-boost
+                              support-count
+                              architecture-evidence-count
+                              query-supported-architecture-evidence-count
+                              architecture-evidence-score)
+                             architecture-rank-boost (+ architecture-support-boost
+                                                        query-supported-architecture-only-boost)
+                             candidate-lexical-component-boost
+                             (candidate-lexical-component-boost
+                              candidate-lexical-score)
                              rank-score (+ max-evidence-score
                                            source-rank-score
                                            (* 0.22 (min rank-score-token-cap
@@ -961,7 +1017,8 @@
                                            candidate-only-robust-boost
                                            graph-neighbor-boost
                                            doc-supported-candidate-evidence-boost
-                                           architecture-support-boost)
+                                           architecture-rank-boost
+                                           candidate-lexical-component-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
                                               :docCount doc-count
@@ -1024,9 +1081,12 @@
                                        (pos? doc-supported-candidate-evidence-boost)
                                        (assoc :docSupportedCandidateEvidenceBoost
                                               doc-supported-candidate-evidence-boost)
-                                       (pos? architecture-support-boost)
+                                       (pos? architecture-rank-boost)
                                        (assoc :architectureSupportBoost
-                                              architecture-support-boost))]
+                                              architecture-rank-boost)
+                                       (pos? candidate-lexical-component-boost)
+                                       (assoc :candidateLexicalComponentBoost
+                                              candidate-lexical-component-boost))]
                          (cond-> (assoc best-row
                                         :path path
                                         :confidence confidence
@@ -1066,8 +1126,10 @@
                                     :matched-identity-compound-token-span-length
                                     :definition-kind
                                     :architecture-evidence?
+                                    :query-supported-architecture-evidence?
                                     :direct-file-candidate?
                                     :candidate-source-rank
+                                    :candidate-lexical-score
                                     :candidate-support-label-count)
                             (assoc :rank (inc idx)))))
          vec)))

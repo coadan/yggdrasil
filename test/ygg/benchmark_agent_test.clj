@@ -1620,8 +1620,9 @@
             :retrievedSourceCount 0
             :exactPathSourceCount 0
             :maxConfidence 1.0
-            :rankScore 1.2000000000000002
+            :rankScore 1.3890000000000002
             :matchedTokenCount 3
+            :architectureSupportBoost 0.189
             :definitionKinds ["env-var"]}
            (get-in files [0 :metrics])))))
 
@@ -1724,6 +1725,67 @@
     (is (pos? (get-in runtime-file [:metrics :architectureSupportBoost])))
     (is (pos? (get-in setup-file
                       [:metrics :docSupportedCandidateEvidenceBoost])))))
+
+(deftest file-ranking-frontloads-query-supported-architecture-only-evidence
+  (let [root (temp-dir "ygg-bench-architecture-only-query-support")
+        _ (doseq [path ["tests/Dapper.Tests/MiscTests.cs"
+                        "tests/Dapper.Tests/TypeHandlerTests.cs"
+                        "Dapper/SqlMapper.cs"
+                        "tests/docker-compose.yml"]]
+            (spit-file! root path "fixture\n"))
+        packet {:query "postgresql jsonb test container Dapper core type handler"
+                :docs [{:source {:path "tests/Dapper.Tests/MiscTests.cs"
+                                 :heading "MiscTests"
+                                 :definitionKind :method
+                                 :lines [1 1]}
+                        :score 3.5
+                        :snippet "postgresql jsonb test container Dapper core type handler"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                 :heading "TypeHandlerTests"
+                                 :definitionKind :property
+                                 :lines [1 1]}
+                        :score 1.7
+                        :snippet "type handler regression"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]
+                :architecture {:runtimeEvidence [{:id "evidence:sqlmapper-url"
+                                                  :path "Dapper/SqlMapper.cs"
+                                                  :kind "url"
+                                                  :fileKind "dotnet"
+                                                  :label "Dapper core type handler"
+                                                  :normalizedValue "dapper-core-type-handler"
+                                                  :score 5.95}
+                                                 {:id "evidence:compose-runtime"
+                                                  :path "tests/docker-compose.yml"
+                                                  :kind "container-image-consumer"
+                                                  :fileKind "compose"
+                                                  :label "postgresql test container"
+                                                  :normalizedValue "container-image:postgresql"
+                                                  :score 5.15}]
+                               :deployEvidence [{:id "evidence:compose-deploy"
+                                                 :path "tests/docker-compose.yml"
+                                                 :kind "container-image-consumer"
+                                                 :fileKind "compose"
+                                                 :label "postgresql test container"
+                                                 :normalizedValue "container-image:postgresql"
+                                                 :score 5.15}]}}
+        result (benchmark/context-packet->agent-result
+                packet
+                {:root root
+                 :limit 4
+                 :coverage {:declaredSourceKinds ["compose" "dotnet"]}})
+        file-by-path (into {} (map (juxt :path identity)) (:suspectedFiles result))
+        compose-file (get file-by-path "tests/docker-compose.yml")
+        core-file (get file-by-path "Dapper/SqlMapper.cs")]
+    (is (<= (:rank compose-file) 2))
+    (is (< (:rank core-file)
+           (:rank (get file-by-path "tests/Dapper.Tests/TypeHandlerTests.cs"))))
+    (is (pos? (get-in compose-file
+                      [:metrics :architectureSupportBoost])))
+    (is (pos? (get-in core-file
+                      [:metrics :architectureSupportBoost])))))
 
 (deftest file-ranking-normalizes-architecture-evidence-families
   (let [root (temp-dir "ygg-bench-architecture-evidence-family-score")
@@ -2067,6 +2129,38 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-uses-candidate-lexical-component
+  (let [root (temp-dir "ygg-bench-candidate-lexical-component")
+        _ (spit-file! root "site/src/pages/docs/[version]/[...slug].astro" "---\n---\n")
+        _ (spit-file! root "site/src/pages/index.astro" "---\n---\n")
+        packet {:query "docs route impact theme components"
+                :candidateFiles [{:path "site/src/pages/docs/[version]/[...slug].astro"
+                                  :rank 1
+                                  :score 1.0
+                                  :targetKind "node"
+                                  :label "/docs/{version}/{...slug}"
+                                  :supportLabels ["site.src.pages.docs.[version].[...slug]"
+                                                  "site/src/pages/docs/[version]/[...slug].astro"]
+                                  :scoreComponents {:sourceGraph 1.0
+                                                    :lexical 0.5}}
+                                 {:path "site/src/pages/index.astro"
+                                  :rank 2
+                                  :score 0.99
+                                  :targetKind "node"
+                                  :label "@components/home/ComponentUtilities.astro"
+                                  :supportLabels ["site.src.pages.index"
+                                                  "site/src/pages/index.astro"]
+                                  :scoreComponents {:sourceGraph 0.99
+                                                    :lexical 0.95}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["site/src/pages/index.astro"
+            "site/src/pages/docs/[version]/[...slug].astro"]
+           (mapv :path files)))
+    (is (pos? (get-in files [0 :metrics :candidateLexicalComponentBoost])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest file-ranking-keeps-candidate-debug-fields-in-metrics
   (let [root (temp-dir "ygg-bench-candidate-debug-field-scope")
         _ (spit-file! root "src/app.js" "export const value = 1;\n")
@@ -2085,7 +2179,8 @@
     (is (false? (contains? file :candidate-source-rank)))
     (is (false? (contains? file :candidate-support-label-count)))
     (is (= 7 (get-in file [:metrics :candidateSourceRank])))
-    (is (= 2 (get-in file [:metrics :candidateSupportLabelCount])))))
+    (is (= 2 (get-in file [:metrics :candidateSupportLabelCount])))
+    (is (pos? (get-in file [:metrics :candidateLexicalComponentBoost])))))
 
 (deftest context-packet-agent-result-does-not-report-budget-trim-as-warning
   (let [root (temp-dir "ygg-bench-budget-trim-warning-scope")
