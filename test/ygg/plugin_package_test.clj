@@ -788,6 +788,51 @@
              (get-in report-context
                      [:report :plugins :packages :packages 0 :claim-authority]))))))
 
+(deftest scaffold-and-gap-packet-share-extractor-authoring-contract
+  (let [workspace (temp-dir "ygg-plugin-authoring-contract")
+        package-dir (io/file workspace "plugins" "contract")
+        repo-root (io/file workspace "repo")
+        src-dir (io/file repo-root "src")]
+    (.mkdirs src-dir)
+    (spit (io/file src-dir "page.clj") "(ns page)\n(defn render [] :ok)\n")
+    (plugin-package/new! (.getPath package-dir)
+                         {:id "contract-plugin"
+                          :extractor? true
+                          :report? false})
+    (let [manifest (edn/read-string
+                    (slurp (io/file package-dir plugin-package/manifest-filename)))
+          extractor (first (filter #(= :extractor (:kind %)) (:plugins manifest)))
+          extract-py (slurp (io/file package-dir "extract.py"))
+          gap-packet (plugin-package/extractor-gap-packet
+                      (.getPath package-dir)
+                      (.getPath repo-root)
+                      "src/page.clj"
+                      {})
+          output-contract (:output-contract gap-packet)
+          gap-aliases (set (map :json (:dependency-aliases output-contract)))
+          scaffold-aliases [:packageName
+                            :versionRange
+                            :dependencyScope
+                            :importNames
+                            :importKind]]
+      (is (= [:enhance :override :scan] (:modes extractor)))
+      (is (= ["python3" "extract.py"] (:command extractor)))
+      (doseq [token ["packet.get(\"core\", {})"
+                     "core.get(\"fileFacts\", [])"
+                     "same xt/id"]]
+        (is (str/includes? extract-py token)))
+      (doseq [alias scaffold-aliases]
+        (is (str/includes? extract-py (name alias)))
+        (is (contains? gap-aliases alias)))
+      (is (= [:nodes :edges :chunks :fileFacts :diagnostics]
+             (:core-input-buckets output-contract)))
+      (is (= [:enhance :override :scan]
+             (mapv :name (:plugin-modes output-contract))))
+      (is (some #(str/includes? % "same xt/id")
+                (:row-requirements output-contract)))
+      (is (some #(str/includes? % "external-package")
+                (:row-requirements output-contract))))))
+
 (deftest scaffold-can-create-explicit-public-base-package
   (let [workspace (temp-dir "ygg-plugin-public-base")
         package-dir (io/file workspace "plugins" "shared")
