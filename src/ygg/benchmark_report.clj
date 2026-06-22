@@ -499,10 +499,12 @@
                      (> (long (:rank %)) n)))
        (mapv (fn [ranked-file]
                (let [blocking-files (blockers-before (:rank ranked-file))]
-                 {:path (:path ranked-file)
-                  :rank (:rank ranked-file)
-                  :blockingFileCount (count blocking-files)
-                  :blockingFiles blocking-files})))))
+                 (cond-> {:path (:path ranked-file)
+                          :rank (:rank ranked-file)
+                          :blockingFileCount (count blocking-files)
+                          :blockingFiles blocking-files}
+                   (:repo-id ranked-file)
+                   (assoc :repo-id (:repo-id ranked-file))))))))
 (defn- artifact-policy
   [report-context raw-results included-results allow-unverified?]
   (let [included (set included-results)
@@ -1450,32 +1452,35 @@
   (let [ground-truth (:groundTruth result)
         ranks (get-in result [:groundTruthRanks :files])
         context-ranks (get-in result [:contextGroundTruthRanks :files])
-        context-rank-by-path (into {} (map (juxt :path identity)) context-ranks)
+        context-rank-by-file (into {} (map (juxt benchmark-score/file-key identity)) context-ranks)
         top-files (get-in result [:agent :topFiles])
-        scoreable-file-set (set (benchmark-score/scoreable-changed-files ground-truth))
+        scoreable-file-set (set (map benchmark-score/file-key
+                                     (benchmark-score/scoreable-changed-files ground-truth)))
         uncited-ranked-files (->> top-files
                                   (remove benchmark-score/evidence-cited?)
-                                  (mapv #(select-keys % [:path :rank])))
+                                  (mapv #(select-keys % [:repo-id :path :rank])))
         path-uncited-ranked-files (->> top-files
                                        (remove benchmark-score/path-evidence-cited?)
-                                       (mapv #(select-keys % [:path :rank])))
+                                       (mapv #(select-keys % [:repo-id :path :rank])))
         missed (->> ranks
                     (remove :found?)
-                    (mapv #(select-keys % [:path])))
+                    (mapv #(select-keys % [:repo-id :path])))
         missed-present-in-context (->> missed
-                                       (keep (fn [{:keys [path]}]
-                                               (when-let [row (get context-rank-by-path path)]
+                                       (keep (fn [file]
+                                               (when-let [row (get context-rank-by-file
+                                                                   (benchmark-score/file-key file))]
                                                  (when (:found? row)
-                                                   (select-keys row [:path :rank])))))
+                                                   (select-keys row [:repo-id :path :rank])))))
                                        vec)
         missed-absent-from-context (when (seq context-ranks)
                                      (->> missed
-                                          (remove #(get-in context-rank-by-path
-                                                           [(:path %) :found?]))
-                                          (mapv #(select-keys % [:path]))))
+                                          (remove #(get-in context-rank-by-file
+                                                           [(benchmark-score/file-key %) :found?]))
+                                          (mapv #(select-keys % [:repo-id :path]))))
         blocker-summary (fn [row]
                           (select-keys row
-                                       [:path
+                                       [:repo-id
+                                        :path
                                         :rank
                                         :confidence
                                         :metrics]))
@@ -1483,15 +1488,16 @@
                           (->> top-files
                                (filter #(and (:rank %)
                                              (< (long (:rank %)) (long rank))))
-                               (remove #(contains? scoreable-file-set (:path %)))
-                               (sort-by (juxt :rank :path))
+                               (remove #(contains? scoreable-file-set
+                                                   (benchmark-score/file-key %)))
+                               (sort-by (juxt :rank :repo-id :path))
                                (take rank-blocker-limit)
                                (mapv blocker-summary)))
         ranked-outside (fn [n]
                          (->> ranks
                               (filter #(and (:found? %)
                                             (> (long (:rank %)) n)))
-                              (mapv #(select-keys % [:path :rank]))))
+                              (mapv #(select-keys % [:repo-id :path :rank]))))
         diagnostic {:scoreableFiles (benchmark-score/scoreable-changed-files ground-truth)
                     :coverageExcludedFiles (vec (:coverageExcludedFiles ground-truth))
                     :unsupportedGroundTruthFiles (vec (:unsupportedGroundTruthFiles ground-truth))
@@ -1529,16 +1535,20 @@
                      (mapcat :blockingFiles (get diagnostic blocker-key))))
               result-pairs)]
     (->> rows
-         (group-by :path)
-         (map (fn [[path path-rows]]
+         (group-by benchmark-score/file-key)
+         (map (fn [[[_repo-id path] path-rows]]
                 (cond-> {:path path
                          :occurrences (count path-rows)
                          :runs (count (set (map :case-id path-rows)))
                          :bestRank (apply min (map :rank path-rows))}
+                  (:repo-id (first path-rows))
+                  (assoc :repo-id (:repo-id (first path-rows)))
+
                   (:metrics (first path-rows))
                   (assoc :metrics (:metrics (first path-rows))))))
          (sort-by (juxt (comp - :occurrences)
                         :bestRank
+                        :repo-id
                         :path))
          (take aggregate-rank-blocker-limit)
          vec)))
@@ -1551,8 +1561,8 @@
                      (get diagnostic diagnostic-key)))
               result-pairs)]
     (->> rows
-         (group-by :path)
-         (map (fn [[path path-rows]]
+         (group-by benchmark-score/file-key)
+         (map (fn [[[_repo-id path] path-rows]]
                 (let [ranks (keep :rank path-rows)]
                   (cond-> {:path path
                            :occurrences (count path-rows)
@@ -1562,9 +1572,13 @@
                                          set
                                          sort
                                          vec)}
+                    (:repo-id (first path-rows))
+                    (assoc :repo-id (:repo-id (first path-rows)))
+
                     (seq ranks) (assoc :bestRank (apply min ranks))))))
          (sort-by (juxt (comp - :occurrences)
                         #(or (:bestRank %) Long/MAX_VALUE)
+                        :repo-id
                         :path))
          (take aggregate-ranked-file-diagnostic-limit)
          vec)))

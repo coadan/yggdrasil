@@ -1,6 +1,5 @@
 (ns ygg.benchmark-score
   (:require [ygg.benchmark-util :as benchmark-util]
-            [clojure.set :as set]
             [clojure.string :as str]))
 
 (def recall-limits
@@ -9,31 +8,73 @@
 (defn target-ground-truth-files
   [truth]
   (or (:localizationFiles truth) (:changedFiles truth)))
+
+(defn file-path
+  [file]
+  (cond
+    (string? file) file
+    (map? file) (:path file)
+    :else nil))
+
+(defn file-repo-id
+  [file]
+  (when (map? file)
+    (or (:repo-id file)
+        (:repoId file)
+        (:repo file))))
+
+(defn file-key
+  [file]
+  [(file-repo-id file) (file-path file)])
+
+(defn same-file?
+  [expected actual]
+  (let [expected-repo-id (file-repo-id expected)
+        actual-repo-id (file-repo-id actual)]
+    (and (= (file-path expected) (file-path actual))
+         (or (nil? expected-repo-id)
+             (= expected-repo-id actual-repo-id)))))
+
+(defn file-display
+  [file]
+  (let [repo-id (file-repo-id file)
+        path (file-path file)]
+    (if repo-id
+      (str repo-id ":" path)
+      path)))
+
+(defn file-row-fields
+  [file]
+  (cond-> {:path (file-path file)}
+    (file-repo-id file) (assoc :repo-id (file-repo-id file))))
+
 (defn- file-row
   [rank result]
   (when (and (#{:node :chunk} (:target-kind result))
              (not (benchmark-util/blankish? (:path result))))
-    {:path (:path result)
-     :rank rank
-     :score (:score result)
-     :target-id (:target-id result)
-     :target-kind (name (:target-kind result))
-     :label (:label result)
-     :source-line (:source-line result)}))
+    (merge (file-row-fields {:repo-id (:repo-id result)
+                             :path (:path result)})
+           {:rank rank
+            :score (:score result)
+            :target-id (:target-id result)
+            :target-kind (name (:target-kind result))
+            :label (:label result)
+            :source-line (:source-line result)})))
 (defn top-files
   [ranked]
   (->> ranked
        (map-indexed (fn [idx result] (file-row (inc idx) result)))
        (keep identity)
        (reduce (fn [best row]
-                 (let [existing (get best (:path row))]
+                 (let [key (file-key row)
+                       existing (get best key)]
                    (if (or (nil? existing)
                            (< (:rank row) (:rank existing)))
-                     (assoc best (:path row) row)
+                     (assoc best key row)
                      best)))
                {})
        vals
-       (sort-by (juxt :rank :path))
+       (sort-by (juxt :rank :repo-id :path))
        vec))
 (defn top-nodes
   [ranked]
@@ -63,10 +104,14 @@
        vec))
 (defn ground-truth-file-ranks
   [changed-files top-files]
-  (let [file-by-path (into {} (map (juxt :path identity)) top-files)]
-    (mapv (fn [path]
-            (if-let [row (get file-by-path path)]
+  (let [file-by-key (into {} (map (juxt file-key identity)) top-files)]
+    (mapv (fn [file]
+            (if-let [row (or (get file-by-key (file-key file))
+                             (when-not (file-repo-id file)
+                               (some #(when (same-file? file %) %)
+                                     top-files)))]
               (assoc (select-keys row [:path
+                                       :repo-id
                                        :rank
                                        :score
                                        :target-id
@@ -74,41 +119,41 @@
                                        :label
                                        :source-line])
                      :found? true)
-              {:path path
-               :found? false}))
+              (assoc (file-row-fields file) :found? false)))
           changed-files)))
 (defn- unsupported-ground-truth-paths
   [ground-truth]
-  (set (map :path (:unsupportedGroundTruthFiles ground-truth))))
+  (set (map file-key (:unsupportedGroundTruthFiles ground-truth))))
 (defn scoreable-changed-files
   [ground-truth]
   (or (:scoreableFiles ground-truth)
       (let [unsupported (unsupported-ground-truth-paths ground-truth)]
         (->> (target-ground-truth-files ground-truth)
-             (remove unsupported)
+             (remove #(contains? unsupported (file-key %)))
              vec))))
 (defn- recall-at
-  [truth paths k]
-  (let [truth (set truth)
-        predicted (set (take k paths))]
+  [truth top-files k]
+  (let [predicted (take k top-files)]
     (if (seq truth)
-      (/ (double (count (set/intersection truth predicted)))
+      (/ (double (count (filter (fn [file]
+                                  (some #(same-file? file %) predicted))
+                                truth)))
          (double (count truth)))
       0.0)))
 (defn- mean-reciprocal-rank-file
   [truth top-files]
-  (let [truth (set truth)]
-    (or (some (fn [{:keys [path rank]}]
-                (when (contains? truth path)
-                  (/ 1.0 (double rank))))
-              top-files)
-        0.0)))
+  (or (some (fn [{:keys [rank] :as top-file}]
+              (when (some #(same-file? % top-file) truth)
+                (/ 1.0 (double rank))))
+            top-files)
+      0.0))
 (defn- noise-ratio-at
-  [truth paths k]
-  (let [truth (set truth)
-        predicted (take k paths)]
+  [truth top-files k]
+  (let [predicted (take k top-files)]
     (if (seq predicted)
-      (/ (double (count (remove truth predicted)))
+      (/ (double (count (remove (fn [top-file]
+                                  (some #(same-file? % top-file) truth))
+                                predicted)))
          (double (count predicted)))
       0.0)))
 (defn evidence-cited?
@@ -182,17 +227,16 @@
   "Return mechanical localization scores for a benchmark result shape."
   [{:keys [groundTruth ygg expectations]}]
   (let [changed-files (:changedFiles groundTruth)
-        scoreable-files (scoreable-changed-files groundTruth)
-        paths (mapv :path (:topFiles ygg))]
+        scoreable-files (scoreable-changed-files groundTruth)]
     (merge
      (into {}
            (map (fn [k]
                   [(keyword (str "fileRecallAt" k))
-                   (recall-at scoreable-files paths k)]))
+                   (recall-at scoreable-files (:topFiles ygg) k)]))
            recall-limits)
      {:meanReciprocalRankFile (mean-reciprocal-rank-file scoreable-files
                                                          (:topFiles ygg))
-      :noiseRatioAt20 (noise-ratio-at scoreable-files paths 20)
+      :noiseRatioAt20 (noise-ratio-at scoreable-files (:topFiles ygg) 20)
       :evidenceCitationRate (evidence-citation-rate (:topFiles ygg))
       :pathEvidenceCitationRate (path-evidence-citation-rate (:topFiles ygg))
       :changedFiles (count changed-files)

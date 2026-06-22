@@ -71,6 +71,25 @@
   (and (not (benchmark-util/blankish? path))
        (or (nil? root)
            (.isFile (io/file root path)))))
+(defn- row-root
+  [root roots row]
+  (or (get roots (or (:repo-id row) (:repo row)))
+      root))
+(defn- prediction-repo-id
+  [roots repo-id]
+  (when (and (map? roots)
+             (< 1 (count roots)))
+    repo-id))
+(defn- file-row-key
+  [row]
+  [(or (:repo-id row) (:repo row)) (:path row)])
+(defn- row-path-kind
+  [kind-by-path row]
+  (if (and (map? kind-by-path)
+           (contains? kind-by-path (or (:repo-id row) (:repo row))))
+    (path-source-kind (get kind-by-path (or (:repo-id row) (:repo row)))
+                      (:path row))
+    (path-source-kind kind-by-path (:path row))))
 (defn- bounded-confidence
   [value]
   (if-let [score (parse-double-safe value)]
@@ -179,83 +198,91 @@
      (double graph-score)
      (min 1.0 (double evidence-score))))
 (defn- doc-prediction
-  [root query-tokens idx doc]
+  [root roots query-tokens idx doc]
   (let [source (:source doc)
-        path (:path source)]
-    (when (existing-file-path? root path)
-      {:path path
-       :source-rank (inc idx)
-       :confidence (bounded-confidence (:score doc))
-       :evidence-score (double (or (parse-double-safe (:score doc)) 0.0))
-       :evidence-kind :doc
-       :retrieved-source? (boolean (:retrievedSource doc))
-       :exact-path-source? (boolean (:exactPathSource doc))
-       :definition-kind (some-> (:definitionKind source) name)
-       :matched-tokens (token-matches query-tokens (evidence-text doc))
-       :matched-compound-token-pairs (compact-compound-token-pair-matches
-                                      query-tokens
-                                      (evidence-text doc))
-       :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
-                                               query-tokens
-                                               path)
-       :matched-identity-compound-token-span-length
-       (identity-compound-token-span-length query-tokens path (:heading source))
-       :evidence [(str "context-doc:"
-                       path
-                       (line-label source)
-                       " provenance="
-                       (or (:provenance doc) "unknown"))]
-       :reason (str "Yggdrasil context doc"
-                    (when-let [heading (:heading source)]
-                      (str " " (pr-str heading)))
-                    " from " path
-                    (line-label source)
-                    " with provenance "
-                    (or (:provenance doc) "unknown")
-                    ".")})))
+        path (:path source)
+        source-repo-id (:repo source)
+        repo-id (prediction-repo-id roots source-repo-id)
+        file-root (row-root root roots {:repo-id source-repo-id :path path})]
+    (when (existing-file-path? file-root path)
+      (cond-> {:path path
+               :source-rank (inc idx)
+               :confidence (bounded-confidence (:score doc))
+               :evidence-score (double (or (parse-double-safe (:score doc)) 0.0))
+               :evidence-kind :doc
+               :retrieved-source? (boolean (:retrievedSource doc))
+               :exact-path-source? (boolean (:exactPathSource doc))
+               :definition-kind (some-> (:definitionKind source) name)
+               :matched-tokens (token-matches query-tokens (evidence-text doc))
+               :matched-compound-token-pairs (compact-compound-token-pair-matches
+                                              query-tokens
+                                              (evidence-text doc))
+               :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
+                                                       query-tokens
+                                                       path)
+               :matched-identity-compound-token-span-length
+               (identity-compound-token-span-length query-tokens path (:heading source))
+               :evidence [(str "context-doc:"
+                               path
+                               (line-label source)
+                               " provenance="
+                               (or (:provenance doc) "unknown"))]
+               :reason (str "Yggdrasil context doc"
+                            (when-let [heading (:heading source)]
+                              (str " " (pr-str heading)))
+                            " from " path
+                            (line-label source)
+                            " with provenance "
+                            (or (:provenance doc) "unknown")
+                            ".")}
+        repo-id (assoc :repo-id repo-id)))))
 (defn- entity-prediction
-  [root query-tokens idx entity]
-  (let [path (:path entity)]
-    (when (existing-file-path? root path)
-      {:path path
-       :source-rank (+ 1000 (inc idx))
-       :confidence (bounded-confidence (:score entity))
-       :evidence-score (double (or (parse-double-safe (:score entity)) 0.0))
-       :evidence-kind :entity
-       :retrieved-source? false
-       :exact-path-source? false
-       :definition-kind (some-> (:kind entity) name)
-       :matched-tokens (token-matches query-tokens
-                                      (str (:path entity)
-                                           "\n"
-                                           (:label entity)))
-       :matched-token-pairs (compact-token-pair-matches
-                             query-tokens
-                             (str (:path entity)
-                                  "\n"
-                                  (:label entity)))
-       :matched-compound-token-pairs (compact-compound-token-pair-matches
-                                      query-tokens
-                                      (str (:path entity)
-                                           "\n"
-                                           (:label entity)))
-       :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
-                                               query-tokens
-                                               (:path entity)
-                                               (:label entity))
-       :matched-identity-compound-token-span-length
-       (identity-compound-token-span-length query-tokens
-                                            (:path entity)
-                                            (:label entity))
-       :evidence [(str "graph-entity:"
-                       (or (:label entity) path)
-                       " path="
-                       path)]
-       :reason (str "Yggdrasil graph entity "
-                    (pr-str (:label entity))
-                    " references "
-                    path
-                    ".")})))
+  [root roots query-tokens idx entity]
+  (let [path (:path entity)
+        source-repo-id (:repo entity)
+        repo-id (prediction-repo-id roots source-repo-id)
+        file-root (row-root root roots {:repo-id source-repo-id :path path})]
+    (when (existing-file-path? file-root path)
+      (cond-> {:path path
+               :source-rank (+ 1000 (inc idx))
+               :confidence (bounded-confidence (:score entity))
+               :evidence-score (double (or (parse-double-safe (:score entity)) 0.0))
+               :evidence-kind :entity
+               :retrieved-source? false
+               :exact-path-source? false
+               :definition-kind (some-> (:kind entity) name)
+               :matched-tokens (token-matches query-tokens
+                                              (str (:path entity)
+                                                   "\n"
+                                                   (:label entity)))
+               :matched-token-pairs (compact-token-pair-matches
+                                     query-tokens
+                                     (str (:path entity)
+                                          "\n"
+                                          (:label entity)))
+               :matched-compound-token-pairs (compact-compound-token-pair-matches
+                                              query-tokens
+                                              (str (:path entity)
+                                                   "\n"
+                                                   (:label entity)))
+               :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
+                                                       query-tokens
+                                                       (:path entity)
+                                                       (:label entity))
+               :matched-identity-compound-token-span-length
+               (identity-compound-token-span-length query-tokens
+                                                    (:path entity)
+                                                    (:label entity))
+               :evidence [(str "graph-entity:"
+                               (or (:label entity) path)
+                               " path="
+                               path)]
+               :reason (str "Yggdrasil graph entity "
+                            (pr-str (:label entity))
+                            " references "
+                            path
+                            ".")}
+        repo-id (assoc :repo-id repo-id)))))
 (defn- score-component-evidence
   [score-components]
   (when (seq score-components)
@@ -296,9 +323,12 @@
          (str " score=" score))
        (score-component-evidence score-components)))
 (defn- candidate-file-prediction
-  [root query-tokens idx candidate]
-  (let [path (:path candidate)]
-    (when (existing-file-path? root path)
+  [root roots query-tokens idx candidate]
+  (let [path (:path candidate)
+        source-repo-id (:repo candidate)
+        repo-id (prediction-repo-id roots source-repo-id)
+        file-root (row-root root roots {:repo-id source-repo-id :path path})]
+    (when (existing-file-path? file-root path)
       (let [support-labels (vec (:supportLabels candidate))
             evidence-text (str/join "\n"
                                     (remove benchmark-util/blankish?
@@ -356,6 +386,9 @@
                               " from result rank "
                               (:rank candidate)
                               ".")}
+          repo-id
+          (assoc :repo-id repo-id)
+
           (and (pos? graph-score)
                graph-score-supported?)
           (assoc :graph-neighbor-score graph-score))))))
@@ -441,65 +474,73 @@
                 package-identity-boost))))
 
 (defn- architecture-file-prediction
-  [root query-tokens idx section row]
-  (let [path (:path row)]
-    (when (existing-file-path? root path)
+  [root roots query-tokens idx section row]
+  (let [path (:path row)
+        source-repo-id (:repo row)
+        repo-id (prediction-repo-id roots source-repo-id)
+        file-root (row-root root roots {:repo-id source-repo-id :path path})]
+    (when (existing-file-path? file-root path)
       (let [evidence-text (architecture-evidence-text row)]
-        {:path path
-         :source-rank (+ 700 (inc idx))
-         :confidence (bounded-confidence (:score row))
-         :evidence-score (architecture-evidence-score query-tokens section row)
-         :evidence-kind :candidate-file
-         :retrieved-source? false
-         :exact-path-source? false
-         :definition-kind (some-> (:kind row) str)
-         :matched-tokens (token-matches query-tokens evidence-text)
-         :matched-token-pairs (compact-token-pair-matches query-tokens evidence-text)
-         :matched-compound-token-pairs (compact-compound-token-pair-matches
-                                        query-tokens
-                                        evidence-text)
-         :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
-                                                 query-tokens
-                                                 (:path row)
-                                                 (:label row)
-                                                 (:kind row)
-                                                 (:relation row))
-         :matched-identity-compound-token-span-length
-         (identity-compound-token-span-length query-tokens
-                                              (:label row)
-                                              (:kind row)
-                                              (:relation row))
-         :evidence [(architecture-file-evidence section row path)]
-         :reason (str "Yggdrasil architecture "
-                      section
-                      " row "
-                      (or (:id row) path)
-                      " references "
-                      path
-                      ".")}))))
+        (cond-> {:path path
+                 :source-rank (+ 700 (inc idx))
+                 :confidence (bounded-confidence (:score row))
+                 :evidence-score (architecture-evidence-score query-tokens section row)
+                 :evidence-kind :candidate-file
+                 :retrieved-source? false
+                 :exact-path-source? false
+                 :definition-kind (some-> (:kind row) str)
+                 :matched-tokens (token-matches query-tokens evidence-text)
+                 :matched-token-pairs (compact-token-pair-matches query-tokens evidence-text)
+                 :matched-compound-token-pairs (compact-compound-token-pair-matches
+                                                query-tokens
+                                                evidence-text)
+                 :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
+                                                         query-tokens
+                                                         (:path row)
+                                                         (:label row)
+                                                         (:kind row)
+                                                         (:relation row))
+                 :matched-identity-compound-token-span-length
+                 (identity-compound-token-span-length query-tokens
+                                                      (:label row)
+                                                      (:kind row)
+                                                      (:relation row))
+                 :evidence [(architecture-file-evidence section row path)]
+                 :reason (str "Yggdrasil architecture "
+                              section
+                              " row "
+                              (or (:id row) path)
+                              " references "
+                              path
+                              ".")}
+          repo-id (assoc :repo-id repo-id))))))
 (defn- architecture-file-rows
-  [root query-tokens packet]
+  [root roots query-tokens packet]
   (vec
    (concat
     (keep-indexed #(architecture-file-prediction root
+                                                 roots
                                                  query-tokens
                                                  %1
                                                  "runtimeEvidence"
                                                  %2)
                   (get-in packet [:architecture :runtimeEvidence]))
     (keep-indexed #(architecture-file-prediction root
+                                                 roots
                                                  query-tokens
                                                  %1
                                                  "boundaryEvidence"
                                                  %2)
                   (get-in packet [:architecture :boundaryEvidence]))
     (keep-indexed #(architecture-file-prediction root
+                                                 roots
                                                  query-tokens
                                                  %1
                                                  "dependencyEvidence"
                                                  %2)
                   (get-in packet [:architecture :dependencyEvidence]))
     (keep-indexed #(architecture-file-prediction root
+                                                 roots
                                                  query-tokens
                                                  %1
                                                  "deployEvidence"
@@ -645,11 +686,12 @@
                                    (if (= 1 extra-count) "row" "rows")
                                    "."))))]
     (->> rows
-         (group-by :path)
-         (map (fn [[path grouped-rows]]
+         (group-by file-row-key)
+         (map (fn [[[_repo-id path] grouped-rows]]
                 (combine-rows path grouped-rows)))
          (sort-by (juxt (comp - :rank-score)
                         :source-rank
+                        :repo-id
                         :path))
          (map-indexed (fn [idx row]
                         (-> row
@@ -679,7 +721,7 @@
 (defn- keep-coverage-source-kind?
   [source-kinds kind-by-path row]
   (or (empty? source-kinds)
-      (contains? source-kinds (path-source-kind kind-by-path (:path row)))))
+      (contains? source-kinds (row-path-kind kind-by-path row))))
 (defn- renumber-file-ranks
   [rows]
   (mapv (fn [idx row]
@@ -688,11 +730,11 @@
         rows))
 (defn- row-source-kind
   [kind-by-path row]
-  (path-source-kind kind-by-path (:path row)))
+  (row-path-kind kind-by-path row))
 (defn- first-row-by-source-kind
   [kind-by-path rows source-kind excluded-paths]
   (some #(when (and (= source-kind (row-source-kind kind-by-path %))
-                    (not (contains? excluded-paths (:path %))))
+                    (not (contains? excluded-paths (file-row-key %))))
            %)
         rows))
 (defn- prioritize-coverage-source-lanes
@@ -708,7 +750,7 @@
                                (remove #{head-kind}))
           prioritized (loop [source-kinds (seq remaining-kinds)
                              selected [head-row]
-                             selected-paths #{(:path head-row)}]
+                             selected-paths #{(file-row-key head-row)}]
                         (if-let [source-kind (first source-kinds)]
                           (if-let [row (first-row-by-source-kind
                                         kind-by-path
@@ -717,12 +759,12 @@
                                         selected-paths)]
                             (recur (next source-kinds)
                                    (conj selected row)
-                                   (conj selected-paths (:path row)))
+                                   (conj selected-paths (file-row-key row)))
                             (recur (next source-kinds) selected selected-paths))
                           selected))
-          prioritized-paths (set (map :path prioritized))]
+          prioritized-paths (set (map file-row-key prioritized))]
       (->> (concat prioritized
-                   (remove #(contains? prioritized-paths (:path %))
+                   (remove #(contains? prioritized-paths (file-row-key %))
                            candidate-files))
            vec))))
 (defn- candidate-file-only-row?
@@ -734,7 +776,7 @@
 (defn- selected-source-kind-counts
   [kind-by-path rows]
   (frequencies
-   (keep #(path-source-kind kind-by-path (:path %)) rows)))
+   (keep #(row-path-kind kind-by-path %) rows)))
 (defn- source-kind-diversity-replacement-index
   [kind-by-path rows]
   (let [counts (selected-source-kind-counts kind-by-path rows)]
@@ -742,15 +784,15 @@
          (map-indexed vector)
          reverse
          (some (fn [[idx row]]
-                 (let [kind (path-source-kind kind-by-path (:path row))]
+                 (let [kind (row-path-kind kind-by-path row)]
                    (when (< 1 (long (or (get counts kind) 0)))
                      idx)))))))
 (defn- best-source-kind-candidate
   [kind-by-path selected-paths candidate-files source-kind]
   (->> candidate-files
        (filter #(and (= source-kind
-                        (path-source-kind kind-by-path (:path %)))
-                     (not (contains? selected-paths (:path %)))))
+                        (row-path-kind kind-by-path %))
+                     (not (contains? selected-paths (file-row-key %)))))
        first))
 (defn- preserve-source-kind-diversity
   [candidate-files selected source-kinds kind-by-path]
@@ -765,7 +807,7 @@
                                                   selected))))
                               vec)]
       (if-let [source-kind (first missing-kinds)]
-        (let [selected-paths (set (map :path selected))
+        (let [selected-paths (set (map file-row-key selected))
               candidate (best-source-kind-candidate kind-by-path
                                                     selected-paths
                                                     candidate-files
@@ -788,10 +830,10 @@
            candidate-file-only (take quota
                                      (filter candidate-file-only-row?
                                              candidate-files))
-           quota-paths (set (map :path candidate-file-only))
+           quota-paths (set (map file-row-key candidate-file-only))
            remaining-limit (max 0 (- limit (count candidate-file-only)))
            primary (->> candidate-files
-                        (remove #(contains? quota-paths (:path %)))
+                        (remove #(contains? quota-paths (file-row-key %)))
                         (take remaining-limit))
            selected (->> (preserve-source-kind-diversity
                           candidate-files
@@ -886,18 +928,24 @@
   truth or fix artifacts."
   ([packet]
    (context-packet->agent-result packet {}))
-  ([packet {:keys [agent-id mode case-id caseFingerprint agentInputFingerprint root limit coverage]}]
+  ([packet {:keys [agent-id mode case-id caseFingerprint agentInputFingerprint root roots limit coverage]}]
    (let [query-tokens (text/tokenize-all (:query packet))
          source-kinds (coverage-source-kinds coverage)
          kind-by-path (if (or (empty? source-kinds)
-                              (str/blank? (str root)))
+                              (and (str/blank? (str root))
+                                   (empty? roots)))
                         {}
-                        (scanned-path-kinds root))
-         doc-rows (keep-indexed #(doc-prediction root query-tokens %1 %2) (:docs packet))
-         entity-rows (keep-indexed #(entity-prediction root query-tokens %1 %2) (:entities packet))
-         candidate-file-rows (keep-indexed #(candidate-file-prediction root query-tokens %1 %2)
+                        (if (seq roots)
+                          (->> roots
+                               (map (fn [[repo-id repo-root]]
+                                      [repo-id (scanned-path-kinds repo-root)]))
+                               (into {}))
+                          (scanned-path-kinds root)))
+         doc-rows (keep-indexed #(doc-prediction root roots query-tokens %1 %2) (:docs packet))
+         entity-rows (keep-indexed #(entity-prediction root roots query-tokens %1 %2) (:entities packet))
+         candidate-file-rows (keep-indexed #(candidate-file-prediction root roots query-tokens %1 %2)
                                            (:candidateFiles packet))
-         architecture-rows (architecture-file-rows root query-tokens packet)
+         architecture-rows (architecture-file-rows root roots query-tokens packet)
          raw-candidate-files (ranked-file-predictions (concat doc-rows
                                                               entity-rows
                                                               candidate-file-rows

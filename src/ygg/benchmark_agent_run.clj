@@ -162,6 +162,7 @@
    :parserWorker {:mode "none|java|dotnet|all"
                   :source "option|env|default|agent-result|unknown"}
    :suspectedFiles [{:path "repo-relative/path.ext"
+                     :repoId "repo id for multi-repo cases"
                      :rank 1
                      :confidence 0.0
                      :reason "short evidence-based reason"
@@ -271,7 +272,7 @@
        "When your agent runner supports structured output, use `YGG_BENCH_OUTPUT_SCHEMA`."
        "For structured-output runners that capture the final response, return only the JSON result as the final response and do not also shell-write the result file."
        "For plain shell runners, write the JSON result directly to `YGG_BENCH_RESULT`."
-       "Use repo-relative file paths from the base checkout."
+       "Use repo-relative file paths from the base checkout. For multi-repo cases, set `repoId` on each suspectedFiles row."
        ""
        "```json"
        (json-example (agent-result-contract))
@@ -296,6 +297,12 @@
        (str "- Suite: " (:suite-id packet))
        (str "- Case: " (:case-id packet))
        (str "- Repo: " (:repo-id packet))
+       (when (seq (:repos packet))
+         (str "- Repos: "
+              (str/join ", "
+                        (map (fn [{:keys [id root]}]
+                               (str id "=" root))
+                             (:repos packet)))))
        (str "- Project: " (:project-id packet))
        (str "- Agent: " (:agent-id opts))
        (str "- Mode: " (:mode packet))
@@ -326,6 +333,7 @@
            "YGG_BENCH_OUTPUT_SCHEMA" output-schema-path
            "YGG_BENCH_RESULT" (fs/canonical-path result-path)
            "YGG_BENCH_WORKTREE" (:worktreeRoot packet)
+           "YGG_BENCH_WORKTREES" (json/write-json-str (:repos packet))
            "YGG_BENCH_PROJECT" (get-in packet [:artifacts :projectConfig])
            "YGG_BENCH_XTDB_PATH" (get-in packet [:artifacts :xtdbPath])
            "YGG_XTDB_PATH" (get-in packet [:artifacts :xtdbPath])}

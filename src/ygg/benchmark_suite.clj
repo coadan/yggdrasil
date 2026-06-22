@@ -55,22 +55,45 @@
   [case]
   (when-let [expectations (:expectations case)]
     expectations))
+(defn- normalize-case-repo
+  [case-id repo]
+  (let [repo-id (some-> (or (:repo-id repo) (:id repo)) str)]
+    (when (benchmark-util/blankish? repo-id)
+      (throw (ex-info "Benchmark case repo is missing :repo-id."
+                      {:case-id case-id
+                       :repo repo})))
+    (cond-> (assoc repo :repo-id repo-id)
+      (:base-sha repo) (assoc :base-sha (str (:base-sha repo)))
+      (:fix-sha repo) (assoc :fix-sha (str (:fix-sha repo)))
+      (:role repo) (assoc :role (keyword (:role repo))))))
+(defn case-repo-ids
+  [case]
+  (if (seq (:repos case))
+    (->> (:repos case)
+         (map :repo-id)
+         distinct
+         vec)
+    [(:repo-id case)]))
 (defn- normalize-case
   [case]
   (let [case-id (some-> (:id case) str)
-        repo-id (some-> (:repo-id case) str)]
+        case-repos (mapv #(normalize-case-repo case-id %) (:repos case))
+        repo-id (or (some-> (:repo-id case) str)
+                    (:repo-id (first case-repos)))]
     (when (benchmark-util/blankish? case-id)
       (throw (ex-info "Benchmark case is missing :id." {:case case})))
     (when (benchmark-util/blankish? repo-id)
       (throw (ex-info "Benchmark case is missing :repo-id."
                       {:case-id case-id})))
-    (assoc case
-           :id case-id
-           :repo-id repo-id
-           :base-sha (some-> (:base-sha case) str)
-           :fix-sha (some-> (:fix-sha case) str)
-           :tags (case-tags case)
-           :expectations (case-expectations case))))
+    (cond-> (assoc case
+                   :id case-id
+                   :repo-id repo-id
+                   :base-sha (some-> (:base-sha case) str)
+                   :fix-sha (some-> (:fix-sha case) str)
+                   :tags (case-tags case)
+                   :expectations (case-expectations case))
+      (seq case-repos)
+      (assoc :repos case-repos))))
 (defn- duplicate-values
   [values]
   (->> values
@@ -86,10 +109,12 @@
         case-id-dups (duplicate-values (map :id cases))
         repo-ids (set (map :id repos))
         unknown-repos (->> cases
-                           (keep (fn [case]
-                                   (when-not (contains? repo-ids (:repo-id case))
-                                     {:case-id (:id case)
-                                      :repo-id (:repo-id case)})))
+                           (mapcat (fn [case]
+                                     (keep (fn [repo-id]
+                                             (when-not (contains? repo-ids repo-id)
+                                               {:case-id (:id case)
+                                                :repo-id repo-id}))
+                                           (case-repo-ids case))))
                            (sort-by (juxt :repo-id :case-id))
                            vec)]
     (cond-> []

@@ -191,6 +191,7 @@
                        :caseFingerprint (:caseFingerprint prepared)
                        :agentInputFingerprint (:agentInputFingerprint prepared)
                        :root (:worktreeRoot prepared)
+                       :roots (:worktreeRoots prepared)
                        :limit limit
                        :coverage (:coverage prepared)})
         diagnostics (hint-diagnostics prepared packet (:selection agent-result))]

@@ -1,0 +1,52 @@
+{:id "multi-repo-quality"
+ :project-id "multi-repo-quality"
+ :description "Synthetic multi-repo quality cases for shell-only versus Yggdrasil comparisons across related checkouts."
+ :repos [{:id "opentelemetry-collector"
+          :root "../.dev/ygg/benchmark-repos/opentelemetry-collector"
+          :role :library}
+         {:id "opentelemetry-collector-contrib"
+          :root "../.dev/ygg/benchmark-repos/opentelemetry-collector-contrib"
+          :role :application}]
+ :cases [{:id "otel-core-contrib-routing-connector-contract"
+          :repos [{:repo-id "opentelemetry-collector"
+                   :base-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
+                   :fix-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
+                   :ground-truth {:localization-files ["connector/connector.go"
+                                                       "consumer/consumer.go"
+                                                       "component/component.go"]}}
+                  {:repo-id "opentelemetry-collector-contrib"
+                   :base-sha "2cbb0058d8b68628a04343e03f800863b86713bd"
+                   :fix-sha "2cbb0058d8b68628a04343e03f800863b86713bd"
+                   :ground-truth {:localization-files ["connector/routingconnector/factory.go"
+                                                       "connector/routingconnector/config.go"]}}]
+          :coverage {:source-kinds [:go]}
+          :tags [:synthetic
+                 :problem-architecture
+                 :multi-repo-quality
+                 :architecture-cross-system-impact
+                 :architecture-dependency-flow
+                 :service-boundary
+                 :go
+                 :otel]
+          :expectations {:nodes [{:repo-id "opentelemetry-collector"
+                                  :kind :interface
+                                  :path "connector/connector.go"}
+                                 {:repo-id "opentelemetry-collector"
+                                  :kind :interface
+                                  :path "component/component.go"}]
+                         :evidence [{:repo-id "opentelemetry-collector-contrib"
+                                     :kind :package-import
+                                     :path "connector/routingconnector/factory.go"
+                                     :label "go.opentelemetry.io/collector/connector"}
+                                    {:repo-id "opentelemetry-collector-contrib"
+                                     :kind :package-import
+                                     :path "connector/routingconnector/factory.go"
+                                     :label "go.opentelemetry.io/collector/consumer"}
+                                    {:repo-id "opentelemetry-collector-contrib"
+                                     :kind :package-import
+                                     :path "connector/routingconnector/config.go"
+                                     :label "go.opentelemetry.io/collector/pipeline"}]}
+          :issue {:id "otel-core-contrib-routing-connector-contract"
+                  :url "local:multi-repo/opentelemetry/routing-connector-contract"
+                  :title "Trace connector contract changes from Collector core into contrib routing connector"
+                  :body "A connector contract change starts in OpenTelemetry Collector core and must be checked against the contrib routing connector implementation. Identify the core connector/component/consumer contract files and the contrib routing connector files that should be inspected before editing. Return only files likely to need contract or adapter edits, and include repo ids for every suspected file."}}]}

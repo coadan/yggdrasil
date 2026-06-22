@@ -21,7 +21,12 @@
          {:id "opentelemetry-collector"
           :url "https://github.com/open-telemetry/opentelemetry-collector.git"
           :dir "opentelemetry-collector"
-          :required-shas ["5a9e6074d2d890ee1db3cf990e414831d068bcdb"]}
+          :required-shas ["5a9e6074d2d890ee1db3cf990e414831d068bcdb"
+                          "415d3dcae73b37a8e3cf490452949a72589ae650"]}
+         {:id "opentelemetry-collector-contrib"
+          :url "https://github.com/open-telemetry/opentelemetry-collector-contrib.git"
+          :dir "opentelemetry-collector-contrib"
+          :required-shas ["2cbb0058d8b68628a04343e03f800863b86713bd"]}
          {:id "terraform-aws-vpc"
           :url "https://github.com/terraform-aws-modules/terraform-aws-vpc.git"
           :dir "terraform-aws-vpc"

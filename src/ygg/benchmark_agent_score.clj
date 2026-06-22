@@ -153,6 +153,7 @@
                                                         "reason"
                                                         "evidence"]
                                             "properties" {"path" {"type" "string"}
+                                                          "repoId" {"type" "string"}
                                                           "rank" {"type" "integer"
                                                                   "minimum" 1}
                                                           "confidence" {"type" "number"
@@ -265,62 +266,78 @@
             (Double/parseDouble (str value))
             (catch NumberFormatException _
               nil))))
-(defn- relativize-path
-  [root path]
+(defn- roots-by-repo
+  [prepared]
+  (or (:worktreeRoots prepared)
+      (when (and (:repo-id prepared) (:worktreeRoot prepared))
+        {(:repo-id prepared) (:worktreeRoot prepared)})))
+(defn- path-under-root
+  [root file]
+  (try
+    (let [root-path (.toPath (.getCanonicalFile (io/file root)))
+          file-path (.toPath (.getCanonicalFile file))]
+      (when (.startsWith file-path root-path)
+        (str (.relativize root-path file-path))))
+    (catch Exception _
+      nil)))
+(defn- relativize-file
+  [roots repo-id path]
   (let [path (str/trim (str path))
-        file (io/file path)]
-    (str/replace
-     (str/replace
-      (if (.isAbsolute file)
-        (try
-          (let [root-path (.toPath (.getCanonicalFile (io/file root)))
-                file-path (.toPath (.getCanonicalFile file))]
-            (str (.relativize root-path file-path)))
-          (catch Exception _
-            path))
-        path)
-      #"^\./"
-      "")
-     #"\\" "/")))
+        file (io/file path)
+        [repo-id path] (if (.isAbsolute file)
+                         (or (some (fn [[candidate-repo-id root]]
+                                     (when-let [relative (path-under-root root file)]
+                                       [candidate-repo-id relative]))
+                                   roots)
+                             [repo-id path])
+                         [repo-id path])]
+    {:repo-id repo-id
+     :path (str/replace (str/replace path #"^\./" "") #"\\" "/")}))
 (defn- suspected-file-path
-  [root item]
+  [roots item]
   (cond
-    (string? item) (relativize-path root item)
-    (map? item) (some->> (or (:path item)
-                             (:file item)
-                             (:filePath item)
-                             (:file-path item))
-                         (relativize-path root))
+    (string? item) (relativize-file roots nil item)
+    (map? item) (when-let [path (or (:path item)
+                                    (:file item)
+                                    (:filePath item)
+                                    (:file-path item))]
+                  (relativize-file roots
+                                   (or (:repoId item)
+                                       (:repo-id item)
+                                       (:repo item))
+                                   path))
     :else nil))
 (defn- agent-file-predictions
   [prepared agent-result]
-  (let [root (:worktreeRoot prepared)
+  (let [roots (roots-by-repo prepared)
         raw-files (or (:suspectedFiles agent-result)
                       (:suspected-files agent-result)
                       (:files agent-result))]
     (->> raw-files
          (map-indexed
           (fn [idx item]
-            (when-let [path (some-> (suspected-file-path root item) not-empty)]
+            (when-let [{:keys [repo-id path]} (suspected-file-path roots item)]
               (let [rank (if (map? item)
                            (parse-long-safe (:rank item))
                            nil)]
                 (cond-> {:path path
                          :rank (long (or rank (inc idx)))}
+                  repo-id (assoc :repo-id repo-id)
                   (map? item) (assoc :confidence (parse-double-safe (:confidence item))
                                      :reason (:reason item)
                                      :evidence (:evidence item)
                                      :metrics (:metrics item)))))))
          (keep identity)
          (reduce (fn [best row]
-                   (let [existing (get best (:path row))]
+                   (let [key (benchmark-score/file-key row)
+                         existing (get best key)]
                      (if (or (nil? existing)
                              (< (:rank row) (:rank existing)))
-                       (assoc best (:path row) row)
+                       (assoc best key row)
                        best)))
                  {})
          vals
-         (sort-by (juxt :rank :path))
+         (sort-by (juxt :rank :repo-id :path))
          vec)))
 (defn- raw-suspected-file-count
   [agent-result]
@@ -459,11 +476,14 @@
             (when (map? item)
               (when-let [path (not-empty (str (:path item)))]
                 {:idx idx
+                 :repo-id (or (:repoId item)
+                              (:repo-id item)
+                              (:repo item))
                  :path path
                  :label (row-label idx item)}))))
          (keep identity)
-         (group-by :path)
-         (keep (fn [[path path-rows]]
+         (group-by benchmark-score/file-key)
+         (keep (fn [[[_repo-id path] path-rows]]
                  (when (< 1 (count path-rows))
                    (str "agent result "
                         (name field)
@@ -675,11 +695,14 @@
                                       "case")
             fingerprint-warning]))))
 (defn- missing-predicted-files
-  [root predictions]
+  [roots predictions]
   (->> predictions
-       (keep (fn [{:keys [path]}]
-               (when-not (.isFile (io/file root path))
-                 path)))
+       (keep (fn [{:keys [repo-id path] :as file}]
+               (let [root (or (get roots repo-id)
+                              (when (= 1 (count roots))
+                                (val (first roots))))]
+                 (when-not (and root (.isFile (io/file root path)))
+                   (benchmark-score/file-display file)))))
        vec))
 (defn- normalize-id
   [value]
@@ -848,6 +871,7 @@
   "Score an agent localization result against a prepared case artifact."
   [prepared agent-result]
   (let [top-files (agent-file-predictions prepared agent-result)
+        roots (roots-by-repo prepared)
         decision-scoring (score-decision prepared agent-result)
         result-shape {:groundTruth (:groundTruth prepared)
                       :expectations (:expectations prepared)
@@ -860,7 +884,7 @@
                    (empty? top-files)
                    (conj "agent result did not contain suspected files")
 
-                   (seq (missing-predicted-files (:worktreeRoot prepared) top-files))
+                   (seq (missing-predicted-files roots top-files))
                    (conj "agent result referenced files missing from the base checkout"))
         result-with-ranks (assoc result-shape
                                  :groundTruthRanks
@@ -882,9 +906,8 @@
                              :selection (:selection agent-result)
                              :rawSuspectedFileCount (raw-suspected-file-count agent-result)
                              :warnings warnings
-                             :missingPredictedFiles (missing-predicted-files
-                                                     (:worktreeRoot prepared)
-                                                     top-files)}
+                             :missingPredictedFiles (missing-predicted-files roots
+                                                                             top-files)}
                       (:decision agent-result)
                       (assoc :decision (:decision agent-result))
 

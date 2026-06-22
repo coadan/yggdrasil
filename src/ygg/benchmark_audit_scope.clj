@@ -20,15 +20,19 @@
        boolean))
 
 (defn- ground-truth-file-row
-  [rank-row context-rank-by-path top-file-by-path scoreable-file-set]
+  [rank-row context-rank-by-file top-file-by-file scoreable-file-set]
   (let [path (:path rank-row)
+        file-key (benchmark-score/file-key rank-row)
         found? (boolean (:found? rank-row))
-        top-file (get top-file-by-path path)
-        context-rank-row (get context-rank-by-path path)
+        top-file (get top-file-by-file file-key)
+        context-rank-row (get context-rank-by-file file-key)
         context-found? (boolean (:found? context-rank-row))]
     (cond-> {:path path
-             :scoreable? (contains? scoreable-file-set path)
+             :scoreable? (contains? scoreable-file-set file-key)
              :found? found?}
+      (:repo-id rank-row)
+      (assoc :repoId (:repo-id rank-row))
+
       found?
       (assoc :rank (:rank rank-row))
 
@@ -47,11 +51,12 @@
   (let [ground-truth (:groundTruth result)
         ranks (get-in result [:groundTruthRanks :files])
         context-ranks (get-in result [:contextGroundTruthRanks :files])
-        context-rank-by-path (into {} (map (juxt :path identity)) context-ranks)
+        context-rank-by-file (into {} (map (juxt benchmark-score/file-key identity)) context-ranks)
         top-files (get-in result [:agent :topFiles])
-        top-file-by-path (into {} (map (juxt :path identity)) top-files)
-        scoreable-file-set (set (benchmark-score/scoreable-changed-files ground-truth))]
-    (mapv #(ground-truth-file-row % context-rank-by-path top-file-by-path scoreable-file-set)
+        top-file-by-file (into {} (map (juxt benchmark-score/file-key identity)) top-files)
+        scoreable-file-set (set (map benchmark-score/file-key
+                                     (benchmark-score/scoreable-changed-files ground-truth)))]
+    (mapv #(ground-truth-file-row % context-rank-by-file top-file-by-file scoreable-file-set)
           ranks)))
 
 (defn- expected-evidence-row
@@ -85,17 +90,21 @@
 (defn- top-ranked-file-row
   [ranked-file scoreable-file-set]
   (let [path (:path ranked-file)]
-    {:path path
-     :rank (:rank ranked-file)
-     :isGroundTruth? (contains? scoreable-file-set path)
-     :evidenceCited? (evidence-cited? ranked-file)
-     :pathEvidenceCited? (benchmark-score/path-evidence-cited? ranked-file)}))
+    (cond-> {:path path
+             :rank (:rank ranked-file)
+             :isGroundTruth? (contains? scoreable-file-set
+                                        (benchmark-score/file-key ranked-file))
+             :evidenceCited? (evidence-cited? ranked-file)
+             :pathEvidenceCited? (benchmark-score/path-evidence-cited? ranked-file)}
+      (:repo-id ranked-file)
+      (assoc :repoId (:repo-id ranked-file)))))
 
 (defn- top-ranked-files
   [result]
   (let [ground-truth (:groundTruth result)
         top-files (get-in result [:agent :topFiles])
-        scoreable-file-set (set (benchmark-score/scoreable-changed-files ground-truth))]
+        scoreable-file-set (set (map benchmark-score/file-key
+                                     (benchmark-score/scoreable-changed-files ground-truth)))]
     (->> top-files
          (take top-ranked-limit)
          (mapv #(top-ranked-file-row % scoreable-file-set)))))

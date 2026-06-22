@@ -660,6 +660,29 @@ historical fix commit, set `:fix-sha` to the same commit as `:base-sha` and use
          :body "The docs team wants to remove the theme UI from Bootstrap's Astro docs. Identify the route files and component imports that a change would affect before editing code."}}
 ```
 
+Multi-repo quality cases use a case-level `:repos` vector instead of a single
+`:repo-id`. Each entry supplies the checkout id, SHAs, and that repo's local
+ground truth. Scoring treats the pair of `:repo-id` and `:path` as the file
+identity, so the same relative path in two repos remains distinct:
+
+```clojure
+{:id "otel-core-contrib-routing-connector-contract"
+ :repos [{:repo-id "opentelemetry-collector"
+          :base-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
+          :fix-sha "415d3dcae73b37a8e3cf490452949a72589ae650"
+          :ground-truth {:localization-files ["connector/connector.go"]}}
+         {:repo-id "opentelemetry-collector-contrib"
+          :base-sha "2cbb0058d8b68628a04343e03f800863b86713bd"
+          :fix-sha "2cbb0058d8b68628a04343e03f800863b86713bd"
+          :ground-truth {:localization-files ["connector/routingconnector/factory.go"]}}]
+ :tags [:synthetic :problem-architecture :multi-repo-quality]
+ :issue {:title "Trace connector contract changes from Collector core into contrib routing connector"}}
+```
+
+Agent result rows for multi-repo cases should include `repoId` alongside the
+repo-relative `path`. Yggdrasil packets expose all checkout roots in `repos` and
+`YGG_BENCH_WORKTREES`; single-repo cases keep accepting path-only rows.
+
 Other useful seeds for the current benchmark corpus: Astro plugin config in
 Bootstrap, event-trigger ownership flow in Supabase Postgres, native proxy
 handling in Axios, and Dapper's PostgreSQL JSONB test stack. Give each one
@@ -670,6 +693,10 @@ The tracked starter file `benchmarks/architecture-synthetic.edn` contains
 the runnable Bootstrap, Supabase Postgres, Axios, and Dapper cases. It expects
 local benchmark checkouts in `.dev/ygg/benchmark-repos/`; keep generated
 benchmark outputs under `.dev/ygg/...` with `--out`.
+
+The tracked `benchmarks/multi-repo-quality.edn` suite contains the first
+cross-checkout case. It also uses local benchmark checkouts under
+`.dev/ygg/benchmark-repos/`.
 
 Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
 agents through the filesystem queue:
@@ -838,7 +865,8 @@ the explicit `:localization-files` set when present, otherwise changed files,
 after removing files that did not exist in the base tree or were unsupported by
 Yggdrasil. New files and unsupported file types are reported separately because an
 agent cannot reliably localize a file that did not exist in the checkout it was
-given.
+given. Multi-repo cases compare files by `repoId`/`:repo-id` plus path; path-only
+ground truth remains a single-repo shorthand.
 
 - `fileRecallAt5`, `fileRecallAt10`, `fileRecallAt20`: fraction of scoreable
   localization files appearing in the top ranked file results.

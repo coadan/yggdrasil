@@ -94,9 +94,16 @@
   [prepared]
   {:id (:project-id prepared)
    :name (:case-id prepared)
-   :repos [{:id (:repo-id prepared)
-            :root (:worktreeRoot prepared)
-            :role :application}]})
+   :repos (let [repos (mapv (fn [{:keys [id root role]}]
+                              {:id id
+                               :root root
+                               :role (keyword (or role :application))})
+                            (:repos prepared))]
+            (if (seq repos)
+              repos
+              [{:id (:repo-id prepared)
+                :root (:worktreeRoot prepared)
+                :role :application}]))})
 (defn- parser-worker-command-env
   [opts]
   (if-let [mode (parser-worker-option opts)]
@@ -145,6 +152,7 @@
                            "needed to fix the issue from the base checkout.")
            :rules ["Use only the base checkout and issue text in this packet."
                    "Return ranked suspected files before attempting a patch."
+                   "For multi-repo cases, include the repo id for each suspected file."
                    (str/join " " benchmark-agent-run/suspected-files-scope-rules)
                    (str/join " " benchmark-agent-run/evidence-citation-rules)
                    (str/join " " benchmark-agent-run/result-integrity-rules)
@@ -178,6 +186,9 @@
                 :caseFingerprint (:caseFingerprint prepared)
                 :agentInputFingerprint (:agentInputFingerprint prepared)
                 :repo-id (:repo-id prepared)
+                :repoIds (:repoIds prepared)
+                :repos (mapv #(select-keys % [:id :root :role :baseSha :fixSha])
+                             (:repos prepared))
                 :project-id (:project-id prepared)
                 :mode mode
                 :parserWorker (parser-worker-profile opts)

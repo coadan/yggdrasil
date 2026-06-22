@@ -126,41 +126,127 @@
                         {:suite-id (:id suite)
                          :case-id (:id case)
                          :repo-id repo-id})))))
+(defn- case-repo-refs
+  [case]
+  (if (seq (:repos case))
+    (vec (:repos case))
+    [{:repo-id (:repo-id case)
+      :base-sha (:base-sha case)
+      :fix-sha (:fix-sha case)
+      :ground-truth (:ground-truth case)}]))
+(defn- resolve-case-repo
+  [suite case repo-ref]
+  (let [repo-id (str (:repo-id repo-ref))
+        repo (or (get (repo-by-id suite) repo-id)
+                 (throw (ex-info "Benchmark case references unknown repo."
+                                 {:suite-id (:id suite)
+                                  :case-id (:id case)
+                                  :repo-id repo-id})))
+        base-sha (or (:base-sha repo-ref) (:base-sha case))
+        fix-sha (or (:fix-sha repo-ref) (:fix-sha case))]
+    (when (benchmark-util/blankish? base-sha)
+      (throw (ex-info "Benchmark case repo is missing :base-sha."
+                      {:case-id (:id case)
+                       :repo-id repo-id})))
+    (when (benchmark-util/blankish? fix-sha)
+      (throw (ex-info "Benchmark case repo is missing :fix-sha."
+                      {:case-id (:id case)
+                       :repo-id repo-id})))
+    (merge repo
+           repo-ref
+           {:id repo-id
+            :repo-id repo-id
+            :role (keyword (or (:role repo-ref) (:role repo) :application))
+            :base-sha (str base-sha)
+            :fix-sha (str fix-sha)})))
+(defn case-repos
+  [suite case]
+  (mapv #(resolve-case-repo suite case %) (case-repo-refs case)))
+(defn- multi-repo-case?
+  [repos]
+  (< 1 (count repos)))
+(defn- qualify-file
+  [multi-repo? repo-id path]
+  (if multi-repo?
+    {:repo-id repo-id
+     :path (str path)}
+    (str path)))
+(defn- explicit-ground-truth-files
+  [truth]
+  (when (seq (:changed-files truth))
+    (mapv str (:changed-files truth))))
 (defn explicit-ground-truth
   [case]
-  (let [truth (:ground-truth case)]
-    (when (seq (:changed-files truth))
-      (mapv str (:changed-files truth)))))
+  (explicit-ground-truth-files (:ground-truth case)))
 (defn explicit-localization-files
   [case]
-  (let [truth (:ground-truth case)]
-    (when (seq (:localization-files truth))
-      (mapv str (:localization-files truth)))))
+  (when (seq (get-in case [:ground-truth :localization-files]))
+    (mapv str (get-in case [:ground-truth :localization-files]))))
 (defn ground-truth
-  [repo case]
-  (let [files (or (explicit-ground-truth case)
-                  (changed-files (:root repo) (:base-sha case) (:fix-sha case)))
-        localization-files (or (explicit-localization-files case) files)]
-    {:changedFiles files
-     :localizationFiles localization-files
-     :changedSymbols (mapv str (get-in case [:ground-truth :changed-symbols] []))}))
+  [repos _case]
+  (let [multi-repo? (multi-repo-case? repos)
+        truth-by-repo (mapv (fn [{:keys [repo-id root base-sha fix-sha ground-truth]}]
+                              (let [files (or (explicit-ground-truth-files ground-truth)
+                                              (changed-files root base-sha fix-sha))
+                                    localization-files (or (when (seq (:localization-files ground-truth))
+                                                             (mapv str (:localization-files ground-truth)))
+                                                           files)]
+                                {:repo-id repo-id
+                                 :changed-files (mapv #(qualify-file multi-repo?
+                                                                     repo-id
+                                                                     %)
+                                                      files)
+                                 :localization-files (mapv #(qualify-file multi-repo?
+                                                                          repo-id
+                                                                          %)
+                                                           localization-files)
+                                 :changed-symbols (mapv str (:changed-symbols ground-truth []))}))
+                            repos)]
+    {:changedFiles (mapv identity (mapcat :changed-files truth-by-repo))
+     :localizationFiles (mapv identity (mapcat :localization-files truth-by-repo))
+     :changedSymbols (mapv identity (mapcat :changed-symbols truth-by-repo))}))
+(defn- roots-map?
+  [root]
+  (and (map? root)
+       (< 1 (count root))))
+(defn- single-root
+  [root]
+  (if (map? root)
+    (val (first root))
+    root))
+(defn- root-for-file
+  [root file]
+  (cond
+    (roots-map? root) (get root (benchmark-score/file-repo-id file))
+    (map? root) (single-root root)
+    :else root))
+(defn- file-field-row
+  [file]
+  (benchmark-score/file-row-fields file))
 (defn unsupported-ground-truth-files
   [root changed-files]
-  (let [rows (->> (:files (fs/scan-file-coverage root))
-                  (map (juxt :path identity))
-                  (into {}))]
+  (let [coverage-by-root (atom {})]
     (->> changed-files
-         (keep (fn [path]
-                 (let [row (get rows path)]
+         (keep (fn [file]
+                 (let [file-root (root-for-file root file)
+                       path (benchmark-score/file-path file)
+                       rows (when file-root
+                              (or (get @coverage-by-root file-root)
+                                  (let [rows (->> (:files (fs/scan-file-coverage file-root))
+                                                  (map (juxt :path identity))
+                                                  (into {}))]
+                                    (swap! coverage-by-root assoc file-root rows)
+                                    rows)))
+                       row (get rows path)]
                    (cond
                      (nil? row)
-                     {:path path
-                      :reason "missing-at-base"}
+                     (assoc (file-field-row file)
+                            :reason "missing-at-base")
 
                      (not (:supported? row))
-                     {:path path
-                      :ext (:ext row)
-                      :reason (name (:skip-reason row))}))))
+                     (assoc (file-field-row file)
+                            :ext (:ext row)
+                            :reason (name (:skip-reason row)))))))
          vec)))
 (defn normalize-source-kind
   [value]
@@ -187,36 +273,62 @@
        (map (fn [{:keys [path kind]}]
               [path (normalize-source-kind kind)]))
        (into {})))
+(defn- scanned-file-kinds
+  [root]
+  (if (roots-map? root)
+    (->> root
+         (map (fn [[repo-id repo-root]]
+                [repo-id (scanned-path-kinds repo-root)]))
+         (into {}))
+    (scanned-path-kinds (single-root root))))
+(defn- file-source-kind
+  [kind-by-repo file]
+  (if (roots-map? kind-by-repo)
+    (path-source-kind (get kind-by-repo (benchmark-score/file-repo-id file))
+                      (benchmark-score/file-path file))
+    (path-source-kind kind-by-repo
+                      (benchmark-score/file-path file))))
 (defn coverage-filtered-ground-truth
   [case root truth]
-  (let [unsupported (set (map :path (:unsupportedGroundTruthFiles truth)))
+  (let [unsupported (set (map benchmark-score/file-key
+                              (:unsupportedGroundTruthFiles truth)))
         targets (->> (benchmark-score/target-ground-truth-files truth)
-                     (remove unsupported)
+                     (remove #(contains? unsupported (benchmark-score/file-key %)))
                      vec)
         declared (set (declared-source-kinds case))]
     (if (empty? declared)
       {:scoreableFiles targets
        :coverageExcludedFiles []}
-      (let [kind-by-path (scanned-path-kinds root)
+      (let [kind-by-path (scanned-file-kinds root)
             grouped (group-by #(contains? declared (:kind %))
                               (map (fn [path]
-                                     {:path path
-                                      :kind (get kind-by-path path
-                                                 (path-source-kind path))})
+                                     (assoc (file-field-row path)
+                                            :kind (file-source-kind kind-by-path path)))
                                    targets))]
-        {:scoreableFiles (mapv :path (get grouped true))
+        {:scoreableFiles (mapv #(if (:repo-id %)
+                                  (select-keys % [:repo-id :path])
+                                  (:path %))
+                               (get grouped true))
          :coverageExcludedFiles (mapv (fn [row]
                                         (cond-> {:path (:path row)}
+                                          (:repo-id row) (assoc :repo-id (:repo-id row))
                                           (:kind row) (assoc :kind (:kind row))))
                                       (get grouped false))}))))
 (defn scoreable-files-by-kind
   [root truth]
-  (let [unsupported (set (map :path (:unsupportedGroundTruthFiles truth)))
+  (let [unsupported (set (map benchmark-score/file-key
+                              (:unsupportedGroundTruthFiles truth)))
         scoreable (->> (benchmark-score/target-ground-truth-files truth)
-                       (remove unsupported)
+                       (remove #(contains? unsupported (benchmark-score/file-key %)))
+                       (map benchmark-score/file-key)
                        set)]
-    (->> (:files (fs/scan-file-coverage root))
-         (filter #(contains? scoreable (:path %)))
+    (->> (if (roots-map? root)
+           (mapcat (fn [[repo-id repo-root]]
+                     (map #(assoc % :repo-id repo-id)
+                          (:files (fs/scan-file-coverage repo-root))))
+                   root)
+           (:files (fs/scan-file-coverage (single-root root))))
+         (filter #(contains? scoreable (benchmark-score/file-key %)))
          (keep (fn [{:keys [kind]}]
                  (normalize-source-kind kind)))
          frequencies
@@ -286,6 +398,7 @@
    :suite-id (:id suite)
    :case-id (:id case)
    :repo-id (:repo-id case)
+   :repos (:repos case)
    :base-sha (:base-sha case)
    :fix-sha (:fix-sha case)
    :tags (case-tags case)
@@ -302,6 +415,7 @@
    :suite-id (:id suite)
    :case-id (:id case)
    :repo-id (:repo-id case)
+   :repos (:repos case)
    :base-sha (:base-sha case)
    :query-text (issue-text case)
    :decision-candidates (decision-candidates case)
@@ -325,42 +439,56 @@
   [input-text truth]
   (let [text (str input-text)
         mentioned-files (->> (:changedFiles truth)
-                             (filter #(and (not (benchmark-util/blankish? %))
-                                           (str/includes? text %)))
+                             (filter #(let [path (benchmark-score/file-path %)
+                                            display (benchmark-score/file-display %)]
+                                        (and (not (benchmark-util/blankish? path))
+                                             (or (str/includes? text path)
+                                                 (str/includes? text display)))))
                              vec)]
     {:hinted (boolean (seq mentioned-files))
      :mentionedChangedFiles mentioned-files
      :mentionedChangedFileCount (count mentioned-files)
      :changedFileCount (count (:changedFiles truth))}))
 (defn prepared-case
-  [suite case repo worktree-root truth]
+  [suite case repos worktree-roots truth]
   (let [input-text (issue-text case)
         score-fingerprint (case-fingerprint suite case)
         agent-input-fingerprint (agent-input-fingerprint suite case)
-        unsupported (unsupported-ground-truth-files worktree-root
+        repo (first repos)
+        primary-worktree-root (get worktree-roots (:repo-id repo))
+        unsupported (unsupported-ground-truth-files worktree-roots
                                                     (:changedFiles truth))
         truth (assoc truth :unsupportedGroundTruthFiles unsupported)
-        coverage-filter (coverage-filtered-ground-truth case worktree-root truth)
+        coverage-filter (coverage-filtered-ground-truth case worktree-roots truth)
         truth (merge truth coverage-filter)]
     (cond-> {:schema prepared-case-schema
              :suite-id (:id suite)
              :case-id (:id case)
              :repo-id (:id repo)
+             :repoIds (mapv :id repos)
+             :repos (mapv (fn [repo]
+                            {:id (:id repo)
+                             :root (get worktree-roots (:id repo))
+                             :role (:role repo)
+                             :baseSha (:base-sha repo)
+                             :fixSha (:fix-sha repo)})
+                          repos)
              :project-id (str (:project-id suite) "-" (:id case))
              :caseFingerprint score-fingerprint
              :agentInputFingerprint agent-input-fingerprint
              :tags (case-tags case)
              :expectations (case-expectations case)
-             :baseSha (:base-sha case)
-             :fixSha (:fix-sha case)
-             :worktreeRoot worktree-root
+             :baseSha (:base-sha repo)
+             :fixSha (:fix-sha repo)
+             :worktreeRoot primary-worktree-root
+             :worktreeRoots worktree-roots
              :input {:issueId (get-in case [:issue :id])
                      :title (get-in case [:issue :title])
                      :body (get-in case [:issue :body])
                      :comments (issue-comments (:issue case))
                      :queryText input-text}
              :inputHints (input-hints input-text truth)
-             :coverage (ground-truth-coverage case worktree-root truth)
+             :coverage (ground-truth-coverage case worktree-roots truth)
              :groundTruth truth}
       (seq (decision-candidates case))
       (assoc :decisionCandidates (decision-candidates case))
@@ -370,34 +498,40 @@
 (defn prepare-case!
   "Prepare one benchmark case and write its prepared JSON artifact."
   [suite case opts]
-  (let [repo (case-repo suite case)
-        base-sha (or (:base-sha case)
-                     (throw (ex-info "Benchmark case is missing :base-sha."
-                                     {:case-id (:id case)})))
-        _ (when-not (:fix-sha case)
-            (throw (ex-info "Benchmark case is missing :fix-sha."
-                            {:case-id (:id case)})))
-        worktree-root (benchmark-progress/progress-stage!
-                       suite
-                       case
-                       opts
-                       :prepare-worktree
-                       #(ensure-worktree! (:root repo)
+  (let [repos (case-repos suite case)
+        multi-repo? (multi-repo-case? repos)
+        worktree-roots (benchmark-progress/progress-stage!
+                        suite
+                        case
+                        opts
+                        :prepare-worktree
+                        #(->> repos
+                              (map (fn [{:keys [id root base-sha]}]
+                                     [id (ensure-worktree!
+                                          root
                                           base-sha
-                                          (.getPath (benchmark-paths/worktree-dir suite case opts)))
-                       (fn [root]
-                         {:worktreeRoot root
-                          :baseSha base-sha}))
+                                          (.getPath
+                                           (if multi-repo?
+                                             (io/file (benchmark-paths/worktree-dir
+                                                       suite
+                                                       case
+                                                       opts)
+                                                      (benchmark-paths/safe-id id))
+                                             (benchmark-paths/worktree-dir suite case opts))))]))
+                              (into {}))
+                        (fn [roots]
+                          {:worktreeRoots roots
+                           :repos (count roots)}))
         truth (benchmark-progress/progress-stage!
                suite
                case
                opts
                :prepare-ground-truth
-               #(ground-truth repo case)
+               #(ground-truth repos case)
                (fn [truth]
                  {:changedFiles (count (:changedFiles truth))
                   :localizationFiles (count (:localizationFiles truth))}))
-        prepared (prepared-case suite case repo worktree-root truth)]
+        prepared (prepared-case suite case repos worktree-roots truth)]
     (benchmark-progress/progress-stage!
      suite
      case

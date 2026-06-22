@@ -251,21 +251,17 @@
   [xtdb prepared opts]
   (query/semantic-query xtdb
                         (get-in prepared [:input :queryText])
-                        {:project-id (:project-id prepared)
-                         :repo-id (:repo-id prepared)
-                         :retriever (keyword (or (:retriever opts) :lexical))
-                         :limit (long (or (:limit opts) default-limit))}))
+                        (cond-> {:project-id (:project-id prepared)
+                                 :retriever (keyword (or (:retriever opts) :lexical))
+                                 :limit (long (or (:limit opts) default-limit))}
+                          (= 1 (count (:repos prepared)))
+                          (assoc :repo-id (:repo-id prepared)))))
 
 (defn run-case!
   "Run one benchmark case and write its scored result artifact."
   [suite case opts]
   (let [prepared (prepare-case! suite case opts)
-        repo {:id (:repo-id prepared)
-              :root (:worktreeRoot prepared)
-              :role :application}
-        bench-project {:id (:project-id prepared)
-                       :name (:case-id prepared)
-                       :repos [repo]}]
+        bench-project (agent-project prepared)]
     (store/with-node (benchmark-paths/xtdb-dir suite case opts)
       (fn [xtdb]
         (let [index-summary (with-benchmark-parser-worker

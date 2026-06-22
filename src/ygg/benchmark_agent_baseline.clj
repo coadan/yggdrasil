@@ -52,6 +52,7 @@
   (let [context-result (benchmark-prediction/context-packet->agent-result
                         packet
                         {:root (:worktreeRoot prepared)
+                         :roots (:worktreeRoots prepared)
                          :coverage (:coverage prepared)})]
     {:files (benchmark-score/ground-truth-file-ranks
              (benchmark-score/scoreable-changed-files (:groundTruth prepared))
@@ -64,13 +65,14 @@
     (context-ground-truth-ranks prepared (benchmark-io/read-json-file path))))
 (defn agent-baseline-context-options
   [prepared opts]
-  {:project-id (:project-id prepared)
-   :repo-id (:repo-id prepared)
-   :retriever (keyword (or (:retriever opts) :lexical))
-   :budget (long (or (:budget opts) default-agent-baseline-budget))
-   :doc-limit (long (or (:doc-limit opts) default-agent-baseline-doc-limit))
-   :retrieval-limit (long (or (:retrieval-limit opts) default-agent-baseline-retrieval-limit))
-   :snippet-chars (long (or (:snippet-chars opts) context/default-snippet-chars))})
+  (cond-> {:project-id (:project-id prepared)
+           :retriever (keyword (or (:retriever opts) :lexical))
+           :budget (long (or (:budget opts) default-agent-baseline-budget))
+           :doc-limit (long (or (:doc-limit opts) default-agent-baseline-doc-limit))
+           :retrieval-limit (long (or (:retrieval-limit opts) default-agent-baseline-retrieval-limit))
+           :snippet-chars (long (or (:snippet-chars opts) context/default-snippet-chars))}
+    (= 1 (count (:repos prepared)))
+    (assoc :repo-id (:repo-id prepared))))
 (defn agent-baseline-suspect-limit
   [opts]
   (long (or (:limit opts) default-agent-baseline-suspect-limit)))
@@ -149,6 +151,7 @@
                                :caseFingerprint (:caseFingerprint prepared)
                                :agentInputFingerprint (:agentInputFingerprint prepared)
                                :root (:worktreeRoot prepared)
+                               :roots (:worktreeRoots prepared)
                                :coverage (:coverage prepared)
                                :limit (agent-baseline-suspect-limit opts)})
                             (fn [result]

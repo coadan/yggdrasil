@@ -1,6 +1,7 @@
 (ns ygg.benchmark-agent-test
   (:require [ygg.benchmark :as benchmark]
             [ygg.benchmark-agent-run :as benchmark-agent-run]
+            [ygg.benchmark-agent-score :as benchmark-agent-score]
             [ygg.benchmark-test-support :refer [commit! git! sh! spit-file! spit-json! temp-dir]]
             [ygg.context :as context]
             [ygg.extract :as extract]
@@ -1073,6 +1074,73 @@
             :limit nil
             :coverageSourceKinds ["shell"]}
            (:selection filtered)))))
+
+(deftest agent-score-matches-multi-repo-suspected-files-by-repo-id
+  (let [provider-root (temp-dir "ygg-agent-score-provider")
+        consumer-root (temp-dir "ygg-agent-score-consumer")]
+    (spit-file! provider-root "src/contract.clj" "(ns provider.contract)\n")
+    (spit-file! consumer-root "src/contract.clj" "(ns consumer.contract)\n")
+    (let [prepared {:suite-id "suite"
+                    :case-id "case"
+                    :repo-id "provider"
+                    :project-id "project"
+                    :caseFingerprint "sha256:case"
+                    :agentInputFingerprint "sha256:input"
+                    :baseSha "provider-base"
+                    :fixSha "provider-fix"
+                    :worktreeRoot provider-root
+                    :worktreeRoots {"provider" provider-root
+                                    "consumer" consumer-root}
+                    :input {:queryText "contract update"}
+                    :inputHints {}
+                    :coverage {}
+                    :groundTruth {:changedFiles [{:repo-id "provider"
+                                                  :path "src/contract.clj"}
+                                                 {:repo-id "consumer"
+                                                  :path "src/contract.clj"}]
+                                  :unsupportedGroundTruthFiles []}}
+          agent-result {:schema benchmark/agent-result-schema
+                        :caseId "case"
+                        :caseFingerprint "sha256:case"
+                        :agentInputFingerprint "sha256:input"
+                        :agentId "codex"
+                        :mode "shell-only"
+                        :suspectedFiles [{:repoId "consumer"
+                                          :path "src/contract.clj"
+                                          :rank 1
+                                          :confidence 0.9
+                                          :reason "consumer side"
+                                          :evidence ["consumer src/contract.clj"]}
+                                         {:repoId "provider"
+                                          :path "src/contract.clj"
+                                          :rank 2
+                                          :confidence 0.8
+                                          :reason "provider side"
+                                          :evidence ["provider src/contract.clj"]}]
+                        :suspectedSymbols []
+                        :commands []
+                        :warnings []
+                        :summary "ranked both repos"}
+          scored (benchmark-agent-score/score-agent-result prepared agent-result)]
+      (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
+      (is (= [{:repo-id "consumer"
+               :path "src/contract.clj"
+               :rank 1}
+              {:repo-id "provider"
+               :path "src/contract.clj"
+               :rank 2}]
+             (mapv #(select-keys % [:repo-id :path :rank])
+                   (get-in scored [:agent :topFiles]))))
+      (is (= [{:repo-id "provider"
+               :path "src/contract.clj"
+               :rank 2
+               :found? true}
+              {:repo-id "consumer"
+               :path "src/contract.clj"
+               :rank 1
+               :found? true}]
+             (mapv #(select-keys % [:repo-id :path :rank :found?])
+                   (get-in scored [:groundTruthRanks :files])))))))
 (deftest file-ranking-uses-mechanical-query-token-coverage
   (let [root (temp-dir "ygg-bench-token-coverage")
         _ (spit-file! root "src/early.clj" "(ns early)\n")

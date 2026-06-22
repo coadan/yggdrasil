@@ -1,10 +1,13 @@
 (ns ygg.benchmark-test
   (:require [ygg.benchmark :as benchmark]
+            [ygg.benchmark-agent-packet :as benchmark-agent-packet]
             [ygg.benchmark-classes :as benchmark-classes]
             [ygg.benchmark-maintenance :as benchmark-maintenance]
             [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-progress :as benchmark-progress]
+            [ygg.benchmark-score :as benchmark-score]
+            [ygg.benchmark-suite :as benchmark-suite]
             [ygg.benchmark-test-support :refer [commit!
                                                 git!
                                                 spit-file!
@@ -135,6 +138,31 @@
                           :cases [{:case-id "case-2"
                                    :repo-id "missing"}]}]}
                (ex-data e)))))))
+
+(deftest read-suite-accepts-multi-repo-case-shape
+  (let [suite-dir (temp-dir "ygg-bench-suite-multi-repo")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))]
+    (spit suite-path
+          (pr-str {:id "multi-repo-shape"
+                   :repos [{:id "provider"
+                            :root "provider"}
+                           {:id "consumer"
+                            :root "consumer"}]
+                   :cases [{:id "contract-case"
+                            :repos [{:repo-id "provider"
+                                     :base-sha "provider-base"
+                                     :fix-sha "provider-fix"}
+                                    {:repo-id "consumer"
+                                     :base-sha "consumer-base"
+                                     :fix-sha "consumer-fix"}]
+                            :issue {:title "Trace contract"}}]}))
+    (let [suite (benchmark/read-suite suite-path)
+          case (first (:cases suite))]
+      (is (= "provider" (:repo-id case)))
+      (is (= ["provider" "consumer"]
+             (mapv :repo-id (:repos case))))
+      (is (= ["provider" "consumer"]
+             (benchmark-suite/case-repo-ids case))))))
 
 (deftest read-suite-composes-included-suites
   (let [suite-dir (temp-dir "ygg-bench-suite-includes")
@@ -376,6 +404,29 @@
     (is (<= 2 (get tag-counts "architecture-cross-system-impact")))
     (is (<= 2 (get tag-counts "architecture-data-ownership")))))
 
+(deftest multi-repo-quality-suite-contains-cross-repo-case
+  (let [suite (benchmark/read-suite "benchmarks/multi-repo-quality.edn")
+        case (first (:cases suite))
+        repo-ids (set (map :id (:repos suite)))
+        case-repo-ids (mapv :repo-id (:repos case))
+        ground-truth-files (mapcat #(get-in % [:ground-truth :localization-files])
+                                   (:repos case))]
+    (is (= "multi-repo-quality" (:id suite)))
+    (is (= #{"opentelemetry-collector"
+             "opentelemetry-collector-contrib"}
+           repo-ids))
+    (is (= ["opentelemetry-collector"
+            "opentelemetry-collector-contrib"]
+           case-repo-ids))
+    (is (contains? (set (:tags case)) "multi-repo-quality"))
+    (is (every? #(seq (get-in % [:ground-truth :localization-files]))
+                (:repos case)))
+    (is (some #{"connector/connector.go"} ground-truth-files))
+    (is (some #{"connector/routingconnector/factory.go"} ground-truth-files))
+    (is (every? #(contains? % :repo-id)
+                (concat (get-in case [:expectations :nodes])
+                        (get-in case [:expectations :evidence]))))))
+
 (deftest broad-agent-efficiency-suite-composes-task-token-coverage
   (let [suite (benchmark/read-suite "benchmarks/agent-efficiency-broad.edn")
         cases (:cases suite)
@@ -445,6 +496,38 @@
     (is (= 0.5 (:meanReciprocalRankFile scores)))
     (is (= 0.5 (:noiseRatioAt20 scores)))
     (is (= 0 (:unsupportedGroundTruthFiles scores)))))
+
+(deftest scores-multi-repo-file-localization-by-repo-and-path
+  (let [result {:groundTruth {:changedFiles [{:repo-id "provider"
+                                              :path "src/contract.clj"}
+                                             {:repo-id "consumer"
+                                              :path "src/contract.clj"}]
+                              :unsupportedGroundTruthFiles []}
+                :ygg {:topFiles [{:repo-id "provider"
+                                  :path "src/contract.clj"
+                                  :rank 1}
+                                 {:repo-id "other"
+                                  :path "src/contract.clj"
+                                  :rank 2}
+                                 {:repo-id "consumer"
+                                  :path "src/contract.clj"
+                                  :rank 3}]}}
+        scores (benchmark/score-result result)
+        ranks (benchmark-score/ground-truth-file-ranks
+               (benchmark-score/scoreable-changed-files (:groundTruth result))
+               (get-in result [:ygg :topFiles]))]
+    (is (= 1.0 (:fileRecallAt5 scores)))
+    (is (= 1.0 (:meanReciprocalRankFile scores)))
+    (is (= (/ 1.0 3.0) (:noiseRatioAt20 scores)))
+    (is (= [{:path "src/contract.clj"
+             :repo-id "provider"
+             :rank 1
+             :found? true}
+            {:path "src/contract.clj"
+             :repo-id "consumer"
+             :rank 3
+             :found? true}]
+           (mapv #(select-keys % [:repo-id :path :rank :found?]) ranks)))))
 
 (deftest scores-agent-evidence-citation-rate
   (let [result {:groundTruth {:changedFiles ["src/app.clj"]
@@ -631,8 +714,8 @@
                :source-line 12
                :end-line 18
                :project-id "fixture"}]
-    (with-redefs [store/rows-by-field
-                  (fn [_ table _field _value]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table _constraints]
                     (cond
                       (= table (:chunks store/tables)) [chunk]
                       (= table (:nodes store/tables)) [node]
@@ -693,8 +776,8 @@
               :path "site/src/pages/index.astro"
               :label "/"
               :project-id "fixture"}]
-    (with-redefs [store/rows-by-field
-                  (fn [_ table _field _value]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table _constraints]
                     (cond
                       (= table (:nodes store/tables)) [node]
                       (= table (:system-evidence store/tables)) []
@@ -793,6 +876,83 @@
                       (keep :elapsedMs
                             (filter #(= "completed" (:status %))
                                     (:events progress))))))))))
+
+(deftest prepares-multi-repo-case-with-repo-qualified-ground-truth
+  (let [provider-root (temp-dir "ygg-bench-provider-repo")
+        consumer-root (temp-dir "ygg-bench-consumer-repo")
+        out (temp-dir "ygg-bench-multi-out")
+        suite-dir (temp-dir "ygg-bench-multi-suite")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))]
+    (doseq [root [provider-root consumer-root]]
+      (git! root "init")
+      (git! root "config" "user.email" "ygg@example.test")
+      (git! root "config" "user.name" "Yggdrasil Test"))
+    (spit-file! provider-root "src/contract.clj" "(ns provider.contract)\n(defn encode [] :old)\n")
+    (let [provider-base (commit! provider-root "provider base")]
+      (spit-file! provider-root "src/contract.clj" "(ns provider.contract)\n(defn encode [] :new)\n")
+      (let [provider-fix (commit! provider-root "provider fix")]
+        (spit-file! consumer-root "src/contract.clj" "(ns consumer.contract)\n(defn decode [] :old)\n")
+        (let [consumer-base (commit! consumer-root "consumer base")]
+          (spit-file! consumer-root "src/contract.clj" "(ns consumer.contract)\n(defn decode [] :new)\n")
+          (let [consumer-fix (commit! consumer-root "consumer fix")]
+            (spit suite-path
+                  (pr-str {:id "multi-repo-quality"
+                           :repos [{:id "provider"
+                                    :root provider-root
+                                    :role :library}
+                                   {:id "consumer"
+                                    :root consumer-root
+                                    :role :application}]
+                           :cases [{:id "provider-consumer-contract"
+                                    :repos [{:repo-id "provider"
+                                             :base-sha provider-base
+                                             :fix-sha provider-fix
+                                             :ground-truth {:localization-files ["src/contract.clj"]}}
+                                            {:repo-id "consumer"
+                                             :base-sha consumer-base
+                                             :fix-sha consumer-fix
+                                             :ground-truth {:localization-files ["src/contract.clj"]}}]
+                                    :coverage {:source-kinds [:code]}
+                                    :tags [:synthetic
+                                           :problem-architecture
+                                           :multi-repo-quality]
+                                    :issue {:id "provider-consumer-contract"
+                                            :title "Trace provider and consumer contract edits"
+                                            :body "The provider contract and consumer adapter both need the contract update. Inspect provider:src/contract.clj and consumer:src/contract.clj."}}]}))
+            (let [suite (benchmark/read-suite suite-path)
+                  prepared (first (:cases (benchmark/prepare-suite! suite {:out out})))
+                  project (benchmark-agent-packet/agent-project prepared)]
+              (is (= "provider" (:repo-id prepared)))
+              (is (= ["provider" "consumer"] (:repoIds prepared)))
+              (is (= #{"provider" "consumer"} (set (keys (:worktreeRoots prepared)))))
+              (is (every? #(.isDirectory (io/file %))
+                          (vals (:worktreeRoots prepared))))
+              (is (= [{:repo-id "provider"
+                       :path "src/contract.clj"}
+                      {:repo-id "consumer"
+                       :path "src/contract.clj"}]
+                     (get-in prepared [:groundTruth :changedFiles])))
+              (is (= (get-in prepared [:groundTruth :changedFiles])
+                     (get-in prepared [:groundTruth :localizationFiles])))
+              (is (= (get-in prepared [:groundTruth :changedFiles])
+                     (get-in prepared [:groundTruth :scoreableFiles])))
+              (is (= []
+                     (get-in prepared [:groundTruth :unsupportedGroundTruthFiles])))
+              (is (= {:hinted true
+                      :mentionedChangedFiles [{:repo-id "provider"
+                                               :path "src/contract.clj"}
+                                              {:repo-id "consumer"
+                                               :path "src/contract.clj"}]
+                      :mentionedChangedFileCount 2
+                      :changedFileCount 2}
+                     (:inputHints prepared)))
+              (is (= [{:id "provider"
+                       :root (get-in prepared [:worktreeRoots "provider"])
+                       :role :library}
+                      {:id "consumer"
+                       :root (get-in prepared [:worktreeRoots "consumer"])
+                       :role :application}]
+                     (:repos project))))))))))
 
 (deftest progress-stage-records-shutdown-interruption
   (let [out (temp-dir "ygg-bench-progress-shutdown")
