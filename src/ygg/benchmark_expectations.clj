@@ -189,6 +189,14 @@
    :forbiddenChunkViolations (count (filter :violated? forbidden-chunks))
    :forbiddenEdges (count forbidden-edges)
    :forbiddenEdgeViolations (count (filter :violated? forbidden-edges))})
+
+(defn- project-rows
+  [xtdb table project-id]
+  (store/constrained-rows xtdb
+                          table
+                          (cond-> {}
+                            project-id (assoc :project-id project-id))))
+
 (defn evaluate-graph-expectations
   [xtdb prepared]
   (let [expectations (:expectations prepared)
@@ -206,22 +214,15 @@
               (seq forbidden-node-expectations)
               (seq forbidden-chunk-expectations)
               (seq forbidden-edge-expectations))
-      (let [evidence (store/rows-by-field xtdb
-                                          (:system-evidence store/tables)
-                                          :project-id
-                                          (:project-id prepared))
-            nodes (store/rows-by-field xtdb
-                                       (:nodes store/tables)
-                                       :project-id
-                                       (:project-id prepared))
-            chunks (store/rows-by-field xtdb
-                                        (:chunks store/tables)
-                                        :project-id
-                                        (:project-id prepared))
-            edges (store/rows-by-field xtdb
-                                       (:system-edges store/tables)
-                                       :project-id
-                                       (:project-id prepared))
+      (let [project-id (:project-id prepared)
+            evidence (project-rows xtdb
+                                   (:system-evidence store/tables)
+                                   project-id)
+            nodes (project-rows xtdb (:nodes store/tables) project-id)
+            chunks (project-rows xtdb (:chunks store/tables) project-id)
+            edges (project-rows xtdb
+                                (:system-edges store/tables)
+                                project-id)
             expected-evidence (expected-row-results evidence
                                                     evidence-expectations
                                                     evidence-match-summary)
