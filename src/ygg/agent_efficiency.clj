@@ -261,6 +261,7 @@
    :expectedEvidenceCitationMetrics
    :decisionQualityMetrics
    :commandTelemetry
+   :perCaseTokenReduction
    :shellLaneClaimReady
    :yggLaneClaimReady])
 
@@ -934,7 +935,8 @@
   (map? (:claimReadiness report)))
 
 (defn- claim-readiness
-  [summary comparable by-category problem-coverage shell-report ygg-report]
+  [summary comparable by-category problem-coverage shell-report ygg-report
+   per-case-token-reduction]
   (let [same-suite? (true? (:sameSuite comparable))
         same-cases? (true? (:sameCases comparable))
         enough-cases? (<= (long (:minSharedCases summary))
@@ -959,6 +961,8 @@
                             by-category
                             "command-telemetry")
         token-cost-metrics? (category-has-metrics? by-category "token-cost")
+        per-case-token-reduction? (true? (:allSharedCasesReduced
+                                          per-case-token-reduction))
         shell-lane-ready? (lane-claim-ready? shell-report)
         ygg-lane-ready? (lane-claim-ready? ygg-report)
         shell-lane-known? (lane-claim-known? shell-report)
@@ -975,6 +979,7 @@
                       :expectedEvidenceCitationMetrics expected-evidence-metrics?
                       :decisionQualityMetrics decision-quality-metrics?
                       :commandTelemetry command-telemetry?
+                      :perCaseTokenReduction per-case-token-reduction?
                       :shellLaneClaimReady shell-lane-ready?
                       :yggLaneClaimReady ygg-lane-ready?}
         supported? (every? true? (vals requirements))]
@@ -1016,6 +1021,9 @@
 
                  (not command-telemetry?)
                  (conj "Command telemetry is unavailable; CLI search/read-loop savings are unproven.")
+
+                 (not per-case-token-reduction?)
+                 (conj "Yggdrasil total token usage is not measured lower for every shared case; token-reduction claims are unproven or regressed.")
 
                  (not shell-lane-known?)
                  (conj "Shell-only report has no claimReadiness field; regenerate the lane report before using this comparison for a broad claim.")
@@ -1077,6 +1085,85 @@
                 shell-audit (assoc :shellOnlyAuditScope shell-audit)
                 ygg-audit (assoc :yggAuditScope ygg-audit))))
           shared-case-ids)))
+
+(defn- task-total-token-delta
+  [case-delta]
+  (some #(when (= :taskTotalTokens (:key %)) %)
+        (:taskTokenDeltas case-delta)))
+
+(defn- positive-number?
+  [value]
+  (and (number? value) (pos? (double value))))
+
+(defn- case-token-reduction-row
+  [case-deltas-by-id case-id]
+  (let [row (task-total-token-delta (get case-deltas-by-id case-id))
+        shell-value (:shellOnly row)
+        ygg-value (:ygg row)
+        measured? (and (positive-number? shell-value)
+                       (positive-number? ygg-value))
+        status (cond
+                 (nil? row) "unavailable"
+                 (not (and (number? shell-value)
+                           (number? ygg-value))) "unavailable"
+                 (not measured?) "invalid"
+                 (< (double ygg-value) (double shell-value)) "improved"
+                 (> (double ygg-value) (double shell-value)) "regressed"
+                 :else "unchanged")]
+    (cond-> {:caseId case-id
+             :status status
+             :measured measured?}
+      (some? shell-value) (assoc :shellOnly shell-value)
+      (some? ygg-value) (assoc :ygg ygg-value)
+      (and measured? (some? (:delta row))) (assoc :delta (:delta row)))))
+
+(defn- per-case-token-reduction
+  [comparable case-deltas]
+  (let [case-deltas-by-id (into {} (map (juxt :caseId identity)) case-deltas)
+        rows (mapv #(case-token-reduction-row case-deltas-by-id %)
+                   (:sharedCaseIds comparable))
+        case-ids-by-status (fn [status]
+                             (->> rows
+                                  (filter #(= status (:status %)))
+                                  (mapv :caseId)))
+        shared-count (long (count rows))
+        measured-count (long (count (filter :measured rows)))
+        improved-case-ids (case-ids-by-status "improved")
+        regressed-case-ids (case-ids-by-status "regressed")
+        unchanged-case-ids (case-ids-by-status "unchanged")
+        unavailable-case-ids (case-ids-by-status "unavailable")
+        invalid-case-ids (case-ids-by-status "invalid")
+        all-measured? (and (pos? shared-count)
+                           (= shared-count measured-count))
+        all-reduced? (and all-measured?
+                          (= shared-count (count improved-case-ids)))]
+    {:sharedCases shared-count
+     :measuredCases measured-count
+     :improvedCases (count improved-case-ids)
+     :regressedCases (count regressed-case-ids)
+     :unchangedCases (count unchanged-case-ids)
+     :unavailableCases (count unavailable-case-ids)
+     :invalidCases (count invalid-case-ids)
+     :allSharedCasesMeasured all-measured?
+     :allSharedCasesReduced all-reduced?
+     :improvedCaseIds improved-case-ids
+     :regressedCaseIds regressed-case-ids
+     :unchangedCaseIds unchanged-case-ids
+     :unavailableCaseIds unavailable-case-ids
+     :invalidCaseIds invalid-case-ids
+     :cases rows
+     :warnings (cond-> []
+                 (seq unavailable-case-ids)
+                 (conj "Task total token telemetry is missing for at least one shared case.")
+
+                 (seq invalid-case-ids)
+                 (conj "Task total token telemetry contains zero or non-positive placeholder values.")
+
+                 (seq regressed-case-ids)
+                 (conj "At least one shared case used more Yggdrasil tokens than shell-only.")
+
+                 (seq unchanged-case-ids)
+                 (conj "At least one shared case did not reduce total token usage."))}))
 
 (defn- headline-metric-deltas-from-deltas
   [deltas]
@@ -1142,6 +1229,9 @@
               (not directional?)
               (conj "Directional metrics are unavailable.")
 
+              (not (true? (:perCaseTokenReduction requirements)))
+              (conj "Yggdrasil total token usage must be measured lower for every shared case.")
+
               (pos? improved)
               (conj (str improved " directional metric(s) improved."))
 
@@ -1198,12 +1288,21 @@
          problem-coverage (problem-class-coverage shell-report
                                                   ygg-report
                                                   by-tag)
+         case-deltas-result (case-deltas shell-report
+                                         ygg-report
+                                         (case-score-specs-for
+                                          shell-efficiency-report
+                                          ygg-efficiency-report))
+         per-case-token-reduction-result (per-case-token-reduction
+                                          comparable
+                                          case-deltas-result)
          claim-readiness-result (claim-readiness summary
                                                  comparable
                                                  by-category
                                                  problem-coverage
                                                  shell-report
-                                                 ygg-report)
+                                                 ygg-report
+                                                 per-case-token-reduction-result)
          headline-metrics (headline-metric-deltas-from-deltas deltas)
          quality-cost-tradeoff (quality-token-tradeoff deltas)
          context-artifacts (context-artifact-comparison shell-report ygg-report)
@@ -1231,12 +1330,9 @@
               :byTag by-tag
               :classSignals (class-signals by-tag problem-coverage)
               :problemClassCoverage problem-coverage
+              :perCaseTokenReduction per-case-token-reduction-result
               :claimReadiness claim-readiness-result
-              :caseDeltas (case-deltas shell-report
-                                       ygg-report
-                                       (case-score-specs-for
-                                        shell-efficiency-report
-                                        ygg-efficiency-report))}
+              :caseDeltas case-deltas-result}
        context-artifacts
        (assoc :contextArtifacts context-artifacts)
        quality-cost-tradeoff
@@ -1368,6 +1464,25 @@
          ", ygg: " (format-metric-value (:ygg total-row))
          ", delta: " (format-metric-value (:delta total-row)) ")")))
 
+(defn- token-reduction-summary-line
+  [summary]
+  (str "- Reduced cases: "
+       (:improvedCases summary)
+       "/"
+       (:sharedCases summary)
+       ", measured "
+       (:measuredCases summary)
+       "/"
+       (:sharedCases summary)
+       ", regressed "
+       (:regressedCases summary)
+       ", unchanged "
+       (:unchangedCases summary)
+       ", unavailable "
+       (:unavailableCases summary)
+       ", invalid "
+       (:invalidCases summary)))
+
 (defn- headline-summary-line
   [summary [key label]]
   (str "- " label ": " (format-metric-value (get summary key))))
@@ -1442,6 +1557,7 @@
         categories (:byCategory comparison)
         tradeoff (:qualityCostTradeoff comparison)
         case-deltas (:caseDeltas comparison)
+        token-reduction (:perCaseTokenReduction comparison)
         problem-groups (class-tag-groups comparison
                                          benchmark-classes/problem-class-tag?)
         architecture-groups (class-tag-groups
@@ -1551,6 +1667,9 @@
               (when-let [token-lines (seq (keep task-token-delta-line
                                                 case-deltas))]
                 (concat ["" "## Task Token Deltas" ""]
+                        (when token-reduction
+                          [(token-reduction-summary-line token-reduction)])
+                        (map #(str "- " %) (:warnings token-reduction))
                         token-lines))
               (when-let [audit-lines (seq (keep case-audit-scope-line case-deltas))]
                 (concat ["" "## Case Audit Scopes" ""]

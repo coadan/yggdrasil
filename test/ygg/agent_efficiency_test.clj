@@ -137,6 +137,34 @@
                        []
                        ["Lane is not representative enough."])})))
 
+(defn- token-usage
+  [total-tokens]
+  {:inputTokens total-tokens
+   :outputTokens 0
+   :totalTokens total-tokens
+   :costUsd 0.0
+   :source "test-token-usage"})
+
+(defn- with-case-token-usage
+  [report totals-by-case]
+  (update report
+          :results
+          (fn [results]
+            (mapv (fn [result]
+                    (if-let [total-tokens (get totals-by-case (:case-id result))]
+                      (assoc-in result
+                                [:agent :tokenUsage]
+                                (token-usage total-tokens))
+                      result))
+                  results))))
+
+(defn- with-reduced-ygg-token-usage
+  [shell ygg]
+  [(with-case-token-usage shell {"case-1" 1000
+                                 "case-2" 1000})
+   (with-case-token-usage ygg {"case-1" 700
+                               "case-2" 700})])
+
 (def shell-report
   (report {:mode "shell-only"
            :recall5 0.5
@@ -205,7 +233,8 @@
             :improvedMetrics 20
             :regressedMetrics 0
             :unavailableMetrics 5
-            :why ["20 directional metric(s) improved."
+            :why ["Yggdrasil total token usage must be measured lower for every shared case."
+                  "20 directional metric(s) improved."
                   "5 metric(s) were unavailable."
                   "Claim readiness is not supported; use the warnings before making the benchmark claim."]}
            (:compactSummary comparison)))
@@ -226,7 +255,8 @@
             :sharedCases 2
             :minSharedCases 2
             :failedRequirements [:problemClassCoverage
-                                 :architectureClassCoverage]
+                                 :architectureClassCoverage
+                                 :perCaseTokenReduction]
             :fileRecallAt10Delta 0.25
             :noiseRatioAt20Delta -0.25
             :evidenceCitationRateDelta 0.25
@@ -342,12 +372,14 @@
                            :expectedEvidenceCitationMetrics true
                            :decisionQualityMetrics true
                            :commandTelemetry true
+                           :perCaseTokenReduction false
                            :shellLaneClaimReady true
                            :yggLaneClaimReady true}
             :laneClaimReadiness {:shellOnly nil
                                  :ygg nil}
             :optionalTelemetry {:tokenCostMetrics false}
-            :warnings ["Shell-only report has no claimReadiness field; regenerate the lane report before using this comparison for a broad claim."
+            :warnings ["Yggdrasil total token usage is not measured lower for every shared case; token-reduction claims are unproven or regressed."
+                       "Shell-only report has no claimReadiness field; regenerate the lane report before using this comparison for a broad claim."
                        "Yggdrasil report has no claimReadiness field; regenerate the lane report before using this comparison for a broad claim."
                        "No shared problem-class tags; do not use this report for broad efficiency claims."
                        "No shared architecture-class tags; do not use this report to claim representative architecture-task gains."
@@ -568,7 +600,8 @@
     (is (= {:totalTokensDelta -5000.0
             :costUsdDelta -0.25
             :failedRequirements [:problemClassCoverage
-                                 :architectureClassCoverage]
+                                 :architectureClassCoverage
+                                 :perCaseTokenReduction]
             :unavailableMetrics []}
            (select-keys (:headlineSummary comparison)
                         [:totalTokensDelta
@@ -716,8 +749,93 @@
            (select-keys (:taskInputTokens case-1-token-by-key)
                         [:shellOnly :ygg :delta :effect :result])))
     (is (.contains markdown "## Task Token Deltas"))
+    (is (= {:sharedCases 2
+            :measuredCases 2
+            :improvedCases 1
+            :regressedCases 1
+            :unchangedCases 0
+            :unavailableCases 0
+            :invalidCases 0
+            :allSharedCasesMeasured true
+            :allSharedCasesReduced false
+            :improvedCaseIds ["case-1"]
+            :regressedCaseIds ["case-2"]
+            :unchangedCaseIds []
+            :unavailableCaseIds []
+            :invalidCaseIds []}
+           (select-keys (:perCaseTokenReduction comparison)
+                        [:sharedCases
+                         :measuredCases
+                         :improvedCases
+                         :regressedCases
+                         :unchangedCases
+                         :unavailableCases
+                         :invalidCases
+                         :allSharedCasesMeasured
+                         :allSharedCasesReduced
+                         :improvedCaseIds
+                         :regressedCaseIds
+                         :unchangedCaseIds
+                         :unavailableCaseIds
+                         :invalidCaseIds])))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :requirements :perCaseTokenReduction])))
     (is (.contains markdown "- case-1: improved (shell: 1500.0, ygg: 900.0, delta: -600.0)"))
     (is (.contains markdown "- case-2: regressed (shell: 600.0, ygg: 1000.0, delta: 400.0)"))))
+
+(deftest zero-or-missing-token-usage-does-not-support-token-reduction
+  (let [shell (-> shell-report
+                  (assoc-in [:results 0 :agent :tokenUsage]
+                            {:inputTokens 0
+                             :outputTokens 0
+                             :totalTokens 0
+                             :costUsd 0.0
+                             :source "placeholder"}))
+        ygg (-> ygg-report
+                (assoc-in [:results 0 :agent :tokenUsage]
+                          {:inputTokens 50
+                           :outputTokens 0
+                           :totalTokens 50
+                           :costUsd 0.0
+                           :source "codex-json-events"})
+                (assoc-in [:results 1 :agent :tokenUsage]
+                          {:inputTokens 40
+                           :outputTokens 0
+                           :totalTokens 40
+                           :costUsd 0.0
+                           :source "codex-json-events"}))
+        comparison (agent-efficiency/compare-reports shell ygg)
+        token-reduction (:perCaseTokenReduction comparison)]
+    (is (= {:sharedCases 2
+            :measuredCases 0
+            :improvedCases 0
+            :regressedCases 0
+            :unchangedCases 0
+            :unavailableCases 1
+            :invalidCases 1
+            :allSharedCasesMeasured false
+            :allSharedCasesReduced false
+            :unavailableCaseIds ["case-2"]
+            :invalidCaseIds ["case-1"]}
+           (select-keys token-reduction
+                        [:sharedCases
+                         :measuredCases
+                         :improvedCases
+                         :regressedCases
+                         :unchangedCases
+                         :unavailableCases
+                         :invalidCases
+                         :allSharedCasesMeasured
+                         :allSharedCasesReduced
+                         :unavailableCaseIds
+                         :invalidCaseIds])))
+    (is (= ["Task total token telemetry is missing for at least one shared case."
+            "Task total token telemetry contains zero or non-positive placeholder values."]
+           (:warnings token-reduction)))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :requirements :perCaseTokenReduction])))))
 
 (deftest improvement-targets-count-against-efficiency-claims
   (let [ygg (assoc ygg-report
@@ -868,6 +986,7 @@
                                          :runs 2
                                          :recall10 1.0
                                          :noise 0.25})]))
+        [shell ygg] (with-reduced-ygg-token-usage shell ygg)
         comparison (agent-efficiency/compare-reports shell ygg)
         class-summary (get-in comparison [:classSignals :summary])
         problem-signals (get-in comparison [:classSignals :problemClasses])
@@ -935,6 +1054,7 @@
                            :expectedEvidenceCitationMetrics true
                            :decisionQualityMetrics true
                            :commandTelemetry true
+                           :perCaseTokenReduction true
                            :shellLaneClaimReady true
                            :yggLaneClaimReady true}
             :laneClaimReadiness {:shellOnly (:claimReadiness shell)
@@ -1031,6 +1151,7 @@
                                          :runs 1
                                          :recall10 1.0
                                          :noise 0.25})]))
+        [shell ygg] (with-reduced-ygg-token-usage shell ygg)
         comparison (agent-efficiency/compare-reports shell ygg)]
     (is (= true (get-in comparison
                         [:problemClassCoverage
@@ -1076,6 +1197,7 @@
                                          :runs 2
                                          :recall10 1.0
                                          :noise 0.25})]))
+        [shell ygg] (with-reduced-ygg-token-usage shell ygg)
         comparison (agent-efficiency/compare-reports shell ygg)]
     (is (= false
            (get-in comparison
@@ -1210,6 +1332,7 @@
                 with-problem-classes
                 with-claim-readiness
                 (assoc-in [:scores :expectedEvidenceCitationRate] 0.8))
+        [shell ygg] (with-reduced-ygg-token-usage shell ygg)
         comparison (agent-efficiency/compare-reports shell ygg)]
     (is (= false
            (get-in comparison
@@ -1361,6 +1484,7 @@
                                          :runs 2
                                          :recall10 0.75
                                          :noise 0.25})]))
+        [shell ygg] (with-reduced-ygg-token-usage shell ygg)
         shell-path (spit-json! root "shell/agent-report.json" shell)
         ygg-path (spit-json! root "ygg/agent-report.json" ygg)
         out (with-out-str
