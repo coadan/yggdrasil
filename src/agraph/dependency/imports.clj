@@ -1,6 +1,7 @@
 (ns agraph.dependency.imports
   "Language-specific dependency import candidate filtering."
-  (:require [agraph.dependency.imports.dotnet :as dotnet]
+  (:require [agraph.dependency.imports.common :as import-common]
+            [agraph.dependency.imports.dotnet :as dotnet]
             [agraph.dependency.imports.go :as go]
             [agraph.dependency.imports.java :as java]
             [agraph.dependency.imports.javascript :as javascript]
@@ -37,3 +38,43 @@
     (java/external-package-candidate? target)
 
     true))
+
+(defn- local-import?
+  [kind context]
+  (case kind
+    (:javascript :typescript :astro :vue :svelte)
+    (javascript/local-import? context)
+
+    :go
+    (go/local-import? context)
+
+    :java
+    (java/local-import? context)
+
+    false))
+
+(defn source-kind
+  [files-by-path path]
+  (:kind (get files-by-path path)))
+
+(defn module-nodes
+  [nodes]
+  (go/module-nodes nodes))
+
+(defn package-import-candidate?
+  [{:keys [files-by-path alias-nodes module-nodes nodes-by-id edge]}]
+  (let [target (import-common/namespace-target (:target-id edge))
+        kind (source-kind files-by-path (:path edge))
+        context {:files-by-path files-by-path
+                 :alias-nodes alias-nodes
+                 :module-nodes module-nodes
+                 :nodes-by-id nodes-by-id
+                 :edge edge
+                 :kind kind
+                 :target target}]
+    (and target
+         (not (import-common/local-namespace-import? nodes-by-id edge))
+         (not (import-common/local-path-alias-import? alias-nodes edge target))
+         (not (local-import? kind context))
+         (supported-source-kind? kind)
+         (external-package-candidate? kind target))))

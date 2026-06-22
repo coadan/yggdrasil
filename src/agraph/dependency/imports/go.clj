@@ -48,3 +48,7 @@
        (some #(and (ancestor-dir? (dirname (:path %)) source-path)
                    (module-prefix-match? (:label %) target))
              module-nodes)))
+
+(defn local-import?
+  [{:keys [module-nodes edge target kind]}]
+  (local-module-import? module-nodes (:path edge) target kind))

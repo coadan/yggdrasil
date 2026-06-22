@@ -2,7 +2,7 @@
   "Derived external package dependency resolution."
   (:require [agraph.command :as command]
             [agraph.dependency.imports :as dependency-imports]
-            [agraph.dependency.imports.go :as go-imports]
+            [agraph.dependency.imports.common :as import-common]
             [agraph.dependency.resolve :as dependency-resolve]
             [agraph.hash :as hash]
             [agraph.xtdb :as store]
@@ -55,70 +55,6 @@
   [node]
   (= :external-package (:kind node)))
 
-(defn- namespace-target
-  [target-id]
-  (some-> (re-find #"node:namespace:(.+)$" (str target-id))
-          second))
-
-(defn- dirname
-  [path]
-  (let [idx (.lastIndexOf (str path) "/")]
-    (when (pos? idx)
-      (subs path 0 idx))))
-
-(defn- extension
-  [path]
-  (some-> (re-find #"\.([A-Za-z0-9]+)$" (str path))
-          second
-          str/lower-case))
-
-(def ^:private js-local-source-kinds
-  #{:javascript :typescript :astro :vue :svelte})
-
-(def ^:private js-local-file-extensions
-  ["" ".js" ".jsx" ".ts" ".tsx" ".mjs" ".cjs" ".mts" ".cts"])
-
-(defn- strip-resource-suffix
-  [target]
-  (str/replace (str target) #"[?#].*$" ""))
-
-(defn- js-local-file-candidates
-  [path]
-  (let [path (strip-resource-suffix path)]
-    (if (extension path)
-      [path]
-      (vec (concat
-            (map #(str path %) js-local-file-extensions)
-            (map #(str path "/index" %) js-local-file-extensions))))))
-
-(defn- candidate-local-import-paths
-  [source-path target]
-  (let [target (strip-resource-suffix target)
-        source-dir (dirname source-path)
-        target-parts (vec (remove str/blank? (str/split target #"/")))
-        target-suffix (when (< 1 (count target-parts))
-                        (str/join "/" (rest target-parts)))]
-    (->> (cond-> []
-           (seq target)
-           (conj target)
-
-           (and (seq source-dir) (seq target))
-           (conj (str source-dir "/" target))
-
-           (and (seq source-dir) (seq target-suffix))
-           (conj (str source-dir "/" target-suffix)))
-         (mapcat js-local-file-candidates)
-         distinct
-         vec)))
-
-(defn- ancestor-dir?
-  [ancestor path]
-  (let [ancestor (or ancestor "")
-        dir (or (dirname path) "")]
-    (or (str/blank? ancestor)
-        (= ancestor dir)
-        (str/starts-with? dir (str ancestor "/")))))
-
 (def ^:private package-evidence-source-kinds
   #{:manifest :doc-file})
 
@@ -160,138 +96,9 @@
                    (update out source-path (fnil conj []) package))
                  {}))))
 
-(defn- module-path-alias-node?
-  [node]
-  (= :module-path-alias (:kind node)))
-
-(defn- alias-pattern-prefix
-  [pattern]
-  (let [pattern (str pattern)]
-    (if-let [idx (str/index-of pattern "*")]
-      (subs pattern 0 idx)
-      pattern)))
-
-(defn- alias-pattern-match?
-  [pattern target]
-  (let [prefix (alias-pattern-prefix pattern)
-        target (str target)]
-    (if (str/includes? (str pattern) "*")
-      (str/starts-with? target prefix)
-      (or (= target prefix)
-          (str/starts-with? target (str prefix "/"))
-          (str/starts-with? target (str prefix "."))))))
-
-(defn- module-path-alias-match?
-  [alias-node edge target]
-  (when-let [[_ alias-pattern]
-             (re-matches #"^(.+?)=.*$" (str (:label alias-node)))]
-    (and (ancestor-dir? (dirname (:path alias-node)) (:path edge))
-         (alias-pattern-match? alias-pattern target))))
-
 (defn- source-kind
   [files-by-path path]
   (:kind (get files-by-path path)))
-
-(defn- local-namespace-import?
-  [nodes-by-id edge]
-  (let [target (get nodes-by-id (:target-id edge))]
-    (and (= :namespace (:kind target))
-         (seq (:path target)))))
-
-(defn- dotted-symbol-labels
-  [target]
-  (let [parts (vec (remove str/blank? (str/split (str target) #"\.")))]
-    (->> (range 1 (count parts))
-         (map (fn [idx]
-                (str (str/join "." (subvec parts 0 idx))
-                     "/"
-                     (str/join "." (subvec parts idx)))))
-         distinct
-         vec)))
-
-(defn- dotted-symbol-owner-labels
-  [target]
-  (let [parts (vec (remove str/blank? (str/split (str target) #"\.")))]
-    (->> (range 1 (count parts))
-         (mapcat (fn [namespace-end]
-                   (let [namespace-name (str/join "."
-                                                  (subvec parts 0 namespace-end))
-                         symbol-parts (subvec parts namespace-end)]
-                     (->> (range 1 (count symbol-parts))
-                          (map (fn [symbol-end]
-                                 (str namespace-name
-                                      "/"
-                                      (str/join "."
-                                                (subvec symbol-parts
-                                                        0
-                                                        symbol-end)))))))))
-         distinct
-         vec)))
-
-(defn- scoped-symbol-id
-  [target-id symbol-label]
-  (when-let [[_ scope] (re-matches #"^(.*)node:namespace:.+$"
-                                   (str target-id))]
-    (str scope "node:symbol:" symbol-label)))
-
-(def ^:private java-type-symbol-kinds
-  #{:class :interface :enum :record :annotation :java-symbol :symbol})
-
-(defn- local-symbol-node?
-  [node]
-  (seq (:path node)))
-
-(defn- local-type-symbol-node?
-  [node]
-  (and (local-symbol-node? node)
-       (contains? java-type-symbol-kinds (:kind node))))
-
-(defn- local-scoped-symbol?
-  [nodes-by-id target-id symbol-label predicate]
-  (when-let [node (get nodes-by-id (scoped-symbol-id target-id symbol-label))]
-    (predicate node)))
-
-(defn- local-symbol-import?
-  [nodes-by-id edge kind]
-  (when (= :java kind)
-    (let [target (namespace-target (:target-id edge))]
-      (or (some #(local-scoped-symbol? nodes-by-id
-                                       (:target-id edge)
-                                       %
-                                       local-symbol-node?)
-                (dotted-symbol-labels target))
-          (some #(local-scoped-symbol? nodes-by-id
-                                       (:target-id edge)
-                                       %
-                                       local-type-symbol-node?)
-                (dotted-symbol-owner-labels target))))))
-
-(defn- local-path-alias-import?
-  [alias-nodes edge target]
-  (some #(module-path-alias-match? % edge target)
-        alias-nodes))
-
-(defn- local-file-import?
-  [files-by-path edge target kind]
-  (and (contains? js-local-source-kinds kind)
-       (not (str/starts-with? target "."))
-       (not (str/starts-with? target "@"))
-       (str/includes? target "/")
-       (some #(contains? files-by-path %)
-             (candidate-local-import-paths (:path edge) target))))
-
-(defn- package-import-candidate?
-  [files-by-path alias-nodes go-module-nodes nodes-by-id edge]
-  (let [target (namespace-target (:target-id edge))
-        kind (source-kind files-by-path (:path edge))]
-    (and target
-         (not (local-namespace-import? nodes-by-id edge))
-         (not (local-symbol-import? nodes-by-id edge kind))
-         (not (local-path-alias-import? alias-nodes edge target))
-         (not (local-file-import? files-by-path edge target kind))
-         (not (go-imports/local-module-import? go-module-nodes (:path edge) target kind))
-         (dependency-imports/supported-source-kind? kind)
-         (dependency-imports/external-package-candidate? kind target))))
 
 (defn- resolve-package-import
   [packages-by-id packages-by-source manifest-paths files-by-path map-overlay repo-id edge]
@@ -340,7 +147,7 @@
                                     packages-by-id
                                     map-overlay
                                     (:repo-id edge)
-                                    (namespace-target (:target-id edge)))]
+                                    (import-common/namespace-target (:target-id edge)))]
                    (let [derived (import-package-edge "report:map-overlay"
                                                       project-id
                                                       (:repo-id edge)
@@ -368,8 +175,8 @@
                                                            :version-of})
          files-by-path (into {} (map (juxt :path identity)) files)
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
-         alias-nodes (filterv module-path-alias-node? nodes)
-         go-module-nodes (go-imports/module-nodes nodes)
+         alias-nodes (filterv import-common/module-path-alias-node? nodes)
+         module-nodes (dependency-imports/module-nodes nodes)
          packages-by-id (->> nodes
                              (filter package-node?)
                              (map (juxt :xt/id identity))
@@ -380,11 +187,12 @@
        []
        (let [source-edges (active-scope-edge-rows xtdb scope #{:imports :uses})
              candidate-edges (->> source-edges
-                                  (filter #(package-import-candidate? files-by-path
-                                                                      alias-nodes
-                                                                      go-module-nodes
-                                                                      nodes-by-id
-                                                                      %)))]
+                                  (filter #(dependency-imports/package-import-candidate?
+                                            {:files-by-path files-by-path
+                                             :alias-nodes alias-nodes
+                                             :module-nodes module-nodes
+                                             :nodes-by-id nodes-by-id
+                                             :edge %})))]
          (->> candidate-edges
               (keep (fn [edge]
                       (when-let [result (resolve-package-import packages-by-id
@@ -536,7 +344,7 @@
 (defn- import-target-label
   [nodes-by-id edge]
   (or (:label (get nodes-by-id (:target-id edge)))
-      (namespace-target (:target-id edge))
+      (import-common/namespace-target (:target-id edge))
       (:target-id edge)))
 
 (defn- unresolved-import-row
@@ -604,8 +412,8 @@
          edges (active-scope-rows xtdb (:edges store/tables) scope)
          files-by-path (into {} (map (juxt :path identity)) files)
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
-         alias-nodes (filterv module-path-alias-node? nodes)
-         go-module-nodes (go-imports/module-nodes nodes)
+         alias-nodes (filterv import-common/module-path-alias-node? nodes)
+         module-nodes (dependency-imports/module-nodes nodes)
          packages (->> nodes (filter package-node?) sorted-values)
          packages-by-id (into {} (map (juxt :xt/id identity)) packages)
          versions (->> nodes
@@ -617,11 +425,12 @@
          imports (filter (partial relation? :imports-package) edges)
          source-edges (filter #(contains? #{:imports :uses} (:relation %))
                               edges)
-         candidate-source-edges (filter #(package-import-candidate? files-by-path
-                                                                    alias-nodes
-                                                                    go-module-nodes
-                                                                    nodes-by-id
-                                                                    %)
+         candidate-source-edges (filter #(dependency-imports/package-import-candidate?
+                                          {:files-by-path files-by-path
+                                           :alias-nodes alias-nodes
+                                           :module-nodes module-nodes
+                                           :nodes-by-id nodes-by-id
+                                           :edge %})
                                         source-edges)
          report-imports (vec (concat imports
                                      (map-overlay-import-edges project-id

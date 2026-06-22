@@ -2,6 +2,20 @@
   (:require [agraph.dependency.imports :as dependency-imports]
             [clojure.test :refer [deftest is]]))
 
+(defn- import-edge
+  [path target]
+  {:target-id (str "node:namespace:" target)
+   :path path})
+
+(defn- candidate?
+  [{:keys [files nodes aliases modules edge]}]
+  (dependency-imports/package-import-candidate?
+   {:files-by-path (into {} (map (juxt :path identity)) files)
+    :nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
+    :alias-nodes aliases
+    :module-nodes modules
+    :edge edge}))
+
 (deftest filters-language-runtime-imports
   (is (true? (dependency-imports/supported-source-kind? :java)))
   (is (false? (dependency-imports/supported-source-kind? :ci-workflow)))
@@ -30,3 +44,52 @@
   (is (true? (dependency-imports/external-package-candidate? :go "go.opentelemetry.io/collector/component")))
   (is (false? (dependency-imports/external-package-candidate? :rust "std::fs")))
   (is (true? (dependency-imports/external-package-candidate? :rust "serde::Serialize"))))
+
+(deftest package-import-candidates-filter-local-imports
+  (is (false? (candidate?
+               {:files [{:path "src/App.ts" :kind :typescript}
+                        {:path "src/components/Button.ts" :kind :typescript}]
+                :edge (import-edge "src/App.ts" "components/Button")})))
+
+  (is (false? (candidate?
+               {:files [{:path "src/App.ts" :kind :typescript}]
+                :aliases [{:kind :module-path-alias
+                           :path "tsconfig.json"
+                           :label "@app/*=src/*"}]
+                :edge (import-edge "src/App.ts" "@app/config")})))
+
+  (is (false? (candidate?
+               {:files [{:path "src/main/java/demo/App.java" :kind :java}]
+                :nodes [{:xt/id "node:symbol:demo/Local"
+                         :kind :class
+                         :path "src/main/java/demo/Local.java"}]
+                :edge (import-edge "src/main/java/demo/App.java" "demo.Local")})))
+
+  (is (false? (candidate?
+               {:files [{:path "consumer/consumer.go" :kind :go}]
+                :modules [{:kind :manifest
+                           :path "go.mod"
+                           :label "go.opentelemetry.io/collector"}]
+                :edge (import-edge "consumer/consumer.go"
+                                   "go.opentelemetry.io/collector/component")})))
+
+  (is (false? (candidate?
+               {:files [{:path "src/App.java" :kind :java}]
+                :nodes [{:xt/id "node:namespace:demo.Shared"
+                         :kind :namespace
+                         :path "src/Shared.java"}]
+                :edge (import-edge "src/App.java" "demo.Shared")}))))
+
+(deftest package-import-candidates-keep-external-imports
+  (is (true? (candidate?
+              {:files [{:path "src/App.ts" :kind :typescript}]
+               :edge (import-edge "src/App.ts" "react")})))
+  (is (true? (candidate?
+              {:files [{:path "src/App.java" :kind :java}]
+               :edge (import-edge "src/App.java" "org.junit.jupiter.api.Test")})))
+  (is (true? (candidate?
+              {:files [{:path "consumer/consumer.go" :kind :go}]
+               :modules [{:kind :manifest
+                          :path "go.mod"
+                          :label "go.opentelemetry.io/collector"}]
+               :edge (import-edge "consumer/consumer.go" "go.uber.org/zap")}))))
