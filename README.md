@@ -1,16 +1,18 @@
 # AGraph
 
-AGraph helps coding agents understand a codebase without rereading everything
-from scratch on every task. It builds a local, reviewable map of what is in the
-repo, where important pieces connect, and what the team has already accepted as
-true.
+Real-world systems are more than code files. They are services, configs,
+dependencies, docs, deployments, ownership decisions, and half-remembered fixes
+spread across a repo over time.
+
+AGraph helps coding agents work in that reality. It builds a local, reviewable
+map of what exists, how important pieces connect, and what the team has already
+accepted as true, so agents can find the right context without rereading
+everything from scratch.
 
 Many agent tools call this codebase memory. AGraph is more specific: it keeps
-that memory tied to files, evidence, and reviewable corrections, so agents know
-where to look and teams can see why an answer was trusted.
-
-AGraph is designed to make agent work easier to verify. Claims about speed,
-cost, or effectiveness should come from repeatable benchmarks.
+that memory tied to files, evidence, and reviewable corrections, so teams can
+see why an answer was trusted. Claims about speed, cost, or effectiveness
+should come from repeatable benchmarks.
 
 ## Quickstart
 
@@ -36,9 +38,9 @@ different XTDB directory.
 
 ## Core Ideas
 
-- Evidence first: AGraph starts from files and facts before asking anyone to
-  decide what they mean. Use `agraph sync coverage project.edn` for the current
-  support breakdown.
+- Real systems first: AGraph looks beyond source files to the repo evidence
+  agents need for real maintenance work. Use `agraph sync coverage project.edn`
+  for the current support breakdown.
 - Shared project memory: accepted corrections and useful context become part of
   the project record instead of disappearing with one agent session.
 - Progressive disclosure: agents start with a compact view, then open more
