@@ -943,6 +943,48 @@
                             project-id (assoc :project-id project-id)
                             repo-id (assoc :repo-id repo-id)))))
 
+(def ^:private file-owned-table-keys
+  [:nodes :edges :chunks :file-facts :diagnostics :search-docs])
+
+(def ^:private file-owned-row-id-fields
+  [:xt/id :file-id])
+
+(defn- empty-file-scoped-rows
+  []
+  (zipmap file-owned-table-keys (repeat [])))
+
+(defn- file-scoped-rows-for-file-ids
+  [xtdb file-ids ctx]
+  (let [file-ids (->> (seq file-ids) (remove nil?) distinct vec)
+        table-rows (into {}
+                         (map (fn [table-key]
+                                [table-key
+                                 (if (seq file-ids)
+                                   (rows-with-field-values
+                                    xtdb
+                                    {:table (table-ref table-key)
+                                     :field :file-id
+                                     :values file-ids
+                                     :return-fields file-owned-row-id-fields
+                                     :read-context ctx})
+                                   [])]))
+                         file-owned-table-keys)
+        rows-by-table-and-file (into {}
+                                     (map (fn [[table-key rows]]
+                                            [table-key (group-by :file-id rows)]))
+                                     table-rows)]
+    (into {}
+          (map (fn [file-id]
+                 [file-id
+                  (into {}
+                        (map (fn [table-key]
+                               [table-key
+                                (vec (get-in rows-by-table-and-file
+                                             [table-key file-id]
+                                             []))]))
+                        file-owned-table-keys)]))
+          file-ids)))
+
 (defn file-scoped-rows
   "Return existing rows owned by file id."
   ([xtdb file-id] (file-scoped-rows xtdb file-id {}))
@@ -957,20 +999,17 @@
 (defn file-tx
   "Return replace transaction ops and counts for one file."
   ([xtdb file-row extraction] (file-tx xtdb file-row extraction {:existing? true}))
-  ([xtdb file-row extraction {:keys [existing? valid-from] :or {existing? true}}]
+  ([xtdb file-row extraction {:keys [existing? valid-from existing-rows]
+                              :or {existing? true}}]
    (let [file-id (:xt/id file-row)
          temporal (cond-> {}
                     valid-from (assoc :valid-from valid-from))
          read-ctx (cond-> {}
                     valid-from (assoc :valid-at valid-from))
-         existing (if existing?
-                    (file-scoped-rows xtdb file-id read-ctx)
-                    {:nodes []
-                     :edges []
-                     :chunks []
-                     :file-facts []
-                     :diagnostics []
-                     :search-docs []})
+         existing (cond
+                    (false? existing?) (empty-file-scoped-rows)
+                    existing-rows existing-rows
+                    :else (file-scoped-rows xtdb file-id read-ctx))
          delete-ops (concat
                      (map #(delete-op (:nodes tables) (:xt/id %) temporal) (:nodes existing))
                      (map #(delete-op (:edges tables) (:xt/id %) temporal) (:edges existing))
@@ -1020,11 +1059,36 @@
   ([xtdb entries {:keys [batch-size] :or {batch-size 50}}]
    (reduce
     (fn [summary batch]
-      (let [txs (map #(file-tx xtdb
-                               (:file-row %)
-                               (:extraction %)
-                               {:existing? (:existing? %)
-                                :valid-from (:valid-from %)})
+      (let [batch (vec batch)
+            existing-by-file-and-valid-from
+            (into {}
+                  (mapcat
+                   (fn [[valid-from entries]]
+                     (let [read-ctx (cond-> {}
+                                      valid-from (assoc :valid-at valid-from))
+                           file-ids (map (comp :xt/id :file-row) entries)
+                           existing-by-file-id (file-scoped-rows-for-file-ids
+                                                xtdb
+                                                file-ids
+                                                read-ctx)]
+                       (map (fn [entry]
+                              (let [file-id (get-in entry [:file-row :xt/id])]
+                                [[file-id valid-from]
+                                 (get existing-by-file-id
+                                      file-id
+                                      (empty-file-scoped-rows))]))
+                            entries))))
+                  (group-by :valid-from
+                            (filter #(not= false (:existing? %)) batch)))
+            txs (map #(let [file-id (get-in % [:file-row :xt/id])
+                            valid-from (:valid-from %)]
+                        (file-tx xtdb
+                                 (:file-row %)
+                                 (:extraction %)
+                                 {:existing? (:existing? %)
+                                  :existing-rows (get existing-by-file-and-valid-from
+                                                      [file-id valid-from])
+                                  :valid-from valid-from}))
                      batch)
             delete-ops (compact-doc-ops (mapcat :delete-ops txs))
             put-ops (compact-doc-ops (mapcat :put-ops txs))
@@ -1050,12 +1114,13 @@
 
 (defn file-delete-tx
   "Return temporal delete ops for one removed file and its owned rows."
-  [xtdb file-row {:keys [valid-from]}]
+  [xtdb file-row {:keys [valid-from existing-rows]}]
   (let [temporal (cond-> {}
                    valid-from (assoc :valid-from valid-from))
         read-ctx (cond-> {}
                    valid-from (assoc :valid-at valid-from))
-        existing (file-scoped-rows xtdb (:xt/id file-row) read-ctx)
+        existing (or existing-rows
+                     (file-scoped-rows xtdb (:xt/id file-row) read-ctx))
         ops (vec
              (concat
               (map #(delete-op (:nodes tables) (:xt/id %) temporal) (:nodes existing))
@@ -1080,7 +1145,21 @@
   ([xtdb file-rows opts {:keys [batch-size] :or {batch-size 50}}]
    (reduce
     (fn [summary batch]
-      (let [txs (map #(file-delete-tx xtdb % opts) batch)
+      (let [batch (vec batch)
+            read-ctx (cond-> {}
+                       (:valid-from opts) (assoc :valid-at (:valid-from opts)))
+            existing-by-file-id (file-scoped-rows-for-file-ids
+                                 xtdb
+                                 (map :xt/id batch)
+                                 read-ctx)
+            txs (map #(file-delete-tx xtdb
+                                      %
+                                      (assoc opts
+                                             :existing-rows
+                                             (get existing-by-file-id
+                                                  (:xt/id %)
+                                                  (empty-file-scoped-rows))))
+                     batch)
             ops (compact-doc-ops (mapcat :ops txs))
             counts (reduce merge-counts {} (map :counts txs))]
         (execute-tx! xtdb ops)

@@ -2,7 +2,8 @@
   (:require [ygg.query :as query]
             [ygg.xtdb :as store]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]
+            [xtdb.api :as xt]))
 
 (defn- cursor-row
   [id project-id revision active?]
@@ -255,6 +256,120 @@
     (is (= {:valid-at #inst "2026-01-01T00:00:00Z"}
            (:read-context (first @calls))))
     (is (not-any? #{'*} (:return-fields (first @calls))))))
+
+(defn- file-row
+  [id path]
+  {:xt/id id
+   :project-id "project-a"
+   :repo-id "app"
+   :path path
+   :ext "clj"
+   :kind :source
+   :content-sha (str "sha:" id)
+   :mtime-ms 1
+   :size-bytes 1
+   :active? true
+   :run-id "run:index"})
+
+(defn- old-file-owned-rows
+  [request]
+  (case (:table request)
+    :ygg/nodes [{:xt/id "node:a:old" :file-id "file:a"}
+                {:xt/id "node:b:old" :file-id "file:b"}]
+    :ygg/edges [{:xt/id "edge:a:old" :file-id "file:a"}]
+    :ygg/chunks [{:xt/id "chunk:b:old" :file-id "file:b"}]
+    :ygg/file-facts []
+    :ygg/index-diagnostics []
+    :ygg/search-docs [{:xt/id "search-doc:a:old" :file-id "file:a"}]
+    []))
+
+(deftest commit-files-batches-existing-file-owned-row-lookups
+  (let [calls (atom [])
+        txs (atom [])
+        summary (with-redefs [store/rows-with-field-values
+                              (fn [_ request]
+                                (swap! calls conj request)
+                                (old-file-owned-rows request))
+                              store/rows-by-field
+                              (fn [& _]
+                                (throw (ex-info "rows-by-field should not be used by batch file commits"
+                                                {})))
+                              xt/execute-tx
+                              (fn [_ ops]
+                                (swap! txs conj ops)
+                                {:tx-id 1})]
+                  (store/commit-files!
+                   {:node :stub}
+                   [{:file-row (file-row "file:a" "src/a.clj")
+                     :extraction {}}
+                    {:file-row (file-row "file:b" "src/b.clj")
+                     :extraction {}}]
+                   {:batch-size 50}))]
+    (is (= {:nodes 0
+            :edges 0
+            :chunks 0
+            :file-facts 0
+            :diagnostics 0
+            :search-docs 0}
+           summary))
+    (is (= 6 (count @calls)))
+    (is (= (set (map store/table-ref [:nodes
+                                      :edges
+                                      :chunks
+                                      :file-facts
+                                      :diagnostics
+                                      :search-docs]))
+           (set (map :table @calls))))
+    (is (every? #(= :file-id (:field %)) @calls))
+    (is (every? #(= ["file:a" "file:b"] (:values %)) @calls))
+    (is (every? #(= [:xt/id :file-id] (:return-fields %)) @calls))
+    (is (some #(and (= :delete-docs (first %))
+                    (= (:nodes store/tables) (second %))
+                    (= #{"node:a:old" "node:b:old"} (set (nnext %))))
+              (first @txs)))
+    (is (some #(and (= :delete-docs (first %))
+                    (= (:search-docs store/tables) (second %))
+                    (= ["search-doc:a:old"] (vec (nnext %))))
+              (first @txs)))))
+
+(deftest commit-file-deletes-batch-existing-file-owned-row-lookups
+  (let [calls (atom [])
+        txs (atom [])
+        valid-from #inst "2026-01-01T00:00:00Z"
+        summary (with-redefs [store/rows-with-field-values
+                              (fn [_ request]
+                                (swap! calls conj request)
+                                (old-file-owned-rows request))
+                              store/rows-by-field
+                              (fn [& _]
+                                (throw (ex-info "rows-by-field should not be used by batch file deletes"
+                                                {})))
+                              xt/execute-tx
+                              (fn [_ ops]
+                                (swap! txs conj ops)
+                                {:tx-id 2})]
+                  (store/commit-file-deletes!
+                   {:node :stub}
+                   [(file-row "file:a" "src/a.clj")
+                    (file-row "file:b" "src/b.clj")]
+                   {:valid-from valid-from}
+                   {:batch-size 50}))]
+    (is (= {:files-deleted 2
+            :nodes-deleted 2
+            :edges-deleted 1
+            :chunks-deleted 1
+            :file-facts-deleted 0
+            :diagnostics-deleted 0
+            :search-docs-deleted 1}
+           summary))
+    (is (= 6 (count @calls)))
+    (is (every? #(= ["file:a" "file:b"] (:values %)) @calls))
+    (is (every? #(= {:valid-at valid-from} (:read-context %)) @calls))
+    (is (some #(and (= :delete-docs (first %))
+                    (= (:files store/tables) (get-in % [1 :from]))
+                    (= valid-from (get-in % [1 :valid-from]))
+                    (= #{"file:a" "file:b"} (set (nnext %))))
+              (first @txs)))))
 
 (deftest deps-loads-endpoint-nodes-with-batched-id-read
   (let [calls (atom [])
