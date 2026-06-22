@@ -102,10 +102,10 @@
                    (store/constrained-rows
                     :xtdb
                     (:edges store/tables)
-                   {:project-id "project-a"
-                    :repo-id "app"
-                    :relation :imports
-                    :active? true})))))
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :relation :imports
+                     :active? true})))))
     (is (= :imports (last (first @queries))))))
 
 (deftest edge-rows-touching-ids-uses-bounded-xtql-unify-queries
@@ -135,6 +135,51 @@
     (let [queries (map (comp pr-str :query) @calls)]
       (is (every? #(str/includes? % "unify") queries))
       (is (every? #(str/includes? % "rel") queries))
+      (is (some #(str/includes? % ":source-id match-value") queries))
+      (is (some #(str/includes? % ":target-id match-value") queries))
+      (is (not-any? #(str/includes? % "*") queries)))))
+
+(deftest system-edges-touching-ids-use-bounded-xtql-unify-queries
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (let [idx (count @calls)]
+                      (swap! calls conj {:query query
+                                         :ctx ctx})
+                      [(case idx
+                         0 {:xt/id "system-edge:out"
+                            :project-id "project-a"
+                            :source-id "system:a"
+                            :target-id "system:out"
+                            :relation :calls-http
+                            :confidence 0.9
+                            :evidence-ids []
+                            :rules []
+                            :active? true
+                            :run-id "run:system"}
+                         {:xt/id "system-edge:in"
+                          :project-id "project-a"
+                          :source-id "system:in"
+                          :target-id "system:a"
+                          :relation :calls-http
+                          :confidence 0.9
+                          :evidence-ids []
+                          :rules []
+                          :active? true
+                          :run-id "run:system"})]))]
+      (is (= ["system-edge:out" "system-edge:in"]
+             (mapv :xt/id
+                   (query/system-edges-touching-ids
+                    {:node :stub}
+                    ["system:a" "system:b" "system:a"]
+                    {:project-id "project-a"
+                     :valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= 2 (count @calls)))
+    (is (every? #(= {:valid-at #inst "2026-01-01T00:00:00Z"} (:ctx %)) @calls))
+    (let [queries (map (comp pr-str :query) @calls)]
+      (is (every? #(str/includes? % "unify") queries))
+      (is (every? #(str/includes? % "rel") queries))
+      (is (every? #(str/includes? % ":active? v0") queries))
       (is (some #(str/includes? % ":source-id match-value") queries))
       (is (some #(str/includes? % ":target-id match-value") queries))
       (is (not-any? #(str/includes? % "*") queries)))))

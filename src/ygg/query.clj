@@ -124,6 +124,18 @@
    :active?
    :run-id])
 
+(def ^:private system-edge-row-query-fields
+  [:xt/id
+   :project-id
+   :source-id
+   :target-id
+   :relation
+   :confidence
+   :evidence-ids
+   :rules
+   :active?
+   :run-id])
+
 (def ^:private chunk-row-query-fields
   [:xt/id
    :project-id
@@ -162,7 +174,8 @@
   [xtdb ids opts]
   (rows-by-ids xtdb (:nodes store/tables) ids opts all-nodes node-row-query-fields))
 
-(defn- system-nodes-by-ids
+(defn system-nodes-by-ids
+  "Return active system node rows for concrete ids within the requested scope."
   [xtdb ids opts]
   (filter :active?
           (rows-by-ids xtdb
@@ -275,12 +288,59 @@
                {:active? true
                 field id}))
 
+(defn system-edges-touching-ids
+  "Return active system edges whose source or target is in ids.
+
+  Real XTDB handles use two bounded `rel`/`unify` reads through the store
+  batched-value helper. Non-XTDB tests keep the same visible row semantics via
+  the store fallback boundary."
+  [xtdb ids opts]
+  (let [constraints (assoc (scope-constraints opts) :active? true)
+        ctx (read-context opts)
+        rows (concat
+              (store/rows-with-field-values
+               xtdb
+               {:table (:system-edges store/tables)
+                :field :source-id
+                :values ids
+                :constraints constraints
+                :return-fields system-edge-row-query-fields
+                :read-context ctx})
+              (store/rows-with-field-values
+               xtdb
+               {:table (:system-edges store/tables)
+                :field :target-id
+                :values ids
+                :constraints constraints
+                :return-fields system-edge-row-query-fields
+                :read-context ctx}))]
+    (->> rows
+         (filter :active?)
+         (#(filter-scope % opts))
+         (distinct-by :xt/id)
+         vec)))
+
 (defn- edges-touching-ids
   [xtdb ids opts]
   (vec (store/edge-rows-touching-ids xtdb
                                      ids
                                      (scope-constraints opts)
                                      (read-context opts))))
+
+(defn system-neighbor-ids
+  "Return ordered distinct system ids adjacent to seed ids."
+  [xtdb ids {:keys [relation min-confidence] :as opts}]
+  (let [seed-ids (set ids)
+        relation (some-> relation keyword)
+        min-confidence (some-> min-confidence double)]
+    (->> (system-edges-touching-ids xtdb ids opts)
+         (filter #(or (nil? relation) (= relation (:relation %))))
+         (filter #(or (nil? min-confidence)
+                      (<= min-confidence (double (:confidence %)))))
+         (mapcat (juxt :source-id :target-id))
+         (remove seed-ids)
+         (distinct-by identity)
+         vec)))
 
 (defn find-node
   "Find node by exact id, label, namespace, name, or substring."

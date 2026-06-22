@@ -289,6 +289,17 @@
        distinct
        vec))
 
+(defn- ordered-distinct
+  [& colls]
+  (loop [remaining (seq (apply concat colls))
+         seen #{}
+         out []]
+    (if-let [value (first remaining)]
+      (if (or (nil? value) (contains? seen value))
+        (recur (next remaining) seen out)
+        (recur (next remaining) (conj seen value) (conj out value)))
+      out)))
+
 (defn- graph-data
   [title nodes edges score-by-id opts]
   (let [degree (degree-map edges)
@@ -527,6 +538,67 @@
         data (graph-data (str "Systems: " project-id)
                          chosen
                          (induced-edges chosen-ids edges)
+                         {}
+                         {:project-id project-id
+                          :read-context read-context
+                          :view-id view-id
+                          :detail detail})
+        data (cond
+               map-overlay (graph-map/apply-overlay data map-overlay)
+               map-path (map-store/apply-file data map-path)
+               :else data)]
+    (enrich-graph xtdb
+                  (if (= :raw detail)
+                    data
+                    (cluster/annotate-graph data))
+                  {:project-id project-id
+                   :read-context read-context
+                   :view-id view-id})))
+
+(defn- neighborhood-edges
+  [edges visible-ids edge-limit]
+  (let [visible (set visible-ids)]
+    (->> edges
+         (filter #(and (contains? visible (:source-id %))
+                       (contains? visible (:target-id %))))
+         (take edge-limit)
+         vec)))
+
+(defn system-neighborhood
+  "Return a bounded system graph slice for explicit focus/frontier ids."
+  [xtdb project-id {:keys [focus-ids frontier-ids map-path map-overlay min-confidence
+                           edge-limit valid-at known-at snapshot-token current-time
+                           read-context view-id detail]
+                    :or {min-confidence 0.55
+                         edge-limit default-node-limit
+                         detail :expanded}}]
+  (let [read-context (merge read-context
+                            (select-keys {:valid-at valid-at
+                                          :known-at known-at
+                                          :snapshot-token snapshot-token
+                                          :current-time current-time}
+                                         [:valid-at :known-at :snapshot-token :current-time]))
+        detail (keyword detail)
+        visible-ids (ordered-distinct focus-ids frontier-ids)
+        opts {:project-id project-id
+              :read-context read-context}
+        nodes (vec (query/system-nodes-by-ids xtdb visible-ids opts))
+        visible-id-set (set visible-ids)
+        raw-edges (->> (query/system-edges-touching-ids xtdb visible-ids opts)
+                       (filter #(<= (double min-confidence)
+                                    (double (:confidence %))))
+                       (filter #(and (contains? visible-id-set (:source-id %))
+                                     (contains? visible-id-set (:target-id %))))
+                       vec)
+        edges (if (= :raw detail)
+                raw-edges
+                (salience/filter-by-detail
+                 detail
+                 (salience/semantic-connections project-id nodes raw-edges)))
+        chosen-edges (neighborhood-edges edges visible-ids edge-limit)
+        data (graph-data (str "Systems: " project-id)
+                         nodes
+                         chosen-edges
                          {}
                          {:project-id project-id
                           :read-context read-context

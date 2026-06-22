@@ -1,5 +1,6 @@
 (ns ygg.cursor-test
   (:require [ygg.cursor :as cursor]
+            [ygg.graph :as graph]
             [ygg.map :as graph-map]
             [ygg.map-store :as map-store]
             [ygg.xtdb :as store]
@@ -139,6 +140,31 @@
                 (is (= 2 (get-in expanded [:cursor :revision])))
                 (is (some #(= worker-id (:id %)) (:frontier expanded)))))))
         (is (= 3 (count (store/graph-cursors xtdb {:project-id "test"}))))))))
+
+(deftest cursor-render-and-navigation-use-bounded-system-neighborhood
+  (store/with-node (temp-dir "ygg-cursor-bounded-xtdb")
+    (fn [xtdb]
+      (let [{:keys [api-id worker-id]} (seed-system-graph! xtdb)
+            created (cursor/create! xtdb
+                                    {:project-id "test"
+                                     :query-text "api runtime"
+                                     :retriever :lexical
+                                     :budget 2000})
+            cursor-id (get-in created [:cursor :id])]
+        (with-redefs [graph/system-graph
+                      (fn [& _]
+                        (throw (ex-info "cursor should not render by full system graph"
+                                        {})))]
+          (let [shown (cursor/show xtdb cursor-id {:budget 2000})
+                opened (cursor/open! xtdb cursor-id api-id {:budget 2000})
+                expanded (cursor/expand! xtdb
+                                         (get-in opened [:cursor :id])
+                                         api-id
+                                         {:budget 2000})]
+            (is (= [api-id] (mapv :id (:focus shown))))
+            (is (some #(= worker-id (:id %)) (:frontier shown)))
+            (is (= [api-id] (mapv :id (:focus opened))))
+            (is (some #(= worker-id (:id %)) (:frontier expanded)))))))))
 
 (deftest cursor-docs-use-stored-map-overlay
   (let [map-path (.getPath (io/file (temp-dir "ygg-cursor-map") "ygg.map.json"))]

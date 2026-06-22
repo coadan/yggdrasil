@@ -5,6 +5,7 @@
             [ygg.graph :as graph]
             [ygg.hash :as hash]
             [ygg.map-store :as map-store]
+            [ygg.query :as query]
             [ygg.xtdb :as store]
             [clojure.java.io :as io]
             [clojure.string :as str])
@@ -148,6 +149,22 @@
                        :read-context (read-context-from-basis (:basis cursor))
                        :view-id (get-in cursor [:basis :view-id])}))
 
+(defn- cursor-graph
+  [xtdb cursor]
+  (graph/system-neighborhood xtdb
+                             (:project-id cursor)
+                             {:focus-ids (:focus-ids cursor)
+                              :frontier-ids (:frontier-ids cursor)
+                              :edge-limit (get-in cursor [:limits :edge-limit]
+                                                  context/default-edge-limit)
+                              :min-confidence (get-in cursor
+                                                      [:limits :min-confidence]
+                                                      default-min-confidence)
+                              :detail :expanded
+                              :map-overlay (:map-overlay cursor)
+                              :read-context (read-context-from-basis (:basis cursor))
+                              :view-id (get-in cursor [:basis :view-id])}))
+
 (defn- graph-index
   [graph-data]
   (let [edges (:edges graph-data)
@@ -258,6 +275,33 @@
           (mapcat (juxt :source :target))
           (remove ids)
           ordered-distinct))))
+
+(defn- cursor-query-opts
+  [cursor]
+  {:project-id (:project-id cursor)
+   :read-context (read-context-from-basis (:basis cursor))
+   :min-confidence (get-in cursor [:limits :min-confidence]
+                           default-min-confidence)})
+
+(defn- cursor-neighbor-ids
+  [xtdb cursor ids {:keys [relation limit]}]
+  (->> (query/system-neighbor-ids xtdb
+                                  ids
+                                  (cond-> (cursor-query-opts cursor)
+                                    relation (assoc :relation relation)))
+       (take (or limit (get-in cursor [:limits :node-limit])))
+       vec))
+
+(defn- resolve-target-id
+  [xtdb cursor target]
+  (let [target (str target)
+        visible-ids (ordered-distinct (:focus-ids cursor)
+                                      (:frontier-ids cursor)
+                                      (:root-ids cursor)
+                                      (:visited-ids cursor))]
+    (or (some #(when (= target (str %)) %) visible-ids)
+        (resolve-node-id (cursor-graph xtdb cursor) target)
+        (:xt/id (query/find-system-node xtdb target (cursor-query-opts cursor))))))
 
 (defn- query-entity-ids
   [xtdb query-text {:keys [project-id retriever embedding-client read-context
@@ -423,7 +467,7 @@
                        (cond-> {}
                          budget (assoc :budget budget)))
          cursor (assoc cursor :limits limits)
-         graph-data (system-graph xtdb cursor)
+         graph-data (cursor-graph xtdb cursor)
          {:keys [nodes-by-id]} (graph-index graph-data)
          focus (->> (:focus-ids cursor)
                     (keep nodes-by-id)
@@ -507,7 +551,6 @@
               :active? true
               :created-at-ms (now-ms)
               :warnings warnings}
-        graph-data (system-graph xtdb base)
         read-context* (read-context-from-basis basis)
         query-ids (query-entity-ids xtdb
                                     query-text
@@ -523,12 +566,19 @@
                                      :doc-limit doc-limit
                                      :snippet-chars snippet-chars
                                      :min-confidence min-confidence})
+        graph-data (when-not (seq query-ids)
+                     (system-graph xtdb base))
         focus-ids (vec (or (seq query-ids)
                            (seq (top-node-ids graph-data node-limit))
                            []))
-        frontier-ids (->> (neighbor-ids graph-data focus-ids)
-                          (take node-limit)
-                          vec)
+        frontier-ids (if (seq query-ids)
+                       (cursor-neighbor-ids xtdb
+                                            base
+                                            focus-ids
+                                            {:limit node-limit})
+                       (->> (neighbor-ids graph-data focus-ids)
+                            (take node-limit)
+                            vec))
         row (persist! xtdb
                       (assoc base
                              :root-ids focus-ids
@@ -558,12 +608,13 @@
   "Persist a cursor revision focused on one system node."
   [xtdb cursor-id target {:keys [budget]}]
   (let [cursor (load-cursor! xtdb cursor-id)
-        graph-data (system-graph xtdb cursor)
-        target-id (or (resolve-node-id graph-data target)
+        target-id (or (resolve-target-id xtdb cursor target)
                       (invalid-target! cursor-id target))
-        frontier-ids (->> (neighbor-ids graph-data [target-id])
-                          (take (get-in cursor [:limits :node-limit]))
-                          vec)
+        frontier-ids (cursor-neighbor-ids xtdb
+                                          cursor
+                                          [target-id]
+                                          {:limit (get-in cursor
+                                                          [:limits :node-limit])})
         row (persist! xtdb
                       (child-row cursor
                                  {:kind :open
@@ -580,13 +631,14 @@
   "Persist a cursor revision with adjacent systems added to the frontier."
   [xtdb cursor-id target {:keys [budget relation limit]}]
   (let [cursor (load-cursor! xtdb cursor-id)
-        graph-data (system-graph xtdb cursor)
-        target-id (or (resolve-node-id graph-data target)
+        target-id (or (resolve-target-id xtdb cursor target)
                       (invalid-target! cursor-id target))
         limit (or limit (get-in cursor [:limits :node-limit]))
-        neighbors (->> (neighbor-ids graph-data [target-id] relation)
-                       (take limit)
-                       vec)
+        neighbors (cursor-neighbor-ids xtdb
+                                       cursor
+                                       [target-id]
+                                       {:relation relation
+                                        :limit limit})
         row (persist! xtdb
                       (child-row cursor
                                  (cond-> {:kind :expand
@@ -603,8 +655,7 @@
   "Persist a cursor revision that inspects docs for one system node."
   [xtdb cursor-id target {:keys [budget]}]
   (let [cursor (load-cursor! xtdb cursor-id)
-        graph-data (system-graph xtdb cursor)
-        target-id (or (resolve-node-id graph-data target)
+        target-id (or (resolve-target-id xtdb cursor target)
                       (invalid-target! cursor-id target))
         row (persist! xtdb
                       (child-row cursor
