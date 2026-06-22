@@ -846,8 +846,15 @@
             :ygg 50.0
             :available false
             :result "invalid"
-            :reason "non-positive-token-value"}
+            :reason "non-positive-total-tokens"}
            (select-keys (:taskTotalTokens case-1-token-by-key)
+                        [:shellOnly :ygg :available :result :reason])))
+    (is (= {:shellOnly 0.0
+            :ygg 50.0
+            :available false
+            :result "invalid"
+            :reason "non-positive-total-tokens"}
+           (select-keys (:taskInputTokens case-1-token-by-key)
                         [:shellOnly :ygg :available :result :reason])))
     (is (= {:shellOnly nil
             :ygg 40.0

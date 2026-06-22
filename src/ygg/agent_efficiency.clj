@@ -291,22 +291,25 @@
     :category :token-cost
     :path [:agent :tokenUsage :totalTokens]
     :direction :lower
-    :requires-positive? true}
+    :requires-valid-token-usage? true}
    {:key :taskInputTokens
     :label "taskInputTokens"
     :category :token-cost
     :path [:agent :tokenUsage :inputTokens]
-    :direction :lower}
+    :direction :lower
+    :requires-valid-token-usage? true}
    {:key :taskOutputTokens
     :label "taskOutputTokens"
     :category :token-cost
     :path [:agent :tokenUsage :outputTokens]
-    :direction :lower}
+    :direction :lower
+    :requires-valid-token-usage? true}
    {:key :taskCostUsd
     :label "taskCostUsd"
     :category :token-cost
     :path [:agent :tokenUsage :costUsd]
-    :direction :lower}])
+    :direction :lower
+    :requires-valid-token-usage? true}])
 
 (defn- read-json-file
   [path]
@@ -335,10 +338,16 @@
       (double value)
       default)))
 
-(defn- non-positive-number?
+(defn- positive-number?
   [value]
   (and (number? value)
-       (not (pos? (double value)))))
+       (pos? (double value))))
+
+(defn- invalid-token-usage?
+  [usage]
+  (and (map? usage)
+       (not (positive-number? (:totalTokens usage)))))
+
 (defn- efficiency-report
   [report]
   (if (contains? report :improvementSummary)
@@ -449,11 +458,16 @@
 
 (defn- metric-delta
   [shell-report ygg-report {:keys [category direction key label path tolerance default
-                                   requires-positive?]}]
+                                   requires-valid-token-usage?]}]
   (let [shell-value (metric-value shell-report path default)
         ygg-value (metric-value ygg-report path default)
         available? (and (some? shell-value)
-                        (some? ygg-value))]
+                        (some? ygg-value))
+        invalid-token-usage-row? (and requires-valid-token-usage?
+                                      (or (invalid-token-usage?
+                                           (get-in shell-report [:agent :tokenUsage]))
+                                          (invalid-token-usage?
+                                           (get-in ygg-report [:agent :tokenUsage]))))]
     (cond
       (not available?)
       {:key key
@@ -465,9 +479,7 @@
        :available false
        :result "unavailable"}
 
-      (and requires-positive?
-           (or (non-positive-number? shell-value)
-               (non-positive-number? ygg-value)))
+      invalid-token-usage-row?
       {:key key
        :metric label
        :category (name category)
@@ -476,7 +488,7 @@
        :ygg ygg-value
        :available false
        :result "invalid"
-       :reason "non-positive-token-value"}
+       :reason "non-positive-total-tokens"}
 
       :else
       (let [delta (- ygg-value shell-value)
@@ -1113,10 +1125,6 @@
   [case-delta]
   (some #(when (= :taskTotalTokens (:key %)) %)
         (:taskTokenDeltas case-delta)))
-
-(defn- positive-number?
-  [value]
-  (and (number? value) (pos? (double value))))
 
 (defn- case-token-reduction-row
   [case-deltas-by-id case-id]
