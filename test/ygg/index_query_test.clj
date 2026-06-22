@@ -17,6 +17,66 @@
                                                       (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(deftest query-scoped-reads-use-constrained-store-queries
+  (let [calls (atom [])]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table constraints ctx]
+                    (swap! calls conj [table constraints ctx])
+                    (case table
+                      :ygg/nodes
+                      [{:xt/id "node:app"
+                        :project-id "project-a"
+                        :repo-id "repo-a"
+                        :label "app"}]
+
+                      :ygg/search-docs
+                      [{:xt/id "search-doc:app"
+                        :project-id "project-a"
+                        :repo-id "repo-a"
+                        :active? true}]
+
+                      :ygg/chunks
+                      [{:xt/id (str "chunk:" (:path constraints))
+                        :project-id "project-a"
+                        :repo-id "repo-a"
+                        :path (:path constraints)}]))]
+      (is (= ["node:app"]
+             (mapv :xt/id
+                   (query/all-nodes :xtdb
+                                    {:project-id "project-a"
+                                     :repo-id "repo-a"}))))
+      (is (= ["search-doc:app"]
+             (mapv :xt/id
+                   (query/all-search-docs :xtdb
+                                          {:project-id "project-a"
+                                           :repo-id "repo-a"}))))
+      (is (= ["chunk:src/app.clj" "chunk:src/db.clj"]
+             (mapv :xt/id
+                   (query/chunks-by-paths :xtdb
+                                          ["src/app.clj" "src/app.clj" "src/db.clj"]
+                                          {:project-id "project-a"
+                                           :repo-id "repo-a"})))))
+    (is (= [[(:nodes store/tables)
+             {:project-id "project-a"
+              :repo-id "repo-a"}
+             {}]
+            [(:search-docs store/tables)
+             {:project-id "project-a"
+              :repo-id "repo-a"
+              :active? true}
+             {}]
+            [(:chunks store/tables)
+             {:project-id "project-a"
+              :repo-id "repo-a"
+              :path "src/app.clj"}
+             {}]
+            [(:chunks store/tables)
+             {:project-id "project-a"
+              :repo-id "repo-a"
+              :path "src/db.clj"}
+             {}]]
+           @calls))))
+
 (deftest indexes-and-queries-sample-repo
   (let [xtdb-path (temp-dir "ygg-xtdb")
         repo (.getPath (io/file "test/fixtures/sample-repo"))]

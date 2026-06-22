@@ -61,16 +61,6 @@
        (remove (comp nil? val))
        (into {})))
 
-(defn- xtdb-handle?
-  [xtdb]
-  (and (map? xtdb) (contains? xtdb :node)))
-
-(defn- constraints-match?
-  [constraints row]
-  (every? (fn [[field value]]
-            (= value (get row field)))
-          constraints))
-
 (defn- scoped-rows
   ([xtdb table opts] (scoped-rows xtdb table opts {}))
   ([xtdb table opts constraints]
@@ -78,11 +68,8 @@
                             (->> constraints
                                  (remove (comp nil? val))
                                  (into {})))
-         ctx (read-context opts)
-         rows (if (and (seq constraints) (xtdb-handle? xtdb))
-                (store/rows-by-fields xtdb table constraints ctx)
-                (store/all-rows xtdb table ctx))]
-     (filter-scope (filter #(constraints-match? constraints %) rows) opts))))
+         ctx (read-context opts)]
+     (filter-scope (store/constrained-rows xtdb table constraints ctx) opts))))
 
 (defn- distinct-by
   [f coll]
@@ -101,7 +88,7 @@
   [xtdb table ids opts all-fn]
   (let [ids (distinct-by identity ids)
         id-set (set ids)
-        rows (if (xtdb-handle? xtdb)
+        rows (if (store/xtdb-handle? xtdb)
                (keep #(store/row-by-id xtdb table % (read-context opts)) ids)
                (filter #(contains? id-set (:xt/id %)) (all-fn xtdb opts)))]
     (filter-scope rows opts)))
@@ -150,7 +137,11 @@
   (let [ctx (read-context opts)]
     (->> paths
          (distinct-by identity)
-         (mapcat #(store/rows-by-field xtdb (:chunks store/tables) :path % ctx))
+         (mapcat #(store/constrained-rows xtdb
+                                          (:chunks store/tables)
+                                          (merge (scope-constraints opts)
+                                                 {:path %})
+                                          ctx))
          (#(filter-scope % opts)))))
 
 (defn all-diagnostics
