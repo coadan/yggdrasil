@@ -113,6 +113,19 @@ JSONL output and writes `$YGG_BENCH_TOKEN_USAGE` when usage telemetry is present
 so `bb efficiency` can compare end-to-end task tokens for the shell-only and
 Yggdrasil lanes.
 
+For the common broad comparison, prefer the helper:
+
+```sh
+bb agent-efficiency all --agent codex-efficiency --timeout-ms 600000
+```
+
+This uses `benchmarks/agent-efficiency-broad.edn`, writes generated artifacts
+under `.dev/ygg/agent-efficiency/broad`, runs both lane reports, then runs
+`bb bench agent-check` for shell-only and Yggdrasil before writing the claim
+pack. The default token high-water mark is intentionally huge; it exists to make
+missing `tokenUsage` fail before a claim pack is produced. Tighten it with
+`--max-total-tokens` only after the suite has stable measured baselines.
+
 DeepSeek v4 Pro can be run through the productized benchmark worker in
 `scripts/deepseek-agent.py`. Set `DEEPSEEK_API_KEY` directly or point
 `DEEPSEEK_ENV_FILE` at a local env file that contains it. Keep the same
@@ -196,12 +209,13 @@ For headline runs, prefer the bounded helper:
 bb headline all
 ```
 
-`bb headline all` ends by running `bb bench claim-pack`, which writes
-`claim-pack.json`, `CLAIM-PACK.md`, `efficiency-summary.json`,
+`bb headline all` runs token telemetry gates before `bb bench claim-pack`, which
+writes `claim-pack.json`, `CLAIM-PACK.md`, `efficiency-summary.json`,
 `efficiency-summary.md`, and `system-improvement-report.json` under the local
-headline output root. Use the lower-level `bb efficiency` command only when you
-need a raw shell-only versus Yggdrasil comparison without the bundled proof
-artifacts.
+headline output root. Use `bb headline all --skip-token-check` only for
+diagnostic runs that are not making token-use claims. Use the lower-level
+`bb efficiency` command only when you need a raw shell-only versus Yggdrasil
+comparison without the bundled proof artifacts.
 
 Read `claim-pack.json` `summary.verdict` first, then inspect
 `efficiency.compactSummary.why` for the minimum explanation that should appear

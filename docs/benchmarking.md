@@ -18,6 +18,9 @@ Tracked starter suites:
 - `benchmarks/headline.edn`: small architecture-first headline suite for
   shell-only versus Yggdrasil agent-efficiency runs. Generated lane outputs should
   still live under `.dev/ygg/`.
+- `benchmarks/agent-efficiency-broad.edn`: common broad shell-only versus
+  Yggdrasil comparison suite composed from tracked selectors with
+  `:include-suites`.
 
 Tracked benchmark suites use local checkout inputs under
 `.dev/ygg/benchmark-repos/`. The manifest `benchmarks/repos.edn` records the
@@ -70,13 +73,27 @@ bb headline codebase-memory
 bb headline external-baselines
 bb headline agents
 bb headline reports
+bb headline token-check
 bb headline compare
 ```
 
 Use `bb headline all` for a full local run. Pass `--suite`, `--out`, `--agent`,
 `--command`, `--prompt-profile`, and `--timeout-ms` to make a run comparable
 across machines or agent CLIs. Add `--dry-run` to print the exact commands
-without launching agents.
+without launching agents. `bb headline all` runs token telemetry gates before the
+claim pack; use `--skip-token-check` only for diagnostic runs that should not
+support token-use claims.
+
+For the common broad comparison, use the same helper through the broad-suite
+alias:
+
+```sh
+bb agent-efficiency all --agent codex-efficiency --timeout-ms 600000
+```
+
+It defaults to `benchmarks/agent-efficiency-broad.edn` and
+`.dev/ygg/agent-efficiency/broad`, keeping the generated lane output out of the
+tracked repo.
 
 The helper wraps the existing benchmark commands. Use the raw command form below
 when debugging one lane or when a CI job needs each phase split explicitly.

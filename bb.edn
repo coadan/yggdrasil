@@ -29,26 +29,30 @@
          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "bench"
                       *command-line-args*)}
 
-  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|compare|claim-pack|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
+  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|token-check|compare|claim-pack|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
             :task (apply shell "bash" "scripts/headline-bench.sh"
                          *command-line-args*)}
 
+  agent-efficiency {:doc "Run the broad shell-only vs Yggdrasil agent-efficiency workflow. Usage: bb agent-efficiency all|agents|reports|token-check|claim-pack [options]"
+                    :task (apply shell "bash" "scripts/agent-efficiency-bench.sh"
+                                 *command-line-args*)}
+
   bench:gate {:doc "Run the deterministic tracked benchmark gate. Usage: bb bench:gate [--suite PATH] [--manifest PATH] [--out DIR] [--case ID|--cases IDS] [--setup-check] [--check-only] [--skip-setup-check] [--dry-run]"
               :task (let [{:keys [exit]} (apply shell
-                                                 {:continue true}
-                                                 "bash"
-                                                 "scripts/benchmark-gate.sh"
-                                                 *command-line-args*)]
+                                                {:continue true}
+                                                "bash"
+                                                "scripts/benchmark-gate.sh"
+                                                *command-line-args*)]
                       (System/exit exit))}
 
   bench:repos {:doc "Check local benchmark repo inputs. Usage: bb bench:repos check [--manifest PATH] [--suite PATH] [--repo ID] [--json]"
                :task (let [{:keys [exit]} (apply shell
-                                                  {:continue true}
-                                                  "clojure"
-                                                  "-M:run"
-                                                  "-m"
-                                                  "ygg.benchmark-repos"
-                                                  *command-line-args*)]
+                                                 {:continue true}
+                                                 "clojure"
+                                                 "-M:run"
+                                                 "-m"
+                                                 "ygg.benchmark-repos"
+                                                 *command-line-args*)]
                        (System/exit exit))}
 
   v1:smoke {:doc "Run the V1 install/start/report smoke gate. Usage: bb v1:smoke [--keep]"

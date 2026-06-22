@@ -7,6 +7,10 @@
   [& args]
   (apply shell/sh "bash" "scripts/headline-bench.sh" args))
 
+(defn- run-agent-efficiency
+  [& args]
+  (apply shell/sh "bash" "scripts/agent-efficiency-bench.sh" args))
+
 (defn- output-lines
   [result]
   (->> (:out result)
@@ -23,7 +27,7 @@
                              "--timeout-ms" "12345")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
-    (is (= 7 (count lines)))
+    (is (= 9 (count lines)))
     (is (str/includes? (nth lines 0)
                        "bb bench agent-baseline benchmarks/custom-headline.edn"))
     (is (str/includes? (nth lines 1)
@@ -38,21 +42,52 @@
     (is (str/includes? (nth lines 4) "--mode shell-only"))
     (is (str/includes? (nth lines 5) "--mode ygg"))
     (is (str/includes? (nth lines 6)
+                       "bb bench agent-check benchmarks/custom-headline.edn"))
+    (is (str/includes? (nth lines 6) "--mode shell-only"))
+    (is (str/includes? (nth lines 6) "--max-total-tokens 999999999999"))
+    (is (str/includes? (nth lines 7) "--mode ygg"))
+    (is (str/includes? (nth lines 8)
                        "bb bench claim-pack benchmarks/custom-headline.edn"))
-    (is (str/includes? (nth lines 6)
+    (is (str/includes? (nth lines 8)
                        "--shell-report .dev/ygg/headline-bench/custom/shell-only/\\*/agent-report.json"))
-    (is (str/includes? (nth lines 6)
+    (is (str/includes? (nth lines 8)
                        "--ygg-report .dev/ygg/headline-bench/custom/ygg/\\*/agent-report.json"))
-    (is (str/includes? (nth lines 6)
+    (is (str/includes? (nth lines 8)
                        "--out .dev/ygg/headline-bench/custom/claim-pack"))
     (is (every? #(str/includes? % ".dev/ygg/headline-bench/custom")
+                lines))))
+
+(deftest dry-run-can-skip-token-check
+  (let [result (run-headline "all"
+                             "--dry-run"
+                             "--skip-token-check"
+                             "--suite" "benchmarks/custom-headline.edn"
+                             "--out" ".dev/ygg/headline-bench/custom")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 7 (count lines)))
+    (is (not-any? #(str/includes? % "bench agent-check") lines))))
+
+(deftest dry-run-prints-broad-agent-efficiency-defaults
+  (let [result (run-agent-efficiency "token-check"
+                                     "--dry-run"
+                                     "--agent" "codex-test"
+                                     "--max-total-tokens" "123")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 2 (count lines)))
+    (is (every? #(str/includes? % "benchmarks/agent-efficiency-broad.edn")
+                lines))
+    (is (every? #(str/includes? % ".dev/ygg/agent-efficiency/broad")
+                lines))
+    (is (every? #(str/includes? % "--max-total-tokens 123")
                 lines))))
 
 (deftest help-lists-headline-actions-and-dry-run
   (let [result (run-headline "--help")]
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result)
-                       "baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|compare|claim-pack|all"))
+                       "baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|token-check|compare|claim-pack|all"))
     (is (str/includes? (:out result) "--dry-run"))))
 
 (deftest dry-run-prints-codebase-memory-workflow

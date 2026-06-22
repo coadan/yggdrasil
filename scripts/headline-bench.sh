@@ -8,7 +8,7 @@ DEFAULT_COMMAND="python3 \"$ROOT/scripts/codex-benchmark-agent.py\""
 
 usage() {
   cat <<'EOF'
-Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|compare|claim-pack|all [options]
+Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|token-check|compare|claim-pack|all [options]
 
 Options:
   --suite PATH            Benchmark suite EDN. Default: benchmarks/headline.edn
@@ -17,6 +17,8 @@ Options:
   --command CMD           External agent command.
   --prompt-profile NAME   Prompt profile for agent-run. Default: fast
   --timeout-ms N          Timeout passed to agent-run.
+  --max-total-tokens N    High-water token gate for each lane. Default: 999999999999.
+  --skip-token-check      Skip token telemetry gates during all.
   --codebase-memory-bin PATH
                           codebase-memory-mcp binary for the external baseline.
   --codebase-memory-command CMD
@@ -33,9 +35,10 @@ Commands:
   ygg      Run the external Yggdrasil lane.
   agents      Run both external lanes.
   reports     Generate shell-only and Yggdrasil lane reports.
+  token-check Run token telemetry gates for both external lane reports.
   compare     Compare lane reports with bb efficiency.
   claim-pack  Write bundled efficiency, token, and improvement proof artifacts.
-  all         Run baseline, both external lanes, reports, and claim pack.
+  all         Run baseline, both external lanes, reports, token gates, and claim pack.
 EOF
 }
 
@@ -53,6 +56,8 @@ agent="codex"
 agent_command="$DEFAULT_COMMAND"
 prompt_profile="fast"
 timeout_ms=""
+max_total_tokens="999999999999"
+skip_token_check=false
 codebase_memory_bin=""
 codebase_memory_command=""
 dry_run=false
@@ -82,6 +87,14 @@ while [[ $# -gt 0 ]]; do
     --timeout-ms)
       timeout_ms="$2"
       shift 2
+      ;;
+    --max-total-tokens)
+      max_total_tokens="$2"
+      shift 2
+      ;;
+    --skip-token-check)
+      skip_token_check=true
+      shift
       ;;
     --codebase-memory-bin)
       codebase_memory_bin="$2"
@@ -185,6 +198,20 @@ reports() {
     --out "$out/ygg"
 }
 
+token_check() {
+  run bb bench agent-check "$suite" \
+    --mode shell-only \
+    --agent "$agent" \
+    --out "$out/shell-only" \
+    --max-total-tokens "$max_total_tokens"
+
+  run bb bench agent-check "$suite" \
+    --mode ygg \
+    --agent "$agent" \
+    --out "$out/ygg" \
+    --max-total-tokens "$max_total_tokens"
+}
+
 report_path() {
   local lane="$1"
   if [[ "$dry_run" == true ]]; then
@@ -237,6 +264,9 @@ case "$action" in
   reports)
     reports
     ;;
+  token-check)
+    token_check
+    ;;
   compare)
     compare
     ;;
@@ -248,6 +278,9 @@ case "$action" in
     shell_only
     ygg
     reports
+    if [[ "$skip_token_check" != true ]]; then
+      token_check
+    fi
     claim_pack
     ;;
   -h|--help)
