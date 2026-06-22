@@ -282,6 +282,7 @@
    :import-name
    :import-kind
    :resolution-source
+   :source-kind
    :file-id
    :path
    :source-line

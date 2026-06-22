@@ -55,6 +55,8 @@
                                      :missing
                                      :weak
                                      :unsupported])
+        (seq (:warnings evidence))
+        (assoc :warnings (vec (take 3 (:warnings evidence))))
         schema-counts (assoc :counts schema-counts)))))
 (defn- compact-freshness-samples
   [samples]
@@ -296,6 +298,11 @@
   (if (contains? packet :snippets)
     (update packet :snippets #(mapv compact-snippet-file (take 4 %)))
     packet))
+(defn- minimal-graph-in-packet
+  [packet]
+  (if (contains? packet :graph)
+    (update packet :graph select-keys [:basis :counts :defaultDetail])
+    packet))
 (defn trim-optional-context-metadata
   [packet budget]
   (let [trim-steps [#(update-in % [:search :instrumentation] dissoc :context-chunks)
@@ -317,6 +324,7 @@
                     evidence-architecture-in-packet
                     minimal-architecture-in-packet
                     #(dissoc % :architecture)
+                    minimal-graph-in-packet
                     #(dissoc % :systems)
                     #(assoc % :warnings [])
                     #(assoc % :drilldowns [])]]
@@ -363,6 +371,7 @@
                evidence-architecture-in-packet
                #(dissoc % :architecture)
                #(dissoc % :systems)
+               minimal-graph-in-packet
                #(assoc % :warnings [])
                #(assoc % :drilldowns [])
                #(assoc % :activity [])

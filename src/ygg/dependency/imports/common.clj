@@ -13,6 +13,41 @@
     (mapv #(str/join "." (take % parts))
           (range 1 (inc (count parts))))))
 
+(def ^:private source-definition-node-kinds
+  #{:namespace
+    :class
+    :class-method
+    :constant
+    :constructor
+    :enum
+    :extension
+    :field
+    :forward-class
+    :function
+    :getter
+    :interface
+    :macro
+    :method
+    :mixin
+    :module
+    :object
+    :property
+    :protocol
+    :record
+    :setter
+    :symbol
+    :task
+    :trait
+    :type
+    :typedef
+    :var
+    :variable})
+
+(defn- source-definition-node?
+  [node]
+  (or (contains? node :public?)
+      (contains? source-definition-node-kinds (:kind node))))
+
 (defn dirname
   [path]
   (let [idx (.lastIndexOf (str path) "/")]
@@ -50,6 +85,7 @@
 (defn local-namespace-targets
   [nodes]
   (->> nodes
+       (filter source-definition-node?)
        (mapcat (fn [node]
                  (when (seq (:path node))
                    (if (= :namespace (:kind node))
