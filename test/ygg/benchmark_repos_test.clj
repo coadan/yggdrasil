@@ -84,3 +84,41 @@
              (:counts check)))
       (is (= ["unknown"] (:unknown-repos check)))
       (is (= ["ready"] (mapv :id (:repos check)))))))
+
+(deftest check-repos-resolves-included-suite-repos
+  (let [root (temp-dir "ygg-benchmark-repos-included-suite")
+        cache (io/file root "cache")
+        manifest-path (spit-edn!
+                       root
+                       "repos.edn"
+                       {:schema "ygg.benchmark.repos/v1"
+                        :cache-root (.getPath cache)
+                        :repos [{:id "included"
+                                 :url "https://example.test/included.git"
+                                 :dir "included"}]})
+        included-suite-path (spit-edn!
+                             root
+                             "included.edn"
+                             {:id "included-suite"
+                              :repos [{:id "included"
+                                       :root "../cache/included"}]
+                              :cases [{:id "case-1"
+                                       :repo-id "included"
+                                       :issue {:title "included"}}]})
+        suite-path (spit-edn!
+                    root
+                    "suite.edn"
+                    {:id "suite"
+                     :include-suites [(.getName (io/file included-suite-path))]})]
+    (mkdirs! (io/file cache "included" ".git"))
+    (let [check (benchmark-repos/check-repos {:manifest-path manifest-path
+                                              :suite-path suite-path})]
+      (is (= "passed" (:status check)))
+      (is (= {:repos 1
+              :ready 1
+              :missing 0
+              :not-git 0
+              :missing-shas 0
+              :unknown 0}
+             (:counts check)))
+      (is (= ["included"] (mapv :id (:repos check)))))))

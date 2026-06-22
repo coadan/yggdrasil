@@ -496,6 +496,12 @@ case. Use `--cases <case-id>,<case-id>` with suite-level benchmark commands
 such as `agent-baseline`, `agent-run`, `agent-report`, and `agent-check` to
 rerun or gate a focused subset without paying for unrelated slow cases.
 
+Suite EDN files can compose other tracked suites with `:include-suites`.
+Includes are relative to the suite file, inherited cases are appended before
+local cases, and identical repo declarations are deduplicated. Use
+`benchmarks/agent-efficiency-broad.edn` for the common shell-only versus
+Yggdrasil task-token comparison suite.
+
 An exploratory wide replay suite can live under `.dev/ygg/benchmarks/` while it
 is still scratch data. Promote it into `benchmarks/` only after the case
 metadata, tags, and ground truth are curated enough to review as source.

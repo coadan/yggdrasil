@@ -69,11 +69,14 @@ Starter architecture-class cases:
   Tags: `:synthetic`, `:problem-architecture`,
   `:architecture-dependency-flow`, `:audit-scope-dependencies`, `:database`.
 
-The tracked starter suite is `benchmarks/architecture-synthetic.edn`. It
-expects local benchmark checkouts under `.dev/ygg/benchmark-repos/` and keeps all
-prepared cases, worktrees, graph stores, and reports under `.dev/` via `--out`.
-Use it as the architecture-class slice alongside historical issue replay; do
-not treat a simple localization-only suite as representative proof for Yggdrasil.
+The tracked starter suite is `benchmarks/architecture-synthetic.edn`. The
+tracked broader selector is `benchmarks/agent-efficiency-broad.edn`, which
+composes headline architecture, additional architecture coverage, and
+decision-quality cases through `:include-suites`. Both expect local benchmark
+checkouts under `.dev/ygg/benchmark-repos/` and keep prepared cases, worktrees,
+graph stores, and reports under `.dev/` via `--out`. Use the broad selector for
+shell-only versus Yggdrasil task-token comparisons; do not treat a simple
+localization-only suite as representative proof for Yggdrasil.
 
 For the bounded architecture benchmark improvement slice, use
 `benchmarks/headline.edn` as the fixed five-case selector. It covers dependency
@@ -87,7 +90,7 @@ not keep adding cases to rescue a weak result.
 Use separate generated output roots so artifacts cannot overwrite each other:
 
 ```sh
-bb bench agent-run .dev/ygg/benchmarks/wide.edn \
+bb bench agent-run benchmarks/agent-efficiency-broad.edn \
   --agent codex-efficiency \
   --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$YGG_BENCH_RESULT" - < "$YGG_BENCH_PROMPT"' \
   --mode shell-only \
@@ -95,7 +98,7 @@ bb bench agent-run .dev/ygg/benchmarks/wide.edn \
   --timeout-ms 600000 \
   --out .dev/ygg/agent-efficiency/shell-only
 
-bb bench agent-run .dev/ygg/benchmarks/wide.edn \
+bb bench agent-run benchmarks/agent-efficiency-broad.edn \
   --agent codex-efficiency \
   --command 'codex -a never -m gpt-5.5 -c model_reasoning_effort="\"low\"" exec --sandbox read-only -o "$YGG_BENCH_RESULT" - < "$YGG_BENCH_PROMPT"' \
   --mode ygg \
@@ -111,7 +114,7 @@ DeepSeek v4 Pro can be run through the productized benchmark worker in
 both lanes:
 
 ```sh
-bb bench agent-run .dev/ygg/benchmarks/wide.edn \
+bb bench agent-run benchmarks/agent-efficiency-broad.edn \
   --agent deepseek-v4-pro \
   --command 'python3 scripts/deepseek-agent.py' \
   --mode shell-only \
@@ -119,7 +122,7 @@ bb bench agent-run .dev/ygg/benchmarks/wide.edn \
   --timeout-ms 600000 \
   --out .dev/ygg/agent-efficiency/deepseek-shell-only
 
-bb bench agent-run .dev/ygg/benchmarks/wide.edn \
+bb bench agent-run benchmarks/agent-efficiency-broad.edn \
   --agent deepseek-v4-pro \
   --command 'python3 scripts/deepseek-agent.py' \
   --mode ygg \
@@ -158,13 +161,13 @@ when the reports show where those classes improved, stayed neutral, or regressed
 Summarize each lane with existing reports:
 
 ```sh
-bb bench agent-report .dev/ygg/benchmarks/wide.edn \
+bb bench agent-report benchmarks/agent-efficiency-broad.edn \
   --mode shell-only \
   --agent codex-efficiency \
   --out .dev/ygg/agent-efficiency/shell-only \
   --json
 
-bb bench agent-report .dev/ygg/benchmarks/wide.edn \
+bb bench agent-report benchmarks/agent-efficiency-broad.edn \
   --mode ygg \
   --agent codex-efficiency \
   --out .dev/ygg/agent-efficiency/ygg \

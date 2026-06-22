@@ -32,6 +32,27 @@
 (defn- absolute-path
   [path]
   (.getAbsolutePath (io/file path)))
+(defn- config-dir
+  [path]
+  (or (some-> (io/file path) .getCanonicalFile .getParentFile)
+      (io/file ".")))
+(defn- canonical-or-relative
+  [base path]
+  (let [file (io/file path)]
+    (resolve-path
+     (if (.isAbsolute file)
+       file
+       (io/file base path)))))
+(defn- include-path
+  [base include]
+  (let [path (cond
+               (string? include) include
+               (map? include) (:path include)
+               :else nil)]
+    (when (blankish? path)
+      (throw (ex-info "Benchmark suite include is missing :path."
+                      {:include include})))
+    (canonical-or-relative base path)))
 
 (defn read-manifest
   "Read the tracked benchmark repo manifest."
@@ -61,14 +82,24 @@
   (into {} (map (juxt :id identity)) (:repos manifest)))
 
 (defn- suite-repo-ids
-  [suite-path]
-  (let [suite (edn/read-string (slurp (io/file suite-path)))]
-    (->> (:repos suite)
-         (map :id)
-         (map str)
-         distinct
-         sort
-         vec)))
+  ([suite-path]
+   (->> (suite-repo-ids suite-path #{})
+        distinct
+        sort
+        vec))
+  ([suite-path seen]
+   (let [suite-path (resolve-path suite-path)]
+     (when (contains? seen suite-path)
+       (throw (ex-info "Benchmark suite includes form a cycle."
+                       {:path suite-path
+                        :include-stack (vec seen)})))
+     (let [suite (edn/read-string (slurp (io/file suite-path)))
+           base (config-dir suite-path)
+           included-ids (mapcat #(suite-repo-ids (include-path base %)
+                                                 (conj seen suite-path))
+                                (:include-suites suite))]
+       (concat included-ids
+               (map (comp str :id) (:repos suite)))))))
 
 (defn- selected-repo-ids
   [manifest {:keys [suite-path repo-ids]}]

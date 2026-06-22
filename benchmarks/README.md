@@ -13,6 +13,12 @@ Generated benchmark artifacts do not belong here. Keep local clones, detached
 worktrees, XTDB stores, agent packets, run results, reports, claim packs, and
 experimental scratch suites under `.dev/ygg/`.
 
+Suites may use `:include-suites` to compose other tracked suites by relative
+path. Includes are resolved relative to the suite file, cases are appended in
+include order, and identical repo declarations are deduplicated. Use this for
+reviewable selectors such as `benchmarks/agent-efficiency-broad.edn` instead of
+copying case bodies into parallel suites.
+
 Use `.dev/ygg/benchmark-repos/<repo-id>` as the common local checkout cache for
 suite `:repos` roots. Use `.dev/ygg/bench/<suite-id>/` or an explicit
 `.dev/ygg/...` `--out` path for run outputs. Promote an exploratory suite into
@@ -25,6 +31,7 @@ suites need. Check local setup without creating generated artifacts:
 
 ```sh
 bb bench:repos check --suite benchmarks/architecture-synthetic.edn
+bb bench:repos check --suite benchmarks/agent-efficiency-broad.edn
 bb bench:gate --setup-check
 ```
 

@@ -136,6 +136,65 @@
                                    :repo-id "missing"}]}]}
                (ex-data e)))))))
 
+(deftest read-suite-composes-included-suites
+  (let [suite-dir (temp-dir "ygg-bench-suite-includes")
+        child-a (.getPath (io/file suite-dir "child-a.edn"))
+        child-b (.getPath (io/file suite-dir "child-b.edn"))
+        parent (.getPath (io/file suite-dir "parent.edn"))]
+    (spit child-a
+          (pr-str {:id "child-a"
+                   :repos [{:id "repo-a"
+                            :root "repo-a"}]
+                   :cases [{:id "case-a"
+                            :repo-id "repo-a"
+                            :tags [:problem-architecture]
+                            :issue {:title "a"}}]}))
+    (spit child-b
+          (pr-str {:id "child-b"
+                   :repos [{:id "repo-a"
+                            :root "repo-a"}
+                           {:id "repo-b"
+                            :root "repo-b"
+                            :role :library}]
+                   :cases [{:id "case-b"
+                            :repo-id "repo-b"
+                            :tags [:problem-audit]
+                            :issue {:title "b"}}]}))
+    (spit parent
+          (pr-str {:id "parent"
+                   :include-suites ["child-a.edn"
+                                    "child-b.edn"]
+                   :repos [{:id "repo-c"
+                            :root "repo-c"}]
+                   :cases [{:id "case-c"
+                            :repo-id "repo-c"
+                            :tags [:problem-maintenance]
+                            :issue {:title "c"}}]}))
+    (let [suite (benchmark/read-suite parent)]
+      (is (= "parent" (:id suite)))
+      (is (= ["child-a" "child-b"]
+             (mapv :id (:included-suites suite))))
+      (is (= ["repo-a" "repo-b" "repo-c"]
+             (mapv :id (:repos suite))))
+      (is (= [:application :library :application]
+             (mapv :role (:repos suite))))
+      (is (= ["case-a" "case-b" "case-c"]
+             (mapv :id (:cases suite))))
+      (is (= ["problem-architecture" "problem-audit" "problem-maintenance"]
+             (mapcat :tags (:cases suite)))))))
+
+(deftest read-suite-rejects-include-cycles
+  (let [suite-dir (temp-dir "ygg-bench-suite-cycle")
+        a (.getPath (io/file suite-dir "a.edn"))
+        b (.getPath (io/file suite-dir "b.edn"))]
+    (spit a (pr-str {:id "a"
+                     :include-suites ["b.edn"]}))
+    (spit b (pr-str {:id "b"
+                     :include-suites ["a.edn"]}))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Benchmark suite includes form a cycle"
+                          (benchmark/read-suite a)))))
+
 (deftest architecture-starter-suite-covers-required-problem-classes
   (let [suite (benchmark/read-suite "benchmarks/architecture-synthetic.edn")
         cases (:cases suite)
@@ -194,7 +253,9 @@
   [file]
   (and (.isFile file)
        (str/ends-with? (.getName file) ".edn")
-       (seq (:cases (edn/read-string (slurp file))))))
+       (let [suite (edn/read-string (slurp file))]
+         (or (seq (:cases suite))
+             (seq (:include-suites suite))))))
 
 (deftest tracked-benchmark-suites-use-common-local-artifact-space
   (let [suite-files (->> (file-seq (io/file "benchmarks"))
@@ -204,6 +265,7 @@
         suites (mapv #(benchmark/read-suite (.getPath %)) suite-files)]
     (is (seq suite-files))
     (is (some #(= "architecture-synthetic" (:id %)) suites))
+    (is (some #(= "agent-efficiency-broad" (:id %)) suites))
     (is (every? #(not (str/includes? (.getName %) "oss-")) suite-files))
     (doseq [suite-file suite-files
             repo (:repos (edn/read-string (slurp suite-file)))]
@@ -313,6 +375,63 @@
            measured-architecture-tags))
     (is (<= 2 (get tag-counts "architecture-cross-system-impact")))
     (is (<= 2 (get tag-counts "architecture-data-ownership")))))
+
+(deftest broad-agent-efficiency-suite-composes-task-token-coverage
+  (let [suite (benchmark/read-suite "benchmarks/agent-efficiency-broad.edn")
+        cases (:cases suite)
+        tags (set (mapcat :tags cases))
+        tag-counts (frequencies (mapcat :tags cases))
+        source-kinds (set (mapcat #(get-in % [:coverage :source-kinds]) cases))
+        repo-ids (set (map :repo-id cases))
+        measured-architecture-tags (->> tag-counts
+                                        (filter (fn [[tag count]]
+                                                  (and (benchmark-classes/architecture-class-tag?
+                                                        tag)
+                                                       (<= 2 count))))
+                                        (mapv first)
+                                        sort)]
+    (is (= "agent-efficiency-broad" (:id suite)))
+    (is (= ["headline-architecture"
+            "architecture-coverage"
+            "decision-quality-pilot"]
+           (mapv :id (:included-suites suite))))
+    (is (= 14 (count cases)))
+    (is (= 8 (count (:repos suite))))
+    (is (every? repo-ids
+                ["bootstrap"
+                 "supabase-postgres"
+                 "axios"
+                 "dapper"
+                 "opentelemetry-collector"
+                 "terraform-aws-vpc"
+                 "flask"
+                 "junit-framework"]))
+    (is (every? source-kinds
+                [:web-framework :manifest :env :sql :javascript :dotnet
+                 :compose :go :terraform :python :java]))
+    (is (every? tags
+                ["problem-architecture"
+                 "problem-audit"
+                 "problem-maintenance"
+                 "decision-quality"
+                 "runtime-config"
+                 "architecture-cross-system-impact"
+                 "architecture-data-ownership"
+                 "architecture-dependency-flow"
+                 "architecture-runtime-boundary"
+                 "audit-scope-dependencies"
+                 "audit-scope-runtime-config"]))
+    (is (= 1 (get tag-counts "problem-audit")))
+    (is (= 1 (get tag-counts "problem-maintenance")))
+    (is (= ["architecture-cross-system-impact"
+            "architecture-data-ownership"
+            "architecture-dependency-flow"
+            "architecture-runtime-boundary"
+            "audit-scope-containers"
+            "audit-scope-dependencies"
+            "audit-scope-docs"
+            "audit-scope-runtime-config"]
+           measured-architecture-tags))))
 
 (deftest scores-file-localization
   (let [result {:groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]

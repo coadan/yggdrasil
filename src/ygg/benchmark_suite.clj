@@ -19,6 +19,16 @@
   [path]
   (or (some-> (io/file path) .getCanonicalFile .getParentFile)
       (io/file ".")))
+(defn- include-path
+  [base include]
+  (let [path (cond
+               (string? include) include
+               (map? include) (:path include)
+               :else nil)]
+    (when (benchmark-util/blankish? path)
+      (throw (ex-info "Benchmark suite include is missing :path."
+                      {:include include})))
+    (canonical-or-relative base path)))
 (defn- normalize-repo
   [base repo]
   (let [repo-id (some-> (:id repo) str)]
@@ -101,26 +111,76 @@
       (throw (ex-info "Benchmark suite has ambiguous or invalid ids."
                       {:suite-id suite-id
                        :errors errors})))))
+(defn- same-repo-definition?
+  [a b]
+  (= (select-keys a [:id :root :role])
+     (select-keys b [:id :root :role])))
+(defn- repo-source
+  [repo]
+  (:suite-source (meta repo)))
+(defn- dedupe-compatible-repos
+  [repos]
+  (reduce (fn [acc repo]
+            (if-let [existing (some #(when (= (:id %) (:id repo)) %) acc)]
+              (if (and (same-repo-definition? existing repo)
+                       (not= (repo-source existing) (repo-source repo)))
+                acc
+                (conj acc repo))
+              (conj acc repo)))
+          []
+          repos))
+(defn- with-repo-source
+  [source repo]
+  (with-meta repo {:suite-source source}))
+(defn- included-suite-summary
+  [suite]
+  {:id (:id suite)
+   :path (:path suite)
+   :repos (count (:repos suite))
+   :cases (count (:cases suite))})
+(declare read-suite-data)
+(defn- read-included-suites
+  [base includes seen]
+  (mapv #(read-suite-data (include-path base %) seen) includes))
+(defn- read-suite-data
+  [path seen]
+  (let [path (fs/canonical-path path)]
+    (when (contains? seen path)
+      (throw (ex-info "Benchmark suite includes form a cycle."
+                      {:path path
+                       :include-stack (vec seen)})))
+    (let [base (config-dir path)
+          data (edn/read-string (slurp (io/file path)))
+          included (read-included-suites base
+                                         (:include-suites data)
+                                         (conj seen path))
+          suite-id (str (or (:id data)
+                            (benchmark-paths/safe-id (.getName (io/file path)))))
+          repos (dedupe-compatible-repos
+                 (vec (concat (mapcat :repos included)
+                              (map #(with-repo-source path
+                                      (normalize-repo base %))
+                                   (:repos data)))))
+          cases (vec (concat (mapcat :cases included)
+                             (map normalize-case (:cases data))))]
+      (when-not (seq repos)
+        (throw (ex-info "Benchmark suite is missing :repos." {:path path})))
+      (when-not (seq cases)
+        (throw (ex-info "Benchmark suite is missing :cases." {:path path})))
+      (validate-suite-shape! suite-id repos cases)
+      (cond-> (assoc data
+                     :schema suite-schema
+                     :id suite-id
+                     :project-id (str (or (:project-id data) suite-id))
+                     :path path
+                     :repos repos
+                     :cases cases)
+        (seq included)
+        (assoc :included-suites (mapv included-suite-summary included))))))
 (defn read-suite
   "Read and normalize a benchmark suite EDN file."
   [path]
-  (let [base (config-dir path)
-        data (edn/read-string (slurp (io/file path)))
-        suite-id (str (or (:id data) (benchmark-paths/safe-id (.getName (io/file path)))))
-        repos (mapv #(normalize-repo base %) (:repos data))
-        cases (mapv normalize-case (:cases data))]
-    (when-not (seq (:repos data))
-      (throw (ex-info "Benchmark suite is missing :repos." {:path path})))
-    (when-not (seq (:cases data))
-      (throw (ex-info "Benchmark suite is missing :cases." {:path path})))
-    (validate-suite-shape! suite-id repos cases)
-    (assoc data
-           :schema suite-schema
-           :id suite-id
-           :project-id (str (or (:project-id data) suite-id))
-           :path (fs/canonical-path path)
-           :repos repos
-           :cases cases)))
+  (read-suite-data path #{}))
 (defn repo-by-id
   [suite]
   (into {} (map (juxt :id identity)) (:repos suite)))
