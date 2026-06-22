@@ -3,6 +3,14 @@
 AGraph is a local-first repo graph indexer backed by XTDB. It is designed for
 coding agents that need to work effectively on complex systems over time.
 
+AGraph is not trying to be only a faster code parser or a tree-sitter coverage
+race. Its value is helping agents reason accurately about complex real-world
+systems by unifying concrete, cited evidence across code, manifests, dependency
+locks, schemas, migrations, CI/CD, runtime and deployment config, docs,
+governance, assets, and cross-repo boundaries. Parser-backed extraction is useful
+when it improves syntax facts, but accepted architecture meaning belongs in
+auditable corrections, metadata, or `agraph.map.json`.
+
 It starts with deterministic Clojure/ClojureScript/Go/JavaScript/TypeScript/
 Python/Rust/SQL/style/EDN/Markdown indexing:
 
