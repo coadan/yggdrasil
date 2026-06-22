@@ -137,6 +137,30 @@
    :active?
    :run-id])
 
+(def ^:private path-edge-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :source-id
+   :target-id
+   :relation
+   :active?
+   :run-id])
+
+(def ^:private path-system-edge-row-query-fields
+  [:xt/id
+   :project-id
+   :source-id
+   :target-id
+   :relation
+   :active?
+   :run-id])
+
+(defn- scoped-system-path-edge-row-query-fields
+  [opts]
+  (cond-> path-system-edge-row-query-fields
+    (:repo-id (effective-scope opts)) (conj :repo-id)))
+
 (def ^:private chunk-row-query-fields
   [:xt/id
    :project-id
@@ -276,20 +300,19 @@
   ([xtdb opts]
    (scoped-rows xtdb (:system-evidence store/tables) opts {:active? true})))
 
-(defn- edges-by-endpoint
-  [xtdb field id opts]
-  (scoped-rows xtdb
-               (:edges store/tables)
-               opts
-               {field id}))
-
-(defn- system-edges-by-endpoint
-  [xtdb field id opts]
-  (scoped-rows xtdb
-               (:system-edges store/tables)
-               opts
-               {:active? true
-                field id}))
+(defn- edges-from-source-ids
+  [xtdb ids opts]
+  (->> (store/rows-with-field-values
+        xtdb
+        {:table (:edges store/tables)
+         :field :source-id
+         :values ids
+         :constraints (scope-constraints opts)
+         :return-fields path-edge-row-query-fields
+         :read-context (read-context opts)})
+       (#(filter-scope % opts))
+       (distinct-by :xt/id)
+       vec))
 
 (defn system-edges-touching-ids
   "Return active system edges whose source or target is in ids.
@@ -318,6 +341,22 @@
                 :return-fields system-edge-row-query-fields
                 :read-context ctx}))]
     (->> rows
+         (filter :active?)
+         (#(filter-scope % opts))
+         (distinct-by :xt/id)
+         vec)))
+
+(defn- system-edges-from-source-ids
+  [xtdb ids opts]
+  (let [constraints (assoc (scope-constraints opts) :active? true)]
+    (->> (store/rows-with-field-values
+          xtdb
+          {:table (:system-edges store/tables)
+           :field :source-id
+           :values ids
+           :constraints constraints
+           :return-fields (scoped-system-path-edge-row-query-fields opts)
+           :read-context (read-context opts)})
          (filter :active?)
          (#(filter-scope % opts))
          (distinct-by :xt/id)
@@ -885,25 +924,56 @@
   (openai/client {:model (or model openai/default-model)}))
 
 (defn- shortest-directed-path-ids
-  [source-id target-id outgoing-target-ids]
-  (loop [queue (conj clojure.lang.PersistentQueue/EMPTY [source-id])
-         seen #{source-id}]
-    (when-let [path (peek queue)]
-      (let [current (peek path)]
-        (if (= current target-id)
-          path
-          (let [neighbors (->> (outgoing-target-ids current)
-                               (remove seen)
-                               vec)
-                next-paths (map #(conj path %) neighbors)]
-            (recur (into (pop queue) next-paths)
-                   (into seen neighbors))))))))
+  [source-id target-id outgoing-edges-for-source-ids]
+  (letfn [(targets-by-source [edges]
+            (-> (reduce (fn [acc {:keys [source-id target-id]}]
+                          (if target-id
+                            (update acc source-id (fnil conj []) target-id)
+                            acc))
+                        {}
+                        edges)
+                (update-vals #(->> %
+                                   (distinct-by identity)
+                                   (sort-by str)
+                                   vec))))
+          (next-frontier-paths [paths targets seen]
+            (first
+             (reduce
+              (fn [[frontier layer-seen] path]
+                (reduce
+                 (fn [[frontier layer-seen] target-id]
+                   (if (or (contains? seen target-id)
+                           (contains? layer-seen target-id))
+                     [frontier layer-seen]
+                     [(conj frontier (conj path target-id))
+                      (conj layer-seen target-id)]))
+                 [frontier layer-seen]
+                 (get targets (peek path) [])))
+              [[] #{}]
+              paths)))]
+    (cond
+      (nil? source-id) nil
+      (= source-id target-id) [source-id]
+      :else
+      (loop [frontier [[source-id]]
+             seen #{source-id}]
+        (when (seq frontier)
+          (let [source-ids (mapv peek frontier)
+                targets (targets-by-source
+                         (outgoing-edges-for-source-ids source-ids))
+                next-frontier (next-frontier-paths frontier targets seen)
+                found (some #(when (= target-id (peek %)) %) next-frontier)]
+            (if found
+              found
+              (recur next-frontier
+                     (into seen (map peek next-frontier))))))))))
 
 (defn- path-rows
   [xtdb path-ids opts nodes-by-id]
-  (let [nodes-by-id (into nodes-by-id
+  (let [missing-ids (remove (set (keys nodes-by-id)) path-ids)
+        nodes-by-id (into nodes-by-id
                           (map (juxt :xt/id identity))
-                          (nodes-by-ids xtdb path-ids opts))]
+                          (nodes-by-ids xtdb missing-ids opts))]
     (mapv #(get nodes-by-id %) path-ids)))
 
 (defn graph-path
@@ -917,7 +987,7 @@
        (when-let [path-ids (shortest-directed-path-ids
                             (:xt/id source)
                             target-id
-                            #(map :target-id (edges-by-endpoint xtdb :source-id % opts)))]
+                            #(edges-from-source-ids xtdb % opts))]
          (path-rows xtdb
                     path-ids
                     opts
@@ -935,14 +1005,13 @@
        (when-let [path-ids (shortest-directed-path-ids
                             (:xt/id source)
                             target-id
-                            #(map :target-id (system-edges-by-endpoint xtdb
-                                                                       :source-id
-                                                                       %
-                                                                       opts)))]
-         (let [nodes-by-id (into {(:xt/id source) source
-                                  target-id target}
+                            #(system-edges-from-source-ids xtdb % opts))]
+         (let [known-nodes {(:xt/id source) source
+                            target-id target}
+               missing-ids (remove (set (keys known-nodes)) path-ids)
+               nodes-by-id (into known-nodes
                                  (map (juxt :xt/id identity))
-                                 (system-nodes-by-ids xtdb path-ids opts))]
+                                 (system-nodes-by-ids xtdb missing-ids opts))]
            (mapv #(get nodes-by-id %) path-ids)))))))
 
 (defn report

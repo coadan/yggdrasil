@@ -432,3 +432,161 @@
                            :repo-id "app"}
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
            @edge-calls))))
+
+(deftest graph-path-batches-bfs-frontier-edge-reads
+  (let [calls (atom [])
+        nodes {"node:a" {:xt/id "node:a"
+                         :project-id "project-a"
+                         :repo-id "app"
+                         :label "A"
+                         :active? true}
+               "node:b" {:xt/id "node:b"
+                         :project-id "project-a"
+                         :repo-id "app"
+                         :label "B"
+                         :active? true}
+               "node:c" {:xt/id "node:c"
+                         :project-id "project-a"
+                         :repo-id "app"
+                         :label "C"
+                         :active? true}
+               "node:d" {:xt/id "node:d"
+                         :project-id "project-a"
+                         :repo-id "app"
+                         :label "D"
+                         :active? true}}
+        edges-by-frontier {#{"node:a"} [{:xt/id "edge:a-b"
+                                         :project-id "project-a"
+                                         :repo-id "app"
+                                         :source-id "node:a"
+                                         :target-id "node:b"}
+                                        {:xt/id "edge:a-d"
+                                         :project-id "project-a"
+                                         :repo-id "app"
+                                         :source-id "node:a"
+                                         :target-id "node:d"}]
+                           #{"node:b" "node:d"} [{:xt/id "edge:b-c"
+                                                  :project-id "project-a"
+                                                  :repo-id "app"
+                                                  :source-id "node:b"
+                                                  :target-id "node:c"}]}]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    (case (:table request)
+                      :ygg/nodes (keep nodes (:values request))
+                      :ygg/edges (get edges-by-frontier (set (:values request)) [])
+                      []))
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "constrained-rows should not be used for exact graph path"
+                                    {})))
+                  store/edge-rows-touching-ids
+                  (fn [& _]
+                    (throw (ex-info "touching adjacency should not be used for directed graph path"
+                                    {})))]
+      (is (= ["A" "B" "C"]
+             (mapv :label
+                   (query/graph-path
+                    {:node :stub}
+                    "node:a"
+                    "node:c"
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (let [edge-calls (filter #(and (= (:edges store/tables) (:table %))
+                                   (= :source-id (:field %)))
+                             @calls)
+          node-calls (filter #(= (:nodes store/tables) (:table %)) @calls)]
+      (is (= [["node:a"] ["node:b" "node:d"]]
+             (mapv (comp vec :values) edge-calls)))
+      (is (every? #(= {:project-id "project-a"
+                       :repo-id "app"}
+                      (:constraints %))
+                  edge-calls))
+      (is (every? #(= {:valid-at #inst "2026-01-01T00:00:00Z"}
+                      (:read-context %))
+                  edge-calls))
+      (is (= [["node:a"] ["node:c"] ["node:b"]]
+             (mapv (comp vec :values) node-calls))))))
+
+(deftest system-path-batches-bfs-frontier-edge-reads
+  (let [calls (atom [])
+        nodes {"system:a" {:xt/id "system:a"
+                           :project-id "project-a"
+                           :repo-id "app"
+                           :system-key "a"
+                           :label "A"
+                           :active? true}
+               "system:b" {:xt/id "system:b"
+                           :project-id "project-a"
+                           :repo-id "app"
+                           :system-key "b"
+                           :label "B"
+                           :active? true}
+               "system:c" {:xt/id "system:c"
+                           :project-id "project-a"
+                           :repo-id "app"
+                           :system-key "c"
+                           :label "C"
+                           :active? true}
+               "system:d" {:xt/id "system:d"
+                           :project-id "project-a"
+                           :repo-id "app"
+                           :system-key "d"
+                           :label "D"
+                           :active? true}}
+        edges-by-frontier {#{"system:a"} [{:xt/id "system-edge:a-b"
+                                           :project-id "project-a"
+                                           :repo-id "app"
+                                           :source-id "system:a"
+                                           :target-id "system:b"
+                                           :active? true}
+                                          {:xt/id "system-edge:a-d"
+                                           :project-id "project-a"
+                                           :repo-id "app"
+                                           :source-id "system:a"
+                                           :target-id "system:d"
+                                           :active? true}]
+                           #{"system:b" "system:d"} [{:xt/id "system-edge:b-c"
+                                                      :project-id "project-a"
+                                                      :repo-id "app"
+                                                      :source-id "system:b"
+                                                      :target-id "system:c"
+                                                      :active? true}]}]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    (case (:table request)
+                      :ygg/system-nodes (keep nodes (:values request))
+                      :ygg/system-edges (get edges-by-frontier (set (:values request)) [])
+                      []))
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "constrained-rows should not be used for exact system path"
+                                    {})))]
+      (is (= ["A" "B" "C"]
+             (mapv :label
+                   (query/system-path
+                    {:node :stub}
+                    "system:a"
+                    "system:c"
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (let [edge-calls (filter #(and (= (:system-edges store/tables) (:table %))
+                                   (= :source-id (:field %)))
+                             @calls)
+          node-calls (filter #(= (:system-nodes store/tables) (:table %)) @calls)]
+      (is (= [["system:a"] ["system:b" "system:d"]]
+             (mapv (comp vec :values) edge-calls)))
+      (is (every? #(= {:project-id "project-a"
+                       :repo-id "app"
+                       :active? true}
+                      (:constraints %))
+                  edge-calls))
+      (is (every? #(= {:valid-at #inst "2026-01-01T00:00:00Z"}
+                      (:read-context %))
+                  edge-calls))
+      (is (= [["system:a"] ["system:c"] ["system:b"]]
+             (mapv (comp vec :values) node-calls))))))
