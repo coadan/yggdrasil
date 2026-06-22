@@ -3,4 +3,5 @@
  :description "Composed broad suite for shell-only versus Yggdrasil task-token, command, localization, architecture, and decision-quality comparisons."
  :include-suites ["headline.edn"
                   "architecture-coverage.edn"
-                  "decision-quality-pilot.edn"]}
+                  "decision-quality-pilot.edn"
+                  "feature-planning.edn"]}

@@ -444,9 +444,10 @@
     (is (= "agent-efficiency-broad" (:id suite)))
     (is (= ["headline-architecture"
             "architecture-coverage"
-            "decision-quality-pilot"]
+            "decision-quality-pilot"
+            "feature-planning"]
            (mapv :id (:included-suites suite))))
-    (is (= 14 (count cases)))
+    (is (= 18 (count cases)))
     (is (= 8 (count (:repos suite))))
     (is (every? repo-ids
                 ["bootstrap"

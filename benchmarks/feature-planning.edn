@@ -1,0 +1,218 @@
+{:id "feature-planning"
+ :project-id "feature-planning"
+ :description "Synthetic feature-planning cases for shell-only versus Yggdrasil comparisons on existing repos."
+ :repos [{:id "bootstrap"
+          :root "../.dev/ygg/benchmark-repos/bootstrap"
+          :role :application}
+         {:id "supabase-postgres"
+          :root "../.dev/ygg/benchmark-repos/supabase-postgres"
+          :role :application}
+         {:id "axios"
+          :root "../.dev/ygg/benchmark-repos/axios"
+          :role :application}
+         {:id "dapper"
+          :root "../.dev/ygg/benchmark-repos/dapper"
+          :role :library}]
+ :cases [{:id "planning-bootstrap-docs-search-integration"
+          :repo-id "bootstrap"
+          :coverage {:source-kinds [:manifest :web-framework]}
+          :tags [:feature-planning
+                 :decision-quality
+                 :synthetic
+                 :problem-planning
+                 :architecture-dependency-flow
+                 :audit-scope-dependencies
+                 :web-framework-config
+                 :astro]
+          :base-sha "c82919e8970c7ebebb87ded191b815c76737cd04"
+          :fix-sha "c82919e8970c7ebebb87ded191b815c76737cd04"
+          :ground-truth {:localization-files ["site/astro.config.ts"
+                                              "package.json"]}
+          :decision-candidates [{:id "plan-config-and-manifest"
+                                 :kind :change-plan
+                                 :label "Plan config and manifest edits"
+                                 :summary "Add the docs search integration through Astro config and declare the package dependency."
+                                 :paths ["site/astro.config.ts"
+                                         "package.json"]}
+                                {:id "plan-config-only"
+                                 :kind :change-plan
+                                 :label "Plan config only"
+                                 :summary "Change Astro config without accounting for dependency declaration."
+                                 :paths ["site/astro.config.ts"]}
+                                {:id "plan-manifest-only"
+                                 :kind :change-plan
+                                 :label "Plan manifest only"
+                                 :summary "Declare a package but skip the framework integration point."
+                                 :paths ["package.json"]}]
+          :decision-ground-truth {:kind :change-plan
+                                  :required ["plan-config-and-manifest"]
+                                  :forbidden ["plan-config-only"
+                                              "plan-manifest-only"]}
+          :expectations {:evidence [{:kind :web-framework-import
+                                     :path "site/astro.config.ts"
+                                     :label "astro/config"}
+                                    {:kind :web-framework-plugin
+                                     :path "site/astro.config.ts"
+                                     :label "Astro integration"}
+                                    {:kind :manifest-package
+                                     :path "package.json"
+                                     :label "astro dependency"}]}
+          :issue {:id "planning-bootstrap-docs-search-integration"
+                  :url "local:planning/bootstrap/docs-search-integration"
+                  :title "Plan a docs search integration for Bootstrap's Astro docs"
+                  :body "Before editing code, choose a feature plan for adding a docs search integration to Bootstrap's Astro docs. Return the files likely to need edits and include/exclude the visible change-plan candidates. Cite Astro config and package-manifest evidence."}}
+
+         {:id "planning-supabase-trigger-owner-validation"
+          :repo-id "supabase-postgres"
+          :coverage {:source-kinds [:env :sql]}
+          :tags [:feature-planning
+                 :decision-quality
+                 :synthetic
+                 :problem-planning
+                 :architecture-data-ownership
+                 :architecture-runtime-boundary
+                 :audit-scope-runtime-config
+                 :runtime-config
+                 :database]
+          :base-sha "948b5feb51b9605babc6820475b5ccff44f29552"
+          :fix-sha "948b5feb51b9605babc6820475b5ccff44f29552"
+          :map-overlay {:packageImports [{:repo "supabase-postgres"
+                                          :import "testinfra"
+                                          :ecosystem "pypi"
+                                          :package "pytest-testinfra"
+                                          :reason "The testinfra benchmark imports the testinfra module from the declared pytest-testinfra package."}]}
+          :ground-truth {:localization-files ["migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                              "migrations/.env"]}
+          :decision-candidates [{:id "plan-sql-owner-and-env"
+                                 :kind :change-plan
+                                 :label "Plan SQL owner and env updates"
+                                 :summary "Treat the init script and runtime database URL as the planning surface."
+                                 :paths ["migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                         "migrations/.env"]}
+                                {:id "plan-testinfra-first"
+                                 :kind :change-plan
+                                 :label "Plan testinfra changes first"
+                                 :summary "Start with Python testinfra wiring before confirming SQL ownership."
+                                 :paths ["testinfra/testinfra/test_postgres.py"]}
+                                {:id "plan-env-only"
+                                 :kind :change-plan
+                                 :label "Plan env-only change"
+                                 :summary "Only adjust runtime environment without SQL owner review."
+                                 :paths ["migrations/.env"]}]
+          :decision-ground-truth {:kind :change-plan
+                                  :required ["plan-sql-owner-and-env"]
+                                  :forbidden ["plan-testinfra-first"
+                                              "plan-env-only"]}
+          :expectations {:evidence [{:kind :env-var
+                                     :path "migrations/.env"
+                                     :label "DATABASE_URL"}
+                                    {:kind :sql-security
+                                     :path "migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                     :label "SECURITY DEFINER"}]}
+          :issue {:id "planning-supabase-trigger-owner-validation"
+                  :url "local:planning/supabase-postgres/trigger-owner-validation"
+                  :title "Plan event trigger owner validation across init SQL and runtime env"
+                  :body "Plan a feature change that validates built-in event trigger ownership before modifying it. Return the files likely to need edits and include/exclude the visible change-plan candidates. Cite SQL ownership/security and runtime env evidence."}}
+
+         {:id "planning-axios-native-proxy-option"
+          :repo-id "axios"
+          :coverage {:source-kinds [:javascript]}
+          :tags [:feature-planning
+                 :decision-quality
+                 :synthetic
+                 :problem-planning
+                 :architecture-runtime-boundary
+                 :audit-scope-runtime-config
+                 :shell-sufficient-control
+                 :runtime-config
+                 :javascript]
+          :base-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
+          :fix-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
+          :ground-truth {:localization-files ["lib/adapters/http.js"
+                                              "tests/unit/adapters/http.test.js"]}
+          :decision-candidates [{:id "plan-adapter-and-proxy-tests"
+                                 :kind :change-plan
+                                 :label "Plan adapter and proxy tests"
+                                 :summary "Change the HTTP adapter behavior with matching proxy tests."
+                                 :paths ["lib/adapters/http.js"
+                                         "tests/unit/adapters/http.test.js"]}
+                                {:id "plan-docs-only"
+                                 :kind :change-plan
+                                 :label "Plan docs only"
+                                 :summary "Document proxy behavior without changing runtime adapter behavior."
+                                 :paths ["README.md"]}
+                                {:id "plan-package-manifest"
+                                 :kind :change-plan
+                                 :label "Plan package manifest"
+                                 :summary "Treat package metadata as the primary feature surface."
+                                 :paths ["package.json"]}]
+          :decision-ground-truth {:kind :change-plan
+                                  :required ["plan-adapter-and-proxy-tests"]
+                                  :forbidden ["plan-docs-only"
+                                              "plan-package-manifest"]}
+          :expectations {:evidence [{:kind :env-var
+                                     :path "tests/unit/adapters/http.test.js"
+                                     :label "PROXY_PORT"}]}
+          :issue {:id "planning-axios-native-proxy-option"
+                  :url "local:planning/axios/native-proxy-option"
+                  :title "Plan a native proxy handling option for Axios"
+                  :body "Plan a feature that lets Axios avoid rewriting proxy behavior when Node can handle environment proxies natively. Return the files likely to need edits and include/exclude the visible change-plan candidates. Cite adapter and proxy test evidence."}}
+
+         {:id "planning-dapper-jsonb-string-handling"
+          :repo-id "dapper"
+          :coverage {:source-kinds [:dotnet :compose]}
+          :tags [:feature-planning
+                 :decision-quality
+                 :synthetic
+                 :problem-planning
+                 :architecture-dependency-flow
+                 :audit-scope-dependencies
+                 :audit-scope-containers
+                 :runtime-config
+                 :database
+                 :dotnet
+                 :container]
+          :base-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
+          :fix-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
+          :map-overlay {:packageImports [{:repo "dapper"
+                                          :import "LinqToDB"
+                                          :ecosystem "nuget"
+                                          :package "linq2db.SqlServer"
+                                          :reason "Dapper performance benchmarks import LinqToDB namespaces from the declared linq2db.SqlServer NuGet package."}]}
+          :ground-truth {:localization-files ["Dapper/SqlMapper.cs"
+                                              "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                              "tests/docker-compose.yml"]}
+          :decision-candidates [{:id "plan-core-tests-and-postgres-stack"
+                                 :kind :change-plan
+                                 :label "Plan core, tests, and PostgreSQL stack"
+                                 :summary "Review Dapper type handling, regression tests, and the PostgreSQL test container together."
+                                 :paths ["Dapper/SqlMapper.cs"
+                                         "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                         "tests/docker-compose.yml"]}
+                                {:id "plan-core-only"
+                                 :kind :change-plan
+                                 :label "Plan core only"
+                                 :summary "Change Dapper core type handling without a regression test or container check."
+                                 :paths ["Dapper/SqlMapper.cs"]}
+                                {:id "plan-container-only"
+                                 :kind :change-plan
+                                 :label "Plan container only"
+                                 :summary "Change test runtime setup without touching Dapper type handling."
+                                 :paths ["tests/docker-compose.yml"]}]
+          :decision-ground-truth {:kind :change-plan
+                                  :required ["plan-core-tests-and-postgres-stack"]
+                                  :forbidden ["plan-core-only"
+                                              "plan-container-only"]}
+          :expectations {:evidence [{:kind :container-image-consumer
+                                     :path "tests/docker-compose.yml"
+                                     :label "postgres:alpine"}
+                                    {:kind :env-var
+                                     :path "tests/docker-compose.yml"
+                                     :label "POSTGRES_DB"}]
+                         :nodes [{:kind :external-package
+                                  :path "tests/Dapper.Tests/Dapper.Tests.csproj"
+                                  :label "nuget:Npgsql"}]}
+          :issue {:id "planning-dapper-jsonb-string-handling"
+                  :url "local:planning/dapper/jsonb-string-handling"
+                  :title "Plan PostgreSQL JSONB string handling for Dapper"
+                  :body "Plan a feature that handles PostgreSQL jsonb values as strings. Return the files likely to need edits or test/runtime setup changes and include/exclude the visible change-plan candidates. Cite Dapper type handling, regression test, dependency, or container evidence."}}]}
