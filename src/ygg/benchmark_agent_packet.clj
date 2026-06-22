@@ -179,7 +179,9 @@
                     (:ygg-context-path opts)
                     (assoc :yggContextPath (:ygg-context-path opts))
                     (:ygg-hints-path opts)
-                    (assoc :yggHintsPath (:ygg-hints-path opts)))
+                    (assoc :yggHintsPath (:ygg-hints-path opts))
+                    (:ygg-full-hints-path opts)
+                    (assoc :yggFullHintsPath (:ygg-full-hints-path opts)))
         packet {:schema agent-packet-schema
                 :suite-id (:suite-id prepared)
                 :case-id (:case-id prepared)

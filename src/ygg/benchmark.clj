@@ -15,6 +15,7 @@
             [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-prediction :as benchmark-prediction]
             [ygg.benchmark-hints :as benchmark-hints]
+            [ygg.benchmark-hints-progressive :as benchmark-hints-progressive]
             [ygg.benchmark-agent-score :as benchmark-agent-score]
             [ygg.benchmark-results :as benchmark-results]
             [ygg.benchmark-agent-run :as benchmark-agent-run]
@@ -466,6 +467,10 @@
   [prepared packet opts]
   (benchmark-hints/context-packet->agent-hints prepared packet opts))
 
+(defn- compact-agent-hints
+  [hints paths]
+  (benchmark-hints-progressive/compact-agent-hints hints paths))
+
 (defn agent-baselines!
   "Generate deterministic Yggdrasil agent-result artifacts for selected cases."
   [suite opts]
@@ -625,6 +630,7 @@
   (when (= "ygg" (agent-mode opts))
     (let [context-path (benchmark-paths/agent-run-context-path suite case opts)
           hints-path (benchmark-paths/agent-run-hints-path suite case opts)
+          full-hints-path (benchmark-hints-progressive/full-hints-path hints-path)
           map-path (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
           map-overlay (benchmark-maintenance/agent-map-overlay map-path)]
       (store/with-node (benchmark-paths/xtdb-dir suite case opts)
@@ -652,12 +658,18 @@
                                                        opts)
                                                       :map-path map-path
                                                       :map-overlay map-overlay))
-                hints (context-packet->agent-hints prepared packet opts)]
+                full-hints (context-packet->agent-hints prepared packet opts)
+                hints (compact-agent-hints
+                       full-hints
+                       {:context-path context-path
+                        :full-hints-path full-hints-path})]
             (benchmark-io/write-json-file! context-path packet)
+            (benchmark-io/write-json-file! full-hints-path full-hints)
             (benchmark-io/write-json-file! hints-path hints)
             {:summary summary
              :artifacts {:context-path (fs/canonical-path context-path)
-                         :hints-path (fs/canonical-path hints-path)}}))))))
+                         :hints-path (fs/canonical-path hints-path)
+                         :full-hints-path (fs/canonical-path full-hints-path)}}))))))
 
 (defn- read-agent-hints
   [hints-path]
@@ -676,9 +688,15 @@
 (defn- refresh-agent-hints-from-context!
   [suite case opts prepared]
   (let [context-path (benchmark-paths/agent-run-context-path suite case opts)
-        hints-path (benchmark-paths/agent-run-hints-path suite case opts)]
+        hints-path (benchmark-paths/agent-run-hints-path suite case opts)
+        full-hints-path (benchmark-hints-progressive/full-hints-path hints-path)]
     (if-let [packet (read-json-artifact context-path)]
-      (let [hints (context-packet->agent-hints prepared packet opts)]
+      (let [full-hints (context-packet->agent-hints prepared packet opts)
+            hints (compact-agent-hints
+                   full-hints
+                   {:context-path context-path
+                    :full-hints-path full-hints-path})]
+        (benchmark-io/write-json-file! full-hints-path full-hints)
         (benchmark-io/write-json-file! hints-path hints)
         hints)
       (read-agent-hints hints-path))))
@@ -824,7 +842,10 @@
                                                      (:context-path ygg-artifacts))
                                               (:hints-path ygg-artifacts)
                                               (assoc :ygg-hints-path
-                                                     (:hints-path ygg-artifacts))))
+                                                     (:hints-path ygg-artifacts))
+                                              (:full-hints-path ygg-artifacts)
+                                              (assoc :ygg-full-hints-path
+                                                     (:full-hints-path ygg-artifacts))))
         result-path (benchmark-paths/agent-run-result-path suite case opts)
         token-usage-path (benchmark-paths/agent-run-token-usage-path suite
                                                                      case
@@ -921,6 +942,9 @@
                                 :outputSchemaPath output-schema-path
                                 :yggHintsPath (get-in packet
                                                       [:artifacts :yggHintsPath])
+                                :yggFullHintsPath (get-in packet
+                                                          [:artifacts
+                                                           :yggFullHintsPath])
                                 :yggContextPath (get-in packet
                                                         [:artifacts :yggContextPath])
                                 :projectConfig (get-in packet [:artifacts :projectConfig])
