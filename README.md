@@ -6,13 +6,11 @@ repeated grep/read loops. It gives agents a durable place to sync repository
 facts, ask structural questions, attach evidence, and carry accepted corrections
 across sessions.
 
-AGraph is not a semantic classifier bolted onto source search, and it does not
-claim that architecture meaning can be guessed from names. It stores concrete
-facts first, derives neutral graph candidates from structure and evidence
-density, and keeps accepted project meaning in auditable corrections,
-metadata, or `agraph.map.json`. If AGraph makes agents faster, cheaper, or more
-effective on a task class, that claim should come from replayable benchmarks,
-not anecdotes.
+AGraph is built to help agents stay grounded in what the repo actually shows.
+It separates observed evidence from human or agent judgment, so teams can review
+what was accepted, correct what was wrong, and carry that shared understanding
+forward. When AGraph claims to make agent work faster, cheaper, or more
+effective, those claims should be backed by repeatable benchmarks.
 
 ## Quickstart
 
