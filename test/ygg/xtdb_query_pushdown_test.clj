@@ -237,12 +237,128 @@
               :args ["project-a"]}
              ctx)))))
 
-(deftest graph-readiness-counts-use-store-count-queries
+(deftest graph-readiness-reuses-precomputed-context-counts
+  (let [active-calls (atom [])
+        fail-duplicate-read (fn [& _]
+                              (throw (ex-info "graph readiness should reuse precomputed counts"
+                                              {})))]
+    (with-redefs [store/active-row-count
+                  (fn [_ table constraints ctx]
+                    (swap! active-calls conj {:table table
+                                              :constraints constraints
+                                              :ctx ctx})
+                    (case table
+                      :ygg/files 4
+                      :ygg/index-diagnostics 0
+                      0))
+                  store/count-rows fail-duplicate-read
+                  query/all-nodes (fn [& _]
+                                    [{:kind :external-package}
+                                     {:kind :namespace}
+                                     {:kind :external-package
+                                      :active? false}])
+                  query/all-edges (fn [& _]
+                                    [{:relation :imports-package}
+                                     {:relation :uses}
+                                     {:relation :imports-package
+                                      :active? false}])
+                  query/all-chunks (fn [& _]
+                                     [{:active? true}
+                                      {:active? false}])
+                  query/all-search-docs fail-duplicate-read
+                  query/all-embeddings (fn [& _]
+                                         [{} {}])
+                  query/all-system-nodes (fn [& _]
+                                           [{} {}])
+                  query/all-system-edges (fn [& _]
+                                           [{}])
+                  query/all-system-evidence fail-duplicate-read
+                  coverage/index-run-skipped-files (fn [& _] 0)
+                  dependency/package-report fail-duplicate-read
+                  activity/all-items (fn [& _] [])
+                  activity/all-events (fn [& _]
+                                        [{:event-kind :validation}
+                                         {:event-kind :result-schema-mismatch}
+                                         {:event-kind :other}])]
+      (let [evidence (#'context/query-evidence
+                      :xtdb
+                      {}
+                      {:project-id "project-a"
+                       :repo-id "app"
+                       :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}
+                       :retriever :lexical
+                       :dependency-counts {:packages 11
+                                           :source-import-candidates 12
+                                           :unresolved-imports 13
+                                           :declared-without-import-evidence 14
+                                           :version-conflicts 15}
+                       :system-evidence-count 5
+                       :search-doc-count 6}
+                      {:entity-count 1
+                       :doc-count 1
+                       :activity-count 0
+                       :validation-count 0
+                       :runtime-count 1})]
+        (is (= {:files 4
+                :nodes 2
+                :edges 2
+                :external-packages 1
+                :package-import-edges 1
+                :declared-packages 11
+                :source-import-candidates 12
+                :unresolved-imports 13
+                :package-evidence-gaps 14
+                :package-conflicts 15
+                :system-evidence 5
+                :chunks 1
+                :search-docs 6
+                :embeddings 2
+                :system-nodes 2
+                :system-edges 1
+                :activity-events 3
+                :validation-events 1
+                :result-schema-mismatch-events 1
+                :diagnostics 0}
+               (select-keys (:counts evidence)
+                            [:files
+                             :nodes
+                             :edges
+                             :external-packages
+                             :package-import-edges
+                             :declared-packages
+                             :source-import-candidates
+                             :unresolved-imports
+                             :package-evidence-gaps
+                             :package-conflicts
+                             :system-evidence
+                             :chunks
+                             :search-docs
+                             :embeddings
+                             :system-nodes
+                             :system-edges
+                             :activity-events
+                             :validation-events
+                             :result-schema-mismatch-events
+                             :diagnostics])))))
+    (is (= #{{:table :ygg/files
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/index-diagnostics
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
+           (set @active-calls)))))
+
+(deftest graph-readiness-real-handles-use-store-counts-with-precomputed-context-counts
   (let [active-calls (atom [])
         exact-calls (atom [])
         fail-broad-read (fn [& _]
                           (throw (ex-info "graph readiness should use count queries"
                                           {})))
+        fail-duplicate-read (fn [& _]
+                              (throw (ex-info "graph readiness should reuse precomputed counts"
+                                              {})))
         active-counts {[:ygg/files {:project-id "project-a"
                                     :repo-id "app"}] 4
                        [:ygg/nodes {:project-id "project-a"
@@ -259,13 +375,7 @@
                                      :repo-id "app"}] 3
                        [:ygg/index-diagnostics {:project-id "project-a"
                                                 :repo-id "app"}] 0}
-        exact-counts {[:ygg/system-evidence {:project-id "project-a"
-                                             :repo-id "app"
-                                             :active? true}] 5
-                      [:ygg/search-docs {:project-id "project-a"
-                                         :repo-id "app"
-                                         :active? true}] 6
-                      [:ygg/embeddings {:project-id "project-a"
+        exact-counts {[:ygg/embeddings {:project-id "project-a"
                                         :repo-id "app"
                                         :active? true}] 0
                       [:ygg/system-nodes {:project-id "project-a"
@@ -295,27 +405,30 @@
                   query/all-nodes fail-broad-read
                   query/all-edges fail-broad-read
                   query/all-chunks fail-broad-read
-                  query/all-search-docs fail-broad-read
+                  query/all-search-docs fail-duplicate-read
                   query/all-embeddings fail-broad-read
                   query/all-system-nodes fail-broad-read
                   query/all-system-edges fail-broad-read
-                  query/all-system-evidence fail-broad-read
+                  query/all-system-evidence fail-duplicate-read
                   query/all-diagnostics fail-broad-read
                   coverage/index-run-skipped-files (fn [& _] 0)
-                  dependency/package-report (fn [& _]
-                                              {:counts {:packages 1
-                                                        :source-import-candidates 0
-                                                        :unresolved-imports 0
-                                                        :declared-without-import-evidence 0
-                                                        :version-conflicts 0}})
-                  activity/all-items (fn [& _] [])]
+                  dependency/package-report fail-duplicate-read
+                  activity/all-items (fn [& _] [])
+                  activity/all-events fail-broad-read]
       (let [evidence (#'context/query-evidence
                       {:node :stub}
                       {}
                       {:project-id "project-a"
                        :repo-id "app"
                        :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}
-                       :retriever :lexical}
+                       :retriever :lexical
+                       :dependency-counts {:packages 11
+                                           :source-import-candidates 12
+                                           :unresolved-imports 13
+                                           :declared-without-import-evidence 14
+                                           :version-conflicts 15}
+                       :system-evidence-count 5
+                       :search-doc-count 6}
                       {:entity-count 1
                        :doc-count 1
                        :activity-count 0
@@ -326,6 +439,11 @@
                 :edges 9
                 :external-packages 1
                 :package-import-edges 2
+                :declared-packages 11
+                :source-import-candidates 12
+                :unresolved-imports 13
+                :package-evidence-gaps 14
+                :package-conflicts 15
                 :system-evidence 5
                 :chunks 3
                 :search-docs 6
@@ -342,6 +460,11 @@
                              :edges
                              :external-packages
                              :package-import-edges
+                             :declared-packages
+                             :source-import-candidates
+                             :unresolved-imports
+                             :package-evidence-gaps
+                             :package-conflicts
                              :system-evidence
                              :chunks
                              :search-docs
@@ -352,18 +475,65 @@
                              :validation-events
                              :result-schema-mismatch-events
                              :diagnostics])))))
-    (is (some #(and (= (:nodes store/tables) (:table %))
-                    (= {:project-id "project-a"
-                        :repo-id "app"}
-                       (:constraints %)))
-              @active-calls))
-    (is (some #(and (= (:system-nodes store/tables) (:table %))
-                    (= {:project-id "project-a"
-                        :active? true}
-                       (:constraints %)))
-              @exact-calls))
-    (is (every? #(= {:valid-at #inst "2026-01-01T00:00:00Z"} (:ctx %))
-                (concat @active-calls @exact-calls)))))
+    (is (= #{{:table :ygg/files
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/nodes
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/edges
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/nodes
+              :constraints {:project-id "project-a"
+                            :repo-id "app"
+                            :kind :external-package}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/edges
+              :constraints {:project-id "project-a"
+                            :repo-id "app"
+                            :relation :imports-package}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/chunks
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/index-diagnostics
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
+           (set @active-calls)))
+    (is (= #{{:table :ygg/embeddings
+              :constraints {:project-id "project-a"
+                            :repo-id "app"
+                            :active? true}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/system-nodes
+              :constraints {:project-id "project-a"
+                            :active? true}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/system-edges
+              :constraints {:project-id "project-a"
+                            :active? true}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/activity-events
+              :constraints {:project-id "project-a"
+                            :active? true}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/activity-events
+              :constraints {:project-id "project-a"
+                            :active? true
+                            :event-kind :validation}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/activity-events
+              :constraints {:project-id "project-a"
+                            :active? true
+                            :event-kind :result-schema-mismatch}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
+           (set @exact-calls)))))
 
 (deftest system-edges-touching-ids-use-bounded-xtql-unify-queries
   (let [calls (atom [])]
