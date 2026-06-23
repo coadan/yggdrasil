@@ -71,12 +71,40 @@
                  :schema (:schema overlay)
                  :project (:project overlay))}))
 
-(defn active-project-systems
+(def ^:private review-system-order-fields
+  [:repo-id :label])
+
+(def ^:private review-system-row-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :label
+   :kind
+   :source
+   :candidate-types
+   :metrics
+   :path-prefix
+   :aliases
+   :evidence
+   :active?])
+
+(defn active-project-system-count
   [xtdb project-id]
-  (vec (store/constrained-rows xtdb
-                               (:system-nodes store/tables)
-                               {:project-id project-id
-                                :active? true})))
+  (store/count-rows xtdb
+                    (:system-nodes store/tables)
+                    {:project-id project-id
+                     :active? true}))
+
+(defn active-project-system-page
+  [xtdb project-id limit]
+  (vec (store/ordered-rows
+        xtdb
+        {:table (:system-nodes store/tables)
+         :constraints {:project-id project-id
+                       :active? true}
+         :order-fields review-system-order-fields
+         :limit limit
+         :return-fields review-system-row-fields})))
 
 (defn active-project-system-edge-count
   [xtdb project-id]
@@ -90,16 +118,17 @@
   (let [project-id (:id project)
         overlay (when (and map-path (map-store/file-exists? map-path))
                   (map-store/read-map map-path))
-        systems (active-project-systems xtdb project-id)
+        limit (or limit 50)
+        systems (active-project-system-page xtdb project-id limit)
+        system-count (active-project-system-count xtdb project-id)
         edge-count (active-project-system-edge-count xtdb project-id)]
     {:schema review-schema
      :project-id project-id
      :map-path map-path
      :map (when overlay (graph-map/overlay-counts overlay))
      :candidates {:systems (mapv graph-map/system-entry
-                                 (take (or limit 50)
-                                       (sort-by (juxt :repo-id :label) systems)))
-                  :totalSystems (count systems)
+                                 systems)
+                  :totalSystems system-count
                   :totalEdges edge-count}
      :nextActions [{:kind "review"
                     :label "Accept a researched system"

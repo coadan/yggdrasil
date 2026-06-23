@@ -586,41 +586,92 @@
               :args ["project-a" "app"]}
              ctx)))))
 
-(deftest map-review-counts-system-edges-with-count-pushdown
+(deftest ordered-rows-use-sql-order-limit-for-xtdb-handles
   (let [calls (atom [])]
-    (with-redefs [map-api/active-project-systems
-                  (fn [_ project-id]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (swap! calls conj {:query query
+                                       :ctx ctx})
+                    [{"_id" "system:app"
+                      "repo-id" "app"
+                      "label" "App"}])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "ordered rows should not hydrate all rows"
+                                    {})))]
+      (is (= [{:xt/id "system:app"
+               :repo-id "app"
+               :label "App"}]
+             (mapv #(select-keys % [:xt/id :repo-id :label])
+                   (store/ordered-rows
+                    {:node :stub}
+                    {:table (:system-nodes store/tables)
+                     :constraints {:project-id "project-a"
+                                   :repo-id "app"}
+                     :order-fields [:repo-id :label]
+                     :limit 5
+                     :return-fields [:xt/id :repo-id :label]
+                     :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})))))
+    (is (= 1 (count @calls)))
+    (let [{:keys [query ctx]} (first @calls)]
+      (is (string? query))
+      (is (str/includes? query "SELECT \"_id\" AS \"_id\""))
+      (is (str/includes? query "FROM ygg.system_nodes"))
+      (is (str/includes? query "\"project_id\" = ?"))
+      (is (str/includes? query "\"repo_id\" = ?"))
+      (is (str/includes? query "ORDER BY \"repo_id\" ASC NULLS FIRST, \"label\" ASC NULLS FIRST"))
+      (is (str/includes? query "LIMIT ?"))
+      (is (not (str/includes? query "*")))
+      (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
+              :args ["project-a" "app" 5]}
+             ctx)))))
+
+(deftest map-review-uses-paged-system-read-and-count-pushdown
+  (let [page-calls (atom [])
+        count-calls (atom [])]
+    (with-redefs [store/ordered-rows
+                  (fn [_ request]
+                    (swap! page-calls conj request)
                     [{:xt/id "system:app"
-                      :project-id project-id
+                      :project-id "project-a"
                       :repo-id "app"
                       :label "App"
                       :active? true}])
                   store/count-rows
-                  (fn
-                    ([_ table constraints]
-                     (swap! calls conj {:table table
-                                        :constraints constraints
-                                        :ctx {}})
-                     7)
-                    ([_ table constraints ctx]
-                     (swap! calls conj {:table table
-                                        :constraints constraints
-                                        :ctx ctx})
-                     7))
+                  (fn [_ table constraints]
+                    (swap! count-calls conj {:table table
+                                             :constraints constraints
+                                             :ctx {}})
+                    (case table
+                      :ygg/system-nodes 9
+                      :ygg/system-edges 7))
                   store/constrained-rows
                   (fn [& _]
-                    (throw (ex-info "system edge totals should not hydrate edge rows"
+                    (throw (ex-info "map review should not hydrate all system rows"
                                     {})))]
       (let [review (map-api/review {:node :stub}
                                    {:id "project-a"}
                                    {:limit 1})]
         (is (= 7 (get-in review [:candidates :totalEdges])))
-        (is (= 1 (get-in review [:candidates :totalSystems])))))
-    (is (= [{:table (:system-edges store/tables)
+        (is (= 9 (get-in review [:candidates :totalSystems])))
+        (is (= ["system:app"]
+               (mapv :id (get-in review [:candidates :systems]))))))
+    (is (= [{:table (:system-nodes store/tables)
+             :constraints {:project-id "project-a"
+                           :active? true}
+             :order-fields [:repo-id :label]
+             :limit 1}]
+           (mapv #(select-keys % [:table :constraints :order-fields :limit])
+                 @page-calls)))
+    (is (= [{:table (:system-nodes store/tables)
+             :constraints {:project-id "project-a"
+                           :active? true}
+             :ctx {}}
+            {:table (:system-edges store/tables)
              :constraints {:project-id "project-a"
                            :active? true}
              :ctx {}}]
-           @calls))))
+           @count-calls))))
 
 (deftest cli-candidate-system-rows-use-kind-value-pushdown
   (let [calls (atom [])]

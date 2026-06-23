@@ -629,6 +629,40 @@
             (first (vals row))
             0)))
 
+(defn- order-by-sql
+  [order-fields]
+  (when (seq order-fields)
+    (str " ORDER BY "
+         (str/join ", "
+                   (map #(str (sql-column-name %) " ASC NULLS FIRST")
+                        order-fields)))))
+
+(defn- limited-sql
+  [limit]
+  (when limit
+    " LIMIT ?"))
+
+(defn- limited-args
+  [args limit]
+  (cond-> (vec args)
+    limit (conj (long limit))))
+
+(defn- ordered-query
+  [table constraints order-fields limit return-fields]
+  (let [constraints (->> (clean-constraints constraints)
+                         (sort-by (comp str key))
+                         vec)
+        {where-clauses :where args :args} (equality-sql constraints)]
+    {:sql (str "SELECT "
+               (select-sql return-fields)
+               " FROM "
+               (sql-table-name table)
+               (when (seq where-clauses)
+                 (str " WHERE " (str/join " AND " where-clauses)))
+               (order-by-sql order-fields)
+               (limited-sql limit))
+     :args (limited-args args limit)}))
+
 (defn- active-unless-false-sql
   []
   (let [field (sql-column-name :active?)]
@@ -663,6 +697,44 @@
      (let [{:keys [sql args]} (count-query table constraints false)]
        (count-row-value (first (q xtdb sql (assoc ctx :args args)))))
      (count (fallback-constrained-rows xtdb table (clean-constraints constraints) ctx)))))
+
+(defn ordered-rows
+  "Return rows matching equality constraints, ordered and optionally limited.
+
+  Real XTDB handles use SQL `ORDER BY`/`LIMIT` with explicit projections.
+  Test doubles fall back through constrained row reads and the same mechanical
+  sort/limit."
+  [xtdb {:keys [table constraints order-fields limit return-fields read-context]
+         :or {constraints {}
+              order-fields []
+              read-context {}}}]
+  (cond
+    (and limit (not (pos? (long limit))))
+    []
+
+    (xtdb-handle? xtdb)
+    (let [{:keys [sql args]} (ordered-query table
+                                            constraints
+                                            (vec order-fields)
+                                            limit
+                                            return-fields)]
+      (map #(normalize-projected-sql-row return-fields %)
+           (q xtdb sql (assoc read-context :args args))))
+
+    :else
+    (let [rows (fallback-constrained-rows xtdb
+                                          table
+                                          (clean-constraints constraints)
+                                          read-context)
+          rows (if (seq order-fields)
+                 (sort-by (apply juxt order-fields) rows)
+                 rows)
+          rows (if limit
+                 (take limit rows)
+                 rows)]
+      (if (seq return-fields)
+        (map #(select-keys % return-fields) rows)
+        rows))))
 
 (defn active-row-count
   "Return count of rows matching constraints where active? is not false."

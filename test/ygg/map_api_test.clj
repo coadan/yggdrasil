@@ -100,9 +100,10 @@
         map-path (.getPath (io/file dir "ygg.map.json"))]
     (with-redefs [project/read-project (fn [_] {:id "fixture"})
                   store/with-node (fn [_ f] (f :xtdb))
-                  map-api/active-project-systems
-                  (fn [_ project-id]
+                  map-api/active-project-system-page
+                  (fn [_ project-id limit]
                     (is (= "fixture" project-id))
+                    (is (= 50 limit))
                     [{:xt/id "system:api"
                       :project-id project-id
                       :repo-id "app"
@@ -113,6 +114,7 @@
                       :candidate-types [:path-cluster]
                       :metrics {:degree 5}
                       :active? true}])
+                  map-api/active-project-system-count (fn [_ _] 1)
                   map-api/active-project-system-edge-count (fn [_ _] 0)]
       (let [out (with-out-str
                   (cli/dispatch "map" ["review" "project.edn"
