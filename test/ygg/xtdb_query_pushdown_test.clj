@@ -3,6 +3,7 @@
             [ygg.context :as context]
             [ygg.coverage :as coverage]
             [ygg.dependency :as dependency]
+            [ygg.evidence :as evidence]
             [ygg.graph :as graph]
             [ygg.query :as query]
             [ygg.xtdb :as store]
@@ -236,6 +237,45 @@
       (is (str/includes? query "\"active?\" <> FALSE"))
       (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
               :args ["project-a"]}
+             ctx)))))
+
+(deftest active-row-counts-by-field-uses-sql-group-by-for-xtdb-handles
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (swap! calls conj {:query query
+                                       :ctx ctx})
+                    [{:value :namespace
+                      :row_count 5}
+                     {:value :var
+                      :row_count 2}])
+                  store/all-rows
+                  (fn [& _]
+                    (throw (ex-info "all-rows should not be used for grouped row counts"
+                                    {})))]
+      (is (= [{:value :namespace
+               :count 5}
+              {:value :var
+               :count 2}]
+             (store/active-row-counts-by-field
+              {:node :stub}
+              (:nodes store/tables)
+              :kind
+              {:project-id "project-a"
+               :repo-id "app"}
+              {:valid-at #inst "2026-01-01T00:00:00Z"}))))
+    (is (= 1 (count @calls)))
+    (let [{:keys [query ctx]} (first @calls)]
+      (is (string? query))
+      (is (str/includes? query "SELECT \"kind\" AS value, COUNT(*) AS row_count"))
+      (is (str/includes? query "FROM ygg.nodes"))
+      (is (str/includes? query "\"project_id\" = ?"))
+      (is (str/includes? query "\"repo_id\" = ?"))
+      (is (str/includes? query "\"active?\" IS NULL"))
+      (is (str/includes? query "\"active?\" <> FALSE"))
+      (is (str/includes? query "GROUP BY \"kind\""))
+      (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
+              :args ["project-a" "app"]}
              ctx)))))
 
 (deftest graph-readiness-reuses-precomputed-context-counts
@@ -1170,6 +1210,177 @@
                     :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}}]
            @node-calls))
     (is (= @node-calls @chunk-calls))))
+
+(deftest evidence-summary-uses-counts-for-source-graph-and-index-tables
+  (let [active-count-calls (atom [])
+        grouped-count-calls (atom [])
+        fail-broad-read (fn [& _]
+                          (throw (ex-info "evidence summary should use count queries"
+                                          {})))
+        count-values {[:ygg/nodes {:project-id "project-a"
+                                   :repo-id "app"}] 7
+                      [:ygg/edges {:project-id "project-a"
+                                   :repo-id "app"}] 9
+                      [:ygg/chunks {:project-id "project-a"
+                                    :repo-id "app"}] 3
+                      [:ygg/search-docs {:project-id "project-a"
+                                         :repo-id "app"}] 4
+                      [:ygg/embeddings {:project-id "project-a"
+                                        :repo-id "app"}] 5
+                      [:ygg/system-nodes {:project-id "project-a"}] 2
+                      [:ygg/system-edges {:project-id "project-a"}] 1}]
+    (with-redefs [coverage/project-coverage
+                  (fn [& _]
+                    {:totals {:skipped 0}
+                     :files-by-kind []
+                     :extractors []
+                     :indexedConnectivity {:indexedFiles 0
+                                           :nodes 0
+                                           :edges 0
+                                           :connectedFiles 0
+                                           :crossFileConnectedFiles 0
+                                           :isolatedFiles 0
+                                           :byKind []}
+                     :skipped-by-extension []
+                     :skipped-by-reason []
+                     :diagnostics {:total 0}})
+                  dependency/package-report
+                  (fn [& _]
+                    {:counts {:packages 0
+                              :versions 0
+                              :imports-package 0
+                              :source-import-candidates 0
+                              :version-conflicts 0
+                              :declared-without-import-evidence 0
+                              :unresolved-imports 0}
+                     :ecosystems []})
+                  store/constrained-rows
+                  (fn [_ table constraints & [_ctx]]
+                    (case table
+                      :ygg/files [{:xt/id "file:a"
+                                   :project-id "project-a"
+                                   :repo-id "app"
+                                   :path "src/a.clj"
+                                   :kind :source
+                                   :content-sha "sha:a"
+                                   :mtime-ms 1
+                                   :size-bytes 1
+                                   :active? true}]
+                      :ygg/file-facts []
+                      (throw (ex-info "unexpected constrained read"
+                                      {:table table
+                                       :constraints constraints}))))
+                  store/active-row-count
+                  (fn [_ table constraints ctx]
+                    (swap! active-count-calls conj {:table table
+                                                    :constraints constraints
+                                                    :ctx ctx})
+                    (get count-values [table constraints] 0))
+                  store/active-row-counts-by-field
+                  (fn [_ table field constraints ctx]
+                    (swap! grouped-count-calls conj {:table table
+                                                     :field field
+                                                     :constraints constraints
+                                                     :ctx ctx})
+                    (case [table field]
+                      [:ygg/nodes :kind] [{:value :namespace
+                                           :count 6}
+                                          {:value :var
+                                           :count 1}]
+                      [:ygg/edges :relation] [{:value :imports
+                                               :count 8}
+                                              {:value :uses
+                                               :count 1}]
+                      []))
+                  query/all-nodes fail-broad-read
+                  query/all-edges fail-broad-read
+                  query/all-chunks fail-broad-read
+                  query/all-search-docs fail-broad-read
+                  query/all-embeddings fail-broad-read
+                  query/all-system-nodes fail-broad-read
+                  query/all-system-edges fail-broad-read
+                  query/all-system-evidence (fn [& _] [])
+                  activity/all-items (fn [& _] [])
+                  activity/all-events (fn [& _] [])]
+      (let [summary (evidence/summarize
+                     {:node :stub}
+                     {:id "project-a"
+                      :repos [{:id "app"
+                               :root "."}]}
+                     {:repo-id "app"
+                      :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})]
+        (is (= {:nodes 7
+                :edges 9
+                :chunks 3
+                :search-docs 4
+                :embeddings 5
+                :system-nodes 2
+                :system-edges 1}
+               (select-keys (:counts summary)
+                            [:nodes
+                             :edges
+                             :chunks
+                             :search-docs
+                             :embeddings
+                             :system-nodes
+                             :system-edges])))
+        (is (= [{:value "namespace"
+                 :count 6}
+                {:value "var"
+                 :count 1}]
+               (:top-node-kinds summary)))
+        (is (= [{:value "imports"
+                 :count 8}
+                {:value "uses"
+                 :count 1}]
+               (:top-edge-relations summary)))
+        (is (= {:nodes [{:value "namespace"
+                         :count 6}
+                        {:value "var"
+                         :count 1}]
+                :edges [{:value "imports"
+                         :count 8}
+                        {:value "uses"
+                         :count 1}]}
+               (get-in summary [:kinds :source-graph])))))
+    (is (= #{{:table :ygg/nodes
+              :field :kind
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/edges
+              :field :relation
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
+           (set @grouped-count-calls)))
+    (is (= #{{:table :ygg/nodes
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/edges
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/chunks
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/search-docs
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/embeddings
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/system-nodes
+              :constraints {:project-id "project-a"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/system-edges
+              :constraints {:project-id "project-a"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
+           (set @active-count-calls)))))
 
 (deftest deps-graph-uses-targeted-package-edge-reads
   (let [edge-calls (atom [])

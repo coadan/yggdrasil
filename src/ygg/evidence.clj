@@ -34,6 +34,27 @@
        (filter active?)
        vec))
 
+(defn- scope-constraints
+  [{:keys [project-id repo-id]}]
+  (cond-> {}
+    project-id (assoc :project-id project-id)
+    repo-id (assoc :repo-id repo-id)))
+
+(defn- active-row-total
+  [xtdb table {:keys [read-context] :as scope}]
+  (store/active-row-count xtdb
+                          table
+                          (scope-constraints scope)
+                          (store/read-context read-context)))
+
+(defn- active-field-counts
+  [xtdb table field {:keys [read-context] :as scope}]
+  (store/active-row-counts-by-field xtdb
+                                    table
+                                    field
+                                    (scope-constraints scope)
+                                    (store/read-context read-context)))
+
 (defn- display
   [value]
   (cond
@@ -50,6 +71,17 @@
         (map (fn [[value n]]
                {:value (display value)
                 :count n}))
+        (sort-by (juxt (comp - long :count) :value))
+        (take limit)
+        vec)))
+
+(defn- top-field-counts
+  ([counts] (top-field-counts counts 12))
+  ([counts limit]
+   (->> counts
+        (map (fn [{:keys [value count]}]
+               {:value (display value)
+                :count (long count)}))
         (sort-by (juxt (comp - long :count) :value))
         (take limit)
         vec)))
@@ -315,12 +347,14 @@
        vec))
 
 (defn- evidence-kinds
-  [{:keys [file-facts system-evidence nodes edges files]}]
+  [{:keys [file-facts system-evidence node-kind-counts edge-relation-counts files]}]
   (cond-> {}
     (seq file-facts) (assoc :file-facts (kind-counts file-facts))
     (seq system-evidence) (assoc :system-evidence (kind-counts system-evidence))
-    (seq nodes) (assoc-in [:source-graph :nodes] (top-counts nodes :kind))
-    (seq edges) (assoc-in [:source-graph :edges] (top-counts edges :relation))
+    (seq node-kind-counts) (assoc-in [:source-graph :nodes]
+                                     (top-field-counts node-kind-counts))
+    (seq edge-relation-counts) (assoc-in [:source-graph :edges]
+                                         (top-field-counts edge-relation-counts))
     (seq files) (assoc-in [:source-files :files] (top-counts files :kind))))
 
 (defn- dependency-health
@@ -817,29 +851,31 @@
 
   This is an inventory, not a per-question semantic confidence claim."
   [xtdb project {:keys [repo-id map-overlay config-path map-path read-context] :as opts}]
-  (let [scope (scope {:project-id (:id project)
-                      :repo-id repo-id
-                      :read-context read-context})
+  (let [read-scope (scope {:project-id (:id project)
+                           :repo-id repo-id
+                           :read-context read-context})
+        project-scope (scope {:project-id (:id project)
+                              :read-context read-context})
         coverage-report (coverage/project-coverage xtdb project opts)
         package-report (dependency/package-report xtdb
                                                   {:project-id (:id project)
                                                    :repo-id repo-id}
                                                   {:map-overlay map-overlay
                                                    :limit 0})
-        files (active-rows xtdb (:files store/tables) scope)
-        file-facts (active-rows xtdb (:file-facts store/tables) scope)
-        nodes (filter active? (query/all-nodes xtdb scope))
-        edges (filter active? (query/all-edges xtdb scope))
-        chunks (filter active? (query/all-chunks xtdb scope))
-        search-docs (query/all-search-docs xtdb scope)
-        embeddings (query/all-embeddings xtdb scope)
-        system-evidence (query/all-system-evidence xtdb scope)
+        files (active-rows xtdb (:files store/tables) read-scope)
+        file-facts (active-rows xtdb (:file-facts store/tables) read-scope)
+        node-kind-counts (active-field-counts xtdb (:nodes store/tables) :kind read-scope)
+        edge-relation-counts (active-field-counts xtdb (:edges store/tables) :relation read-scope)
+        node-count (active-row-total xtdb (:nodes store/tables) read-scope)
+        edge-count (active-row-total xtdb (:edges store/tables) read-scope)
+        chunk-count (active-row-total xtdb (:chunks store/tables) read-scope)
+        search-doc-count (active-row-total xtdb (:search-docs store/tables) read-scope)
+        embedding-count (active-row-total xtdb (:embeddings store/tables) read-scope)
+        system-evidence (query/all-system-evidence xtdb read-scope)
         runtime-config-evidence (filter runtime-config-evidence? system-evidence)
         auth-evidence (filter auth-evidence? system-evidence)
-        system-nodes (query/all-system-nodes xtdb {:project-id (:id project)
-                                                   :read-context read-context})
-        system-edges (query/all-system-edges xtdb {:project-id (:id project)
-                                                   :read-context read-context})
+        system-node-count (active-row-total xtdb (:system-nodes store/tables) project-scope)
+        system-edge-count (active-row-total xtdb (:system-edges store/tables) project-scope)
         activity-items (activity/all-items xtdb {:project-id (:id project)
                                                  :read-context read-context})
         activity-events (activity/all-events xtdb {:project-id (:id project)
@@ -851,11 +887,11 @@
         freshness (freshness-summary files project repo-id)
         counts (merge {:files (count files)
                        :file-facts (count file-facts)
-                       :nodes (count nodes)
-                       :edges (count edges)
-                       :chunks (count chunks)
-                       :search-docs (count search-docs)
-                       :embeddings (count embeddings)
+                       :nodes node-count
+                       :edges edge-count
+                       :chunks chunk-count
+                       :search-docs search-doc-count
+                       :embeddings embedding-count
                        :system-evidence (count system-evidence)
                        :runtime-config-evidence (count runtime-config-evidence)
                        :auth-references (count auth-evidence)
@@ -865,8 +901,8 @@
                        :private-key-references (auth-context-count auth-evidence
                                                                    "private-key")
                        :api-key-references (auth-context-count auth-evidence "api-key")
-                       :system-nodes (count system-nodes)
-                       :system-edges (count system-edges)
+                       :system-nodes system-node-count
+                       :system-edges system-edge-count
                        :packages (get-in package-report [:counts :packages] 0)
                        :package-versions (get-in package-report [:counts :versions] 0)
                        :package-imports (get-in package-report [:counts :imports-package] 0)
@@ -893,8 +929,8 @@
                                  [:total :by-stage :by-extractor])
         kinds (evidence-kinds {:files files
                                :file-facts file-facts
-                               :nodes nodes
-                               :edges edges
+                               :node-kind-counts node-kind-counts
+                               :edge-relation-counts edge-relation-counts
                                :system-evidence system-evidence})
         state (evidence-state freshness diagnostics counts)
         actions (next-actions {:project project
@@ -912,8 +948,8 @@
      :state state
      :counts counts
      :top-file-kinds (vec (take 12 (:files-by-kind coverage-report)))
-     :top-node-kinds (top-counts nodes :kind)
-     :top-edge-relations (top-counts edges :relation)
+     :top-node-kinds (top-field-counts node-kind-counts)
+     :top-edge-relations (top-field-counts edge-relation-counts)
      :extractors (vec (take 20 (:extractors coverage-report)))
      :indexedConnectivity (:indexedConnectivity coverage-report)
      :skipped-by-extension (vec (take 8 (:skipped-by-extension coverage-report)))
