@@ -347,6 +347,11 @@
   ([xtdb opts]
    (scoped-rows xtdb (:nodes store/tables) opts)))
 
+(defn active-nodes
+  ([xtdb] (active-nodes xtdb {}))
+  ([xtdb opts]
+   (scoped-rows xtdb (:nodes store/tables) opts {:active? true})))
+
 (defn all-files
   ([xtdb] (all-files xtdb {}))
   ([xtdb opts]
@@ -356,6 +361,11 @@
   ([xtdb] (all-edges xtdb {}))
   ([xtdb opts]
    (scoped-rows xtdb (:edges store/tables) opts)))
+
+(defn active-edges
+  ([xtdb] (active-edges xtdb {}))
+  ([xtdb opts]
+   (scoped-rows xtdb (:edges store/tables) opts {:active? true})))
 
 (defn edges-by-file-ids
   "Return source graph edge rows for concrete file ids within scope."

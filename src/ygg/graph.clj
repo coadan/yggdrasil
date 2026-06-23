@@ -208,12 +208,12 @@
 (defn- active-nodes
   ([xtdb] (active-nodes xtdb {}))
   ([xtdb opts]
-   (filter :active? (query/all-nodes xtdb opts))))
+   (query/active-nodes xtdb opts)))
 
 (defn- active-edges
   ([xtdb] (active-edges xtdb {}))
   ([xtdb opts]
-   (filter :active? (query/all-edges xtdb opts))))
+   (query/active-edges xtdb opts)))
 
 (defn- stub-node
   [id]

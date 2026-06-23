@@ -443,6 +443,60 @@
     (is (every? #(some #{:file-id} (:return-fields %)) @calls))
     (is (every? #(some #{:source-line} (:return-fields %)) @calls))))
 
+(deftest active-source-rows-use-constrained-active-queries
+  (let [calls (atom [])
+        valid-at #inst "2026-01-01T00:00:00Z"]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table constraints & [ctx]]
+                    (swap! calls conj {:table table
+                                       :constraints constraints
+                                       :ctx ctx})
+                    (case table
+                      :ygg/nodes [{:xt/id "node:a"
+                                   :project-id "project-a"
+                                   :repo-id "app"
+                                   :active? true}]
+                      :ygg/edges [{:xt/id "edge:a-b"
+                                   :project-id "project-a"
+                                   :repo-id "app"
+                                   :source-id "node:a"
+                                   :target-id "node:b"
+                                   :active? true}]
+                      []))
+                  query/all-nodes
+                  (fn [& _]
+                    (throw (ex-info "active node reads should not hydrate all nodes"
+                                    {})))
+                  query/all-edges
+                  (fn [& _]
+                    (throw (ex-info "active edge reads should not hydrate all edges"
+                                    {})))]
+      (is (= ["node:a"]
+             (mapv :xt/id
+                   (query/active-nodes
+                    {:node :stub}
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at valid-at}))))
+      (is (= ["edge:a-b"]
+             (mapv :xt/id
+                   (query/active-edges
+                    {:node :stub}
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at valid-at})))))
+    (is (= [{:table :ygg/nodes
+             :constraints {:project-id "project-a"
+                           :repo-id "app"
+                           :active? true}
+             :ctx {:valid-at valid-at}}
+            {:table :ygg/edges
+             :constraints {:project-id "project-a"
+                           :repo-id "app"
+                           :active? true}
+             :ctx {:valid-at valid-at}}]
+           @calls))))
+
 (deftest count-rows-uses-sql-count-for-xtdb-handles
   (let [calls (atom [])]
     (with-redefs [store/q
@@ -1811,6 +1865,61 @@
                   edge-calls))
       (is (= [["node:a"] ["node:c"] ["node:b"]]
              (mapv (comp vec :values) node-calls))))))
+
+(deftest overview-graph-uses-active-source-row-helpers
+  (let [calls (atom [])
+        nodes [{:xt/id "node:a"
+                :project-id "project-a"
+                :repo-id "app"
+                :label "A"
+                :kind :var
+                :active? true}
+               {:xt/id "node:b"
+                :project-id "project-a"
+                :repo-id "app"
+                :label "B"
+                :kind :var
+                :active? true}]
+        edges [{:xt/id "edge:a-b"
+                :project-id "project-a"
+                :repo-id "app"
+                :source-id "node:a"
+                :target-id "node:b"
+                :relation :uses
+                :active? true}]]
+    (with-redefs [query/active-nodes
+                  (fn [_ opts]
+                    (swap! calls conj [:nodes opts])
+                    nodes)
+                  query/active-edges
+                  (fn [_ opts]
+                    (swap! calls conj [:edges opts])
+                    edges)
+                  query/all-nodes
+                  (fn [& _]
+                    (throw (ex-info "overview graph should not hydrate all nodes"
+                                    {})))
+                  query/all-edges
+                  (fn [& _]
+                    (throw (ex-info "overview graph should not hydrate all edges"
+                                    {})))
+                  store/metadata-for-targets (fn [& _] [])
+                  store/metadata-defs (fn [& _] [])]
+      (let [result (graph/overview-graph
+                    {:node :stub}
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :limit 10
+                     :valid-at #inst "2026-01-01T00:00:00Z"})]
+        (is (= #{"node:a" "node:b"} (set (map :id (:nodes result)))))
+        (is (= ["edge:a-b"] (mapv :id (:edges result))))))
+    (is (= [[:nodes {:project-id "project-a"
+                     :repo-id "app"
+                     :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+            [:edges {:project-id "project-a"
+                     :repo-id "app"
+                     :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}]]
+           @calls))))
 
 (deftest query-graph-uses-bounded-neighborhood-reads
   (let [edge-calls (atom [])
