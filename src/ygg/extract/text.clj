@@ -67,12 +67,56 @@
                                            escaped-next?))))))
                 :else nil))))))))
 
+(defn- json-string-literal-end
+  [content start-idx]
+  (let [length (count content)]
+    (loop [idx (inc start-idx)
+           escaped? false]
+      (when (< idx length)
+        (let [ch (.charAt ^String content idx)]
+          (cond
+            escaped? (recur (inc idx) false)
+            (= \\ ch) (recur (inc idx) true)
+            (= \" ch) idx
+            :else (recur (inc idx) false)))))))
+
+(defn- json-number-literal-end
+  [content start-idx]
+  (let [length (count content)]
+    (loop [idx start-idx]
+      (if (and (< idx length)
+               (let [ch (.charAt ^String content idx)]
+                 (or (Character/isDigit ch)
+                     (= \- ch)
+                     (= \+ ch)
+                     (= \. ch)
+                     (= \e ch)
+                     (= \E ch))))
+        (recur (inc idx))
+        idx))))
+
+(defn- json-local-value-text
+  [content key-name]
+  (when-let [key-idx (str/index-of content (str "\"" key-name "\""))]
+    (when-let [colon-idx (str/index-of content ":" key-idx)]
+      (let [length (count content)]
+        (loop [idx (inc colon-idx)]
+          (when (< idx length)
+            (let [ch (.charAt ^String content idx)]
+              (cond
+                (Character/isWhitespace ch) (recur (inc idx))
+                (= \" ch) (when-let [end-idx (json-string-literal-end content idx)]
+                            (subs content idx (inc end-idx)))
+                (or (= \- ch) (Character/isDigit ch)) (let [end-idx (json-number-literal-end
+                                                                     content
+                                                                     idx)]
+                                                        (subs content idx end-idx))
+                :else nil))))))))
+
 (defn- json-field-value
   [content key-name]
-  (when-let [[_ value] (re-find (re-pattern (str "\"" key-name "\"\\s*:\\s*"
-                                                 "(\"(?:\\\\.|[^\"\\\\])*\"|-?\\d+(?:\\.\\d+)?)"))
-                                content)]
-    (common/read-json-value value)))
+  (some-> (json-local-value-text content key-name)
+          common/read-json-value))
 
 (defn- source-map-sources
   [content]

@@ -1249,11 +1249,12 @@
         sources (mapv #(str "../src/module-" % ".js") (range 260))
         source-json (fn [value] (str "\"" value "\""))
         source-map-content (str "{\"version\":3,"
-                                "\"file\":\"bundle.js\","
                                 "\"sources\":["
                                 (str/join "," (map source-json sources))
                                 "],"
-                                "\"sourcesContent\":[\"large generated body\"]}")
+                                "\"sourcesContent\":[\"large generated body\"],"
+                                "\"sourceRoot\":\"webpack://app\","
+                                "\"file\":\"bundle\\\"prod.js\"}")
         source (doto (io/file root "bundle.js.map")
                  (spit source-map-content))
         file (fs/file-record (.getPath root) (.getPath source))
@@ -1268,6 +1269,8 @@
     (is (= 256 (:source-map-source node-kinds)))
     (is (= 256 (:references relations)))
     (is (= [:source-map-file] (mapv :kind (:chunks result))))
+    (is (str/includes? (:text chunk) "bundle\"prod.js"))
+    (is (str/includes? (:text chunk) "webpack://app"))
     (is (str/includes? (:text chunk) "../src/module-0.js"))
     (is (not (str/includes? (:text chunk) "large generated body")))
     (is (= :source-map-source-limit (:stage diagnostic)))
