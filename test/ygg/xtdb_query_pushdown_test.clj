@@ -626,6 +626,83 @@
               :args ["project-a" "app" 5]}
              ctx)))))
 
+(deftest rows-with-min-field-value-uses-sql-comparison-for-xtdb-handles
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (swap! calls conj {:query query
+                                       :ctx ctx})
+                    [{"_id" "edge:a"
+                      "confidence" 0.8}])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "minimum field reads should not hydrate all rows"
+                                    {})))]
+      (is (= [{:xt/id "edge:a"
+               :confidence 0.8}]
+             (mapv #(select-keys % [:xt/id :confidence])
+                   (store/rows-with-min-field-value
+                    {:node :stub}
+                    {:table (:system-edges store/tables)
+                     :field :confidence
+                     :min-value 0.55
+                     :constraints {:project-id "project-a"
+                                   :active? true}
+                     :return-fields [:xt/id :confidence]
+                     :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})))))
+    (is (= 1 (count @calls)))
+    (let [{:keys [query ctx]} (first @calls)]
+      (is (string? query))
+      (is (str/includes? query "SELECT \"_id\" AS \"_id\""))
+      (is (str/includes? query "FROM ygg.system_edges"))
+      (is (str/includes? query "\"active?\" = ?"))
+      (is (str/includes? query "\"project_id\" = ?"))
+      (is (str/includes? query "\"confidence\" >= ?"))
+      (is (not (str/includes? query "*")))
+      (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
+              :args [true "project-a" 0.55]}
+             ctx)))))
+
+(deftest system-graph-edges-use-confidence-pushdown
+  (let [calls (atom [])]
+    (with-redefs [store/rows-with-min-field-value
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    [{:xt/id "edge:system"
+                      :project-id "project-a"
+                      :source-id "system:a"
+                      :target-id "system:b"
+                      :relation :calls-http
+                      :confidence 0.8
+                      :active? true}])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "system graph edges should not hydrate all active edges"
+                                    {})))]
+      (is (= ["edge:system"]
+             (mapv :xt/id
+                   (#'graph/active-system-edges
+                    :xtdb
+                    "project-a"
+                    0.55
+                    {:valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= [{:table (:system-edges store/tables)
+             :field :confidence
+             :min-value 0.55
+             :constraints {:project-id "project-a"
+                           :active? true}
+             :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           (mapv #(select-keys % [:table
+                                  :field
+                                  :min-value
+                                  :constraints
+                                  :read-context])
+                 @calls)))
+    (is (some #{:source-id} (:return-fields (first @calls))))
+    (is (some #{:target-id} (:return-fields (first @calls))))
+    (is (some #{:confidence} (:return-fields (first @calls))))
+    (is (not-any? #{'*} (:return-fields (first @calls))))))
+
 (deftest map-review-uses-paged-system-read-and-count-pushdown
   (let [page-calls (atom [])
         count-calls (atom [])]

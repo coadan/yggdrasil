@@ -663,6 +663,22 @@
                (limited-sql limit))
      :args (limited-args args limit)}))
 
+(defn- min-field-query
+  [table field min-value constraints return-fields]
+  (let [constraints (->> (clean-constraints constraints)
+                         (sort-by (comp str key))
+                         vec)
+        {where-clauses :where args :args} (equality-sql constraints)
+        where-clauses (conj where-clauses
+                            (str (sql-column-name field) " >= ?"))]
+    {:sql (str "SELECT "
+               (select-sql return-fields)
+               " FROM "
+               (sql-table-name table)
+               " WHERE "
+               (str/join " AND " where-clauses))
+     :args (conj (vec args) min-value)}))
+
 (defn- active-unless-false-sql
   []
   (let [field (sql-column-name :active?)]
@@ -732,6 +748,32 @@
           rows (if limit
                  (take limit rows)
                  rows)]
+      (if (seq return-fields)
+        (map #(select-keys % return-fields) rows)
+        rows))))
+
+(defn rows-with-min-field-value
+  "Return rows matching equality constraints where numeric `field` is >= value.
+
+  Real XTDB handles use SQL comparison pushdown with explicit projections. Test
+  doubles fall back through constrained row reads and the same numeric compare."
+  [xtdb {:keys [table field min-value constraints return-fields read-context]
+         :or {constraints {}
+              read-context {}}}]
+  (if (xtdb-handle? xtdb)
+    (let [{:keys [sql args]} (min-field-query table
+                                              field
+                                              min-value
+                                              constraints
+                                              return-fields)]
+      (map #(normalize-projected-sql-row return-fields %)
+           (q xtdb sql (assoc read-context :args args))))
+    (let [rows (->> (fallback-constrained-rows xtdb
+                                               table
+                                               (clean-constraints constraints)
+                                               read-context)
+                    (filter #(<= (double min-value)
+                                 (double (get % field)))))]
       (if (seq return-fields)
         (map #(select-keys % return-fields) rows)
         rows))))

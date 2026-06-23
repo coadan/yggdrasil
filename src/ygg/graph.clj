@@ -549,14 +549,29 @@
                            :active? true}
                           (store/read-context opts)))
 
+(def ^:private system-graph-edge-row-fields
+  [:xt/id
+   :project-id
+   :source-id
+   :target-id
+   :relation
+   :confidence
+   :evidence-ids
+   :rules
+   :active?
+   :run-id])
+
 (defn- active-system-edges
   [xtdb project-id min-confidence opts]
-  (->> (store/constrained-rows xtdb
-                               (:system-edges store/tables)
-                               {:project-id project-id
-                                :active? true}
-                               (store/read-context opts))
-       (filter #(<= (double min-confidence) (double (:confidence %))))))
+  (store/rows-with-min-field-value
+   xtdb
+   {:table (:system-edges store/tables)
+    :field :confidence
+    :min-value (double min-confidence)
+    :constraints {:project-id project-id
+                  :active? true}
+    :return-fields system-graph-edge-row-fields
+    :read-context (store/read-context opts)}))
 
 (defn system-graph
   "Return project-level system graph."
