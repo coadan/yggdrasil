@@ -7,6 +7,7 @@
             [ygg.context :as context]
             [ygg.extract :as extract]
             [ygg.project :as project]
+            [ygg.text :as text]
             [ygg.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -2691,6 +2692,33 @@
     (is (= 7 (get-in file [:metrics :candidateSourceRank])))
     (is (= 2 (get-in file [:metrics :candidateSupportLabelCount])))
     (is (pos? (get-in file [:metrics :candidateLexicalComponentBoost])))))
+
+(deftest candidate-file-ranking-tokenizes-evidence-text-once-for-token-pairs
+  (let [root (temp-dir "ygg-bench-candidate-file-token-pairs")
+        _ (spit-file! root "src/http_adapter.clj" "(ns http-adapter)\n")
+        tokenize text/tokenize
+        evidence-text "src/http_adapter.clj\nhttp adapter\nproxy env"
+        calls (atom 0)]
+    (with-redefs [text/tokenize (fn [value]
+                                  (when (= evidence-text (str value))
+                                    (swap! calls inc))
+                                  (tokenize value))]
+      (let [file (-> (benchmark/context-packet->agent-result
+                      {:query "http adapter proxy env"
+                       :candidateFiles [{:path "src/http_adapter.clj"
+                                         :rank 1
+                                         :score 1.0
+                                         :targetKind "file"
+                                         :label "http adapter"
+                                         :supportLabels ["proxy env"]
+                                         :scoreComponents {:sourceGraph 1.0
+                                                           :lexical 1.0}}]}
+                      {:root root})
+                     :suspectedFiles
+                     first)]
+        (is (= "src/http_adapter.clj" (:path file)))
+        (is (= 1 @calls))
+        (is (pos? (get-in file [:metrics :matchedTokenPairCount])))))))
 
 (deftest context-packet-agent-result-does-not-report-budget-trim-as-warning
   (let [root (temp-dir "ygg-bench-budget-trim-warning-scope")

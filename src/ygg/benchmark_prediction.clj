@@ -319,6 +319,15 @@
   (let [query-pairs (ordered-token-pairs query-tokens)
         evidence-pairs (ordered-token-pairs (text/tokenize text))]
     (set/intersection query-pairs evidence-pairs)))
+(defn- token-and-pair-matches
+  [query-tokens text]
+  (let [query-token-set (set query-tokens)
+        query-pairs (ordered-token-pairs query-tokens)
+        evidence-tokens (text/tokenize text)]
+    {:matched-tokens (set/intersection query-token-set
+                                       (set evidence-tokens))
+     :matched-token-pairs (set/intersection query-pairs
+                                            (ordered-token-pairs evidence-tokens))}))
 (defn- compact-compound-token-pair-matches
   [query-tokens text]
   (let [query-pairs (ordered-token-pairs query-tokens)
@@ -865,8 +874,8 @@
                                             (concat [(:path candidate)
                                                      (:label candidate)]
                                                     support-labels)))
-            matched-tokens (token-matches query-tokens evidence-text)
-            matched-token-pairs (compact-token-pair-matches query-tokens evidence-text)
+            {:keys [matched-tokens matched-token-pairs]}
+            (token-and-pair-matches query-tokens evidence-text)
             matched-compound-token-pairs (compact-compound-token-pair-matches
                                           query-tokens
                                           evidence-text)
