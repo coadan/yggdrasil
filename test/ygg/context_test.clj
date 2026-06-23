@@ -158,6 +158,21 @@
                      900)))))
     (is (= 2 @definition-kind-tokenizations))))
 
+(deftest chunk-score-uses-precomputed-retrieval-score
+  (let [chunk-score @#'context/chunk-score
+        score (chunk-score
+               ["target"]
+               []
+               {}
+               {:xt/id "chunk:target"
+                :path "docs/target.md"
+                :kind :markdown
+                :label "Target"
+                :text "target details"
+                :tokens ["target"]
+                :retrieval-score 2.5})]
+    (is (<= 2.5 score))))
+
 (deftest select-entities-reuses-node-result-match
   (let [select-entities @#'context/select-entities
         match-calls (atom 0)]

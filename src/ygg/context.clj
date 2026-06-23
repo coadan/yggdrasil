@@ -420,15 +420,8 @@
   [query-tokens
    selected-label-tokens
    definition-kind-scores
-   result-scores
-   result-scores-by-path-label
-   result-scores-by-file-path
    chunk]
-  (+ (double (or (result-score-for-chunk result-scores
-                                         result-scores-by-path-label
-                                         result-scores-by-file-path
-                                         chunk)
-                 0.0))
+  (+ (double (or (:retrieval-score chunk) 0.0))
      (* 0.35 (capped-candidate-token-score query-tokens
                                            (chunk-search-tokens chunk)))
      (* 0.45 (double (get definition-kind-scores
@@ -446,6 +439,14 @@
                                     (display-name definition-kind))]))
         (distinct (map :definition-kind chunks))))
 
+(defn- chunk-with-retrieval-score
+  [result-scores result-scores-by-path-label result-scores-by-file-path chunk]
+  (assoc chunk
+         :retrieval-score (result-score-for-chunk result-scores
+                                                  result-scores-by-path-label
+                                                  result-scores-by-file-path
+                                                  chunk)))
+
 (defn- inferred-docs
   [query-tokens results chunks entities snippet-chars]
   (let [result-scores (result-score-by-target results)
@@ -455,23 +456,17 @@
         definition-kind-scores (chunk-definition-kind-scores query-tokens chunks)
         selected-label-tokens (text/tokenize (str/join " " (map :label entities)))]
     (->> chunks
+         (map #(chunk-with-retrieval-score result-scores
+                                           result-scores-by-path-label
+                                           result-scores-by-file-path
+                                           %))
          (filter #(or (= :markdown (:kind %))
-                      (result-score-for-chunk result-scores
-                                              result-scores-by-path-label
-                                              result-scores-by-file-path
-                                              %)))
+                      (:retrieval-score %)))
          (map #(assoc % :context-score (chunk-score query-tokens
                                                     selected-label-tokens
                                                     definition-kind-scores
-                                                    result-scores
-                                                    result-scores-by-path-label
-                                                    result-scores-by-file-path
                                                     %)
-                      :retrieved? (boolean (result-score-for-chunk
-                                            result-scores
-                                            result-scores-by-path-label
-                                            result-scores-by-file-path
-                                            %))
+                      :retrieved? (boolean (:retrieval-score %))
                       :exact-path? (>= (double (get-in results-by-target
                                                        [(:xt/id %) :score-components :exact]
                                                        0.0))
