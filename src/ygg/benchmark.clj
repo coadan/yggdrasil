@@ -1010,11 +1010,11 @@
         (catch Exception _
           nil)))))
 
-(defn- score-agent-result-run-summary
+(defn- score-agent-result-run
   [suite case prepared agent-result result-file opts]
   (let [run (read-json-artifact (benchmark-paths/agent-run-path suite case opts))]
     (when (compatible-agent-run? prepared agent-result result-file run)
-      (:ygg run))))
+      run)))
 
 (defn- result-file-context-path
   [result-file]
@@ -1067,12 +1067,13 @@
   [suite case opts prepared agent-result result-file existing-score scored]
   (if (= "ygg" (str (get-in scored [:agent :mode])))
     (let [artifact-opts (scoring-artifact-opts opts agent-result result-file)
-          run-summary (score-agent-result-run-summary suite
-                                                      case
-                                                      prepared
-                                                      agent-result
-                                                      result-file
-                                                      artifact-opts)
+          run (score-agent-result-run suite
+                                      case
+                                      prepared
+                                      agent-result
+                                      result-file
+                                      artifact-opts)
+          run-summary (:ygg run)
           run-context-path (benchmark-paths/agent-run-context-path suite
                                                                    case
                                                                    artifact-opts)
@@ -1145,7 +1146,9 @@
             benchmark-activity
             (assoc :benchmarkActivity (:activity benchmark-activity))
             sync-inspect
-            (assoc :syncInspect sync-inspect))
+            (assoc :syncInspect sync-inspect)
+            (:agentPreparation run)
+            (assoc :agentPreparation (:agentPreparation run)))
           (benchmark-preflight/assoc-run-preflight maintenance-preflight)))
     scored))
 
@@ -1261,6 +1264,8 @@
                                   :agentResultPath (fs/canonical-path result-path)
                                   :parserWorker (parser-worker-profile opts))
                            maintenance-preflight)
+                    (:preparation ygg-prep)
+                    (assoc :agentPreparation (:preparation ygg-prep))
                     context-ranks
                     (assoc :contextGroundTruthRanks context-ranks)
                     context-artifacts

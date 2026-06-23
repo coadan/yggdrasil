@@ -608,6 +608,7 @@
    :improvementTargetRunsByKind (benchmark-targets/target-runs-by-kind report)
    :tags (:tags report)
    :claimReadiness (:claimReadiness report)
+   :agentPreparation (:agentPreparation report)
    :timings (:timings report)})
 
 (defn- rows-by-key
@@ -786,6 +787,34 @@
         (assoc :ygg ygg-telemetry
                :progressiveDisclosure
                (progressive-disclosure-summary ygg-telemetry))))))
+
+(defn- prepared-agent-status
+  [summary]
+  (cond
+    (nil? summary)
+    "unavailable"
+
+    (true? (:allRunsReadyBeforeAgent summary))
+    "ready-before-agent"
+
+    (pos? (long (or (:preparedDuringAgentRuns summary) 0)))
+    "prepared-during-agent-run"
+
+    (pos? (long (or (:missingRuns summary) 0)))
+    "missing-preparation-evidence"
+
+    :else
+    "mixed"))
+
+(defn- prepared-agent-evidence
+  [shell-report ygg-report]
+  (let [shell-preparation (:agentPreparation shell-report)
+        ygg-preparation (:agentPreparation ygg-report)]
+    (when (or shell-preparation ygg-preparation)
+      {:status (prepared-agent-status ygg-preparation)
+       :shellOnly shell-preparation
+       :ygg ygg-preparation
+       :primaryWarmBasis "Yggdrasil warmElapsedMs is strongest when the Ygg lane reports allRunsReadyBeforeAgent=true; otherwise setup was only amortized or preparation evidence is missing."})))
 
 (defn- tag-comparability
   [shell-report ygg-report]
@@ -1481,6 +1510,8 @@
          headline-metrics (headline-metric-deltas-from-deltas deltas)
          quality-cost-tradeoff (quality-token-tradeoff deltas)
          context-artifacts (context-artifact-comparison shell-report ygg-report)
+         prepared-agent-evidence-result (prepared-agent-evidence shell-report
+                                                                 ygg-report)
          compact-summary-result (compact-summary
                                  {:summary summary
                                   :claim-summary claim-summary
@@ -1515,6 +1546,8 @@
               :caseDeltas case-deltas-result}
        context-artifacts
        (assoc :contextArtifacts context-artifacts)
+       prepared-agent-evidence-result
+       (assoc :preparedAgentEvidence prepared-agent-evidence-result)
        quality-cost-tradeoff
        (assoc :qualityCostTradeoff quality-cost-tradeoff)))))
 
@@ -1765,6 +1798,24 @@
       (get-in comparison [:shellOnly :timings :stageTiming :basis])
       "warmElapsedMs assumes a prepared-agent run: the Yggdrasil graph DB and agent context are already prepared, so graph setup and agent preparation are reported as amortized setup instead of counted in the primary elapsed metric."))
 
+(defn- preparation-evidence-line
+  [label summary]
+  (str "- " label
+       ": reused "
+       (format-metric-value (:reusedRuns summary))
+       "/"
+       (format-metric-value (:runs summary))
+       ", prepared during agent-run "
+       (format-metric-value (:preparedDuringAgentRuns summary))
+       ", missing evidence "
+       (format-metric-value (:missingRuns summary))
+       ", ready before agent "
+       (format-metric-value (:allRunsReadyBeforeAgent summary))))
+
+(defn- preparation-warning-lines
+  [summary]
+  (map #(str "- Warning: " %) (:warnings summary)))
+
 (defn- claim-requirement-line
   [requirements key]
   (str "- " (name key) ": " (if (true? (get requirements key))
@@ -1795,6 +1846,7 @@
         notes (get-in comparison [:claimReadiness :notes])
         headline-summary (:headlineSummary comparison)
         context-artifacts (:contextArtifacts comparison)
+        prepared-agent-evidence (:preparedAgentEvidence comparison)
         shell-timings (get-in comparison [:shellOnly :timings])
         ygg-timings (get-in comparison [:ygg :timings])
         key-deltas (headline-metric-deltas comparison)
@@ -1914,6 +1966,27 @@
                           (timing-basis-line "Shell-only" shell-timings))
                         (when ygg-timings
                           (timing-basis-line "Yggdrasil" ygg-timings))])))
+              (when prepared-agent-evidence
+                (concat
+                 [""
+                  "## Prepared-Agent Evidence"
+                  ""
+                  (str "- Status: " (:status prepared-agent-evidence))
+                  (str "- Basis: "
+                       (:primaryWarmBasis prepared-agent-evidence))]
+                 (keep identity
+                       [(when-let [shell-preparation
+                                   (:shellOnly prepared-agent-evidence)]
+                          (preparation-evidence-line "Shell-only"
+                                                     shell-preparation))
+                        (when-let [ygg-preparation
+                                   (:ygg prepared-agent-evidence)]
+                          (preparation-evidence-line "Yggdrasil"
+                                                     ygg-preparation))])
+                 (mapcat preparation-warning-lines
+                         (keep identity
+                               [(:shellOnly prepared-agent-evidence)
+                                (:ygg prepared-agent-evidence)]))))
               (when (seq key-deltas)
                 (concat ["" "## Key Metric Deltas" ""]
                         (map metric-delta-line key-deltas)))

@@ -735,6 +735,38 @@
     (is (.contains markdown
                    "- Ygg progressive disclosure: compact hints 4000 vs full hints 16000, saved 12000 (ratio 0.75), frontload 6000, expansion available 40000, readPlan snippets 6 (1800 bytes)"))))
 
+(deftest reports-prepared-agent-evidence-for-warm-timing
+  (let [preparation {:runs 2
+                     :caseIds ["case-1" "case-2"]
+                     :statusCounts {"reused" 2}
+                     :reusedRuns 2
+                     :reusedCaseIds ["case-1" "case-2"]
+                     :preparedDuringAgentRuns 0
+                     :preparedDuringAgentCaseIds []
+                     :missingRuns 0
+                     :missingCaseIds []
+                     :otherStatusRuns 0
+                     :otherStatusCaseIds []
+                     :otherStatuses []
+                     :allRunsReadyBeforeAgent true
+                     :basis "reused means the graph DB, context packet, and compact hints were prepared before the measured agent process started; prepared means the same agent-run command created them and warmElapsedMs only amortizes that setup cost."
+                     :warnings []}
+        comparison (agent-efficiency/compare-reports
+                    shell-report
+                    (assoc ygg-report :agentPreparation preparation))
+        markdown (agent-efficiency/markdown-report comparison)]
+    (is (= {:status "ready-before-agent"
+            :shellOnly nil
+            :ygg preparation
+            :primaryWarmBasis "Yggdrasil warmElapsedMs is strongest when the Ygg lane reports allRunsReadyBeforeAgent=true; otherwise setup was only amortized or preparation evidence is missing."}
+           (:preparedAgentEvidence comparison)))
+    (is (= preparation
+           (get-in comparison [:ygg :agentPreparation])))
+    (is (.contains markdown "## Prepared-Agent Evidence"))
+    (is (.contains markdown "- Status: ready-before-agent"))
+    (is (.contains markdown
+                   "- Yggdrasil: reused 2/2, prepared during agent-run 0, missing evidence 0, ready before agent true"))))
+
 (deftest compares-task-token-usage-per-shared-case
   (let [shell (-> shell-report
                   (assoc-in [:results 0 :agent :tokenUsage]

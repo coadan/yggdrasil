@@ -78,6 +78,9 @@
                                                :missingEdges 0
                                                :forbiddenEdges 1
                                                :forbiddenEdgeViolations 1}}
+                 :agentPreparation {:status "reused"
+                                    :path "/tmp/ygg-preparation.json"
+                                    :preparedAt "2026-06-18T00:00:01Z"}
                  :agent {:agentId "codex"
                          :mode "ygg"
                          :topFiles [{:path "src/other.clj"
@@ -241,6 +244,26 @@
                :cases 1
                :caseIds ["case-1"]}]
              (:parserWorkers report)))
+      (is (= {:runs 1
+              :caseIds ["case-1"]
+              :statusCounts {"reused" 1}
+              :reusedRuns 1
+              :reusedCaseIds ["case-1"]
+              :preparedDuringAgentRuns 0
+              :preparedDuringAgentCaseIds []
+              :missingRuns 0
+              :missingCaseIds []
+              :otherStatusRuns 0
+              :otherStatusCaseIds []
+              :otherStatuses []
+              :allRunsReadyBeforeAgent true
+              :basis "reused means the graph DB, context packet, and compact hints were prepared before the measured agent process started; prepared means the same agent-run command created them and warmElapsedMs only amortizes that setup cost."
+              :warnings []}
+             (:agentPreparation report)))
+      (is (= (:agentPreparation report)
+             (get-in ygg-mode [:agentPreparation])))
+      (is (= "reused"
+             (get-in report [:results 0 :agentPreparation :status])))
       (is (= {:inputHintedRuns 1
               :inputHintedCases 1
               :inputHintedCaseIds ["case-1"]}

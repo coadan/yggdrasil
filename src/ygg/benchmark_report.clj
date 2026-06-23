@@ -122,6 +122,67 @@
   [results]
   (benchmark-context-artifacts/aggregate-context-artifact-telemetry results))
 
+(defn- result-case-ids
+  [results]
+  (->> results
+       (map :case-id)
+       distinct
+       sort
+       vec))
+
+(defn- agent-preparation-status
+  [result]
+  (some-> result :agentPreparation :status str not-empty))
+
+(defn- agent-preparation-summary
+  [results]
+  (let [results (vec results)
+        ygg-results (filter #(= "ygg" (str (get-in % [:agent :mode])))
+                            results)
+        status-groups (group-by #(or (agent-preparation-status %) "missing")
+                                ygg-results)
+        status-counts (into (sorted-map)
+                            (map (fn [[status rows]]
+                                   [status (count rows)]))
+                            status-groups)
+        rows-for-status (fn [status]
+                          (vec (get status-groups status)))
+        reused (rows-for-status "reused")
+        prepared (rows-for-status "prepared")
+        missing (rows-for-status "missing")
+        other-statuses (->> (keys status-groups)
+                            (remove #{"reused" "prepared" "missing"})
+                            sort
+                            vec)
+        other (mapcat status-groups other-statuses)
+        runs (count ygg-results)
+        all-reused? (and (pos? runs)
+                         (= runs (count reused)))]
+    (when (pos? runs)
+      {:runs runs
+       :caseIds (result-case-ids ygg-results)
+       :statusCounts status-counts
+       :reusedRuns (count reused)
+       :reusedCaseIds (result-case-ids reused)
+       :preparedDuringAgentRuns (count prepared)
+       :preparedDuringAgentCaseIds (result-case-ids prepared)
+       :missingRuns (count missing)
+       :missingCaseIds (result-case-ids missing)
+       :otherStatusRuns (count other)
+       :otherStatusCaseIds (result-case-ids other)
+       :otherStatuses other-statuses
+       :allRunsReadyBeforeAgent all-reused?
+       :basis "reused means the graph DB, context packet, and compact hints were prepared before the measured agent process started; prepared means the same agent-run command created them and warmElapsedMs only amortizes that setup cost."
+       :warnings (cond-> []
+                   (seq prepared)
+                   (conj "At least one Yggdrasil run prepared graph/context artifacts inside the measured agent-run command; use prepare-ygg first for a strict warm benchmark.")
+
+                   (seq missing)
+                   (conj "At least one Yggdrasil run is missing agentPreparation evidence; regenerate scores or rerun the lane before treating warmElapsedMs as prepared-run timing.")
+
+                   (seq other)
+                   (conj "At least one Yggdrasil run has an unrecognized agentPreparation status."))})))
+
 (defn agent-output-diagnostic
   [result]
   (let [top-files (get-in result [:agent :topFiles])
@@ -1005,22 +1066,25 @@
   (->> results
        (group-by #(or (get-in % key-path) "unknown"))
        (map (fn [[k rows]]
-              (let [row {:key k
-                         :runs (count rows)
-                         :scores (aggregate-agent-scores rows)
-                         :inputHints (input-hint-summary rows)
-                         :agentDiagnostics (aggregate-agent-diagnostics rows)
-                         :expectationDiagnostics (aggregate-expectation-diagnostics
-                                                  rows)
-                         :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
-                         :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
-                                                           rows)
-                         :decisionDiagnostics (aggregate-decision-diagnostics rows)
-                         :localizationDiagnostics (aggregate-localization-diagnostics rows)
-                         :coverageDiagnostics (aggregate-coverage-diagnostics rows)
-                         :artifactDiagnostics (aggregate-artifact-diagnostics
-                                               report-context
-                                               rows)}]
+              (let [agent-preparation (agent-preparation-summary rows)
+                    row (cond-> {:key k
+                                 :runs (count rows)
+                                 :scores (aggregate-agent-scores rows)
+                                 :inputHints (input-hint-summary rows)
+                                 :agentDiagnostics (aggregate-agent-diagnostics rows)
+                                 :expectationDiagnostics (aggregate-expectation-diagnostics
+                                                          rows)
+                                 :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
+                                 :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
+                                                                   rows)
+                                 :decisionDiagnostics (aggregate-decision-diagnostics rows)
+                                 :localizationDiagnostics (aggregate-localization-diagnostics rows)
+                                 :coverageDiagnostics (aggregate-coverage-diagnostics rows)
+                                 :artifactDiagnostics (aggregate-artifact-diagnostics
+                                                       report-context
+                                                       rows)}
+                          agent-preparation
+                          (assoc :agentPreparation agent-preparation))]
                 (assoc row :improvementSummary (report-improvement-summary row)))))
        (sort-by :key)
        vec))
@@ -1040,23 +1104,26 @@
        (group-by first)
        (map (fn [[tag pairs]]
               (let [rows (mapv second pairs)
-                    row {:key tag
-                         :cases (count (set (map :case-id rows)))
-                         :runs (count rows)
-                         :scores (aggregate-agent-scores rows)
-                         :inputHints (input-hint-summary rows)
-                         :agentDiagnostics (aggregate-agent-diagnostics rows)
-                         :expectationDiagnostics (aggregate-expectation-diagnostics
-                                                  rows)
-                         :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
-                         :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
-                                                           rows)
-                         :decisionDiagnostics (aggregate-decision-diagnostics rows)
-                         :localizationDiagnostics (aggregate-localization-diagnostics rows)
-                         :coverageDiagnostics (aggregate-coverage-diagnostics rows)
-                         :artifactDiagnostics (aggregate-artifact-diagnostics
-                                               report-context
-                                               rows)}]
+                    agent-preparation (agent-preparation-summary rows)
+                    row (cond-> {:key tag
+                                 :cases (count (set (map :case-id rows)))
+                                 :runs (count rows)
+                                 :scores (aggregate-agent-scores rows)
+                                 :inputHints (input-hint-summary rows)
+                                 :agentDiagnostics (aggregate-agent-diagnostics rows)
+                                 :expectationDiagnostics (aggregate-expectation-diagnostics
+                                                          rows)
+                                 :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
+                                 :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
+                                                                   rows)
+                                 :decisionDiagnostics (aggregate-decision-diagnostics rows)
+                                 :localizationDiagnostics (aggregate-localization-diagnostics rows)
+                                 :coverageDiagnostics (aggregate-coverage-diagnostics rows)
+                                 :artifactDiagnostics (aggregate-artifact-diagnostics
+                                                       report-context
+                                                       rows)}
+                          agent-preparation
+                          (assoc :agentPreparation agent-preparation))]
                 (assoc row :improvementSummary (report-improvement-summary row)))))
        (sort-by :key)
        vec))
@@ -1407,25 +1474,33 @@
        (group-by (comp parser-worker-profile-key parser-worker-result-profile))
        (map (fn [[[_mode _source] rows]]
               (let [profile (parser-worker-result-profile (first rows))
-                    row (assoc profile
-                               :key (str (:mode profile) "/" (:source profile))
-                               :runs (count rows)
-                               :cases (count (set (map :case-id rows)))
-                               :scores (aggregate-agent-scores rows)
-                               :inputHints (input-hint-summary rows)
-                               :agentDiagnostics (aggregate-agent-diagnostics rows)
-                               :expectationDiagnostics (aggregate-expectation-diagnostics
-                                                        rows)
-                               :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
+                    agent-preparation (agent-preparation-summary rows)
+                    row (cond-> (assoc profile
+                                       :key (str (:mode profile) "/"
+                                                 (:source profile))
+                                       :runs (count rows)
+                                       :cases (count (set (map :case-id rows)))
+                                       :scores (aggregate-agent-scores rows)
+                                       :inputHints (input-hint-summary rows)
+                                       :agentDiagnostics (aggregate-agent-diagnostics
+                                                          rows)
+                                       :expectationDiagnostics (aggregate-expectation-diagnostics
+                                                                rows)
+                                       :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
+                                                                     rows)
+                                       :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
+                                                                         rows)
+                                       :decisionDiagnostics (aggregate-decision-diagnostics
                                                              rows)
-                               :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
+                                       :localizationDiagnostics (aggregate-localization-diagnostics
                                                                  rows)
-                               :decisionDiagnostics (aggregate-decision-diagnostics rows)
-                               :localizationDiagnostics (aggregate-localization-diagnostics rows)
-                               :coverageDiagnostics (aggregate-coverage-diagnostics rows)
-                               :artifactDiagnostics (aggregate-artifact-diagnostics
-                                                     report-context
-                                                     rows))]
+                                       :coverageDiagnostics (aggregate-coverage-diagnostics
+                                                             rows)
+                                       :artifactDiagnostics (aggregate-artifact-diagnostics
+                                                             report-context
+                                                             rows))
+                          agent-preparation
+                          (assoc :agentPreparation agent-preparation))]
                 (assoc row :improvementSummary (report-improvement-summary row)))))
        (sort-by (juxt :mode :source))
        vec))
@@ -1785,80 +1860,84 @@
         missing (->> cases
                      (remove #(contains? completed-cases (:id %)))
                      (mapv :id))
-        report-base {:schema agent-report-schema
-                     :suite-id (:id suite)
-                     :cases (count cases)
-                     :completed (count completed-cases)
-                     :runs (count results)
-                     :missing missing
-                     :scores (aggregate-agent-scores results)
-                     :parserWorkers (aggregate-parser-worker-profiles results)
-                     :inputHints (input-hint-summary results)
-                     :agentDiagnostics (aggregate-agent-diagnostics results)
-                     :expectationDiagnostics (aggregate-expectation-diagnostics
+        agent-preparation (agent-preparation-summary results)
+        report-base (cond-> {:schema agent-report-schema
+                             :suite-id (:id suite)
+                             :cases (count cases)
+                             :completed (count completed-cases)
+                             :runs (count results)
+                             :missing missing
+                             :scores (aggregate-agent-scores results)
+                             :parserWorkers (aggregate-parser-worker-profiles results)
+                             :inputHints (input-hint-summary results)
+                             :agentDiagnostics (aggregate-agent-diagnostics results)
+                             :expectationDiagnostics (aggregate-expectation-diagnostics
+                                                      results)
+                             :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
+                                                           results)
+                             :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
+                                                               results)
+                             :decisionDiagnostics (aggregate-decision-diagnostics results)
+                             :localizationDiagnostics (aggregate-localization-diagnostics results)
+                             :coverageDiagnostics (aggregate-coverage-diagnostics results)
+                             :artifactDiagnostics (aggregate-artifact-diagnostics
+                                                   report-context
+                                                   raw-results)
+                             :artifactPolicy (artifact-policy report-context
+                                                              raw-results
+                                                              results
+                                                              allow-unverified?)
+                             :coverage (aggregate-coverage results)
+                             :datasetDiagnostics (benchmark-dataset-diagnostics/dataset-diagnostics
+                                                  cases)
+                             :tags (aggregate-case-tags cases)
+                             :problemClasses (problem-class-summary report-context results)
+                             :timings (benchmark-results/aggregate-progress progress)
+                             :caseProgress progress
+                             :byMode (group-agent-scores report-context
+                                                         results
+                                                         [:agent :mode])
+                             :byAgent (group-agent-scores report-context
+                                                          results
+                                                          [:agent :agentId])
+                             :byParserWorker (group-agent-scores-by-parser-worker
+                                              report-context
                                               results)
-                     :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
-                                                   results)
-                     :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
-                                                       results)
-                     :decisionDiagnostics (aggregate-decision-diagnostics results)
-                     :localizationDiagnostics (aggregate-localization-diagnostics results)
-                     :coverageDiagnostics (aggregate-coverage-diagnostics results)
-                     :artifactDiagnostics (aggregate-artifact-diagnostics
-                                           report-context
-                                           raw-results)
-                     :artifactPolicy (artifact-policy report-context
-                                                      raw-results
-                                                      results
-                                                      allow-unverified?)
-                     :coverage (aggregate-coverage results)
-                     :datasetDiagnostics (benchmark-dataset-diagnostics/dataset-diagnostics
-                                          cases)
-                     :tags (aggregate-case-tags cases)
-                     :problemClasses (problem-class-summary report-context results)
-                     :timings (benchmark-results/aggregate-progress progress)
-                     :caseProgress progress
-                     :byMode (group-agent-scores report-context
-                                                 results
-                                                 [:agent :mode])
-                     :byAgent (group-agent-scores report-context
-                                                  results
-                                                  [:agent :agentId])
-                     :byParserWorker (group-agent-scores-by-parser-worker
-                                      report-context
-                                      results)
-                     :byTag (group-agent-scores-by-tag report-context results)
-                     :results (mapv #(assoc (select-keys % [:case-id
-                                                            :repo-id
-                                                            :baseSha
-                                                            :fixSha
-                                                            :caseFingerprint
-                                                            :tags
-                                                            :expectations
-                                                            :maintenancePreflight
-                                                            :graphExpectations
-                                                            :decisionScoring
-                                                            :inputHints
-                                                            :coverage
-                                                            :contextArtifacts
-                                                            :agentResultPath
-                                                            :parserWorker
-                                                            :agent
-                                                            :progress
-                                                            :scores])
-                                            :localization
-                                            (localization-diagnostic %)
-                                            :agentOutput
-                                            (agent-output-diagnostic %)
-                                            :maintenancePreflight
-                                            (result-maintenance-preflight %)
-                                            :decision
-                                            (decision-diagnostic %)
-                                            :artifact
-                                            (artifact-diagnostic report-context %)
-                                            :auditScope
-                                            (benchmark-audit-scope/case-audit-scope %))
-                                    results)}
+                             :byTag (group-agent-scores-by-tag report-context results)
+                             :results (mapv #(assoc (select-keys % [:case-id
+                                                                    :repo-id
+                                                                    :baseSha
+                                                                    :fixSha
+                                                                    :caseFingerprint
+                                                                    :tags
+                                                                    :expectations
+                                                                    :maintenancePreflight
+                                                                    :graphExpectations
+                                                                    :decisionScoring
+                                                                    :inputHints
+                                                                    :coverage
+                                                                    :contextArtifacts
+                                                                    :agentPreparation
+                                                                    :agentResultPath
+                                                                    :parserWorker
+                                                                    :agent
+                                                                    :progress
+                                                                    :scores])
+                                                    :localization
+                                                    (localization-diagnostic %)
+                                                    :agentOutput
+                                                    (agent-output-diagnostic %)
+                                                    :maintenancePreflight
+                                                    (result-maintenance-preflight %)
+                                                    :decision
+                                                    (decision-diagnostic %)
+                                                    :artifact
+                                                    (artifact-diagnostic report-context %)
+                                                    :auditScope
+                                                    (benchmark-audit-scope/case-audit-scope %))
+                                            results)}
+                      agent-preparation
+                      (assoc :agentPreparation agent-preparation))
         report-base (assoc report-base
                            :improvementSummary
                            (report-improvement-summary report-base))
