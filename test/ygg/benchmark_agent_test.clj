@@ -343,23 +343,25 @@
     (is (not (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json")))
     (is (str/includes? prompt "Yggdrasil is prepared and warm"))
     (is (str/includes? prompt
-                       "`jq '{selection,topFiles:[.topFiles[:8][]|{rank,path}]"))
+                       "`jq '{selection,topFiles:[((.topFiles//[])[:8])[]|{rank,path}]"))
     (is (str/includes? prompt
-                       "relatedFiles:[.relatedFiles[:12][]|{rank,path,relation}]"))
+                       "relatedFiles:[((.relatedFiles//[])[:12])[]|{rank,path,relation}]"))
     (is (str/includes? prompt
-                       "importPackages:[.importPackages[:6][]|{rank,packagePrefix,target,files:[.files[:12][]|{path,kind}]}]"))
+                       "importPackages:[((.importPackages//[])[:6])[]|{rank,packagePrefix,target,files:[((.files//[])[:12])[]|{path,kind}]}]"))
     (is (str/includes? prompt
-                       "topSymbols:[.topSymbols[:6][]|{rank,name,path,kind}]"))
+                       "topDeclarations:[((.topDeclarations//[])[:16])[]|{rank,path,label,kind,sourceLine,endLine,matchedTokens}]"))
     (is (str/includes? prompt
-                       "candidateSystems:[.candidateSystems[:6][]|{rank,path,score}]"))
+                       "topSymbols:[((.topSymbols//[])[:6])[]|{rank,name,path,kind}]"))
     (is (str/includes? prompt
-                       "readPlan:{snippets:[.readPlan.snippets[:3][]|{path,lines,command}]}"))
+                       "candidateSystems:[((.candidateSystems//[])[:6])[]|{rank,path,score}]"))
+    (is (str/includes? prompt
+                       "readPlan:{snippets:[((.readPlan.snippets//[])[:4])[]|{path,lines,command}]}"))
     (is (str/includes? prompt
                        "do not print entire Yggdrasil JSON artifacts, evidence arrays"))
     (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts"))
     (is (str/includes? prompt "`readPlan.snippets[].command`"))
     (is (str/includes? prompt
-                       "`topFiles`, `relatedFiles`, `importPackages`, `topSymbols`"))
+                       "`topFiles`, `relatedFiles`, `importPackages`, `topDeclarations`, `topSymbols`"))
     (is (str/includes? prompt "Avoid broad `rg`"))
     (is (str/includes? prompt
                        "do not pass directories to `rg` when exact files"))

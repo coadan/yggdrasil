@@ -57,6 +57,9 @@
 (def ^:private source-graph-neighbor-kind-path-limit
   4)
 
+(def ^:private source-graph-neighbor-path-limit
+  4)
+
 (def ^:private source-graph-neighbor-support-boost
   1.0)
 
@@ -78,6 +81,20 @@
 
 (def ^:private source-graph-candidate-min-score
   1.0)
+
+(def ^:private source-graph-declaration-limit
+  64)
+
+(def ^:private source-graph-declaration-path-limit
+  16)
+
+(def ^:private source-graph-declaration-path-diversity-limit
+  12)
+
+(def ^:private source-graph-non-declaration-kinds
+  #{:doc-file
+    :doc-heading
+    :doc-link})
 
 (def unsupported-planes
   [:remote-work :session-history])
@@ -1179,19 +1196,20 @@
 (defn- source-graph-neighbor-kind-path-rows
   [rows]
   (loop [remaining (seq rows)
-         counts {}
-         selected-paths #{}
+         kind-counts {}
+         path-counts {}
          selected []]
     (if-let [row (first remaining)]
       (let [kind-key (source-graph-neighbor-kind-key row)
             path-key (source-graph-neighbor-path-key row)
-            kind-count (long (or (get counts kind-key) 0))]
-        (if (or (contains? selected-paths path-key)
-                (<= source-graph-neighbor-kind-path-limit kind-count))
-          (recur (next remaining) counts selected-paths selected)
+            kind-count (long (or (get kind-counts kind-key) 0))
+            path-count (long (or (get path-counts path-key) 0))]
+        (if (or (<= source-graph-neighbor-kind-path-limit kind-count)
+                (<= source-graph-neighbor-path-limit path-count))
+          (recur (next remaining) kind-counts path-counts selected)
           (recur (next remaining)
-                 (update counts kind-key (fnil inc 0))
-                 (conj selected-paths path-key)
+                 (update kind-counts kind-key (fnil inc 0))
+                 (update path-counts path-key (fnil inc 0))
                  (conj selected row))))
       selected)))
 
@@ -1355,6 +1373,145 @@
          preserve-candidate-input-root-diversity
          (map #(dissoc % ::candidate-input-index)))))
 
+(defn- source-graph-declaration-row?
+  [row]
+  (let [path (not-empty (str (:path row)))
+        label (not-empty (str (:label row)))
+        target-kind (:target-kind row)
+        result-kind (:result-kind row)
+        kind (:kind row)]
+    (and path
+         label
+         (:source-line row)
+         (not= :file target-kind)
+         (not= :file result-kind)
+         (not (contains? source-graph-non-declaration-kinds kind))
+         (not= label path))))
+
+(defn- source-graph-declaration-row
+  [idx row]
+  (cond-> {:rank (inc idx)
+           :sourceRank (:rank row)
+           :path (:path row)
+           :label (:label row)
+           :kind (some-> (:kind row) display-name)
+           :targetKind (some-> (:target-kind row) name)
+           :resultKind (some-> (:result-kind row) name)
+           :score (:score row)
+           :sourceLine (:source-line row)}
+    (:repo-id row) (assoc :repo (:repo-id row)
+                          :repoId (:repo-id row))
+    (:repo row) (assoc :repo (:repo row))
+    (:end-line row) (assoc :endLine (:end-line row))
+    (:supportLabels row) (assoc :supportLabels (:supportLabels row))
+    (:score-components row) (assoc :scoreComponents (:score-components row))))
+
+(defn- source-graph-path-declaration-row
+  [query-tokens path-ranks row]
+  (when (source-graph-declaration-row? (assoc row
+                                              :target-kind :node
+                                              :result-kind :node))
+    (let [score (source-graph-candidate-score query-tokens row)
+          path-rank (get path-ranks (:path row))]
+      (cond-> {:path (:path row)
+               :rank (long (or path-rank Long/MAX_VALUE))
+               :score score
+               :target-kind :node
+               :target-id (row-id row)
+               :label (:label row)
+               :kind (:kind row)
+               :result-kind :node
+               :reason "candidate-file source declaration"
+               :source-line (:source-line row)
+               :score-components {:sourceGraph score}}
+        (:repo-id row) (assoc :repo-id (:repo-id row)
+                              :repo (:repo-id row))
+        (:end-line row) (assoc :end-line (:end-line row))))))
+
+(defn- source-graph-path-ranks
+  [candidate-file-rows]
+  (->> candidate-file-rows
+       (keep (fn [row]
+               (when-let [path (not-empty (str (:path row)))]
+                 [path (long (or (:rank row) Long/MAX_VALUE))])))
+       (reduce (fn [path-ranks [path rank]]
+                 (update path-ranks path #(min (long (or % Long/MAX_VALUE))
+                                               rank)))
+               {})))
+
+(defn- source-graph-file-declarations
+  [xtdb query-tokens candidate-file-rows scope]
+  (when (and (map? xtdb)
+             (contains? xtdb :node))
+    (let [path-ranks (source-graph-path-ranks candidate-file-rows)
+          paths (->> candidate-file-rows
+                     (keep #(not-empty (str (:path %))))
+                     distinct
+                     (take source-graph-declaration-path-limit)
+                     vec)]
+      (when (seq paths)
+        (->> (query/nodes-by-paths xtdb paths scope)
+             (filter active-row?)
+             (keep #(source-graph-path-declaration-row query-tokens path-ranks %)))))))
+
+(defn- source-graph-declaration-key
+  [row]
+  (or (:target-id row)
+      [(:repo-id row) (:repo row) (:path row) (:kind row) (:label row) (:source-line row)]))
+
+(defn- distinct-source-graph-declarations
+  [rows]
+  (loop [remaining (seq rows)
+         seen #{}
+         out []]
+    (if-let [row (first remaining)]
+      (let [row-key (source-graph-declaration-key row)]
+        (if (contains? seen row-key)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen row-key) (conj out row))))
+      out)))
+
+(defn- source-graph-declaration-sort-key
+  [row]
+  [(- (double (or (:score row) 0.0)))
+   (long (or (:rank row) Long/MAX_VALUE))
+   (or (:repo-id row) (:repo row) "")
+   (or (:path row) "")
+   (long (or (:source-line row) Long/MAX_VALUE))
+   (or (:label row) "")])
+
+(defn- diversify-source-graph-declarations
+  [rows]
+  (let [path-heads (->> rows
+                        (reduce (fn [{:keys [seen selected] :as state} row]
+                                  (let [path-key [(or (:repo-id row) (:repo row))
+                                                  (:path row)]]
+                                    (if (or (contains? seen path-key)
+                                            (<= source-graph-declaration-path-diversity-limit
+                                                (count selected)))
+                                      state
+                                      {:seen (conj seen path-key)
+                                       :selected (conj selected row)})))
+                                {:seen #{}
+                                 :selected []})
+                        :selected)
+        selected-keys (set (map source-graph-declaration-key path-heads))]
+    (concat path-heads
+            (remove #(contains? selected-keys
+                                (source-graph-declaration-key %))
+                    rows))))
+
+(defn- source-graph-declarations
+  [xtdb query-tokens source-candidates candidate-file-rows scope]
+  (->> (concat (filter source-graph-declaration-row? source-candidates)
+               (source-graph-file-declarations xtdb query-tokens candidate-file-rows scope))
+       distinct-source-graph-declarations
+       (sort-by source-graph-declaration-sort-key)
+       diversify-source-graph-declarations
+       (take source-graph-declaration-limit)
+       (map-indexed source-graph-declaration-row)
+       vec))
+
 (defn- relationship-groups
   [edges]
   (context-architecture/relationship-groups edges))
@@ -1416,7 +1573,7 @@
 (defn- base-packet
   [query-text budget graph-data entities edges activity warnings drilldowns evidence
    search-instrumentation freshness source-coverage architecture systems audit-scopes
-   relationships blast-radius candidate-files plugin-packages]
+   relationships blast-radius candidate-files source-declarations plugin-packages]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data evidence search-instrumentation)
@@ -1428,6 +1585,7 @@
            :docs []
            :warnings warnings
            :drilldowns drilldowns}
+    (seq source-declarations) (assoc :sourceDeclarations source-declarations)
     evidence (assoc :evidence evidence)
     search-instrumentation (assoc :search search-instrumentation)
     freshness (assoc :freshness freshness)
@@ -2167,6 +2325,15 @@
                             :repo-id repo-id
                             :read-context read-context})
         candidate-inputs (ranked-candidate-inputs results source-candidates)
+        candidate-file-rows (candidate-files candidate-inputs)
+        source-declarations (source-graph-declarations
+                             xtdb
+                             query-tokens
+                             source-candidates
+                             candidate-file-rows
+                             {:project-id project-id
+                              :repo-id repo-id
+                              :read-context read-context})
         graph-data (graph/system-graph xtdb
                                        project-id
                                        {:limit graph/default-node-limit
@@ -2293,8 +2460,8 @@
                              audit-scopes
                              (relationship-groups edges)
                              blast-radius
-                             (candidate-files
-                              candidate-inputs)
+                             candidate-file-rows
+                             source-declarations
                              plugin-packages)
                 docs
                 budget)))

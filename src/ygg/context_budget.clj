@@ -298,6 +298,30 @@
   (if (contains? packet :snippets)
     (update packet :snippets #(mapv compact-snippet-file (take 4 %)))
     packet))
+(defn- compact-source-declaration
+  [row]
+  (-> row
+      (select-keys [:rank
+                    :sourceRank
+                    :path
+                    :repo
+                    :repoId
+                    :label
+                    :kind
+                    :targetKind
+                    :resultKind
+                    :score
+                    :sourceLine
+                    :endLine
+                    :supportLabels
+                    :scoreComponents])
+      (update :supportLabels #(vec (take 4 %)))))
+(defn compact-source-declarations-in-packet
+  [packet]
+  (if (contains? packet :sourceDeclarations)
+    (update packet :sourceDeclarations
+            #(mapv compact-source-declaration (take 32 %)))
+    packet))
 (defn- minimal-graph-in-packet
   [packet]
   (if (contains? packet :graph)
@@ -315,9 +339,11 @@
                     compact-audit-scopes-in-packet
                     compact-relationships-in-packet
                     compact-blast-radius-in-packet
+                    compact-source-declarations-in-packet
                     compact-snippets-in-packet
                     #(update % :evidence compact-evidence-readiness)
                     #(dissoc % :snippets)
+                    #(dissoc % :sourceDeclarations)
                     #(dissoc % :relationships)
                     #(dissoc % :blastRadius)
                     #(dissoc % :auditScopes)
@@ -361,10 +387,12 @@
                compact-audit-scopes-in-packet
                compact-relationships-in-packet
                compact-blast-radius-in-packet
+               compact-source-declarations-in-packet
                compact-snippets-in-packet
                #(update % :evidence compact-evidence-readiness)
                #(update % :evidence minimal-evidence-readiness)
                #(dissoc % :snippets)
+               #(dissoc % :sourceDeclarations)
                #(dissoc % :relationships)
                #(dissoc % :blastRadius)
                #(dissoc % :auditScopes)

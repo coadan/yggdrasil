@@ -2710,6 +2710,88 @@
       (is (= (:score neighbor)
              (get-in neighbor [:score-components :sourceGraph]))))))
 
+(deftest source-graph-candidates-preserve-multiple-neighbor-declarations-per-file
+  (with-redefs [store/xtdb-handle? (constantly true)
+                store/rows-matching-any-token
+                (fn [_ table fields tokens constraints ctx]
+                  (is (= {:valid-at "t"} ctx))
+                  (is (= #{"flow" "log" "resource"} (set tokens)))
+                  (case table
+                    :ygg/nodes
+                    (do
+                      (is (= [:path :label :name :kind] fields))
+                      (is (= {:project-id "fixture"
+                              :repo-id "app"}
+                             constraints))
+                      [{:xt/id "node:file:flow-log"
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :path "vpc-flow-logs.tf"
+                        :kind :terraform-file
+                        :label "flow log resource"
+                        :source-line 1}])
+
+                    :ygg/files
+                    []))
+                query/edges-touching-node-ids
+                (fn [_ ids opts]
+                  (is (= #{"node:file:flow-log"} (set ids)))
+                  (is (= {:project-id "fixture"
+                          :repo-id "app"
+                          :read-context {:valid-at "t"}}
+                         opts))
+                  [{:xt/id "edge:file-flow"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :source-id "node:file:flow-log"
+                    :target-id "node:resource:flow"
+                    :relation :defines
+                    :active? true}
+                   {:xt/id "edge:file-role"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :source-id "node:file:flow-log"
+                    :target-id "node:resource:role"
+                    :relation :defines
+                    :active? true}])
+                query/nodes-by-ids
+                (fn [_ ids opts]
+                  (is (= #{"node:resource:flow" "node:resource:role"} (set ids)))
+                  (is (= {:project-id "fixture"
+                          :repo-id "app"
+                          :read-context {:valid-at "t"}}
+                         opts))
+                  [{:xt/id "node:resource:flow"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :path "vpc-flow-logs.tf"
+                    :kind :terraform-resource
+                    :label "aws_flow_log.this"
+                    :source-line 34
+                    :active? true}
+                   {:xt/id "node:resource:role"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :path "vpc-flow-logs.tf"
+                    :kind :terraform-resource
+                    :label "aws_iam_role.vpc_flow_log_cloudwatch"
+                    :source-line 79
+                    :active? true}])]
+    (let [rows (#'context/source-graph-candidates
+                :xtdb
+                (text/tokenize-all "flow log resource")
+                {:project-id "fixture"
+                 :repo-id "app"
+                 :read-context {:valid-at "t"}})]
+      (is (= ["aws_flow_log.this"
+              "aws_iam_role.vpc_flow_log_cloudwatch"]
+             (->> rows
+                  (filter #(= "vpc-flow-logs.tf" (:path %)))
+                  (filter #(= "graph-neighbor source row" (:reason %)))
+                  (map :label)
+                  sort
+                  vec))))))
+
 (deftest source-graph-candidates-preserve-neighbor-kind-path-diversity
   (let [doc-count 48
         doc-seeds (mapv (fn [idx]
@@ -3094,6 +3176,27 @@
       (is (= (:score (first (:candidateFiles packet)))
              (get-in (first (:candidateFiles packet))
                      [:scoreComponents :sourceGraph])))
+      (is (= [{:rank 1
+               :sourceRank 1
+               :path "site/runtime/a.ts"
+               :label "bootstrap setup"
+               :kind "web-framework-plugin"
+               :targetKind "node"
+               :resultKind "node"
+               :sourceLine 12
+               :repo "app"
+               :repoId "app"}]
+             (mapv #(select-keys % [:rank
+                                    :sourceRank
+                                    :path
+                                    :label
+                                    :kind
+                                    :targetKind
+                                    :resultKind
+                                    :sourceLine
+                                    :repo
+                                    :repoId])
+                   (:sourceDeclarations packet))))
       (is (= ["evidence:source-runtime"]
              (mapv :id (get-in packet [:architecture :runtimeEvidence])))))))
 

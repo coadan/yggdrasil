@@ -80,6 +80,16 @@
                              :kind "function"
                              :reason "symbol evidence"
                              :evidence ["context-doc:lib/adapters/http.js"]}]
+               :topDeclarations [{:rank 1
+                                  :sourceRank 2
+                                  :path "lib/core/connection.js"
+                                  :label "connect"
+                                  :kind "function"
+                                  :sourceLine 10
+                                  :matchedTokens ["request"]
+                                  :supportLabels ["connection pool"
+                                                  "proxy request"]
+                                  :evidence ["source-declaration:lib/core/connection.js lines 10 kind=function label=\"connect\""]}]
                :candidateSystems [{:rank 1
                                    :id "system:http"
                                    :path "lib/adapters"
@@ -123,6 +133,7 @@
                         "/tmp/hints.full.json"))
     (is (= {:topFiles 2
             :topSymbols 1
+            :topDeclarations 1
             :topDocs 1
             :relatedFiles 1
             :importPackages 1
@@ -132,6 +143,16 @@
            (get-in compact [:progressive :sourceCounts])))
     (is (= ["lib/adapters/http.js"] (mapv :path (:topFiles compact))))
     (is (= ["lib/core/connection.js"] (mapv :path (:relatedFiles compact))))
+    (is (= [{:rank 1
+             :sourceRank 2
+             :path "lib/core/connection.js"
+             :label "connect"
+             :kind "function"
+             :sourceLine 10
+             :matchedTokens ["request"]
+             :supportLabels ["connection pool" "proxy request"]
+             :evidence ["source-declaration:lib/core/connection.js lines 10 kind=function label=\"connect\""]}]
+           (:topDeclarations compact)))
     (is (= [{:rank 1
              :packagePrefix "lib/core"
              :target "lib/core"

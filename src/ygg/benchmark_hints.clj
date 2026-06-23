@@ -1,5 +1,8 @@
 (ns ygg.benchmark-hints
-  (:require [ygg.benchmark-prediction :as benchmark-prediction]))
+  (:require [ygg.benchmark-prediction :as benchmark-prediction]
+            [ygg.text :as text]
+            [clojure.set :as set]
+            [clojure.string :as str]))
 
 (def agent-hints-schema
   "ygg.benchmark.agent-hints/v1")
@@ -12,6 +15,51 @@
   (when-let [lines (seq (:lines source))]
     {:start (first lines)
      :end (last lines)}))
+(defn- field-name
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (nil? value) nil
+    :else (str value)))
+(defn- source-line-label
+  [row]
+  (when-let [source-line (or (:sourceLine row)
+                             (:source-line row))]
+    (str " lines "
+         source-line
+         (when-let [end-line (or (:endLine row)
+                                 (:end-line row))]
+           (str "-" end-line)))))
+(defn- declaration-text
+  [row]
+  (str/join "\n"
+            (remove str/blank?
+                    (map str
+                         (concat [(:path row)
+                                  (:label row)
+                                  (:kind row)]
+                                 (:supportLabels row))))))
+(defn- matched-query-tokens
+  [query-tokens row]
+  (->> (set/intersection (set query-tokens)
+                         (set (text/tokenize (declaration-text row))))
+       sort
+       vec))
+(defn- declaration-evidence
+  [row]
+  (str "source-declaration:"
+       (:path row)
+       (when-let [rank (:sourceRank row)]
+         (str " sourceRank=" rank))
+       (source-line-label row)
+       (when-let [kind (field-name (:kind row))]
+         (str " kind=" kind))
+       (when-let [label (not-empty (str (:label row)))]
+         (str " label=" (pr-str label)))
+       (when-let [support-labels (seq (:supportLabels row))]
+         (str " supportLabels=" (pr-str (vec support-labels))))
+       (when-some [score (:score row)]
+         (str " score=" score))))
 (defn- hint-doc
   [idx doc]
   (let [source (:source doc)]
@@ -103,6 +151,48 @@
       (update :files #(mapv (fn [file]
                               (select-keys file [:path :repoId :repo :kind]))
                             (take 12 %)))))
+(defn- hint-declaration
+  [query-tokens idx row]
+  (let [matched-tokens (matched-query-tokens query-tokens row)]
+    (cond-> (select-keys row
+                         [:path
+                          :repoId
+                          :repo
+                          :label
+                          :kind
+                          :targetKind
+                          :resultKind
+                          :sourceRank
+                          :sourceLine
+                          :endLine
+                          :score])
+      true
+      (assoc :rank (inc idx)
+             :matchedTokens matched-tokens
+             :supportLabels (vec (take 4 (:supportLabels row)))
+             :evidence [(declaration-evidence row)])
+
+      (seq (:scoreComponents row))
+      (assoc :scoreComponents (:scoreComponents row)))))
+(defn- hint-declarations
+  [packet]
+  (let [query-tokens (text/tokenize-all (:query packet))
+        rows (or (seq (:sourceDeclarations packet))
+                 (seq (:candidateFiles packet)))]
+    (->> rows
+         (filter #(or (:sourceLine %)
+                      (:source-line %)))
+         (filter #(not= "file" (field-name (or (:targetKind %)
+                                               (:target-kind %)
+                                               (:resultKind %)
+                                               (:result-kind %)))))
+         (filter (fn [row]
+                   (let [label (not-empty (str (:label row)))]
+                     (and label
+                          (not= label (str (:path row)))))))
+         (map-indexed #(hint-declaration query-tokens %1 %2))
+         (take 20)
+         vec)))
 (defn- audit-scope-issue?
   [scope]
   (or (= "unclassified-extractor" (:kind scope))
@@ -218,7 +308,8 @@
                        :limit limit
                        :coverage (:coverage prepared)
                        :result-scope (:resultScope prepared)})
-        diagnostics (hint-diagnostics prepared packet (:selection agent-result))]
+        diagnostics (hint-diagnostics prepared packet (:selection agent-result))
+        declarations (hint-declarations packet)]
     (cond-> {:schema agent-hints-schema
              :suite-id (:suite-id prepared)
              :case-id (:case-id prepared)
@@ -234,6 +325,8 @@
              :evidence (:evidence packet)
              :sourceCoverage (:sourceCoverage packet)
              :warnings (:warnings packet)}
+      (seq declarations)
+      (assoc :topDeclarations declarations)
       (:architecture packet)
       (assoc :architecture (hint-architecture (:architecture packet)))
       (seq (:auditScopes packet))

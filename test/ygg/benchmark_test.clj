@@ -1355,6 +1355,19 @@
                         :score 1.0
                         :snippet "missing"
                         :provenance "retrieved-doc"}]
+                :sourceDeclarations [{:rank 1
+                                      :sourceRank 1
+                                      :path "src/app.clj"
+                                      :repo "repo"
+                                      :repoId "repo"
+                                      :label "app/broken"
+                                      :kind "function"
+                                      :targetKind "node"
+                                      :resultKind "node"
+                                      :sourceLine 2
+                                      :endLine 4
+                                      :score 2.4
+                                      :supportLabels ["app/root"]}]
                 :entities [{:id "system:repo:path/src"
                             :label "src"
                             :path "src"
@@ -1471,6 +1484,22 @@
              :reason "Yggdrasil context doc \"missing\" references src/missing.clj."
              :evidence ["context-doc:src/missing.clj provenance=retrieved-doc"]}]
            (:topSymbols hints)))
+    (is (= [{:path "src/app.clj"
+             :repoId "repo"
+             :repo "repo"
+             :label "app/broken"
+             :kind "function"
+             :targetKind "node"
+             :resultKind "node"
+             :sourceRank 1
+             :sourceLine 2
+             :endLine 4
+             :score 2.4
+             :rank 1
+             :matchedTokens ["app" "broken"]
+             :supportLabels ["app/root"]
+             :evidence ["source-declaration:src/app.clj sourceRank=1 lines 2-4 kind=function label=\"app/broken\" supportLabels=[\"app/root\"] score=2.4"]}]
+           (:topDeclarations hints)))
     (is (= [{:rank 1
              :path "src/app.clj"
              :heading "app/broken"

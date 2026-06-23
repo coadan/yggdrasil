@@ -12,6 +12,7 @@
    :related-files 12
    :import-packages 6
    :import-package-files 12
+   :top-declarations 16
    :candidate-systems 6
    :commands 6
    :audit-scopes 3
@@ -101,6 +102,28 @@
   (-> row
       (select-keys [:rank :name :path :repoId :repo :kind :confidence :reason :evidence])
       (compact-reason limits)
+      (compact-row-evidence limits)))
+
+(defn- compact-declaration
+  [limits row]
+  (-> row
+      (select-keys [:rank
+                    :sourceRank
+                    :path
+                    :repoId
+                    :repo
+                    :label
+                    :kind
+                    :targetKind
+                    :resultKind
+                    :sourceLine
+                    :endLine
+                    :score
+                    :matchedTokens
+                    :supportLabels
+                    :evidence])
+      (update :matchedTokens #(takev 6 %))
+      (update :supportLabels #(takev 4 %))
       (compact-row-evidence limits)))
 
 (defn- compact-doc
@@ -261,17 +284,26 @@
 (defn- compact-read-plan
   [hints opts limits]
   (let [primary-top-files (take 1 (:topFiles hints))
+        primary-paths (set (keep :path primary-top-files))
+        declaration-rows (remove #(contains? primary-paths (:path %))
+                                 (:topDeclarations hints))
         remaining-top-files (drop 1 (:topFiles hints))
         read-plan-rows (->> (concat primary-top-files
+                                    declaration-rows
                                     (:relatedFiles hints)
                                     remaining-top-files)
                             (remove (fn [row]
                                       (str/blank? (str (:path row)))))
                             (reduce (fn [[rows seen] row]
-                                      (let [path (:path row)]
-                                        (if (contains? seen path)
+                                      (let [path (:path row)
+                                            line-range (row-line-range row)
+                                            row-key [(:repoId row)
+                                                     (:repo row)
+                                                     path
+                                                     line-range]]
+                                        (if (contains? seen row-key)
                                           [rows seen]
-                                          [(conj rows row) (conj seen path)])))
+                                          [(conj rows row) (conj seen row-key)])))
                                     [[] #{}])
                             first)
         snippets (->> read-plan-rows
@@ -279,7 +311,7 @@
                       (keep #(read-plan-row opts limits %))
                       vec)]
     (when (seq snippets)
-      {:basis "bounded snippets from compact topFiles and graph-related files; inspect these before broad search or full context expansion"
+      {:basis "bounded snippets from compact topFiles, parser/source-graph declarations, and graph-related files; inspect these before broad search or full context expansion"
        :rules ["Do not print entire Yggdrasil JSON artifacts."
                "Use compact projections and these snippets before broad rg."
                "Open full hints or context only when compact hints do not provide enough evidence."]
@@ -289,6 +321,7 @@
   [hints]
   {:topFiles (count (:topFiles hints))
    :topSymbols (count (:topSymbols hints))
+   :topDeclarations (count (:topDeclarations hints))
    :topDocs (count (:topDocs hints))
    :relatedFiles (count (:relatedFiles hints))
    :importPackages (count (:importPackages hints))
@@ -333,6 +366,10 @@
        (seq (:topSymbols hints))
        (assoc :topSymbols (mapv #(compact-symbol limits %)
                                 (take (:top-symbols limits) (:topSymbols hints))))
+       (seq (:topDeclarations hints))
+       (assoc :topDeclarations (mapv #(compact-declaration limits %)
+                                     (take (:top-declarations limits)
+                                           (:topDeclarations hints))))
        (seq (:topDocs hints))
        (assoc :topDocs (mapv compact-doc
                              (take (:top-docs limits) (:topDocs hints))))
