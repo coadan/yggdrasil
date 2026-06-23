@@ -69,15 +69,26 @@
   (is (= ["enums" "enum"]
          (text/tokenize "Enums"))))
 
+(deftest tokenization-expands-simple-plural-identifier-parts
+  (is (= ["bsthemes"
+          "bstheme"
+          "bs"
+          "themes"
+          "theme"]
+         (text/tokenize "BsThemes")))
+  (is (= ["imports" "import"]
+         (text/tokenize "imports"))))
+
 (deftest tokenization-expands-camel-and-pascal-identifiers
   (is (= ["typehandlertests"
           "type"
           "handler"
           "tests"
-          "testdiscoveryoptions"
           "test"
+          "testdiscoveryoptions"
           "discovery"
           "options"
+          "option"
           "discoveryrequestcreatortests"
           "request"
           "creator"

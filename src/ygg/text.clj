@@ -82,6 +82,12 @@
       (and (< 4 (count token))
            (or (str/ends-with? token "ings")
                (str/ends-with? token "ums")))
+      (subs token 0 (dec (count token)))
+
+      (and (< 4 (count token))
+           (<= (count token) 12)
+           (str/ends-with? token "s")
+           (not (str/ends-with? token "ss")))
       (subs token 0 (dec (count token))))))
 
 (defn- expanded-token

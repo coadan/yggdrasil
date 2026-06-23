@@ -1624,6 +1624,22 @@
     (is (= 2 (get-in files [0 :metrics :matchedTokenCount])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
+(deftest file-ranking-does-not-stack-rare-token-score-on-graph-neighbor
+  (let [root (temp-dir "ygg-bench-rare-token-graph-neighbor")
+        _ (spit-file! root "src/importing.clj" "(ns importing)\n")
+        packet {:query "stream context uncommon"
+                :candidateFiles [{:path "src/importing.clj"
+                                  :rank 50
+                                  :score 0.35
+                                  :targetKind "node"
+                                  :label "importing stream context uncommon"
+                                  :scoreComponents {:lexical 0.2
+                                                    :graph 0.6}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        file (first (:suspectedFiles result))]
+    (is (= "src/importing.clj" (:path file)))
+    (is (= 0.6 (get-in file [:metrics :graphNeighborScore])))
+    (is (not (contains? (:metrics file) :rareQueryTokenScore)))))
 (deftest file-ranking-uses-architecture-runtime-evidence
   (let [root (temp-dir "ygg-bench-architecture-runtime")
         _ (spit-file! root "config/runtime.env" "DATABASE_URL=postgres://example\n")
@@ -1651,7 +1667,8 @@
             :retrievedSourceCount 0
             :exactPathSourceCount 0
             :maxConfidence 1.0
-            :rankScore 1.3890000000000002
+            :rankScore 4.589
+            :rareQueryTokenScore 3.2
             :matchedTokenCount 3
             :architectureSupportBoost 0.189
             :definitionKinds ["env-var"]}
@@ -1846,7 +1863,7 @@
         files (:suspectedFiles result)]
     (is (= ["lib/adapters/http.js" "tests/unit/adapters/fetch.test.js"]
            (mapv :path files)))
-    (is (= ["architecture-evidence:dependencyEvidence:lib/adapters/http.js kind=package-import fileKind=javascript relation=imports-package label=\"npm:proxy-from-env\" score=1.75"]
+    (is (= ["architecture-evidence:dependencyEvidence:lib/adapters/http.js kind=package-import fileKind=javascript relation=imports-package label=\"npm:proxy-from-env\" package=\"proxy-from-env\" score=1.75"]
            (get-in files [0 :evidence])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
@@ -2055,9 +2072,9 @@
                                   :label ".form-select"}]}
         result (benchmark/context-packet->agent-result packet {:root root})
         files (:suspectedFiles result)]
-    (is (= ["scss/forms/_form-select.scss" "scss/forms/_input-group.scss"]
+    (is (= ["scss/forms/_input-group.scss" "scss/forms/_form-select.scss"]
            (mapv :path files)))
-    (is (= 1 (get-in files [0 :metrics :matchedIdentityCompoundTokenPairCount])))
+    (is (= 1 (get-in files [1 :metrics :matchedIdentityCompoundTokenPairCount])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
@@ -2469,6 +2486,94 @@
            (mapv :path files)))
     (is (= [1 2 3] (mapv :rank files)))))
 
+(deftest file-ranking-diversity-keeps-strong-source-candidates-near-head
+  (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
+        rows [{:path "tests/fetch_test.clj"
+               :rank 1
+               :repo-id "fixture"
+               :metrics {:rankScore 18.0
+                         :candidateFileCount 2
+                         :candidateSourceRank 39
+                         :supportCount 3
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["function"]}}
+              {:path "src/http.clj"
+               :rank 2
+               :repo-id "fixture"
+               :metrics {:rankScore 16.0
+                         :candidateFileCount 2
+                         :candidateSourceRank 2
+                         :supportCount 2
+                         :docCount 0
+                         :entityCount 0
+                         :definitionKinds ["file"]}}
+              {:path "tests/http_test.clj"
+               :rank 3
+               :repo-id "fixture"
+               :metrics {:rankScore 17.0
+                         :candidateFileCount 4
+                         :candidateSourceRank 1
+                         :supportCount 5
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["function"]}}
+              {:path "tests/axios_test.clj"
+               :rank 4
+               :repo-id "fixture"
+               :metrics {:rankScore 15.0
+                         :candidateFileCount 2
+                         :candidateSourceRank 34
+                         :supportCount 3
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["file"]}}]
+        files (diversify rows)]
+    (is (= ["tests/fetch_test.clj"
+            "src/http.clj"
+            "tests/http_test.clj"
+            "tests/axios_test.clj"]
+           (mapv :path files)))
+    (is (= [1 2 3 4] (mapv :rank files)))))
+
+(deftest file-ranking-diversity-does-not-bypass-low-support-source-candidate
+  (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
+        rows [{:path "tests/head_test.clj"
+               :rank 1
+               :repo-id "fixture"
+               :metrics {:rankScore 18.0
+                         :candidateFileCount 2
+                         :candidateSourceRank 12
+                         :supportCount 3
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["function"]}}
+              {:path "tests/low_support_test.clj"
+               :rank 2
+               :repo-id "fixture"
+               :metrics {:rankScore 17.0
+                         :candidateFileCount 1
+                         :candidateSourceRank 1
+                         :supportCount 1
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["function"]}}
+              {:path "src/core.clj"
+               :rank 3
+               :repo-id "fixture"
+               :metrics {:rankScore 16.0
+                         :candidateFileCount 1
+                         :candidateSourceRank 4
+                         :supportCount 1
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["file"]}}]
+        files (diversify rows)]
+    (is (= ["tests/head_test.clj"
+            "src/core.clj"
+            "tests/low_support_test.clj"]
+           (mapv :path files)))))
+
 (deftest file-ranking-diversity-keeps-decision-candidate-files-early
   (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
         rows [{:path "tests/docker-compose.yml"
@@ -2794,13 +2899,13 @@
         result (benchmark/context-packet->agent-result packet {:root root
                                                                :limit 5})
         files (:suspectedFiles result)]
-    (is (= ["src/doc-1.clj"
+    (is (= ["src/candidate.clj"
+            "src/doc-1.clj"
             "src/doc-2.clj"
             "src/doc-3.clj"
-            "src/doc-4.clj"
-            "src/candidate.clj"]
+            "src/doc-4.clj"]
            (mapv :path files)))
-    (is (= 1 (get-in files [4 :metrics :matchedTokenPairCount])))
+    (is (= 1 (get-in files [0 :metrics :matchedTokenPairCount])))
     (is (= {:rawCandidateFiles 6
             :candidateFiles 6
             :coverageFilteredCandidateFiles 0

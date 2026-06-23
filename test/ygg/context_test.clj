@@ -2004,6 +2004,57 @@
     (is (= 8 (count (:dependencyEvidence section))))
     (is (some #{"src/core.js"} (map :path (:dependencyEvidence section))))))
 
+(deftest architecture-dependency-evidence-preserves-query-package-identity-through-limit
+  (let [target-package {:id "node:pkg:proxy-from-env"
+                        :package-name "proxy-from-env"
+                        :label "npm:proxy-from-env"
+                        :ecosystem :npm
+                        :imported-by [{:path "lib/adapters/http.js"
+                                       :line 5
+                                       :kind :javascript
+                                       :import-name "proxy-from-env"}]}
+        noise-packages (mapv
+                        (fn [idx]
+                          (let [path (str "tests/proxy-env-noise-"
+                                          idx
+                                          ".test.js")]
+                            {:id (str "node:pkg:noise-" idx)
+                             :package-name (str "noise-" idx)
+                             :label (str "npm:noise-" idx)
+                             :ecosystem :npm
+                             :imported-by [{:path path
+                                            :line idx
+                                            :kind :javascript
+                                            :import-name (str "noise-" idx)}]}))
+                        (range 1 12))
+        dependency-report (assoc (empty-dependency-report)
+                                 :packages
+                                 (vec (cons target-package noise-packages)))
+        section (context-architecture/architecture-section
+                 {:overlay {}
+                  :entities []
+                  :results []
+                  :candidate-inputs (mapv (fn [idx]
+                                            {:path (str "tests/proxy-env-noise-"
+                                                        idx
+                                                        ".test.js")})
+                                          (range 1 12))
+                  :edges []
+                  :runtime-evidence []
+                  :dependency-report dependency-report
+                  :docs []
+                  :activity []
+                  :evidence {:warnings []}
+                  :freshness {:warnings []}
+                  :accepted-systems []
+                  :query-tokens ["proxy" "env" "test"]})
+        dependency-evidence (:dependencyEvidence section)]
+    (is (= 8 (count dependency-evidence)))
+    (is (some #(and (= "lib/adapters/http.js" (:path %))
+                    (= "proxy-from-env" (:package %))
+                    (= "proxy-from-env" (:importName %)))
+              dependency-evidence))))
+
 (deftest context-packet-scores-dependencies-before-display-limiting
   (with-redefs [query/search-report (fn [_ query-text opts]
                                       {:schema query/search-report-schema

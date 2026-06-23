@@ -46,6 +46,10 @@
   4)
 (def ^:private rank-score-candidate-support-label-weight
   0.06)
+(def ^:private rank-score-rare-query-token-cap
+  3.2)
+(def ^:private rank-score-rare-query-token-weight
+  2.4)
 (def ^:private rank-score-direct-file-identity-support-cap
   4)
 (def ^:private rank-score-direct-file-identity-support-weight
@@ -136,6 +140,10 @@
   3)
 (def ^:private unsaturated-decision-tail-score-ratio
   0.5)
+(def ^:private diversity-bypass-candidate-source-rank-window
+  2)
+(def ^:private diversity-bypass-support-count-min
+  2)
 (def ^:private inspection-direct-file-quota
   4)
 (defn- parse-double-safe
@@ -509,6 +517,19 @@
          (* rank-score-candidate-lexical-component-weight
             (double candidate-lexical-score)))
     0.0))
+(defn- rare-query-token-score
+  [doc-count graph-neighbor-score token-path-counts matched-tokens]
+  (if (and (zero? (long doc-count))
+           (zero? (double graph-neighbor-score)))
+    (let [token-score (fn [token]
+                        (/ 1.0
+                           (double (max 1
+                                        (long (or (get token-path-counts token)
+                                                  1))))))
+          score (reduce + 0.0 (map token-score (seq (set matched-tokens))))]
+      (min rank-score-rare-query-token-cap
+           (* rank-score-rare-query-token-weight score)))
+    0.0))
 (defn- direct-file-identity-support-boost
   [doc-count
    direct-file-candidate-count
@@ -850,6 +871,9 @@
                      (:fileKind row)
                      (:relation row)
                      (:label row)
+                     (:package row)
+                     (:import row)
+                     (:importName row)
                      (:normalizedValue row)
                      (:source row)
                      (:target row)])))
@@ -870,6 +894,11 @@
          (str " relation=" relation))
        (when-let [label (not-empty (str (:label row)))]
          (str " label=" (pr-str label)))
+       (when-let [package (not-empty (str (:package row)))]
+         (str " package=" (pr-str package)))
+       (when-let [import-name (not-empty (str (or (:importName row)
+                                                  (:import row))))]
+         (str " import=" (pr-str import-name)))
        (when-some [score (:score row)]
          (str " score=" score))))
 (def ^:private architecture-evidence-score-weights
@@ -921,6 +950,7 @@
                                                (identity-text (:label row)
                                                               (:package row)
                                                               (:import row)
+                                                              (:importName row)
                                                               (:normalizedValue row))))
                                        0)
         package-identity-boost (if (>= package-identity-token-count 2)
@@ -1019,9 +1049,20 @@
                                                  "deployEvidence"
                                                  %2)
                   (get-in packet [:architecture :deployEvidence])))))
+(defn- matched-token-path-counts
+  [grouped-rows-by-file]
+  (->> grouped-rows-by-file
+       vals
+       (mapcat (fn [grouped-rows]
+                 (->> grouped-rows
+                      (mapcat :matched-tokens)
+                      distinct)))
+       frequencies))
 (defn- ranked-file-predictions
   [rows]
-  (let [combine-rows (fn [path grouped-rows]
+  (let [grouped-rows-by-file (group-by file-row-key rows)
+        token-path-counts (matched-token-path-counts grouped-rows-by-file)
+        combine-rows (fn [path grouped-rows]
                        (let [ordered (sort-by :source-rank grouped-rows)
                              best-row (first ordered)
                              support-count (count ordered)
@@ -1215,6 +1256,11 @@
                              (retrieved-support-label-boost
                               doc-count
                               retrieved-support-label-count)
+                             rare-query-token-score
+                             (rare-query-token-score doc-count
+                                                     graph-neighbor-score
+                                                     token-path-counts
+                                                     matched-tokens)
                              rank-score (+ max-evidence-score
                                            source-rank-score
                                            (* 0.22 (min rank-score-token-cap
@@ -1252,6 +1298,7 @@
                                            doc-supported-candidate-evidence-boost
                                            architecture-rank-boost
                                            candidate-lexical-component-boost
+                                           rare-query-token-score
                                            direct-file-identity-support-boost
                                            retrieved-support-label-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
@@ -1342,7 +1389,10 @@
                                               direct-file-architecture-graph-boost)
                                        (pos? candidate-lexical-component-boost)
                                        (assoc :candidateLexicalComponentBoost
-                                              candidate-lexical-component-boost))]
+                                              candidate-lexical-component-boost)
+                                       (pos? rare-query-token-score)
+                                       (assoc :rareQueryTokenScore
+                                              rare-query-token-score))]
                          (cond-> (assoc best-row
                                         :path path
                                         :confidence confidence
@@ -1357,8 +1407,7 @@
                                    " more matching "
                                    (if (= 1 extra-count) "row" "rows")
                                    "."))))]
-    (->> rows
-         (group-by file-row-key)
+    (->> grouped-rows-by-file
          (map (fn [[[_repo-id path] grouped-rows]]
                 (combine-rows path grouped-rows)))
          (sort-by (juxt (comp - :rank-score)
@@ -1439,6 +1488,18 @@
   [row]
   (pos? (long (or (get-in row [:metrics :decisionCandidateCount]) 0))))
 
+(defn- prediction-diversity-bypass?
+  [row]
+  (let [candidate-source-rank (long (or (get-in row [:metrics :candidateSourceRank])
+                                        Long/MAX_VALUE))
+        candidate-file-count (long (or (get-in row [:metrics :candidateFileCount])
+                                       0))
+        support-count (long (or (get-in row [:metrics :supportCount]) 0))]
+    (and (pos? candidate-file-count)
+         (<= candidate-source-rank
+             diversity-bypass-candidate-source-rank-window)
+         (<= diversity-bypass-support-count-min support-count))))
+
 (defn- row-rank-score
   [row]
   (double (or (get-in row [:metrics :rankScore]) 0.0)))
@@ -1470,6 +1531,11 @@
                                    (map-indexed vector)
                                    (some (fn [[idx row]]
                                            (when (prediction-rank-protected? row)
+                                             [idx row]))))
+                              (->> remaining
+                                   (map-indexed vector)
+                                   (some (fn [[idx row]]
+                                           (when (prediction-diversity-bypass? row)
                                              [idx row]))))
                               (->> remaining
                                    (map-indexed vector)

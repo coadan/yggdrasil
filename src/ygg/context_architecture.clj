@@ -337,6 +337,12 @@
   (set (keep :id selected)))
 (def ^:private selected-path-dependency-evidence-min-score
   1.75)
+(def ^:private dependency-evidence-display-limit
+  8)
+(def ^:private query-supported-dependency-identity-min-score
+  2)
+(def ^:private query-supported-dependency-identity-preserve-limit
+  2)
 (defn- preservable-selected-path-evidence?
   [row]
   (<= selected-path-dependency-evidence-min-score
@@ -377,6 +383,61 @@
                (if candidate
                  (conj protected-paths path)
                  protected-paths)))
+      selected)))
+(defn- dependency-identity-token-score
+  [query-tokens row]
+  (capped-token-score (distinct query-tokens)
+                      (compact (:label row)
+                               (:package row)
+                               (:import row)
+                               (:importName row)
+                               (:versions row))))
+(defn- query-supported-dependency-identity?
+  [query-tokens row]
+  (<= query-supported-dependency-identity-min-score
+      (dependency-identity-token-score query-tokens row)))
+(defn- evidence-row-key
+  [row]
+  (or (:id row)
+      [(:kind row) (:relation row) (:path row) (:sourceLine row)]))
+(defn- dependency-query-identity-candidates
+  [query-tokens rows selected]
+  (let [selected-keys (set (map evidence-row-key selected))]
+    (->> rows
+         (filter #(query-supported-dependency-identity? query-tokens %))
+         (remove #(contains? selected-keys (evidence-row-key %)))
+         (sort-by (juxt (comp - #(dependency-identity-token-score query-tokens %))
+                        (comp - #(double (or (:score %) 0.0)))
+                        #(or (:path %) "")
+                        #(or (s (:id %)) "")))
+         (take query-supported-dependency-identity-preserve-limit))))
+(defn- dependency-query-identity-replacement-index
+  [query-tokens selected]
+  (->> selected
+       (map-indexed vector)
+       reverse
+       (some (fn [[idx row]]
+               (when-not (query-supported-dependency-identity? query-tokens row)
+                 idx)))))
+(defn- preserve-query-supported-dependency-identity
+  [query-tokens rows selected]
+  (loop [selected (vec selected)
+         candidates (seq (dependency-query-identity-candidates query-tokens
+                                                               rows
+                                                               selected))]
+    (if-let [candidate (first candidates)]
+      (let [replace-idx (dependency-query-identity-replacement-index query-tokens
+                                                                     selected)]
+        (recur (cond
+                 (< (count selected) dependency-evidence-display-limit)
+                 (conj selected candidate)
+
+                 replace-idx
+                 (assoc selected replace-idx candidate)
+
+                 :else
+                 selected)
+               (next candidates)))
       selected)))
 (defn- relationship-target-row
   [edge]
@@ -1336,14 +1397,18 @@
                            dependency-report
                            candidate-inputs)))
         dependency-evidence (vec
-                             (preserve-evidence-result-path-coverage
+                             (preserve-query-supported-dependency-identity
+                              query-tokens
                               dependency-rows
-                              (take 8 dependency-rows)
-                              (ranked-result-path-order
-                               (if (seq candidate-inputs)
-                                 candidate-inputs
-                                 results)
-                               dependency-result-path-limit)))
+                              (preserve-evidence-result-path-coverage
+                               dependency-rows
+                               (take dependency-evidence-display-limit
+                                     dependency-rows)
+                               (ranked-result-path-order
+                                (if (seq candidate-inputs)
+                                  candidate-inputs
+                                  results)
+                                dependency-result-path-limit))))
         deploy-evidence (deploy-evidence-rows runtime-evidence)
         architecture-docs (mapv architecture-doc-row
                                 (take 8 (filter accepted-architecture-doc? docs)))
