@@ -49,6 +49,7 @@
 
 (deftest import-package-resolution-pushes-real-xtdb-scope-constraints
   (let [constrained-queries (atom [])
+        edge-queries (atom [])
         manifest {:xt/id "manifest:maven"
                   :kind :manifest
                   :path "pom.xml"
@@ -74,9 +75,14 @@
                     (case table
                       :ygg/files []
                       :ygg/nodes [manifest package]
-                      :ygg/edges (if (= :requires (:relation constraints))
-                                   [requires-edge]
-                                   [])))
+                      :ygg/edges (throw (ex-info "edges should use batched relation reads"
+                                                 {:constraints constraints}))))
+                  store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! edge-queries conj request)
+                    (if (some #{:requires} (:values request))
+                      [requires-edge]
+                      []))
                   store/rows-by-field
                   (fn [& _]
                     (throw (ex-info "rows-by-field should not be used for real XTDB handles"
@@ -105,14 +111,26 @@
                     {:project-id "project-a"
                      :repo-id "repo-a"
                      :active? true}]))
-    (is (= #{:imports :requires :resolves :uses :version-of}
-           (set (keep (fn [[table constraints]]
-                        (when (= (:edges store/tables) table)
-                          (:relation constraints)))
-                      @constrained-queries))))))
+    (is (= [{:table (:edges store/tables)
+             :field :relation
+             :values [:requires :resolves :version-of]
+             :constraints {:project-id "project-a"
+                           :repo-id "repo-a"
+                           :active? true}
+             :return-fields @#'dependency/dependency-edge-row-fields}
+            {:table (:edges store/tables)
+             :field :relation
+             :values [:imports :uses]
+             :constraints {:project-id "project-a"
+                           :repo-id "repo-a"
+                           :active? true}
+             :return-fields @#'dependency/dependency-edge-row-fields}]
+           (mapv #(select-keys % [:table :field :values :constraints :return-fields])
+                 @edge-queries)))))
 
 (deftest package-report-uses-relation-scoped-edge-reads
   (let [constrained-queries (atom [])
+        edge-queries (atom [])
         manifest {:xt/id "manifest:npm"
                   :kind :manifest
                   :path "package.json"
@@ -140,9 +158,14 @@
                     (case table
                       :ygg/files []
                       :ygg/nodes [manifest package]
-                      :ygg/edges (case (:relation constraints)
-                                   :requires [requires-edge]
-                                   [])
+                      :ygg/edges (throw (ex-info "edges should use batched relation reads"
+                                                 {:constraints constraints}))
+                      []))
+                  store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! edge-queries conj request)
+                    (if (some #{:requires} (:values request))
+                      [requires-edge]
                       []))
                   store/all-rows
                   (fn [& _]
@@ -165,15 +188,15 @@
                     {:project-id "project-a"
                      :repo-id "repo-a"
                      :active? true}]))
-    (is (= #{:imports :imports-package :requires :resolves :uses :version-of}
-           (set (keep (fn [[table constraints]]
-                        (when (= (:edges store/tables) table)
-                          (:relation constraints)))
-                      @constrained-queries))))
-    (is (not-any? (fn [[table constraints]]
-                    (and (= (:edges store/tables) table)
-                         (nil? (:relation constraints))))
-                  @constrained-queries))))
+    (is (= [{:table (:edges store/tables)
+             :field :relation
+             :values [:requires :resolves :version-of :imports-package :imports :uses]
+             :constraints {:project-id "project-a"
+                           :repo-id "repo-a"
+                           :active? true}
+             :return-fields @#'dependency/dependency-edge-row-fields}]
+           (mapv #(select-keys % [:table :field :values :constraints :return-fields])
+                 @edge-queries)))))
 
 (deftest derived-dependency-edge-replacement-pushes-relation-scope-constraints
   (let [calls (atom [])

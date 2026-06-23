@@ -16,18 +16,6 @@
                                 :repo-id repo-id
                                 :active? true})))
 
-(defn- active-scope-edge-rows
-  [xtdb {:keys [project-id repo-id]} relations]
-  (->> relations
-       (mapcat (fn [relation]
-                 (store/constrained-rows xtdb
-                                         (:edges store/tables)
-                                         {:project-id project-id
-                                          :repo-id repo-id
-                                          :relation relation
-                                          :active? true})))
-       vec))
-
 (def ^:private dependency-source-edge-relations
   [:requires :resolves :version-of])
 
@@ -36,6 +24,52 @@
 
 (def ^:private package-report-edge-relations
   [:requires :resolves :version-of :imports-package :imports :uses])
+
+(def ^:private dependency-edge-row-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :source-id
+   :target-id
+   :relation
+   :confidence
+   :file-id
+   :path
+   :source-line
+   :ecosystem
+   :package-name
+   :version-range
+   :dependency-scope
+   :import-name
+   :source-kind
+   :resolution-source
+   :active?
+   :run-id])
+
+(defn- active-scope-edge-rows
+  [xtdb {:keys [project-id repo-id]} relations]
+  (let [relations (vec (distinct relations))
+        constraints {:project-id project-id
+                     :repo-id repo-id
+                     :active? true}]
+    (if (store/xtdb-handle? xtdb)
+      (let [rows (store/rows-with-field-values
+                  xtdb
+                  {:table (:edges store/tables)
+                   :field :relation
+                   :values relations
+                   :constraints constraints
+                   :return-fields dependency-edge-row-fields})
+            rows-by-relation (group-by :relation rows)]
+        (->> relations
+             (mapcat rows-by-relation)
+             vec))
+      (->> relations
+           (mapcat (fn [relation]
+                     (store/constrained-rows xtdb
+                                             (:edges store/tables)
+                                             (assoc constraints :relation relation))))
+           vec))))
 
 (defn- package-node?
   [node]
