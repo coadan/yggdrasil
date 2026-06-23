@@ -1,11 +1,29 @@
 {:id "historical-replay"
  :project-id "historical-replay"
- :description "Small non-synthetic replay cases from real fix commits on cached benchmark repos."
+ :description "Non-synthetic replay cases from real fix commits on cached benchmark repos."
  :repos [{:id "axios"
           :root "../.dev/ygg/benchmark-repos/axios"
           :role :application}
+         {:id "bootstrap"
+          :root "../.dev/ygg/benchmark-repos/bootstrap"
+          :role :application}
          {:id "dapper"
           :root "../.dev/ygg/benchmark-repos/dapper"
+          :role :library}
+         {:id "flask"
+          :root "../.dev/ygg/benchmark-repos/flask"
+          :role :application}
+         {:id "junit-framework"
+          :root "../.dev/ygg/benchmark-repos/junit-framework"
+          :role :library}
+         {:id "opentelemetry-collector"
+          :root "../.dev/ygg/benchmark-repos/opentelemetry-collector"
+          :role :library}
+         {:id "opentelemetry-collector-contrib"
+          :root "../.dev/ygg/benchmark-repos/opentelemetry-collector-contrib"
+          :role :application}
+         {:id "terraform-aws-vpc"
+          :root "../.dev/ygg/benchmark-repos/terraform-aws-vpc"
           :role :library}]
  :cases [{:id "historical-axios-defer-env-proxy-to-node"
           :repo-id "axios"
@@ -21,6 +39,10 @@
           :fix-sha "20ce9c412ebd88823d1a4a47000cb133a8f79440"
           :ground-truth {:localization-files ["lib/adapters/http.js"
                                               "tests/unit/adapters/http.test.js"]}
+          :expectations {:citation-evidence [{:kind :runtime-boundary
+                                              :path "lib/adapters/http.js"}
+                                             {:kind :runtime-boundary-test
+                                              :path "tests/unit/adapters/http.test.js"}]}
           :issue {:id "axios-10942"
                   :url "https://github.com/axios/axios/pull/10942"
                   :title "fix(http): defer env proxy handling to Node"
@@ -45,7 +67,193 @@
           :ground-truth {:localization-files ["Dapper/SqlMapper.Settings.cs"
                                               "Dapper/SqlMapper.cs"
                                               "tests/Dapper.Tests/PreferTypeHandlersForEnumsTests.cs"]}
+          :expectations {:citation-evidence [{:kind :dotnet-type-handler
+                                              :path "Dapper/SqlMapper.cs"}
+                                             {:kind :dotnet-settings
+                                              :path "Dapper/SqlMapper.Settings.cs"}]}
           :issue {:id "dapper-2200"
                   :url "https://github.com/DapperLib/Dapper/pull/2200"
                   :title "Fix/prefer typehandlers for enums"
-                  :body "Historical replay of Dapper commit 2a8faab235c21892fb4c9a4529510d030516d691. The fix added an opt-in setting so registered enum TypeHandlers are preferred before default enum boxing, with changes in core mapping/settings code and regression tests. Identify the files likely to need edits before looking at the fixing diff."}}]}
+                  :body "Historical replay of Dapper commit 2a8faab235c21892fb4c9a4529510d030516d691. The fix added an opt-in setting so registered enum TypeHandlers are preferred before default enum boxing, with changes in core mapping/settings code and regression tests. Identify the files likely to need edits before looking at the fixing diff."}}
+
+         {:id "historical-otel-routing-default-error-mode"
+          :repos [{:repo-id "opentelemetry-collector"
+                   :base-sha "5a9e6074d2d890ee1db3cf990e414831d068bcdb"
+                   :fix-sha "5a9e6074d2d890ee1db3cf990e414831d068bcdb"
+                   :index-files ["connector/connector.go"
+                                 "consumer/consumer.go"
+                                 "component/component.go"]}
+                  {:repo-id "opentelemetry-collector-contrib"
+                   :base-sha "7d830a73d319f33945ac894116a08aa54177b551"
+                   :fix-sha "9f0baf6567e7fd72e2e910e3d20652373f7abc60"
+                   :ground-truth {:localization-files ["connector/routingconnector/config.go"
+                                                       "connector/routingconnector/config.schema.yaml"
+                                                       "connector/routingconnector/factory.go"
+                                                       "connector/routingconnector/factory_test.go"
+                                                       "connector/routingconnector/metadata.yaml"]}}]
+          :coverage {:source-kinds [:go :yaml]}
+          :tags [:historical
+                 :problem-architecture
+                 :problem-cross-file
+                 :architecture-runtime-boundary
+                 :architecture-dependency-flow
+                 :service-boundary
+                 :multi-repo
+                 :go
+                 :otel]
+          :issue {:id "otel-contrib-48433"
+                  :url "https://github.com/open-telemetry/opentelemetry-collector-contrib/pull/48433"
+                  :title "[connector/routing] Add feature gate to change default error_mode to ignore"
+                  :body "Historical replay of opentelemetry-collector-contrib commit 9f0baf6567e7fd72e2e910e3d20652373f7abc60. The fix added a routing connector feature gate that changes the default error_mode behavior. Identify the contrib routing connector config, factory, metadata, and tests likely to need edits, using Collector core connector contracts as static cross-repo context."}}
+
+         {:id "historical-terraform-vpc-endpoint-dns-record-ip-type"
+          :repo-id "terraform-aws-vpc"
+          :coverage {:source-kinds [:terraform]}
+          :tags [:historical
+                 :problem-architecture
+                 :problem-runtime-config
+                 :architecture-data-ownership
+                 :audit-scope-runtime-config
+                 :iac
+                 :terraform
+                 :shell-sufficient-control]
+          :base-sha "82d1929e669efef4e2ad00611b8a68e7a56e049c"
+          :fix-sha "7a28ce8ec6a17a8ca52710e47763f3a52c155110"
+          :ground-truth {:localization-files ["modules/vpc-endpoints/main.tf"]}
+          :issue {:id "terraform-aws-vpc-1292"
+                  :url "https://github.com/terraform-aws-modules/terraform-aws-vpc/pull/1292"
+                  :title "fix: Correct dns_options.dns_record_ip_type lookup for aws_vpc_endpoint"
+                  :body "Historical replay of terraform-aws-vpc commit 7a28ce8ec6a17a8ca52710e47763f3a52c155110. The fix corrected the dns_options.dns_record_ip_type lookup for VPC endpoints. Identify the Terraform module file likely to need the ownership/config edit before looking at the fixing diff."}}
+
+         {:id "historical-flask-autoescape-case-insensitive"
+          :repo-id "flask"
+          :coverage {:source-kinds [:python]}
+          :tags [:historical
+                 :problem-runtime-config
+                 :problem-api-contract
+                 :architecture-runtime-boundary
+                 :python
+                 :flask]
+          :base-sha "06ea505ce2b2042af26e96d35ebf159af7c0869d"
+          :fix-sha "9368fb3f3c52d74534d14c1bef03c79c103356cd"
+          :ground-truth {:localization-files ["src/flask/sansio/app.py"]}
+          :issue {:id "flask-6013"
+                  :url "https://github.com/pallets/flask/pull/6013"
+                  :title "autoescape selection uses case-insensitive comparison"
+                  :body "Historical replay of Flask commit 9368fb3f3c52d74534d14c1bef03c79c103356cd. The fix made autoescape selection compare file extensions case-insensitively. Identify the Python framework file that owns the runtime autoescape behavior before looking at the fixing diff."}}
+
+         {:id "historical-junit-system-properties-extension-backup"
+          :repo-id "junit-framework"
+          :coverage {:source-kinds [:java]}
+          :tags [:historical
+                 :problem-cross-file
+                 :problem-api-contract
+                 :architecture-data-ownership
+                 :java
+                 :junit]
+          :base-sha "c8168b7c79a0591f421ef37dbbd20eb1f34cafef"
+          :fix-sha "5bc7cb12f5bc4492011bdcf278fde44ac45166d5"
+          :ground-truth {:localization-files ["junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesExtension.java"
+                                              "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesModification.java"
+                                              "jupiter-tests/src/test/java/org/junit/jupiter/api/util/SystemPropertiesExtensionTests.java"]}
+          :issue {:id "junit-framework-5764"
+                  :url "https://github.com/junit-team/junit-framework/pull/5764"
+                  :title "Store one partial backup for each SystemPropertiesExtension context"
+                  :body "Historical replay of JUnit commit 5bc7cb12f5bc4492011bdcf278fde44ac45166d5. The fix changed SystemPropertiesExtension lifecycle backup behavior and added a helper type plus tests. Identify the Java API utility and regression test files likely to need edits before looking at the fixing diff."}}
+
+         {:id "historical-bootstrap-toasts-doc-wording"
+          :repo-id "bootstrap"
+          :coverage {:source-kinds [:doc]}
+          :tags [:historical
+                 :problem-docs-config-coupling
+                 :docs-config-coupling
+                 :shell-sufficient-control
+                 :ygg-should-lose
+                 :docs
+                 :bootstrap]
+          :base-sha "59a79e1dfb20fd0d1d3fc7e74f01f96e81d5b777"
+          :fix-sha "5693ab7e1b578b44e878d24ab479a650cb545caf"
+          :ground-truth {:localization-files ["site/src/content/docs/components/toasts.mdx"]}
+          :issue {:id "bootstrap-42428"
+                  :url "https://github.com/twbs/bootstrap/pull/42428"
+                  :title "Fix wording in toasts show doc"
+                  :body "Historical replay of Bootstrap commit 5693ab7e1b578b44e878d24ab479a650cb545caf. The fix corrected wording in the Toasts documentation. This is intentionally shell-sufficient: identify the single docs file likely to need the wording edit before looking at the fixing diff."}}
+
+         {:id "historical-bootstrap-node-version-workflows"
+          :repo-id "bootstrap"
+          :coverage {:source-kinds [:ci]}
+          :tags [:historical
+                 :problem-docs-config-coupling
+                 :docs-config-coupling
+                 :dependency-package-changes
+                 :ci-config
+                 :shell-sufficient-control
+                 :bootstrap]
+          :base-sha "89c7d7d7607259de2a4830a7d31a70710e2c00ad"
+          :fix-sha "83498988cb5fadc87de7763b8ff72cd74ebb99a7"
+          :ground-truth {:localization-files [".github/workflows/browserstack.yml"
+                                              ".github/workflows/bundlewatch.yml"
+                                              ".github/workflows/css.yml"
+                                              ".github/workflows/docs.yml"
+                                              ".github/workflows/js.yml"
+                                              ".github/workflows/lint.yml"
+                                              ".github/workflows/node-sass.yml"]}
+          :issue {:id "bootstrap-42416"
+                  :url "https://github.com/twbs/bootstrap/pull/42416"
+                  :title "Use node-version-file in GitHub workflows"
+                  :body "Historical replay of Bootstrap commit 83498988cb5fadc87de7763b8ff72cd74ebb99a7. The fix replaced explicit Node version configuration in GitHub Actions workflows with node-version-file. Identify the workflow config files likely to need edits before looking at the fixing diff."}}
+
+         {:id "historical-axios-max-body-length-follow-redirects"
+          :repo-id "axios"
+          :coverage {:source-kinds [:javascript]}
+          :tags [:historical
+                 :problem-dependency-boundary
+                 :problem-runtime-config
+                 :architecture-runtime-boundary
+                 :dependency-package-changes
+                 :javascript]
+          :base-sha "30499d6af0961ec38619792013a534d1933b08a9"
+          :fix-sha "1792eda11aff8fe0f8c8a6e5ae6ff305740a6460"
+          :ground-truth {:localization-files ["lib/adapters/http.js"]}
+          :issue {:id "axios-10993"
+                  :url "https://github.com/axios/axios/pull/10993"
+                  :title "fix: ensure maxBodyLength is explicitly passed to follow-redirects"
+                  :body "Historical replay of axios commit 1792eda11aff8fe0f8c8a6e5ae6ff305740a6460. The fix ensured maxBodyLength is explicitly passed into the follow-redirects boundary. Identify the adapter file likely to need the dependency-boundary edit before looking at the fixing diff."}}
+
+         {:id "historical-dapper-reference-trimmer-dependencies"
+          :repo-id "dapper"
+          :coverage {:source-kinds [:manifest]}
+          :tags [:historical
+                 :problem-dependency-change
+                 :dependency-package-changes
+                 :audit-scope-dependencies
+                 :dotnet
+                 :shell-sufficient-control]
+          :base-sha "953f3718052940e72d0f20e22d836b1595f5dcd8"
+          :fix-sha "72a54c475f75e18cb93cba0809d00a5e6e49efd9"
+          :ground-truth {:localization-files ["Dapper.SqlBuilder/Dapper.SqlBuilder.csproj"
+                                              "Directory.Packages.props"
+                                              "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"]}
+          :issue {:id "dapper-2191"
+                  :url "https://github.com/DapperLib/Dapper/pull/2191"
+                  :title "Add ReferenceTrimmer and remove unused references"
+                  :body "Historical replay of Dapper commit 72a54c475f75e18cb93cba0809d00a5e6e49efd9. The fix added ReferenceTrimmer and removed unused project references. Identify the project and central package files likely to need dependency edits before looking at the fixing diff."}}
+
+         {:id "historical-axios-formdata-epipe-test-lifecycle"
+          :repo-id "axios"
+          :coverage {:source-kinds [:javascript]}
+          :tags [:historical
+                 :problem-test-only
+                 :test-only-regression
+                 :architecture-runtime-boundary
+                 :shell-sufficient-control
+                 :javascript]
+          :base-sha "3cf6917576417961de6c96a99844690b5cc41451"
+          :fix-sha "9fcdf488119c56133ac6bc1df7155598e347b773"
+          :ground-truth {:localization-files ["tests/setup/server.js"
+                                              "tests/unit/adapters/fetch.test.js"
+                                              "tests/unit/adapters/http.test.js"]}
+          :issue {:id "axios-10820"
+                  :url "https://github.com/axios/axios/pull/10820"
+                  :title "test: harden http test server lifecycle to fix flaky FormData EPIPE"
+                  :body "Historical replay of axios commit 9fcdf488119c56133ac6bc1df7155598e347b773. The fix was test-only: it hardened HTTP test server lifecycle behavior for flaky FormData EPIPE failures. Identify the test setup and adapter test files likely to need edits before looking at the fixing diff."}}]}
