@@ -174,8 +174,8 @@
                        :errors errors})))))
 (defn- same-repo-definition?
   [a b]
-  (= (select-keys a [:id :root :role])
-     (select-keys b [:id :root :role])))
+  (= (select-keys a [:id :root])
+     (select-keys b [:id :root])))
 (defn- repo-source
   [repo]
   (:suite-source (meta repo)))

@@ -29,7 +29,7 @@
          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "bench"
                       *command-line-args*)}
 
-  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|token-check|compare|claim-pack|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
+  headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|prepare-ygg|ygg|agents|reports|token-check|compare|claim-pack|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
             :task (apply shell "bash" "scripts/headline-bench.sh"
                          *command-line-args*)}
 

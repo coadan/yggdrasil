@@ -33,7 +33,8 @@
            shell-command-count ygg-command-count
            segment-count search-segment-count file-read-segment-count
            shell-segment-count ygg-segment-count
-           elapsed failed running case-ids]}]
+           elapsed warm-elapsed agent-ready-elapsed amortized-setup-elapsed
+           failed running case-ids]}]
   (let [scores (cond-> {:fileRecallAt5 recall5
                         :fileRecallAt10 recall10
                         :fileRecallAt20 recall20
@@ -75,6 +76,9 @@
                                                            :shellSegmentCount shell-segment-count))}
              :improvementSummary []
              :timings {:elapsedMs elapsed
+                       :warmElapsedMs (or warm-elapsed elapsed)
+                       :agentReadyElapsedMs (or agent-ready-elapsed 0)
+                       :amortizedSetupElapsedMs (or amortized-setup-elapsed 0)
                        :failedCases failed
                        :runningCases running}
              :results (mapv (fn [case-id]
@@ -136,6 +140,39 @@
            :warnings (if supported?
                        []
                        ["Lane is not representative enough."])})))
+
+(defn- with-coverage-only-claim-readiness
+  [report {:keys [measured-problem? measured-architecture?]
+           :or {measured-problem? true
+                measured-architecture? false}}]
+  (assoc report
+         :claimReadiness
+         {:status (if (and measured-problem? measured-architecture?)
+                    "supported"
+                    "not-supported")
+          :broadArchitectureClaimSupported (and measured-problem?
+                                                measured-architecture?)
+          :measuredProblemClassTags (if measured-problem?
+                                      ["problem-architecture"]
+                                      [])
+          :measuredArchitectureClassTags (if measured-architecture?
+                                           ["architecture-dependency-flow"]
+                                           [])
+          :requirements {:completedCases true
+                         :hasRuns true
+                         :evidenceCitationMetrics true
+                         :expectedEvidenceCitationMetrics true
+                         :decisionQualityMetrics true
+                         :commandTelemetry true
+                         :maintenancePreflight true
+                         :measuredProblemClasses measured-problem?
+                         :measuredArchitectureClasses measured-architecture?}
+          :warnings (cond-> []
+                      (not measured-problem?)
+                      (conj "No measured problem-class groups.")
+
+                      (not measured-architecture?)
+                      (conj "No measured architecture-class groups."))}))
 
 (defn- token-usage
   [total-tokens]
@@ -245,6 +282,7 @@
             :commandCount
             :searchCommandCount
             :fileReadCommandCount
+            :warmElapsedMs
             :elapsedMs
             :totalTokens
             :costUsd]
@@ -264,6 +302,7 @@
             :toolCallDelta -4.0
             :searchCommandDelta -3.0
             :fileReadDelta -1.0
+            :warmElapsedMsDelta -100.0
             :elapsedMsDelta -100.0
             :totalTokensDelta nil
             :costUsdDelta nil
@@ -271,11 +310,11 @@
            (:headlineSummary comparison)))
     (is (= {:signal "ygg-improved"
             :minSharedCases 2
-            :availableMetrics 23
+            :availableMetrics 24
             :improvedMetrics 20
             :regressedMetrics 0
             :unchangedMetrics 2
-            :observedMetrics 1
+            :observedMetrics 2
             :unavailableMetrics 5}
            (:summary comparison)))
     (is (= {:sameSuite true
@@ -343,10 +382,11 @@
            (get-in categories-by-key ["result-health" :summary])))
     (is (= {:signal "ygg-improved"
             :minSharedCases 2
-            :availableMetrics 3
+            :availableMetrics 4
             :improvedMetrics 2
             :regressedMetrics 0
             :unchangedMetrics 1
+            :observedMetrics 1
             :unavailableMetrics 0}
            (get-in categories-by-key ["timing" :summary])))
     (is (= {:signal "metrics-unavailable"
@@ -517,6 +557,7 @@
             :segmentCount
             :searchSegmentCount
             :fileReadSegmentCount
+            :warmElapsedMs
             :elapsedMs
             :totalTokens
             :costUsd]
@@ -1201,6 +1242,63 @@
     (is (= ["No shared measured architecture-class groups; architecture tags are present but below the benchmark claim threshold in at least one lane."]
            (get-in comparison [:claimReadiness :warnings])))))
 
+(deftest coverage-only-gaps-still-report-measured-slice-help
+  (let [shell (-> shell-report
+                  (with-problem-classes {:architecture-status
+                                         "insufficient-cases"})
+                  (with-coverage-only-claim-readiness
+                    {:measured-architecture? false})
+                  (assoc :byTag [(tag-row "problem-architecture"
+                                          {:cases 1
+                                           :runs 1
+                                           :recall10 0.5
+                                           :noise 0.5})
+                                 (tag-row "architecture-dependency-flow"
+                                          {:cases 1
+                                           :runs 1
+                                           :recall10 0.5
+                                           :noise 0.5})]))
+        ygg (-> ygg-report
+                (with-problem-classes {:architecture-status
+                                       "insufficient-cases"})
+                (with-coverage-only-claim-readiness
+                  {:measured-architecture? false})
+                (assoc :byTag [(tag-row "problem-architecture"
+                                        {:cases 1
+                                         :runs 1
+                                         :recall10 1.0
+                                         :noise 0.25})
+                               (tag-row "architecture-dependency-flow"
+                                        {:cases 1
+                                         :runs 1
+                                         :recall10 1.0
+                                         :noise 0.25})]))
+        [shell ygg] (with-reduced-ygg-token-usage shell ygg)
+        comparison (agent-efficiency/compare-reports shell ygg)
+        markdown (agent-efficiency/markdown-report comparison)]
+    (is (= "not-supported" (get-in comparison [:claimReadiness :status])))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :broadEfficiencyClaimSupported])))
+    (is (= "supported" (get-in comparison [:measuredSliceClaim :status])))
+    (is (= []
+           (get-in comparison [:measuredSliceClaim :failedRequirements])))
+    (is (= [:measuredArchitectureClasses]
+           (get-in comparison
+                   [:measuredSliceClaim
+                    :laneReadiness
+                    :shellOnly
+                    :coverageFailedRequirements])))
+    (is (= "helped" (get-in comparison [:compactSummary :verdict])))
+    (is (some #(= "Yggdrasil helped on the measured shared cases; broad efficiency claim still needs class coverage."
+                  %)
+              (get-in comparison [:compactSummary :why])))
+    (is (.contains markdown "- Verdict: helped"))
+    (is (.contains markdown "- Measured-slice claim: supported"))
+    (is (.contains markdown "- Claim readiness: not-supported"))
+    (is (.contains markdown "## Measured-Slice Claim"))
+    (is (.contains markdown "- Failed requirements: none"))))
+
 (deftest refuses-broad-efficiency-when-source-lane-is-not-claim-ready
   (let [shell (-> shell-report
                   with-problem-classes
@@ -1262,12 +1360,12 @@
                        :failed 0
                        :running 0
                        :case-ids ["case-1"]})
-        ygg (assoc-in shell [:timings :elapsedMs] 1025)
+        ygg (assoc-in shell [:timings :warmElapsedMs] 1025)
         comparison (agent-efficiency/compare-reports shell
                                                      ygg
                                                      {:min-shared-cases 1})
         elapsed-delta (->> (:deltas comparison)
-                           (filter #(= :elapsedMs (:key %)))
+                           (filter #(= :warmElapsedMs (:key %)))
                            first)]
     (is (= "unchanged" (:status comparison)))
     (is (= {:shellOnly 1000.0
@@ -1303,7 +1401,7 @@
         ygg (-> ygg-report
                 with-problem-classes
                 with-claim-readiness
-                (assoc-in [:timings :elapsedMs] 3000)
+                (assoc-in [:timings :warmElapsedMs] 3000)
                 (assoc :byTag [(tag-row "problem-architecture"
                                         {:cases 2
                                          :runs 2
@@ -1329,7 +1427,7 @@
             :rawEffect -2000.0
             :effect -2000.0
             :result "regressed"}
-           (select-keys (:elapsedMs deltas-by-key)
+           (select-keys (:warmElapsedMs deltas-by-key)
                         [:delta :rawEffect :effect :result])))
     (is (= "supported" (get-in comparison [:claimReadiness :status])))
     (is (true? (get-in comparison
@@ -1390,11 +1488,11 @@
         deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))]
     (is (= {:signal "ygg-improved"
             :minSharedCases 2
-            :improvedMetrics 18
+            :improvedMetrics 19
             :regressedMetrics 0
             :unchangedMetrics 2
             :observedMetrics 1
-            :availableMetrics 21
+            :availableMetrics 22
             :unavailableMetrics 7}
            (:summary comparison)))
     (is (= {:shellOnly nil
@@ -1449,7 +1547,7 @@
             :improvedMetrics 0
             :regressedMetrics 0
             :unchangedMetrics 0
-            :unavailableMetrics 28}
+            :unavailableMetrics 29}
            (:summary comparison)))
     (is (every? #(= "unavailable" (:result %))
                 (:deltas comparison)))))
@@ -1478,7 +1576,7 @@
             :improvedMetrics 0
             :regressedMetrics 0
             :unchangedMetrics 0
-            :unavailableMetrics 27
+            :unavailableMetrics 28
             :observedMetrics 1}
            (:summary comparison)))
     (is (= {:shellOnly 0.0
@@ -1528,10 +1626,12 @@
     (is (.contains markdown "- tool call delta: -4.0"))
     (is (.contains markdown "- totalTokens delta: unavailable"))
     (is (.contains markdown "- Unavailable headline metrics: totalTokens, costUsd"))
+    (is (.contains markdown "## Timing Basis"))
+    (is (.contains markdown "- Primary elapsed metric: warmElapsedMs"))
     (is (.contains markdown "## Key Metric Deltas"))
     (is (.contains markdown "- commandCount: improved"))
     (is (.contains markdown "- searchCommandCount: improved"))
-    (is (.contains markdown "- elapsedMs: improved"))
+    (is (.contains markdown "- warmElapsedMs: improved"))
     (is (.contains markdown "- totalTokens: unavailable"))
     (is (.contains markdown "## Claim Readiness Requirements"))
     (is (.contains markdown "- sameSuite: pass"))

@@ -482,6 +482,22 @@
               :runningCases 1
               :failedCases 1
               :elapsedMs 8000
+              :warmElapsedMs 0
+              :agentReadyElapsedMs 0
+              :amortizedSetupElapsedMs 8000
+              :caseSetupElapsedMs 0
+              :agentPreparationElapsedMs 3000
+              :scoringElapsedMs 0
+              :stageTiming {:basis "warmElapsedMs excludes graph setup and agent preparation stages that are amortized when the repo graph and agent context are already prepared."
+                            :primaryElapsedMetric "warmElapsedMs"
+                            :agentReadyElapsedMetric "agentReadyElapsedMs"
+                            :amortizedStageClasses ["graph-setup" "agent-preparation"]
+                            :classes [{:stage "context-packet"
+                                       :class "agent-preparation"
+                                       :elapsedMs 3000}
+                                      {:stage "index-project"
+                                       :class "graph-setup"
+                                       :elapsedMs 5000}]}
               :stageElapsedMs [{:stage "context-packet"
                                 :elapsedMs 3000}
                                {:stage "index-project"
@@ -491,10 +507,16 @@
                               :status "running"
                               :activeStage "context-packet"
                               :activeElapsedMs 3000
+                              :warmElapsedMs 0
+                              :agentReadyElapsedMs 0
+                              :amortizedSetupElapsedMs 5000
                               :elapsedMs 5000}
                              {:case-id "case-2"
                               :repo-id nil
                               :status "failed"
+                              :warmElapsedMs 0
+                              :agentReadyElapsedMs 0
+                              :amortizedSetupElapsedMs 3000
                               :elapsedMs 3000
                               :failedStage "index-project"}]}
              (:timings report)))

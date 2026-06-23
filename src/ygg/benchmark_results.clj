@@ -6,6 +6,80 @@
             [ygg.fs :as fs]
             [clojure.java.io :as io]))
 
+(def ^:private graph-setup-stages
+  #{"index-project"
+    "infer-project"
+    "prepare-graph-index"})
+
+(def ^:private case-setup-stages
+  #{"prepare-worktree"
+    "prepare-ground-truth"
+    "write-prepared-case"})
+
+(def ^:private agent-preparation-stages
+  #{"context-packet"
+    "reuse-agent-artifacts"
+    "write-agent-artifacts"
+    "write-agent-project"})
+
+(def ^:private agent-execution-stages
+  #{"agent-result"})
+
+(def ^:private scoring-stages
+  #{"score-agent-result"})
+
+(defn- stage-class
+  [stage]
+  (cond
+    (contains? graph-setup-stages stage) "graph-setup"
+    (contains? case-setup-stages stage) "case-setup"
+    (contains? agent-preparation-stages stage) "agent-preparation"
+    (contains? agent-execution-stages stage) "agent-execution"
+    (contains? scoring-stages stage) "scoring"
+    :else "other"))
+
+(defn- stage-elapsed-total
+  [rows pred]
+  (reduce + 0 (keep (fn [{:keys [stage elapsedMs]}]
+                      (when (pred stage)
+                        elapsedMs))
+                    rows)))
+
+(defn- timing-breakdown
+  [stage-elapsed]
+  (let [stage-elapsed (vec stage-elapsed)
+        elapsed-ms (reduce + 0 (map :elapsedMs stage-elapsed))
+        graph-setup-ms (stage-elapsed-total stage-elapsed
+                                            #(contains? graph-setup-stages %))
+        case-setup-ms (stage-elapsed-total stage-elapsed
+                                           #(contains? case-setup-stages %))
+        agent-preparation-ms (stage-elapsed-total
+                              stage-elapsed
+                              #(contains? agent-preparation-stages %))
+        amortized-setup-ms (+ graph-setup-ms agent-preparation-ms)
+        agent-ready-ms (stage-elapsed-total
+                        stage-elapsed
+                        #(contains? agent-execution-stages %))
+        scoring-ms (stage-elapsed-total stage-elapsed
+                                        #(contains? scoring-stages %))]
+    {:elapsedMs elapsed-ms
+     :warmElapsedMs (- elapsed-ms amortized-setup-ms)
+     :agentReadyElapsedMs agent-ready-ms
+     :amortizedSetupElapsedMs amortized-setup-ms
+     :caseSetupElapsedMs case-setup-ms
+     :agentPreparationElapsedMs agent-preparation-ms
+     :scoringElapsedMs scoring-ms
+     :stageTiming {:basis "warmElapsedMs excludes graph setup and agent preparation stages that are amortized when the repo graph and agent context are already prepared."
+                   :primaryElapsedMetric "warmElapsedMs"
+                   :agentReadyElapsedMetric "agentReadyElapsedMs"
+                   :amortizedStageClasses ["graph-setup" "agent-preparation"]
+                   :classes (->> stage-elapsed
+                                 (map (fn [{:keys [stage elapsedMs]}]
+                                        {:stage stage
+                                         :class (stage-class stage)
+                                         :elapsedMs elapsedMs}))
+                                 vec)}}))
+
 (defn progress-summary
   [suite case opts]
   (let [path (benchmark-paths/progress-path suite case opts)]
@@ -49,9 +123,11 @@
                  :events (count events)
                  :completedStages (count completed)
                  :failedStages (count failed)
-                 :elapsedMs (reduce + (map :elapsedMs stage-rows))
                  :stages stage-rows
                  :stageElapsedMs stage-elapsed}
+          true
+          (merge (timing-breakdown stage-elapsed))
+
           running?
           (assoc :activeStage (:stage last-event)
                  :activeElapsedMs active-elapsed-ms)
@@ -77,14 +153,18 @@
                                             :status
                                             :activeStage
                                             :activeElapsedMs
+                                            :warmElapsedMs
+                                            :agentReadyElapsedMs
+                                            :amortizedSetupElapsedMs
                                             :elapsedMs
                                             :failedStage])))]
-    {:cases (count summaries)
-     :runningCases (count (filter #(= "running" (:status %)) summaries))
-     :failedCases (count (filter #(= "failed" (:status %)) summaries))
-     :elapsedMs (reduce + (map :elapsedMs summaries))
-     :stageElapsedMs stage-elapsed
-     :slowestCases slowest}))
+    (merge
+     {:cases (count summaries)
+      :runningCases (count (filter #(= "running" (:status %)) summaries))
+      :failedCases (count (filter #(= "failed" (:status %)) summaries))
+      :stageElapsedMs stage-elapsed
+      :slowestCases slowest}
+     (timing-breakdown stage-elapsed))))
 (defn- case-result-file
   [suite case opts]
   (let [file (benchmark-paths/result-path suite case opts)]

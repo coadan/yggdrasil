@@ -143,6 +143,11 @@
     :label "elapsedMs"
     :category :timing
     :path [:timings :elapsedMs]
+    :direction :observe}
+   {:key :warmElapsedMs
+    :label "warmElapsedMs"
+    :category :timing
+    :path [:timings :warmElapsedMs]
     :direction :lower
     :tolerance 50.0}
    {:key :failedCases
@@ -220,6 +225,7 @@
    :fileReadSegmentCount
    :decisionF1
    :decisionEvidenceCitationRate
+   :warmElapsedMs
    :elapsedMs
    :totalTokens
    :costUsd])
@@ -234,6 +240,7 @@
    [:fileReadCommandCount :fileReadDelta]
    [:decisionF1 :decisionF1Delta]
    [:decisionEvidenceCitationRate :decisionEvidenceCitationRateDelta]
+   [:warmElapsedMs :warmElapsedMsDelta]
    [:elapsedMs :elapsedMsDelta]
    [:totalTokens :totalTokensDelta]
    [:costUsd :costUsdDelta]])
@@ -248,7 +255,8 @@
    [:fileReadDelta "file read delta"]
    [:decisionF1Delta "decisionF1 delta"]
    [:decisionEvidenceCitationRateDelta "decision evidence citation delta"]
-   [:elapsedMsDelta "elapsedMs delta"]
+   [:warmElapsedMsDelta "warmElapsedMs delta"]
+   [:elapsedMsDelta "raw elapsedMs delta"]
    [:totalTokensDelta "totalTokens delta"]
    [:costUsdDelta "costUsd delta"]])
 
@@ -267,6 +275,38 @@
    :perCaseTokenReduction
    :shellLaneClaimReady
    :yggLaneClaimReady])
+
+(def ^:private measured-slice-requirement-keys
+  [:sameSuite
+   :sameCases
+   :enoughSharedCases
+   :yggImprovedWithoutRegressions
+   :directionalMetrics
+   :evidenceMetrics
+   :expectedEvidenceCitationMetrics
+   :decisionQualityMetrics
+   :commandTelemetry
+   :perCaseTokenReduction])
+
+(def ^:private measured-slice-claim-requirement-keys
+  (conj measured-slice-requirement-keys
+        :shellLaneMeasuredSliceReady
+        :yggLaneMeasuredSliceReady))
+
+(def ^:private lane-coverage-requirement-keys
+  #{:measuredProblemClasses
+    :measuredArchitectureClasses})
+
+(def ^:private lane-readiness-requirement-keys
+  [:completedCases
+   :hasRuns
+   :evidenceCitationMetrics
+   :expectedEvidenceCitationMetrics
+   :decisionQualityMetrics
+   :commandTelemetry
+   :maintenancePreflight
+   :measuredProblemClasses
+   :measuredArchitectureClasses])
 
 (def ^:private quality-tradeoff-metric-keys
   #{:fileRecallAt5
@@ -977,6 +1017,81 @@
   [report]
   (map? (:claimReadiness report)))
 
+(defn- failed-requirement-keys
+  [ordered-keys requirements]
+  (->> ordered-keys
+       (remove #(true? (get requirements %)))
+       vec))
+
+(defn- failed-map-keys
+  [ordered-keys requirements]
+  (let [ordered-set (set ordered-keys)
+        remaining-keys (->> (keys requirements)
+                            (remove ordered-set)
+                            (sort-by name))]
+    (->> (concat ordered-keys remaining-keys)
+         (filter #(contains? requirements %))
+         (remove #(true? (get requirements %)))
+         vec)))
+
+(defn- lane-measured-slice-readiness
+  [report]
+  (let [claim-readiness (:claimReadiness report)
+        requirements (:requirements claim-readiness)
+        failed (when (map? requirements)
+                 (failed-map-keys lane-readiness-requirement-keys
+                                  requirements))
+        non-coverage-failed (filterv (complement lane-coverage-requirement-keys)
+                                     failed)
+        coverage-failed (filterv lane-coverage-requirement-keys failed)
+        ready? (cond
+                 (not (map? claim-readiness))
+                 false
+
+                 (true? (:broadArchitectureClaimSupported claim-readiness))
+                 true
+
+                 (seq failed)
+                 (empty? non-coverage-failed)
+
+                 :else
+                 false)]
+    {:status (if ready? "supported" "not-supported")
+     :ready ready?
+     :broadClaimStatus (:status claim-readiness)
+     :broadArchitectureClaimSupported
+     (boolean (:broadArchitectureClaimSupported claim-readiness))
+     :coverageFailedRequirements coverage-failed
+     :failedRequirements non-coverage-failed}))
+
+(defn- measured-slice-claim
+  [claim-readiness shell-report ygg-report]
+  (let [requirements (:requirements claim-readiness)
+        shell-lane (lane-measured-slice-readiness shell-report)
+        ygg-lane (lane-measured-slice-readiness ygg-report)
+        measured-requirements (assoc
+                               (select-keys requirements
+                                            measured-slice-requirement-keys)
+                               :shellLaneMeasuredSliceReady
+                               (:ready shell-lane)
+                               :yggLaneMeasuredSliceReady
+                               (:ready ygg-lane))
+        failed (failed-requirement-keys measured-slice-claim-requirement-keys
+                                        measured-requirements)
+        supported? (empty? failed)]
+    {:status (if supported? "supported" "not-supported")
+     :measuredSliceClaimSupported supported?
+     :scope "shared-case-metrics"
+     :requirements measured-requirements
+     :failedRequirements failed
+     :laneReadiness {:shellOnly shell-lane
+                     :ygg ygg-lane}
+     :notes (cond-> []
+              (and supported?
+                   (not (true?
+                         (:broadEfficiencyClaimSupported claim-readiness))))
+              (conj "Measured shared cases support the efficiency claim, but broad class coverage remains incomplete."))}))
+
 (defn- claim-readiness
   [summary claim-summary comparable by-category problem-coverage shell-report ygg-report
    per-case-token-reduction]
@@ -1237,7 +1352,8 @@
            metric-fields)))
 
 (defn- compact-summary
-  [{:keys [summary claim-summary comparable claim-readiness]}]
+  [{:keys [summary claim-summary comparable claim-readiness
+           measured-slice-claim]}]
   (let [requirements (:requirements claim-readiness)
         claim-summary (or claim-summary summary)
         shared-cases (long (:sharedCases comparable))
@@ -1251,12 +1367,15 @@
                          (pos? shared-cases))
         directional? (true? (:directionalMetrics requirements))
         claim-ready? (= "supported" (:status claim-readiness))
+        measured-slice-ready? (= "supported" (:status measured-slice-claim))
         verdict (cond
                   (not comparable?) "inconclusive"
                   (not enough-cases?) "inconclusive"
                   (not directional?) "inconclusive"
                   (and (pos? regressed) (zero? improved)) "regressed"
-                  (and (pos? improved) (zero? regressed) claim-ready?) "helped"
+                  (and (pos? improved)
+                       (zero? regressed)
+                       (or claim-ready? measured-slice-ready?)) "helped"
                   :else "inconclusive")
         why (cond-> []
               (not comparable?)
@@ -1284,6 +1403,11 @@
 
               (and (= "helped" verdict) claim-ready?)
               (conj "Compared lanes are claim-ready for the measured architecture slice.")
+
+              (and (= "helped" verdict)
+                   (not claim-ready?)
+                   measured-slice-ready?)
+              (conj "Yggdrasil helped on the measured shared cases; broad efficiency claim still needs class coverage.")
 
               (and (= "inconclusive" verdict) (not claim-ready?))
               (conj "Claim readiness is not supported; use the warnings before making the benchmark claim."))]
@@ -1348,6 +1472,10 @@
                                                  shell-report
                                                  ygg-report
                                                  per-case-token-reduction-result)
+         measured-slice-claim-result (measured-slice-claim
+                                      claim-readiness-result
+                                      shell-report
+                                      ygg-report)
          headline-metrics (headline-metric-deltas-from-deltas deltas)
          quality-cost-tradeoff (quality-token-tradeoff deltas)
          context-artifacts (context-artifact-comparison shell-report ygg-report)
@@ -1355,7 +1483,9 @@
                                  {:summary summary
                                   :claim-summary claim-summary
                                   :comparable comparable
-                                  :claim-readiness claim-readiness-result})]
+                                  :claim-readiness claim-readiness-result
+                                  :measured-slice-claim
+                                  measured-slice-claim-result})]
      (cond-> {:schema schema
               :status (:signal claim-summary)
               :suiteId (or (:suite-id ygg-report)
@@ -1378,6 +1508,7 @@
               :classSignals (class-signals by-tag problem-coverage)
               :problemClassCoverage problem-coverage
               :perCaseTokenReduction per-case-token-reduction-result
+              :measuredSliceClaim measured-slice-claim-result
               :claimReadiness claim-readiness-result
               :caseDeltas case-deltas-result}
        context-artifacts
@@ -1600,6 +1731,26 @@
        ", expansion available "
        (format-metric-value (:expansionBytes summary))))
 
+(defn- timing-basis-line
+  [label timings]
+  (str "- " label
+       ": raw "
+       (format-metric-value (:elapsedMs timings))
+       ", warm "
+       (format-metric-value (:warmElapsedMs timings))
+       ", amortized setup "
+       (format-metric-value (:amortizedSetupElapsedMs timings))
+       ", agent preparation "
+       (format-metric-value (:agentPreparationElapsedMs timings))
+       ", agent-ready "
+       (format-metric-value (:agentReadyElapsedMs timings))))
+
+(defn- timing-basis-note
+  [comparison]
+  (or (get-in comparison [:ygg :timings :stageTiming :basis])
+      (get-in comparison [:shellOnly :timings :stageTiming :basis])
+      "warmElapsedMs excludes graph setup and agent preparation stages that are amortized when the repo graph and agent context are already prepared."))
+
 (defn- claim-requirement-line
   [requirements key]
   (str "- " (name key) ": " (if (true? (get requirements key))
@@ -1624,11 +1775,14 @@
         compact-summary (:compactSummary comparison)
         summary (:summary comparison)
         claim-summary (or (:claimSummary comparison) summary)
+        measured-slice-claim (:measuredSliceClaim comparison)
         requirements (get-in comparison [:claimReadiness :requirements])
         warnings (get-in comparison [:claimReadiness :warnings])
         notes (get-in comparison [:claimReadiness :notes])
         headline-summary (:headlineSummary comparison)
         context-artifacts (:contextArtifacts comparison)
+        shell-timings (get-in comparison [:shellOnly :timings])
+        ygg-timings (get-in comparison [:ygg :timings])
         key-deltas (headline-metric-deltas comparison)
         categories (:byCategory comparison)
         tradeoff (:qualityCostTradeoff comparison)
@@ -1660,6 +1814,9 @@
                  (summary-counts-line
                   "- Overall metrics including timing:"
                   summary))
+               (when measured-slice-claim
+                 (str "- Measured-slice claim: "
+                      (:status measured-slice-claim)))
                (str "- Claim readiness: "
                     (get-in comparison [:claimReadiness :status]))]
               (when (seq (:why compact-summary))
@@ -1731,6 +1888,18 @@
                         (when-let [summary (:progressiveDisclosure
                                             context-artifacts)]
                           (progressive-disclosure-line summary))])))
+              (when (or shell-timings ygg-timings)
+                (concat
+                 [""
+                  "## Timing Basis"
+                  ""
+                  "- Primary elapsed metric: warmElapsedMs"
+                  (str "- Basis: " (timing-basis-note comparison))]
+                 (keep identity
+                       [(when shell-timings
+                          (timing-basis-line "Shell-only" shell-timings))
+                        (when ygg-timings
+                          (timing-basis-line "Yggdrasil" ygg-timings))])))
               (when (seq key-deltas)
                 (concat ["" "## Key Metric Deltas" ""]
                         (map metric-delta-line key-deltas)))
@@ -1738,6 +1907,18 @@
                 (concat ["" "## Claim Readiness Requirements" ""]
                         (map #(claim-requirement-line requirements %)
                              claim-requirement-keys)))
+              (when measured-slice-claim
+                (concat
+                 ["" "## Measured-Slice Claim" ""
+                  (str "- Status: " (:status measured-slice-claim))
+                  (str "- Scope: " (:scope measured-slice-claim))
+                  (str "- Failed requirements: "
+                       (if-let [requirements
+                                (seq (:failedRequirements
+                                      measured-slice-claim))]
+                         (str/join ", " (map name requirements))
+                         "none"))]
+                 (map #(str "- " %) (:notes measured-slice-claim))))
               (when (seq categories)
                 (concat ["" "## Category Signals" ""]
                         (map category-line categories)))
@@ -1823,6 +2004,9 @@
               (println (tag-group-line group))))
           (println (str "Claim readiness: "
                         (get-in comparison [:claimReadiness :status])))
+          (when-let [measured-slice-claim (:measuredSliceClaim comparison)]
+            (println (str "Measured-slice claim: "
+                          (:status measured-slice-claim))))
           (when-let [warnings (seq (get-in comparison
                                            [:claimReadiness :warnings]))]
             (println "Claim readiness warnings:")

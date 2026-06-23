@@ -16,12 +16,12 @@ for arg in "$@"; do
   esac
 done
 
-defaults=()
+cmd=("$ROOT/scripts/headline-bench.sh" "$@")
 if [[ "$has_suite" != true ]]; then
-  defaults+=(--suite benchmarks/agent-efficiency-broad.edn)
+  cmd+=(--suite benchmarks/agent-efficiency-broad.edn)
 fi
 if [[ "$has_out" != true ]]; then
-  defaults+=(--out .dev/ygg/agent-efficiency/broad)
+  cmd+=(--out .dev/ygg/agent-efficiency/broad)
 fi
 
-exec bash "$ROOT/scripts/headline-bench.sh" "$@" "${defaults[@]}"
+exec bash "${cmd[@]}"

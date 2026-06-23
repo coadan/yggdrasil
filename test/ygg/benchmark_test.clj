@@ -212,6 +212,35 @@
       (is (= ["problem-architecture" "problem-audit" "problem-maintenance"]
              (mapcat :tags (:cases suite)))))))
 
+(deftest read-suite-dedupes-included-repos-with-suite-local-role-drift
+  (let [suite-dir (temp-dir "ygg-bench-suite-include-role-drift")
+        child-a (.getPath (io/file suite-dir "child-a.edn"))
+        child-b (.getPath (io/file suite-dir "child-b.edn"))
+        parent (.getPath (io/file suite-dir "parent.edn"))]
+    (spit child-a
+          (pr-str {:id "child-a"
+                   :repos [{:id "repo"
+                            :root "repo"
+                            :role :application}]
+                   :cases [{:id "case-a"
+                            :repo-id "repo"
+                            :issue {:title "a"}}]}))
+    (spit child-b
+          (pr-str {:id "child-b"
+                   :repos [{:id "repo"
+                            :root "repo"
+                            :role :library}]
+                   :cases [{:id "case-b"
+                            :repo-id "repo"
+                            :issue {:title "b"}}]}))
+    (spit parent
+          (pr-str {:id "parent"
+                   :include-suites ["child-a.edn" "child-b.edn"]}))
+    (let [suite (benchmark/read-suite parent)]
+      (is (= ["repo"] (mapv :id (:repos suite))))
+      (is (= [:application] (mapv :role (:repos suite))))
+      (is (= ["case-a" "case-b"] (mapv :id (:cases suite)))))))
+
 (deftest read-suite-rejects-include-cycles
   (let [suite-dir (temp-dir "ygg-bench-suite-cycle")
         a (.getPath (io/file suite-dir "a.edn"))
@@ -437,7 +466,7 @@
         tags (set (mapcat :tags cases))
         tag-counts (frequencies (mapcat :tags cases))
         source-kinds (set (mapcat #(get-in % [:coverage :source-kinds]) cases))
-        repo-ids (set (map :repo-id cases))
+        suite-repo-ids (set (map :id (:repos suite)))
         measured-architecture-tags (->> tag-counts
                                         (filter (fn [[tag count]]
                                                   (and (benchmark-classes/architecture-class-tag?
@@ -452,9 +481,9 @@
             "feature-planning"
             "historical-replay"]
            (mapv :id (:included-suites suite))))
-    (is (= 20 (count cases)))
-    (is (= 8 (count (:repos suite))))
-    (is (every? repo-ids
+    (is (= 29 (count cases)))
+    (is (= 9 (count (:repos suite))))
+    (is (every? suite-repo-ids
                 ["bootstrap"
                  "supabase-postgres"
                  "axios"
@@ -462,7 +491,8 @@
                  "opentelemetry-collector"
                  "terraform-aws-vpc"
                  "flask"
-                 "junit-framework"]))
+                 "junit-framework"
+                 "opentelemetry-collector-contrib"]))
     (is (every? source-kinds
                 [:web-framework :manifest :env :sql :javascript :dotnet
                  :compose :go :terraform :python :java]))
@@ -2203,6 +2233,117 @@
                (select-keys written [:graphExpectations
                                      :contextGroundTruthRanks
                                      :yggHints
+                                     :maintenancePreflight
+                                     :claimReady])))))))
+
+(deftest score-agent-result-preserves-richer-existing-ygg-preflight
+  (let [root (temp-dir "ygg-bench-agent-score-preserve-preflight")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        suite {:id "suite"}
+        case {:id "case-1"}
+        result-path (.getPath (io/file root
+                                       "suite"
+                                       "cases"
+                                       "case-1"
+                                       "agent-results"
+                                       "codex.json"))
+        score-path (.getPath (io/file root
+                                      "suite"
+                                      "cases"
+                                      "case-1"
+                                      "agent-scores"
+                                      "codex.score.json"))
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :agentInputFingerprint "sha256:test-input"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :groundTruth {:changedFiles ["src/app.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :caseId "case-1"
+                      :caseFingerprint "sha256:test-case"
+                      :agentInputFingerprint "sha256:test-input"
+                      :agentId "codex"
+                      :mode "ygg"
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.8
+                                        :reason "Graph context selected the changed file."
+                                        :evidence ["context-doc:src/app.clj"]}]
+                      :suspectedSymbols []
+                      :commands ["bb ask app --project suite-case-1"]
+                      :warnings []
+                      :summary "Found the app file."}
+        passing-preflight {:schema "ygg.benchmark.maintenance-preflight/v1"
+                           :status "passed"
+                           :checks {:index {:status "passed"}
+                                    :infer {:status "passed"}
+                                    :graphExpectations {:status "passed"}
+                                    :hintDiagnostics {:status "passed"}
+                                    :syncCheck {:status "passed"}}}
+        sync-inspect {:schema "ygg.evidence/v2"
+                      :status "completed"
+                      :families [{:family "dependencies"
+                                  :status "available"}
+                                 {:family "activity"
+                                  :status "available"}
+                                 {:family "validation-history"
+                                  :status "available"}
+                                 {:family "map-overlay"
+                                  :status "available"}]}]
+    (spit-json! root
+                "suite/cases/case-1/agent-results/codex.json"
+                agent-result)
+    (spit-json! root
+                "suite/cases/case-1/agent-results/codex.context.json"
+                {:schema "ygg.context/v1"
+                 :query "app"
+                 :docs [{:source {:path "src/app.clj"
+                                  :kind "clojure-source"
+                                  :heading "src/app.clj"
+                                  :lines [1]}
+                         :score 1.0
+                         :provenance "retrieved-doc"
+                         :snippet "(ns app)"}]})
+    (spit-json! root
+                "suite/cases/case-1/agent-scores/codex.score.json"
+                {:schema benchmark/agent-score-schema
+                 :agent {:mode "ygg"
+                         :agentId "codex"}
+                 :scores {:fileRecallAt10 0.0}
+                 :maintenancePreflight passing-preflight
+                 :claimReady true})
+    (with-redefs [benchmark/prepare-case! (fn [_suite _case _opts] prepared)
+                  benchmark-maintenance/record-benchmark-agent-activity-from-artifacts!
+                  (fn [& _args]
+                    {:syncInspect sync-inspect})]
+      (let [scored (benchmark/score-agent-result! suite
+                                                  case
+                                                  {:out root
+                                                   :result-path result-path})
+            written (json/read-json (slurp score-path) :key-fn keyword)]
+        (is (= 1.0 (get-in scored [:scores :fileRecallAt10])))
+        (is (= {:path "src/app.clj"
+                :found? true}
+               (select-keys (first (get-in scored
+                                           [:contextGroundTruthRanks :files]))
+                            [:path :found?])))
+        (is (pos? (get-in scored [:contextArtifacts :contextBytes])))
+        (is (= "passed" (get-in scored [:maintenancePreflight :status])))
+        (is (= true (:claimReady scored)))
+        (is (= (select-keys scored [:scores
+                                    :contextGroundTruthRanks
+                                    :contextArtifacts
+                                    :maintenancePreflight
+                                    :claimReady])
+               (select-keys written [:scores
+                                     :contextGroundTruthRanks
+                                     :contextArtifacts
                                      :maintenancePreflight
                                      :claimReady])))))))
 

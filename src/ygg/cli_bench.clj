@@ -568,6 +568,9 @@
                                        [:graphExpectationDiagnostics :failedCaseIds]))))
       (when-let [timings (:timings result)]
         (println "- timing-ms" (:elapsedMs timings)
+                 "warm" (:warmElapsedMs timings)
+                 "amortized-setup" (:amortizedSetupElapsedMs timings)
+                 "agent-ready" (:agentReadyElapsedMs timings)
                  "running" (:runningCases timings)
                  "failed" (:failedCases timings))
         (when-let [slowest (first (:slowestCases timings))]

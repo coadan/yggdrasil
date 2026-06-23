@@ -102,6 +102,11 @@
   (io/file (case-output-dir suite case opts)
            "agent-contexts"
            (str (agent-run-id opts) ".ygg-hints.json")))
+(defn agent-preparation-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-contexts"
+           (str (agent-run-id opts) ".ygg-preparation.json")))
 (defn agent-run-token-usage-path
   [suite case opts]
   (io/file (case-output-dir suite case opts)

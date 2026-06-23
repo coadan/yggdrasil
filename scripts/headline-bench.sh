@@ -8,7 +8,7 @@ DEFAULT_COMMAND="python3 \"$ROOT/scripts/codex-benchmark-agent.py\""
 
 usage() {
   cat <<'EOF'
-Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|prompt-token-check|stage-time-check|token-check|compare|claim-pack|all [options]
+Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|prepare-ygg|ygg|agents|reports|prompt-token-check|stage-time-check|token-check|compare|claim-pack|all [options]
 
 Options:
   --suite PATH            Benchmark suite EDN. Default: benchmarks/headline.edn
@@ -41,6 +41,7 @@ Commands:
   external-baselines
               Run deterministic Yggdrasil and Codebase Memory baseline reports.
   shell-only  Run the external shell-only lane.
+  prepare-ygg Prepare the Yggdrasil graph, context, and hints for the external agent.
   ygg      Run the external Yggdrasil lane.
   agents      Run both external lanes.
   reports     Generate shell-only and Yggdrasil lane reports.
@@ -247,7 +248,17 @@ shell_only() {
   agent_run shell-only "$out/shell-only"
 }
 
+prepare_ygg() {
+  local args=(bench agent-packet "$suite")
+  append_case_args
+  args+=(--mode ygg
+    --agent "$agent"
+    --out "$out/ygg")
+  run bb "${args[@]}"
+}
+
 ygg() {
+  prepare_ygg
   agent_run ygg "$out/ygg"
 }
 
@@ -351,6 +362,9 @@ case "$action" in
     ;;
   shell-only)
     shell_only
+    ;;
+  prepare-ygg)
+    prepare_ygg
     ;;
   ygg)
     ygg

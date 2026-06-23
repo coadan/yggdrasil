@@ -2,6 +2,7 @@
   (:require [ygg.benchmark :as benchmark]
             [ygg.benchmark-agent-run :as benchmark-agent-run]
             [ygg.benchmark-agent-score :as benchmark-agent-score]
+            [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-prediction :as benchmark-prediction]
             [ygg.benchmark-test-support :refer [commit! git! sh! spit-file! spit-json! temp-dir]]
             [ygg.context :as context]
@@ -405,6 +406,70 @@
                  :label "app/broken"}]
                (:candidateFiles context-json)))
         (is (= 1 (get-in hints-json [:selection :candidateFiles])))))))
+(deftest ygg-agent-preparation-reuses-warm-artifacts
+  (let [out (temp-dir "ygg-bench-agent-run-context-reuse")
+        worktree (temp-dir "ygg-bench-agent-run-context-reuse-worktree")
+        suite {:id "suite"}
+        case {:id "case-1"}
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :caseFingerprint "sha256:case"
+                  :agentInputFingerprint "sha256:agent-input"
+                  :project-id "project"
+                  :repo-id "repo"
+                  :worktreeRoot worktree
+                  :input {:queryText "broken app"}
+                  :coverage {:declaredSourceKinds []}}
+        opts {:out out
+              :agent-id "agent"
+              :mode "ygg"}
+        index-count (atom 0)]
+    (with-redefs [store/with-node (fn [_ f]
+                                    (f {:indexed? (atom false)}))
+                  project/index-project! (fn [xtdb _project _opts]
+                                           (swap! index-count inc)
+                                           (reset! (:indexed? xtdb) true)
+                                           {:status "completed"})
+                  project/infer-project! (fn [_xtdb _project]
+                                           {:status "completed"})
+                  context/context-packet (fn [xtdb query-text _opts]
+                                           {:schema "ygg.context/v1"
+                                            :query query-text
+                                            :docs []
+                                            :entities []
+                                            :edges []
+                                            :warnings []
+                                            :search {:instrumentation {:indexed @(:indexed? xtdb)}}
+                                            :candidateFiles [{:path "src/app.clj"
+                                                              :rank 1
+                                                              :score 1.0
+                                                              :targetKind "chunk"
+                                                              :label "app/broken"}]})
+                  benchmark/context-packet->agent-hints (fn [_prepared packet _opts]
+                                                          {:schema benchmark/agent-hints-schema
+                                                           :selection {:candidateFiles (count (:candidateFiles packet))}
+                                                           :topFiles (:candidateFiles packet)})]
+      (let [prepared-result (#'benchmark/prepare-agent-graph-and-artifacts! suite
+                                                                            case
+                                                                            prepared
+                                                                            opts)
+            reused-result (#'benchmark/prepare-or-reuse-agent-graph-and-artifacts!
+                           suite
+                           case
+                           prepared
+                           opts)
+            progress (json/read-json
+                      (slurp (benchmark-paths/progress-path suite case opts))
+                      :key-fn keyword)]
+        (is (= 1 @index-count))
+        (is (= "prepared" (get-in prepared-result [:preparation :status])))
+        (is (= "reused" (get-in reused-result [:preparation :status])))
+        (is (= (get-in prepared-result [:artifacts :context-path])
+               (get-in reused-result [:artifacts :context-path])))
+        (is (.isFile (io/file (get-in reused-result [:preparation :path]))))
+        (is (some #(and (= "reuse-agent-artifacts" (:stage %))
+                        (= "completed" (:status %)))
+                  (:events progress)))))))
 (deftest runs-external-agent-command-and-scores-result
   (let [root (temp-dir "ygg-bench-agent-run-repo")
         out (temp-dir "ygg-bench-agent-run-out")

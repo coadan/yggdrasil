@@ -680,7 +680,7 @@
     "Benchmarks:"
     "  bench prepare|run|report <benchmark.edn> [--case ID] [--cases ID,ID] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--out DIR] [--json]"
     "  bench show <benchmark.edn> --case ID [--out DIR] [--json]"
-    "  bench agent-packet <benchmark.edn> [--case ID] [--cases ID,ID] [--mode ygg|shell-only] [--parser-worker none|java|dotnet|javascript|typescript|all] [--enqueue] [--queue-dir DIR] [--out DIR] [--json]"
+    "  bench agent-packet <benchmark.edn> [--case ID] [--cases ID,ID] [--mode ygg|shell-only] [--agent ID] [--parser-worker none|java|dotnet|javascript|typescript|all] [--enqueue] [--queue-dir DIR] [--out DIR] [--json]"
     "  bench agent-baseline <benchmark.edn> [--case ID] [--cases ID,ID] [--retriever auto|hybrid|lexical|semantic|local-vector|codebase-memory] [--limit N] [--doc-limit N] [--retrieval-limit N] [--vector-model MODEL] [--vector-command CMD] [--codebase-memory-command CMD] [--codebase-memory-bin PATH] [--codebase-memory-cache-dir DIR] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
     "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--cases ID,ID] [--mode ygg|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
     "  bench agent-rerun <benchmark.edn> --agent ID --command CMD [--agent-report agent-report.json] [--case ID] [--cases ID,ID] [--mode ygg|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--out DIR] [--json]"

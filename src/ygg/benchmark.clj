@@ -18,6 +18,7 @@
             [ygg.benchmark-hints-progressive :as benchmark-hints-progressive]
             [ygg.benchmark-agent-score :as benchmark-agent-score]
             [ygg.benchmark-results :as benchmark-results]
+            [ygg.benchmark-progress :as benchmark-progress]
             [ygg.benchmark-agent-run :as benchmark-agent-run]
             [ygg.benchmark-agent-packet :as benchmark-agent-packet]
             [ygg.benchmark-local-vector :as benchmark-local-vector]
@@ -85,6 +86,9 @@
 (def agent-run-schema
   "ygg.benchmark.agent-run/v1")
 
+(def agent-preparation-schema
+  "ygg.benchmark.agent-preparation/v1")
+
 (def agent-runs-schema
   "ygg.benchmark.agent-runs/v1")
 
@@ -126,7 +130,11 @@
 (def supported-agent-prompt-profiles
   ["standard" "fast"])
 
-(declare agent-prompt-profile)
+(declare agent-prompt-profile
+         case-selector
+         prepare-case!
+         prepare-or-reuse-agent-graph-and-artifacts!
+         selected-cases)
 
 (defn- parser-worker-profile
   [opts]
@@ -155,12 +163,33 @@
 (defn agent-packet!
   "Prepare one case and write a provider-neutral agent localization packet."
   [suite case opts]
-  (benchmark-agent-packet/agent-packet! suite case opts))
+  (let [prepared (prepare-case! suite case opts)
+        ygg-prep (prepare-or-reuse-agent-graph-and-artifacts! suite
+                                                              case
+                                                              prepared
+                                                              opts)
+        ygg-artifacts (:artifacts ygg-prep)]
+    (agent-packet-from-prepared! suite
+                                 case
+                                 prepared
+                                 (cond-> opts
+                                   (:context-path ygg-artifacts)
+                                   (assoc :ygg-context-path
+                                          (:context-path ygg-artifacts))
+                                   (:hints-path ygg-artifacts)
+                                   (assoc :ygg-hints-path
+                                          (:hints-path ygg-artifacts))
+                                   (:full-hints-path ygg-artifacts)
+                                   (assoc :ygg-full-hints-path
+                                          (:full-hints-path ygg-artifacts))))))
 
 (defn agent-packets!
   "Write agent localization packets for selected benchmark cases."
   [suite opts]
-  (benchmark-agent-packet/agent-packets! suite opts))
+  {:schema "ygg.benchmark.agent-packets/v1"
+   :suite-id (:id suite)
+   :packets (mapv #(agent-packet! suite % opts)
+                  (selected-cases suite (case-selector opts)))})
 
 (defn read-suite
   "Read and normalize a benchmark suite EDN file."
@@ -676,24 +705,141 @@
                       :artifact-ok? false})))]
     (update result :agent-result merge-token-usage-artifacts opts result-path)))
 
+(defn- read-json-artifact
+  [path]
+  (when (and path (.isFile (io/file path)))
+    (try
+      (benchmark-io/read-json-file path)
+      (catch Exception _
+        nil))))
+
+(defn- ygg-agent-artifact-paths
+  [suite case opts]
+  (let [context-path (benchmark-paths/agent-run-context-path suite case opts)
+        hints-path (benchmark-paths/agent-run-hints-path suite case opts)]
+    {:context-path context-path
+     :hints-path hints-path
+     :full-hints-path (benchmark-hints-progressive/full-hints-path hints-path)
+     :preparation-path (benchmark-paths/agent-preparation-path suite case opts)}))
+
+(defn- canonical-ygg-agent-artifacts
+  [paths]
+  {:context-path (fs/canonical-path (:context-path paths))
+   :hints-path (fs/canonical-path (:hints-path paths))
+   :full-hints-path (fs/canonical-path (:full-hints-path paths))})
+
+(defn- preparation-agent-id
+  [opts]
+  (benchmark-paths/agent-run-id opts))
+
+(defn- prepared-artifact-readable?
+  [path]
+  (and (not (benchmark-util/blankish? path))
+       (.isFile (io/file path))))
+
+(defn- prepared-artifacts-readable?
+  [artifacts]
+  (every? prepared-artifact-readable?
+          [(:contextPath artifacts)
+           (:hintsPath artifacts)
+           (:fullHintsPath artifacts)]))
+
+(defn- compatible-agent-preparation?
+  [prepared opts manifest]
+  (let [artifacts (:artifacts manifest)]
+    (and (= agent-preparation-schema (:schema manifest))
+         (= "ygg" (str (:mode manifest)))
+         (= (preparation-agent-id opts) (str (:agentId manifest)))
+         (= (:case-id prepared) (:case-id manifest))
+         (= (:caseFingerprint prepared) (:caseFingerprint manifest))
+         (= (:agentInputFingerprint prepared)
+            (:agentInputFingerprint manifest))
+         (= (parser-worker-profile opts) (:parserWorker manifest))
+         (prepared-artifacts-readable? artifacts))))
+
+(defn- reusable-agent-preparation
+  [suite case prepared opts]
+  (let [manifest-path (:preparation-path (ygg-agent-artifact-paths suite
+                                                                   case
+                                                                   opts))]
+    (when-let [manifest (read-json-artifact manifest-path)]
+      (when (compatible-agent-preparation? prepared opts manifest)
+        {:summary (:ygg manifest)
+         :artifacts {:context-path (get-in manifest [:artifacts :contextPath])
+                     :hints-path (get-in manifest [:artifacts :hintsPath])
+                     :full-hints-path (get-in manifest
+                                              [:artifacts :fullHintsPath])}
+         :preparation {:status "reused"
+                       :path (fs/canonical-path manifest-path)
+                       :preparedAt (:preparedAt manifest)}}))))
+
+(defn- write-agent-preparation-manifest!
+  [suite case prepared opts summary artifacts]
+  (let [manifest-path (:preparation-path (ygg-agent-artifact-paths suite
+                                                                   case
+                                                                   opts))
+        manifest {:schema agent-preparation-schema
+                  :suite-id (:suite-id prepared)
+                  :case-id (:case-id prepared)
+                  :caseFingerprint (:caseFingerprint prepared)
+                  :agentInputFingerprint (:agentInputFingerprint prepared)
+                  :repo-id (:repo-id prepared)
+                  :project-id (:project-id prepared)
+                  :mode "ygg"
+                  :agentId (preparation-agent-id opts)
+                  :parserWorker (parser-worker-profile opts)
+                  :preparedAt (benchmark-progress/now-string)
+                  :artifacts {:contextPath (:context-path artifacts)
+                              :hintsPath (:hints-path artifacts)
+                              :fullHintsPath (:full-hints-path artifacts)}
+                  :ygg summary}]
+    (benchmark-io/write-json-file! manifest-path manifest)
+    (assoc manifest :path (fs/canonical-path manifest-path))))
+
 (defn- prepare-agent-graph-and-artifacts!
   [suite case prepared opts]
   (when (= "ygg" (agent-mode opts))
-    (let [context-path (benchmark-paths/agent-run-context-path suite case opts)
-          hints-path (benchmark-paths/agent-run-hints-path suite case opts)
-          full-hints-path (benchmark-hints-progressive/full-hints-path hints-path)
+    (let [paths (ygg-agent-artifact-paths suite case opts)
+          context-path (:context-path paths)
+          hints-path (:hints-path paths)
+          full-hints-path (:full-hints-path paths)
+          project-path (benchmark-paths/agent-project-path suite case opts)
+          bench-project (agent-project prepared)
           map-path (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
           map-overlay (benchmark-maintenance/agent-map-overlay map-path)]
+      (benchmark-progress/progress-stage!
+       suite
+       case
+       opts
+       :write-agent-project
+       #(benchmark-io/write-edn-file! project-path bench-project)
+       (fn [path]
+         {:path (fs/canonical-path path)}))
       (store/with-node (benchmark-paths/xtdb-dir suite case opts)
         (fn [xtdb]
-          (let [bench-project (agent-project prepared)
-                summary {:indexSummary (with-benchmark-parser-worker
-                                         opts
-                                         #(project/index-project! xtdb
-                                                                  bench-project
-                                                                  (assoc (benchmark-index-options opts)
-                                                                         :map-overlay map-overlay)))
-                         :systemSummary (project/infer-project! xtdb bench-project)
+          (let [index-summary (benchmark-progress/progress-stage!
+                               suite
+                               case
+                               opts
+                               :index-project
+                               #(with-benchmark-parser-worker
+                                  opts
+                                  (fn []
+                                    (project/index-project!
+                                     xtdb
+                                     bench-project
+                                     (assoc (benchmark-index-options opts)
+                                            :map-overlay map-overlay))))
+                               #(select-keys % [:files :repos :rows :extractors]))
+                system-summary (benchmark-progress/progress-stage!
+                                suite
+                                case
+                                opts
+                                :infer-project
+                                #(project/infer-project! xtdb bench-project)
+                                #(select-keys % [:systems :candidates :edges]))
+                summary {:indexSummary index-summary
+                         :systemSummary system-summary
                          :graphExpectations (evaluate-graph-expectations xtdb
                                                                          prepared)
                          :syncInspect (benchmark-maintenance/sync-inspect-summary
@@ -702,25 +848,78 @@
                                        case
                                        prepared
                                        opts)}
-                packet (context/context-packet xtdb
-                                               (get-in prepared [:input :queryText])
-                                               (assoc (agent-baseline-context-options
-                                                       prepared
-                                                       opts)
-                                                      :map-path map-path
-                                                      :map-overlay map-overlay))
-                full-hints (context-packet->agent-hints prepared packet opts)
-                hints (compact-agent-hints
-                       full-hints
-                       {:context-path context-path
-                        :full-hints-path full-hints-path})]
-            (benchmark-io/write-json-file! context-path packet)
-            (benchmark-io/write-json-file! full-hints-path full-hints)
-            (benchmark-io/write-json-file! hints-path hints)
+                packet (benchmark-progress/progress-stage!
+                        suite
+                        case
+                        opts
+                        :context-packet
+                        #(context/context-packet
+                          xtdb
+                          (get-in prepared [:input :queryText])
+                          (assoc (agent-baseline-context-options
+                                  prepared
+                                  opts)
+                                 :map-path map-path
+                                 :map-overlay map-overlay))
+                        (fn [packet]
+                          {:docs (count (:docs packet))
+                           :entities (count (:entities packet))
+                           :edges (count (:edges packet))
+                           :warnings (count (:warnings packet))}))
+                artifacts (canonical-ygg-agent-artifacts paths)]
+            (benchmark-progress/progress-stage!
+             suite
+             case
+             opts
+             :write-agent-artifacts
+             (fn []
+               (let [full-hints (context-packet->agent-hints prepared
+                                                             packet
+                                                             opts)
+                     hints (compact-agent-hints
+                            full-hints
+                            {:context-path context-path
+                             :full-hints-path full-hints-path})]
+                 (benchmark-io/write-json-file! context-path packet)
+                 (benchmark-io/write-json-file! full-hints-path full-hints)
+                 (benchmark-io/write-json-file! hints-path hints)
+                 (write-agent-preparation-manifest! suite
+                                                    case
+                                                    prepared
+                                                    opts
+                                                    summary
+                                                    artifacts)
+                 {:full-hints full-hints
+                  :hints hints}))
+             (fn [{:keys [full-hints hints]}]
+               {:contextPath (:context-path artifacts)
+                :hintsPath (:hints-path artifacts)
+                :fullHintsPath (:full-hints-path artifacts)
+                :topFiles (count (:topFiles hints))
+                :fullTopFiles (count (:topFiles full-hints))
+                :diagnostics (count (:diagnostics hints))}))
             {:summary summary
-             :artifacts {:context-path (fs/canonical-path context-path)
-                         :hints-path (fs/canonical-path hints-path)
-                         :full-hints-path (fs/canonical-path full-hints-path)}}))))))
+             :artifacts artifacts
+             :preparation {:status "prepared"
+                           :path (fs/canonical-path
+                                  (:preparation-path paths))}}))))))
+
+(defn prepare-or-reuse-agent-graph-and-artifacts!
+  [suite case prepared opts]
+  (when (= "ygg" (agent-mode opts))
+    (or (when-let [reused (reusable-agent-preparation suite
+                                                      case
+                                                      prepared
+                                                      opts)]
+          (benchmark-progress/progress-stage!
+           suite
+           case
+           opts
+           :reuse-agent-artifacts
+           (constantly reused)
+           (fn [result]
+             (select-keys (:preparation result) [:status :path :preparedAt]))))
+        (prepare-agent-graph-and-artifacts! suite case prepared opts))))
 
 (defn- read-agent-hints
   [hints-path]
@@ -731,14 +930,6 @@
 (defn- context-artifact-telemetry
   [paths]
   (benchmark-context-artifacts/context-artifact-telemetry paths))
-
-(defn- read-json-artifact
-  [path]
-  (when (and path (.isFile (io/file path)))
-    (try
-      (benchmark-io/read-json-file path)
-      (catch Exception _
-        nil))))
 
 (defn- refresh-agent-hints-from-context!
   [suite case opts prepared]
@@ -821,8 +1012,55 @@
     (when (compatible-agent-run? prepared agent-result result-file run)
       (:ygg run))))
 
+(defn- result-file-context-path
+  [result-file]
+  (when-not (benchmark-util/blankish? result-file)
+    (let [file (io/file result-file)
+          name (.getName file)]
+      (when (str/ends-with? name ".json")
+        (io/file (.getParentFile file)
+                 (str/replace name #"\.json$" ".context.json"))))))
+
+(defn- readable-artifact-path
+  [path]
+  (when (and path (.isFile (io/file path)))
+    (fs/canonical-path path)))
+
+(defn- first-readable-artifact-path
+  [paths]
+  (some readable-artifact-path paths))
+
+(defn- score-agent-result-context-path
+  [suite case opts result-file existing-score]
+  (first-readable-artifact-path
+   [(benchmark-paths/agent-run-context-path suite case opts)
+    (:contextPacketPath existing-score)
+    (result-file-context-path result-file)
+    (benchmark-paths/agent-baseline-context-path suite case opts)]))
+
+(defn- preflight-status
+  [maintenance-preflight]
+  (str (or (:status maintenance-preflight) "not-run")))
+
+(defn- richer-existing-preflight
+  [existing-score computed-preflight]
+  (let [existing-preflight (:maintenancePreflight existing-score)]
+    (cond
+      (nil? existing-preflight)
+      computed-preflight
+
+      (nil? computed-preflight)
+      existing-preflight
+
+      (and (= "not-run" (preflight-status computed-preflight))
+           (not= "not-run" (preflight-status existing-preflight)))
+      existing-preflight
+
+      :else
+      computed-preflight)))
+
 (defn- augment-ygg-score-from-artifacts
-  [suite case opts prepared agent-result result-file scored]
+  [suite case opts prepared agent-result result-file existing-score scored]
   (if (= "ygg" (str (get-in scored [:agent :mode])))
     (let [artifact-opts (scoring-artifact-opts opts agent-result result-file)
           run-summary (score-agent-result-run-summary suite
@@ -831,9 +1069,17 @@
                                                       agent-result
                                                       result-file
                                                       artifact-opts)
-          context-ranks (context-ground-truth-ranks-from-path
-                         prepared
-                         (benchmark-paths/agent-run-context-path suite case artifact-opts))
+          run-context-path (benchmark-paths/agent-run-context-path suite
+                                                                   case
+                                                                   artifact-opts)
+          context-path (score-agent-result-context-path suite
+                                                        case
+                                                        artifact-opts
+                                                        result-file
+                                                        existing-score)
+          context-ranks (or (context-ground-truth-ranks-from-path prepared
+                                                                  context-path)
+                            (:contextGroundTruthRanks existing-score))
           hints (refresh-agent-hints-from-context! suite case artifact-opts prepared)
           context-artifacts (context-artifact-telemetry
                              {:prompt (benchmark-paths/agent-run-prompt-path
@@ -849,10 +1095,7 @@
                                               suite
                                               case
                                               artifact-opts))
-                              :yggContext (benchmark-paths/agent-run-context-path
-                                           suite
-                                           case
-                                           artifact-opts)})
+                              :yggContext (or context-path run-context-path)})
           hint-diagnostics (not-empty (vec (:diagnostics hints)))
           graph-expectations (score-agent-result-graph-expectations suite
                                                                     case
@@ -883,7 +1126,9 @@
                                     :graph-expectations graph-expectations
                                     :expectations (:expectations prepared)
                                     :hints hints
-                                    :sync-inspect sync-inspect}))]
+                                    :sync-inspect sync-inspect}))
+          maintenance-preflight (richer-existing-preflight existing-score
+                                                           maintenance-preflight)]
       (-> (cond-> scored
             context-ranks
             (assoc :contextGroundTruthRanks context-ranks)
@@ -905,7 +1150,10 @@
   [suite case opts]
   (ensure-agent-run-id! opts)
   (let [prepared (prepare-case! suite case opts)
-        ygg-prep (prepare-agent-graph-and-artifacts! suite case prepared opts)
+        ygg-prep (prepare-or-reuse-agent-graph-and-artifacts! suite
+                                                              case
+                                                              prepared
+                                                              opts)
         ygg-summary (:summary ygg-prep)
         ygg-artifacts (:artifacts ygg-prep)
         packet (agent-packet-from-prepared! suite
@@ -940,14 +1188,20 @@
         command (agent-run-command opts)
         timeout-ms (agent-run-timeout-ms opts)
         _ (benchmark-io/ensure-parent! result-path)
-        process-result (run-process! command
-                                     (:worktreeRoot prepared)
-                                     (agent-run-env packet
-                                                    result-path
-                                                    prompt-path
-                                                    output-schema-path
-                                                    run-opts)
-                                     timeout-ms)
+        process-result (benchmark-progress/progress-stage!
+                        suite
+                        case
+                        opts
+                        :agent-result
+                        #(run-process! command
+                                       (:worktreeRoot prepared)
+                                       (agent-run-env packet
+                                                      result-path
+                                                      prompt-path
+                                                      output-schema-path
+                                                      run-opts)
+                                       timeout-ms)
+                        #(select-keys % [:exit :timedOut :durationMs]))
         logs (write-agent-run-logs! suite case opts process-result)
         read-result (read-agent-run-result prepared
                                            result-path
@@ -992,62 +1246,86 @@
                                   :expectations (:expectations prepared)
                                   :hints hints
                                   :sync-inspect sync-inspect}))
-        scored (cond-> (benchmark-preflight/assoc-run-preflight
-                        (assoc (score-agent-result prepared agent-result)
-                               :agentResultPath (fs/canonical-path result-path)
-                               :parserWorker (parser-worker-profile opts))
-                        maintenance-preflight)
-                 context-ranks
-                 (assoc :contextGroundTruthRanks context-ranks)
-                 context-artifacts
-                 (assoc :contextArtifacts context-artifacts)
-                 hint-diagnostics
-                 (assoc :yggHints {:diagnostics hint-diagnostics})
-                 benchmark-activity
-                 (assoc :benchmarkActivity (:activity benchmark-activity))
-                 sync-inspect
-                 (assoc :syncInspect sync-inspect)
-                 (:graphExpectations ygg-summary)
-                 (assoc :graphExpectations (:graphExpectations ygg-summary)))
-        run {:schema agent-run-schema
-             :suite-id (:suite-id prepared)
-             :case-id (:case-id prepared)
-             :repo-id (:repo-id prepared)
-             :project-id (:project-id prepared)
-             :agentId (:agent-id opts)
-             :mode (agent-mode opts)
-             :promptProfile (agent-prompt-profile opts)
-             :status status
-             :command command
-             :timeoutMs timeout-ms
-             :process (select-keys process-result [:exit :timedOut :durationMs])
-             :artifacts (merge {:packetPath (get-in packet [:artifacts :packetPath])
-                                :promptPath prompt-path
-                                :outputSchemaPath output-schema-path
-                                :yggHintsPath (get-in packet
-                                                      [:artifacts :yggHintsPath])
-                                :yggFullHintsPath (get-in packet
+        scored (benchmark-progress/progress-stage!
+                suite
+                case
+                opts
+                :score-agent-result
+                (fn []
+                  (cond-> (benchmark-preflight/assoc-run-preflight
+                           (assoc (score-agent-result prepared agent-result)
+                                  :agentResultPath (fs/canonical-path result-path)
+                                  :parserWorker (parser-worker-profile opts))
+                           maintenance-preflight)
+                    context-ranks
+                    (assoc :contextGroundTruthRanks context-ranks)
+                    context-artifacts
+                    (assoc :contextArtifacts context-artifacts)
+                    hint-diagnostics
+                    (assoc :yggHints {:diagnostics hint-diagnostics})
+                    benchmark-activity
+                    (assoc :benchmarkActivity (:activity benchmark-activity))
+                    sync-inspect
+                    (assoc :syncInspect sync-inspect)
+                    (:graphExpectations ygg-summary)
+                    (assoc :graphExpectations (:graphExpectations ygg-summary))))
+                (fn [score]
+                  {:fileRecallAt10 (get-in score [:scores :fileRecallAt10])
+                   :meanReciprocalRankFile (get-in score
+                                                   [:scores
+                                                    :meanReciprocalRankFile])}))
+        run (cond-> {:schema agent-run-schema
+                     :suite-id (:suite-id prepared)
+                     :case-id (:case-id prepared)
+                     :repo-id (:repo-id prepared)
+                     :project-id (:project-id prepared)
+                     :agentId (:agent-id opts)
+                     :mode (agent-mode opts)
+                     :promptProfile (agent-prompt-profile opts)
+                     :status status
+                     :command command
+                     :timeoutMs timeout-ms
+                     :process (select-keys process-result
+                                           [:exit :timedOut :durationMs])
+                     :artifacts (merge
+                                 {:packetPath (get-in packet
+                                                      [:artifacts :packetPath])
+                                  :promptPath prompt-path
+                                  :outputSchemaPath output-schema-path
+                                  :yggHintsPath (get-in packet
+                                                        [:artifacts
+                                                         :yggHintsPath])
+                                  :yggFullHintsPath (get-in packet
+                                                            [:artifacts
+                                                             :yggFullHintsPath])
+                                  :yggContextPath (get-in packet
                                                           [:artifacts
-                                                           :yggFullHintsPath])
-                                :yggContextPath (get-in packet
-                                                        [:artifacts :yggContextPath])
-                                :projectConfig (get-in packet [:artifacts :projectConfig])
-                                :xtdbPath (get-in packet [:artifacts :xtdbPath])
-                                :agentResultPath (fs/canonical-path result-path)
-                                :tokenUsagePath (fs/canonical-path token-usage-path)
-                                :agentScorePath (fs/canonical-path score-path)
-                                :agentRunPath (fs/canonical-path run-path)}
-                               logs)
-             :ygg ygg-summary
-             :benchmarkActivity (:activity benchmark-activity)
-             :syncInspect sync-inspect
-             :contextArtifacts context-artifacts
-             :maintenancePreflight maintenance-preflight
-             :claimReady (benchmark-preflight/claim-ready?
-                          maintenance-preflight)
-             :graphExpectations (:graphExpectations ygg-summary)
-             :scores (:scores scored)
-             :warnings (get-in scored [:agent :warnings])}]
+                                                           :yggContextPath])
+                                  :projectConfig (get-in packet
+                                                         [:artifacts
+                                                          :projectConfig])
+                                  :xtdbPath (get-in packet
+                                                    [:artifacts :xtdbPath])
+                                  :agentResultPath (fs/canonical-path
+                                                    result-path)
+                                  :tokenUsagePath (fs/canonical-path
+                                                   token-usage-path)
+                                  :agentScorePath (fs/canonical-path
+                                                   score-path)
+                                  :agentRunPath (fs/canonical-path run-path)}
+                                 logs)
+                     :ygg ygg-summary
+                     :benchmarkActivity (:activity benchmark-activity)
+                     :syncInspect sync-inspect
+                     :contextArtifacts context-artifacts
+                     :maintenancePreflight maintenance-preflight
+                     :claimReady (benchmark-preflight/claim-ready?
+                                  maintenance-preflight)
+                     :graphExpectations (:graphExpectations ygg-summary)
+                     :scores (:scores scored)
+                     :warnings (get-in scored [:agent :warnings])}
+              (:preparation ygg-prep)
+              (assoc :agentPreparation (:preparation ygg-prep)))]
     (benchmark-io/write-json-file! score-path scored)
     (benchmark-io/write-json-file! run-path run)
     run))
@@ -1147,6 +1425,8 @@
                       (benchmark-io/read-json-file result-file)
                       opts
                       result-file)
+        score-path (benchmark-paths/agent-score-path suite case opts result-file)
+        existing-score (read-json-artifact score-path)
         scored (->> (assoc (score-agent-result prepared agent-result)
                            :parserWorker (agent-score-parser-worker-profile
                                           opts
@@ -1157,8 +1437,9 @@
                                                       opts
                                                       prepared
                                                       agent-result
-                                                      result-file))]
-    (benchmark-io/write-json-file! (benchmark-paths/agent-score-path suite case opts result-file) scored)
+                                                      result-file
+                                                      existing-score))]
+    (benchmark-io/write-json-file! score-path scored)
     scored))
 
 (defn case-result

@@ -27,7 +27,7 @@
                              "--timeout-ms" "12345")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
-    (is (= 11 (count lines)))
+    (is (= 12 (count lines)))
     (is (str/includes? (nth lines 0)
                        "bb bench agent-baseline benchmarks/custom-headline.edn"))
     (is (str/includes? (nth lines 1)
@@ -38,29 +38,34 @@
     (is (str/includes? (nth lines 2) "--agent codex-test"))
     (is (str/includes? (nth lines 2) "--timeout-ms 12345"))
     (is (str/includes? (nth lines 2) "codex-benchmark-agent.py"))
+    (is (str/includes? (nth lines 3)
+                       "bb bench agent-packet benchmarks/custom-headline.edn"))
     (is (str/includes? (nth lines 3) "--mode ygg"))
-    (is (str/includes? (nth lines 4) "--mode shell-only"))
-    (is (str/includes? (nth lines 5) "--mode ygg"))
-    (is (str/includes? (nth lines 6) "scripts/prompt-token-measure.py"))
-    (is (str/includes? (nth lines 6)
+    (is (str/includes? (nth lines 3) "--agent codex-test"))
+    (is (str/includes? (nth lines 4) "--mode ygg"))
+    (is (str/includes? (nth lines 4) "--timeout-ms 12345"))
+    (is (str/includes? (nth lines 5) "--mode shell-only"))
+    (is (str/includes? (nth lines 6) "--mode ygg"))
+    (is (str/includes? (nth lines 7) "scripts/prompt-token-measure.py"))
+    (is (str/includes? (nth lines 7)
                        "--out .dev/ygg/headline-bench/custom/prompt-token-measure.json"))
-    (is (str/includes? (nth lines 7) "scripts/prompt-token-gate.py"))
-    (is (str/includes? (nth lines 7)
-                       ".dev/ygg/headline-bench/custom/prompt-token-measure.json"))
-    (is (str/includes? (nth lines 7)
-                       "--out .dev/ygg/headline-bench/custom/prompt-token-gate.json"))
+    (is (str/includes? (nth lines 8) "scripts/prompt-token-gate.py"))
     (is (str/includes? (nth lines 8)
+                       ".dev/ygg/headline-bench/custom/prompt-token-measure.json"))
+    (is (str/includes? (nth lines 8)
+                       "--out .dev/ygg/headline-bench/custom/prompt-token-gate.json"))
+    (is (str/includes? (nth lines 9)
                        "bb bench agent-check benchmarks/custom-headline.edn"))
-    (is (str/includes? (nth lines 8) "--mode shell-only"))
-    (is (str/includes? (nth lines 8) "--max-total-tokens 999999999999"))
-    (is (str/includes? (nth lines 9) "--mode ygg"))
-    (is (str/includes? (nth lines 10)
+    (is (str/includes? (nth lines 9) "--mode shell-only"))
+    (is (str/includes? (nth lines 9) "--max-total-tokens 999999999999"))
+    (is (str/includes? (nth lines 10) "--mode ygg"))
+    (is (str/includes? (nth lines 11)
                        "bb bench claim-pack benchmarks/custom-headline.edn"))
-    (is (str/includes? (nth lines 10)
+    (is (str/includes? (nth lines 11)
                        "--shell-report .dev/ygg/headline-bench/custom/shell-only/\\*/agent-report.json"))
-    (is (str/includes? (nth lines 10)
+    (is (str/includes? (nth lines 11)
                        "--ygg-report .dev/ygg/headline-bench/custom/ygg/\\*/agent-report.json"))
-    (is (str/includes? (nth lines 10)
+    (is (str/includes? (nth lines 11)
                        "--out .dev/ygg/headline-bench/custom/claim-pack"))
     (is (every? #(str/includes? % ".dev/ygg/headline-bench/custom")
                 lines))))
@@ -73,7 +78,7 @@
                              "--out" ".dev/ygg/headline-bench/custom")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
-    (is (= 7 (count lines)))
+    (is (= 8 (count lines)))
     (is (not-any? #(str/includes? % "bench agent-check") lines))
     (is (not-any? #(str/includes? % "prompt-token-") lines))))
 
@@ -87,7 +92,8 @@
     (is (= 0 (:exit result)))
     (is (str/includes? (nth lines 0) "--skip-existing"))
     (is (str/includes? (nth lines 2) "--skip-existing"))
-    (is (str/includes? (nth lines 3) "--skip-existing"))
+    (is (not (str/includes? (nth lines 3) "--skip-existing")))
+    (is (str/includes? (nth lines 4) "--skip-existing"))
     (is (not (str/includes? (nth lines 1) "--skip-existing")))
     (is (not-any? #(and (str/includes? % "bench agent-report")
                         (str/includes? % "--skip-existing"))
@@ -101,10 +107,10 @@
                              "--out" ".dev/ygg/headline-bench/custom")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
-    (is (= 11 (count lines)))
-    (doseq [idx [0 1 2 3 4 5 8 9]]
+    (is (= 12 (count lines)))
+    (doseq [idx [0 1 2 3 4 5 6 9 10]]
       (is (str/includes? (nth lines idx) "--case case-1")))
-    (doseq [idx [6 7 10]]
+    (doseq [idx [7 8 11]]
       (is (not (str/includes? (nth lines idx) "--case case-1"))))))
 
 (deftest dry-run-prints-broad-agent-efficiency-defaults
@@ -122,11 +128,37 @@
     (is (every? #(str/includes? % "--max-total-tokens 123")
                 lines))))
 
+(deftest dry-run-accepts-explicit-agent-efficiency-suite-and-out
+  (let [result (run-agent-efficiency "agents"
+                                     "--dry-run"
+                                     "--suite" "benchmarks/architecture-coverage.edn"
+                                     "--out" ".dev/ygg/agent-efficiency/architecture-coverage-current-v1"
+                                     "--case" "otel-connector-consumer-component-flow"
+                                     "--timeout-ms" "120000")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 3 (count lines)))
+    (is (every? #(str/includes? %
+                                "benchmarks/architecture-coverage.edn")
+                lines))
+    (is (every? #(str/includes?
+                  %
+                  ".dev/ygg/agent-efficiency/architecture-coverage-current-v1")
+                lines))
+    (is (every? #(str/includes?
+                  %
+                  "--case otel-connector-consumer-component-flow")
+                lines))
+    (is (str/includes? (nth lines 0) "--timeout-ms 120000"))
+    (is (str/includes? (nth lines 1) "bb bench agent-packet"))
+    (is (not (str/includes? (nth lines 1) "--timeout-ms 120000")))
+    (is (str/includes? (nth lines 2) "--timeout-ms 120000"))))
+
 (deftest help-lists-headline-actions-and-dry-run
   (let [result (run-headline "--help")]
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result)
-                       "baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|prompt-token-check|stage-time-check|token-check|compare|claim-pack|all"))
+                       "baseline|codebase-memory|external-baselines|shell-only|prepare-ygg|ygg|agents|reports|prompt-token-check|stage-time-check|token-check|compare|claim-pack|all"))
     (is (str/includes? (:out result) "--dry-run"))))
 
 (deftest dry-run-prints-prompt-token-check-workflow
@@ -175,9 +207,9 @@
                              "--max-stage-elapsed-ms" "120000")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
-    (is (= 12 (count lines)))
-    (is (str/includes? (nth lines 10) "scripts/stage-time-gate.py"))
-    (is (str/includes? (nth lines 11)
+    (is (= 13 (count lines)))
+    (is (str/includes? (nth lines 11) "scripts/stage-time-gate.py"))
+    (is (str/includes? (nth lines 12)
                        "bb bench claim-pack benchmarks/custom-headline.edn"))))
 
 (deftest dry-run-all-runs-stage-time-check-when-total-threshold-is-set
@@ -188,10 +220,10 @@
                              "--max-total-stage-elapsed-ms" "240000")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
-    (is (= 12 (count lines)))
-    (is (str/includes? (nth lines 10) "scripts/stage-time-gate.py"))
-    (is (str/includes? (nth lines 10) "--max-total-stage-ms 240000"))
-    (is (str/includes? (nth lines 11)
+    (is (= 13 (count lines)))
+    (is (str/includes? (nth lines 11) "scripts/stage-time-gate.py"))
+    (is (str/includes? (nth lines 11) "--max-total-stage-ms 240000"))
+    (is (str/includes? (nth lines 12)
                        "bb bench claim-pack benchmarks/custom-headline.edn"))))
 
 (deftest dry-run-prints-codebase-memory-workflow
