@@ -286,6 +286,19 @@
                         opts
                         node-row-query-fields))
 
+(defn nodes-by-path-prefixes
+  "Return active node rows whose paths equal or sit under one of the prefixes."
+  [xtdb prefixes opts]
+  (let [rows (store/rows-with-string-prefixes
+              xtdb
+              (:nodes store/tables)
+              :path
+              prefixes
+              (assoc (scope-constraints opts) :active? true)
+              (read-context opts)
+              node-row-query-fields)]
+    (filter-scope rows opts)))
+
 (defn nodes-by-labels
   "Return node rows for concrete labels within the requested scope."
   [xtdb labels opts]

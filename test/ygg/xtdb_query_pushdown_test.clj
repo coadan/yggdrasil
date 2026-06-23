@@ -386,6 +386,19 @@
                                       :repo-id "app"
                                       :package-name "react"
                                       :active? true}]))
+                  store/rows-with-string-prefixes
+                  (fn [_ table field prefixes constraints ctx return-fields]
+                    (swap! calls conj {:table table
+                                       :field field
+                                       :prefixes prefixes
+                                       :constraints constraints
+                                       :read-context ctx
+                                       :return-fields return-fields})
+                    [{:xt/id "node:prefix"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :path "src/app/core.clj"
+                      :active? true}])
                   query/all-nodes
                   (fn [& _]
                     (throw (ex-info "all-nodes should not be used for batched node reads"
@@ -437,18 +450,32 @@
                     ["react"]
                     {:project-id "project-a"
                      :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"}))))
+      (is (= ["node:prefix"]
+             (mapv :xt/id
+                   (query/nodes-by-path-prefixes
+                    {:node :stub}
+                    ["src/app"]
+                    {:project-id "project-a"
+                     :repo-id "app"
                      :valid-at #inst "2026-01-01T00:00:00Z"})))))
     (is (= [[:file-id ["file:app"]]
             [:path ["src/app.clj"]]
             [:label ["app/handler"]]
             [:namespace ["app.core"]]
             [:name ["handler"]]
-            [:package-name ["react"]]]
-           (mapv (juxt :field :values) @calls)))
-    (is (every? #(= {:project-id "project-a"
-                     :repo-id "app"}
-                    (:constraints %))
-                @calls))
+            [:package-name ["react"]]
+            [:path ["src/app"]]]
+           (mapv (fn [call]
+                   [(:field call) (or (:values call) (:prefixes call))])
+                 @calls)))
+    (is (= (repeat 6 {:project-id "project-a"
+                      :repo-id "app"})
+           (map :constraints (butlast @calls))))
+    (is (= {:project-id "project-a"
+            :repo-id "app"
+            :active? true}
+           (:constraints (last @calls))))
     (is (every? #(= {:valid-at #inst "2026-01-01T00:00:00Z"}
                     (:read-context %))
                 @calls))

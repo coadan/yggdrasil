@@ -30,6 +30,18 @@
   (select-keys (assoc entity :rank (inc idx))
                [:rank :id :repo :path :label :kind :score :why :metrics :pathPrefix
                 :candidateTypes :candidateEvidence]))
+(defn- hint-related-file
+  [idx row]
+  (select-keys (assoc row :rank (inc idx))
+               [:rank
+                :path
+                :repoId
+                :repo
+                :sourceLine
+                :relation
+                :reason
+                :evidence
+                :via]))
 (defn- takev
   [n coll]
   (vec (take n coll)))
@@ -215,5 +227,9 @@
       (assoc :architecture (hint-architecture (:architecture packet)))
       (seq (:auditScopes packet))
       (assoc :auditScopes (mapv hint-audit-scope (take 6 (:auditScopes packet))))
+      (seq (:relatedFiles packet))
+      (assoc :relatedFiles (mapv hint-related-file
+                                 (range)
+                                 (take 12 (:relatedFiles packet))))
       (seq diagnostics)
       (assoc :diagnostics diagnostics))))

@@ -9,6 +9,7 @@
   {:top-files 10
    :top-symbols 5
    :top-docs 5
+   :related-files 8
    :candidate-systems 6
    :commands 6
    :audit-scopes 3
@@ -74,6 +75,14 @@
       (select-keys [:rank :path :repoId :repo :confidence :reason :evidence])
       (compact-reason limits)
       (compact-row-evidence limits)))
+
+(defn- compact-related-file
+  [limits row]
+  (-> row
+      (select-keys [:rank :path :repoId :repo :sourceLine :relation :reason :evidence :via])
+      (compact-reason limits)
+      (compact-row-evidence limits)
+      (update :via #(takev 2 %))))
 
 (defn- compact-symbol
   [limits row]
@@ -239,12 +248,26 @@
 
 (defn- compact-read-plan
   [hints opts limits]
-  (let [snippets (->> (:topFiles hints)
+  (let [primary-top-files (take 1 (:topFiles hints))
+        remaining-top-files (drop 1 (:topFiles hints))
+        read-plan-rows (->> (concat primary-top-files
+                                    (:relatedFiles hints)
+                                    remaining-top-files)
+                            (remove (fn [row]
+                                      (str/blank? (str (:path row)))))
+                            (reduce (fn [[rows seen] row]
+                                      (let [path (:path row)]
+                                        (if (contains? seen path)
+                                          [rows seen]
+                                          [(conj rows row) (conj seen path)])))
+                                    [[] #{}])
+                            first)
+        snippets (->> read-plan-rows
                       (take (:read-plan-files limits))
                       (keep #(read-plan-row opts limits %))
                       vec)]
     (when (seq snippets)
-      {:basis "bounded snippets from compact topFiles; inspect these before broad search or full context expansion"
+      {:basis "bounded snippets from compact topFiles and graph-related files; inspect these before broad search or full context expansion"
        :rules ["Do not print entire Yggdrasil JSON artifacts."
                "Use compact projections and these snippets before broad rg."
                "Open full hints or context only when compact hints do not provide enough evidence."]
@@ -255,6 +278,7 @@
   {:topFiles (count (:topFiles hints))
    :topSymbols (count (:topSymbols hints))
    :topDocs (count (:topDocs hints))
+   :relatedFiles (count (:relatedFiles hints))
    :candidateSystems (count (:candidateSystems hints))
    :commands (count (:commands hints))
    :auditScopes (count (:auditScopes hints))})
@@ -299,6 +323,10 @@
        (seq (:topDocs hints))
        (assoc :topDocs (mapv compact-doc
                              (take (:top-docs limits) (:topDocs hints))))
+       (seq (:relatedFiles hints))
+       (assoc :relatedFiles (mapv #(compact-related-file limits %)
+                                  (take (:related-files limits)
+                                        (:relatedFiles hints))))
        (seq (:candidateSystems hints))
        (assoc :candidateSystems (mapv compact-system
                                       (take (:candidate-systems limits)

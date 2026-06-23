@@ -567,6 +567,14 @@
            (str/replace "_" "\\_"))
        "%"))
 
+(defn- prefix-like-pattern
+  [prefix]
+  (str (-> (str prefix)
+           (str/replace "\\" "\\\\")
+           (str/replace "%" "\\%")
+           (str/replace "_" "\\_"))
+       "/%"))
+
 (defn- token-match-row?
   [fields tokens row]
   (let [tokens (set tokens)
@@ -576,6 +584,14 @@
                   (str/join "\n")
                   str/lower-case)]
     (some #(str/includes? text %) tokens)))
+
+(defn- string-prefix-match-row?
+  [field prefixes row]
+  (let [value (some-> (get row field) str)]
+    (some (fn [prefix]
+            (or (= value prefix)
+                (str/starts-with? value (str prefix "/"))))
+          prefixes)))
 
 (defn- token-match-sql
   [fields tokens]
@@ -593,6 +609,21 @@
                          pairs))
                    ")"))
      :args (mapv (comp token-like-pattern second) pairs)}))
+
+(defn- string-prefix-sql
+  [field prefixes]
+  (let [prefixes (vec prefixes)
+        column (sql-column-name field)]
+    {:where (when (seq prefixes)
+              (str "("
+                   (str/join
+                    " OR "
+                    (repeat (count prefixes)
+                            (str "(" column " = ? OR "
+                                 column
+                                 " LIKE ? ESCAPE '\\\\')")))
+                   ")"))
+     :args (into [] (mapcat #(vector % (prefix-like-pattern %))) prefixes)}))
 
 (defn- equality-sql
   [constraints]
@@ -1093,6 +1124,55 @@
 
        :else
        (let [rows (filter #(token-match-row? fields tokens %)
+                          (fallback-constrained-rows xtdb table (into {} constraints) ctx))]
+         (if (seq return-fields)
+           (map #(select-keys % return-fields) rows)
+           rows))))))
+
+(defn rows-with-string-prefixes
+  "Return rows where field equals a prefix or is under that prefix.
+
+  Real XTDB handles use SQL predicate pushdown with parameterized equality and
+  LIKE clauses. Test doubles fall back to constrained rows and the same
+  mechanical prefix predicate."
+  ([xtdb table field prefixes constraints] (rows-with-string-prefixes
+                                            xtdb
+                                            table
+                                            field
+                                            prefixes
+                                            constraints
+                                            {}))
+  ([xtdb table field prefixes constraints ctx]
+   (rows-with-string-prefixes xtdb table field prefixes constraints ctx nil))
+  ([xtdb table field prefixes constraints ctx return-fields]
+   (let [prefixes (->> prefixes
+                       (keep #(some-> % str str/trim not-empty))
+                       distinct
+                       vec)
+         constraints (->> (clean-constraints constraints)
+                          (sort-by (comp str key))
+                          vec)
+         return-fields (some-> return-fields distinct vec)]
+     (cond
+       (empty? prefixes)
+       []
+
+       (xtdb-handle? xtdb)
+       (let [{prefix-where :where prefix-args :args} (string-prefix-sql field prefixes)
+             {constraint-where :where constraint-args :args} (equality-sql constraints)
+             where-clauses (cond-> constraint-where prefix-where (conj prefix-where))
+             sql (str "SELECT "
+                      (select-sql return-fields)
+                      " FROM "
+                      (sql-table-name table)
+                      (when (seq where-clauses)
+                        (str " WHERE "
+                             (str/join " AND " where-clauses))))]
+         (map #(normalize-projected-sql-row return-fields %)
+              (q xtdb sql (assoc ctx :args (vec (concat constraint-args prefix-args))))))
+
+       :else
+       (let [rows (filter #(string-prefix-match-row? field prefixes %)
                           (fallback-constrained-rows xtdb table (into {} constraints) ctx))]
          (if (seq return-fields)
            (map #(select-keys % return-fields) rows)

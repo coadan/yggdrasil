@@ -8,6 +8,7 @@
             [ygg.context :as context]
             [ygg.extract :as extract]
             [ygg.project :as project]
+            [ygg.query :as query]
             [ygg.text :as text]
             [ygg.xtdb :as store]
             [charred.api :as json]
@@ -342,6 +343,8 @@
     (is (str/includes? prompt
                        "`jq '{selection,topFiles:[.topFiles[:8][]|{rank,path,evidence}]"))
     (is (str/includes? prompt
+                       "relatedFiles:[.relatedFiles[:8][]|{rank,path,relation,evidence}]"))
+    (is (str/includes? prompt
                        "candidateSystems:[.candidateSystems[:6][]|{rank,path,score}]"))
     (is (str/includes? prompt
                        "readPlan:{snippets:[.readPlan.snippets[:3][]|{path,lines,command}]}"))
@@ -349,7 +352,7 @@
     (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts"))
     (is (str/includes? prompt "`readPlan.snippets[].command`"))
     (is (str/includes? prompt
-                       "`topFiles`, `topSymbols`, `candidateSystems`, `readPlan`, `architecture`, and `auditScopes`"))
+                       "`topFiles`, `relatedFiles`, `topSymbols`, `candidateSystems`, `readPlan`, `architecture`, and `auditScopes`"))
     (is (str/includes? prompt "Avoid broad `rg`"))
     (is (str/includes? prompt
                        "Constrain `rg` to exact files or shallow globs and cap output"))
@@ -421,7 +424,10 @@
                   benchmark/context-packet->agent-hints (fn [_prepared packet _opts]
                                                           {:schema benchmark/agent-hints-schema
                                                            :selection {:candidateFiles (count (:candidateFiles packet))}
-                                                           :topFiles (:candidateFiles packet)})]
+                                                           :topFiles (:candidateFiles packet)})
+                  query/nodes-by-paths (fn [& _] [])
+                  query/edges-by-file-ids (fn [& _] [])
+                  query/nodes-by-path-prefixes (fn [& _] [])]
       (let [result (#'benchmark/prepare-agent-graph-and-artifacts! suite
                                                                    case
                                                                    prepared
@@ -441,6 +447,87 @@
                  :label "app/broken"}]
                (:candidateFiles context-json)))
         (is (= 1 (get-in hints-json [:selection :candidateFiles])))))))
+
+(deftest graph-related-files-resolve-go-module-imports-to-package-files
+  (let [prefix-calls (atom [])
+        prepared {:project-id "project"
+                  :repo-id "repo"}
+        packet {:candidateFiles [{:path "connector/connector.go"
+                                  :rank 1}]}
+        seed-node {:xt/id "node:connector"
+                   :kind :namespace
+                   :project-id "project"
+                   :repo-id "repo"
+                   :file-id "file:connector"
+                   :path "connector/connector.go"
+                   :active? true}
+        manifest-node {:xt/id "node:go-mod"
+                       :kind :manifest
+                       :project-id "project"
+                       :repo-id "repo"
+                       :path "go.mod"
+                       :label "go.opentelemetry.io/collector"
+                       :active? true}]
+    (with-redefs [query/nodes-by-paths
+                  (fn [_ paths _scope]
+                    (cond
+                      (= ["connector/connector.go"] (vec paths))
+                      [seed-node]
+
+                      :else
+                      (filter #(contains? (set paths) (:path %))
+                              [manifest-node])))
+                  query/edges-by-file-ids
+                  (fn [_ file-ids _scope]
+                    (when (= ["file:connector"] (vec file-ids))
+                      [{:xt/id "edge:consumer"
+                        :project-id "project"
+                        :repo-id "repo"
+                        :file-id "file:connector"
+                        :path "connector/connector.go"
+                        :relation :imports
+                        :target-id "node:namespace:go.opentelemetry.io/collector/consumer"
+                        :source-line 11
+                        :active? true}
+                       {:xt/id "edge:component"
+                        :project-id "project"
+                        :repo-id "repo"
+                        :file-id "file:connector"
+                        :path "connector/connector.go"
+                        :relation :imports
+                        :target-id "node:namespace:go.opentelemetry.io/collector/component"
+                        :source-line 12
+                        :active? true}]))
+                  query/nodes-by-path-prefixes
+                  (fn [_ prefixes _scope]
+                    (reset! prefix-calls (vec prefixes))
+                    [{:xt/id "node:consumer-traces"
+                      :kind :namespace
+                      :project-id "project"
+                      :repo-id "repo"
+                      :file-id "file:consumer-traces"
+                      :path "consumer/traces.go"
+                      :active? true}
+                     {:xt/id "node:component"
+                      :kind :namespace
+                      :project-id "project"
+                      :repo-id "repo"
+                      :file-id "file:component"
+                      :path "component/component.go"
+                      :active? true}
+                     seed-node])]
+      (let [rows (#'benchmark/graph-related-files nil prepared packet {})]
+        (is (= ["consumer" "component"] @prefix-calls))
+        (is (= ["component/component.go" "consumer/traces.go"]
+               (mapv :path rows)))
+        (is (= [1 2] (mapv :rank rows)))
+        (is (= ["imports-package" "imports-package"]
+               (mapv :relation rows)))
+        (is (every? #(= 1 (:sourceLine %)) rows))
+        (is (every? #(str/includes? (first (:evidence %))
+                                    "connector/connector.go imports")
+                    rows))))))
+
 (deftest ygg-agent-preparation-reuses-warm-artifacts
   (let [out (temp-dir "ygg-bench-agent-run-context-reuse")
         worktree (temp-dir "ygg-bench-agent-run-context-reuse-worktree")
@@ -483,7 +570,10 @@
                   benchmark/context-packet->agent-hints (fn [_prepared packet _opts]
                                                           {:schema benchmark/agent-hints-schema
                                                            :selection {:candidateFiles (count (:candidateFiles packet))}
-                                                           :topFiles (:candidateFiles packet)})]
+                                                           :topFiles (:candidateFiles packet)})
+                  query/nodes-by-paths (fn [& _] [])
+                  query/edges-by-file-ids (fn [& _] [])
+                  query/nodes-by-path-prefixes (fn [& _] [])]
       (let [prepared-result (#'benchmark/prepare-agent-graph-and-artifacts! suite
                                                                             case
                                                                             prepared
@@ -1514,12 +1604,24 @@
                                  :heading "app"}
                         :score 1.0
                         :snippet "app"
-                        :provenance "retrieved-doc"}]}
+                        :provenance "retrieved-doc"}]
+                :relatedFiles [{:path "src/neighbor.clj"
+                                :repoId "repo"
+                                :sourceLine 1
+                                :relation "imports-package"
+                                :evidence ["source-graph: src/app.clj imports src/neighbor"]}]}
         hints (benchmark/context-packet->agent-hints prepared packet {})]
     (is (= ["src/app.clj"]
            (mapv :path (:topFiles hints))))
     (is (= [1]
            (mapv :rank (:topFiles hints))))
+    (is (= [{:rank 1
+             :path "src/neighbor.clj"
+             :repoId "repo"
+             :sourceLine 1
+             :relation "imports-package"
+             :evidence ["source-graph: src/app.clj imports src/neighbor"]}]
+           (:relatedFiles hints)))
     (is (= {:rawCandidateFiles 2
             :candidateFiles 1
             :coverageFilteredCandidateFiles 1

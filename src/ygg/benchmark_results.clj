@@ -18,6 +18,7 @@
 
 (def ^:private agent-preparation-stages
   #{"context-packet"
+    "context-related-files"
     "reuse-agent-artifacts"
     "write-agent-artifacts"
     "write-agent-project"})

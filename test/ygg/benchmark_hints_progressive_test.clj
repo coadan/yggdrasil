@@ -15,7 +15,9 @@
                    "ygg-bench-hints-progressive"
                    (make-array java.nio.file.attribute.FileAttribute 0)))
         fixture-file (io/file root "lib/adapters/http.js")
+        related-file (io/file root "lib/core/connection.js")
         _ (.mkdirs (.getParentFile fixture-file))
+        _ (.mkdirs (.getParentFile related-file))
         _ (spit fixture-file
                 (str/join
                  "\n"
@@ -26,6 +28,16 @@
                           26 "}"
                           (str "// filler " line-no)))
                       (range 1 41))))
+        _ (spit related-file
+                (str/join
+                 "\n"
+                 (map (fn [line-no]
+                        (case line-no
+                          10 "export function connect() {"
+                          11 "  return true;"
+                          12 "}"
+                          (str "// related " line-no)))
+                      (range 1 25))))
         hints {:schema "ygg.benchmark.agent-hints/v1"
                :suite-id "suite"
                :case-id "case-1"
@@ -47,6 +59,11 @@
                           :path "lib/adapters/http.js"
                           :heading "http adapter"
                           :snippet "long code snippet"}]
+               :relatedFiles [{:rank 1
+                               :path "lib/core/connection.js"
+                               :relation "imports-package"
+                               :sourceLine 10
+                               :evidence ["source-graph: lib/adapters/http.js imports lib/core line 3"]}]
                :topSymbols [{:rank 1
                              :name "setProxy"
                              :path "lib/adapters/http.js"
@@ -79,6 +96,7 @@
                   :limits {:top-files 1
                            :top-symbols 1
                            :top-docs 1
+                           :related-files 1
                            :candidate-systems 1
                            :commands 1
                            :audit-scopes 1
@@ -94,11 +112,13 @@
     (is (= {:topFiles 2
             :topSymbols 1
             :topDocs 1
+            :relatedFiles 1
             :candidateSystems 1
             :commands 2
             :auditScopes 0}
            (get-in compact [:progressive :sourceCounts])))
     (is (= ["lib/adapters/http.js"] (mapv :path (:topFiles compact))))
+    (is (= ["lib/core/connection.js"] (mapv :path (:relatedFiles compact))))
     (is (= 2 (get-in compact [:topFiles 0 :evidenceCount])))
     (is (= ["context-doc:lib/adapters/http.js lines 24-26"]
            (get-in compact [:topFiles 0 :evidence])))
@@ -120,6 +140,11 @@
     (is (= {:start 22
             :end 27}
            (get-in compact [:readPlan :snippets 0 :lines])))
+    (is (= "lib/core/connection.js"
+           (get-in compact [:readPlan :snippets 1 :path])))
+    (is (= {:start 8
+            :end 11}
+           (get-in compact [:readPlan :snippets 1 :lines])))
     (is (str/includes? (get-in compact [:readPlan :snippets 0 :command])
                        "sed -n"))
     (is (str/includes? (get-in compact [:readPlan :snippets 0 :snippet])

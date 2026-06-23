@@ -33,6 +33,7 @@
             [ygg.benchmark-claim-pack :as benchmark-claim-pack]
             [ygg.benchmark-system-improvement :as benchmark-system-improvement]
             [ygg.benchmark-util :as benchmark-util]
+            [ygg.dependency.imports.common :as import-common]
             [clojure.string :as str]))
 
 (def suite-schema
@@ -796,6 +797,205 @@
     (benchmark-io/write-json-file! manifest-path manifest)
     (assoc manifest :path (fs/canonical-path manifest-path))))
 
+(def ^:private related-file-seed-limit 8)
+(def ^:private related-file-limit 12)
+
+(defn- dirname
+  [path]
+  (let [path (str path)
+        idx (.lastIndexOf path "/")]
+    (when (pos? idx)
+      (subs path 0 idx))))
+
+(defn- ancestor-manifest-paths
+  [path filename]
+  (let [dir (dirname path)
+        dirs (loop [dir dir
+                    out []]
+               (if (str/blank? dir)
+                 out
+                 (recur (dirname dir) (conj out dir))))]
+    (vec (concat (map #(str % "/" filename) dirs)
+                 [filename]))))
+
+(defn- ancestor-dir?
+  [ancestor path]
+  (let [ancestor (or ancestor "")
+        dir (or (dirname path) "")]
+    (or (str/blank? ancestor)
+        (= ancestor dir)
+        (str/starts-with? dir (str ancestor "/")))))
+
+(defn- nearest-manifest-node
+  [manifest-nodes source-path]
+  (->> manifest-nodes
+       (filter #(ancestor-dir? (dirname (:path %)) source-path))
+       (sort-by (fn [node]
+                  (- (count (or (dirname (:path node)) "")))))
+       first))
+
+(defn- module-package-prefix
+  [module-label target]
+  (let [module-label (str module-label)
+        target (str target)
+        prefix (str module-label "/")]
+    (when (str/starts-with? target prefix)
+      (not-empty (subs target (count prefix))))))
+
+(defn- related-file-scope
+  [prepared opts]
+  (merge (select-keys opts [:valid-at :known-at :snapshot-token :current-time])
+         {:project-id (:project-id prepared)
+          :repo-id (:repo-id prepared)}))
+
+(defn- candidate-file-seeds
+  [packet]
+  (->> (:candidateFiles packet)
+       (keep (fn [{:keys [rank path repoId repo-id repo] :as row}]
+               (when (not (benchmark-util/blankish? path))
+                 {:rank (long (or rank Long/MAX_VALUE))
+                  :path path
+                  :repo-id (or repo-id repoId repo)
+                  :row row})))
+       (sort-by (juxt :rank :path))
+       (take related-file-seed-limit)
+       vec))
+
+(defn- seed-nodes-by-path
+  [xtdb seeds scope]
+  (->> (query/nodes-by-paths xtdb (map :path seeds) scope)
+       (group-by :path)))
+
+(defn- seed-file-ids
+  [nodes-by-path seeds]
+  (->> seeds
+       (mapcat #(get nodes-by-path (:path %)))
+       (keep :file-id)
+       distinct
+       vec))
+
+(defn- go-import-edge?
+  [edge]
+  (and (= :imports (:relation edge))
+       (some? (import-common/namespace-target (:target-id edge)))))
+
+(defn- manifest-nodes-for-seeds
+  [xtdb seeds scope]
+  (->> (mapcat #(ancestor-manifest-paths (:path %) "go.mod") seeds)
+       distinct
+       (#(query/nodes-by-paths xtdb % scope))
+       (filter #(and (= :manifest (:kind %))
+                     (str/ends-with? (str (:path %)) "go.mod")
+                     (seq (:label %))))
+       vec))
+
+(defn- import-package-prefixes
+  [manifest-nodes seed-by-path edge]
+  (when-let [seed (get seed-by-path (:path edge))]
+    (when-let [manifest (nearest-manifest-node manifest-nodes (:path seed))]
+      (when-let [target (import-common/namespace-target (:target-id edge))]
+        (when-let [prefix (module-package-prefix (:label manifest) target)]
+          [{:seed seed
+            :edge edge
+            :manifest manifest
+            :target target
+            :package-prefix prefix}])))))
+
+(defn- namespace-file-node?
+  [row]
+  (and (= :namespace (:kind row))
+       (not (benchmark-util/blankish? (:path row)))))
+
+(defn- related-file-evidence
+  [{:keys [seed edge manifest target package-prefix]}]
+  (str "source-graph: "
+       (:path seed)
+       " imports "
+       target
+       " line "
+       (or (:source-line edge) "?")
+       " via module "
+       (:label manifest)
+       " -> package "
+       package-prefix))
+
+(defn- related-file-row
+  [prefix-match node]
+  (let [{:keys [seed edge target package-prefix]} prefix-match]
+    {:path (:path node)
+     :repoId (or (:repo-id node) (:repo-id seed))
+     :sourceLine 1
+     :relation "imports-package"
+     :reason "Graph import edge resolves to a local package directory under the nearest module manifest."
+     :evidence [(related-file-evidence prefix-match)]
+     :via [{:seedPath (:path seed)
+            :seedRank (:rank seed)
+            :relation (name (:relation edge))
+            :sourceLine (:source-line edge)
+            :target target
+            :packagePrefix package-prefix}]}))
+
+(defn- merge-related-file-rows
+  [rows]
+  (->> rows
+       (group-by (juxt :repoId :path))
+       (map (fn [[_ grouped]]
+              (let [first-row (first grouped)]
+                (-> first-row
+                    (assoc :evidence (->> grouped
+                                          (mapcat :evidence)
+                                          distinct
+                                          vec)
+                           :via (->> grouped
+                                     (mapcat :via)
+                                     distinct
+                                     vec))))))
+       (sort-by (juxt (comp #(or % Long/MAX_VALUE) :seedRank first :via)
+                      :path))
+       (map-indexed (fn [idx row] (assoc row :rank (inc idx))))
+       (take related-file-limit)
+       vec))
+
+(defn- graph-related-files
+  [xtdb prepared packet opts]
+  (let [seeds (candidate-file-seeds packet)
+        scope (related-file-scope prepared opts)
+        seed-paths (set (map :path seeds))
+        seed-by-path (into {} (map (juxt :path identity)) seeds)
+        nodes-by-path (seed-nodes-by-path xtdb seeds scope)
+        file-ids (seed-file-ids nodes-by-path seeds)
+        import-edges (->> (query/edges-by-file-ids xtdb file-ids scope)
+                          (filter go-import-edge?)
+                          vec)
+        manifest-nodes (manifest-nodes-for-seeds xtdb seeds scope)
+        prefix-matches (mapcat #(import-package-prefixes manifest-nodes
+                                                         seed-by-path
+                                                         %)
+                               import-edges)
+        package-prefixes (->> prefix-matches
+                              (map :package-prefix)
+                              distinct
+                              vec)
+        nodes-by-prefix (->> (query/nodes-by-path-prefixes xtdb
+                                                           package-prefixes
+                                                           scope)
+                             (filter namespace-file-node?)
+                             (remove #(contains? seed-paths (:path %)))
+                             (group-by (fn [node]
+                                         (some (fn [prefix]
+                                                 (when (or (= (:path node)
+                                                              prefix)
+                                                           (str/starts-with?
+                                                            (str (:path node))
+                                                            (str prefix "/")))
+                                                   prefix))
+                                               package-prefixes))))]
+    (merge-related-file-rows
+     (mapcat (fn [{:keys [package-prefix] :as prefix-match}]
+               (map #(related-file-row prefix-match %)
+                    (get nodes-by-prefix package-prefix)))
+             prefix-matches))))
+
 (defn- prepare-agent-graph-and-artifacts!
   [suite case prepared opts]
   (when (= "ygg" (agent-mode opts))
@@ -866,6 +1066,17 @@
                            :entities (count (:entities packet))
                            :edges (count (:edges packet))
                            :warnings (count (:warnings packet))}))
+                related-files (benchmark-progress/progress-stage!
+                               suite
+                               case
+                               opts
+                               :context-related-files
+                               #(graph-related-files xtdb prepared packet opts)
+                               (fn [rows]
+                                 {:relatedFiles (count rows)}))
+                packet (cond-> packet
+                         (seq related-files)
+                         (assoc :relatedFiles related-files))
                 artifacts (canonical-ygg-agent-artifacts paths)]
             (benchmark-progress/progress-stage!
              suite
