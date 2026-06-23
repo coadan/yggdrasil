@@ -2222,6 +2222,7 @@
 
 (deftest evidence-summary-uses-counts-for-source-graph-and-index-tables
   (let [active-count-calls (atom [])
+        exact-count-calls (atom [])
         grouped-count-calls (atom [])
         grouped-context-calls (atom [])
         fail-broad-read (fn [& _]
@@ -2242,7 +2243,17 @@
                       [:ygg/system-evidence {:project-id "project-a"
                                              :repo-id "app"}] 4
                       [:ygg/system-nodes {:project-id "project-a"}] 2
-                      [:ygg/system-edges {:project-id "project-a"}] 1}]
+                      [:ygg/system-edges {:project-id "project-a"}] 1}
+        exact-count-values {[:ygg/activity-items {:project-id "project-a"
+                                                  :active? true}] 5
+                            [:ygg/activity-events {:project-id "project-a"
+                                                   :active? true}] 4
+                            [:ygg/activity-events {:project-id "project-a"
+                                                   :active? true
+                                                   :event-kind :validation}] 1
+                            [:ygg/activity-events {:project-id "project-a"
+                                                   :active? true
+                                                   :event-kind :result-schema-mismatch}] 2}]
     (with-redefs [coverage/project-coverage
                   (fn [& _]
                     {:totals {:skipped 0}
@@ -2289,6 +2300,12 @@
                                                     :constraints constraints
                                                     :ctx ctx})
                     (get count-values [table constraints] 0))
+                  store/count-rows
+                  (fn [_ table constraints ctx]
+                    (swap! exact-count-calls conj {:table table
+                                                   :constraints constraints
+                                                   :ctx ctx})
+                    (get exact-count-values [table constraints] 0))
                   store/active-row-counts-by-field
                   (fn [_ table field constraints ctx]
                     (swap! grouped-count-calls conj {:table table
@@ -2335,6 +2352,18 @@
                                  :url-context :runtime-config}
                         :count 1}]
 
+                      [:ygg/activity-items [:expected-result-schema :result-schema]]
+                      [{:values {:expected-result-schema "schema/a"
+                                 :result-schema "schema/a"}
+                        :count 2}
+                       {:values {:expected-result-schema "schema/a"
+                                 :result-schema "schema/b"}
+                        :count 1}
+                       {:values {:expected-result-schema "schema/c"}
+                        :count 1}
+                       {:values {:result-schema "schema/d"}
+                        :count 1}]
+
                       []))
                   query/all-nodes fail-broad-read
                   query/all-edges fail-broad-read
@@ -2344,8 +2373,8 @@
                   query/all-system-nodes fail-broad-read
                   query/all-system-edges fail-broad-read
                   query/all-system-evidence fail-broad-read
-                  activity/all-items (fn [& _] [])
-                  activity/all-events (fn [& _] [])]
+                  activity/all-items fail-broad-read
+                  activity/all-events fail-broad-read]
       (let [summary (evidence/summarize
                      {:node :stub}
                      {:id "project-a"
@@ -2365,7 +2394,16 @@
                 :service-account-references 1
                 :api-key-references 1
                 :system-nodes 2
-                :system-edges 1}
+                :system-edges 1
+                :activity-items 5
+                :activity-events 4
+                :validation-events 1
+                :result-schema-mismatch-events 2
+                :result-schema-statuses {:matching 2
+                                         :mismatch 1
+                                         :missing-result 1
+                                         :unexpected-result 1}
+                :result-schema-status-items 5}
                (select-keys (:counts summary)
                             [:nodes
                              :edges
@@ -2379,7 +2417,13 @@
                              :service-account-references
                              :api-key-references
                              :system-nodes
-                             :system-edges])))
+                             :system-edges
+                             :activity-items
+                             :activity-events
+                             :validation-events
+                             :result-schema-mismatch-events
+                             :result-schema-statuses
+                             :result-schema-status-items])))
         (is (= [{:value "namespace"
                  :count 6}
                 {:value "var"
@@ -2436,6 +2480,11 @@
              :fields [:kind :url-context :auth-context]
              :constraints {:project-id "project-a"
                            :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+            {:table :ygg/activity-items
+             :fields [:expected-result-schema :result-schema]
+             :constraints {:active? true
+                           :project-id "project-a"}
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
            @grouped-context-calls))
     (is (= #{{:table :ygg/nodes
@@ -2472,7 +2521,26 @@
              {:table :ygg/system-edges
               :constraints {:project-id "project-a"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
-           (set @active-count-calls)))))
+           (set @active-count-calls)))
+    (is (= #{{:table :ygg/activity-items
+              :constraints {:project-id "project-a"
+                            :active? true}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/activity-events
+              :constraints {:project-id "project-a"
+                            :active? true}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/activity-events
+              :constraints {:project-id "project-a"
+                            :active? true
+                            :event-kind :validation}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/activity-events
+              :constraints {:project-id "project-a"
+                            :active? true
+                            :event-kind :result-schema-mismatch}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
+           (set @exact-count-calls)))))
 
 (deftest deps-graph-uses-targeted-package-edge-reads
   (let [edge-calls (atom [])

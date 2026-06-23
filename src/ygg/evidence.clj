@@ -54,6 +54,50 @@
                                     (scope-constraints scope)
                                     (store/read-context read-context)))
 
+(defn- activity-counts
+  [xtdb project-id read-context]
+  (let [project-scope {:project-id project-id
+                       :read-context read-context}]
+    (if (store/xtdb-handle? xtdb)
+      (let [ctx (store/read-context read-context)
+            constraints {:project-id project-id
+                         :active? true}]
+        (merge
+         {:activity-items (store/count-rows xtdb
+                                            (:activity-items store/tables)
+                                            constraints
+                                            ctx)
+          :activity-events (store/count-rows xtdb
+                                             (:activity-events store/tables)
+                                             constraints
+                                             ctx)
+          :validation-events (store/count-rows xtdb
+                                               (:activity-events store/tables)
+                                               (assoc constraints
+                                                      :event-kind
+                                                      :validation)
+                                               ctx)
+          :result-schema-mismatch-events (store/count-rows
+                                          xtdb
+                                          (:activity-events store/tables)
+                                          (assoc constraints
+                                                 :event-kind
+                                                 :result-schema-mismatch)
+                                          ctx)}
+         (activity/result-schema-counts-for-scope xtdb project-scope)))
+      (let [activity-items (activity/all-items xtdb project-scope)
+            activity-events (activity/all-events xtdb project-scope)
+            validation-events (filter #(= :validation (:event-kind %)) activity-events)
+            result-schema-mismatch-events (filter #(= :result-schema-mismatch
+                                                      (:event-kind %))
+                                                  activity-events)]
+        (merge
+         {:activity-items (count activity-items)
+          :activity-events (count activity-events)
+          :validation-events (count validation-events)
+          :result-schema-mismatch-events (count result-schema-mismatch-events)}
+         (activity/result-schema-counts activity-items))))))
+
 (defn- display
   [value]
   (cond
@@ -907,14 +951,7 @@
         auth-reference-count (auth-reference-count system-evidence-kind-counts)
         system-node-count (active-row-total xtdb (:system-nodes store/tables) project-scope)
         system-edge-count (active-row-total xtdb (:system-edges store/tables) project-scope)
-        activity-items (activity/all-items xtdb {:project-id (:id project)
-                                                 :read-context read-context})
-        activity-events (activity/all-events xtdb {:project-id (:id project)
-                                                   :read-context read-context})
-        validation-events (filter #(= :validation (:event-kind %)) activity-events)
-        result-schema-mismatch-events (filter #(= :result-schema-mismatch
-                                                  (:event-kind %))
-                                              activity-events)
+        activity-summary-counts (activity-counts xtdb (:id project) read-context)
         freshness (freshness-summary files project repo-id)
         counts (merge {:files (count files)
                        :file-facts file-fact-count
@@ -947,14 +984,10 @@
                                                       [:counts :declared-without-import-evidence]
                                                       0)
                        :unresolved-imports (get-in package-report [:counts :unresolved-imports] 0)
-                       :activity-items (count activity-items)
-                       :activity-events (count activity-events)
-                       :validation-events (count validation-events)
-                       :result-schema-mismatch-events (count result-schema-mismatch-events)
                        :diagnostics (get-in coverage-report [:diagnostics :total] 0)
                        :skipped-files (get-in coverage-report [:totals :skipped] 0)
                        :map-overlay (overlay-counts map-overlay map-path)}
-                      (activity/result-schema-counts activity-items))
+                      activity-summary-counts)
         freshness (annotate-freshness freshness counts opts)
         available-families (available counts)
         families (evidence-families counts available-families)
