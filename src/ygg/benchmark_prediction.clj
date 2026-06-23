@@ -1145,6 +1145,51 @@
               raw-score))
       (architecture-evidence-score query-tokens section row))))
 
+(defn- architecture-row-features
+  [query-tokens section row evidence-text]
+  (let [{:keys [matched-tokens matched-token-pairs]}
+        (token-and-pair-matches query-tokens evidence-text)
+        matched-compound-token-pairs (compact-compound-token-pair-matches query-tokens
+                                                                          evidence-text)
+        package-import? (dependency-package-import-row? section row)
+        package-identity-token-count (if package-import?
+                                       (dependency-package-identity-token-count
+                                        query-tokens
+                                        row)
+                                       0)
+        query-supported? (if package-import?
+                           (<= dependency-package-identity-query-token-min
+                               package-identity-token-count)
+                           (or (<= 2 (count matched-tokens))
+                               (seq matched-token-pairs)
+                               (seq matched-compound-token-pairs)))
+        raw-score (double (or (parse-double-safe (:score row)) 0.0))
+        weight (architecture-score-weight section row)
+        cap (architecture-score-cap section row)
+        package-identity-boost (if (<= dependency-package-identity-query-token-min
+                                       package-identity-token-count)
+                                 0.35
+                                 0.0)
+        evidence-score (min cap (+ (* weight raw-score)
+                                   package-identity-boost))
+        support-score (if (and (= "runtimeEvidence" section)
+                               (= "env-var" (field-name (:kind row)))
+                               query-supported?)
+                        (min (double (get architecture-evidence-score-caps
+                                          section
+                                          1.6))
+                             (* (double (get architecture-evidence-score-weights
+                                             section
+                                             0.7))
+                                raw-score))
+                        evidence-score)]
+    {:matched-tokens matched-tokens
+     :matched-token-pairs matched-token-pairs
+     :matched-compound-token-pairs matched-compound-token-pairs
+     :query-supported? query-supported?
+     :evidence-score evidence-score
+     :support-score support-score}))
+
 (defn- architecture-file-prediction
   [root roots query-tokens idx section row]
   (let [path (:path row)
@@ -1152,26 +1197,30 @@
         repo-id (prediction-repo-id roots source-repo-id)
         file-root (row-root root roots {:repo-id source-repo-id :path path})]
     (when (existing-file-path? file-root path)
-      (let [evidence-text (architecture-evidence-text row)]
+      (let [evidence-text (architecture-evidence-text row)
+            {:keys [matched-tokens
+                    matched-token-pairs
+                    matched-compound-token-pairs
+                    query-supported?
+                    evidence-score
+                    support-score]} (architecture-row-features query-tokens
+                                                               section
+                                                               row
+                                                               evidence-text)]
         (cond-> {:path path
                  :source-rank (+ 700 (inc idx))
                  :confidence (bounded-confidence (:score row))
-                 :evidence-score (architecture-evidence-score query-tokens section row)
-                 :architecture-support-score (architecture-support-score query-tokens
-                                                                         section
-                                                                         row)
-                 :query-supported-architecture-evidence?
-                 (architecture-query-supported? query-tokens section row)
+                 :evidence-score evidence-score
+                 :architecture-support-score support-score
+                 :query-supported-architecture-evidence? query-supported?
                  :evidence-kind :candidate-file
                  :architecture-evidence? true
                  :retrieved-source? false
                  :exact-path-source? false
                  :definition-kind (some-> (:kind row) str)
-                 :matched-tokens (token-matches query-tokens evidence-text)
-                 :matched-token-pairs (compact-token-pair-matches query-tokens evidence-text)
-                 :matched-compound-token-pairs (compact-compound-token-pair-matches
-                                                query-tokens
-                                                evidence-text)
+                 :matched-tokens matched-tokens
+                 :matched-token-pairs matched-token-pairs
+                 :matched-compound-token-pairs matched-compound-token-pairs
                  :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
                                                          query-tokens
                                                          (:path row)

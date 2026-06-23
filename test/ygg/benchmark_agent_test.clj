@@ -1997,6 +1997,36 @@
     (is (pos? (get-in proxy-file [:metrics :architectureSupportBoost])))
     (is (not (contains? (:metrics axios-file) :architectureSupportBoost)))))
 
+(deftest architecture-file-ranking-computes-package-identity-token-count-once
+  (let [root (temp-dir "ygg-bench-package-identity-token-count")
+        _ (spit-file! root "lib/adapters/http.js"
+                      "import proxyFromEnv from 'proxy-from-env';\n")
+        token-count @#'benchmark-prediction/dependency-package-identity-token-count
+        calls (atom 0)]
+    (with-redefs-fn {#'benchmark-prediction/dependency-package-identity-token-count
+                     (fn [query-tokens row]
+                       (swap! calls inc)
+                       (token-count query-tokens row))}
+      (fn []
+        (let [file (-> (benchmark/context-packet->agent-result
+                        {:query "proxy from env boundary"
+                         :architecture {:dependencyEvidence
+                                        [{:id "node:pkg:proxy-from-env"
+                                          :path "lib/adapters/http.js"
+                                          :kind "package-import"
+                                          :fileKind "javascript"
+                                          :package "proxy-from-env"
+                                          :label "npm:proxy-from-env"
+                                          :ecosystem "npm"
+                                          :relation "imports-package"
+                                          :score 1.75}]}}
+                        {:root root})
+                       :suspectedFiles
+                       first)]
+          (is (= "lib/adapters/http.js" (:path file)))
+          (is (= 1 @calls))
+          (is (pos? (get-in file [:metrics :architectureSupportBoost]))))))))
+
 (deftest file-ranking-boosts-query-supported-candidate-only-architecture-support
   (let [root (temp-dir "ygg-bench-candidate-only-architecture-support")
         _ (spit-file! root "tests/setup/server.js" "export const server = true;\n")
