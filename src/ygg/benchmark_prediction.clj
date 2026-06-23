@@ -46,6 +46,14 @@
   4)
 (def ^:private rank-score-candidate-support-label-weight
   0.06)
+(def ^:private rank-score-direct-file-identity-support-cap
+  4)
+(def ^:private rank-score-direct-file-identity-support-weight
+  2.0)
+(def ^:private rank-score-retrieved-support-label-cap
+  2)
+(def ^:private rank-score-retrieved-support-label-weight
+  2.4)
 (def ^:private rank-score-decision-candidate-count-cap
   2)
 (def ^:private rank-score-decision-candidate-path-weight
@@ -229,6 +237,47 @@
                          value)
           file-tail (str/replace slash-tail #"\.[A-Za-z0-9]+$" "")]
       file-tail)))
+(defn- compact-identity
+  [value]
+  (some-> value
+          str
+          str/lower-case
+          (str/replace #"[^a-z0-9]+" "")
+          not-empty))
+(defn- file-stem-identity
+  [path]
+  (compact-identity (identity-tail path)))
+(defn- file-identity-support-label-count
+  [path support-labels]
+  (let [stem (file-stem-identity path)]
+    (if (and stem (<= 4 (count stem)))
+      (->> support-labels
+           (keep compact-identity)
+           distinct
+           (filter #(str/includes? % stem))
+           count)
+      0)))
+(defn- retrieved-doc-identities
+  [docs]
+  (->> docs
+       (mapcat (fn [doc]
+                 [(get-in doc [:source :path])
+                  (get-in doc [:source :heading])]))
+       (keep compact-identity)
+       distinct
+       set))
+(defn- retrieved-support-label-count
+  [path label support-labels retrieved-identities]
+  (let [path-identity (compact-identity path)]
+    (->> (concat [label] support-labels)
+         (keep compact-identity)
+         distinct
+         (remove #(= path-identity %))
+         (filter (fn [support-identity]
+                   (some #(or (str/includes? % support-identity)
+                              (str/includes? support-identity %))
+                         retrieved-identities)))
+         count)))
 (defn- identity-tail-values
   [& values]
   (->> values
@@ -399,6 +448,27 @@
          (* rank-score-candidate-lexical-component-weight
             (double candidate-lexical-score)))
     0.0))
+(defn- direct-file-identity-support-boost
+  [doc-count
+   direct-file-candidate-count
+   identity-support-label-count
+   graph-neighbor-score]
+  (if (and (pos? (long doc-count))
+           (pos? (long direct-file-candidate-count))
+           (pos? (long identity-support-label-count))
+           (pos? (double graph-neighbor-score)))
+    (* rank-score-direct-file-identity-support-weight
+       (min rank-score-direct-file-identity-support-cap
+            (long identity-support-label-count)))
+    0.0))
+(defn- retrieved-support-label-boost
+  [doc-count retrieved-support-label-count]
+  (if (and (zero? (long doc-count))
+           (pos? (long retrieved-support-label-count)))
+    (* rank-score-retrieved-support-label-weight
+       (min rank-score-retrieved-support-label-cap
+            (long retrieved-support-label-count)))
+    0.0))
 (defn- doc-prediction
   [root roots query-tokens idx doc]
   (let [source (:source doc)
@@ -525,7 +595,7 @@
          (str " score=" score))
        (score-component-evidence score-components)))
 (defn- candidate-file-prediction
-  [root roots query-tokens idx candidate]
+  [root roots query-tokens retrieved-identities idx candidate]
   (let [path (:path candidate)
         source-repo-id (:repo candidate)
         repo-id (prediction-repo-id roots source-repo-id)
@@ -552,6 +622,14 @@
                                                    (:path candidate)
                                                    (:label candidate)
                                                    support-labels)
+            file-identity-support-label-count (file-identity-support-label-count
+                                               path
+                                               support-labels)
+            retrieved-support-label-count (retrieved-support-label-count
+                                           path
+                                           (:label candidate)
+                                           support-labels
+                                           retrieved-identities)
             score-components (or (:scoreComponents candidate)
                                  (:score-components candidate))
             candidate-rank (long (or (parse-double-safe (:rank candidate))
@@ -581,6 +659,8 @@
                  :matched-token-pairs matched-token-pairs
                  :matched-compound-token-pairs matched-compound-token-pairs
                  :matched-identity-compound-token-pairs matched-identity-compound-token-pairs
+                 :file-identity-support-label-count file-identity-support-label-count
+                 :retrieved-support-label-count retrieved-support-label-count
                  :candidate-support-label-count (count support-labels)
                  :matched-identity-compound-token-span-length
                  (apply identity-compound-token-span-length
@@ -903,6 +983,16 @@
                                                             ordered))
                              direct-file-candidate-count (count (filter :direct-file-candidate?
                                                                         ordered))
+                             file-identity-support-label-count
+                             (apply max
+                                    0
+                                    (keep :file-identity-support-label-count
+                                          ordered))
+                             retrieved-support-label-count
+                             (apply max
+                                    0
+                                    (keep :retrieved-support-label-count
+                                          ordered))
                              decision-candidate-count (count (filter #(= :decision-candidate
                                                                          (:evidence-kind %))
                                                                      ordered))
@@ -1013,6 +1103,16 @@
                              candidate-lexical-component-boost
                              (candidate-lexical-component-boost
                               candidate-lexical-score)
+                             direct-file-identity-support-boost
+                             (direct-file-identity-support-boost
+                              doc-count
+                              direct-file-candidate-count
+                              file-identity-support-label-count
+                              graph-neighbor-score)
+                             retrieved-support-label-boost
+                             (retrieved-support-label-boost
+                              doc-count
+                              retrieved-support-label-count)
                              rank-score (+ max-evidence-score
                                            source-rank-score
                                            (* 0.22 (min rank-score-token-cap
@@ -1048,7 +1148,9 @@
                                            graph-neighbor-boost
                                            doc-supported-candidate-evidence-boost
                                            architecture-rank-boost
-                                           candidate-lexical-component-boost)
+                                           candidate-lexical-component-boost
+                                           direct-file-identity-support-boost
+                                           retrieved-support-label-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
                                               :docCount doc-count
@@ -1102,6 +1204,18 @@
                                        (pos? direct-file-candidate-count)
                                        (assoc :directFileCandidateCount
                                               direct-file-candidate-count)
+                                       (pos? file-identity-support-label-count)
+                                       (assoc :fileIdentitySupportLabelCount
+                                              file-identity-support-label-count)
+                                       (pos? direct-file-identity-support-boost)
+                                       (assoc :directFileIdentitySupportBoost
+                                              direct-file-identity-support-boost)
+                                       (pos? retrieved-support-label-count)
+                                       (assoc :retrievedSupportLabelCount
+                                              retrieved-support-label-count)
+                                       (pos? retrieved-support-label-boost)
+                                       (assoc :retrievedSupportLabelBoost
+                                              retrieved-support-label-boost)
                                        (pos? candidate-only-robust-boost)
                                        (assoc :robustCandidateOnlyBoost candidate-only-robust-boost)
                                        (pos? graph-neighbor-score)
@@ -1153,6 +1267,8 @@
                                     :matched-token-pairs
                                     :matched-compound-token-pairs
                                     :matched-identity-compound-token-pairs
+                                    :file-identity-support-label-count
+                                    :retrieved-support-label-count
                                     :matched-identity-compound-token-span-length
                                     :definition-kind
                                     :architecture-evidence?
@@ -1163,14 +1279,15 @@
                                     :candidate-support-label-count)
                             (assoc :rank (inc idx)))))
          vec)))
-(defn- coverage-source-kinds
+(defn- coverage-source-kind-order
   [coverage]
   (->> (or (:declaredSourceKinds coverage)
            (:declared-source-kinds coverage)
            (:sourceKinds coverage)
            (:source-kinds coverage))
        (keep normalize-source-kind)
-       set))
+       distinct
+       vec))
 (defn- keep-coverage-source-kind?
   [source-kinds kind-by-path row]
   (or (empty? source-kinds)
@@ -1235,20 +1352,34 @@
                     (not (contains? excluded-paths (file-row-key %))))
            %)
         rows))
+(defn- preserve-ranked-head-for-source-lanes?
+  [kind-by-path source-kind-order row]
+  (or (empty? source-kind-order)
+      (= (first source-kind-order) (row-source-kind kind-by-path row))
+      (pos? (double (or (get-in row [:metrics :directFileIdentitySupportBoost])
+                        0.0)))))
 (defn- prioritize-coverage-source-lanes
-  [source-kinds kind-by-path candidate-files]
-  (if (or (empty? source-kinds)
+  [source-kind-order kind-by-path candidate-files]
+  (if (or (empty? source-kind-order)
           (empty? kind-by-path)
           (empty? candidate-files))
     candidate-files
     (let [head-row (first candidate-files)
-          head-kind (row-source-kind kind-by-path head-row)
-          remaining-kinds (->> source-kinds
-                               sort
-                               (remove #{head-kind}))
-          prioritized (loop [source-kinds (seq remaining-kinds)
-                             selected [head-row]
-                             selected-paths #{(file-row-key head-row)}]
+          preserve-head? (preserve-ranked-head-for-source-lanes?
+                          kind-by-path
+                          source-kind-order
+                          head-row)
+          ordered-kinds (if preserve-head?
+                          (remove #{(row-source-kind kind-by-path head-row)}
+                                  source-kind-order)
+                          source-kind-order)
+          initial (if preserve-head?
+                    [head-row]
+                    [])
+          initial-paths (set (map file-row-key initial))
+          prioritized (loop [source-kinds (seq ordered-kinds)
+                             selected initial
+                             selected-paths initial-paths]
                         (if-let [source-kind (first source-kinds)]
                           (if-let [row (first-row-by-source-kind
                                         kind-by-path
@@ -1437,7 +1568,6 @@
     selected
     (loop [selected (vec selected)
            missing-kinds (->> source-kinds
-                              sort
                               (remove (set (keys (selected-source-kind-counts
                                                   kind-by-path
                                                   selected))))
@@ -1682,7 +1812,8 @@
    (context-packet->agent-result packet {}))
   ([packet {:keys [agent-id mode case-id caseFingerprint agentInputFingerprint root roots limit coverage decision-candidates decision-kind result-scope]}]
    (let [query-tokens (text/tokenize-all (:query packet))
-         source-kinds (coverage-source-kinds coverage)
+         source-kind-order (coverage-source-kind-order coverage)
+         source-kinds (set source-kind-order)
          kind-by-path (if (or (empty? source-kinds)
                               (and (str/blank? (str root))
                                    (empty? roots)))
@@ -1696,7 +1827,13 @@
                                                   (single-root-map-root roots)))))
          doc-rows (keep-indexed #(doc-prediction root roots query-tokens %1 %2) (:docs packet))
          entity-rows (keep-indexed #(entity-prediction root roots query-tokens %1 %2) (:entities packet))
-         candidate-file-rows (keep-indexed #(candidate-file-prediction root roots query-tokens %1 %2)
+         retrieved-identities (retrieved-doc-identities (:docs packet))
+         candidate-file-rows (keep-indexed #(candidate-file-prediction root
+                                                                       roots
+                                                                       query-tokens
+                                                                       retrieved-identities
+                                                                       %1
+                                                                       %2)
                                            (:candidateFiles packet))
          decision-candidate-rows (decision-candidate-file-predictions root
                                                                       roots
@@ -1712,7 +1849,7 @@
                               (filter #(keep-coverage-source-kind? source-kinds
                                                                    kind-by-path
                                                                    %))
-                              (prioritize-coverage-source-lanes source-kinds
+                              (prioritize-coverage-source-lanes source-kind-order
                                                                 kind-by-path)
                               diversify-ranked-file-predictions
                               renumber-file-ranks
@@ -1722,7 +1859,7 @@
          selected-files (select-limited-suspected-files
                          candidate-files
                          limit
-                         {:source-kinds source-kinds
+                         {:source-kinds source-kind-order
                           :kind-by-path kind-by-path
                           :decision-candidates decision-candidates
                           :result-scope result-scope})

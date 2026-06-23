@@ -1720,7 +1720,7 @@
         setup-file (get file-by-path "migrations/db/init-scripts/00000000000003-post-setup.sql")
         noise-file (get file-by-path "noise/.env")
         schema-file (get file-by-path "migrations/schema.sql")]
-    (is (<= (:rank runtime-file) 2))
+    (is (= 1 (:rank runtime-file)))
     (is (< (:rank runtime-file) (:rank noise-file)))
     (is (< (:rank setup-file) (:rank schema-file)))
     (is (pos? (get-in runtime-file [:metrics :architectureSupportBoost])))
@@ -2171,6 +2171,95 @@
     (is (pos? (get-in files [0 :metrics :candidateSupportLabelScore])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-boosts-retrieved-direct-file-identity-support
+  (let [root (temp-dir "ygg-bench-direct-file-identity-support")
+        _ (spit-file! root "src/noisy.cs" "public class Noisy {}\n")
+        _ (spit-file! root "src/SqlMapper.cs" "public class SqlMapper {}\n")
+        packet {:query "jsonb string type handler"
+                :docs [{:source {:path "src/noisy.cs"
+                                 :heading "jsonb string type handler"}
+                        :score 3.0
+                        :snippet "jsonb string type handler"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/SqlMapper.cs"
+                                 :heading "type handler"}
+                        :score 0.5
+                        :snippet "jsonb type handler"
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "src/noisy.cs"
+                                  :rank 1
+                                  :score 4.0
+                                  :targetKind "node"
+                                  :label "jsonb string type handler"
+                                  :supportLabels ["Fixture/NoisyJsonb"
+                                                  "Fixture/NoisyString"
+                                                  "Fixture/NoisyHandler"]
+                                  :scoreComponents {:sourceGraph 4.0
+                                                    :lexical 1.0}}
+                                 {:path "src/SqlMapper.cs"
+                                  :rank 80
+                                  :score 1.5
+                                  :targetKind "file"
+                                  :label "src/SqlMapper.cs"
+                                  :supportLabels ["Fixture/SqlMapper.ReadJsonb"
+                                                  "Fixture/SqlMapper.GetString"
+                                                  "Fixture/SqlMapper.TypeHandler"
+                                                  "Fixture/SqlMapper.Parse"]
+                                  :scoreComponents {:sourceGraph 1.5
+                                                    :graph 0.2
+                                                    :lexical 0.4}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/SqlMapper.cs" "src/noisy.cs"]
+           (mapv :path files)))
+    (is (= 4 (get-in files [0 :metrics :fileIdentitySupportLabelCount])))
+    (is (pos? (get-in files [0 :metrics :directFileIdentitySupportBoost])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-boosts-retrieved-support-labels
+  (let [root (temp-dir "ygg-bench-retrieved-support-labels")
+        _ (spit-file! root "site/src/components/home/ComponentUtilities.astro" "---\n---\n")
+        _ (spit-file! root "site/src/pages/docs/[version]/index.astro" "---\n---\n")
+        _ (spit-file! root "site/src/pages/index.astro" "---\n---\n")
+        packet {:query "docs route impact component utilities"
+                :docs [{:source {:path "site/src/components/home/ComponentUtilities.astro"
+                                 :heading "site/src/components/home/ComponentUtilities.astro"}
+                        :score 1.0
+                        :snippet "component utilities"
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "site/src/pages/docs/[version]/index.astro"
+                                  :rank 1
+                                  :score 3.2
+                                  :targetKind "node"
+                                  :label "/docs/{version}"
+                                  :supportLabels ["site.src.pages.docs.[version].index"
+                                                  "site/src/pages/docs/[version]/index.astro"]
+                                  :scoreComponents {:sourceGraph 3.2
+                                                    :lexical 0.7}}
+                                 {:path "site/src/pages/index.astro"
+                                  :rank 2
+                                  :score 3.1
+                                  :targetKind "node"
+                                  :label "@components/home/ComponentUtilities.astro"
+                                  :supportLabels ["site.src.pages.index"
+                                                  "site/src/pages/index.astro"
+                                                  "@components/home/Customize.astro"]
+                                  :scoreComponents {:sourceGraph 3.1
+                                                    :lexical 0.95}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)
+        page-file (first files)
+        route-file (some #(when (= "site/src/pages/docs/[version]/index.astro"
+                                   (:path %))
+                            %)
+                         files)]
+    (is (= "site/src/pages/index.astro" (:path page-file)))
+    (is (= 1 (get-in page-file [:metrics :retrievedSupportLabelCount])))
+    (is (pos? (get-in page-file [:metrics :retrievedSupportLabelBoost])))
+    (is (> (get-in page-file [:metrics :rankScore])
+           (get-in route-file [:metrics :rankScore])))))
 
 (deftest file-ranking-uses-candidate-lexical-component
   (let [root (temp-dir "ygg-bench-candidate-lexical-component")

@@ -50,6 +50,12 @@
                                            "minimum" 0}
                  "directFileCandidateCount" {"type" "integer"
                                              "minimum" 0}
+                 "fileIdentitySupportLabelCount" {"type" "integer"
+                                                  "minimum" 0}
+                 "directFileIdentitySupportBoost" {"type" "number"}
+                 "retrievedSupportLabelCount" {"type" "integer"
+                                               "minimum" 0}
+                 "retrievedSupportLabelBoost" {"type" "number"}
                  "retrievedSourceCount" {"type" "integer"
                                          "minimum" 0}
                  "exactPathSourceCount" {"type" "integer"
