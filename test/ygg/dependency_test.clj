@@ -277,10 +277,14 @@
 (deftest derived-dependency-edge-replacement-pushes-relation-scope-constraints
   (let [calls (atom [])
         tx-ops (atom nil)]
-    (with-redefs [store/constrained-rows
-                  (fn [_ table constraints ctx]
-                    (swap! calls conj [table constraints ctx])
+    (with-redefs [store/ordered-rows
+                  (fn [_ request]
+                    (swap! calls conj request)
                     [{:xt/id "edge:old-import-package"}])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "derived edge replacement should not hydrate full edges"
+                                    {})))
                   store/execute-tx!
                   (fn [_ ops]
                     (reset! tx-ops ops)
@@ -293,13 +297,17 @@
               "repo-a"
               []
               {:valid-from #inst "2026-01-01T00:00:00Z"}))))
-    (is (= [[(:edges store/tables)
-             {:project-id "project-a"
-              :repo-id "repo-a"
-              :relation :imports-package}
-             {:valid-at #inst "2026-01-01T00:00:00Z"}]]
-           @calls))
+    (is (= [{:table (:edges store/tables)
+             :constraints {:project-id "project-a"
+                           :repo-id "repo-a"
+                           :relation :imports-package}
+             :return-fields [:xt/id]
+             :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           (mapv #(select-keys % [:table :constraints :return-fields :read-context])
+                 @calls)))
     (is (= 1 (count @tx-ops)))
+    (is (= #inst "2026-01-01T00:00:00Z"
+           (get-in (first @tx-ops) [1 :valid-from])))
     (is (= "edge:old-import-package" (last (first @tx-ops))))))
 
 (deftest import-package-resolution-reads-source-edges-when-map-overlay-can-resolve

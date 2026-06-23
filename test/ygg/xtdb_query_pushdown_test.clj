@@ -753,6 +753,38 @@
             [:delete-docs (:activity-events store/tables) "activity-event:old"]]
            @tx-ops))))
 
+(deftest derived-dependency-edge-replacement-uses-projected-id-read
+  (let [calls (atom [])
+        tx-ops (atom nil)]
+    (with-redefs [store/ordered-rows
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    [{:xt/id "edge:old-import"}])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "derived edge replacement should not hydrate full edges"
+                                    {})))
+                  store/execute-tx!
+                  (fn [_ ops]
+                    (reset! tx-ops ops))]
+      (is (= {:dependency-edges 0
+              :dependency-edges-deleted 1}
+             (store/commit-derived-dependency-edges! :xtdb
+                                                     "project-a"
+                                                     "app"
+                                                     []
+                                                     {:valid-at #inst "2026-01-01T00:00:00Z"}))))
+    (is (= [{:table (:edges store/tables)
+             :constraints {:project-id "project-a"
+                           :repo-id "app"
+                           :relation :imports-package}
+             :return-fields [:xt/id]
+             :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           (mapv #(select-keys % [:table :constraints :return-fields :read-context])
+                 @calls)))
+    (is (= [[:delete-docs (:edges store/tables) "edge:old-import"]]
+           @tx-ops))))
+
 (deftest active-row-count-pushes-active-unless-false-filter
   (let [calls (atom [])]
     (with-redefs [store/q

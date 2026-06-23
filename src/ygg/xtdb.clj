@@ -1358,19 +1358,21 @@
                    valid-from (assoc :valid-from valid-from))
         read-ctx (cond-> (read-context opts)
                    valid-from (assoc :valid-at valid-from))
-        existing (vec (constrained-rows xtdb
-                                        (:edges tables)
-                                        {:project-id project-id
-                                         :repo-id repo-id
-                                         :relation :imports-package}
-                                        read-ctx))
+        existing-ids (mapv :xt/id
+                           (ordered-rows xtdb
+                                         {:table (:edges tables)
+                                          :constraints {:project-id project-id
+                                                        :repo-id repo-id
+                                                        :relation :imports-package}
+                                          :return-fields [:xt/id]
+                                          :read-context read-ctx}))
         rows (map validate-edge-row rows)
         ops (vec (concat
-                  (map #(delete-op (:edges tables) (:xt/id %) temporal) existing)
+                  (map #(delete-op (:edges tables) % temporal) existing-ids)
                   (map #(put-op (:edges tables) % temporal) rows)))]
     (execute-tx! xtdb ops)
     {:dependency-edges (count rows)
-     :dependency-edges-deleted (count existing)}))
+     :dependency-edges-deleted (count existing-ids)}))
 
 (defn graph-views
   "Return graph views visible in read context."
