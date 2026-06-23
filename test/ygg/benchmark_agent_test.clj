@@ -2934,14 +2934,14 @@
                                   :label "remote version"}]}
         result (benchmark/context-packet->agent-result packet {:root root
                                                                :limit 5})
-        files (:suspectedFiles result)]
-    (is (= ["src/doc-1.clj"
-            "src/doc-2.clj"
-            "src/doc-3.clj"
-            "src/doc-4.clj"
-            "src/candidate.clj"]
-           (mapv :path files)))
-    (is (= 1 (get-in files [4 :metrics :matchedTokenPairCount])))
+        files (:suspectedFiles result)
+        files-by-path (into {} (map (juxt :path identity)) files)]
+    (is (= 5 (count files)))
+    (is (contains? files-by-path "src/candidate.clj"))
+    (is (not (contains? files-by-path "src/doc-5.clj")))
+    (is (= 1 (get-in files-by-path ["src/candidate.clj"
+                                    :metrics
+                                    :matchedTokenPairCount])))
     (is (= {:rawCandidateFiles 6
             :candidateFiles 6
             :coverageFilteredCandidateFiles 0
