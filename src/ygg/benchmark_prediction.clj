@@ -1402,31 +1402,6 @@
     (and (pos? (long (or (:candidateFileCount metrics) 0)))
          (zero? (long (or (:docCount metrics) 0)))
          (zero? (long (or (:entityCount metrics) 0))))))
-(defn- independently-supported-decision-file?
-  [row]
-  (let [metrics (:metrics row)
-        support-count (long (or (:supportCount metrics) 0))
-        decision-candidate-count (long (or (:decisionCandidateCount metrics) 0))]
-    (and (pos? decision-candidate-count)
-         (< decision-candidate-count support-count))))
-(defn- fully-supported-decision-candidate?
-  [supported-paths candidate]
-  (let [paths (set (decision-candidate-paths candidate))]
-    (and (< 1 (count paths))
-         (set/subset? paths supported-paths))))
-(defn- compact-supported-decision-selection
-  [candidate-files limit decision-candidates]
-  (let [supported (filter independently-supported-decision-file? candidate-files)
-        supported-paths (set (map :path supported))]
-    (when (and (seq supported)
-               (some #(fully-supported-decision-candidate?
-                       supported-paths
-                       %)
-                     decision-candidates))
-      (let [files (cond->> supported
-                    limit (take (long limit)))]
-        {:files (renumber-file-ranks files)
-         :decisionSupportedFileSelected (count files)}))))
 (defn- positive-metric
   [row k]
   (long (or (get-in row [:metrics k]) 0)))
@@ -1588,12 +1563,9 @@
 (defn- select-limited-suspected-files
   ([candidate-files limit]
    (select-limited-suspected-files candidate-files limit {}))
-  ([candidate-files limit {:keys [source-kinds kind-by-path decision-candidates result-scope]}]
+  ([candidate-files limit {:keys [source-kinds kind-by-path result-scope]}]
    (or (when (inspection-files-scope? result-scope)
          (inspection-file-selection candidate-files limit))
-       (compact-supported-decision-selection candidate-files
-                                             limit
-                                             decision-candidates)
        (if-not limit
          {:files (vec candidate-files)}
          (let [limit (long limit)
@@ -1861,7 +1833,6 @@
                          limit
                          {:source-kinds source-kind-order
                           :kind-by-path kind-by-path
-                          :decision-candidates decision-candidates
                           :result-scope result-scope})
          selection (cond-> {:rawCandidateFiles (count raw-candidate-files)
                             :candidateFiles (count candidate-files)
@@ -1872,9 +1843,6 @@
                      (assoc :candidateFileOnlyQuota (:candidateFileOnlyQuota selected-files)
                             :candidateFileOnlySelected (:candidateFileOnlySelected selected-files)))
          selection (cond-> selection
-                     (:decisionSupportedFileSelected selected-files)
-                     (assoc :decisionSupportedFileSelected
-                            (:decisionSupportedFileSelected selected-files))
                      (:inspectionDirectFileSelected selected-files)
                      (assoc :inspectionDirectFileSelected
                             (:inspectionDirectFileSelected selected-files))
