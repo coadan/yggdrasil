@@ -8,13 +8,53 @@
             [ygg.xtdb :as store]
             [clojure.string :as str]))
 
+(def ^:private dependency-file-row-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :path
+   :kind
+   :active?
+   :run-id])
+
+(def ^:private dependency-node-row-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :label
+   :kind
+   :path
+   :ecosystem
+   :package-name
+   :version-range
+   :resolved-version
+   :dependency-scope
+   :import-names
+   :namespace
+   :name
+   :public?
+   :active?
+   :run-id])
+
+(defn- active-scope-row-fields
+  [table]
+  (cond
+    (= table (:files store/tables)) dependency-file-row-fields
+    (= table (:nodes store/tables)) dependency-node-row-fields
+    :else nil))
+
 (defn- active-scope-rows
   [xtdb table {:keys [project-id repo-id]}]
-  (vec (store/constrained-rows xtdb
-                               table
-                               {:project-id project-id
-                                :repo-id repo-id
-                                :active? true})))
+  (let [constraints {:project-id project-id
+                     :repo-id repo-id
+                     :active? true}]
+    (if-let [return-fields (and (store/xtdb-handle? xtdb)
+                                (active-scope-row-fields table))]
+      (vec (store/ordered-rows xtdb
+                               {:table table
+                                :constraints constraints
+                                :return-fields return-fields}))
+      (vec (store/constrained-rows xtdb table constraints)))))
 
 (def ^:private dependency-source-edge-relations
   [:requires :resolves :version-of])

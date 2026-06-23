@@ -48,7 +48,7 @@
            (set (map last @xtql-queries))))))
 
 (deftest import-package-resolution-pushes-real-xtdb-scope-constraints
-  (let [constrained-queries (atom [])
+  (let [row-queries (atom [])
         edge-queries (atom [])
         manifest {:xt/id "manifest:maven"
                   :kind :manifest
@@ -69,14 +69,17 @@
                        :active? true
                        :project-id "project-a"
                        :repo-id "repo-a"}]
-    (with-redefs [store/constrained-rows
-                  (fn [_ table constraints]
-                    (swap! constrained-queries conj [table constraints])
-                    (case table
+    (with-redefs [store/ordered-rows
+                  (fn [_ request]
+                    (swap! row-queries conj request)
+                    (case (:table request)
                       :ygg/files []
                       :ygg/nodes [manifest package]
-                      :ygg/edges (throw (ex-info "edges should use batched relation reads"
-                                                 {:constraints constraints}))))
+                      []))
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "scoped dependency rows should use projected reads"
+                                    {})))
                   store/rows-with-field-values
                   (fn [_ request]
                     (swap! edge-queries conj request)
@@ -101,16 +104,18 @@
                  "repo-a"
                  "run-a"
                  {}))))
-    (is (contains? (set @constrained-queries)
-                   [(:files store/tables)
-                    {:project-id "project-a"
-                     :repo-id "repo-a"
-                     :active? true}]))
-    (is (contains? (set @constrained-queries)
-                   [(:nodes store/tables)
-                    {:project-id "project-a"
-                     :repo-id "repo-a"
-                     :active? true}]))
+    (is (= [{:table (:files store/tables)
+             :constraints {:project-id "project-a"
+                           :repo-id "repo-a"
+                           :active? true}
+             :return-fields @#'dependency/dependency-file-row-fields}
+            {:table (:nodes store/tables)
+             :constraints {:project-id "project-a"
+                           :repo-id "repo-a"
+                           :active? true}
+             :return-fields @#'dependency/dependency-node-row-fields}]
+           (mapv #(select-keys % [:table :constraints :return-fields])
+                 @row-queries)))
     (is (= [{:table (:edges store/tables)
              :field :relation
              :values [:requires :resolves :version-of]
@@ -181,9 +186,9 @@
                                      (filter #(contains? relations (:relation %)))
                                      (map #(select-keys % return-fields))
                                      vec)))]
-    (with-redefs [store/constrained-rows
-                  (fn [_ table _constraints]
-                    (case table
+    (with-redefs [store/ordered-rows
+                  (fn [_ request]
+                    (case (:table request)
                       :ygg/files [file]
                       :ygg/nodes [lock version package]
                       []))
@@ -205,7 +210,7 @@
                      edges)))))))
 
 (deftest package-report-uses-relation-scoped-edge-reads
-  (let [constrained-queries (atom [])
+  (let [row-queries (atom [])
         edge-queries (atom [])
         manifest {:xt/id "manifest:npm"
                   :kind :manifest
@@ -228,15 +233,17 @@
                        :active? true
                        :project-id "project-a"
                        :repo-id "repo-a"}]
-    (with-redefs [store/constrained-rows
-                  (fn [_ table constraints]
-                    (swap! constrained-queries conj [table constraints])
-                    (case table
+    (with-redefs [store/ordered-rows
+                  (fn [_ request]
+                    (swap! row-queries conj request)
+                    (case (:table request)
                       :ygg/files []
                       :ygg/nodes [manifest package]
-                      :ygg/edges (throw (ex-info "edges should use batched relation reads"
-                                                 {:constraints constraints}))
                       []))
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "package report scoped rows should use projected reads"
+                                    {})))
                   store/rows-with-field-values
                   (fn [_ request]
                     (swap! edge-queries conj request)
@@ -254,16 +261,18 @@
                     {})]
         (is (= 1 (get-in report [:counts :packages])))
         (is (= 1 (get-in report [:counts :requires])))))
-    (is (contains? (set @constrained-queries)
-                   [(:files store/tables)
-                    {:project-id "project-a"
-                     :repo-id "repo-a"
-                     :active? true}]))
-    (is (contains? (set @constrained-queries)
-                   [(:nodes store/tables)
-                    {:project-id "project-a"
-                     :repo-id "repo-a"
-                     :active? true}]))
+    (is (= [{:table (:files store/tables)
+             :constraints {:project-id "project-a"
+                           :repo-id "repo-a"
+                           :active? true}
+             :return-fields @#'dependency/dependency-file-row-fields}
+            {:table (:nodes store/tables)
+             :constraints {:project-id "project-a"
+                           :repo-id "repo-a"
+                           :active? true}
+             :return-fields @#'dependency/dependency-node-row-fields}]
+           (mapv #(select-keys % [:table :constraints :return-fields])
+                 @row-queries)))
     (is (= [{:table (:edges store/tables)
              :field :relation
              :values [:requires :resolves :version-of :imports-package :imports :uses]
