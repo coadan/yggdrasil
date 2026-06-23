@@ -286,6 +286,46 @@
                         opts
                         node-row-query-fields))
 
+(defn nodes-by-labels
+  "Return node rows for concrete labels within the requested scope."
+  [xtdb labels opts]
+  (rows-by-field-values xtdb
+                        (:nodes store/tables)
+                        :label
+                        labels
+                        opts
+                        node-row-query-fields))
+
+(defn nodes-by-namespaces
+  "Return node rows for concrete namespaces within the requested scope."
+  [xtdb namespaces opts]
+  (rows-by-field-values xtdb
+                        (:nodes store/tables)
+                        :namespace
+                        namespaces
+                        opts
+                        node-row-query-fields))
+
+(defn nodes-by-names
+  "Return node rows for concrete names within the requested scope."
+  [xtdb names opts]
+  (rows-by-field-values xtdb
+                        (:nodes store/tables)
+                        :name
+                        names
+                        opts
+                        node-row-query-fields))
+
+(defn nodes-by-package-names
+  "Return node rows for concrete package names within the requested scope."
+  [xtdb package-names opts]
+  (rows-by-field-values xtdb
+                        (:nodes store/tables)
+                        :package-name
+                        package-names
+                        opts
+                        node-row-query-fields))
+
 (defn system-nodes-by-ids
   "Return active system node rows for concrete ids within the requested scope."
   [xtdb ids opts]

@@ -304,7 +304,27 @@
                               :project-id "project-a"
                               :repo-id "app"
                               :path "src/app.clj"
-                              :active? true}]))
+                              :active? true}]
+                      :label [{:xt/id "node:label"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :label "app/handler"
+                               :active? true}]
+                      :namespace [{:xt/id "node:namespace"
+                                   :project-id "project-a"
+                                   :repo-id "app"
+                                   :namespace "app.core"
+                                   :active? true}]
+                      :name [{:xt/id "node:name"
+                              :project-id "project-a"
+                              :repo-id "app"
+                              :name "handler"
+                              :active? true}]
+                      :package-name [{:xt/id "node:package"
+                                      :project-id "project-a"
+                                      :repo-id "app"
+                                      :package-name "react"
+                                      :active? true}]))
                   query/all-nodes
                   (fn [& _]
                     (throw (ex-info "all-nodes should not be used for batched node reads"
@@ -324,9 +344,45 @@
                     ["src/app.clj"]
                     {:project-id "project-a"
                      :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"}))))
+      (is (= ["node:label"]
+             (mapv :xt/id
+                   (query/nodes-by-labels
+                    {:node :stub}
+                    ["app/handler"]
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"}))))
+      (is (= ["node:namespace"]
+             (mapv :xt/id
+                   (query/nodes-by-namespaces
+                    {:node :stub}
+                    ["app.core"]
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"}))))
+      (is (= ["node:name"]
+             (mapv :xt/id
+                   (query/nodes-by-names
+                    {:node :stub}
+                    ["handler"]
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"}))))
+      (is (= ["node:package"]
+             (mapv :xt/id
+                   (query/nodes-by-package-names
+                    {:node :stub}
+                    ["react"]
+                    {:project-id "project-a"
+                     :repo-id "app"
                      :valid-at #inst "2026-01-01T00:00:00Z"})))))
     (is (= [[:file-id ["file:app"]]
-            [:path ["src/app.clj"]]]
+            [:path ["src/app.clj"]]
+            [:label ["app/handler"]]
+            [:namespace ["app.core"]]
+            [:name ["handler"]]
+            [:package-name ["react"]]]
            (mapv (juxt :field :values) @calls)))
     (is (every? #(= {:project-id "project-a"
                      :repo-id "app"}

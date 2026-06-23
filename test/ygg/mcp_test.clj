@@ -364,9 +364,13 @@
                                    (if (= table (:files store/tables))
                                      [file-row]
                                      []))
-                  query/all-nodes (fn [_ opts]
-                                    (is (= "fixture" (:project-id opts)))
-                                    [node-row dep-row])
+                  query/all-nodes (fn [& _]
+                                    (throw (ex-info "broad node read should not be used"
+                                                    {})))
+                  query/nodes-by-labels (fn [_ _ _] [])
+                  query/nodes-by-namespaces (fn [_ _ _] [])
+                  query/nodes-by-names (fn [_ _ _] [])
+                  query/nodes-by-package-names (fn [_ _ _] [])
                   query/system-evidence-by-ids (fn [_ ids opts]
                                                  (is (= ["app:src/app.clj"] ids))
                                                  (is (= "fixture" (:project-id opts)))
@@ -405,10 +409,13 @@
                                                   (is (= {:project-id "fixture"} opts))
                                                   [])
                   query/nodes-by-ids (fn [_ ids opts]
-                                       (is (= #{"node:app:main" "node:app:dep"}
-                                              (set ids)))
-                                       (is (= {:project-id "fixture"} opts))
-                                       [node-row dep-row])
+                                       (if (= ["app:src/app.clj"] (vec ids))
+                                         []
+                                         (do
+                                           (is (= #{"node:app:main" "node:app:dep"}
+                                                  (set ids)))
+                                           (is (= {:project-id "fixture"} opts))
+                                           [node-row dep-row])))
                   query/all-edges (fn [& _]
                                     (throw (ex-info "broad edge read should not be used"
                                                     {})))]
@@ -452,7 +459,17 @@
     (with-redefs [project/read-project (constantly project-fixture)
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
-                  query/all-nodes (fn [_ _] nodes)
+                  query/all-nodes (fn [& _]
+                                    (throw (ex-info "broad node read should not be used"
+                                                    {})))
+                  query/nodes-by-ids (fn [_ _ _] [])
+                  query/nodes-by-labels (fn [_ labels opts]
+                                          (is (= ["Handler"] labels))
+                                          (is (= {:project-id "fixture"} opts))
+                                          nodes)
+                  query/nodes-by-namespaces (fn [_ _ _] [])
+                  query/nodes-by-names (fn [_ _ _] [])
+                  query/nodes-by-package-names (fn [_ _ _] [])
                   query/all-system-evidence (fn [_ _] [])
                   query/all-edges (fn [_ _] [])]
       (let [response (mcp/handle-message
@@ -495,7 +512,22 @@
                                    (if (= table (:files store/tables))
                                      [file-row]
                                      []))
-                  query/all-nodes (fn [_ _] [node-row])
+                  query/all-nodes (fn [& _]
+                                    (throw (ex-info "broad node read should not be used"
+                                                    {})))
+                  query/nodes-by-ids (fn [_ ids opts]
+                                       (is (= ["node:app:handler"] (vec ids)))
+                                       (is (= {:project-id "fixture"} opts))
+                                       [node-row])
+                  query/nodes-by-labels (fn [_ _ _] [])
+                  query/nodes-by-namespaces (fn [_ _ _] [])
+                  query/nodes-by-names (fn [_ _ _] [])
+                  query/nodes-by-package-names (fn [_ _ _] [])
+                  query/nodes-by-file-ids (fn [_ _ _] [])
+                  query/nodes-by-paths (fn [_ _ _] [])
+                  query/edges-by-file-ids (fn [_ _ _] [])
+                  query/edges-by-paths (fn [_ _ _] [])
+                  query/edges-touching-node-ids (fn [_ _ _] [])
                   query/all-system-evidence (fn [_ _] [])
                   query/all-edges (fn [_ _] [])]
       (let [response (mcp/handle-message
@@ -642,7 +674,17 @@
     (with-redefs [project/read-project (constantly project-fixture)
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
-                  query/all-nodes (fn [_ _] nodes)
+                  query/all-nodes (fn [& _]
+                                    (throw (ex-info "broad node read should not be used"
+                                                    {})))
+                  query/nodes-by-ids (fn [_ _ _] [])
+                  query/nodes-by-labels (fn [_ labels opts]
+                                          (is (= ["Handler"] labels))
+                                          (is (= {:project-id "fixture"} opts))
+                                          nodes)
+                  query/nodes-by-namespaces (fn [_ _ _] [])
+                  query/nodes-by-names (fn [_ _ _] [])
+                  query/nodes-by-package-names (fn [_ _ _] [])
                   query/all-system-evidence (fn [_ _] [])
                   query/all-edges (fn [_ _] [])]
       (let [response (mcp/handle-message
@@ -696,7 +738,21 @@
     (with-redefs [project/read-project (constantly project-fixture)
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
-                  query/all-nodes (fn [_ _] [package-row source-row])
+                  query/all-nodes (fn [& _]
+                                    (throw (ex-info "broad node read should not be used"
+                                                    {})))
+                  query/nodes-by-labels (fn [_ labels opts]
+                                          (is (= ["npm:react"] labels))
+                                          (is (= {:project-id "fixture"} opts))
+                                          [package-row])
+                  query/nodes-by-namespaces (fn [_ _ _] [])
+                  query/nodes-by-names (fn [_ _ _] [])
+                  query/nodes-by-package-names (fn [_ package-names opts]
+                                                 (is (= {:project-id "fixture"}
+                                                        opts))
+                                                 (case (vec package-names)
+                                                   ["npm:react"] []
+                                                   ["react"] [package-row]))
                   query/system-evidence-by-ids (fn [_ ids opts]
                                                  (is (= ["npm:react"] ids))
                                                  (is (= {:project-id "fixture"} opts))
@@ -731,11 +787,14 @@
                                                   (is (= {:project-id "fixture"} opts))
                                                   [edge-row])
                   query/nodes-by-ids (fn [_ ids opts]
-                                       (is (= #{"node:pkg:npm:react"
-                                                "node:src:app"}
-                                              (set ids)))
-                                       (is (= {:project-id "fixture"} opts))
-                                       [package-row source-row])
+                                       (if (= ["npm:react"] (vec ids))
+                                         []
+                                         (do
+                                           (is (= #{"node:pkg:npm:react"
+                                                    "node:src:app"}
+                                                  (set ids)))
+                                           (is (= {:project-id "fixture"} opts))
+                                           [package-row source-row])))
                   query/all-system-evidence (fn [& _]
                                               (throw (ex-info "broad system evidence read should not be used"
                                                               {})))
@@ -781,7 +840,18 @@
     (with-redefs [project/read-project (constantly project-fixture)
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
-                  query/all-nodes (fn [_ _] nodes)
+                  query/all-nodes (fn [& _]
+                                    (throw (ex-info "broad node read should not be used"
+                                                    {})))
+                  query/nodes-by-ids (fn [_ _ _] [])
+                  query/nodes-by-labels (fn [_ _ _] [])
+                  query/nodes-by-namespaces (fn [_ _ _] [])
+                  query/nodes-by-names (fn [_ _ _] [])
+                  query/nodes-by-package-names (fn [_ package-names opts]
+                                                 (is (= ["router"] package-names))
+                                                 (is (= {:project-id "fixture"}
+                                                        opts))
+                                                 nodes)
                   query/all-system-evidence (fn [_ _] [])
                   query/all-edges (fn [_ _] [])]
       (let [response (mcp/handle-message
@@ -844,7 +914,13 @@
                                    (if (= table (:files store/tables))
                                      [file-row]
                                      []))
-                  query/all-nodes (fn [_ _] [])
+                  query/all-nodes (fn [& _]
+                                    (throw (ex-info "broad node read should not be used"
+                                                    {})))
+                  query/nodes-by-labels (fn [_ _ _] [])
+                  query/nodes-by-namespaces (fn [_ _ _] [])
+                  query/nodes-by-names (fn [_ _ _] [])
+                  query/nodes-by-package-names (fn [_ _ _] [])
                   query/system-evidence-by-ids (fn [_ ids opts]
                                                  (is (= ["evidence:runtime-url"] ids))
                                                  (is (= {:project-id "fixture"} opts))
@@ -874,10 +950,13 @@
                                                 opts))
                                          [])
                   query/nodes-by-ids (fn [_ ids opts]
-                                       (is (= #{"node:runtime" "node:config"}
-                                              (set ids)))
-                                       (is (= {:project-id "fixture"} opts))
-                                       [])
+                                       (if (= ["evidence:runtime-url"] (vec ids))
+                                         []
+                                         (do
+                                           (is (= #{"node:runtime" "node:config"}
+                                                  (set ids)))
+                                           (is (= {:project-id "fixture"} opts))
+                                           [])))
                   query/all-system-evidence (fn [& _]
                                               (throw (ex-info "broad system evidence read should not be used"
                                                               {})))

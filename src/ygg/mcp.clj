@@ -636,13 +636,62 @@
                 :match match
                 :row row}))))
 
-(defn- scoped-files
-  [xtdb project-id]
+(defn- file-rows-by-constraints
+  [xtdb project-id constraints]
   (->> (store/constrained-rows xtdb
                                (:files store/tables)
-                               {:project-id project-id})
+                               (assoc constraints :project-id project-id))
        (filter active-row?)
        vec))
+
+(defn- split-repo-path-target
+  [target]
+  (when-let [idx (str/index-of target ":")]
+    (let [repo-id (subs target 0 idx)
+          path (subs target (inc idx))]
+      (when (and (not (str/blank? repo-id))
+                 (not (str/blank? path)))
+        {:repo-id repo-id
+         :path path}))))
+
+(defn- target-file-candidates
+  [xtdb project-id target]
+  (->> (concat (file-rows-by-constraints xtdb project-id {:xt/id target})
+               (file-rows-by-constraints xtdb project-id {:path target})
+               (when-let [repo-path (split-repo-path-target target)]
+                 (file-rows-by-constraints xtdb project-id repo-path)))
+       (distinct-by :xt/id)
+       vec))
+
+(defn- package-target-parts
+  [target]
+  (when-let [idx (str/index-of target ":")]
+    (let [ecosystem (subs target 0 idx)
+          package-name (subs target (inc idx))]
+      (when (and (not (str/blank? ecosystem))
+                 (not (str/blank? package-name)))
+        {:ecosystem ecosystem
+         :package-name package-name}))))
+
+(defn- node-target-candidates
+  [xtdb project-id target]
+  (let [scope {:project-id project-id}
+        package-parts (package-target-parts target)]
+    (->> (concat (query/nodes-by-ids xtdb [target] scope)
+                 (query/nodes-by-labels xtdb [target] scope)
+                 (query/nodes-by-namespaces xtdb [target] scope)
+                 (query/nodes-by-names xtdb [target] scope)
+                 (query/nodes-by-package-names xtdb [target] scope)
+                 (when package-parts
+                   (->> (query/nodes-by-package-names
+                         xtdb
+                         [(:package-name package-parts)]
+                         scope)
+                        (filter #(= (:ecosystem package-parts)
+                                    (some-> (:ecosystem %) name))))))
+         (filter active-row?)
+         (distinct-by :xt/id)
+         vec)))
 
 (defn- inspect-matches
   [target files nodes evidence overlay]
@@ -757,6 +806,35 @@
   [project-id row]
   (cond-> {:project-id project-id}
     (:repo-id row) (assoc :repo-id (:repo-id row))))
+
+(defn- source-file-candidates
+  [xtdb project-id row]
+  (->> (concat (when-let [file-id (:file-id row)]
+                 (file-rows-by-constraints xtdb project-id {:xt/id file-id}))
+               (when (and (:repo-id row) (:path row))
+                 (file-rows-by-constraints xtdb
+                                           project-id
+                                           {:repo-id (:repo-id row)
+                                            :path (:path row)}))
+               (when-let [path (:path row)]
+                 (file-rows-by-constraints xtdb project-id {:path path})))
+       (distinct-by :xt/id)
+       vec))
+
+(defn- selected-source-file
+  [xtdb project-id files target-kind row]
+  (case target-kind
+    :file row
+    :evidence (or (file-for-evidence files row)
+                  (file-for-evidence (source-file-candidates xtdb project-id row)
+                                     row))
+    :package (or (file-for-node files row)
+                 (file-for-node (source-file-candidates xtdb project-id row)
+                                row))
+    :node (or (file-for-node files row)
+              (file-for-node (source-file-candidates xtdb project-id row)
+                             row))
+    nil))
 
 (defn- project-scope
   [project-id]
@@ -969,10 +1047,8 @@
     (with-xtdb
       ctx
       (fn [xtdb]
-        (let [files (scoped-files xtdb project-id)
-              nodes (->> (query/all-nodes xtdb {:project-id project-id})
-                         (filter active-row?)
-                         vec)
+        (let [files (target-file-candidates xtdb project-id target)
+              nodes (node-target-candidates xtdb project-id target)
               evidence (->> (query/system-evidence-by-ids xtdb
                                                           [target]
                                                           {:project-id project-id})
@@ -1004,12 +1080,11 @@
 
             :else
             (let [{:keys [target-kind match row] :as selected} (first matches)
-                  file (case target-kind
-                         :file row
-                         :evidence (file-for-evidence files row)
-                         :package (file-for-node files row)
-                         :node (file-for-node files row)
-                         nil)
+                  file (selected-source-file xtdb
+                                             project-id
+                                             files
+                                             target-kind
+                                             row)
                   related-system-id (case target-kind
                                       :system (:id row)
                                       :evidence (:system-id row)
