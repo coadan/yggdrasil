@@ -778,46 +778,41 @@
         repo-id (prediction-repo-id roots source-repo-id)
         file-root (row-root root roots {:repo-id source-repo-id :path path})]
     (when (existing-file-path? file-root path)
-      (cond-> {:path path
-               :source-rank (+ 1000 (inc idx))
-               :confidence (bounded-confidence (:score entity))
-               :evidence-score (double (or (parse-double-safe (:score entity)) 0.0))
-               :evidence-kind :entity
-               :retrieved-source? false
-               :exact-path-source? false
-               :definition-kind (some-> (:kind entity) name)
-               :matched-tokens (token-matches query-tokens
-                                              (str (:path entity)
-                                                   "\n"
-                                                   (:label entity)))
-               :matched-token-pairs (compact-token-pair-matches
-                                     query-tokens
-                                     (str (:path entity)
-                                          "\n"
-                                          (:label entity)))
-               :matched-compound-token-pairs (compact-compound-token-pair-matches
-                                              query-tokens
-                                              (str (:path entity)
-                                                   "\n"
-                                                   (:label entity)))
-               :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
-                                                       query-tokens
-                                                       (:path entity)
-                                                       (:label entity))
-               :matched-identity-compound-token-span-length
-               (identity-compound-token-span-length query-tokens
-                                                    (:path entity)
-                                                    (:label entity))
-               :evidence [(str "graph-entity:"
-                               (or (:label entity) path)
-                               " path="
-                               path)]
-               :reason (str "Yggdrasil graph entity "
-                            (pr-str (:label entity))
-                            " references "
-                            path
-                            ".")}
-        repo-id (assoc :repo-id repo-id)))))
+      (let [evidence-text (identity-text (:path entity)
+                                         (:label entity))
+            {:keys [matched-tokens matched-token-pairs]}
+            (token-and-pair-matches query-tokens evidence-text)]
+        (cond-> {:path path
+                 :source-rank (+ 1000 (inc idx))
+                 :confidence (bounded-confidence (:score entity))
+                 :evidence-score (double (or (parse-double-safe (:score entity)) 0.0))
+                 :evidence-kind :entity
+                 :retrieved-source? false
+                 :exact-path-source? false
+                 :definition-kind (some-> (:kind entity) name)
+                 :matched-tokens matched-tokens
+                 :matched-token-pairs matched-token-pairs
+                 :matched-compound-token-pairs (compact-compound-token-pair-matches
+                                                query-tokens
+                                                evidence-text)
+                 :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
+                                                         query-tokens
+                                                         (:path entity)
+                                                         (:label entity))
+                 :matched-identity-compound-token-span-length
+                 (identity-compound-token-span-length query-tokens
+                                                      (:path entity)
+                                                      (:label entity))
+                 :evidence [(str "graph-entity:"
+                                 (or (:label entity) path)
+                                 " path="
+                                 path)]
+                 :reason (str "Yggdrasil graph entity "
+                              (pr-str (:label entity))
+                              " references "
+                              path
+                              ".")}
+          repo-id (assoc :repo-id repo-id))))))
 (defn- score-component-evidence
   [score-components]
   (when (seq score-components)

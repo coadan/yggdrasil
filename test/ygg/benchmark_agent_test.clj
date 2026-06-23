@@ -2720,6 +2720,29 @@
         (is (= 1 @calls))
         (is (pos? (get-in file [:metrics :matchedTokenPairCount])))))))
 
+(deftest entity-ranking-tokenizes-evidence-text-once-for-token-pairs
+  (let [root (temp-dir "ygg-bench-entity-token-pairs")
+        _ (spit-file! root "src/db.clj" "(ns db)\n")
+        tokenize text/tokenize
+        evidence-text "src/db.clj\nDB Adapter"
+        calls (atom 0)]
+    (with-redefs [text/tokenize (fn [value]
+                                  (when (= evidence-text (str value))
+                                    (swap! calls inc))
+                                  (tokenize value))]
+      (let [file (-> (benchmark/context-packet->agent-result
+                      {:query "db adapter"
+                       :entities [{:path "src/db.clj"
+                                   :label "DB Adapter"
+                                   :kind :namespace
+                                   :score 0.8}]}
+                      {:root root})
+                     :suspectedFiles
+                     first)]
+        (is (= "src/db.clj" (:path file)))
+        (is (= 1 @calls))
+        (is (pos? (get-in file [:metrics :matchedTokenCount])))))))
+
 (deftest context-packet-agent-result-does-not-report-budget-trim-as-warning
   (let [root (temp-dir "ygg-bench-budget-trim-warning-scope")
         _ (spit-file! root "src/app.clj" "(ns app)\n")
