@@ -86,6 +86,20 @@
              :read-context {}}]
            @chunk-calls))))
 
+(deftest lexical-frequency-builders-count-only-query-tokens
+  (let [query-token-set #{"auth" "proxy"}
+        token-frequencies @#'query/token-frequencies
+        document-frequencies @#'query/document-frequencies
+        docs [{:tokens ["auth" "auth" "noise" "noise"]}
+              {:tokens ["proxy" "proxy" "auth" "other"]}
+              {:tokens ["noise" "other"]}]]
+    (is (= {"auth" 2
+            "proxy" 1}
+           (token-frequencies query-token-set ["auth" "auth" "proxy" "noise"])))
+    (is (= {"auth" 2
+            "proxy" 1}
+           (document-frequencies query-token-set docs)))))
+
 (deftest indexes-and-queries-sample-repo
   (let [xtdb-path (temp-dir "ygg-xtdb")
         repo (.getPath (io/file "test/fixtures/sample-repo"))]

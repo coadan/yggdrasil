@@ -740,14 +740,25 @@
                        vec)})))
 
 (defn- token-frequencies
-  [tokens]
-  (frequencies tokens))
+  [query-token-set tokens]
+  (reduce (fn [freqs token]
+            (if (contains? query-token-set token)
+              (update freqs token (fnil inc 0))
+              freqs))
+          {}
+          tokens))
 
 (defn- document-frequencies
-  [docs]
+  [query-token-set docs]
   (reduce
    (fn [acc doc]
-     (reduce #(update %1 %2 (fnil inc 0)) acc (set (:tokens doc))))
+     (let [doc-query-tokens (reduce (fn [matches token]
+                                      (if (contains? query-token-set token)
+                                        (conj matches token)
+                                        matches))
+                                    #{}
+                                    (:tokens doc))]
+       (reduce #(update %1 %2 (fnil inc 0)) acc doc-query-tokens)))
    {}
    docs))
 
@@ -762,10 +773,10 @@
         query-tokens))
 
 (defn- bm25-score
-  [query-tokens idf-by-token avgdl doc]
+  [query-tokens query-token-set idf-by-token avgdl doc]
   (let [k1 1.2
         b 0.75
-        freqs (token-frequencies (:tokens doc))
+        freqs (token-frequencies query-token-set (:tokens doc))
         dl (max 1 (count (:tokens doc)))]
     (reduce
      (fn [score token]
@@ -788,7 +799,8 @@
 (defn- lexical-scores
   [query-tokens docs]
   (let [doc-count (max 1 (count docs))
-        doc-freqs (document-frequencies docs)
+        query-token-set (set query-tokens)
+        doc-freqs (document-frequencies query-token-set docs)
         idf-by-token (inverse-document-frequencies query-tokens doc-freqs doc-count)
         avgdl (max 1.0
                    (/ (double (reduce + 0 (map #(count (:tokens %)) docs)))
@@ -799,7 +811,7 @@
                  (if (and (empty? (:tokens doc))
                           (number? (:score doc)))
                    (double (:score doc))
-                   (bm25-score query-tokens idf-by-token avgdl doc))]))
+                   (bm25-score query-tokens query-token-set idf-by-token avgdl doc))]))
          (into {})
          normalize-scores)))
 
