@@ -1115,19 +1115,21 @@
       out)))
 
 (defn- selected-system-evidence
-  [xtdb selected-system-ids results scope]
+  [xtdb selected-system-ids candidate-inputs scope]
   (let [selected-system-ids (->> selected-system-ids
                                  (remove str/blank?)
                                  distinct
                                  vec)
-        paths (result-paths results)]
+        paths (result-paths candidate-inputs)]
     (if (or (seq selected-system-ids)
             (seq paths))
       (distinct-evidence-rows
-       (concat (query/system-evidence-by-system-ids xtdb
-                                                    selected-system-ids
-                                                    scope)
-               (query/system-evidence-by-paths xtdb paths scope)))
+       (concat (when (seq selected-system-ids)
+                 (query/system-evidence-by-system-ids xtdb
+                                                      selected-system-ids
+                                                      scope))
+               (when (seq paths)
+                 (query/system-evidence-by-paths xtdb paths scope))))
       (query/all-system-evidence xtdb scope))))
 
 (defn- select-system-evidence
@@ -1929,7 +1931,7 @@
         system-evidence (selected-system-evidence
                          xtdb
                          selected-system-ids
-                         results
+                         candidate-inputs
                          {:project-id project-id
                           :repo-id repo-id
                           :read-context read-context})

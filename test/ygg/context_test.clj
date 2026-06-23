@@ -1080,8 +1080,6 @@
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
                 query/all-system-evidence (fn [& _] [])
-                query/system-evidence-by-system-ids (fn [& _] [])
-                query/system-evidence-by-paths (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
                 context/query-evidence (fn [& _]
@@ -1757,6 +1755,39 @@
         (is (= ["evidence:billing-path" "evidence:billing-system"]
                (mapv :id (get-in packet [:architecture :runtimeEvidence]))))))))
 
+(deftest selected-system-evidence-loads-candidate-input-paths
+  (let [calls (atom [])]
+    (with-redefs [query/system-evidence-by-system-ids
+                  (fn [_ system-ids opts]
+                    (swap! calls conj [:system-ids system-ids opts])
+                    [])
+                  query/system-evidence-by-paths
+                  (fn [_ paths opts]
+                    (swap! calls conj [:paths paths opts])
+                    [{:xt/id "evidence:source-candidate"
+                      :path "src/source-candidate.clj"
+                      :active? true}])
+                  query/all-system-evidence
+                  (fn [& _]
+                    (throw (ex-info "all-system-evidence should not be used"
+                                    {})))]
+      (let [rows (#'context/selected-system-evidence
+                  :xtdb
+                  []
+                  [{:path "src/retrieved.clj"}
+                   {:path "src/source-candidate.clj"}
+                   {:path ""}
+                   {}]
+                  {:project-id "fixture"
+                   :repo-id "app"})]
+        (is (= [[:paths
+                 ["src/retrieved.clj" "src/source-candidate.clj"]
+                 {:project-id "fixture"
+                  :repo-id "app"}]]
+               @calls))
+        (is (= ["evidence:source-candidate"]
+               (mapv :xt/id rows)))))))
+
 (deftest runtime-evidence-keeps-selected-system-diversity
   (let [runtime-evidence (#'context/select-system-evidence
                           ["container"]
@@ -2222,8 +2253,6 @@
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
                 query/all-system-evidence (fn [& _] [])
-                query/system-evidence-by-system-ids (fn [& _] [])
-                query/system-evidence-by-paths (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
                 context/query-evidence (fn [& _] {:status :ready})
@@ -2430,6 +2459,8 @@
                                           :tokens ["service" "interface"]}])
                 query/all-chunks (fn [& _] [])
                 query/all-system-evidence (fn [& _] [])
+                query/system-evidence-by-system-ids (fn [& _] [])
+                query/system-evidence-by-paths (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
                 context/query-evidence (fn [& _] {:status :ready})
