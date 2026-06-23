@@ -28,6 +28,13 @@
    :active? active?
    :created-at-ms revision})
 
+(defn- graph-view-row
+  [id label project-id active?]
+  (cond-> {:xt/id id
+           :label label
+           :active? active?}
+    project-id (assoc :project-id project-id)))
+
 (deftest scoped-file-row-uses-constrained-project-repo-path-read
   (let [calls (atom [])]
     (with-redefs [store/constrained-rows
@@ -59,6 +66,36 @@
              (mapv :xt/id (store/graph-cursors :xtdb
                                                {:project-id "project-a"})))))
     (is (= [[(:graph-cursors store/tables) {:project-id "project-a"}]]
+           @calls))))
+
+(deftest graph-view-label-lookup-uses-bounded-label-read
+  (let [calls (atom [])]
+    (with-redefs [store/row-by-id
+                  (fn [& _] nil)
+                  store/rows-by-field
+                  (fn [_ table field value ctx]
+                    (swap! calls conj {:table table
+                                       :field field
+                                       :value value
+                                       :ctx ctx})
+                    [(graph-view-row "view:global" "Platform" nil true)
+                     (graph-view-row "view:inactive" "Platform" "project-a" false)
+                     (graph-view-row "view:project" "Platform" "project-a" true)
+                     (graph-view-row "view:other" "Platform" "project-b" true)])
+                  store/all-rows
+                  (fn [& _]
+                    (throw (ex-info "graph-view label lookup should not hydrate all views"
+                                    {})))]
+      (let [view (store/graph-view :xtdb
+                                   "Platform"
+                                   {:project-id "project-a"
+                                    :valid-at #inst "2026-01-01T00:00:00Z"})]
+        (is (= "view:project" (:xt/id view)))))
+    (is (= [{:table (:graph-views store/tables)
+             :field :label
+             :value "Platform"
+             :ctx {:project-id "project-a"
+                   :valid-at #inst "2026-01-01T00:00:00Z"}}]
            @calls))))
 
 (deftest constrained-rows-supports-legacy-non-xtdb-row-stubs

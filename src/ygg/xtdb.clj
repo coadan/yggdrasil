@@ -1313,12 +1313,30 @@
           (map validate-graph-view-row)
           vec))))
 
+(defn- visible-graph-view?
+  [project-id row]
+  (and (or (nil? project-id)
+           (nil? (:project-id row))
+           (= project-id (:project-id row)))
+       (not= false (:active? row))))
+
+(defn- graph-view-by-label
+  [xtdb label ctx]
+  (let [project-id (:project-id ctx)]
+    (some-> (->> (rows-by-field xtdb (:graph-views tables) :label label ctx)
+                 (filter #(visible-graph-view? project-id %))
+                 (sort-by (fn [row]
+                            [(if (= project-id (:project-id row)) 0 1)
+                             (:xt/id row)]))
+                 first)
+            validate-graph-view-row)))
+
 (defn graph-view
   "Return one graph view by id."
   ([xtdb id] (graph-view xtdb id {}))
   ([xtdb id ctx]
    (or (row-by-id xtdb (:graph-views tables) id ctx)
-       (first (filter #(= id (:label %)) (graph-views xtdb ctx))))))
+       (graph-view-by-label xtdb id ctx))))
 
 (defn commit-graph-cursor!
   "Persist one graph cursor revision."
