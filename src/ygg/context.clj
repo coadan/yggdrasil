@@ -800,6 +800,21 @@
 (def ^:private doc-candidate-token-fields
   [:label :path :text])
 
+(def ^:private doc-candidate-return-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :path
+   :kind
+   :definition-kind
+   :label
+   :text
+   :heading-path
+   :content-sha
+   :source-line
+   :end-line
+   :active?])
+
 (defn- doc-candidate-chunks
   [xtdb target-tokens {:keys [project-id read-context]}]
   (cond
@@ -814,7 +829,8 @@
      target-tokens
      {:project-id project-id
       :kind :markdown}
-     (store/read-context read-context))
+     (store/read-context read-context)
+     doc-candidate-return-fields)
 
     :else
     (query/all-chunks xtdb {:project-id project-id

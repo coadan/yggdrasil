@@ -1408,12 +1408,13 @@
 (deftest doc-candidates-use-token-pushdown-for-real-handles
   (let [calls (atom [])
         rows (with-redefs [store/rows-matching-any-token
-                           (fn [_ table fields tokens constraints ctx]
+                           (fn [_ table fields tokens constraints ctx return-fields]
                              (swap! calls conj {:table table
                                                 :fields fields
                                                 :tokens tokens
                                                 :constraints constraints
-                                                :ctx ctx})
+                                                :ctx ctx
+                                                :return-fields return-fields})
                              [{:xt/id "chunk:billing"
                                :project-id "project-a"
                                :repo-id "app"
@@ -1438,7 +1439,20 @@
              :tokens ["billing" "api"]
              :constraints {:project-id "project-a"
                            :kind :markdown}
-             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}
+             :return-fields [:xt/id
+                             :project-id
+                             :repo-id
+                             :path
+                             :kind
+                             :definition-kind
+                             :label
+                             :text
+                             :heading-path
+                             :content-sha
+                             :source-line
+                             :end-line
+                             :active?]}]
            @calls))))
 
 (deftest query-report-uses-counts-for-index-tables
