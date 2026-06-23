@@ -1288,6 +1288,66 @@
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
            @schema-count-calls))))
 
+(deftest skipped-index-run-count-uses-completed-status-value-query
+  (let [calls (atom [])]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ opts]
+                    (swap! calls conj opts)
+                    [{:xt/id "run:old"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :status :completed
+                      :finished-at-ms 10
+                      :active? true
+                      :stats {:files-skipped 5}}
+                     {:xt/id "run:latest"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :status :completed
+                      :finished-at-ms 20
+                      :active? true
+                      :stats {:files-skipped 2}}
+                     {:xt/id "run:other"
+                      :project-id "project-a"
+                      :repo-id "other"
+                      :status :completed
+                      :finished-at-ms 30
+                      :active? true
+                      :stats {:files-skipped 7}}
+                     {:xt/id "run:inactive"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :status :completed
+                      :finished-at-ms 40
+                      :active? false
+                      :stats {:files-skipped 11}}])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "skipped index run count should use a completed status query"
+                                    {})))]
+      (is (= 2
+             (coverage/index-run-skipped-files
+              {:node :stub}
+              {:project-id "project-a"
+               :repo-id "app"
+               :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}))))
+    (is (= [{:table :ygg/index-runs
+             :field :status
+             :values [:completed]
+             :constraints {:active? true
+                           :project-id "project-a"
+                           :repo-id "app"}
+             :return-fields [:xt/id
+                             :project-id
+                             :repo-id
+                             :status
+                             :stats
+                             :started-at-ms
+                             :finished-at-ms
+                             :active?]
+             :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @calls))))
+
 (deftest system-edges-touching-ids-use-bounded-xtql-unify-queries
   (let [calls (atom [])]
     (with-redefs [store/q

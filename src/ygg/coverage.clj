@@ -209,17 +209,20 @@
   (and (or (str/blank? (str project-id)) (= project-id (:project-id row)))
        (or (str/blank? (str repo-id)) (= repo-id (:repo-id row)))))
 
+(defn- active-index-constraints
+  [{:keys [project-id repo-id]}]
+  (cond-> {:active? true}
+    (not (str/blank? (str project-id)))
+    (assoc :project-id project-id)
+    (not (str/blank? (str repo-id)))
+    (assoc :repo-id repo-id)))
+
 (defn- scoped-active-index-rows
   [xtdb table {:keys [project-id repo-id read-context]}]
   (->> (store/constrained-rows xtdb
                                table
-                               (cond-> {}
-                                 (not (str/blank? (str project-id)))
-                                 (assoc :project-id project-id)
-                                 (not (str/blank? (str repo-id)))
-                                 (assoc :repo-id repo-id)
-                                 true
-                                 (assoc :active? true))
+                               (active-index-constraints {:project-id project-id
+                                                          :repo-id repo-id})
                                (store/read-context read-context))
        (filter active-index-row?)
        (filter #(scope-match? {:project-id project-id :repo-id repo-id} %))
@@ -243,10 +246,44 @@
        vals
        (mapv #(apply max-key run-finished-at %))))
 
+(def ^:private index-run-row-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :status
+   :stats
+   :started-at-ms
+   :finished-at-ms
+   :active?])
+
+(defn- scoped-completed-index-runs
+  [xtdb {:keys [project-id repo-id read-context]}]
+  (let [scope {:project-id project-id
+               :repo-id repo-id}]
+    (->> (if (store/xtdb-handle? xtdb)
+           (store/rows-with-field-values
+            xtdb
+            {:table (:index-runs store/tables)
+             :field :status
+             :values [:completed]
+             :constraints (active-index-constraints scope)
+             :return-fields index-run-row-fields
+             :read-context (store/read-context read-context)})
+           (store/constrained-rows xtdb
+                                   (:index-runs store/tables)
+                                   (assoc (active-index-constraints scope)
+                                          :status
+                                          :completed)
+                                   (store/read-context read-context)))
+         (filter active-index-row?)
+         (filter completed-index-run?)
+         (filter #(scope-match? scope %))
+         vec)))
+
 (defn index-run-skipped-files
   "Return skipped file count from the latest completed index run per repo."
   [xtdb opts]
-  (->> (scoped-active-index-rows xtdb (:index-runs store/tables) opts)
+  (->> (scoped-completed-index-runs xtdb opts)
        latest-index-runs
        (map #(get-in % [:stats :files-skipped] 0))
        (reduce + 0)
