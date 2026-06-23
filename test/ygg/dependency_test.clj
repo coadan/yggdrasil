@@ -128,6 +128,82 @@
            (mapv #(select-keys % [:table :field :values :constraints :return-fields])
                  @edge-queries)))))
 
+(deftest import-package-resolution-preserves-type-import-kind-from-batched-edge-projection
+  (let [file {:path "site/src/libs/rehype.ts"
+              :kind :typescript
+              :active? true
+              :project-id "project-a"
+              :repo-id "repo-a"}
+        lock {:xt/id "lock:npm"
+              :kind :dependency-lock
+              :path "package-lock.json"
+              :active? true
+              :project-id "project-a"
+              :repo-id "repo-a"}
+        version {:xt/id "version:npm:@types/hast"
+                 :kind :external-package-version
+                 :label "npm:@types/hast@3.0.4"
+                 :active? true
+                 :project-id "project-a"
+                 :repo-id "repo-a"}
+        package {:xt/id "pkg:npm:@types/hast"
+                 :kind :external-package
+                 :ecosystem :npm
+                 :package-name "@types/hast"
+                 :active? true
+                 :project-id "project-a"
+                 :repo-id "repo-a"}
+        resolves-edge {:source-id "lock:npm"
+                       :target-id "version:npm:@types/hast"
+                       :relation :resolves
+                       :active? true
+                       :project-id "project-a"
+                       :repo-id "repo-a"}
+        version-edge {:source-id "version:npm:@types/hast"
+                      :target-id "pkg:npm:@types/hast"
+                      :relation :version-of
+                      :active? true
+                      :project-id "project-a"
+                      :repo-id "repo-a"}
+        import-edge {:source-id "node:namespace:site.src.libs.rehype"
+                     :target-id "node:namespace:hast"
+                     :relation :imports
+                     :import-kind :type
+                     :path "site/src/libs/rehype.ts"
+                     :source-line 1
+                     :active? true
+                     :project-id "project-a"
+                     :repo-id "repo-a"}
+        edge-rows [resolves-edge version-edge import-edge]
+        projected-edge-rows (fn [{:keys [values return-fields]}]
+                              (let [relations (set values)]
+                                (->> edge-rows
+                                     (filter #(contains? relations (:relation %)))
+                                     (map #(select-keys % return-fields))
+                                     vec)))]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table _constraints]
+                    (case table
+                      :ygg/files [file]
+                      :ygg/nodes [lock version package]
+                      []))
+                  store/rows-with-field-values
+                  (fn [_ request]
+                    (projected-edge-rows request))]
+      (let [edges (dependency/resolve-import-package-edges
+                   {:node :node}
+                   "project-a"
+                   "repo-a"
+                   "run-a"
+                   {})]
+        (is (= [{:package-name "@types/hast"
+                 :import-name "hast"
+                 :resolution-source :type-dependency-lock}]
+               (mapv #(select-keys % [:package-name
+                                      :import-name
+                                      :resolution-source])
+                     edges)))))))
+
 (deftest package-report-uses-relation-scoped-edge-reads
   (let [constrained-queries (atom [])
         edge-queries (atom [])

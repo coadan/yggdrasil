@@ -41,6 +41,7 @@
    :version-range
    :dependency-scope
    :import-name
+   :import-kind
    :source-kind
    :resolution-source
    :active?
