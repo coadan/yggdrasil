@@ -1370,35 +1370,48 @@
   [row]
   (double (or (get-in row [:metrics :rankScore]) 0.0)))
 
+(defn- first-rank-protected-index
+  [rows]
+  (->> rows
+       (map-indexed vector)
+       (some (fn [[idx row]]
+               (when (prediction-rank-protected? row)
+                 idx)))))
+
 (defn- diversify-ranked-file-predictions
   [rows]
-  (if-let [head (first rows)]
-    (loop [remaining (vec (rest rows))
-           seen (cond-> #{}
-                  (prediction-diversity-key head)
-                  (conj (prediction-diversity-key head)))
-           out [head]]
-      (if (empty? remaining)
-        (renumber-file-ranks out)
-        (let [[idx row] (or (->> remaining
-                                 (map-indexed vector)
-                                 (some (fn [[idx row]]
-                                         (when (prediction-rank-protected? row)
-                                           [idx row]))))
-                            (->> remaining
-                                 (map-indexed vector)
-                                 (some (fn [[idx row]]
-                                         (when-let [k (prediction-diversity-key
-                                                       row)]
-                                           (when-not (contains? seen k)
-                                             [idx row])))))
-                            [0 (first remaining)])]
-          (recur (vec (concat (subvec remaining 0 idx)
-                              (subvec remaining (inc idx))))
-                 (cond-> seen
-                   (prediction-diversity-key row)
-                   (conj (prediction-diversity-key row)))
-                 (conj out row)))))
+  (if (seq rows)
+    (let [rows (vec rows)
+          head-idx (or (first-rank-protected-index rows) 0)
+          head (nth rows head-idx)
+          remaining (vec (concat (subvec rows 0 head-idx)
+                                 (subvec rows (inc head-idx))))]
+      (loop [remaining remaining
+             seen (cond-> #{}
+                    (prediction-diversity-key head)
+                    (conj (prediction-diversity-key head)))
+             out [head]]
+        (if (empty? remaining)
+          (renumber-file-ranks out)
+          (let [[idx row] (or (->> remaining
+                                   (map-indexed vector)
+                                   (some (fn [[idx row]]
+                                           (when (prediction-rank-protected? row)
+                                             [idx row]))))
+                              (->> remaining
+                                   (map-indexed vector)
+                                   (some (fn [[idx row]]
+                                           (when-let [k (prediction-diversity-key
+                                                         row)]
+                                             (when-not (contains? seen k)
+                                               [idx row])))))
+                              [0 (first remaining)])]
+            (recur (vec (concat (subvec remaining 0 idx)
+                                (subvec remaining (inc idx))))
+                   (cond-> seen
+                     (prediction-diversity-key row)
+                     (conj (prediction-diversity-key row)))
+                   (conj out row))))))
     []))
 
 (defn- row-source-kind
@@ -1634,8 +1647,14 @@
        (sort-by #(or (:rank %) Long/MAX_VALUE))
        vec))
 
+(defn- covers-source-kinds?
+  [source-kinds kind-by-path rows]
+  (or (empty? source-kinds)
+      (let [counts (selected-source-kind-counts kind-by-path rows)]
+        (every? #(contains? counts %) source-kinds))))
+
 (defn- compact-unsaturated-decision-tail
-  [selected limit]
+  [selected limit source-kinds kind-by-path]
   (let [selection-limit (when limit (long limit))
         selected (vec selected)
         protected (filterv prediction-rank-protected? selected)]
@@ -1653,10 +1672,12 @@
                                 selected)
                 compacted (ordered-row-union minimum scored)
                 pruned (- (count selected) (count compacted))]
-            (cond-> {:files (renumber-file-ranks compacted)}
-              (pos? pruned)
-              (assoc :unsaturatedDecisionTailPruned pruned
-                     :unsaturatedDecisionTailScoreFloor score-floor)))
+            (if (covers-source-kinds? source-kinds kind-by-path compacted)
+              (cond-> {:files (renumber-file-ranks compacted)}
+                (pos? pruned)
+                (assoc :unsaturatedDecisionTailPruned pruned
+                       :unsaturatedDecisionTailScoreFloor score-floor))
+              {:files selected}))
           {:files selected}))
       {:files selected})))
 
@@ -1686,9 +1707,10 @@
                               kind-by-path)
                              (sort-by :rank)
                              renumber-file-ranks)
-               compacted (if (seq source-kinds)
-                           {:files selected}
-                           (compact-unsaturated-decision-tail selected limit))]
+               compacted (compact-unsaturated-decision-tail selected
+                                                            limit
+                                                            source-kinds
+                                                            kind-by-path)]
            (cond-> compacted
              (seq candidate-file-only)
              (assoc :candidateFileOnlyQuota quota

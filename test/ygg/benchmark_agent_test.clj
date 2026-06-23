@@ -21,17 +21,28 @@
         (and (vector? schema-type)
              (some #{"object"} schema-type)))))
 
+(def ^:private optional-output-properties-by-path
+  {[:selection] #{"candidateFileOnlyQuota"
+                  "candidateFileOnlySelected"
+                  "inspectionCandidateFillSkipped"
+                  "inspectionDirectFileSelected"
+                  "inspectionRepoCandidateSelected"
+                  "unsaturatedDecisionTailPruned"
+                  "unsaturatedDecisionTailScoreFloor"}})
+
 (defn- strict-schema-required-mismatches
   ([schema]
    (strict-schema-required-mismatches [] schema))
   ([path schema]
    (let [properties (:properties schema)
          required (set (map name (:required schema)))
+         optional-properties (get optional-output-properties-by-path path #{})
          missing (when (and (object-schema? schema)
                             (= false (:additionalProperties schema))
                             (map? properties))
                    (->> (keys properties)
-                        (remove #(contains? required (name %)))
+                        (remove #(or (contains? required (name %))
+                                     (contains? optional-properties (name %))))
                         (map name)
                         sort
                         vec))
@@ -574,7 +585,15 @@
                    (get-in selection-schema [:properties :rawCandidateFiles])))
             (is (= {:type ["integer" "null"]
                     :minimum 0}
-                   (get-in selection-schema [:properties :limit]))))
+                   (get-in selection-schema [:properties :limit])))
+            (is (= {:type "integer"
+                    :minimum 0}
+                   (get-in selection-schema
+                           [:properties :unsaturatedDecisionTailPruned])))
+            (is (= {:type "number"
+                    :minimum 0}
+                   (get-in selection-schema
+                           [:properties :unsaturatedDecisionTailScoreFloor]))))
           (is (= ["object" "null"]
                  (get-in (json/read-json
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
@@ -2380,6 +2399,7 @@
                :repo-id "dapper"
                :metrics {:rankScore 13.0
                          :candidateFileCount 2
+                         :decisionCandidateCount 2
                          :docCount 0
                          :entityCount 0
                          :architectureSupportBoost 1.0
@@ -2417,6 +2437,35 @@
            (mapv :path (take 3 files))))
     (is (= [1 2 3] (mapv :rank (take 3 files))))))
 
+(deftest file-ranking-diversity-promotes-decision-candidate-head
+  (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
+        rows [{:path "src/incidental.clj"
+               :rank 1
+               :repo-id "fixture"
+               :metrics {:rankScore 20.0
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["file"]}}
+              {:path "src/decision.clj"
+               :rank 2
+               :repo-id "fixture"
+               :metrics {:rankScore 12.0
+                         :decisionCandidateCount 1
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["node"]}}
+              {:path "src/other.clj"
+               :rank 3
+               :repo-id "fixture"
+               :metrics {:rankScore 10.0
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["node"]}}]
+        files (diversify rows)]
+    (is (= ["src/decision.clj" "src/incidental.clj" "src/other.clj"]
+           (mapv :path files)))
+    (is (= [1 2 3] (mapv :rank files)))))
+
 (deftest file-ranking-diversity-keeps-consecutive-decision-candidates-ranked
   (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
         rows [{:path "tests/docker-compose.yml"
@@ -2424,6 +2473,7 @@
                :repo-id "dapper"
                :metrics {:rankScore 13.0
                          :candidateFileCount 2
+                         :decisionCandidateCount 2
                          :docCount 0
                          :entityCount 0
                          :architectureSupportBoost 1.0
@@ -2715,7 +2765,12 @@
                     :candidateFileCount 1
                     :entityCount 0
                     :rankScore 8.0})
-              (row "config/.env" 3
+              (row "src/third.clj" 3
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :entityCount 0
+                    :rankScore 7.0})
+              (row "config/.env" 4
                    {:docCount 0
                     :candidateFileCount 1
                     :entityCount 0
@@ -2725,8 +2780,9 @@
                                {:source-kinds ["code" "env"]
                                 :kind-by-path {"src/app.clj" "code"
                                                "src/other.clj" "code"
+                                               "src/third.clj" "code"
                                                "config/.env" "env"}})]
-    (is (= ["src/app.clj" "src/other.clj" "config/.env"]
+    (is (= ["src/app.clj" "src/other.clj" "src/third.clj" "config/.env"]
            (mapv :path (:files result))))
     (is (nil? (:unsaturatedDecisionTailPruned result)))))
 

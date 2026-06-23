@@ -109,6 +109,10 @@
                                            "minimum" 0}
                  "candidateFileOnlySelected" {"type" "integer"
                                               "minimum" 0}
+                 "unsaturatedDecisionTailPruned" {"type" "integer"
+                                                  "minimum" 0}
+                 "unsaturatedDecisionTailScoreFloor" {"type" "number"
+                                                      "minimum" 0}
                  "inspectionDirectFileSelected" {"type" "integer"
                                                  "minimum" 0}
                  "inspectionRepoCandidateSelected" {"type" "integer"
@@ -254,7 +258,21 @@
                  "limit" {"type" ["integer" "null"]
                           "minimum" 0}
                  "coverageSourceKinds" {"type" "array"
-                                        "items" {"type" "string"}}}})
+                                        "items" {"type" "string"}}
+                 "candidateFileOnlyQuota" {"type" "integer"
+                                           "minimum" 0}
+                 "candidateFileOnlySelected" {"type" "integer"
+                                              "minimum" 0}
+                 "unsaturatedDecisionTailPruned" {"type" "integer"
+                                                  "minimum" 0}
+                 "unsaturatedDecisionTailScoreFloor" {"type" "number"
+                                                      "minimum" 0}
+                 "inspectionDirectFileSelected" {"type" "integer"
+                                                 "minimum" 0}
+                 "inspectionRepoCandidateSelected" {"type" "integer"
+                                                    "minimum" 0}
+                 "inspectionCandidateFillSkipped" {"type" "integer"
+                                                   "minimum" 0}}})
 
 (defn agent-result-output-json-schema
   []
