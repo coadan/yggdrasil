@@ -28,6 +28,12 @@
           :fix-sha "320f7139052be98339726cac20895f50172000f9"
           :ground-truth {:localization-files ["site/src/pages/index.astro"
                                               "site/src/pages/docs/[version]/examples/index.astro"]}
+          :expectations {:citation-evidence [{:kind :web-framework-route
+                                              :path "site/src/pages/index.astro"
+                                              :label "home route renders theme UI"}
+                                             {:kind :web-framework-route
+                                              :path "site/src/pages/docs/[version]/examples/index.astro"
+                                              :label "docs examples route renders theme UI"}]}
           :decision-candidates [{:id "edit-docs-routes"
                                  :kind :architecture-choice
                                  :label "Change docs route files"
@@ -68,6 +74,9 @@
           :fix-sha "948b5feb51b9605babc6820475b5ccff44f29552"
           :ground-truth {:localization-files ["migrations/db/init-scripts/00000000000003-post-setup.sql"
                                               "migrations/.env"]}
+          :expectations {:citation-evidence [{:kind :sql-event-trigger
+                                              :path "migrations/db/init-scripts/00000000000003-post-setup.sql"
+                                              :label "post setup creates owner-sensitive event triggers"}]}
           :decision-candidates [{:id "inspect-sql-owner-and-runtime-env"
                                  :kind :maintenance-action
                                  :label "Inspect SQL owner and runtime env"
@@ -83,6 +92,7 @@
                                  :kind :maintenance-action
                                  :label "Defer owner change until sync check"
                                  :summary "Block the change until graph maintenance and validation pass."
+                                 :coexists-with ["inspect-sql-owner-and-runtime-env"]
                                  :paths ["migrations/db/init-scripts/00000000000003-post-setup.sql"]}]
           :decision-ground-truth {:kind :maintenance-action
                                   :required ["inspect-sql-owner-and-runtime-env"
@@ -107,6 +117,12 @@
           :fix-sha "e64bcf9c5af231d6f37d8389b1e57ded314fff86"
           :ground-truth {:localization-files ["lib/adapters/http.js"
                                               "tests/unit/adapters/http.test.js"]}
+          :expectations {:citation-evidence [{:kind :runtime-boundary
+                                              :path "lib/adapters/http.js"
+                                              :label "HTTP adapter owns proxy runtime behavior"}
+                                             {:kind :runtime-boundary-test
+                                              :path "tests/unit/adapters/http.test.js"
+                                              :label "HTTP adapter proxy unit coverage"}]}
           :decision-candidates [{:id "audit-adapter-and-proxy-tests"
                                  :kind :audit-assessment
                                  :label "Audit adapter and proxy tests"
@@ -154,6 +170,15 @@
           :ground-truth {:localization-files ["Dapper/SqlMapper.cs"
                                               "tests/Dapper.Tests/TypeHandlerTests.cs"
                                               "tests/docker-compose.yml"]}
+          :expectations {:citation-evidence [{:kind :dotnet-type-handler
+                                              :path "Dapper/SqlMapper.cs"
+                                              :label "Dapper type handling and parameter binding"}
+                                             {:kind :dotnet-test
+                                              :path "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                              :label "type handler regression tests"}
+                                             {:kind :container-runtime
+                                              :path "tests/docker-compose.yml"
+                                              :label "PostgreSQL test container setup"}]}
           :decision-candidates [{:id "use-dotnet-and-container-plugins"
                                  :kind :plugin-fit
                                  :label "Use .NET and container plugins"
@@ -195,6 +220,12 @@
           :fix-sha "c82919e8970c7ebebb87ded191b815c76737cd04"
           :ground-truth {:localization-files ["site/astro.config.ts"
                                               "package.json"]}
+          :expectations {:citation-evidence [{:kind :web-framework-config
+                                              :path "site/astro.config.ts"
+                                              :label "Astro docs config integration entry point"}
+                                             {:kind :manifest
+                                              :path "package.json"
+                                              :label "docs build dependency manifest"}]}
           :decision-candidates [{:id "plan-config-and-manifest"
                                  :kind :change-plan
                                  :label "Plan config and manifest edits"

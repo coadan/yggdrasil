@@ -12,6 +12,8 @@
 
 (def default-agent-baseline-candidate-file-only-quota
   5)
+(def ^:private candidate-file-only-identity-reserve-limit
+  2)
 (def ^:private rank-score-token-cap
   5)
 (def ^:private rank-score-ordered-pair-cap
@@ -56,16 +58,44 @@
   4)
 (def ^:private rank-score-direct-file-identity-support-weight
   2.0)
+(def ^:private rank-score-direct-file-identity-support-rank-window
+  20)
+(def ^:private rank-score-direct-file-late-identity-support-min
+  4)
+(def ^:private rank-score-candidate-file-identity-support-rank-window
+  20)
+(def ^:private rank-score-candidate-file-identity-support-min
+  3)
+(def ^:private rank-score-candidate-file-identity-support-without-rank-min
+  4)
+(def ^:private rank-score-candidate-file-identity-support-without-rank-token-min
+  4)
+(def ^:private rank-score-candidate-file-identity-support-cap
+  4)
+(def ^:private rank-score-candidate-file-identity-support-weight
+  1.75)
 (def ^:private rank-score-retrieved-support-label-cap
   2)
 (def ^:private rank-score-retrieved-support-label-weight
   2.4)
+(def ^:private rank-score-retrieved-support-label-rank-window
+  20)
 (def ^:private rank-score-doc-supported-source-graph-head-window
   3)
 (def ^:private rank-score-doc-supported-source-graph-head-max
   3.0)
 (def ^:private rank-score-doc-supported-source-graph-head-step
   0.5)
+(def ^:private rank-score-doc-supported-direct-file-compound-rank-window
+  5)
+(def ^:private rank-score-doc-supported-direct-file-compound-token-min
+  5)
+(def ^:private rank-score-doc-supported-direct-file-compound-boost
+  1.5)
+(def ^:private rank-score-doc-supported-direct-file-compound-extra-token-weight
+  1.25)
+(def ^:private rank-score-doc-supported-direct-file-compound-extra-token-cap
+  2)
 (def ^:private rank-score-decision-candidate-count-cap
   2)
 (def ^:private rank-score-decision-candidate-path-weight
@@ -77,7 +107,7 @@
 (def ^:private rank-score-architecture-support-weight
   0.45)
 (def ^:private rank-score-architecture-support-cap
-  1.0)
+  1.25)
 (def ^:private rank-score-query-supported-architecture-only-weight
   0.45)
 (def ^:private rank-score-query-supported-architecture-only-cap
@@ -114,6 +144,8 @@
   2)
 (def ^:private rank-score-retrieved-source-count-cap
   2)
+(def ^:private file-identity-part-min-length
+  5)
 (def ^:private retrieved-source-rank-bonus-window
   20)
 (def ^:private retrieved-source-rank-bonus-max
@@ -150,14 +182,34 @@
   4)
 (def ^:private score-elbow-tail-score-ratio
   0.65)
-(def ^:private dependency-package-identity-query-token-min
+(def ^:private compact-thin-candidate-output-limit
+  3)
+(def ^:private compact-thin-candidate-output-ratio
+  2)
+(def ^:private compact-output-preserved-head-count
   1)
+(def ^:private compact-output-identity-support-min
+  4)
+(def ^:private compact-output-architecture-token-min
+  5)
+(def ^:private compact-output-architecture-rare-token-min
+  1.0)
+(def ^:private compact-result-command-limit
+  5)
+(def ^:private dependency-package-identity-query-token-min
+  2)
 (def ^:private diversity-bypass-candidate-source-rank-window
   2)
 (def ^:private diversity-bypass-support-count-min
   2)
+(def ^:private diversity-bypass-candidate-identity-source-rank-window
+  20)
+(def ^:private diversity-bypass-candidate-identity-support-min
+  4)
 (def ^:private inspection-direct-file-quota
   4)
+(def ^:private inspection-missing-repo-source-candidate-reserve
+  2)
 (defn- parse-double-safe
   [value]
   (try
@@ -293,16 +345,48 @@
 (defn- file-stem-identity
   [path]
   (compact-identity (identity-tail path)))
+(defn- file-stem-identity-parts
+  [path]
+  (->> (str/split (str (identity-tail path)) #"[^A-Za-z0-9]+")
+       (keep compact-identity)
+       (filter #(<= file-identity-part-min-length (count %)))
+       distinct
+       vec))
+(defn- support-label-match-count
+  [identities support-labels]
+  (if (seq identities)
+    (->> support-labels
+         (keep compact-identity)
+         distinct
+         (filter (fn [support-label]
+                   (some #(str/includes? support-label %) identities)))
+         count)
+    0))
 (defn- file-identity-support-label-count
   [path support-labels]
-  (let [stem (file-stem-identity path)]
-    (if (and stem (<= 4 (count stem)))
-      (->> support-labels
-           (keep compact-identity)
-           distinct
-           (filter #(str/includes? % stem))
-           count)
-      0)))
+  (let [stem (file-stem-identity path)
+        stem-identities (when (and stem (<= 4 (count stem)))
+                          [stem])
+        part-identities (file-stem-identity-parts path)]
+    (max (support-label-match-count stem-identities support-labels)
+         (support-label-match-count part-identities support-labels))))
+(defn- support-label-terminal-identifier
+  [value]
+  (some-> value
+          str
+          (str/split #"/")
+          last
+          (str/split #"\.")
+          first
+          not-empty))
+(defn- exported-support-label?
+  [value]
+  (when-let [identifier (support-label-terminal-identifier value)]
+    (when-let [ch (first identifier)]
+      (Character/isUpperCase (char ch)))))
+(defn- exported-support-label-count
+  [support-labels]
+  (count (filter exported-support-label? support-labels)))
 (defn- retrieved-doc-identities
   [docs]
   (->> docs
@@ -550,19 +634,52 @@
   [doc-count
    direct-file-candidate-count
    identity-support-label-count
-   graph-neighbor-score]
-  (if (and (pos? (long doc-count))
-           (pos? (long direct-file-candidate-count))
+   graph-neighbor-score
+   candidate-source-rank]
+  (if (and (pos? (long direct-file-candidate-count))
            (pos? (long identity-support-label-count))
-           (pos? (double graph-neighbor-score)))
+           (pos? (double graph-neighbor-score))
+           (pos? (long doc-count))
+           (or (and (pos? (long (or candidate-source-rank 0)))
+                    (<= (long candidate-source-rank)
+                        rank-score-direct-file-identity-support-rank-window))
+               (<= rank-score-direct-file-late-identity-support-min
+                   (long identity-support-label-count))))
     (* rank-score-direct-file-identity-support-weight
        (min rank-score-direct-file-identity-support-cap
             (long identity-support-label-count)))
     0.0))
-(defn- retrieved-support-label-boost
-  [doc-count retrieved-support-label-count]
+(defn- candidate-file-identity-support-boost
+  [doc-count
+   candidate-count
+   direct-file-candidate-count
+   identity-support-label-count
+   candidate-source-rank
+   matched-token-count]
   (if (and (zero? (long doc-count))
-           (pos? (long retrieved-support-label-count)))
+           (pos? (long candidate-count))
+           (zero? (long direct-file-candidate-count))
+           (<= rank-score-candidate-file-identity-support-min
+               (long identity-support-label-count))
+           (or (and (pos? (long (or candidate-source-rank 0)))
+                    (<= (long candidate-source-rank)
+                        rank-score-candidate-file-identity-support-rank-window))
+               (and (nil? candidate-source-rank)
+                    (<= rank-score-candidate-file-identity-support-without-rank-min
+                        (long identity-support-label-count))
+                    (<= rank-score-candidate-file-identity-support-without-rank-token-min
+                        (long matched-token-count)))))
+    (* rank-score-candidate-file-identity-support-weight
+       (min rank-score-candidate-file-identity-support-cap
+            (long identity-support-label-count)))
+    0.0))
+(defn- retrieved-support-label-boost
+  [doc-count retrieved-support-label-count candidate-source-rank]
+  (if (and (zero? (long doc-count))
+           (pos? (long retrieved-support-label-count))
+           (pos? (long (or candidate-source-rank 0)))
+           (<= (long candidate-source-rank)
+               rank-score-retrieved-support-label-rank-window))
     (* rank-score-retrieved-support-label-weight
        (min rank-score-retrieved-support-label-cap
             (long retrieved-support-label-count)))
@@ -584,6 +701,27 @@
          (- rank-score-doc-supported-source-graph-head-max
             (* rank-score-doc-supported-source-graph-head-step
                (dec (long candidate-source-rank)))))
+    0.0))
+(defn- doc-supported-direct-file-compound-boost
+  [doc-count
+   direct-file-candidate-count
+   first-source-rank
+   matched-compound-token-pair-count
+   matched-token-count]
+  (if (and (pos? (long doc-count))
+           (pos? (long direct-file-candidate-count))
+           (pos? (long (or first-source-rank 0)))
+           (<= (long first-source-rank)
+               rank-score-doc-supported-direct-file-compound-rank-window)
+           (pos? (long matched-compound-token-pair-count))
+           (<= rank-score-doc-supported-direct-file-compound-token-min
+               (long matched-token-count)))
+    (+ rank-score-doc-supported-direct-file-compound-boost
+       (* rank-score-doc-supported-direct-file-compound-extra-token-weight
+          (min rank-score-doc-supported-direct-file-compound-extra-token-cap
+               (max 0
+                    (- (long matched-token-count)
+                       rank-score-doc-supported-direct-file-compound-token-min)))))
     0.0))
 (defn- doc-prediction
   [root roots query-tokens idx doc]
@@ -741,6 +879,8 @@
             file-identity-support-label-count (file-identity-support-label-count
                                                path
                                                support-labels)
+            exported-support-label-count (exported-support-label-count
+                                          support-labels)
             retrieved-support-label-count (retrieved-support-label-count
                                            path
                                            (:label candidate)
@@ -776,6 +916,7 @@
                  :matched-compound-token-pairs matched-compound-token-pairs
                  :matched-identity-compound-token-pairs matched-identity-compound-token-pairs
                  :file-identity-support-label-count file-identity-support-label-count
+                 :exported-support-label-count exported-support-label-count
                  :retrieved-support-label-count retrieved-support-label-count
                  :candidate-support-label-count (count support-labels)
                  :matched-identity-compound-token-span-length
@@ -1137,6 +1278,11 @@
                                     0
                                     (keep :file-identity-support-label-count
                                           ordered))
+                             exported-support-label-count
+                             (apply max
+                                    0
+                                    (keep :exported-support-label-count
+                                          ordered))
                              retrieved-support-label-count
                              (apply max
                                     0
@@ -1212,6 +1358,13 @@
                               candidate-source-rank
                               (count matched-identity-compound-token-pairs)
                               retrieved-support-label-count)
+                             doc-supported-direct-file-compound-boost
+                             (doc-supported-direct-file-compound-boost
+                              doc-count
+                              direct-file-candidate-count
+                              (:source-rank best-row)
+                              (count matched-compound-token-pairs)
+                              (count matched-tokens))
                              max-evidence-score (apply max
                                                        0.0
                                                        (map :evidence-score ordered))
@@ -1281,11 +1434,21 @@
                               doc-count
                               direct-file-candidate-count
                               file-identity-support-label-count
-                              graph-neighbor-score)
+                              graph-neighbor-score
+                              candidate-source-rank)
+                             candidate-file-identity-support-boost
+                             (candidate-file-identity-support-boost
+                              doc-count
+                              candidate-count
+                              direct-file-candidate-count
+                              file-identity-support-label-count
+                              candidate-source-rank
+                              (count matched-tokens))
                              retrieved-support-label-boost
                              (retrieved-support-label-boost
                               doc-count
-                              retrieved-support-label-count)
+                              retrieved-support-label-count
+                              candidate-source-rank)
                              rare-query-token-score
                              (rare-query-token-score doc-count
                                                      graph-neighbor-score
@@ -1324,12 +1487,14 @@
                                            candidate-source-rank-score
                                            candidate-only-robust-boost
                                            doc-supported-source-graph-head-boost
+                                           doc-supported-direct-file-compound-boost
                                            graph-neighbor-boost
                                            doc-supported-candidate-evidence-boost
                                            architecture-rank-boost
                                            candidate-lexical-component-boost
                                            rare-query-token-score
                                            direct-file-identity-support-boost
+                                           candidate-file-identity-support-boost
                                            retrieved-support-label-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
@@ -1384,15 +1549,24 @@
                                        (pos? doc-supported-source-graph-head-boost)
                                        (assoc :docSupportedSourceGraphHeadBoost
                                               doc-supported-source-graph-head-boost)
+                                       (pos? doc-supported-direct-file-compound-boost)
+                                       (assoc :docSupportedDirectFileCompoundBoost
+                                              doc-supported-direct-file-compound-boost)
                                        (pos? direct-file-candidate-count)
                                        (assoc :directFileCandidateCount
                                               direct-file-candidate-count)
                                        (pos? file-identity-support-label-count)
                                        (assoc :fileIdentitySupportLabelCount
                                               file-identity-support-label-count)
+                                       (pos? exported-support-label-count)
+                                       (assoc :candidateExportedSupportLabelCount
+                                              exported-support-label-count)
                                        (pos? direct-file-identity-support-boost)
                                        (assoc :directFileIdentitySupportBoost
                                               direct-file-identity-support-boost)
+                                       (pos? candidate-file-identity-support-boost)
+                                       (assoc :candidateFileIdentitySupportBoost
+                                              candidate-file-identity-support-boost)
                                        (pos? retrieved-support-label-count)
                                        (assoc :retrievedSupportLabelCount
                                               retrieved-support-label-count)
@@ -1524,11 +1698,25 @@
                                         Long/MAX_VALUE))
         candidate-file-count (long (or (get-in row [:metrics :candidateFileCount])
                                        0))
-        support-count (long (or (get-in row [:metrics :supportCount]) 0))]
+        support-count (long (or (get-in row [:metrics :supportCount]) 0))
+        doc-count (long (or (get-in row [:metrics :docCount]) 0))
+        identity-support-count (long (or (get-in row
+                                                 [:metrics :fileIdentitySupportLabelCount])
+                                         0))
+        identity-support-boost (double (or (get-in row
+                                                   [:metrics
+                                                    :candidateFileIdentitySupportBoost])
+                                           0.0))]
     (and (pos? candidate-file-count)
-         (<= candidate-source-rank
-             diversity-bypass-candidate-source-rank-window)
-         (<= diversity-bypass-support-count-min support-count))))
+         (or (and (<= candidate-source-rank
+                      diversity-bypass-candidate-source-rank-window)
+                  (<= diversity-bypass-support-count-min support-count))
+             (and (zero? doc-count)
+                  (or (pos? identity-support-boost)
+                      (<= candidate-source-rank
+                          diversity-bypass-candidate-identity-source-rank-window))
+                  (<= diversity-bypass-candidate-identity-support-min
+                      identity-support-count))))))
 
 (defn- row-rank-score
   [row]
@@ -1645,6 +1833,9 @@
 (defn- positive-metric
   [row k]
   (long (or (get-in row [:metrics k]) 0)))
+(defn- row-metric-double
+  [row k]
+  (double (or (get-in row [:metrics k]) 0.0)))
 (defn- source-graph-candidate-row?
   [row]
   (pos? (positive-metric row :candidateFileCount)))
@@ -1655,12 +1846,71 @@
   [row]
   (long (or (get-in row [:metrics :candidateSourceRank])
             Long/MAX_VALUE)))
+(defn- row-candidate-exported-support-label-count
+  [row]
+  (long (or (get-in row [:metrics :candidateExportedSupportLabelCount])
+            0)))
 (defn- row-source-order-key
   [row]
   [(row-candidate-source-rank row)
    (:rank row)
    (:repo-id row)
    (:path row)])
+
+(defn- dense-file-identity-candidate-row?
+  [row]
+  (and (candidate-file-only-row? row)
+       (pos? (positive-metric row :directFileCandidateCount))
+       (pos? (row-metric-double row :graphNeighborScore))
+       (<= compact-output-identity-support-min
+           (positive-metric row :fileIdentitySupportLabelCount))
+       (<= rank-score-candidate-file-identity-support-without-rank-token-min
+           (positive-metric row :matchedTokenCount))))
+
+(defn- dense-file-identity-candidate-key
+  [row]
+  [(- (positive-metric row :fileIdentitySupportLabelCount))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-metric-double row :candidateLexicalComponentBoost))
+   (row-candidate-source-rank row)
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- dense-file-identity-candidate-rows
+  [candidate-file-only-rows quota]
+  (->> candidate-file-only-rows
+       (filter dense-file-identity-candidate-row?)
+       (sort-by dense-file-identity-candidate-key)
+       (take (min candidate-file-only-identity-reserve-limit quota))
+       vec))
+
+(defn- candidate-file-only-selection
+  [candidate-files quota]
+  (if (pos? (long quota))
+    (let [rows (sort-by row-source-order-key
+                        (filter candidate-file-only-row? candidate-files))
+          source-head (take quota rows)
+          source-head-keys (set (map file-row-key source-head))
+          identity-rows (dense-file-identity-candidate-rows rows quota)
+          reserved-outside-head (->> identity-rows
+                                     (remove #(contains? source-head-keys
+                                                         (file-row-key %)))
+                                     count)
+          preserve-count (max 0 (- quota reserved-outside-head))]
+      (->> (concat (take preserve-count source-head)
+                   identity-rows)
+           (reduce (fn [selected row]
+                     (if (contains? (:keys selected) (file-row-key row))
+                       selected
+                       (-> selected
+                           (update :keys conj (file-row-key row))
+                           (update :rows conj row))))
+                   {:keys #{}
+                    :rows []})
+           :rows
+           vec))
+    []))
 
 (defn- reserve-repo-direct-file-candidates
   [rows quota]
@@ -1700,13 +1950,40 @@
          (sort-by row-source-order-key)
          (#(reserve-repo-direct-file-candidates % quota))
          vec)))
+(defn- source-graph-repos
+  [candidate-files]
+  (->> candidate-files
+       (filter source-graph-candidate-row?)
+       (keep :repo-id)
+       set))
+(defn- selected-repos
+  [rows]
+  (set (keep :repo-id rows)))
+(defn- reserve-missing-repo-source-candidate-slots
+  [candidate-files direct selection-limit]
+  (let [missing-repos (set/difference (source-graph-repos candidate-files)
+                                      (selected-repos direct))
+        missing-repo-candidate-count (->> candidate-files
+                                          (filter #(and (source-graph-candidate-row? %)
+                                                        (contains? missing-repos
+                                                                   (:repo-id %))))
+                                          count)
+        reserve (min inspection-missing-repo-source-candidate-reserve
+                     missing-repo-candidate-count
+                     selection-limit)]
+    (if (pos? reserve)
+      (let [direct-limit (max 0 (- selection-limit reserve))]
+        (if (< direct-limit (count direct))
+          (vec (take direct-limit direct))
+          direct))
+      direct)))
 (defn- row-repo-counts
   [rows]
   (frequencies (keep :repo-id rows)))
 (defn- multi-repo-selection?
   [candidate-files]
   (< 1 (count (set (keep :repo-id candidate-files)))))
-(defn- best-source-candidate-by-repo
+(defn- source-candidates-by-repo
   [candidate-files selected-paths]
   (->> candidate-files
        (filter #(and (:repo-id %)
@@ -1714,31 +1991,74 @@
                      (not (contains? selected-paths (file-row-key %)))))
        (group-by :repo-id)
        (map (fn [[repo-id rows]]
-              [repo-id (first (sort-by row-source-order-key rows))]))
-       vec))
+              [repo-id (vec rows)]))
+       (into {})))
+(defn- inspection-repo-source-row-key
+  [repo-selection-count row]
+  (let [exported-count (row-candidate-exported-support-label-count row)]
+    [(when (pos? (long repo-selection-count))
+       (- exported-count))
+     (row-candidate-source-rank row)
+     (:rank row)
+     (:repo-id row)
+     (:path row)]))
+(defn- best-inspection-repo-source-row
+  [repo-selection-count rows]
+  (first (sort-by #(inspection-repo-source-row-key repo-selection-count %)
+                  rows)))
+(defn- without-file-row
+  [rows row]
+  (let [row-key (file-row-key row)]
+    (filterv #(not= row-key (file-row-key %)) rows)))
 (defn- inspection-repo-candidates
   [candidate-files selected selection-limit]
   (if (or (not (multi-repo-selection? candidate-files))
           (<= selection-limit (count selected)))
     []
     (let [selected-paths (set (map file-row-key selected))
-          selected-counts (row-repo-counts selected)
-          remaining (- selection-limit (count selected))]
-      (->> (best-source-candidate-by-repo candidate-files selected-paths)
-           (sort-by (fn [[repo-id row]]
-                      [(long (or (get selected-counts repo-id) 0))
-                       (row-candidate-source-rank row)
-                       (:rank row)
-                       repo-id
-                       (:path row)]))
-           (map second)
-           (take remaining)
-           vec))))
+          remaining (- selection-limit (count selected))
+          by-repo (source-candidates-by-repo candidate-files selected-paths)]
+      (loop [selected-counts (row-repo-counts selected)
+             by-repo by-repo
+             remaining remaining
+             acc []]
+        (if (or (zero? remaining) (empty? by-repo))
+          (vec acc)
+          (let [[repo-id row] (->> by-repo
+                                   (keep (fn [[repo-id rows]]
+                                           (when-let [row (best-inspection-repo-source-row
+                                                           (long (or (get selected-counts
+                                                                          repo-id)
+                                                                     0))
+                                                           rows)]
+                                             [repo-id row])))
+                                   (sort-by (fn [[repo-id row]]
+                                              (let [repo-selection-count
+                                                    (long (or (get selected-counts repo-id)
+                                                              0))]
+                                                (into [repo-selection-count]
+                                                      (inspection-repo-source-row-key
+                                                       repo-selection-count
+                                                       row)))))
+                                   first)
+                rows (without-file-row (get by-repo repo-id) row)]
+            (recur (update selected-counts repo-id (fnil inc 0))
+                   (if (seq rows)
+                     (assoc by-repo repo-id (vec rows))
+                     (dissoc by-repo repo-id))
+                   (dec remaining)
+                   (conj acc row))))))))
 (defn- inspection-file-selection
   [candidate-files limit]
   (let [selection-limit (long (or limit (count candidate-files)))]
     (when (and (pos? selection-limit) (seq candidate-files))
-      (let [direct (inspection-direct-file-candidates candidate-files selection-limit)
+      (let [direct (let [direct (inspection-direct-file-candidates
+                                 candidate-files
+                                 selection-limit)]
+                     (reserve-missing-repo-source-candidate-slots
+                      candidate-files
+                      direct
+                      selection-limit))
             repo-candidates (inspection-repo-candidates candidate-files
                                                         direct
                                                         selection-limit)
@@ -1900,10 +2220,9 @@
          {:files (vec candidate-files)}
          (let [limit (long limit)
                quota (min default-agent-baseline-candidate-file-only-quota limit)
-               candidate-file-only (take quota
-                                         (sort-by row-source-order-key
-                                                  (filter candidate-file-only-row?
-                                                          candidate-files)))
+               candidate-file-only (candidate-file-only-selection
+                                    candidate-files
+                                    quota)
                quota-paths (set (map file-row-key candidate-file-only))
                remaining-limit (max 0 (- limit (count candidate-file-only)))
                primary (->> candidate-files
@@ -1993,6 +2312,10 @@
        distinct
        vec))
 
+(defn- compact-result-commands
+  [commands]
+  (vec (take compact-result-command-limit commands)))
+
 (defn- agent-result-warning?
   [warning]
   (not (str/starts-with? (str warning) "candidate files trimmed to ")))
@@ -2011,6 +2334,147 @@
      :totalTokens input-tokens
      :costUsd 0.0
      :source "ygg-baseline-compact-surface-estimate"}))
+
+(defn- compact-suspected-file
+  [file]
+  (let [path (:path file)
+        repo-id (or (:repoId file) (:repo-id file) (:repo file))]
+    (cond-> {:path path
+             :rank (:rank file)
+             :confidence (bounded-confidence (:confidence file))
+             :reason "Ranked by Yggdrasil graph evidence."
+             :evidence [(str "ygg:path:" path)]}
+      repo-id (assoc :repoId repo-id))))
+
+(defn- compact-suspected-files
+  [files]
+  (mapv compact-suspected-file files))
+
+(defn- compact-result-output-limit
+  [files limit result-scope]
+  (when limit
+    (let [limit (long limit)
+          file-count (count files)]
+      (if (and (not (inspection-files-scope? result-scope))
+               (< compact-thin-candidate-output-limit file-count)
+               (< file-count
+                  (* compact-thin-candidate-output-ratio limit)))
+        (min limit compact-thin-candidate-output-limit)
+        limit))))
+
+(defn- compact-output-doc-supported-key
+  [row]
+  [(- (positive-metric row :matchedTokenCount))
+   (- (positive-metric row :matchedCompoundTokenPairCount))
+   (:rank row)
+   (:path row)])
+
+(defn- compact-output-identity-supported-key
+  [row]
+  [(- (positive-metric row :fileIdentitySupportLabelCount))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-metric-double row :candidateLexicalComponentBoost))
+   (- (row-metric-double row :graphNeighborScore))
+   (:rank row)
+   (:path row)])
+
+(defn- compact-output-architecture-supported-key
+  [row]
+  [(- (row-metric-double row :architectureSupportBoost))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-metric-double row :rareQueryTokenScore))
+   (:rank row)
+   (:path row)])
+
+(defn- compact-output-architecture-supported-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (zero? (positive-metric % :docCount))
+                     (pos? (row-metric-double % :architectureSupportBoost))
+                     (<= compact-output-architecture-rare-token-min
+                         (row-metric-double % :rareQueryTokenScore))
+                     (<= compact-output-architecture-token-min
+                         (positive-metric % :matchedTokenCount))))
+       (sort-by compact-output-architecture-supported-key)
+       first))
+
+(defn- compact-output-doc-supported-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (pos? (positive-metric % :docCount))
+                     (pos? (positive-metric % :matchedTokenCount))))
+       (sort-by compact-output-doc-supported-key)
+       first))
+
+(defn- compact-output-identity-supported-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (pos? (positive-metric % :directFileCandidateCount))
+                     (<= compact-output-identity-support-min
+                         (positive-metric % :fileIdentitySupportLabelCount))))
+       (sort-by compact-output-identity-supported-key)
+       first))
+
+(defn- add-compact-output-row
+  [selected row]
+  (if (and row (not (contains? (:keys selected) (file-row-key row))))
+    (-> selected
+        (update :rows conj row)
+        (update :keys conj (file-row-key row)))
+    selected))
+
+(defn- compact-output-selected-files
+  [files limit result-scope]
+  (let [limit (when limit (long limit))]
+    (cond
+      (nil? limit)
+      files
+
+      (or (inspection-files-scope? result-scope)
+          (< limit 5))
+      (vec (take limit files))
+
+      :else
+      (let [head-count (min compact-output-preserved-head-count limit)
+            empty-selection {:rows []
+                             :keys #{}}
+            head-selection (reduce add-compact-output-row
+                                   empty-selection
+                                   (take head-count files))
+            architecture-row (compact-output-architecture-supported-row
+                              files
+                              (:keys head-selection))
+            selected (if architecture-row
+                       (add-compact-output-row head-selection architecture-row)
+                       (let [selected (add-compact-output-row
+                                       empty-selection
+                                       (compact-output-doc-supported-row
+                                        files
+                                        (:keys empty-selection)))
+                             selected (add-compact-output-row
+                                       selected
+                                       (compact-output-identity-supported-row
+                                        files
+                                        (:keys selected)))]
+                         (reduce add-compact-output-row
+                                 selected
+                                 (take head-count files))))
+            remaining (remove #(contains? (:keys selected) (file-row-key %))
+                              files)
+            minimum-count (min limit 2)
+            selected (if (< (count (:rows selected)) minimum-count)
+                       (reduce add-compact-output-row
+                               selected
+                               (take (- minimum-count (count (:rows selected)))
+                                     remaining))
+                       selected)]
+        (->> (:rows selected)
+             (take limit)
+             renumber-file-ranks)))))
+
 (defn- decision-file-by-path
   [files]
   (->> files
@@ -2021,9 +2485,8 @@
 (defn- decision-supportable-file?
   [file]
   (let [metrics (:metrics file)
-        support-count (long (or (:supportCount metrics) 0))
-        decision-candidate-count (long (or (:decisionCandidateCount metrics) 0))]
-    (< decision-candidate-count support-count)))
+        support-count (long (or (:supportCount metrics) 0))]
+    (pos? support-count)))
 (defn- decision-support
   [file-by-path candidate]
   (let [paths (decision-candidate-paths candidate)
@@ -2051,9 +2514,26 @@
 (defn- supported-decision?
   [support]
   (pos? (long (:matchedCount support))))
+(defn- decision-compatible-ids
+  [candidate]
+  (->> (concat (:coexists-with candidate)
+               (:coexistsWith candidate)
+               (:compatible-with candidate)
+               (:compatibleWith candidate))
+       (keep #(some-> % str not-empty))
+       set))
+(defn- compatible-decision-supports?
+  [left right]
+  (let [left-id (:id left)
+        right-id (:id right)
+        left-compatible (decision-compatible-ids (:candidate left))
+        right-compatible (decision-compatible-ids (:candidate right))]
+    (or (contains? left-compatible right-id)
+        (contains? right-compatible left-id))))
 (defn- dominates-decision?
   [left right]
   (and (not= (:id left) (:id right))
+       (not (compatible-decision-supports? left right))
        (supported-decision? left)
        (supported-decision? right)
        (set/subset? (:pathSet right) (:pathSet left))
@@ -2112,6 +2592,41 @@
          :choices (mapv #(decision-choice supports %) supports)
          :risks []
          :followups []}))))
+
+(defn- included-decision-choice-ids
+  [decision]
+  (->> (:choices decision)
+       (filter #(= "include" (:status %)))
+       (keep #(some-> (:id %) str not-empty))
+       set))
+
+(defn- included-decision-candidate-paths
+  [decision-candidates decision]
+  (let [included-ids (included-decision-choice-ids decision)]
+    (->> decision-candidates
+         (filter #(contains? included-ids (decision-candidate-id %)))
+         (mapcat decision-candidate-paths)
+         distinct
+         vec)))
+
+(defn- compact-output-decision-selected-files
+  [files limit decision-candidates decision]
+  (let [limit (when limit (long limit))]
+    (when (and (pos? (long (or limit 0)))
+               (seq decision-candidates)
+               (seq (:choices decision)))
+      (let [file-by-path (decision-file-by-path files)
+            selection (reduce add-compact-output-row
+                              {:rows []
+                               :keys #{}}
+                              (keep file-by-path
+                                    (included-decision-candidate-paths
+                                     decision-candidates
+                                     decision)))]
+        (when (seq (:rows selection))
+          (->> (:rows selection)
+               (take limit)
+               renumber-file-ranks))))))
 (defn context-packet->agent-result
   "Convert one Yggdrasil context packet into the benchmark agent-result contract.
 
@@ -2120,7 +2635,7 @@
   truth or fix artifacts."
   ([packet]
    (context-packet->agent-result packet {}))
-  ([packet {:keys [agent-id mode case-id caseFingerprint agentInputFingerprint root roots limit coverage decision-candidates decision-kind result-scope]}]
+  ([packet {:keys [agent-id mode case-id caseFingerprint agentInputFingerprint root roots limit coverage decision-candidates decision-kind result-scope compact-result? compact-result-limit]}]
    (let [query-tokens (text/tokenize-all (:query packet))
          source-kind-order (coverage-source-kind-order coverage)
          source-kinds (set source-kind-order)
@@ -2166,16 +2681,21 @@
                               vec)
          filtered-files (- (count raw-candidate-files)
                            (count candidate-files))
+         effective-selection-limit (if (and compact-result?
+                                            (inspection-files-scope? result-scope)
+                                            compact-result-limit)
+                                     compact-result-limit
+                                     limit)
          selected-files (select-limited-suspected-files
                          candidate-files
-                         limit
+                         effective-selection-limit
                          {:source-kinds source-kind-order
                           :kind-by-path kind-by-path
                           :result-scope result-scope})
          selection (cond-> {:rawCandidateFiles (count raw-candidate-files)
                             :candidateFiles (count candidate-files)
                             :coverageFilteredCandidateFiles filtered-files
-                            :limit limit
+                            :limit effective-selection-limit
                             :coverageSourceKinds (vec (sort source-kinds))}
                      (:candidateFileOnlyQuota selected-files)
                      (assoc :candidateFileOnlyQuota (:candidateFileOnlyQuota selected-files)
@@ -2202,13 +2722,34 @@
                      (:inspectionCandidateFillSkipped selected-files)
                      (assoc :inspectionCandidateFillSkipped
                             (:inspectionCandidateFillSkipped selected-files)))
-         suspected-files (:files selected-files)
-         suspected-symbols (context-symbols packet)
-         commands (packet-commands packet)
-         warnings (agent-result-warnings packet)
+         rich-suspected-files (:files selected-files)
+         compact-output-limit (when compact-result?
+                                (compact-result-output-limit rich-suspected-files
+                                                             compact-result-limit
+                                                             result-scope))
          decision (baseline-decision decision-kind
                                      decision-candidates
-                                     suspected-files)
+                                     rich-suspected-files)
+         output-rich-suspected-files (if compact-output-limit
+                                       (or (compact-output-decision-selected-files
+                                            rich-suspected-files
+                                            compact-output-limit
+                                            decision-candidates
+                                            decision)
+                                           (compact-output-selected-files
+                                            rich-suspected-files
+                                            compact-output-limit
+                                            result-scope))
+                                       rich-suspected-files)
+         suspected-files (if compact-result?
+                           (compact-suspected-files output-rich-suspected-files)
+                           output-rich-suspected-files)
+         suspected-symbols (if compact-result?
+                             []
+                             (context-symbols packet))
+         commands (cond-> (packet-commands packet)
+                    compact-result? compact-result-commands)
+         warnings (agent-result-warnings packet)
          summary (str "Deterministic Yggdrasil baseline ranked "
                       (count suspected-files)
                       " suspected files from "
@@ -2222,7 +2763,14 @@
                                  :suspectedSymbols suspected-symbols
                                  :commands commands
                                  :warnings warnings
-                                 :selection selection
+                                 :selection (cond-> selection
+                                              compact-result?
+                                              (assoc :compactResultSurface true)
+                                              compact-output-limit
+                                              (assoc :compactResultLimit
+                                                     compact-output-limit
+                                                     :compactResultFiles
+                                                     (count suspected-files)))
                                  :summary summary}
                           caseFingerprint (assoc :caseFingerprint caseFingerprint)
                           agentInputFingerprint (assoc :agentInputFingerprint

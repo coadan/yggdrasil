@@ -2209,7 +2209,7 @@
                   :evidence {:warnings []}
                   :freshness {:warnings []}
                   :accepted-systems []
-                  :query-tokens ["proxy" "test"]})
+                  :query-tokens ["proxy" "env" "test"]})
         dependency-evidence (:dependencyEvidence section)]
     (is (= 8 (count dependency-evidence)))
     (is (some #(and (= "lib/adapters/http.js" (:path %))
@@ -2503,6 +2503,137 @@
       (is (pos? (:score neighbor)))
       (is (= (:score neighbor)
              (get-in neighbor [:score-components :sourceGraph]))))))
+
+(deftest source-graph-candidates-preserve-neighbor-kind-path-diversity
+  (let [doc-count 48
+        doc-seeds (mapv (fn [idx]
+                          {:xt/id (str "node:seed:doc:" idx)
+                           :project-id "fixture"
+                           :repo-id "app"
+                           :path (format "docs/component-%02d.md" idx)
+                           :kind :doc-file
+                           :label (format "theme docs route component %02d" idx)
+                           :source-line 1})
+                        (range doc-count))
+        route-path "site/src/pages/docs/[version]/examples/index.astro"
+        route-seed {:xt/id "node:seed:route"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :path route-path
+                    :kind :web-framework-import
+                    :label "@layouts/partials/BsThemes.astro theme docs route"
+                    :source-line 4}
+        doc-neighbor (fn [idx]
+                       {:xt/id (str "node:neighbor:doc:" idx)
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :path (format "docs/neighbor-%02d.md" idx)
+                        :kind :doc-heading
+                        :label (format "Neighbor %02d" idx)
+                        :source-line 3
+                        :active? true})
+        route-neighbor {:xt/id "node:neighbor:route-file"
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :path route-path
+                        :kind :web-framework-file
+                        :label route-path
+                        :source-line 1
+                        :active? true}]
+    (with-redefs [store/xtdb-handle? (constantly true)
+                  store/rows-matching-any-token
+                  (fn [_ table fields tokens constraints ctx]
+                    (is (= {:valid-at "t"} ctx))
+                    (is (= #{"theme" "docs" "route"} (set tokens)))
+                    (case table
+                      :ygg/nodes
+                      (do
+                        (is (= [:path :label :name :kind] fields))
+                        (is (= {:project-id "fixture"
+                                :repo-id "app"}
+                               constraints))
+                        (conj doc-seeds route-seed))
+
+                      :ygg/files
+                      (do
+                        (is (= [:path :kind] fields))
+                        (is (= {:project-id "fixture"
+                                :repo-id "app"
+                                :active? true}
+                               constraints))
+                        [])))
+                  query/edges-touching-node-ids
+                  (fn [_ ids opts]
+                    (is (contains? (set ids) "node:seed:route"))
+                    (is (= {:project-id "fixture"
+                            :repo-id "app"
+                            :read-context {:valid-at "t"}}
+                           opts))
+                    (vec
+                     (concat
+                      (map (fn [idx]
+                             {:xt/id (str "edge:doc:" idx)
+                              :project-id "fixture"
+                              :repo-id "app"
+                              :source-id (str "node:seed:doc:" idx)
+                              :target-id (str "node:neighbor:doc:" idx)
+                              :relation :defines
+                              :active? true})
+                           (range doc-count))
+                      [{:xt/id "edge:route"
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :source-id "node:seed:route"
+                        :target-id "node:neighbor:route-file"
+                        :relation :imports
+                        :active? true}])))
+                  query/nodes-by-ids
+                  (fn [_ ids opts]
+                    (is (contains? (set ids) "node:neighbor:route-file"))
+                    (is (= {:project-id "fixture"
+                            :repo-id "app"
+                            :read-context {:valid-at "t"}}
+                           opts))
+                    (let [nodes-by-id (into {"node:neighbor:route-file" route-neighbor}
+                                            (map (fn [idx]
+                                                   [(str "node:neighbor:doc:" idx)
+                                                    (doc-neighbor idx)]))
+                                            (range doc-count))]
+                      (keep nodes-by-id ids)))]
+      (let [rows (#'context/source-graph-candidates
+                  :xtdb
+                  (text/tokenize-all "theme docs route")
+                  {:project-id "fixture"
+                   :repo-id "app"
+                   :read-context {:valid-at "t"}})
+            neighbor (some #(when (and (= route-path (:path %))
+                                       (= "graph-neighbor source row"
+                                          (:reason %)))
+                              %)
+                           rows)]
+        (is (= {:path route-path
+                :target-kind :node
+                :target-id "node:neighbor:route-file"
+                :label route-path
+                :kind :web-framework-file
+                :result-kind :node
+                :reason "graph-neighbor source row"
+                :repo-id "app"
+                :repo "app"
+                :source-line 1
+                :supportLabels ["@layouts/partials/BsThemes.astro theme docs route"]}
+               (select-keys neighbor
+                            [:path
+                             :target-kind
+                             :target-id
+                             :label
+                             :kind
+                             :result-kind
+                             :reason
+                             :repo-id
+                             :repo
+                             :source-line
+                             :supportLabels])))))))
 
 (deftest source-graph-candidates-preserve-file-lane-when-nodes-dominate
   (with-redefs [store/xtdb-handle? (constantly true)

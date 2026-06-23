@@ -21,30 +21,17 @@
         (and (vector? schema-type)
              (some #{"object"} schema-type)))))
 
-(def ^:private optional-output-properties-by-path
-  {[:selection] #{"candidateFileOnlyQuota"
-                  "candidateFileOnlySelected"
-                  "inspectionCandidateFillSkipped"
-                  "inspectionDirectFileSelected"
-                  "inspectionRepoCandidateSelected"
-                  "scoreElbowTailPruned"
-                  "scoreElbowTailScoreFloor"
-                  "unsaturatedDecisionTailPruned"
-                  "unsaturatedDecisionTailScoreFloor"}})
-
 (defn- strict-schema-required-mismatches
   ([schema]
    (strict-schema-required-mismatches [] schema))
   ([path schema]
    (let [properties (:properties schema)
          required (set (map name (:required schema)))
-         optional-properties (get optional-output-properties-by-path path #{})
          missing (when (and (object-schema? schema)
                             (= false (:additionalProperties schema))
                             (map? properties))
                    (->> (keys properties)
-                        (remove #(or (contains? required (name %))
-                                     (contains? optional-properties (name %))))
+                        (remove #(contains? required (name %)))
                         (map name)
                         sort
                         vec))
@@ -587,28 +574,16 @@
                     "limit"
                     "coverageSourceKinds"]
                    (:required selection-schema)))
+            (is (= (set (:required selection-schema))
+                   (set (map name (keys (:properties selection-schema))))))
             (is (= {:type "integer"
                     :minimum 0}
                    (get-in selection-schema [:properties :rawCandidateFiles])))
             (is (= {:type ["integer" "null"]
                     :minimum 0}
                    (get-in selection-schema [:properties :limit])))
-            (is (= {:type "integer"
-                    :minimum 0}
-                   (get-in selection-schema
-                           [:properties :unsaturatedDecisionTailPruned])))
-            (is (= {:type "number"
-                    :minimum 0}
-                   (get-in selection-schema
-                           [:properties :unsaturatedDecisionTailScoreFloor])))
-            (is (= {:type "integer"
-                    :minimum 0}
-                   (get-in selection-schema
-                           [:properties :scoreElbowTailPruned])))
-            (is (= {:type "number"
-                    :minimum 0}
-                   (get-in selection-schema
-                           [:properties :scoreElbowTailScoreFloor]))))
+            (is (not (contains? (:properties selection-schema)
+                                :inspectionRepoCandidateSelected))))
           (is (= ["object" "null"]
                  (get-in (json/read-json
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
@@ -1004,6 +979,33 @@
            (:selection result)))
     (is (not (contains? result :groundTruth)))
     (is (not (contains? result :inputHints)))
+    (let [compact (benchmark/context-packet->agent-result packet
+                                                          {:root root
+                                                           :compact-result? true})]
+      (is (= [{:path "src/app.clj"
+               :rank 1
+               :confidence 1.0
+               :reason "Ranked by Yggdrasil graph evidence."
+               :evidence ["ygg:path:src/app.clj"]}
+              {:path "src/db.clj"
+               :rank 2
+               :confidence 0.7
+               :reason "Ranked by Yggdrasil graph evidence."
+               :evidence ["ygg:path:src/db.clj"]}]
+             (:suspectedFiles compact)))
+      (is (= [] (:suspectedSymbols compact)))
+      (is (true? (get-in compact [:selection :compactResultSurface])))
+      (is (= (context/estimate-tokens (dissoc compact :tokenUsage))
+             (get-in compact [:tokenUsage :totalTokens]))))
+    (let [compact-limited (benchmark/context-packet->agent-result
+                           packet
+                           {:root root
+                            :compact-result? true
+                            :compact-result-limit 1})]
+      (is (= ["src/app.clj"]
+             (mapv :path (:suspectedFiles compact-limited))))
+      (is (= 1 (get-in compact-limited [:selection :compactResultLimit])))
+      (is (= 1 (get-in compact-limited [:selection :compactResultFiles]))))
     (let [limited (benchmark/context-packet->agent-result packet {:root root
                                                                   :limit 1})]
       (is (= [{:path "src/app.clj"
@@ -1033,6 +1035,32 @@
               :coverageSourceKinds []}
              (:selection limited)))
       (is (= 2 (count (:suspectedSymbols limited)))))))
+
+(deftest compact-agent-result-prunes-thin-candidate-output
+  (let [root (temp-dir "ygg-bench-compact-thin-output")
+        _ (doseq [path ["src/a.clj" "src/b.clj" "src/c.clj" "src/d.clj"]]
+            (spit-file! root path "(ns fixture)\n"))
+        packet {:query "broken app"
+                :docs (mapv (fn [idx path]
+                              {:source {:path path
+                                        :heading (str "broken " idx)}
+                               :score (- 2.0 (* idx 0.1))
+                               :provenance "retrieved-doc"})
+                            (range)
+                            ["src/a.clj"
+                             "src/b.clj"
+                             "src/c.clj"
+                             "src/d.clj"])}
+        result (benchmark/context-packet->agent-result
+                packet
+                {:root root
+                 :limit 20
+                 :compact-result? true
+                 :compact-result-limit 5})]
+    (is (= ["src/a.clj" "src/b.clj" "src/c.clj"]
+           (mapv :path (:suspectedFiles result))))
+    (is (= 3 (get-in result [:selection :compactResultLimit])))
+    (is (= 3 (get-in result [:selection :compactResultFiles])))))
 
 (deftest context-packet-agent-result-emits-structural-decision-choices
   (let [root (temp-dir "ygg-bench-context-decision")
@@ -1085,18 +1113,68 @@
     (is (= "change-plan" (get-in result [:decision :kind])))
     (is (= "include" (get-in choices-by-id ["plan-config-and-manifest" :status])))
     (is (= "exclude" (get-in choices-by-id ["plan-manifest-only" :status])))
-    (is (= "defer" (get-in choices-by-id ["plan-config-only" :status])))
+    (is (= "exclude" (get-in choices-by-id ["plan-config-only" :status])))
     (is (some #(= "site/astro.config.ts" (:path %))
               (:suspectedFiles result)))
     (is (= 2 (get-in (some #(when (= "site/astro.config.ts" (:path %)) %)
                            (:suspectedFiles result))
                      [:metrics :decisionCandidateCount])))
-    (is (= ["Ygg baseline ranked file package.json at rank 1."]
+    (is (= ["Ygg baseline ranked file site/astro.config.ts at rank 2."
+            "Ygg baseline ranked file package.json at rank 1."]
            (get-in choices-by-id ["plan-config-and-manifest" :evidence])))
     (is (= 1.0 (get-in scored [:scores :decisionRecall])))
     (is (= 1.0 (get-in scored [:scores :decisionPrecision])))
     (is (= 1.0 (get-in scored [:scores :decisionF1])))
     (is (= 1.0 (get-in scored [:scores :decisionEvidenceCitationRate])))))
+
+(deftest context-packet-agent-result-includes-compatible-shared-path-decisions
+  (let [root (temp-dir "ygg-bench-compatible-decision")
+        _ (spit-file! root "migrations/setup.sql" "alter event trigger owned by postgres;\n")
+        _ (spit-file! root "migrations/.env" "DATABASE_URL=postgres://example\n")
+        packet {:query "event trigger owner runtime env validation"
+                :candidateFiles [{:path "migrations/.env"
+                                  :rank 1
+                                  :score 2.0
+                                  :targetKind "file"
+                                  :label "DATABASE_URL"
+                                  :scoreComponents {:sourceGraph 2.0
+                                                    :lexical 0.8}}
+                                 {:path "migrations/setup.sql"
+                                  :rank 2
+                                  :score 2.0
+                                  :targetKind "file"
+                                  :label "event trigger owner"
+                                  :scoreComponents {:sourceGraph 2.0
+                                                    :lexical 0.8}}]}
+        decision-candidates [{:id "inspect-sql-owner-and-runtime-env"
+                              :kind "maintenance-action"
+                              :paths ["migrations/setup.sql"
+                                      "migrations/.env"]}
+                             {:id "defer-owner-change-until-sync-check"
+                              :kind "maintenance-action"
+                              :coexists-with ["inspect-sql-owner-and-runtime-env"]
+                              :paths ["migrations/setup.sql"]}
+                             {:id "change-testinfra-import-first"
+                              :kind "maintenance-action"
+                              :paths ["testinfra/test_postgres.py"]}]
+        result (benchmark/context-packet->agent-result
+                packet
+                {:root root
+                 :decision-kind "maintenance-action"
+                 :decision-candidates decision-candidates
+                 :limit 5})
+        choices-by-id (->> (get-in result [:decision :choices])
+                           (map (juxt :id identity))
+                           (into {}))]
+    (is (= "include"
+           (get-in choices-by-id ["inspect-sql-owner-and-runtime-env" :status])))
+    (is (= "include"
+           (get-in choices-by-id ["defer-owner-change-until-sync-check" :status])))
+    (is (= "defer"
+           (get-in choices-by-id ["change-testinfra-import-first" :status])))
+    (is (= ["Ygg baseline ranked file migrations/setup.sql at rank 1."]
+           (get-in choices-by-id ["defer-owner-change-until-sync-check"
+                                  :evidence])))))
 
 (deftest decision-candidate-paths-contribute-to-file-ranking
   (let [root (temp-dir "ygg-bench-decision-candidate-path-rank")
@@ -1784,6 +1862,11 @@
     (is (pos? (get-in setup-file
                       [:metrics :docSupportedCandidateEvidenceBoost])))))
 
+(deftest file-ranking-caps-mixed-architecture-support-boost
+  (let [boost @#'benchmark-prediction/architecture-support-boost]
+    (is (= 0.0 (boost 1 1 3.0)))
+    (is (= 1.25 (boost 2 1 4.0)))))
+
 (deftest file-ranking-frontloads-query-supported-architecture-only-evidence
   (let [root (temp-dir "ygg-bench-architecture-only-query-support")
         _ (doseq [path ["tests/Dapper.Tests/MiscTests.cs"
@@ -1878,13 +1961,13 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
-(deftest file-ranking-treats-single-package-identity-token-as-query-supported
+(deftest file-ranking-treats-multiple-package-identity-tokens-as-query-supported
   (let [root (temp-dir "ygg-bench-package-identity-token-support")
         _ (spit-file! root "lib/adapters/http.js"
                       "import proxyFromEnv from 'proxy-from-env';\n")
         _ (spit-file! root "tests/unit/fetch.test.js"
                       "import axios from 'axios';\n")
-        packet {:query "proxy boundary"
+        packet {:query "proxy from env boundary"
                 :architecture {:dependencyEvidence [{:id "node:pkg:proxy-from-env:import:lib/adapters/http.js:5"
                                                      :path "lib/adapters/http.js"
                                                      :kind "package-import"
@@ -2310,6 +2393,137 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-does-not-boost-weak-late-direct-file-identity-support
+  (let [root (temp-dir "ygg-bench-weak-late-direct-file-identity-support")
+        _ (spit-file! root "tests/unit/adapters/errorDetails.test.js" "describe('error', () => {})\n")
+        packet {:query "native proxy boundary http adapter tests"
+                :docs [{:source {:path "tests/unit/adapters/errorDetails.test.js"
+                                 :heading "adapter error details"}
+                        :score 1.0
+                        :snippet "native proxy boundary adapter tests"
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "tests/unit/adapters/errorDetails.test.js"
+                                  :rank 96
+                                  :score 1.0
+                                  :targetKind "file"
+                                  :label "tests/unit/adapters/errorDetails.test.js"
+                                  :supportLabels ["tests.unit.adapters.errorDetails.test/ErrorDetails"
+                                                  "tests.unit.adapters.errorDetails.test/errorBoundary"]
+                                  :scoreComponents {:sourceGraph 1.0
+                                                    :graph 0.2
+                                                    :lexical 0.7}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        file (first (:suspectedFiles result))]
+    (is (= "tests/unit/adapters/errorDetails.test.js" (:path file)))
+    (is (= 2 (get-in file [:metrics :fileIdentitySupportLabelCount])))
+    (is (not (contains? (:metrics file)
+                        :directFileIdentitySupportBoost)))))
+
+(deftest file-ranking-counts-candidate-only-dotted-direct-file-identity-support
+  (let [root (temp-dir "ygg-bench-dotted-direct-file-identity-support")
+        _ (spit-file! root "src/Noise.cs" "public class Noise {}\n")
+        _ (spit-file! root "src/SqlMapper.Settings.cs" "public class Settings {}\n")
+        packet {:query "prefer enum typehandlers settings"
+                :candidateFiles [{:path "src/Noise.cs"
+                                  :rank 2
+                                  :score 4.0
+                                  :targetKind "file"
+                                  :label "src/Noise.cs"
+                                  :supportLabels ["Fixture/Noise.PreferEnum"
+                                                  "Fixture/Noise.TypeHandlers"]
+                                  :scoreComponents {:sourceGraph 4.0
+                                                    :graph 0.2
+                                                    :lexical 0.9}}
+                                 {:path "src/SqlMapper.Settings.cs"
+                                  :rank 80
+                                  :score 1.0
+                                  :targetKind "file"
+                                  :label "src/SqlMapper.Settings.cs"
+                                  :supportLabels ["Fixture/Settings.PreferEnumTypeHandlers"
+                                                  "Fixture/Settings.Settings"
+                                                  "Fixture/Settings.TypeHandlers"
+                                                  "Fixture/Settings.CommandTimeout"]
+                                  :scoreComponents {:sourceGraph 1.0
+                                                    :graph 0.2
+                                                    :lexical 0.5}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files-by-path (into {} (map (juxt :path identity)) (:suspectedFiles result))]
+    (is (= 4 (get-in files-by-path
+                     ["src/SqlMapper.Settings.cs"
+                      :metrics
+                      :fileIdentitySupportLabelCount])))
+    (is (not (contains? (get-in files-by-path
+                                ["src/SqlMapper.Settings.cs" :metrics])
+                        :directFileIdentitySupportBoost)))))
+
+(deftest file-ranking-boosts-candidate-node-file-identity-support
+  (let [root (temp-dir "ygg-bench-node-file-identity-support")
+        _ (spit-file! root "tests/unit/adapters/http.test.js" "describe('http', () => {})\n")
+        _ (spit-file! root "tests/unit/adapters/noise.test.js" "describe('noise', () => {})\n")
+        packet {:query "node native proxy boundary http adapter tests"
+                :candidateFiles [{:path "tests/unit/adapters/noise.test.js"
+                                  :rank 4
+                                  :score 3.2
+                                  :targetKind "file"
+                                  :label "tests/unit/adapters/noise.test.js"
+                                  :supportLabels ["tests.unit.adapters.noise.test"]
+                                  :scoreComponents {:sourceGraph 3.2
+                                                    :lexical 0.8
+                                                    :graph 0.2}}
+                                 {:path "tests/unit/adapters/http.test.js"
+                                  :rank 12
+                                  :score 5.3
+                                  :targetKind "node"
+                                  :label "tests.unit.adapters.http.test/createHttp2Axios"
+                                  :supportLabels ["tests.unit.adapters.http.test/CustomFormData"
+                                                  "tests.unit.adapters.http.test/closeServer"
+                                                  "tests.unit.adapters.http.test/stop"
+                                                  "tests.unit.adapters.http.test/startServer"]
+                                  :scoreComponents {:sourceGraph 5.3
+                                                    :lexical 0.53}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["tests/unit/adapters/http.test.js"
+            "tests/unit/adapters/noise.test.js"]
+           (mapv :path files)))
+    (is (= 4 (get-in files [0 :metrics :fileIdentitySupportLabelCount])))
+    (is (pos? (get-in files [0 :metrics :candidateFileIdentitySupportBoost])))
+    (is (= 7.0 (get-in files [0 :metrics :candidateFileIdentitySupportBoost])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-boosts-dense-lexical-chunk-file-identity-support
+  (let [root (temp-dir "ygg-bench-lexical-chunk-file-identity-support")
+        _ (spit-file! root "src/CoreMapper.cs" "public class CoreMapper {}\n")
+        _ (spit-file! root "src/Other.cs" "public class Other {}\n")
+        packet {:query "jsonb string core mapper"
+                :candidateFiles [{:path "src/Other.cs"
+                                  :rank 1
+                                  :score 2.5
+                                  :targetKind "node"
+                                  :label "Fixture/OtherJsonbString"
+                                  :supportLabels ["Fixture/Other"]
+                                  :scoreComponents {:sourceGraph 2.5
+                                                    :lexical 0.7}}
+                                 {:path "src/CoreMapper.cs"
+                                  :rank 80
+                                  :score 0.8
+                                  :targetKind "chunk"
+                                  :label "Fixture/CoreMapper.ReadJsonbString"
+                                  :supportLabels ["Fixture/CoreMapper.LoadJsonb"
+                                                  "Fixture/CoreMapper.GetString"
+                                                  "Fixture/CoreMapper.MapValue"
+                                                  "Fixture/CoreMapper.Parse"]
+                                  :scoreComponents {:lexical 0.7
+                                                    :exact 0.1}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= ["src/CoreMapper.cs" "src/Other.cs"]
+           (mapv :path files)))
+    (is (= 4 (get-in files [0 :metrics :matchedTokenCount])))
+    (is (= 4 (get-in files [0 :metrics :fileIdentitySupportLabelCount])))
+    (is (pos? (get-in files [0 :metrics :candidateFileIdentitySupportBoost])))))
+
 (deftest file-ranking-boosts-retrieved-support-labels
   (let [root (temp-dir "ygg-bench-retrieved-support-labels")
         _ (spit-file! root "site/src/components/home/ComponentUtilities.astro" "---\n---\n")
@@ -2352,6 +2566,78 @@
     (is (pos? (get-in page-file [:metrics :retrievedSupportLabelBoost])))
     (is (> (get-in page-file [:metrics :rankScore])
            (get-in route-file [:metrics :rankScore])))))
+
+(deftest file-ranking-does-not-boost-late-retrieved-support-labels
+  (let [root (temp-dir "ygg-bench-late-retrieved-support-labels")
+        _ (spit-file! root "src/adapter.clj" "(ns adapter)\n")
+        packet {:query "adapter boundary"
+                :docs [{:source {:path "src/context.clj"
+                                 :heading "Fixture/Adapter"}
+                        :score 1.0
+                        :snippet "adapter boundary"
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "src/adapter.clj"
+                                  :rank 80
+                                  :score 3.0
+                                  :targetKind "node"
+                                  :label "Fixture/AdapterBoundary"
+                                  :supportLabels ["Fixture/Adapter"
+                                                  "Fixture/AdapterRuntime"]
+                                  :scoreComponents {:sourceGraph 3.0
+                                                    :lexical 0.7}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        file (first (:suspectedFiles result))]
+    (is (= "src/adapter.clj" (:path file)))
+    (is (= 3 (get-in file [:metrics :retrievedSupportLabelCount])))
+    (is (not (contains? (:metrics file)
+                        :retrievedSupportLabelBoost)))))
+
+(deftest file-ranking-boosts-early-doc-direct-file-compound-match
+  (let [root (temp-dir "ygg-bench-doc-direct-file-compound")
+        _ (spit-file! root "db/init/post-setup.sql" "select 1;\n")
+        _ (spit-file! root "db/init/before-create.sql" "select 1;\n")
+        packet {:query "trigger owner post setup sql"
+                :docs [{:source {:path "db/init/before-create.sql"
+                                 :heading "before create sql"}
+                        :score 1.0
+                        :snippet "trigger owner setup sql"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "db/init/post-setup.sql"
+                                 :heading "post setup sql"}
+                        :score 1.0
+                        :snippet "trigger owner post setup sql"
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "db/init/before-create.sql"
+                                  :rank 2
+                                  :score 1.0
+                                  :targetKind "file"
+                                  :label "before create sql"
+                                  :scoreComponents {:sourceGraph 1.0
+                                                    :lexical 0.8}}
+                                 {:path "db/init/post-setup.sql"
+                                  :rank 75
+                                  :score 1.0
+                                  :targetKind "file"
+                                  :label "post setup sql"
+                                  :scoreComponents {:sourceGraph 1.0
+                                                    :lexical 0.8}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)
+        setup-file (some #(when (= "db/init/post-setup.sql" (:path %)) %)
+                         files)]
+    (is (= "db/init/post-setup.sql" (:path (first files))))
+    (is (pos? (get-in setup-file
+                      [:metrics :matchedCompoundTokenPairCount])))
+    (is (pos? (get-in setup-file
+                      [:metrics :docSupportedDirectFileCompoundBoost])))))
+
+(deftest file-ranking-scales-doc-direct-file-compound-match-by-token-density
+  (let [boost @#'benchmark-prediction/doc-supported-direct-file-compound-boost]
+    (is (= 1.5 (boost 1 1 1 1 5)))
+    (is (= 2.75 (boost 1 1 1 1 6)))
+    (is (= 4.0 (boost 1 1 1 1 7)))
+    (is (= 4.0 (boost 1 1 1 1 9)))
+    (is (= 0.0 (boost 1 1 1 1 4)))))
 
 (deftest file-ranking-uses-candidate-lexical-component
   (let [root (temp-dir "ygg-bench-candidate-lexical-component")
@@ -2580,6 +2866,69 @@
             "tests/axios_test.clj"]
            (mapv :path files)))
     (is (= [1 2 3 4] (mapv :rank files)))))
+
+(deftest file-ranking-diversity-keeps-strong-candidate-identity-near-head
+  (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
+        rows [{:path "tests/setup/server.js"
+               :rank 1
+               :repo-id "fixture"
+               :metrics {:rankScore 13.0
+                         :candidateFileCount 1
+                         :candidateSourceRank 2
+                         :supportCount 2
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["node"]}}
+              {:path "tests/unit/adapters/http.test.js"
+               :rank 2
+               :repo-id "fixture"
+               :metrics {:rankScore 11.7
+                         :candidateFileCount 1
+                         :candidateSourceRank 12
+                         :supportCount 1
+                         :fileIdentitySupportLabelCount 4
+                         :candidateFileIdentitySupportBoost 5.6
+                         :docCount 0
+                         :entityCount 0
+                         :definitionKinds ["node"]}}
+              {:path "lib/adapters/http.js"
+               :rank 3
+               :repo-id "fixture"
+               :metrics {:rankScore 11.6
+                         :candidateFileCount 2
+                         :candidateSourceRank 16
+                         :supportCount 4
+                         :architectureSupportBoost 1.0
+                         :docCount 2
+                         :entityCount 0
+                         :definitionKinds ["package-import"]}}
+              {:path "src/CoreMapper.cs"
+               :rank 4
+               :repo-id "fixture"
+               :metrics {:rankScore 10.4
+                         :candidateFileCount 1
+                         :supportCount 1
+                         :fileIdentitySupportLabelCount 4
+                         :candidateFileIdentitySupportBoost 5.6
+                         :docCount 0
+                         :entityCount 0
+                         :definitionKinds ["chunk"]}}
+              {:path "lib/adapters/adapters.js"
+               :rank 5
+               :repo-id "fixture"
+               :metrics {:rankScore 9.8
+                         :candidateFileCount 1
+                         :candidateSourceRank 5
+                         :supportCount 2
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["node"]}}]
+        files (diversify rows)]
+    (is (= ["tests/setup/server.js"
+            "tests/unit/adapters/http.test.js"
+            "src/CoreMapper.cs"
+            "lib/adapters/http.js"]
+           (mapv :path (take 4 files))))))
 
 (deftest file-ranking-diversity-does-not-bypass-low-support-source-candidate
   (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
@@ -2949,7 +3298,7 @@
     (is (= "src/settings.cs" (:path file)))
     (is (not (contains? (:metrics file) :directFileArchitectureGraphBoost)))))
 
-(deftest file-ranking-uses-single-dependency-package-identity-token
+(deftest file-ranking-does-not-use-single-dependency-package-identity-token
   (let [root (temp-dir "ygg-bench-dependency-import-single-token-support")
         _ (spit-file! root "src/http-adapter.js" "import proxyAgent from 'https-proxy-agent';\n")
         packet {:query "proxy package import adapter boundary"
@@ -2973,7 +3322,7 @@
                  :suspectedFiles
                  first)]
     (is (= "src/http-adapter.js" (:path file)))
-    (is (pos? (get-in file [:metrics :directFileArchitectureGraphBoost])))
+    (is (not (contains? (:metrics file) :directFileArchitectureGraphBoost)))
     (is (pos? (get-in file [:metrics :architectureSupportBoost])))))
 
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
@@ -3043,6 +3392,167 @@
     (is (some #{"src/adapter.clj"} (map :path (:files result))))
     (is (not-any? #{"src/noise-5.clj"} (map :path (:files result))))
     (is (= 5 (:candidateFileOnlySelected result)))))
+
+(deftest limited-agent-result-reserves-dense-candidate-only-file-identity
+  (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
+        candidate-row (fn [path rank source-rank metrics]
+                        {:path path
+                         :rank rank
+                         :metrics (merge {:candidateFileCount 1
+                                          :docCount 0
+                                          :entityCount 0
+                                          :candidateSourceRank source-rank}
+                                         metrics)})
+        rows [(candidate-row "src/noise-1.cs" 1 1 {})
+              (candidate-row "src/noise-2.cs" 2 2 {})
+              (candidate-row "src/noise-3.cs" 3 3 {})
+              (candidate-row "src/noise-4.cs" 4 4 {})
+              (candidate-row "src/noise-5.cs" 5 5 {})
+              (candidate-row "src/Mapper.Settings.cs"
+                             9
+                             80
+                             {:directFileCandidateCount 1
+                              :fileIdentitySupportLabelCount 4
+                              :matchedTokenCount 4
+                              :graphNeighborScore 0.2})]
+        result (select-limited rows 5)]
+    (is (some #{"src/Mapper.Settings.cs"} (map :path (:files result))))
+    (is (not-any? #{"src/noise-5.cs"} (map :path (:files result))))
+    (is (= 5 (:candidateFileOnlySelected result)))))
+
+(deftest compact-output-reserves-doc-supported-and-identity-supported-rows
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/type-handler.cs" 1
+                    {:docCount 1
+                     :matchedTokenCount 3})
+               (row "src/type-handler.cs" 2
+                    {:candidateFileCount 1
+                     :docCount 0})
+               (row "benchmarks/noise.cs" 3
+                    {:candidateFileCount 1
+                     :docCount 0})
+               (row "tests/single-row.cs" 4
+                    {:docCount 1
+                     :matchedTokenCount 2})
+               (row "benchmarks/other-noise.cs" 5
+                    {:candidateFileCount 1
+                     :docCount 0})
+               (row "src/Mapper.cs" 7
+                    {:docCount 1
+                     :matchedTokenCount 7
+                     :matchedCompoundTokenPairCount 2})
+               (row "benchmarks/identity-noise.cs" 8
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 4
+                     :matchedTokenCount 4
+                     :candidateLexicalComponentBoost 0.03
+                     :graphNeighborScore 0.2})
+               (row "src/Mapper.Settings.cs" 9
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 4
+                     :matchedTokenCount 4
+                     :candidateLexicalComponentBoost 0.06
+                     :graphNeighborScore 0.2})]
+        selected (compact-output files 5 nil)]
+    (is (= ["src/Mapper.cs"
+            "src/Mapper.Settings.cs"
+            "tests/type-handler.cs"]
+           (mapv :path selected)))
+    (is (= [1 2 3] (mapv :rank selected)))))
+
+(deftest compact-output-prefers-architecture-supported-edit-surface
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/http.test.js" 1
+                    {:docCount 1
+                     :matchedTokenCount 4})
+               (row "tests/headers.test.js" 2
+                    {:docCount 1
+                     :matchedTokenCount 6})
+               (row "lib/http.js" 3
+                    {:docCount 0
+                     :architectureSupportBoost 4.0
+                     :matchedTokenCount 5
+                     :rareQueryTokenScore 1.0})
+               (row "tests/fetch.test.js" 4
+                    {:docCount 1
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 4
+                     :matchedTokenCount 6
+                     :graphNeighborScore 0.2})]
+        selected (compact-output files 5 nil)]
+    (is (= ["tests/http.test.js"
+            "lib/http.js"]
+           (mapv :path selected)))
+    (is (= [1 2] (mapv :rank selected)))))
+
+(deftest compact-agent-result-prefers-included-decision-candidate-paths
+  (let [root (temp-dir "ygg-bench-compact-decision-output")
+        _ (doseq [path ["docs/noise.md"
+                        "src/noise.clj"
+                        "src/app.clj"
+                        "test/app_test.clj"]]
+            (spit-file! root path "(ns fixture)\n"))
+        packet {:query "change app test plan"
+                :docs [{:source {:path "docs/noise.md"
+                                 :heading "change app test plan"}
+                        :score 10.0
+                        :snippet "change app test plan"
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/noise.clj"
+                                 :heading "change plan"}
+                        :score 9.0
+                        :snippet "change plan"
+                        :provenance "retrieved-doc"}]}
+        decision-candidates [{:id "change-app-and-test"
+                              :kind "change-plan"
+                              :paths ["src/app.clj"
+                                      "test/app_test.clj"]}
+                             {:id "change-missing-file"
+                              :kind "change-plan"
+                              :paths ["src/missing.clj"]}]
+        result (benchmark/context-packet->agent-result
+                packet
+                {:root root
+                 :decision-kind "change-plan"
+                 :decision-candidates decision-candidates
+                 :limit 10
+                 :compact-result? true
+                 :compact-result-limit 5})
+        choices-by-id (->> (get-in result [:decision :choices])
+                           (map (juxt :id identity))
+                           (into {}))]
+    (is (= ["src/app.clj" "test/app_test.clj"]
+           (mapv :path (:suspectedFiles result))))
+    (is (= [1 2] (mapv :rank (:suspectedFiles result))))
+    (is (= "include" (get-in choices-by-id ["change-app-and-test" :status])))
+    (is (= "defer" (get-in choices-by-id ["change-missing-file" :status])))
+    (is (= 2 (get-in result [:selection :compactResultFiles])))))
+
+(deftest compact-agent-result-caps-command-hints
+  (let [packet {:query "broken app"
+                :drilldowns [{:command "cmd-1"}
+                             {:command "cmd-2"}
+                             {:command "cmd-3"}
+                             {:command "cmd-4"}
+                             {:command "cmd-5"}
+                             {:command "cmd-6"}]}
+        result (benchmark/context-packet->agent-result
+                packet
+                {:compact-result? true})]
+    (is (= ["cmd-1" "cmd-2" "cmd-3" "cmd-4" "cmd-5"]
+           (:commands result)))))
 
 (deftest limited-agent-result-preserves-declared-source-kind-diversity
   (let [root (temp-dir "ygg-bench-source-kind-diversity")
@@ -3304,19 +3814,23 @@
                                                     :graph 0.2}}
                                  {:repo "contrib"
                                   :path "connector/routingconnector/config.go"
-                                  :rank 11
+                                  :rank 12
                                   :score 2.1
                                   :targetKind "node"
                                   :label "connector/routingconnector/config/Config"
+                                  :supportLabels ["connector/routingconnector/config/Action"
+                                                  "connector/routingconnector/config/Config"
+                                                  "connector/routingconnector/config/RoutingTableItem"]
                                   :scoreComponents {:sourceGraph 2.1
                                                     :lexical 0.8
                                                     :graph 0.2}}
                                  {:repo "contrib"
                                   :path "connector/routingconnector/router.go"
-                                  :rank 12
+                                  :rank 13
                                   :score 2.0
                                   :targetKind "node"
                                   :label "connector/routingconnector/router/router"
+                                  :supportLabels ["connector/routingconnector/router/router.registerRouteConsumers"]
                                   :scoreComponents {:sourceGraph 2.0
                                                     :lexical 0.8
                                                     :graph 0.2}}
@@ -3330,19 +3844,23 @@
                                                     :lexical 0.4}}
                                  {:repo "contrib"
                                   :path "connector/routingconnector/factory.go"
-                                  :rank 24
-                                  :score 1.2
-                                  :targetKind "file"
+                                  :rank 10
+                                  :score 2.2
+                                  :targetKind "node"
                                   :label "connector/routingconnector/factory.go"
-                                  :scoreComponents {:sourceGraph 1.2
+                                  :supportLabels ["connector/routingconnector/factory/createTracesToTraces"
+                                                  "connector/routingconnector/factory/defaultErrorMode"]
+                                  :scoreComponents {:sourceGraph 2.2
                                                     :lexical 0.9}}
                                  {:repo "contrib"
                                   :path "connector/routingconnector/logs.go"
-                                  :rank 25
-                                  :score 1.2
-                                  :targetKind "file"
+                                  :rank 11
+                                  :score 2.15
+                                  :targetKind "node"
                                   :label "connector/routingconnector/logs.go"
-                                  :scoreComponents {:sourceGraph 1.2
+                                  :supportLabels ["connector/routingconnector/logs/logsConnector"
+                                                  "connector/routingconnector/logs/newLogsConnector"]
+                                  :scoreComponents {:sourceGraph 2.15
                                                     :lexical 0.9}}]}
         result (benchmark/context-packet->agent-result
                 packet
@@ -3350,6 +3868,14 @@
                          "contrib" contrib-root}
                  :limit 5
                  :result-scope :inspection-files})
+        compact-result (benchmark/context-packet->agent-result
+                        packet
+                        {:roots {"core" core-root
+                                 "contrib" contrib-root}
+                         :limit 20
+                         :result-scope :inspection-files
+                         :compact-result? true
+                         :compact-result-limit 5})
         files (:suspectedFiles result)]
     (is (= [{:repo-id "core"
              :path "component/component.go"
@@ -3367,16 +3893,25 @@
              :path "connector/routingconnector/config.go"
              :rank 5}]
            (mapv #(select-keys % [:repo-id :path :rank]) files)))
-    (is (= 24 (get-in files [3 :metrics :candidateSourceRank])))
+    (is (= 10 (get-in files [3 :metrics :candidateSourceRank])))
     (is (= {:rawCandidateFiles 9
             :candidateFiles 9
             :coverageFilteredCandidateFiles 0
             :limit 5
             :coverageSourceKinds []
-            :inspectionDirectFileSelected 4
-            :inspectionRepoCandidateSelected 1
+            :inspectionDirectFileSelected 3
+            :inspectionRepoCandidateSelected 2
             :inspectionCandidateFillSkipped 4}
-           (:selection result)))))
+           (:selection result)))
+    (let [paths (mapv (juxt :repoId :path) (:suspectedFiles compact-result))]
+      (is (= [["core" "component/component.go"]
+              ["core" "consumer/consumer.go"]
+              ["core" "connector/connector.go"]
+              ["contrib" "connector/routingconnector/factory.go"]
+              ["contrib" "connector/routingconnector/config.go"]]
+             paths))
+      (is (= 5 (get-in compact-result [:selection :compactResultLimit])))
+      (is (= 5 (get-in compact-result [:selection :compactResultFiles]))))))
 (deftest file-ranking-preserves-early-retrieved-source-order
   (let [root (temp-dir "ygg-bench-retrieved-rank")
         _ (spit-file! root "src/early.clj" "(ns early)\n")
@@ -3661,6 +4196,9 @@
           (is (not (contains? request :groundTruth)))
           (is (= benchmark/agent-result-schema (get-in scored [:agent :schema])))
           (is (= "codebase-memory" (get-in scored [:agent :mode])))
+          (is (= "codebase-memory-result-surface-estimate"
+                 (get-in scored [:agent :tokenUsage :source])))
+          (is (pos? (get-in scored [:agent :tokenUsage :totalTokens])))
           (is (empty? (get-in scored [:agent :warnings])))
           (is (= 1.0 (get-in scored [:scores :evidenceCitationRate])))
           (is (= ["src/app.clj"]
@@ -3732,7 +4270,9 @@
           (is (= ["src/app.clj" "docs/readme.md"]
                  (mapv :path (:suspectedFiles result))))
           (is (every? #(seq (:evidence %)) (:suspectedFiles result)))
-          (is (= "codebase-memory-baseline" (get-in result [:tokenUsage :source])))
+          (is (= "codebase-memory-result-surface-estimate"
+                 (get-in result [:tokenUsage :source])))
+          (is (pos? (get-in result [:tokenUsage :totalTokens])))
           (is (empty? (:warnings result)))
           (is (= 9 (count (:commands result)))))))))
 
@@ -3766,7 +4306,9 @@
           (is (= "codebase-memory" (:mode result)))
           (is (empty? (:suspectedFiles result)))
           (is (seq (:warnings result)))
-          (is (= "codebase-memory-baseline" (get-in result [:tokenUsage :source]))))))))
+          (is (= "codebase-memory-result-surface-estimate"
+                 (get-in result [:tokenUsage :source])))
+          (is (pos? (get-in result [:tokenUsage :totalTokens]))))))))
 
 (deftest deepseek-worker-emits-current-agent-result-contract
   (let [repo (temp-dir "ygg-bench-deepseek-worker-repo")

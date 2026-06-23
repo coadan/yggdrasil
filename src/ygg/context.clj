@@ -54,6 +54,9 @@
 (def ^:private source-graph-neighbor-candidate-limit
   40)
 
+(def ^:private source-graph-neighbor-kind-path-limit
+  4)
+
 (def ^:private source-graph-neighbor-support-boost
   1.0)
 
@@ -1094,7 +1097,7 @@
           (double (get query/relation-graph-weights (:relation edge) 0.25)))))
 
 (defn- source-graph-neighbor-row
-  [node score support-labels]
+  [node score support-labels seed-rank]
   (when-let [path (not-empty (str (:path node)))]
     (let [support-labels (->> support-labels
                               (remove str/blank?)
@@ -1113,9 +1116,48 @@
                :score-components {:sourceGraph score}}
         (:repo-id node) (assoc :repo-id (:repo-id node)
                                :repo (:repo-id node))
+        seed-rank (assoc ::neighbor-seed-rank seed-rank)
         (:source-line node) (assoc :source-line (:source-line node))
         (:end-line node) (assoc :end-line (:end-line node))
         (seq support-labels) (assoc :supportLabels support-labels)))))
+
+(defn- source-graph-neighbor-path-key
+  [row]
+  [(or (:repo-id row) (:repo row)) (:path row)])
+
+(defn- source-graph-neighbor-kind-key
+  [row]
+  (or (:kind row) :unknown))
+
+(defn- source-graph-neighbor-kind-path-rows
+  [rows]
+  (loop [remaining (seq rows)
+         counts {}
+         selected-paths #{}
+         selected []]
+    (if-let [row (first remaining)]
+      (let [kind-key (source-graph-neighbor-kind-key row)
+            path-key (source-graph-neighbor-path-key row)
+            kind-count (long (or (get counts kind-key) 0))]
+        (if (or (contains? selected-paths path-key)
+                (<= source-graph-neighbor-kind-path-limit kind-count))
+          (recur (next remaining) counts selected-paths selected)
+          (recur (next remaining)
+                 (update counts kind-key (fnil inc 0))
+                 (conj selected-paths path-key)
+                 (conj selected row))))
+      selected)))
+
+(defn- select-source-graph-neighbor-rows
+  [rows]
+  (let [kind-path-rows (source-graph-neighbor-kind-path-rows rows)
+        selected-paths (set (map source-graph-neighbor-path-key kind-path-rows))]
+    (->> (concat kind-path-rows
+                 (remove #(contains? selected-paths
+                                     (source-graph-neighbor-path-key %))
+                         rows))
+         (take source-graph-neighbor-candidate-limit)
+         vec)))
 
 (defn- source-graph-neighbor-candidates
   [xtdb seed-candidates scope]
@@ -1142,6 +1184,10 @@
                           (-> out
                               (update-in [neighbor-id :score]
                                          #(max (double (or % 0.0)) score))
+                              (update-in [neighbor-id :seed-rank]
+                                         #(min (long (or % Long/MAX_VALUE))
+                                               (long (or (:rank seed)
+                                                         Long/MAX_VALUE))))
                               (update-in [neighbor-id :support-labels]
                                          (fnil conj [])
                                          (:label seed))))
@@ -1156,14 +1202,19 @@
                                                       (keys candidate-state)
                                                       scope))]
             (->> candidate-state
-                 (keep (fn [[node-id {:keys [score support-labels]}]]
+                 (keep (fn [[node-id {:keys [score seed-rank support-labels]}]]
                          (when-let [node (get nodes-by-id node-id)]
-                           (source-graph-neighbor-row node score support-labels))))
+                           (source-graph-neighbor-row node
+                                                      score
+                                                      support-labels
+                                                      seed-rank))))
                  (sort-by (juxt (comp - :score)
+                                ::neighbor-seed-rank
                                 :repo-id
                                 :path
                                 :label))
-                 (take source-graph-neighbor-candidate-limit)
+                 select-source-graph-neighbor-rows
+                 (map #(dissoc % ::neighbor-seed-rank))
                  (map-indexed #(assoc %2 :rank (inc %1)))
                  vec)))))))
 

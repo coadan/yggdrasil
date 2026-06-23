@@ -340,7 +340,7 @@
 (def ^:private dependency-evidence-display-limit
   8)
 (def ^:private query-supported-dependency-identity-min-score
-  1)
+  2)
 (def ^:private query-supported-dependency-identity-preserve-limit
   2)
 (defn- preservable-selected-path-evidence?

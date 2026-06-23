@@ -230,11 +230,11 @@
             :claimStatus "not-supported"
             :sharedCases 2
             :minSharedCases 2
-            :improvedMetrics 20
+            :improvedMetrics 18
             :regressedMetrics 0
             :unavailableMetrics 5
             :why ["Yggdrasil total token usage must be measured lower for every shared case."
-                  "20 directional metric(s) improved."
+                  "18 directional metric(s) improved."
                   "5 metric(s) were unavailable."
                   "Claim readiness is not supported; use the warnings before making the benchmark claim."]}
            (:compactSummary comparison)))
@@ -1285,6 +1285,61 @@
                          :effect
                          :tolerance
                          :result])))))
+
+(deftest timing-regressions-do-not-block-non-performance-claim
+  (let [shell (-> shell-report
+                  with-problem-classes
+                  with-claim-readiness
+                  (assoc :byTag [(tag-row "problem-architecture"
+                                          {:cases 2
+                                           :runs 2
+                                           :recall10 0.5
+                                           :noise 0.5})
+                                 (tag-row "architecture-dependency-flow"
+                                          {:cases 2
+                                           :runs 2
+                                           :recall10 0.5
+                                           :noise 0.5})]))
+        ygg (-> ygg-report
+                with-problem-classes
+                with-claim-readiness
+                (assoc-in [:timings :elapsedMs] 3000)
+                (assoc :byTag [(tag-row "problem-architecture"
+                                        {:cases 2
+                                         :runs 2
+                                         :recall10 0.75
+                                         :noise 0.25})
+                               (tag-row "architecture-dependency-flow"
+                                        {:cases 2
+                                         :runs 2
+                                         :recall10 0.75
+                                         :noise 0.25})]))
+        [shell ygg] (with-reduced-ygg-token-usage shell ygg)
+        comparison (agent-efficiency/compare-reports shell ygg)
+        markdown (agent-efficiency/markdown-report comparison)
+        deltas-by-key (into {} (map (juxt :key identity))
+                            (:deltas comparison))
+        categories-by-key (into {} (map (juxt :category identity))
+                                (:byCategory comparison))]
+    (is (= "ygg-improved" (:status comparison)))
+    (is (= "mixed" (get-in comparison [:summary :signal])))
+    (is (= "ygg-improved" (get-in comparison [:claimSummary :signal])))
+    (is (= "mixed" (get-in categories-by-key ["timing" :summary :signal])))
+    (is (= {:delta 2000.0
+            :rawEffect -2000.0
+            :effect -2000.0
+            :result "regressed"}
+           (select-keys (:elapsedMs deltas-by-key)
+                        [:delta :rawEffect :effect :result])))
+    (is (= "supported" (get-in comparison [:claimReadiness :status])))
+    (is (true? (get-in comparison
+                       [:claimReadiness :broadEfficiencyClaimSupported])))
+    (is (= [] (get-in comparison [:claimReadiness :warnings])))
+    (is (= "helped" (get-in comparison [:compactSummary :verdict])))
+    (is (= 0 (get-in comparison [:compactSummary :regressedMetrics])))
+    (is (.contains markdown "- Regressed metrics: 0"))
+    (is (.contains markdown "- Overall metrics including timing:"))
+    (is (.contains markdown "regressed 1"))))
 
 (deftest reports-comparability-warnings-for-different-case-sets
   (let [ygg-partial (assoc ygg-report

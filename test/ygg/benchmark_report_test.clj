@@ -3,7 +3,8 @@
             [ygg.benchmark-command-telemetry :as benchmark-command-telemetry]
             [ygg.benchmark-preflight :as benchmark-preflight]
             [ygg.benchmark-report :as benchmark-report]
-            [ygg.benchmark-test-support :refer [spit-json! temp-dir]]
+            [ygg.benchmark-test-support :refer [spit-file! spit-json! temp-dir]]
+            [ygg.context :as context]
             [clojure.test :refer [deftest is]]))
 
 (def passing-maintenance-preflight
@@ -741,6 +742,193 @@
              (:failures
               (benchmark/check-agent-report report {:allow-missing? true})))))))
 
+(deftest report-backfills-token-usage-from-existing-agent-prompt
+  (let [out (temp-dir "ygg-agent-report-token-backfill")
+        suite {:id "suite"
+               :cases [{:id "case-1"}]}
+        prompt "Investigate the regression with shell commands and return JSON.\n"
+        expected-tokens (context/estimate-tokens prompt)
+        stale-result-path "/tmp/old-ygg/suite/cases/case-1/agent-results/codex.json"]
+    (spit-file! out
+                "suite/cases/case-1/agent-prompts/codex.md"
+                prompt)
+    (spit-json! out
+                "suite/cases/case-1/agent-scores/codex.score.json"
+                {:schema benchmark/agent-score-schema
+                 :suite-id "suite"
+                 :case-id "case-1"
+                 :repo-id "repo"
+                 :agentResultPath stale-result-path
+                 :agent {:agentId "codex"
+                         :mode "shell-only"
+                         :topFiles []
+                         :rawSuspectedFileCount 0
+                         :commands ["rg regression src"]}
+                 :groundTruth {:changedFiles ["src/app.clj"]
+                               :unsupportedGroundTruthFiles []}
+                 :groundTruthRanks {:files [{:path "src/app.clj"
+                                             :found? false}]}
+                 :scores {:fileRecallAt5 0.0
+                          :fileRecallAt10 0.0
+                          :fileRecallAt20 0.0
+                          :meanReciprocalRankFile 0.0
+                          :noiseRatioAt20 0.0
+                          :changedFiles 1
+                          :scoreableChangedFiles 1
+                          :unsupportedGroundTruthFiles 0}})
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})
+          expected-usage {:inputTokens expected-tokens
+                          :outputTokens 0
+                          :totalTokens expected-tokens
+                          :costUsd 0.0
+                          :source "benchmark-prompt-estimate"}]
+      (is (= expected-usage
+             (get-in report [:results 0 :agent :tokenUsage])))
+      (is (= {:tokenUsageRuns 1
+              :tokenUsageCaseIds ["case-1"]
+              :missingTokenUsageRuns 0
+              :missingTokenUsageCaseIds []
+              :invalidTokenUsageRuns 0
+              :invalidTokenUsageCaseIds []}
+             (select-keys (:agentDiagnostics report)
+                          [:tokenUsageRuns
+                           :tokenUsageCaseIds
+                           :missingTokenUsageRuns
+                           :missingTokenUsageCaseIds
+                           :invalidTokenUsageRuns
+                           :invalidTokenUsageCaseIds])))
+      (is (= {:inputTokens expected-tokens
+              :outputTokens 0
+              :totalTokens expected-tokens
+              :costUsd 0.0}
+             (get-in report [:agentDiagnostics :tokenTelemetry]))))))
+
+(deftest report-replaces-placeholder-token-usage-from-existing-agent-prompt
+  (let [out (temp-dir "ygg-agent-report-token-placeholder-backfill")
+        suite {:id "suite"
+               :cases [{:id "case-1"}]}
+        prompt "Inspect the graph packet and return compact JSON.\n"
+        expected-tokens (context/estimate-tokens prompt)
+        stale-result-path "/tmp/old-ygg/suite/cases/case-1/agent-results/codex.json"]
+    (spit-file! out
+                "suite/cases/case-1/agent-prompts/codex.md"
+                prompt)
+    (spit-json! out
+                "suite/cases/case-1/agent-scores/codex.score.json"
+                {:schema benchmark/agent-score-schema
+                 :suite-id "suite"
+                 :case-id "case-1"
+                 :repo-id "repo"
+                 :agentResultPath stale-result-path
+                 :agent {:agentId "codex"
+                         :mode "ygg"
+                         :topFiles []
+                         :rawSuspectedFileCount 0
+                         :commands ["ygg ask regression --project fixture"]
+                         :tokenUsage {:inputTokens 0
+                                      :outputTokens 0
+                                      :totalTokens 0
+                                      :costUsd 0.0
+                                      :source "placeholder"}}
+                 :groundTruth {:changedFiles ["src/app.clj"]
+                               :unsupportedGroundTruthFiles []}
+                 :groundTruthRanks {:files [{:path "src/app.clj"
+                                             :found? false}]}
+                 :scores {:fileRecallAt5 0.0
+                          :fileRecallAt10 0.0
+                          :fileRecallAt20 0.0
+                          :meanReciprocalRankFile 0.0
+                          :noiseRatioAt20 0.0
+                          :changedFiles 1
+                          :scoreableChangedFiles 1
+                          :unsupportedGroundTruthFiles 0}})
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})
+          expected-usage {:inputTokens expected-tokens
+                          :outputTokens 0
+                          :totalTokens expected-tokens
+                          :costUsd 0.0
+                          :source "benchmark-prompt-estimate"}]
+      (is (= expected-usage
+             (get-in report [:results 0 :agent :tokenUsage])))
+      (is (= {:tokenUsageRuns 1
+              :missingTokenUsageRuns 0
+              :invalidTokenUsageRuns 0}
+             (select-keys (:agentDiagnostics report)
+                          [:tokenUsageRuns
+                           :missingTokenUsageRuns
+                           :invalidTokenUsageRuns])))
+      (is (= {:inputTokens expected-tokens
+              :outputTokens 0
+              :totalTokens expected-tokens
+              :costUsd 0.0}
+             (get-in report [:agentDiagnostics :tokenTelemetry]))))))
+
+(deftest report-replaces-codebase-memory-placeholder-token-usage-from-result-surface
+  (let [out (temp-dir "ygg-agent-report-codebase-memory-token-backfill")
+        suite {:id "suite"
+               :cases [{:id "case-1"}]}
+        agent {:agentId "ygg-baseline-codebase-memory"
+               :mode "codebase-memory"
+               :topFiles [{:path "src/app.clj"
+                           :rank 1
+                           :confidence 1.0
+                           :reason "Codebase Memory MCP returned this exact path."
+                           :evidence ["codebase-memory:search_code path=src/app.clj"]}]
+               :rawSuspectedFileCount 1
+               :commands ["codebase-memory-mcp cli search_code"]
+               :warnings []
+               :summary "Codebase Memory MCP baseline ranked 1 files."
+               :tokenUsage {:inputTokens 0
+                            :outputTokens 0
+                            :totalTokens 0
+                            :costUsd 0.0
+                            :source "codebase-memory-baseline"}}
+        expected-tokens (context/estimate-tokens (dissoc agent :tokenUsage))]
+    (spit-json! out
+                "suite/cases/case-1/agent-scores/ygg-baseline-codebase-memory.score.json"
+                {:schema benchmark/agent-score-schema
+                 :suite-id "suite"
+                 :case-id "case-1"
+                 :repo-id "repo"
+                 :agentResultPath "/tmp/old-ygg/suite/cases/case-1/agent-results/ygg-baseline-codebase-memory.json"
+                 :agent agent
+                 :groundTruth {:changedFiles ["src/app.clj"]
+                               :unsupportedGroundTruthFiles []}
+                 :groundTruthRanks {:files [{:path "src/app.clj"
+                                             :found? true
+                                             :rank 1}]}
+                 :scores {:fileRecallAt5 1.0
+                          :fileRecallAt10 1.0
+                          :fileRecallAt20 1.0
+                          :meanReciprocalRankFile 1.0
+                          :noiseRatioAt20 0.0
+                          :changedFiles 1
+                          :scoreableChangedFiles 1
+                          :unsupportedGroundTruthFiles 0}})
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})
+          expected-usage {:inputTokens expected-tokens
+                          :outputTokens 0
+                          :totalTokens expected-tokens
+                          :costUsd 0.0
+                          :source "codebase-memory-result-surface-estimate"}]
+      (is (= expected-usage
+             (get-in report [:results 0 :agent :tokenUsage])))
+      (is (= {:tokenUsageRuns 1
+              :missingTokenUsageRuns 0
+              :invalidTokenUsageRuns 0}
+             (select-keys (:agentDiagnostics report)
+                          [:tokenUsageRuns
+                           :missingTokenUsageRuns
+                           :invalidTokenUsageRuns])))
+      (is (= {:inputTokens expected-tokens
+              :outputTokens 0
+              :totalTokens expected-tokens
+              :costUsd 0.0}
+             (get-in report [:agentDiagnostics :tokenTelemetry]))))))
+
 (deftest reports-decision-quality-diagnostics
   (let [out (temp-dir "ygg-agent-report-decision")
         suite {:id "suite"
@@ -1341,6 +1529,57 @@
                   (filter #(= "expected-evidence-citation-metric-gaps"
                               (:kind %)))
                   first))))))
+
+(deftest agent-report-counts-citation-only-expected-evidence-for-readiness
+  (let [out (temp-dir "ygg-agent-report-citation-evidence-readiness")
+        suite {:id "suite"
+               :cases [{:id "case-1"
+                        :tags [:problem-architecture
+                               :architecture-dependency-flow]}]}]
+    (spit-json!
+     out
+     "suite/cases/case-1/agent-scores/run.score.json"
+     {:schema benchmark/agent-score-schema
+      :suite-id "suite"
+      :case-id "case-1"
+      :repo-id "repo"
+      :tags ["problem-architecture" "architecture-dependency-flow"]
+      :maintenancePreflight passing-maintenance-preflight
+      :expectations {:citation-evidence [{:kind "runtime-config"
+                                          :path "config/runtime.env"}]}
+      :agent {:agentId "codex"
+              :mode "ygg"
+              :topFiles [{:path "src/app.clj"
+                          :rank 1
+                          :evidence ["context-doc:config/runtime.env"]}]
+              :commands ["ygg explore"]}
+      :groundTruth {:changedFiles ["src/app.clj"]
+                    :scoreableFiles ["src/app.clj"]
+                    :unsupportedGroundTruthFiles []}
+      :groundTruthRanks {:files [{:path "src/app.clj"
+                                  :rank 1
+                                  :found? true}]}
+      :scores {:fileRecallAt5 1.0
+               :fileRecallAt10 1.0
+               :fileRecallAt20 1.0
+               :meanReciprocalRankFile 1.0
+               :noiseRatioAt20 0.0
+               :evidenceCitationRate 1.0
+               :pathEvidenceCitationRate 1.0
+               :changedFiles 1
+               :scoreableChangedFiles 1
+               :unsupportedGroundTruthFiles 0}})
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= {:runs 1
+              :expectedEvidenceRuns 1
+              :expectedEvidenceCaseIds ["case-1"]
+              :expectedEvidenceTargets 1
+              :expectedEvidenceCitationMetricRuns 0
+              :expectedEvidenceCitationMetricCaseIds []
+              :missingExpectedEvidenceCitationMetricRuns 1
+              :missingExpectedEvidenceCitationMetricCaseIds ["case-1"]}
+             (:expectationDiagnostics report))))))
 (deftest reports-exclude-obsolete-agent-score-schema
   (let [out (temp-dir "ygg-agent-report-obsolete-score-schema")
         case {:id "case-1"

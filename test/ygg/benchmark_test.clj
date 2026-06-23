@@ -572,6 +572,21 @@
     (is (= 2 (:expectedEvidenceCitations scores)))
     (is (= 3 (:expectedEvidenceCitationTargets scores)))))
 
+(deftest scores-citation-only-expected-evidence
+  (let [result {:groundTruth {:changedFiles ["src/app.clj"]
+                              :unsupportedGroundTruthFiles []}
+                :expectations {:citation-evidence [{:kind :runtime-config
+                                                    :path "config/runtime.env"}
+                                                   {:kind :runtime-config
+                                                    :label "CACHE_URL"}]}
+                :ygg {:topFiles [{:path "src/app.clj"
+                                  :rank 1
+                                  :evidence ["context-doc:config/runtime.env"]}]}}
+        scores (benchmark/score-result result)]
+    (is (= 0.5 (:expectedEvidenceCitationRate scores)))
+    (is (= 1 (:expectedEvidenceCitations scores)))
+    (is (= 2 (:expectedEvidenceCitationTargets scores)))))
+
 (deftest agent-report-treats-zero-token-usage-as-invalid-telemetry
   (let [diagnostics (#'benchmark-report/aggregate-agent-diagnostics
                      [{:case-id "valid"

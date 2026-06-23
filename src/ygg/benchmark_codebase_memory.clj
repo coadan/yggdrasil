@@ -6,6 +6,7 @@
             [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-progress :as benchmark-progress]
+            [ygg.context :as context]
             [ygg.fs :as fs]
             [clojure.java.shell :as shell]))
 
@@ -79,11 +80,28 @@
                        :err err})))
     (select-keys process [:exit :out :err])))
 
+(defn- valid-token-usage?
+  [usage]
+  (and (map? usage)
+       (pos? (long (or (:totalTokens usage) 0)))))
+
+(defn- result-surface-token-usage
+  [agent-result]
+  (let [input-tokens (context/estimate-tokens (dissoc agent-result :tokenUsage))]
+    {:inputTokens input-tokens
+     :outputTokens 0
+     :totalTokens input-tokens
+     :costUsd 0.0
+     :source "codebase-memory-result-surface-estimate"}))
+
 (defn- normalize-codebase-memory-result
   [agent-result prepared agent-id]
-  (assoc (benchmark-local-vector/normalize-agent-result-identity agent-result prepared)
-         :agentId agent-id
-         :mode "codebase-memory"))
+  (let [result (assoc (benchmark-local-vector/normalize-agent-result-identity agent-result prepared)
+                      :agentId agent-id
+                      :mode "codebase-memory")]
+    (cond-> result
+      (not (valid-token-usage? (:tokenUsage result)))
+      (assoc :tokenUsage (result-surface-token-usage result)))))
 
 (defn codebase-memory-baseline!
   "Generate, write, and score one Codebase Memory MCP benchmark baseline.

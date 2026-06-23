@@ -10,6 +10,7 @@ JSON shape.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -76,6 +77,23 @@ def write_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(value, f, indent=2)
+
+
+def estimate_tokens(value: Any) -> int:
+    return int(math.ceil(len(json.dumps(value, sort_keys=True)) / 4.0))
+
+
+def result_surface_token_usage(result: dict) -> dict:
+    input_tokens = estimate_tokens(
+        {key: value for key, value in result.items() if key != "tokenUsage"}
+    )
+    return {
+        "inputTokens": input_tokens,
+        "outputTokens": 0,
+        "totalTokens": input_tokens,
+        "costUsd": 0.0,
+        "source": "codebase-memory-result-surface-estimate",
+    }
 
 
 def issue_query(request: dict) -> str:
@@ -380,16 +398,10 @@ def result_base(request: dict, warnings: list[str], commands: list[str], suspect
             if suspected
             else "Codebase Memory MCP baseline returned no suspected files."
         ),
-        "tokenUsage": {
-            "inputTokens": 0,
-            "outputTokens": 0,
-            "totalTokens": 0,
-            "costUsd": 0.0,
-            "source": "codebase-memory-baseline",
-        },
     }
     if request.get("agentInputFingerprint"):
         result["agentInputFingerprint"] = request.get("agentInputFingerprint")
+    result["tokenUsage"] = result_surface_token_usage(result)
     return result
 
 

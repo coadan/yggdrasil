@@ -198,6 +198,9 @@
        (remove #(= :timing (:category %)))
        vec))
 
+(def ^:private claim-excluded-categories
+  #{"timing"})
+
 (def ^:private category-order
   (->> (concat metric-specs decision-metric-specs)
        (map (comp name :category))
@@ -637,6 +640,11 @@
   (let [metric-keys (set metric-keys)]
     (filterv #(contains? metric-keys (:key %)) deltas)))
 
+(defn- claim-deltas
+  [deltas]
+  (filterv #(not (contains? claim-excluded-categories (:category %)))
+           deltas))
+
 (defn- tradeoff-counts
   [rows]
   {:availableMetrics (count (filter :available rows))
@@ -970,18 +978,19 @@
   (map? (:claimReadiness report)))
 
 (defn- claim-readiness
-  [summary comparable by-category problem-coverage shell-report ygg-report
+  [summary claim-summary comparable by-category problem-coverage shell-report ygg-report
    per-case-token-reduction]
   (let [same-suite? (true? (:sameSuite comparable))
         same-cases? (true? (:sameCases comparable))
         enough-cases? (<= (long (:minSharedCases summary))
                           (long (:sharedCases comparable)))
         improved-without-regressions? (and (= "ygg-improved"
-                                              (:signal summary))
-                                           (zero? (:regressedMetrics summary)))
-        directional-metrics? (pos? (long (+ (:improvedMetrics summary)
-                                            (:regressedMetrics summary)
-                                            (:unchangedMetrics summary))))
+                                              (:signal claim-summary))
+                                           (zero? (:regressedMetrics
+                                                   claim-summary)))
+        directional-metrics? (pos? (long (+ (:improvedMetrics claim-summary)
+                                            (:regressedMetrics claim-summary)
+                                            (:unchangedMetrics claim-summary))))
         problem-classes? (true? (:hasMeasuredProblemClasses problem-coverage))
         architecture-classes? (true? (:hasMeasuredArchitectureClasses
                                       problem-coverage))
@@ -1228,13 +1237,14 @@
            metric-fields)))
 
 (defn- compact-summary
-  [{:keys [summary comparable claim-readiness]}]
+  [{:keys [summary claim-summary comparable claim-readiness]}]
   (let [requirements (:requirements claim-readiness)
+        claim-summary (or claim-summary summary)
         shared-cases (long (:sharedCases comparable))
         min-shared-cases (long (:minSharedCases summary))
-        improved (long (:improvedMetrics summary))
-        regressed (long (:regressedMetrics summary))
-        unavailable (long (:unavailableMetrics summary))
+        improved (long (:improvedMetrics claim-summary))
+        regressed (long (:regressedMetrics claim-summary))
+        unavailable (long (:unavailableMetrics claim-summary))
         enough-cases? (true? (:enoughSharedCases requirements))
         comparable? (and (true? (:sameSuite requirements))
                          (true? (:sameCases requirements))
@@ -1278,7 +1288,7 @@
               (and (= "inconclusive" verdict) (not claim-ready?))
               (conj "Claim readiness is not supported; use the warnings before making the benchmark claim."))]
     {:verdict verdict
-     :status (:signal summary)
+     :status (:signal claim-summary)
      :claimStatus (:status claim-readiness)
      :sharedCases shared-cases
      :minSharedCases min-shared-cases
@@ -1314,6 +1324,9 @@
          summary (aggregate-summary deltas
                                     comparable
                                     {:min-shared-cases min-shared-cases})
+         claim-summary (aggregate-summary (claim-deltas deltas)
+                                          comparable
+                                          {:min-shared-cases min-shared-cases})
          by-category (category-summaries deltas comparable min-shared-cases)
          by-tag (by-tag-comparison shell-report ygg-report)
          problem-coverage (problem-class-coverage shell-report
@@ -1328,6 +1341,7 @@
                                           comparable
                                           case-deltas-result)
          claim-readiness-result (claim-readiness summary
+                                                 claim-summary
                                                  comparable
                                                  by-category
                                                  problem-coverage
@@ -1339,20 +1353,22 @@
          context-artifacts (context-artifact-comparison shell-report ygg-report)
          compact-summary-result (compact-summary
                                  {:summary summary
+                                  :claim-summary claim-summary
                                   :comparable comparable
                                   :claim-readiness claim-readiness-result})]
      (cond-> {:schema schema
-              :status (:signal summary)
+              :status (:signal claim-summary)
               :suiteId (or (:suite-id ygg-report)
                            (:suite-id shell-report))
               :compactSummary compact-summary-result
               :summary summary
+              :claimSummary claim-summary
               :comparability comparable
               :shellOnly (report-summary shell-report)
               :ygg (report-summary ygg-report)
               :deltas deltas
               :headlineMetrics headline-metrics
-              :headlineSummary (headline-summary {:summary summary
+              :headlineSummary (headline-summary {:summary claim-summary
                                                   :comparable comparable
                                                   :headline-metrics headline-metrics
                                                   :claim-readiness
@@ -1525,6 +1541,33 @@
        ", unchanged " (:unchangedMetrics summary)
        ", unavailable " (:unavailableMetrics summary)))
 
+(defn- summary-counts-line
+  [label summary]
+  (str label
+       " improved "
+       (:improvedMetrics summary)
+       ", regressed "
+       (:regressedMetrics summary)
+       ", unchanged "
+       (:unchangedMetrics summary)
+       (when-let [observed (:observedMetrics summary)]
+         (str ", observed " observed))
+       ", unavailable "
+       (:unavailableMetrics summary)))
+
+(defn- same-summary-counts?
+  [left right]
+  (= (select-keys left [:improvedMetrics
+                        :regressedMetrics
+                        :unchangedMetrics
+                        :observedMetrics
+                        :unavailableMetrics])
+     (select-keys right [:improvedMetrics
+                         :regressedMetrics
+                         :unchangedMetrics
+                         :observedMetrics
+                         :unavailableMetrics])))
+
 (defn- context-artifact-line
   [label telemetry]
   (let [totals (:totals telemetry)]
@@ -1579,6 +1622,8 @@
   (let [class-summary (get-in comparison [:classSignals :summary])
         inputs (:inputs comparison)
         compact-summary (:compactSummary comparison)
+        summary (:summary comparison)
+        claim-summary (or (:claimSummary comparison) summary)
         requirements (get-in comparison [:claimReadiness :requirements])
         warnings (get-in comparison [:claimReadiness :warnings])
         notes (get-in comparison [:claimReadiness :notes])
@@ -1606,11 +1651,15 @@
                (str "- Shared cases: "
                     (get-in comparison [:comparability :sharedCases]))
                (str "- Improved metrics: "
-                    (get-in comparison [:summary :improvedMetrics]))
+                    (:improvedMetrics claim-summary))
                (str "- Regressed metrics: "
-                    (get-in comparison [:summary :regressedMetrics]))
+                    (:regressedMetrics claim-summary))
                (str "- Unavailable metrics: "
-                    (get-in comparison [:summary :unavailableMetrics]))
+                    (:unavailableMetrics claim-summary))
+               (when-not (same-summary-counts? summary claim-summary)
+                 (summary-counts-line
+                  "- Overall metrics including timing:"
+                  summary))
                (str "- Claim readiness: "
                     (get-in comparison [:claimReadiness :status]))]
               (when (seq (:why compact-summary))
@@ -1742,22 +1791,18 @@
       (if (flag? args "--json")
         (println (json/write-json-str comparison {:indent-str "  "}))
         (do
-          (println (str "Agent efficiency: " (:status comparison)))
-          (when-let [compact (:compactSummary comparison)]
-            (println (str "Verdict: " (:verdict compact)))
-            (doseq [reason (:why compact)]
-              (println (str "- " reason))))
-          (println (str "Improved metrics: "
-                        (get-in comparison [:summary :improvedMetrics])
-                        ", regressed metrics: "
-                        (get-in comparison [:summary :regressedMetrics])
-                        ", unchanged metrics: "
-                        (get-in comparison [:summary :unchangedMetrics])
-                        (when-let [observed (get-in comparison
-                                                    [:summary :observedMetrics])]
-                          (str ", observed metrics: " observed))
-                        ", unavailable metrics: "
-                        (get-in comparison [:summary :unavailableMetrics])))
+          (let [summary (:summary comparison)
+                claim-summary (or (:claimSummary comparison) summary)]
+            (println (str "Agent efficiency: " (:status comparison)))
+            (when-let [compact (:compactSummary comparison)]
+              (println (str "Verdict: " (:verdict compact)))
+              (doseq [reason (:why compact)]
+                (println (str "- " reason))))
+            (println (summary-counts-line "Claim metrics:" claim-summary))
+            (when-not (same-summary-counts? summary claim-summary)
+              (println (summary-counts-line
+                        "Overall metrics including timing:"
+                        summary))))
           (println (str "Shared tag groups: "
                         (get-in comparison [:byTag :comparability :sharedTags])))
           (when-let [summary (get-in comparison [:classSignals :summary])]

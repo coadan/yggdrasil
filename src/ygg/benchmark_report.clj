@@ -15,6 +15,7 @@
             [ygg.benchmark-suite :as benchmark-suite]
             [ygg.benchmark-system-improvement :as benchmark-system-improvement]
             [ygg.benchmark-util :as benchmark-util]
+            [ygg.context :as context]
             [clojure.set :as set]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -581,6 +582,66 @@
                  :forbiddenEdges (count (get-in result [:expectations :forbidden-edges]))}}
 
       :else nil)))
+
+(defn- result-path-stem
+  [path]
+  (when (seq (str path))
+    (let [name (.getName (io/file path))]
+      (if (str/ends-with? name ".json")
+        (subs name 0 (- (count name) (count ".json")))
+        name))))
+
+(defn- prompt-stem
+  [result]
+  (or (some-> (:agentResultPath result) result-path-stem)
+      (some-> (get-in result [:agent :agentId]) benchmark-paths/safe-id)))
+
+(defn- report-prompt-token-estimate
+  [prompt-path]
+  (when (.isFile (io/file prompt-path))
+    (try
+      (let [input-tokens (context/estimate-tokens (slurp prompt-path))]
+        {:inputTokens input-tokens
+         :outputTokens 0
+         :totalTokens input-tokens
+         :costUsd 0.0
+         :source "benchmark-prompt-estimate"})
+      (catch Exception _
+        nil))))
+
+(defn- report-result-surface-token-estimate
+  [source result-surface]
+  (let [input-tokens (context/estimate-tokens result-surface)]
+    {:inputTokens input-tokens
+     :outputTokens 0
+     :totalTokens input-tokens
+     :costUsd 0.0
+     :source source}))
+
+(defn- codebase-memory-result-surface-token-estimate
+  [result]
+  (when (= "codebase-memory" (get-in result [:agent :mode]))
+    (report-result-surface-token-estimate
+     "codebase-memory-result-surface-estimate"
+     (dissoc (:agent result) :tokenUsage))))
+
+(defn- backfill-token-usage
+  [result suite case opts]
+  (if (valid-token-usage? (get-in result [:agent :tokenUsage]))
+    result
+    (if-let [stem (prompt-stem result)]
+      (let [prompt-path (io/file (benchmark-paths/case-output-dir suite case opts)
+                                 "agent-prompts"
+                                 (str stem ".md"))]
+        (if-let [usage (report-prompt-token-estimate prompt-path)]
+          (assoc-in result [:agent :tokenUsage] usage)
+          (if-let [usage (codebase-memory-result-surface-token-estimate result)]
+            (assoc-in result [:agent :tokenUsage] usage)
+            result)))
+      (if-let [usage (codebase-memory-result-surface-token-estimate result)]
+        (assoc-in result [:agent :tokenUsage] usage)
+        result))))
+
 (defn- aggregate-graph-expectation-diagnostics
   [results]
   (let [pairs (->> results
@@ -804,7 +865,10 @@
 
 (defn- expected-evidence-count
   [result]
-  (count (get-in result [:expectations :evidence])))
+  (let [expectations (:expectations result)]
+    (count (or (seq (:citation-evidence expectations))
+               (seq (:citationEvidence expectations))
+               (:evidence expectations)))))
 
 (defn- expected-evidence-citation-metric?
   [result]
@@ -1705,6 +1769,10 @@
                      (mapcat (fn [case]
                                (let [case-progress (get progress-by-case (:id case))]
                                  (map #(cond-> %
+                                         true (backfill-token-usage
+                                               suite
+                                               case
+                                               opts)
                                          case-progress (assoc :progress case-progress))
                                       (benchmark-score-artifacts/agent-score-results suite case opts))))
                              cases))

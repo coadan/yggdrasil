@@ -122,7 +122,12 @@
                  "inspectionRepoCandidateSelected" {"type" "integer"
                                                     "minimum" 0}
                  "inspectionCandidateFillSkipped" {"type" "integer"
-                                                   "minimum" 0}}})
+                                                   "minimum" 0}
+                 "compactResultSurface" {"type" "boolean"}
+                 "compactResultLimit" {"type" "integer"
+                                       "minimum" 0}
+                 "compactResultFiles" {"type" "integer"
+                                       "minimum" 0}}})
 (defn agent-result-decision-choice-json-schema
   []
   {"type" "object"
@@ -262,25 +267,7 @@
                  "limit" {"type" ["integer" "null"]
                           "minimum" 0}
                  "coverageSourceKinds" {"type" "array"
-                                        "items" {"type" "string"}}
-                 "candidateFileOnlyQuota" {"type" "integer"
-                                           "minimum" 0}
-                 "candidateFileOnlySelected" {"type" "integer"
-                                              "minimum" 0}
-                 "unsaturatedDecisionTailPruned" {"type" "integer"
-                                                  "minimum" 0}
-                 "unsaturatedDecisionTailScoreFloor" {"type" "number"
-                                                      "minimum" 0}
-                 "scoreElbowTailPruned" {"type" "integer"
-                                         "minimum" 0}
-                 "scoreElbowTailScoreFloor" {"type" "number"
-                                             "minimum" 0}
-                 "inspectionDirectFileSelected" {"type" "integer"
-                                                 "minimum" 0}
-                 "inspectionRepoCandidateSelected" {"type" "integer"
-                                                    "minimum" 0}
-                 "inspectionCandidateFillSkipped" {"type" "integer"
-                                                   "minimum" 0}}})
+                                        "items" {"type" "string"}}}})
 
 (defn agent-result-output-json-schema
   []

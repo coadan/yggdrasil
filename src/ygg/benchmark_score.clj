@@ -213,9 +213,14 @@
          (and (nil? path)
               label
               (some #(str/includes? % label) evidence))))))
+(defn- citation-evidence-expectations
+  [expectations]
+  (vec (or (seq (:citation-evidence expectations))
+           (seq (:citationEvidence expectations))
+           (:evidence expectations))))
 (defn- expected-evidence-citation-metrics
   [expectations top-files]
-  (let [expected (vec (:evidence expectations))]
+  (let [expected (citation-evidence-expectations expectations)]
     (when (seq expected)
       (let [evidence (evidence-strings top-files)
             cited (count (filter #(expected-evidence-cited? evidence %) expected))
