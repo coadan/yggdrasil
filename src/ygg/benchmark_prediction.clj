@@ -2479,6 +2479,15 @@
         (update :keys conj (file-row-key row)))
     selected))
 
+(defn- fill-compact-output-selection
+  [selected files limit]
+  (let [remaining-limit (max 0 (- (long limit) (count (:rows selected))))
+        remaining (remove #(contains? (:keys selected) (file-row-key %))
+                          files)]
+    (reduce add-compact-output-row
+            selected
+            (take remaining-limit remaining))))
+
 (defn- compact-output-selected-files
   [files limit result-scope]
   (let [limit (when limit (long limit))]
@@ -2515,17 +2524,19 @@
                          (reduce add-compact-output-row
                                  selected
                                  (take head-count files))))
-            remaining (remove #(contains? (:keys selected) (file-row-key %))
-                              files)
             minimum-count (min limit 2)
             selected (if (< (count (:rows selected)) minimum-count)
                        (reduce add-compact-output-row
                                selected
                                (take (- minimum-count (count (:rows selected)))
-                                     remaining))
-                       selected)]
+                                     (remove #(contains? (:keys selected)
+                                                         (file-row-key %))
+                                             files)))
+                       selected)
+            selected (fill-compact-output-selection selected files limit)]
         (->> (:rows selected)
              (take limit)
+             (sort-by #(or (:rank %) Long/MAX_VALUE))
              renumber-file-ranks)))))
 
 (defn- decision-file-by-path

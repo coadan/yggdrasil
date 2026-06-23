@@ -3796,11 +3796,13 @@
                      :candidateLexicalComponentBoost 0.06
                      :graphNeighborScore 0.2})]
         selected (compact-output files 5 nil)]
-    (is (= ["src/Mapper.cs"
-            "src/Mapper.Settings.cs"
-            "tests/type-handler.cs"]
+    (is (= ["tests/type-handler.cs"
+            "src/type-handler.cs"
+            "benchmarks/noise.cs"
+            "src/Mapper.cs"
+            "src/Mapper.Settings.cs"]
            (mapv :path selected)))
-    (is (= [1 2 3] (mapv :rank selected)))))
+    (is (= [1 2 3 4 5] (mapv :rank selected)))))
 
 (deftest compact-output-prefers-architecture-supported-edit-surface
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
@@ -3827,9 +3829,11 @@
                      :graphNeighborScore 0.2})]
         selected (compact-output files 5 nil)]
     (is (= ["tests/http.test.js"
-            "lib/http.js"]
+            "tests/headers.test.js"
+            "lib/http.js"
+            "tests/fetch.test.js"]
            (mapv :path selected)))
-    (is (= [1 2] (mapv :rank selected)))))
+    (is (= [1 2 3 4] (mapv :rank selected)))))
 
 (deftest compact-agent-result-prefers-included-decision-candidate-paths
   (let [root (temp-dir "ygg-bench-compact-decision-output")
