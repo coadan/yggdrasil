@@ -61,6 +61,16 @@
                             :repo-id repo-id
                             :active? true})))
 
+(defn search-doc-count
+  ([xtdb] (search-doc-count xtdb {}))
+  ([xtdb {:keys [project-id repo-id]}]
+   (store/count-rows xtdb
+                     (:search-docs store/tables)
+                     {:project-id project-id
+                      :repo-id repo-id
+                      :active? true}
+                     {})))
+
 (defn all-embeddings
   ([xtdb] (all-embeddings xtdb {}))
   ([xtdb {:keys [project-id repo-id provider model]}]
@@ -135,7 +145,7 @@
                                                       :provider provider
                                                       :model model
                                                       :limit limit)))
-        total-search-docs (count (all-search-docs xtdb scope))]
+        total-search-docs (search-doc-count xtdb scope)]
     (reduce
      (fn [summary batch]
        (let [vectors (embed-batch (mapv :text batch))]

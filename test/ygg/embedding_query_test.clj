@@ -96,6 +96,58 @@
           (is (zero? (:embedded second-summary)))
           (is (= (:search-docs second-summary) (:skipped second-summary))))))))
 
+(deftest embed-search-docs-counts-total-with-count-query
+  (let [search-doc-calls (atom 0)
+        count-calls (atom [])
+        committed (atom [])
+        docs [{:xt/id "search-doc:pending"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:pending"
+               :input-sha "sha:pending"
+               :text "uppercase greeting"
+               :active? true}]]
+    (with-redefs [embedding/all-search-docs
+                  (fn [_ scope]
+                    (swap! search-doc-calls inc)
+                    (is (= {:project-id "project-a"
+                            :repo-id "app"}
+                           scope))
+                    docs)
+                  store/rows-with-field-tuples
+                  (fn [& _] [])
+                  store/count-rows
+                  (fn [_ table constraints ctx]
+                    (swap! count-calls conj {:table table
+                                             :constraints constraints
+                                             :ctx ctx})
+                    3)
+                  store/commit-embeddings!
+                  (fn [_ rows]
+                    (swap! committed conj rows)
+                    {:embeddings (count rows)})]
+      (let [summary (embedding/embed-search-docs!
+                     :xtdb
+                     fake-client
+                     {:project-id "project-a"
+                      :repo-id "app"
+                      :batch-size 4})]
+        (is (= 1 @search-doc-calls))
+        (is (= [{:table (:search-docs store/tables)
+                 :constraints {:project-id "project-a"
+                               :repo-id "app"
+                               :active? true}
+                 :ctx {}}]
+               @count-calls))
+        (is (= 1 (count @committed)))
+        (is (= {:provider :fake
+                :model "fake-embedding"
+                :search-docs 3
+                :pending 1
+                :embedded 1
+                :skipped 2}
+               summary))))))
+
 (deftest hybrid-query-ranks-semantic-matches
   (let [xtdb-path (temp-dir "ygg-hybrid-xtdb")
         repo (.getPath (io/file "test/fixtures/sample-repo"))]
