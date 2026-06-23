@@ -71,6 +71,19 @@
                                              (assoc constraints :relation relation))))
            vec))))
 
+(defn- active-scope-report-edge-rows
+  [xtdb {:keys [project-id repo-id] :as scope} relations]
+  (if (store/xtdb-handle? xtdb)
+    (active-scope-edge-rows xtdb scope relations)
+    (let [relation-set (set relations)]
+      (->> (store/constrained-rows xtdb
+                                   (:edges store/tables)
+                                   {:project-id project-id
+                                    :repo-id repo-id
+                                    :active? true})
+           (filter #(contains? relation-set (:relation %)))
+           vec))))
+
 (defn- package-node?
   [node]
   (= :external-package (:kind node)))
@@ -431,7 +444,7 @@
     {:keys [limit map-overlay ecosystem package with-conflicts? without-import-evidence?] :as opts}]
    (let [files (active-scope-rows xtdb (:files store/tables) scope)
          nodes (active-scope-rows xtdb (:nodes store/tables) scope)
-         edges (active-scope-edge-rows xtdb scope package-report-edge-relations)
+         edges (active-scope-report-edge-rows xtdb scope package-report-edge-relations)
          files-by-path (into {} (map (juxt :path identity)) files)
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
          alias-nodes (filterv import-common/module-path-alias-node? nodes)
