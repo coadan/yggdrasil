@@ -1763,7 +1763,7 @@
   [comparison]
   (or (get-in comparison [:ygg :timings :stageTiming :basis])
       (get-in comparison [:shellOnly :timings :stageTiming :basis])
-      "warmElapsedMs excludes graph setup and agent preparation stages that are amortized when the repo graph and agent context are already prepared."))
+      "warmElapsedMs assumes a prepared-agent run: the Yggdrasil graph DB and agent context are already prepared, so graph setup and agent preparation are reported as amortized setup instead of counted in the primary elapsed metric."))
 
 (defn- claim-requirement-line
   [requirements key]

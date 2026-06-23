@@ -69,7 +69,7 @@
      :caseSetupElapsedMs case-setup-ms
      :agentPreparationElapsedMs agent-preparation-ms
      :scoringElapsedMs scoring-ms
-     :stageTiming {:basis "warmElapsedMs excludes graph setup and agent preparation stages that are amortized when the repo graph and agent context are already prepared."
+     :stageTiming {:basis "warmElapsedMs assumes a prepared-agent run: the Yggdrasil graph DB and agent context are already prepared, so graph setup and agent preparation are reported as amortized setup instead of counted in the primary elapsed metric."
                    :primaryElapsedMetric "warmElapsedMs"
                    :agentReadyElapsedMetric "agentReadyElapsedMs"
                    :amortizedStageClasses ["graph-setup" "agent-preparation"]

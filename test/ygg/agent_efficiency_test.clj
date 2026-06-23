@@ -1632,6 +1632,8 @@
     (is (.contains markdown "- Unavailable headline metrics: totalTokens, costUsd"))
     (is (.contains markdown "## Timing Basis"))
     (is (.contains markdown "- Primary elapsed metric: warmElapsedMs"))
+    (is (.contains markdown
+                   "prepared-agent run: the Yggdrasil graph DB and agent context are already prepared"))
     (is (.contains markdown "## Key Metric Deltas"))
     (is (.contains markdown "- commandCount: improved"))
     (is (.contains markdown "- searchCommandCount: improved"))

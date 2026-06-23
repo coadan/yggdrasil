@@ -113,6 +113,8 @@
                     (:agentInputFingerprint packet)))
           (is (some #(str/includes? % "Only include files likely to require edits in suspectedFiles")
                     (get-in packet [:task :rules])))
+          (is (some #(str/includes? % "do not demote those requested targets")
+                    (get-in packet [:task :rules])))
           (is (some #(str/includes? % "coverageSourceKinds")
                     (get-in packet [:task :rules])))
           (is (some #(str/includes? % "runtime/config/setup file may need edits")
@@ -120,6 +122,8 @@
           (is (some #(str/includes? % "exact repo-relative path")
                     (get-in packet [:task :rules])))
           (is (some #(str/includes? % "caseId, caseFingerprint, and agentInputFingerprint")
+                    (get-in packet [:task :rules])))
+          (is (some #(str/includes? % "Do not read YGG_BENCH_PACKET only")
                     (get-in packet [:task :rules])))
           (is (some #(str/includes? % "do not carry over stale graph-health text")
                     (get-in packet [:task :rules])))
@@ -310,6 +314,8 @@
                  :project-id "project"
                  :mode "ygg"
                  :worktreeRoot "/tmp/worktree"
+                 :input {:title "Trace connector contracts"
+                         :body "Identify connector, consumer, and component contract files."}
                  :task {:objective "Find likely edit locations."}
                  :artifacts {:packetPath "/tmp/packet.json"
                              :projectConfig "/tmp/project.edn"
@@ -322,19 +328,37 @@
                  :prompt-profile "fast"})]
     (is (str/includes? prompt
                        "Yggdrasil artifacts: use `YGG_BENCH_YGG_HINTS` and `YGG_BENCH_YGG_CONTEXT`"))
+    (is (str/includes? prompt "## Issue"))
+    (is (str/includes? prompt "Trace connector contracts"))
+    (is (str/includes? prompt
+                       "Identify connector, consumer, and component contract files."))
+    (is (str/includes? prompt
+                       "do not read `YGG_BENCH_PACKET` only to recover the issue"))
+    (is (str/includes? prompt
+                       "`YGG_BENCH_CASE_ID`, `YGG_BENCH_CASE_FINGERPRINT`, and `YGG_BENCH_AGENT_INPUT_FINGERPRINT`"))
     (is (not (str/includes? prompt "Yggdrasil hints JSON: /tmp/hints.json")))
     (is (not (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json")))
     (is (str/includes? prompt "Yggdrasil is prepared and warm"))
     (is (str/includes? prompt
-                       "`jq '{selection,topFiles,topSymbols,readPlan,diagnostics}'"))
-    (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts"))
-    (is (str/includes? prompt "`readPlan.snippets`"))
+                       "`jq '{selection,topFiles:[.topFiles[:8][]|{rank,path,evidence}]"))
     (is (str/includes? prompt
-                       "`topFiles`, `topSymbols`, `readPlan`, `architecture`, and `auditScopes`"))
+                       "candidateSystems:[.candidateSystems[:6][]|{rank,path,score}]"))
+    (is (str/includes? prompt
+                       "readPlan:{snippets:[.readPlan.snippets[:3][]|{path,lines,command}]}"))
+    (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts or `readPlan.snippets[].snippet`"))
+    (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts"))
+    (is (str/includes? prompt "`readPlan.snippets[].command`"))
+    (is (str/includes? prompt
+                       "`topFiles`, `topSymbols`, `candidateSystems`, `readPlan`, `architecture`, and `auditScopes`"))
     (is (str/includes? prompt "Avoid broad `rg`"))
+    (is (str/includes? prompt
+                       "Constrain `rg` to exact files or shallow globs and cap output"))
+    (is (str/includes? prompt
+                       "Do not run directory-wide `rg` just to reconfirm prepared top-file"))
     (is (str/includes? prompt "narrow `sed` windows"))
     (is (str/includes? prompt
                        "Open `YGG_BENCH_YGG_CONTEXT` or full hints only when compact hints"))
+    (is (str/includes? prompt "file reads can satisfy evidence"))
     (is (str/includes? prompt
                        "`sourceCoverage` and `diagnostics`"))
     (is (str/includes? prompt
@@ -346,6 +370,7 @@
     (is (not (str/includes? prompt "\"tokenUsage\": null")))
     (is (str/includes? prompt "coverageSourceKinds"))
     (is (str/includes? prompt "runtime/config/setup file may need edits"))
+    (is (str/includes? prompt "do not demote those requested targets"))
     (is (str/includes? prompt "exact repo-relative path"))
     (is (str/includes? prompt "exact evidence path and label"))
     (is (str/includes? prompt "caseId, caseFingerprint, and agentInputFingerprint"))
@@ -566,6 +591,8 @@
                              "final response"))
           (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
                              "Only include files likely to require edits in suspectedFiles"))
+          (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
+                             "do not demote those requested targets"))
           (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))
                              "coverageSourceKinds"))
           (is (str/includes? (slurp (get-in run [:artifacts :promptPath]))

@@ -21,6 +21,7 @@
 
 (def suspected-files-scope-rules
   ["Only include files likely to require edits in suspectedFiles; cite comparison, example, generated, or clearly read-only support files as evidence instead."
+   "If the issue asks for multiple packages, components, contracts, or files, include each directly requested target's primary file as a suspectedFile when evidence shows it participates in the requested change path; do not demote those requested targets solely to evidence rows."
    "When Yggdrasil hints expose coverageSourceKinds or coverage-filtered diagnostics, check those source-kind lanes before finalizing suspectedFiles."
    "If a runtime/config/setup file may need edits for the issue or test path, include it as a suspectedFile rather than citing it only as supporting evidence."])
 
@@ -42,6 +43,7 @@
 
 (def result-integrity-rules
   ["Copy caseId, caseFingerprint, and agentInputFingerprint from the current packet or YGG_BENCH_* environment variables."
+   "Do not read YGG_BENCH_PACKET only to recover issue text or identity fields when they are already present in the prompt or environment."
    "Use warnings only for current result-validity blockers verified in this run; do not carry over stale graph-health text from older results."])
 
 (defn- parser-worker-option
@@ -214,6 +216,7 @@
             "- Use at most 8 local shell commands."
             "- Inspect at most 12 files or snippets."
             "- Prefer `rg`, focused `sed`, and packet-provided Yggdrasil ask/explore commands."
+            "- Constrain `rg` to exact files or shallow globs and cap output; avoid recursive directory searches that dump support files."
             "- Return the best 1-5 suspected files as soon as evidence is sufficient."
             (str "- " (str/join "\n- " (result-scope-rules result-scope)))
             (str "- " (str/join "\n- " evidence-citation-rules))
@@ -237,6 +240,44 @@
                       :candidates candidates})
        "```"
        ""])))
+
+(defn- prompt-text
+  [value]
+  (some-> value str str/trim not-empty))
+
+(defn- bounded-prompt-text
+  [limit value]
+  (when-let [text (prompt-text value)]
+    (if (<= (count text) limit)
+      text
+      (str (subs text 0 (max 0 (- limit 14))) " [truncated]"))))
+
+(defn- issue-lines
+  [packet]
+  (let [input (:input packet)
+        title (bounded-prompt-text 400 (:title input))
+        body (bounded-prompt-text 4000 (:body input))
+        comments (->> (:comments input)
+                      (keep #(bounded-prompt-text 1000 %))
+                      (take 3)
+                      vec)]
+    (when (or title body (seq comments))
+      (vec
+       (concat
+        ["## Issue"
+         "The issue text is reproduced here; do not read `YGG_BENCH_PACKET` only to recover the issue."
+         (str "- Title: " (or title "not provided"))]
+        (when body
+          [""
+           "Body:"
+           body])
+        (when (seq comments)
+          (concat ["" "Comments:"]
+                  (map-indexed (fn [idx comment]
+                                 (str (inc idx) ". " comment))
+                               comments)))
+        [""])))))
+
 (defn- ygg-mode?
   [packet]
   (= "ygg" (:mode packet)))
@@ -278,15 +319,21 @@
   ["## Yggdrasil Mode"
    (if (ygg-mode? packet)
      (str "Yggdrasil is prepared and warm. Read `YGG_BENCH_YGG_HINTS` first "
-          "with a compact projection such as `jq '{selection,topFiles,"
-          "topSymbols,readPlan,diagnostics}' \"$YGG_BENCH_YGG_HINTS\"`; "
-          "do not print entire Yggdrasil JSON artifacts. Use `readPlan.snippets` "
-          "and exact `topFiles` paths before local file reads. Prefer "
-          "`topFiles`, `topSymbols`, `readPlan`, `architecture`, and "
-          "`auditScopes` before broad search. Avoid broad `rg`; use exact "
+          "with a bounded projection such as `jq '{selection,topFiles:[.topFiles[:8][]|{rank,path,evidence}],"
+          "topSymbols:[.topSymbols[:5][]|{rank,name,path,kind,evidence}],candidateSystems:[.candidateSystems[:6][]|{rank,path,score}],"
+          "readPlan:{snippets:[.readPlan.snippets[:3][]|{path,lines,command}]},diagnostics}' \"$YGG_BENCH_YGG_HINTS\"`; "
+          "do not print entire Yggdrasil JSON artifacts or `readPlan.snippets[].snippet` "
+          "in the first projection. Use `readPlan.snippets[].command` "
+          "and exact `topFiles` paths for focused local file reads. Prefer "
+          "`topFiles`, `topSymbols`, `candidateSystems`, `readPlan`, "
+          "`architecture`, and `auditScopes` before broad search. Avoid broad `rg`; use exact "
           "paths and narrow `sed` windows unless compact hints are insufficient. "
+          "Do not run directory-wide `rg` just to reconfirm prepared top-file or "
+          "read-plan hits; if related files are needed, cap `rg` output and use "
+          "narrow globs. "
           "Open `YGG_BENCH_YGG_CONTEXT` or full hints only when compact hints "
-          "do not provide enough evidence. Treat `sourceCoverage` and "
+          "do not provide enough evidence; file reads can satisfy evidence without "
+          "a full-context lookup. Treat `sourceCoverage` and "
           "`diagnostics` as trust boundaries; run listed `commands` or "
           "`architecture.validationGaps.nextActions` only for weak or missing "
           "planes.")
@@ -322,15 +369,17 @@
        "- `YGG_BENCH_OUTPUT_SCHEMA` points to the JSON Schema for the result."
        "- `YGG_BENCH_PROMPT_PROFILE` identifies the prompt profile for this run."
        "- `YGG_BENCH_RESULT` is the only result file scored by the benchmark."
+       "- `YGG_BENCH_CASE_ID`, `YGG_BENCH_CASE_FINGERPRINT`, and `YGG_BENCH_AGENT_INPUT_FINGERPRINT` carry result identity; use them instead of reading the packet solely for identity."
        "- `YGG_BENCH_WORKTREE` is the base checkout."
        "- `YGG_BENCH_PROJECT` is the generated Yggdrasil project config."
        "- `YGG_BENCH_XTDB_PATH` and `YGG_XTDB_PATH` point to the graph store."
        ""]
       (agent-prompt-profile-lines profile result-scope)
+      (issue-lines packet)
       ["## Task"
        (get-in packet [:task :objective])
        ""
-       "Read the packet, inspect the checkout, and write the ranked localization result JSON."
+       "Use the issue text above, inspect the checkout, and write the ranked localization result JSON."
        "Return files before proposing or applying a patch."
        (str/join "\n" (task-rule-lines task))
        ""]
