@@ -5,7 +5,6 @@
             [ygg.coverage :as coverage]
             [ygg.dependency :as dependency]
             [ygg.fs :as fs]
-            [ygg.query :as query]
             [ygg.xtdb :as store]
             [clojure.java.io :as io]
             [clojure.set :as set]
@@ -85,6 +84,22 @@
         (sort-by (juxt (comp - long :count) :value))
         (take limit)
         vec)))
+
+(defn- grouped-count-total
+  [counts pred]
+  (transduce (comp (filter pred)
+                   (map :count))
+             +
+             0
+             counts))
+
+(defn- field-count-value-name
+  [row field]
+  (display (get-in row [:values field])))
+
+(defn- value-count-name
+  [row]
+  (display (:value row)))
 
 (defn- map-exists?
   [map-path]
@@ -280,27 +295,26 @@
     "route"
     "yaml-resource"})
 
-(defn- row-kind-name
-  [row]
-  (display (:kind row)))
+(defn- runtime-config-evidence-count
+  [kind-counts context-counts]
+  (+ (grouped-count-total
+      kind-counts
+      #(contains? runtime-config-evidence-kinds (value-count-name %)))
+     (grouped-count-total
+      context-counts
+      #(and (= "url" (field-count-value-name % :kind))
+            (= "runtime-config" (field-count-value-name % :url-context))))))
 
-(defn- row-context-name
-  [row k]
-  (display (get row k)))
-
-(defn- runtime-config-evidence?
-  [row]
-  (or (contains? runtime-config-evidence-kinds (row-kind-name row))
-      (and (= "url" (row-kind-name row))
-           (= "runtime-config" (row-context-name row :url-context)))))
-
-(defn- auth-evidence?
-  [row]
-  (= "auth-reference" (row-kind-name row)))
+(defn- auth-reference-count
+  [kind-counts]
+  (grouped-count-total kind-counts #(= "auth-reference" (value-count-name %))))
 
 (defn- auth-context-count
-  [rows context]
-  (count (filter #(= context (row-context-name % :auth-context)) rows)))
+  [context-counts context]
+  (grouped-count-total
+   context-counts
+   #(and (= "auth-reference" (field-count-value-name % :kind))
+         (= context (field-count-value-name % :auth-context)))))
 
 (defn- family-status
   [counts available-families family]
@@ -346,11 +360,21 @@
        (sort-by (juxt (comp - long :count) (comp name :kind)))
        vec))
 
+(defn- kind-counts-from-field-counts
+  [counts]
+  (mapv (fn [{:keys [value count]}]
+          {:kind value
+           :count count})
+        counts))
+
 (defn- evidence-kinds
-  [{:keys [file-facts system-evidence node-kind-counts edge-relation-counts files]}]
+  [{:keys [file-facts system-evidence-kind-counts node-kind-counts
+           edge-relation-counts files]}]
   (cond-> {}
     (seq file-facts) (assoc :file-facts (kind-counts file-facts))
-    (seq system-evidence) (assoc :system-evidence (kind-counts system-evidence))
+    (seq system-evidence-kind-counts) (assoc :system-evidence
+                                             (kind-counts-from-field-counts
+                                              system-evidence-kind-counts))
     (seq node-kind-counts) (assoc-in [:source-graph :nodes]
                                      (top-field-counts node-kind-counts))
     (seq edge-relation-counts) (assoc-in [:source-graph :edges]
@@ -871,9 +895,21 @@
         chunk-count (active-row-total xtdb (:chunks store/tables) read-scope)
         search-doc-count (active-row-total xtdb (:search-docs store/tables) read-scope)
         embedding-count (active-row-total xtdb (:embeddings store/tables) read-scope)
-        system-evidence (query/all-system-evidence xtdb read-scope)
-        runtime-config-evidence (filter runtime-config-evidence? system-evidence)
-        auth-evidence (filter auth-evidence? system-evidence)
+        system-evidence-count (active-row-total xtdb (:system-evidence store/tables) read-scope)
+        system-evidence-kind-counts (active-field-counts xtdb
+                                                         (:system-evidence store/tables)
+                                                         :kind
+                                                         read-scope)
+        system-evidence-context-counts (store/active-row-counts-by-fields
+                                        xtdb
+                                        (:system-evidence store/tables)
+                                        [:kind :url-context :auth-context]
+                                        (scope-constraints read-scope)
+                                        (store/read-context read-context))
+        runtime-config-evidence-count (runtime-config-evidence-count
+                                       system-evidence-kind-counts
+                                       system-evidence-context-counts)
+        auth-reference-count (auth-reference-count system-evidence-kind-counts)
         system-node-count (active-row-total xtdb (:system-nodes store/tables) project-scope)
         system-edge-count (active-row-total xtdb (:system-edges store/tables) project-scope)
         activity-items (activity/all-items xtdb {:project-id (:id project)
@@ -892,15 +928,17 @@
                        :chunks chunk-count
                        :search-docs search-doc-count
                        :embeddings embedding-count
-                       :system-evidence (count system-evidence)
-                       :runtime-config-evidence (count runtime-config-evidence)
-                       :auth-references (count auth-evidence)
-                       :service-account-references (auth-context-count auth-evidence
+                       :system-evidence system-evidence-count
+                       :runtime-config-evidence runtime-config-evidence-count
+                       :auth-references auth-reference-count
+                       :service-account-references (auth-context-count system-evidence-context-counts
                                                                        "service-account")
-                       :secret-references (auth-context-count auth-evidence "secret")
-                       :private-key-references (auth-context-count auth-evidence
+                       :secret-references (auth-context-count system-evidence-context-counts
+                                                              "secret")
+                       :private-key-references (auth-context-count system-evidence-context-counts
                                                                    "private-key")
-                       :api-key-references (auth-context-count auth-evidence "api-key")
+                       :api-key-references (auth-context-count system-evidence-context-counts
+                                                               "api-key")
                        :system-nodes system-node-count
                        :system-edges system-edge-count
                        :packages (get-in package-report [:counts :packages] 0)
@@ -931,7 +969,7 @@
                                :file-facts file-facts
                                :node-kind-counts node-kind-counts
                                :edge-relation-counts edge-relation-counts
-                               :system-evidence system-evidence})
+                               :system-evidence-kind-counts system-evidence-kind-counts})
         state (evidence-state freshness diagnostics counts)
         actions (next-actions {:project project
                                :config-path config-path

@@ -391,6 +391,33 @@
                                                      :label "OPENAI_API_KEY"
                                                      :normalized-value "openai-api-key"
                                                      :active? true}]
+                                   :ygg/system-evidence [{:xt/id "evidence:database-url"
+                                                          :project-id "fixture"
+                                                          :repo-id "app"
+                                                          :system-id "system:billing"
+                                                          :file-id "file:app"
+                                                          :path "config/runtime.env"
+                                                          :kind :env-var
+                                                          :label "DATABASE_URL"
+                                                          :normalized-value "database-url"
+                                                          :source-line 1
+                                                          :confidence 1.0
+                                                          :active? true
+                                                          :run-id "run:system"}
+                                                         {:xt/id "evidence:service-account"
+                                                          :project-id "fixture"
+                                                          :repo-id "app"
+                                                          :system-id "system:billing"
+                                                          :file-id "file:app"
+                                                          :path "config/runtime.env"
+                                                          :kind :auth-reference
+                                                          :label "GOOGLE_APPLICATION_CREDENTIALS"
+                                                          :normalized-value "google-application-credentials"
+                                                          :source-line 2
+                                                          :confidence 1.0
+                                                          :auth-context :service-account
+                                                          :active? true
+                                                          :run-id "run:system"}]
                                    []))
                 query/all-nodes (fn [& _] [])
                 query/all-edges (fn [& _] [])
@@ -399,26 +426,7 @@
                 query/all-embeddings (fn [& _] [])
                 query/all-system-nodes (fn [& _] [])
                 query/all-system-edges (fn [& _] [])
-                query/all-system-evidence (fn [& _]
-                                            [{:xt/id "evidence:database-url"
-                                              :project-id "fixture"
-                                              :repo-id "app"
-                                              :system-id "system:billing"
-                                              :path "config/runtime.env"
-                                              :kind :env-var
-                                              :label "DATABASE_URL"
-                                              :normalized-value "database-url"
-                                              :active? true}
-                                             {:xt/id "evidence:service-account"
-                                              :project-id "fixture"
-                                              :repo-id "app"
-                                              :system-id "system:billing"
-                                              :path "config/runtime.env"
-                                              :kind :auth-reference
-                                              :label "GOOGLE_APPLICATION_CREDENTIALS"
-                                              :normalized-value "google-application-credentials"
-                                              :auth-context :service-account
-                                              :active? true}])
+                query/all-system-evidence (fn [& _] [])
                 activity/all-items (fn [& _] [])
                 activity/all-events (fn [& _] [])]
     (let [summary (evidence/summarize :xtdb

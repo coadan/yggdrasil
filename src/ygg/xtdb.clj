@@ -638,12 +638,16 @@
                                                ctx))))))
 
 (defn- count-row-field-value
-  [row]
-  (cond
-    (contains? row :value) (:value row)
-    (contains? row "value") (get row "value")
-    (contains? row "VALUE") (get row "VALUE")
-    :else nil))
+  ([row] (count-row-field-value row "value"))
+  ([row alias]
+   (let [alias (str alias)
+         alias-key (keyword alias)
+         upper-alias (str/upper-case alias)]
+     (cond
+       (contains? row alias-key) (get row alias-key)
+       (contains? row alias) (get row alias)
+       (contains? row upper-alias) (get row upper-alias)
+       :else nil))))
 
 (defn- field-count-row
   [row]
@@ -667,6 +671,29 @@
                  (str " WHERE " (str/join " AND " where-clauses)))
                " GROUP BY "
                field-sql)
+     :args constraint-args}))
+
+(defn- counts-by-fields-query
+  [table fields constraints active-unless-false?]
+  (let [constraints (->> (clean-constraints constraints)
+                         (sort-by (comp str key))
+                         vec)
+        {constraint-where :where constraint-args :args} (equality-sql constraints)
+        where-clauses (cond-> constraint-where
+                        active-unless-false? (conj (active-unless-false-sql)))
+        field-sqls (mapv sql-column-name fields)
+        select-fields (->> field-sqls
+                           (map-indexed (fn [idx field-sql]
+                                          (str field-sql " AS value" idx)))
+                           (str/join ", "))]
+    {:sql (str "SELECT "
+               select-fields
+               ", COUNT(*) AS row_count FROM "
+               (sql-table-name table)
+               (when (seq where-clauses)
+                 (str " WHERE " (str/join " AND " where-clauses)))
+               " GROUP BY "
+               (str/join ", " field-sqls))
      :args constraint-args}))
 
 (defn active-row-counts-by-field
@@ -702,6 +729,52 @@
           (sort-by (juxt (comp - long :count)
                          (comp str :value)))
           vec))))
+
+(defn active-row-counts-by-fields
+  "Return active row counts grouped by fields.
+
+  The return shape is `{:values {field value} :count n}` so callers can preserve
+  mechanical grouped dimensions without hydrating source rows."
+  ([xtdb table fields constraints] (active-row-counts-by-fields
+                                    xtdb
+                                    table
+                                    fields
+                                    constraints
+                                    {}))
+  ([xtdb table fields constraints ctx]
+   (let [fields (vec (distinct fields))]
+     (if (empty? fields)
+       []
+       (let [rows (if (xtdb-handle? xtdb)
+                    (let [{:keys [sql args]} (counts-by-fields-query table
+                                                                     fields
+                                                                     constraints
+                                                                     true)]
+                      (map (fn [row]
+                             {:values (into {}
+                                            (map-indexed
+                                             (fn [idx field]
+                                               [field
+                                                (count-row-field-value
+                                                 row
+                                                 (str "value" idx))]))
+                                            fields)
+                              :count (count-row-value row)})
+                           (q xtdb sql (assoc ctx :args args))))
+                    (->> (fallback-constrained-rows xtdb
+                                                    table
+                                                    (clean-constraints constraints)
+                                                    ctx)
+                         (filter active-row?)
+                         (map #(select-keys % fields))
+                         frequencies
+                         (map (fn [[values n]]
+                                {:values values
+                                 :count n}))))]
+         (->> rows
+              (sort-by (juxt (comp - long :count)
+                             (comp pr-str :values)))
+              vec))))))
 
 (defn rows-matching-any-token
   "Return rows where any selected field contains any token.

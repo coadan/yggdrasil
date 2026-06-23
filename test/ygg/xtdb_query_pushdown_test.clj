@@ -278,6 +278,50 @@
               :args ["project-a" "app"]}
              ctx)))))
 
+(deftest active-row-counts-by-fields-uses-sql-group-by-for-xtdb-handles
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (swap! calls conj {:query query
+                                       :ctx ctx})
+                    [{:value0 :auth-reference
+                      :value1 :service-account
+                      :row_count 2}
+                     {:value0 :url
+                      :value1 :runtime-config
+                      :row_count 1}])
+                  store/all-rows
+                  (fn [& _]
+                    (throw (ex-info "all-rows should not be used for grouped row counts"
+                                    {})))]
+      (is (= [{:values {:kind :auth-reference
+                        :auth-context :service-account}
+               :count 2}
+              {:values {:kind :url
+                        :auth-context :runtime-config}
+               :count 1}]
+             (store/active-row-counts-by-fields
+              {:node :stub}
+              (:system-evidence store/tables)
+              [:kind :auth-context]
+              {:project-id "project-a"
+               :repo-id "app"}
+              {:valid-at #inst "2026-01-01T00:00:00Z"}))))
+    (is (= 1 (count @calls)))
+    (let [{:keys [query ctx]} (first @calls)]
+      (is (string? query))
+      (is (str/includes? query "SELECT \"kind\" AS value0, \"auth_context\" AS value1"))
+      (is (str/includes? query "COUNT(*) AS row_count"))
+      (is (str/includes? query "FROM ygg.system_evidence"))
+      (is (str/includes? query "\"project_id\" = ?"))
+      (is (str/includes? query "\"repo_id\" = ?"))
+      (is (str/includes? query "\"active?\" IS NULL"))
+      (is (str/includes? query "\"active?\" <> FALSE"))
+      (is (str/includes? query "GROUP BY \"kind\", \"auth_context\""))
+      (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
+              :args ["project-a" "app"]}
+             ctx)))))
+
 (deftest graph-readiness-reuses-precomputed-context-counts
   (let [active-calls (atom [])
         fail-duplicate-read (fn [& _]
@@ -1214,6 +1258,7 @@
 (deftest evidence-summary-uses-counts-for-source-graph-and-index-tables
   (let [active-count-calls (atom [])
         grouped-count-calls (atom [])
+        grouped-context-calls (atom [])
         fail-broad-read (fn [& _]
                           (throw (ex-info "evidence summary should use count queries"
                                           {})))
@@ -1227,6 +1272,8 @@
                                          :repo-id "app"}] 4
                       [:ygg/embeddings {:project-id "project-a"
                                         :repo-id "app"}] 5
+                      [:ygg/system-evidence {:project-id "project-a"
+                                             :repo-id "app"}] 4
                       [:ygg/system-nodes {:project-id "project-a"}] 2
                       [:ygg/system-edges {:project-id "project-a"}] 1}]
     (with-redefs [coverage/project-coverage
@@ -1291,6 +1338,33 @@
                                                :count 8}
                                               {:value :uses
                                                :count 1}]
+                      [:ygg/system-evidence :kind] [{:value :auth-reference
+                                                     :count 2}
+                                                    {:value :env-var
+                                                     :count 1}
+                                                    {:value :url
+                                                     :count 1}]
+                      []))
+                  store/active-row-counts-by-fields
+                  (fn [_ table fields constraints ctx]
+                    (swap! grouped-context-calls conj {:table table
+                                                       :fields fields
+                                                       :constraints constraints
+                                                       :ctx ctx})
+                    (case [table fields]
+                      [:ygg/system-evidence [:kind :url-context :auth-context]]
+                      [{:values {:kind :auth-reference
+                                 :auth-context :service-account}
+                        :count 1}
+                       {:values {:kind :auth-reference
+                                 :auth-context :api-key}
+                        :count 1}
+                       {:values {:kind :env-var}
+                        :count 1}
+                       {:values {:kind :url
+                                 :url-context :runtime-config}
+                        :count 1}]
+
                       []))
                   query/all-nodes fail-broad-read
                   query/all-edges fail-broad-read
@@ -1299,7 +1373,7 @@
                   query/all-embeddings fail-broad-read
                   query/all-system-nodes fail-broad-read
                   query/all-system-edges fail-broad-read
-                  query/all-system-evidence (fn [& _] [])
+                  query/all-system-evidence fail-broad-read
                   activity/all-items (fn [& _] [])
                   activity/all-events (fn [& _] [])]
       (let [summary (evidence/summarize
@@ -1314,6 +1388,11 @@
                 :chunks 3
                 :search-docs 4
                 :embeddings 5
+                :system-evidence 4
+                :runtime-config-evidence 4
+                :auth-references 2
+                :service-account-references 1
+                :api-key-references 1
                 :system-nodes 2
                 :system-edges 1}
                (select-keys (:counts summary)
@@ -1322,6 +1401,11 @@
                              :chunks
                              :search-docs
                              :embeddings
+                             :system-evidence
+                             :runtime-config-evidence
+                             :auth-references
+                             :service-account-references
+                             :api-key-references
                              :system-nodes
                              :system-edges])))
         (is (= [{:value "namespace"
@@ -1342,7 +1426,14 @@
                          :count 8}
                         {:value "uses"
                          :count 1}]}
-               (get-in summary [:kinds :source-graph])))))
+               (get-in summary [:kinds :source-graph])))
+        (is (= [{:kind :auth-reference
+                 :count 2}
+                {:kind :env-var
+                 :count 1}
+                {:kind :url
+                 :count 1}]
+               (get-in summary [:kinds :system-evidence])))))
     (is (= #{{:table :ygg/nodes
               :field :kind
               :constraints {:project-id "project-a"
@@ -1352,8 +1443,19 @@
               :field :relation
               :constraints {:project-id "project-a"
                             :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/system-evidence
+              :field :kind
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
            (set @grouped-count-calls)))
+    (is (= [{:table :ygg/system-evidence
+             :fields [:kind :url-context :auth-context]
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @grouped-context-calls))
     (is (= #{{:table :ygg/nodes
               :constraints {:project-id "project-a"
                             :repo-id "app"}
@@ -1371,6 +1473,10 @@
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
              {:table :ygg/embeddings
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/system-evidence
               :constraints {:project-id "project-a"
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
