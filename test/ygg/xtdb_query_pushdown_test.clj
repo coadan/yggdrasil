@@ -435,6 +435,77 @@
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
            (set @active-calls)))))
 
+(deftest query-report-counts-index-only-tables-with-count-queries
+  (let [count-calls (atom [])
+        constraints {:project-id "project-a"
+                     :repo-id "app"}
+        read-context {:valid-at #inst "2026-01-01T00:00:00Z"}
+        count-values {[:ygg/chunks constraints] 3
+                      [:ygg/search-docs (assoc constraints :active? true)] 4
+                      [:ygg/embeddings (assoc constraints :active? true)] 5}
+        fail-broad-read (fn [& _]
+                          (throw (ex-info "query report should use count queries"
+                                          {})))]
+    (with-redefs [query/all-nodes
+                  (fn [_ opts]
+                    (is (= {:project-id "project-a"
+                            :repo-id "app"
+                            :read-context read-context}
+                           opts))
+                    [{:xt/id "node:a"
+                      :label "A"}
+                     {:xt/id "node:b"
+                      :label "B"}])
+                  query/all-edges
+                  (fn [_ opts]
+                    (is (= {:project-id "project-a"
+                            :repo-id "app"
+                            :read-context read-context}
+                           opts))
+                    [{:source-id "node:a"
+                      :target-id "node:b"}
+                     {:source-id "node:a"
+                      :target-id "node:missing"}])
+                  query/all-diagnostics
+                  (fn [_ opts]
+                    (is (= {:project-id "project-a"
+                            :repo-id "app"
+                            :read-context read-context}
+                           opts))
+                    [{:xt/id "diagnostic:a"}])
+                  query/all-chunks fail-broad-read
+                  query/all-search-docs fail-broad-read
+                  query/all-embeddings fail-broad-read
+                  store/count-rows
+                  (fn [_ table constraints ctx]
+                    (swap! count-calls conj {:table table
+                                             :constraints constraints
+                                             :ctx ctx})
+                    (get count-values [table constraints] 0))]
+      (let [report (query/report
+                    {:node :stub}
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :read-context read-context})]
+        (is (= {:nodes 2
+                :edges 2
+                :chunks 3
+                :search-docs 4
+                :embeddings 5
+                :diagnostics 1}
+               (:counts report)))
+        (is (= [{:xt/id "diagnostic:a"}] (:diagnostics report)))))
+    (is (= #{{:table :ygg/chunks
+              :constraints constraints
+              :ctx read-context}
+             {:table :ygg/search-docs
+              :constraints (assoc constraints :active? true)
+              :ctx read-context}
+             {:table :ygg/embeddings
+              :constraints (assoc constraints :active? true)
+              :ctx read-context}}
+           (set @count-calls)))))
+
 (deftest graph-readiness-real-handles-use-store-counts-with-precomputed-context-counts
   (let [active-calls (atom [])
         exact-calls (atom [])
@@ -772,6 +843,71 @@
                            :kind :markdown}
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
            @calls))))
+
+(deftest query-report-uses-counts-for-index-tables
+  (let [count-calls (atom [])
+        fail-broad-read (fn [& _]
+                          (throw (ex-info "query report should use count queries"
+                                          {})))]
+    (with-redefs [query/all-nodes
+                  (fn [_ opts]
+                    (is (= {:project-id "project-a"
+                            :repo-id "app"
+                            :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}
+                           opts))
+                    [{:xt/id "node:a"
+                      :label "A"}
+                     {:xt/id "node:b"
+                      :label "B"}])
+                  query/all-edges
+                  (fn [& _]
+                    [{:xt/id "edge:a->b"
+                      :source-id "node:a"
+                      :target-id "node:b"}])
+                  query/all-diagnostics
+                  (fn [& _]
+                    [{:xt/id "diagnostic:a"}])
+                  query/all-chunks fail-broad-read
+                  query/all-search-docs fail-broad-read
+                  query/all-embeddings fail-broad-read
+                  store/count-rows
+                  (fn [_ table constraints ctx]
+                    (swap! count-calls conj {:table table
+                                             :constraints constraints
+                                             :ctx ctx})
+                    (case table
+                      :ygg/chunks 3
+                      :ygg/search-docs 4
+                      :ygg/embeddings 5))]
+      (let [summary (query/report
+                     {:node :stub}
+                     {:project-id "project-a"
+                      :repo-id "app"
+                      :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})]
+        (is (= {:nodes 2
+                :edges 1
+                :chunks 3
+                :search-docs 4
+                :embeddings 5
+                :diagnostics 1}
+               (:counts summary)))
+        (is (= #{"node:a" "node:b"}
+               (set (map #(get-in % [:node :xt/id]) (:top-nodes summary)))))))
+    (is (= [{:table :ygg/chunks
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+            {:table :ygg/search-docs
+             :constraints {:project-id "project-a"
+                           :repo-id "app"
+                           :active? true}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+            {:table :ygg/embeddings
+             :constraints {:project-id "project-a"
+                           :repo-id "app"
+                           :active? true}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @count-calls))))
 
 (deftest docs-for-and-audit-load-only-attachment-path-chunks
   (let [calls (atom [])

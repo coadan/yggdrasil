@@ -72,6 +72,17 @@
          ctx (read-context opts)]
      (filter-scope (store/constrained-rows xtdb table constraints ctx) opts))))
 
+(defn- scoped-row-count
+  ([xtdb table opts] (scoped-row-count xtdb table opts {}))
+  ([xtdb table opts constraints]
+   (store/count-rows xtdb
+                     table
+                     (merge (scope-constraints opts)
+                            (->> constraints
+                                 (remove (comp nil? val))
+                                 (into {})))
+                     (read-context opts))))
+
 (defn- distinct-by
   [f coll]
   (first
@@ -1048,9 +1059,15 @@
   ([xtdb opts]
    (let [nodes (all-nodes xtdb opts)
          edges (all-edges xtdb opts)
-         chunks (all-chunks xtdb opts)
-         search-docs (all-search-docs xtdb opts)
-         embeddings (all-embeddings xtdb opts)
+         chunk-count (scoped-row-count xtdb (:chunks store/tables) opts)
+         search-doc-count (scoped-row-count xtdb
+                                            (:search-docs store/tables)
+                                            opts
+                                            {:active? true})
+         embedding-count (scoped-row-count xtdb
+                                           (:embeddings store/tables)
+                                           opts
+                                           {:active? true})
          diagnostics (all-diagnostics xtdb opts)
          degree (frequencies (mapcat (juxt :source-id :target-id) edges))
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
@@ -1062,9 +1079,9 @@
                                  :degree n})))]
      {:counts {:nodes (count nodes)
                :edges (count edges)
-               :chunks (count chunks)
-               :search-docs (count search-docs)
-               :embeddings (count embeddings)
+               :chunks chunk-count
+               :search-docs search-doc-count
+               :embeddings embedding-count
                :diagnostics (count diagnostics)}
       :top-nodes top-nodes
       :diagnostics diagnostics})))
