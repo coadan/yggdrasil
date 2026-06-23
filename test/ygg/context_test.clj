@@ -1080,6 +1080,8 @@
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
                 query/all-system-evidence (fn [& _] [])
+                query/system-evidence-by-system-ids (fn [& _] [])
+                query/system-evidence-by-paths (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
                 context/query-evidence (fn [& _]
@@ -1673,6 +1675,88 @@
       (is (= ["src/billing/api.clj"]
              (mapv :path (:candidateFiles packet)))))))
 
+(deftest context-packet-loads-runtime-evidence-from-bounded-keys
+  (let [calls (atom [])]
+    (with-redefs [query/search-report (fn [_ query-text opts]
+                                        {:schema query/search-report-schema
+                                         :query-run-id "query:bounded-runtime"
+                                         :query-text query-text
+                                         :retriever-requested (:retriever opts)
+                                         :retriever-effective :lexical
+                                         :instrumentation {:search-docs 1
+                                                           :returned-count 1}
+                                         :results [{:path "src/billing/api.clj"
+                                                    :repo-id "app"
+                                                    :score 1.0
+                                                    :target-kind :chunk
+                                                    :target-id "chunk:billing-api"
+                                                    :label "billing api"}]})
+                  graph/system-graph (fn [_ project-id _]
+                                       {:basis {:project-id project-id}
+                                        :nodes []
+                                        :edges []
+                                        :clusters []})
+                  query/chunks-by-ids (fn [& _] [])
+                  query/chunks-by-paths (fn [& _] [])
+                  query/system-evidence-by-system-ids
+                  (fn [_ system-ids opts]
+                    (swap! calls conj [:system-ids system-ids opts])
+                    [{:xt/id "evidence:billing-system"
+                      :system-id "system:billing"
+                      :repo-id "app"
+                      :path "config/runtime.env"
+                      :file-kind :env
+                      :kind :env-var
+                      :label "DATABASE_URL"
+                      :normalized-value "database-url"
+                      :source-line 3
+                      :confidence 1.0
+                      :active? true}])
+                  query/system-evidence-by-paths
+                  (fn [_ paths opts]
+                    (swap! calls conj [:paths paths opts])
+                    [{:xt/id "evidence:billing-path"
+                      :system-id "system:path"
+                      :repo-id "app"
+                      :path "src/billing/api.clj"
+                      :file-kind :clojure
+                      :kind :url
+                      :label "billing api endpoint"
+                      :source-line 5
+                      :confidence 0.8
+                      :active? true}])
+                  query/all-system-evidence
+                  (fn [& _]
+                    (throw (ex-info "all-system-evidence should not be used"
+                                    {})))
+                  dependency/package-report (fn [& _] (empty-dependency-report))
+                  activity/select-activity (fn [& _] [])
+                  context/query-evidence (fn [& _] {:status :ready})
+                  coverage/context-summary (fn [& _] nil)]
+      (let [packet (context/context-packet
+                    :xtdb
+                    "billing database api"
+                    {:project-id "fixture"
+                     :repo-id "app"
+                     :retriever :lexical
+                     :map-overlay {:systems [{:id "system:billing"
+                                              :label "Billing"
+                                              :repo "app"
+                                              :includes [{:repo "app"
+                                                          :path "src/billing"}]}]}})]
+        (is (= [[:system-ids ["system:billing"]]
+                [:paths ["src/billing/api.clj"]]]
+               (mapv (fn [[kind values _opts]] [kind values]) @calls)))
+        (is (= [{:project-id "fixture"
+                 :repo-id "app"
+                 :read-context nil}
+                {:project-id "fixture"
+                 :repo-id "app"
+                 :read-context nil}]
+               (mapv (fn [[_kind _values opts]] opts) @calls)))
+        (is (= ["evidence:billing-path" "evidence:billing-system"]
+               (mapv :id (get-in packet [:architecture :runtimeEvidence]))))))))
+
 (deftest runtime-evidence-keeps-selected-system-diversity
   (let [runtime-evidence (#'context/select-system-evidence
                           ["container"]
@@ -2138,6 +2222,8 @@
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
                 query/all-system-evidence (fn [& _] [])
+                query/system-evidence-by-system-ids (fn [& _] [])
+                query/system-evidence-by-paths (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
                 context/query-evidence (fn [& _] {:status :ready})
@@ -2444,6 +2530,8 @@
                 query/chunks-by-ids (fn [& _] [])
                 query/chunks-by-paths (fn [& _] [])
                 query/all-system-evidence (fn [& _] [])
+                query/system-evidence-by-system-ids (fn [& _] [])
+                query/system-evidence-by-paths (fn [& _] [])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
                 context/query-evidence (fn [& _] {:status :ready})

@@ -50,6 +50,8 @@
   3.2)
 (def ^:private rank-score-rare-query-token-weight
   2.4)
+(def ^:private rank-score-rare-query-token-min-matched
+  3)
 (def ^:private rank-score-direct-file-identity-support-cap
   4)
 (def ^:private rank-score-direct-file-identity-support-weight
@@ -140,6 +142,14 @@
   3)
 (def ^:private unsaturated-decision-tail-score-ratio
   0.5)
+(def ^:private score-elbow-tail-min-files
+  6)
+(def ^:private score-elbow-tail-prefix-min-files
+  2)
+(def ^:private score-elbow-tail-prefix-max-files
+  4)
+(def ^:private score-elbow-tail-score-ratio
+  0.65)
 (def ^:private diversity-bypass-candidate-source-rank-window
   2)
 (def ^:private diversity-bypass-support-count-min
@@ -493,12 +503,14 @@
   [doc-count
    direct-file-candidate-count
    architecture-evidence-count
+   query-supported-architecture-evidence-count
    graph-neighbor-score
    matched-token-count
    matched-token-pair-count]
   (if (and (zero? (long doc-count))
            (pos? (long direct-file-candidate-count))
            (pos? (long architecture-evidence-count))
+           (pos? (long query-supported-architecture-evidence-count))
            (pos? (double graph-neighbor-score))
            (<= rank-score-direct-file-architecture-graph-token-min
                (long matched-token-count)))
@@ -520,7 +532,9 @@
 (defn- rare-query-token-score
   [doc-count graph-neighbor-score token-path-counts matched-tokens]
   (if (and (zero? (long doc-count))
-           (zero? (double graph-neighbor-score)))
+           (zero? (double graph-neighbor-score))
+           (<= rank-score-rare-query-token-min-matched
+               (count matched-tokens)))
     (let [token-score (fn [token]
                         (/ 1.0
                            (double (max 1
@@ -913,12 +927,28 @@
    "dependencyEvidence" 2.4
    "deployEvidence" 1.6})
 
-(defn- architecture-query-supported?
+(defn- dependency-package-import-row?
+  [section row]
+  (and (= "dependencyEvidence" section)
+       (= "package-import" (field-name (:kind row)))))
+
+(defn- dependency-package-identity-token-count
   [query-tokens row]
-  (let [evidence-text (architecture-evidence-text row)]
-    (or (<= 2 (count (token-matches query-tokens evidence-text)))
-        (seq (compact-token-pair-matches query-tokens evidence-text))
-        (seq (compact-compound-token-pair-matches query-tokens evidence-text)))))
+  (count (token-matches query-tokens
+                        (identity-text (:label row)
+                                       (:package row)
+                                       (:import row)
+                                       (:importName row)
+                                       (:normalizedValue row)))))
+
+(defn- architecture-query-supported?
+  [query-tokens section row]
+  (if (dependency-package-import-row? section row)
+    (<= 2 (dependency-package-identity-token-count query-tokens row))
+    (let [evidence-text (architecture-evidence-text row)]
+      (or (<= 2 (count (token-matches query-tokens evidence-text)))
+          (seq (compact-token-pair-matches query-tokens evidence-text))
+          (seq (compact-compound-token-pair-matches query-tokens evidence-text))))))
 
 (defn- runtime-evidence-low-signal?
   [row]
@@ -943,15 +973,10 @@
   (let [raw-score (double (or (parse-double-safe (:score row)) 0.0))
         weight (architecture-score-weight section row)
         cap (architecture-score-cap section row)
-        package-identity-token-count (if (and (= "dependencyEvidence" section)
-                                              (= "package-import" (field-name (:kind row))))
-                                       (count (token-matches
-                                               query-tokens
-                                               (identity-text (:label row)
-                                                              (:package row)
-                                                              (:import row)
-                                                              (:importName row)
-                                                              (:normalizedValue row))))
+        package-identity-token-count (if (dependency-package-import-row? section row)
+                                       (dependency-package-identity-token-count
+                                        query-tokens
+                                        row)
                                        0)
         package-identity-boost (if (>= package-identity-token-count 2)
                                  0.35
@@ -964,7 +989,7 @@
   (let [raw-score (double (or (parse-double-safe (:score row)) 0.0))]
     (if (and (= "runtimeEvidence" section)
              (= "env-var" (field-name (:kind row)))
-             (architecture-query-supported? query-tokens row))
+             (architecture-query-supported? query-tokens section row))
       (min (double (get architecture-evidence-score-caps section 1.6))
            (* (double (get architecture-evidence-score-weights section 0.7))
               raw-score))
@@ -986,7 +1011,7 @@
                                                                          section
                                                                          row)
                  :query-supported-architecture-evidence?
-                 (architecture-query-supported? query-tokens row)
+                 (architecture-query-supported? query-tokens section row)
                  :evidence-kind :candidate-file
                  :architecture-evidence? true
                  :retrieved-source? false
@@ -1235,6 +1260,7 @@
                               doc-count
                               direct-file-candidate-count
                               architecture-evidence-count
+                              query-supported-architecture-evidence-count
                               graph-neighbor-score
                               (count matched-tokens)
                               (count matched-token-pairs))
@@ -1820,6 +1846,46 @@
           {:files selected}))
       {:files selected})))
 
+(defn- score-elbow-tail-cut
+  [selected]
+  (let [selected (vec selected)]
+    (when (and (<= score-elbow-tail-min-files (count selected))
+               (not-any? prediction-rank-protected? selected))
+      (some (fn [prefix-size]
+              (let [prefix (subvec selected 0 prefix-size)
+                    next-row (nth selected prefix-size nil)
+                    score-floor (apply min (map row-rank-score prefix))
+                    next-score (row-rank-score next-row)]
+                (when (and next-row
+                           (pos? score-floor)
+                           (<= next-score
+                               (* score-elbow-tail-score-ratio
+                                  score-floor)))
+                  {:prefix-size prefix-size
+                   :score-floor score-floor})))
+            (range score-elbow-tail-prefix-min-files
+                   (inc (min score-elbow-tail-prefix-max-files
+                             (dec (count selected)))))))))
+
+(defn- compact-score-elbow-tail
+  [{:keys [files] :as selection} limit source-kinds kind-by-path]
+  (let [selection-limit (when limit (long limit))
+        selected (vec files)]
+    (if-let [{:keys [prefix-size score-floor]}
+             (when (and selection-limit
+                        (< (count selected) selection-limit))
+               (score-elbow-tail-cut selected))]
+      (let [compacted (subvec selected 0 prefix-size)
+            pruned (- (count selected) (count compacted))]
+        (if (and (pos? pruned)
+                 (covers-source-kinds? source-kinds kind-by-path compacted))
+          (assoc selection
+                 :files (renumber-file-ranks compacted)
+                 :scoreElbowTailPruned pruned
+                 :scoreElbowTailScoreFloor score-floor)
+          selection))
+      selection)))
+
 (defn- select-limited-suspected-files
   ([candidate-files limit]
    (select-limited-suspected-files candidate-files limit {}))
@@ -1849,7 +1915,11 @@
                compacted (compact-unsaturated-decision-tail selected
                                                             limit
                                                             source-kinds
-                                                            kind-by-path)]
+                                                            kind-by-path)
+               compacted (compact-score-elbow-tail compacted
+                                                   limit
+                                                   source-kinds
+                                                   kind-by-path)]
            (cond-> compacted
              (seq candidate-file-only)
              (assoc :candidateFileOnlyQuota quota
@@ -2112,6 +2182,12 @@
                             (:unsaturatedDecisionTailPruned selected-files)
                             :unsaturatedDecisionTailScoreFloor
                             (:unsaturatedDecisionTailScoreFloor selected-files)))
+         selection (cond-> selection
+                     (:scoreElbowTailPruned selected-files)
+                     (assoc :scoreElbowTailPruned
+                            (:scoreElbowTailPruned selected-files)
+                            :scoreElbowTailScoreFloor
+                            (:scoreElbowTailScoreFloor selected-files)))
          selection (cond-> selection
                      (:inspectionDirectFileSelected selected-files)
                      (assoc :inspectionDirectFileSelected

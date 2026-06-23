@@ -148,6 +148,24 @@
    :active?
    :run-id])
 
+(def ^:private system-evidence-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :system-id
+   :file-id
+   :path
+   :file-kind
+   :kind
+   :url-context
+   :auth-context
+   :label
+   :normalized-value
+   :source-line
+   :confidence
+   :active?
+   :run-id])
+
 (def ^:private path-edge-row-query-fields
   [:xt/id
    :project-id
@@ -312,6 +330,40 @@
   ([xtdb opts]
    (scoped-rows xtdb (:system-evidence store/tables) opts {:active? true})))
 
+(defn- system-evidence-by-field-values
+  [xtdb field values opts]
+  (let [values (distinct-by identity values)
+        value-set (set values)
+        rows (if (store/xtdb-handle? xtdb)
+               (store/rows-with-field-values
+                xtdb
+                {:table (:system-evidence store/tables)
+                 :field field
+                 :values values
+                 :constraints (assoc (scope-constraints opts) :active? true)
+                 :return-fields system-evidence-row-query-fields
+                 :read-context (read-context opts)})
+               (filter #(contains? value-set (get % field))
+                       (all-system-evidence xtdb opts)))]
+    rows))
+
+(defn system-evidence-by-ids
+  "Return active system evidence rows for concrete ids within the requested scope."
+  [xtdb ids opts]
+  (let [ids (distinct-by identity ids)
+        rows (system-evidence-by-field-values xtdb :xt/id ids opts)]
+    (keep (into {} (map (juxt :xt/id identity)) rows) ids)))
+
+(defn system-evidence-by-system-ids
+  "Return active system evidence rows for concrete system ids within scope."
+  [xtdb system-ids opts]
+  (system-evidence-by-field-values xtdb :system-id system-ids opts))
+
+(defn system-evidence-by-paths
+  "Return active system evidence rows for concrete file paths within scope."
+  [xtdb paths opts]
+  (system-evidence-by-field-values xtdb :path paths opts))
+
 (defn- edges-from-source-ids
   [xtdb ids opts]
   (->> (store/rows-with-field-values
@@ -381,6 +433,11 @@
                                      (scope-constraints opts)
                                      (read-context opts))))
 
+(defn edges-touching-node-ids
+  "Return source graph edges whose source or target is one of the supplied ids."
+  [xtdb ids opts]
+  (edges-touching-ids xtdb ids opts))
+
 (defn- adjacency-query-plan
   [xtdb seed-ids edges edge-load-ms]
   (let [seed-ids (sort-by str seed-ids)
@@ -430,16 +487,16 @@
                              (:nodes store/tables)
                              opts
                              {:label value}))
-         (or (first (scoped-rows xtdb
-                                 (:nodes store/tables)
-                                 opts
-                                 {:kind :namespace
-                                  :namespace value}))
-             (first (scoped-rows xtdb
-                                 (:nodes store/tables)
-                                 opts
-                                 {:kind :namespace
-                                  :name value})))
+         (first (scoped-rows xtdb
+                             (:nodes store/tables)
+                             opts
+                             {:kind :namespace
+                              :namespace value}))
+         (first (scoped-rows xtdb
+                             (:nodes store/tables)
+                             opts
+                             {:kind :namespace
+                              :name value}))
          (first (scoped-rows xtdb
                              (:nodes store/tables)
                              opts

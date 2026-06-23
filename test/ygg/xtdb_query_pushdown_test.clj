@@ -190,6 +190,105 @@
       (is (= 1 (count (re-seq #"target:a" query-text))))
       (is (not (str/includes? query-text "target:c"))))))
 
+(deftest system-evidence-by-ids-uses-bounded-value-query
+  (let [calls (atom [])]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ opts]
+                    (swap! calls conj opts)
+                    [{:xt/id "evidence:b"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :active? true}
+                     {:xt/id "evidence:a"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :active? true}])
+                  query/all-system-evidence
+                  (fn [& _]
+                    (throw (ex-info "all-system-evidence should not be used"
+                                    {})))]
+      (is (= ["evidence:a" "evidence:b"]
+             (mapv :xt/id
+                   (query/system-evidence-by-ids
+                    {:node :stub}
+                    ["evidence:a" "evidence:b" "evidence:a"]
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= 1 (count @calls)))
+    (let [call (first @calls)]
+      (is (= (:system-evidence store/tables) (:table call)))
+      (is (= :xt/id (:field call)))
+      (is (= ["evidence:a" "evidence:b"] (:values call)))
+      (is (= {:project-id "project-a"
+              :repo-id "app"
+              :active? true}
+             (:constraints call)))
+      (is (= {:valid-at #inst "2026-01-01T00:00:00Z"}
+             (:read-context call)))
+      (is (some #{:system-id} (:return-fields call)))
+      (is (some #{:normalized-value} (:return-fields call))))))
+
+(deftest system-evidence-by-system-ids-and-paths-use-bounded-value-queries
+  (let [calls (atom [])]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ opts]
+                    (swap! calls conj opts)
+                    (case (:field opts)
+                      :system-id [{:xt/id "evidence:system"
+                                   :project-id "project-a"
+                                   :repo-id "app"
+                                   :system-id "system:app"
+                                   :active? true}]
+                      :path [{:xt/id "evidence:path"
+                              :project-id "project-a"
+                              :repo-id "app"
+                              :path "src/app.clj"
+                              :active? true}]))
+                  query/all-system-evidence
+                  (fn [& _]
+                    (throw (ex-info "all-system-evidence should not be used"
+                                    {})))]
+      (is (= ["evidence:system"]
+             (mapv :xt/id
+                   (query/system-evidence-by-system-ids
+                    {:node :stub}
+                    ["system:app"]
+                    {:project-id "project-a"
+                     :repo-id "app"}))))
+      (is (= ["evidence:path"]
+             (mapv :xt/id
+                   (query/system-evidence-by-paths
+                    {:node :stub}
+                    ["src/app.clj"]
+                    {:project-id "project-a"
+                     :repo-id "app"})))))
+    (is (= [[:system-id ["system:app"]]
+            [:path ["src/app.clj"]]]
+           (mapv (juxt :field :values) @calls)))))
+
+(deftest edges-touching-node-ids-uses-bounded-adjacency-helper
+  (let [calls (atom [])]
+    (with-redefs [store/edge-rows-touching-ids
+                  (fn [_ ids constraints ctx]
+                    (swap! calls conj {:ids ids
+                                       :constraints constraints
+                                       :ctx ctx})
+                    [{:xt/id "edge:a"}])]
+      (is (= ["edge:a"]
+             (mapv :xt/id
+                   (query/edges-touching-node-ids
+                    {:node :stub}
+                    ["node:a" "node:b"]
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= [{:ids ["node:a" "node:b"]
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @calls))))
+
 (deftest count-rows-uses-sql-count-for-xtdb-handles
   (let [calls (atom [])]
     (with-redefs [store/q

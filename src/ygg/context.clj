@@ -1102,6 +1102,34 @@
   [entities edges]
   (context-architecture/blast-radius entities edges))
 
+(defn- distinct-evidence-rows
+  [rows]
+  (loop [remaining (seq rows)
+         seen #{}
+         out []]
+    (if-let [row (first remaining)]
+      (let [row-key (or (:xt/id row) row)]
+        (if (contains? seen row-key)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen row-key) (conj out row))))
+      out)))
+
+(defn- selected-system-evidence
+  [xtdb selected-system-ids results scope]
+  (let [selected-system-ids (->> selected-system-ids
+                                 (remove str/blank?)
+                                 distinct
+                                 vec)
+        paths (result-paths results)]
+    (if (or (seq selected-system-ids)
+            (seq paths))
+      (distinct-evidence-rows
+       (concat (query/system-evidence-by-system-ids xtdb
+                                                    selected-system-ids
+                                                    scope)
+               (query/system-evidence-by-paths xtdb paths scope)))
+      (query/all-system-evidence xtdb scope))))
+
 (defn- select-system-evidence
   [query-tokens selected-system-ids results evidence limit]
   (context-architecture/select-system-evidence query-tokens
@@ -1896,16 +1924,19 @@
                                            {:project-id project-id
                                             :read-context read-context
                                             :target-ids targets})
-        system-evidence (query/all-system-evidence xtdb
-                                                   {:project-id project-id
-                                                    :repo-id repo-id
-                                                    :read-context read-context})
+        selected-system-ids (concat (map :id entities)
+                                    (map :id accepted-systems))
+        system-evidence (selected-system-evidence
+                         xtdb
+                         selected-system-ids
+                         results
+                         {:project-id project-id
+                          :repo-id repo-id
+                          :read-context read-context})
         dependency-report (dependency/package-report xtdb
                                                      {:project-id project-id
                                                       :repo-id repo-id}
                                                      {:map-overlay overlay})
-        selected-system-ids (concat (map :id entities)
-                                    (map :id accepted-systems))
         runtime-evidence (select-system-evidence query-tokens
                                                  selected-system-ids
                                                  results

@@ -113,6 +113,10 @@
                                                   "minimum" 0}
                  "unsaturatedDecisionTailScoreFloor" {"type" "number"
                                                       "minimum" 0}
+                 "scoreElbowTailPruned" {"type" "integer"
+                                         "minimum" 0}
+                 "scoreElbowTailScoreFloor" {"type" "number"
+                                             "minimum" 0}
                  "inspectionDirectFileSelected" {"type" "integer"
                                                  "minimum" 0}
                  "inspectionRepoCandidateSelected" {"type" "integer"
@@ -267,6 +271,10 @@
                                                   "minimum" 0}
                  "unsaturatedDecisionTailScoreFloor" {"type" "number"
                                                       "minimum" 0}
+                 "scoreElbowTailPruned" {"type" "integer"
+                                         "minimum" 0}
+                 "scoreElbowTailScoreFloor" {"type" "number"
+                                             "minimum" 0}
                  "inspectionDirectFileSelected" {"type" "integer"
                                                  "minimum" 0}
                  "inspectionRepoCandidateSelected" {"type" "integer"

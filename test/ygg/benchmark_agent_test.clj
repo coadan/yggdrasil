@@ -27,6 +27,8 @@
                   "inspectionCandidateFillSkipped"
                   "inspectionDirectFileSelected"
                   "inspectionRepoCandidateSelected"
+                  "scoreElbowTailPruned"
+                  "scoreElbowTailScoreFloor"
                   "unsaturatedDecisionTailPruned"
                   "unsaturatedDecisionTailScoreFloor"}})
 
@@ -598,7 +600,15 @@
             (is (= {:type "number"
                     :minimum 0}
                    (get-in selection-schema
-                           [:properties :unsaturatedDecisionTailScoreFloor]))))
+                           [:properties :unsaturatedDecisionTailScoreFloor])))
+            (is (= {:type "integer"
+                    :minimum 0}
+                   (get-in selection-schema
+                           [:properties :scoreElbowTailPruned])))
+            (is (= {:type "number"
+                    :minimum 0}
+                   (get-in selection-schema
+                           [:properties :scoreElbowTailScoreFloor]))))
           (is (= ["object" "null"]
                  (get-in (json/read-json
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
@@ -2878,6 +2888,32 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-does-not-use-dependency-import-path-as-query-architecture-support
+  (let [root (temp-dir "ygg-bench-dependency-import-path-support")
+        _ (spit-file! root "src/settings.cs" "public static class Settings {}\n")
+        packet {:query "prefer enum typehandler setting"
+                :candidateFiles [{:path "src/settings.cs"
+                                  :rank 54
+                                  :score 3.3
+                                  :targetKind "file"
+                                  :label "src/settings.cs"
+                                  :supportLabels ["Settings.CommandTimeout"]
+                                  :scoreComponents {:sourceGraph 3.3
+                                                    :lexical 0.33
+                                                    :graph 0.2}}]
+                :architecture {:dependencyEvidence [{:path "src/settings.cs"
+                                                     :kind "package-import"
+                                                     :fileKind "dotnet"
+                                                     :relation "imports-package"
+                                                     :label "nuget:unrelated"
+                                                     :package "unrelated"
+                                                     :score 2.0}]}}
+        file (-> (benchmark/context-packet->agent-result packet {:root root})
+                 :suspectedFiles
+                 first)]
+    (is (= "src/settings.cs" (:path file)))
+    (is (not (contains? (:metrics file) :directFileArchitectureGraphBoost)))))
+
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
   (let [root (temp-dir "ygg-bench-candidate-file-quota")
         _ (doseq [path ["src/doc-1.clj" "src/doc-2.clj" "src/doc-3.clj"
@@ -2899,13 +2935,13 @@
         result (benchmark/context-packet->agent-result packet {:root root
                                                                :limit 5})
         files (:suspectedFiles result)]
-    (is (= ["src/candidate.clj"
-            "src/doc-1.clj"
+    (is (= ["src/doc-1.clj"
             "src/doc-2.clj"
             "src/doc-3.clj"
-            "src/doc-4.clj"]
+            "src/doc-4.clj"
+            "src/candidate.clj"]
            (mapv :path files)))
-    (is (= 1 (get-in files [0 :metrics :matchedTokenPairCount])))
+    (is (= 1 (get-in files [4 :metrics :matchedTokenPairCount])))
     (is (= {:rawCandidateFiles 6
             :candidateFiles 6
             :coverageFilteredCandidateFiles 0
@@ -3063,6 +3099,85 @@
     (is (= ["src/app.clj" "src/other.clj" "src/third.clj" "config/.env"]
            (mapv :path (:files result))))
     (is (nil? (:unsaturatedDecisionTailPruned result)))))
+
+(deftest limited-agent-result-prunes-score-elbow-tail
+  (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
+        row (fn [path rank score]
+              {:path path
+               :rank rank
+               :metrics {:docCount 1
+                         :candidateFileCount 1
+                         :entityCount 0
+                         :rankScore score}})
+        rows [(row "src/strong-a.clj" 1 20.0)
+              (row "src/strong-b.clj" 2 18.0)
+              (row "src/tail-a.clj" 3 9.0)
+              (row "src/tail-b.clj" 4 8.0)
+              (row "src/tail-c.clj" 5 4.0)
+              (row "src/tail-d.clj" 6 2.0)]
+        result (select-limited rows 20)]
+    (is (= ["src/strong-a.clj" "src/strong-b.clj"]
+           (mapv :path (:files result))))
+    (is (= 4 (:scoreElbowTailPruned result)))
+    (is (= 18.0 (:scoreElbowTailScoreFloor result)))))
+
+(deftest limited-agent-result-does-not-prune-score-elbow-source-kind-tail
+  (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
+        row (fn [path rank score]
+              {:path path
+               :rank rank
+               :metrics {:docCount 1
+                         :candidateFileCount 1
+                         :entityCount 0
+                         :rankScore score}})
+        rows [(row "src/strong-a.clj" 1 20.0)
+              (row "src/strong-b.clj" 2 18.0)
+              (row "config/runtime.env" 3 9.0)
+              (row "src/tail-a.clj" 4 8.0)
+              (row "src/tail-b.clj" 5 4.0)
+              (row "src/tail-c.clj" 6 2.0)]
+        result (select-limited rows
+                               20
+                               {:source-kinds ["code" "env"]
+                                :kind-by-path {"src/strong-a.clj" "code"
+                                               "src/strong-b.clj" "code"
+                                               "config/runtime.env" "env"
+                                               "src/tail-a.clj" "code"
+                                               "src/tail-b.clj" "code"
+                                               "src/tail-c.clj" "code"}})]
+    (is (= ["src/strong-a.clj"
+            "src/strong-b.clj"
+            "config/runtime.env"
+            "src/tail-a.clj"
+            "src/tail-b.clj"
+            "src/tail-c.clj"]
+           (mapv :path (:files result))))
+    (is (nil? (:scoreElbowTailPruned result)))))
+
+(deftest limited-agent-result-does-not-prune-score-elbow-saturated-limit
+  (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
+        row (fn [path rank score]
+              {:path path
+               :rank rank
+               :metrics {:docCount 1
+                         :candidateFileCount 1
+                         :entityCount 0
+                         :rankScore score}})
+        rows [(row "src/strong-a.clj" 1 20.0)
+              (row "src/strong-b.clj" 2 18.0)
+              (row "src/tail-a.clj" 3 9.0)
+              (row "src/tail-b.clj" 4 8.0)
+              (row "src/tail-c.clj" 5 4.0)
+              (row "src/tail-d.clj" 6 2.0)]
+        result (select-limited rows 6)]
+    (is (= ["src/strong-a.clj"
+            "src/strong-b.clj"
+            "src/tail-a.clj"
+            "src/tail-b.clj"
+            "src/tail-c.clj"
+            "src/tail-d.clj"]
+           (mapv :path (:files result))))
+    (is (nil? (:scoreElbowTailPruned result)))))
 
 (deftest inspection-file-result-scope-frontloads-file-and-repo-candidate-lanes
   (let [core-root (temp-dir "ygg-bench-inspection-core")
