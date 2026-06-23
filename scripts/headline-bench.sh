@@ -22,6 +22,8 @@ Options:
   --max-total-tokens N    High-water token gate for each lane. Default: 999999999999.
   --max-stage-elapsed-ms N
                           Max completed stage ms for the deterministic baseline.
+  --max-total-stage-elapsed-ms N
+                          Max aggregate completed stage ms for the deterministic baseline.
   --min-prompt-shared-cases N
                           Minimum shared cases for prompt-token-check. Default: 1.
   --skip-existing         Reuse existing baseline or agent-run artifacts.
@@ -69,6 +71,7 @@ prompt_profile="fast"
 timeout_ms=""
 max_total_tokens="999999999999"
 max_stage_elapsed_ms=""
+max_total_stage_elapsed_ms=""
 min_prompt_shared_cases="1"
 skip_token_check=false
 skip_existing=false
@@ -117,6 +120,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --max-stage-elapsed-ms)
       max_stage_elapsed_ms="$2"
+      shift 2
+      ;;
+    --max-total-stage-elapsed-ms)
+      max_total_stage_elapsed_ms="$2"
       shift 2
       ;;
     --min-prompt-shared-cases)
@@ -297,6 +304,9 @@ stage_time_check() {
   if [[ -n "$max_stage_elapsed_ms" ]]; then
     args+=(--max-case-stage-ms "$max_stage_elapsed_ms")
   fi
+  if [[ -n "$max_total_stage_elapsed_ms" ]]; then
+    args+=(--max-total-stage-ms "$max_total_stage_elapsed_ms")
+  fi
   run python3 "${args[@]}"
 }
 
@@ -376,7 +386,7 @@ case "$action" in
       prompt_token_check
       token_check
     fi
-    if [[ -n "$max_stage_elapsed_ms" ]]; then
+    if [[ -n "$max_stage_elapsed_ms" || -n "$max_total_stage_elapsed_ms" ]]; then
       stage_time_check
     fi
     claim_pack

@@ -154,7 +154,8 @@
                              "--dry-run"
                              "--suite" "benchmarks/custom-headline.edn"
                              "--out" ".dev/ygg/headline-bench/custom"
-                             "--max-stage-elapsed-ms" "120000")
+                             "--max-stage-elapsed-ms" "120000"
+                             "--max-total-stage-elapsed-ms" "240000")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
     (is (= 1 (count lines)))
@@ -162,6 +163,7 @@
     (is (str/includes? (nth lines 0)
                        ".dev/ygg/headline-bench/custom/ygg-baseline/\\*/agent-report.json"))
     (is (str/includes? (nth lines 0) "--max-case-stage-ms 120000"))
+    (is (str/includes? (nth lines 0) "--max-total-stage-ms 240000"))
     (is (str/includes? (nth lines 0)
                        "--out .dev/ygg/headline-bench/custom/stage-time-gate.json"))))
 
@@ -175,6 +177,20 @@
     (is (= 0 (:exit result)))
     (is (= 12 (count lines)))
     (is (str/includes? (nth lines 10) "scripts/stage-time-gate.py"))
+    (is (str/includes? (nth lines 11)
+                       "bb bench claim-pack benchmarks/custom-headline.edn"))))
+
+(deftest dry-run-all-runs-stage-time-check-when-total-threshold-is-set
+  (let [result (run-headline "all"
+                             "--dry-run"
+                             "--suite" "benchmarks/custom-headline.edn"
+                             "--out" ".dev/ygg/headline-bench/custom"
+                             "--max-total-stage-elapsed-ms" "240000")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 12 (count lines)))
+    (is (str/includes? (nth lines 10) "scripts/stage-time-gate.py"))
+    (is (str/includes? (nth lines 10) "--max-total-stage-ms 240000"))
     (is (str/includes? (nth lines 11)
                        "bb bench claim-pack benchmarks/custom-headline.edn"))))
 
