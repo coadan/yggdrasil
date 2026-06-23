@@ -572,20 +572,70 @@
         (:provider usage)
         (assoc :provider (:provider usage))))))
 
+(defn- result-path-stem
+  [result-path]
+  (let [name (.getName (io/file result-path))]
+    (if (str/ends-with? name ".json")
+      (subs name 0 (- (count name) (count ".json")))
+      name)))
+
+(defn- token-usage-sidecar-path
+  [opts result-path]
+  (or (:token-usage-path opts)
+      (when result-path
+        (io/file (.getParentFile (io/file result-path))
+                 (str (result-path-stem result-path) ".token-usage.json")))))
+
+(defn- prompt-path-from-result-path
+  [result-path]
+  (when result-path
+    (let [result-file (io/file result-path)
+          result-dir (.getParentFile result-file)
+          case-dir (some-> result-dir .getParentFile)]
+      (when (and result-dir
+                 case-dir
+                 (= "agent-results" (.getName result-dir)))
+        (io/file case-dir
+                 "agent-prompts"
+                 (str (result-path-stem result-path) ".md"))))))
+
+(defn- agent-prompt-path
+  [opts result-path]
+  (or (:prompt-path opts)
+      (prompt-path-from-result-path result-path)))
+
 (defn- read-token-usage-sidecar
-  [opts]
-  (when-let [path (:token-usage-path opts)]
+  [opts result-path]
+  (when-let [path (token-usage-sidecar-path opts result-path)]
     (when (.isFile (io/file path))
       (try
         (normalize-token-usage (benchmark-io/read-json-file path))
         (catch Exception _
           nil)))))
 
-(defn- merge-token-usage-sidecar
-  [agent-result opts]
-  (if-let [token-usage (read-token-usage-sidecar opts)]
+(defn- prompt-token-usage-estimate
+  [opts result-path]
+  (when-let [path (agent-prompt-path opts result-path)]
+    (when (.isFile (io/file path))
+      (try
+        (let [input-tokens (context/estimate-tokens (slurp path))]
+          {:inputTokens input-tokens
+           :outputTokens 0
+           :totalTokens input-tokens
+           :costUsd 0.0
+           :source "benchmark-prompt-estimate"})
+        (catch Exception _
+          nil)))))
+
+(defn- merge-token-usage-artifacts
+  [agent-result opts result-path]
+  (if-let [token-usage (read-token-usage-sidecar opts result-path)]
     (assoc agent-result :tokenUsage token-usage)
-    agent-result))
+    (if (:tokenUsage agent-result)
+      agent-result
+      (if-let [token-usage (prompt-token-usage-estimate opts result-path)]
+        (assoc agent-result :tokenUsage token-usage)
+        agent-result))))
 
 (defn- read-agent-run-result
   [prepared result-path opts process-result]
@@ -624,7 +674,7 @@
                                      (str "Agent command wrote unreadable result JSON: "
                                           (.getMessage e)))
                       :artifact-ok? false})))]
-    (update result :agent-result merge-token-usage-sidecar opts)))
+    (update result :agent-result merge-token-usage-artifacts opts result-path)))
 
 (defn- prepare-agent-graph-and-artifacts!
   [suite case prepared opts]
@@ -1093,7 +1143,10 @@
                         (throw (ex-info "Missing agent result path."
                                         {:case-id (:id case)})))
         prepared (prepare-case! suite case opts)
-        agent-result (benchmark-io/read-json-file result-file)
+        agent-result (merge-token-usage-artifacts
+                      (benchmark-io/read-json-file result-file)
+                      opts
+                      result-file)
         scored (->> (assoc (score-agent-result prepared agent-result)
                            :parserWorker (agent-score-parser-worker-profile
                                           opts

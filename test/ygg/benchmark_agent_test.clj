@@ -801,6 +801,78 @@
                   :totalTokens 150
                   :costUsd 0.01}
                  (get-in report [:agentDiagnostics :tokenTelemetry]))))))))
+
+(deftest external-agent-missing-token-sidecar-uses-prompt-estimate
+  (let [root (temp-dir "ygg-bench-agent-prompt-token-repo")
+        out (temp-dir "ygg-bench-agent-prompt-token-out")
+        suite-dir (temp-dir "ygg-bench-agent-prompt-token-suite")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))
+        script-path (.getPath (io/file suite-dir "agent.sh"))]
+    (git! root "init")
+    (git! root "config" "user.email" "ygg@example.test")
+    (git! root "config" "user.name" "Yggdrasil Test")
+    (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (let [base-sha (commit! root "base")]
+      (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :fixed)\n")
+      (let [fix-sha (commit! root "fix")]
+        (spit suite-path
+              (pr-str {:id "agent-prompt-token-fixture"
+                       :repos [{:id "repo"
+                                :root root}]
+                       :cases [{:id "case-1"
+                                :repo-id "repo"
+                                :base-sha base-sha
+                                :fix-sha fix-sha
+                                :issue {:id 1
+                                        :title "broken app"
+                                        :body "The app returns the old value."}}]}))
+        (spit script-path
+              (str "cat > \"$YGG_BENCH_RESULT\" <<JSON\n"
+                   "{\"schema\":\"" benchmark/agent-result-schema "\","
+                   "\"caseId\":\"case-1\","
+                   "\"caseFingerprint\":\"$YGG_BENCH_CASE_FINGERPRINT\","
+                   "\"agentInputFingerprint\":\"$YGG_BENCH_AGENT_INPUT_FINGERPRINT\","
+                   "\"agentId\":\"prompt-token-agent\","
+                   "\"mode\":\"shell-only\","
+                   "\"suspectedFiles\":[{\"path\":\"src/app.clj\","
+                   "\"rank\":1,\"confidence\":1.0,\"reason\":\"script\","
+                   "\"evidence\":[\"rg broken src/app.clj\"]}],"
+                   "\"suspectedSymbols\":[],"
+                   "\"commands\":[\"rg broken src/app.clj\"],"
+                   "\"warnings\":[],"
+                   "\"summary\":\"script result\"}\n"
+                   "JSON\n"))
+        (let [suite (benchmark/read-suite suite-path)
+              result (benchmark/agent-runs! suite {:out out
+                                                   :case-id "case-1"
+                                                   :agent-id "prompt-token-agent"
+                                                   :mode "shell-only"
+                                                   :command (str "sh " script-path)})
+              run (first (:runs result))
+              prompt-path (get-in run [:artifacts :promptPath])
+              expected-input-tokens (context/estimate-tokens (slurp prompt-path))
+              score-path (get-in run [:artifacts :agentScorePath])
+              result-path (get-in run [:artifacts :agentResultPath])
+              score (json/read-json (slurp score-path) :key-fn keyword)
+              raw-result (dissoc (json/read-json (slurp result-path) :key-fn keyword)
+                                 :tokenUsage)
+              _ (spit result-path
+                      (json/write-json-str raw-result {:indent-str "  "}))
+              rescored (benchmark/score-agent-result! suite
+                                                      (first (:cases suite))
+                                                      {:out out
+                                                       :result-path result-path})]
+          (is (= "passed" (:status run)))
+          (is (not (.isFile (io/file (get-in run
+                                             [:artifacts :tokenUsagePath])))))
+          (is (= {:inputTokens expected-input-tokens
+                  :outputTokens 0
+                  :totalTokens expected-input-tokens
+                  :costUsd 0.0
+                  :source "benchmark-prompt-estimate"}
+                 (get-in score [:agent :tokenUsage])))
+          (is (= (get-in score [:agent :tokenUsage])
+                 (get-in rescored [:agent :tokenUsage]))))))))
 (deftest context-packet-can-be-written-as-agent-result
   (let [root (temp-dir "ygg-bench-context-result")
         _ (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
