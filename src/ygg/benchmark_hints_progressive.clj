@@ -13,7 +13,11 @@
    :commands 6
    :audit-scopes 3
    :evidence-per-row 1
-   :reason-chars 220})
+   :reason-chars 220
+   :read-plan-files 3
+   :snippet-before-lines 20
+   :snippet-after-lines 12
+   :snippet-max-chars 2400})
 
 (defn full-hints-path
   [hints-path]
@@ -144,6 +148,108 @@
   (when source-coverage
     (select-keys source-coverage [:totals :indexedConnectivity])))
 
+(defn- roots-by-repo
+  [roots]
+  (cond
+    (map? roots)
+    roots
+
+    (sequential? roots)
+    (into {}
+          (keep (fn [{:keys [id root]}]
+                  (when (and id root)
+                    [id root])))
+          roots)
+
+    :else
+    nil))
+
+(defn- row-root
+  [opts row]
+  (or (get (roots-by-repo (:roots opts))
+           (or (:repoId row) (:repo-id row) (:repo row)))
+      (:root opts)))
+
+(defn- parse-line-range
+  [value]
+  (when-let [[_ start end] (re-find #" lines (\d+)(?:-(\d+))?" (str value))]
+    {:start (Long/parseLong start)
+     :end (Long/parseLong (or end start))}))
+
+(defn- row-line-range
+  [row]
+  (or (some parse-line-range (:evidence row))
+      (when-let [start (or (:sourceLine row) (:source-line row))]
+        {:start (long start)
+         :end (long (or (:endLine row) (:end-line row) start))})))
+
+(defn- bounded-range
+  [line-range limits]
+  (let [start (long (:start line-range))
+        end (long (:end line-range))]
+    {:start (max 1 (- start (long (:snippet-before-lines limits))))
+     :end (+ end (long (:snippet-after-lines limits)))}))
+
+(defn- read-snippet
+  [root path {:keys [start end]} limits]
+  (when (and root path start end)
+    (let [file (io/file root path)]
+      (when (.isFile file)
+        (with-open [reader (io/reader file)]
+          (let [lines (line-seq reader)
+                snippet (->> lines
+                             (map-indexed (fn [idx line]
+                                            [(inc idx) line]))
+                             (drop-while #(< (first %) start))
+                             (take-while #(<= (first %) end))
+                             (map (fn [[line-no line]]
+                                    (format "%d: %s" line-no line)))
+                             (str/join "\n"))]
+            (bounded-text (:snippet-max-chars limits) snippet)))))))
+
+(defn- shell-quote
+  [value]
+  (str "'" (str/replace (str value) "'" "'\"'\"'") "'"))
+
+(defn- read-plan-row
+  [opts limits row]
+  (let [path (:path row)
+        root (row-root opts row)
+        line-range (row-line-range row)
+        snippet-range (when line-range
+                        (bounded-range line-range limits))
+        snippet (read-snippet root path snippet-range limits)]
+    (when (and path snippet-range snippet)
+      (cond-> {:rank (:rank row)
+               :path path
+               :lines snippet-range
+               :command (str "sed -n "
+                             (shell-quote (str (:start snippet-range)
+                                               ","
+                                               (:end snippet-range)
+                                               "p"))
+                             " "
+                             (shell-quote path))
+               :snippet snippet}
+        (:repoId row) (assoc :repoId (:repoId row))
+        (:repo-id row) (assoc :repoId (:repo-id row))
+        (:repo row) (assoc :repo (:repo row))
+        (:reason row) (assoc :reason (bounded-text (:reason-chars limits)
+                                                   (:reason row)))))))
+
+(defn- compact-read-plan
+  [hints opts limits]
+  (let [snippets (->> (:topFiles hints)
+                      (take (:read-plan-files limits))
+                      (keep #(read-plan-row opts limits %))
+                      vec)]
+    (when (seq snippets)
+      {:basis "bounded snippets from compact topFiles; inspect these before broad search or full context expansion"
+       :rules ["Do not print entire Yggdrasil JSON artifacts."
+               "Use compact projections and these snippets before broad rg."
+               "Open full hints or context only when compact hints do not provide enough evidence."]
+       :snippets snippets})))
+
 (defn- section-counts
   [hints]
   {:topFiles (count (:topFiles hints))
@@ -164,6 +270,7 @@
    (compact-agent-hints hints {}))
   ([hints opts]
    (let [limits (merge default-limits (:limits opts))
+         read-plan (compact-read-plan hints opts limits)
          progressive {:profile compact-profile
                       :limits limits
                       :fullHintsPath (canonical-path (:full-hints-path opts))
@@ -196,6 +303,8 @@
        (assoc :candidateSystems (mapv compact-system
                                       (take (:candidate-systems limits)
                                             (:candidateSystems hints))))
+       read-plan
+       (assoc :readPlan read-plan)
        (seq (:commands hints))
        (assoc :commands (takev (:commands limits) (:commands hints)))
        (:architecture hints)

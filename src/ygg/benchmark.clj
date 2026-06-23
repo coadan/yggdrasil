@@ -879,7 +879,9 @@
                      hints (compact-agent-hints
                             full-hints
                             {:context-path context-path
-                             :full-hints-path full-hints-path})]
+                             :full-hints-path full-hints-path
+                             :root (:worktreeRoot prepared)
+                             :roots (:worktreeRoots prepared)})]
                  (benchmark-io/write-json-file! context-path packet)
                  (benchmark-io/write-json-file! full-hints-path full-hints)
                  (benchmark-io/write-json-file! hints-path hints)
@@ -941,7 +943,9 @@
             hints (compact-agent-hints
                    full-hints
                    {:context-path context-path
-                    :full-hints-path full-hints-path})]
+                    :full-hints-path full-hints-path
+                    :root (:worktreeRoot prepared)
+                    :roots (:worktreeRoots prepared)})]
         (benchmark-io/write-json-file! full-hints-path full-hints)
         (benchmark-io/write-json-file! hints-path hints)
         hints)

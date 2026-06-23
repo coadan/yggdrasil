@@ -770,7 +770,9 @@
                          :frontloadBytes
                          :expansionBytes
                          :fullAvailableBytes
-                         :hintSavingsBytes]))))
+                         :hintSavingsBytes
+                         :readPlanSnippetCount
+                         :readPlanSnippetBytes]))))
 
 (defn- context-artifact-comparison
   [shell-report ygg-report]
@@ -1714,7 +1716,13 @@
          ", hint savings "
          (format-metric-value (:hintSavingsBytes totals))
          (when-let [ratio (:hintSavingsRatio telemetry)]
-           (str " (ratio " ratio ")")))))
+           (str " (ratio " ratio ")"))
+         (when-let [snippet-count (:readPlanSnippetCount totals)]
+           (str ", readPlan snippets "
+                (format-metric-value snippet-count)
+                " ("
+                (format-metric-value (:readPlanSnippetBytes totals))
+                " bytes)")))))
 
 (defn- progressive-disclosure-line
   [summary]
@@ -1729,7 +1737,13 @@
        ", frontload "
        (format-metric-value (:frontloadBytes summary))
        ", expansion available "
-       (format-metric-value (:expansionBytes summary))))
+       (format-metric-value (:expansionBytes summary))
+       (when-let [snippet-count (:readPlanSnippetCount summary)]
+         (str ", readPlan snippets "
+              (format-metric-value snippet-count)
+              " ("
+              (format-metric-value (:readPlanSnippetBytes summary))
+              " bytes)"))))
 
 (defn- timing-basis-line
   [label timings]

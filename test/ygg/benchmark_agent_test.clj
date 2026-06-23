@@ -324,7 +324,17 @@
                        "Yggdrasil artifacts: use `YGG_BENCH_YGG_HINTS` and `YGG_BENCH_YGG_CONTEXT`"))
     (is (not (str/includes? prompt "Yggdrasil hints JSON: /tmp/hints.json")))
     (is (not (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json")))
-    (is (str/includes? prompt "`topFiles`, `architecture`, and `auditScopes`"))
+    (is (str/includes? prompt "Yggdrasil is prepared and warm"))
+    (is (str/includes? prompt
+                       "`jq '{selection,topFiles,topSymbols,readPlan,diagnostics}'"))
+    (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts"))
+    (is (str/includes? prompt "`readPlan.snippets`"))
+    (is (str/includes? prompt
+                       "`topFiles`, `topSymbols`, `readPlan`, `architecture`, and `auditScopes`"))
+    (is (str/includes? prompt "Avoid broad `rg`"))
+    (is (str/includes? prompt "narrow `sed` windows"))
+    (is (str/includes? prompt
+                       "Open `YGG_BENCH_YGG_CONTEXT` or full hints only when compact hints"))
     (is (str/includes? prompt
                        "`sourceCoverage` and `diagnostics`"))
     (is (str/includes? prompt

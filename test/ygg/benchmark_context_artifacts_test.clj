@@ -43,6 +43,26 @@
     (is (str/ends-with? (get-in telemetry [:artifacts :yggHints :path])
                         "hints.json"))))
 
+(deftest context-artifact-telemetry-measures-compact-read-plan
+  (let [dir (temp-dir "ygg-context-artifacts-read-plan")
+        hints (io/file dir "hints.json")
+        _ (spit hints
+                "{\"readPlan\":{\"snippets\":[{\"snippet\":\"abc\"},{\"snippet\":\"defgh\"}]}}")
+        telemetry (context-artifacts/context-artifact-telemetry
+                   {:yggHints (.getPath hints)})
+        aggregate (context-artifacts/aggregate-context-artifact-telemetry
+                   [{:case-id "case-1"
+                     :contextArtifacts telemetry}
+                    {:case-id "case-2"
+                     :contextArtifacts {:compactHintsBytes 1}}])]
+    (is (= 2 (:readPlanSnippetCount telemetry)))
+    (is (= 8 (:readPlanSnippetBytes telemetry)))
+    (is (= 2 (get-in aggregate [:totals :readPlanSnippetCount])))
+    (is (= 8 (get-in aggregate [:totals :readPlanSnippetBytes])))
+    (is (= {:total 2
+            :average 2.0}
+           (get-in aggregate [:averages :readPlanSnippetCount])))))
+
 (deftest aggregate-context-artifact-telemetry-sums-shared-runs
   (let [results [{:case-id "case-1"
                   :contextArtifacts {:promptBytes 10

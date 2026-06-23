@@ -704,7 +704,9 @@
                                 :frontloadBytes 6000
                                 :expansionBytes 40000
                                 :fullAvailableBytes 46000
-                                :hintSavingsBytes 12000}
+                                :hintSavingsBytes 12000
+                                :readPlanSnippetCount 6
+                                :readPlanSnippetBytes 1800}
                        :hintSavingsRatio 0.75
                        :frontloadToExpansionRatio 0.15})
         comparison (agent-efficiency/compare-reports shell-report ygg)
@@ -719,6 +721,8 @@
             :expansionBytes 40000
             :fullAvailableBytes 46000
             :hintSavingsBytes 12000
+            :readPlanSnippetCount 6
+            :readPlanSnippetBytes 1800
             :hintSavingsRatio 0.75
             :frontloadToExpansionRatio 0.15}
            (get-in comparison [:contextArtifacts :progressiveDisclosure])))
@@ -727,9 +731,9 @@
                    [:contextArtifacts :ygg :totals :hintSavingsBytes])))
     (is (.contains markdown "## Context Artifact Telemetry"))
     (is (.contains markdown
-                   "- Yggdrasil: frontload 6000, compact hints 4000, full hints 16000, context 24000, hint savings 12000 (ratio 0.75)"))
+                   "- Yggdrasil: frontload 6000, compact hints 4000, full hints 16000, context 24000, hint savings 12000 (ratio 0.75), readPlan snippets 6 (1800 bytes)"))
     (is (.contains markdown
-                   "- Ygg progressive disclosure: compact hints 4000 vs full hints 16000, saved 12000 (ratio 0.75), frontload 6000, expansion available 40000"))))
+                   "- Ygg progressive disclosure: compact hints 4000 vs full hints 16000, saved 12000 (ratio 0.75), frontload 6000, expansion available 40000, readPlan snippets 6 (1800 bytes)"))))
 
 (deftest compares-task-token-usage-per-shared-case
   (let [shell (-> shell-report

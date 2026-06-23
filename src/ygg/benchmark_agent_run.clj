@@ -277,12 +277,19 @@
   [packet]
   ["## Yggdrasil Mode"
    (if (ygg-mode? packet)
-     (str "Yggdrasil is prepared. Read `YGG_BENCH_YGG_HINTS` first; use "
-          "`YGG_BENCH_YGG_CONTEXT` for snippets. Prefer `topFiles`, "
-          "`architecture`, and `auditScopes` before broad search. Treat "
-          "`sourceCoverage` and `diagnostics` as trust boundaries; run listed "
-          "`commands` or `architecture.validationGaps.nextActions` only for "
-          "weak or missing planes.")
+     (str "Yggdrasil is prepared and warm. Read `YGG_BENCH_YGG_HINTS` first "
+          "with a compact projection such as `jq '{selection,topFiles,"
+          "topSymbols,readPlan,diagnostics}' \"$YGG_BENCH_YGG_HINTS\"`; "
+          "do not print entire Yggdrasil JSON artifacts. Use `readPlan.snippets` "
+          "and exact `topFiles` paths before local file reads. Prefer "
+          "`topFiles`, `topSymbols`, `readPlan`, `architecture`, and "
+          "`auditScopes` before broad search. Avoid broad `rg`; use exact "
+          "paths and narrow `sed` windows unless compact hints are insufficient. "
+          "Open `YGG_BENCH_YGG_CONTEXT` or full hints only when compact hints "
+          "do not provide enough evidence. Treat `sourceCoverage` and "
+          "`diagnostics` as trust boundaries; run listed `commands` or "
+          "`architecture.validationGaps.nextActions` only for weak or missing "
+          "planes.")
      "No Yggdrasil: use local shell inspection only.")
    ""])
 (defn agent-run-prompt

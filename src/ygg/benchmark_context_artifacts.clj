@@ -1,6 +1,7 @@
 (ns ygg.benchmark-context-artifacts
   "Byte telemetry for benchmark context artifacts used by external agents."
-  (:require [clojure.java.io :as io]))
+  (:require [charred.api :as json]
+            [clojure.java.io :as io]))
 
 (def schema
   "ygg.benchmark.context-artifacts/v1")
@@ -44,6 +45,29 @@
   (when (pos? (long denominator))
     (/ (double numerator) (double denominator))))
 
+(defn- utf8-byte-count
+  [value]
+  (alength (.getBytes (str value) "UTF-8")))
+
+(defn- read-json-file
+  [path]
+  (try
+    (json/read-json (slurp path) :key-fn keyword)
+    (catch Exception _
+      nil)))
+
+(defn- read-plan-telemetry
+  [artifacts]
+  (when-let [hints-path (get-in artifacts [:yggHints :path])]
+    (when (get-in artifacts [:yggHints :present])
+      (let [snippets (vec (get-in (read-json-file hints-path)
+                                  [:readPlan :snippets]))]
+        (when (seq snippets)
+          {:readPlanSnippetCount (count snippets)
+           :readPlanSnippetBytes (reduce + 0
+                                         (map #(utf8-byte-count (:snippet %))
+                                              snippets))})))))
+
 (defn context-artifact-telemetry
   "Return byte telemetry for prompt and Yggdrasil context artifacts.
 
@@ -65,17 +89,21 @@
             context-bytes (byte-count artifacts :yggContext)
             frontload-bytes (+ prompt-bytes compact-hints-bytes)
             expansion-bytes (+ full-hints-bytes context-bytes)
-            hint-savings-bytes (max 0 (- full-hints-bytes compact-hints-bytes))]
-        (cond-> {:schema schema
-                 :artifacts artifacts
-                 :promptBytes prompt-bytes
-                 :compactHintsBytes compact-hints-bytes
-                 :fullHintsBytes full-hints-bytes
-                 :contextBytes context-bytes
-                 :frontloadBytes frontload-bytes
-                 :expansionBytes expansion-bytes
-                 :fullAvailableBytes (+ frontload-bytes expansion-bytes)
-                 :hintSavingsBytes hint-savings-bytes}
+            hint-savings-bytes (max 0 (- full-hints-bytes compact-hints-bytes))
+            read-plan (read-plan-telemetry artifacts)]
+        (cond-> (cond-> {:schema schema
+                         :artifacts artifacts
+                         :promptBytes prompt-bytes
+                         :compactHintsBytes compact-hints-bytes
+                         :fullHintsBytes full-hints-bytes
+                         :contextBytes context-bytes
+                         :frontloadBytes frontload-bytes
+                         :expansionBytes expansion-bytes
+                         :fullAvailableBytes (+ frontload-bytes
+                                                expansion-bytes)
+                         :hintSavingsBytes hint-savings-bytes}
+                  read-plan
+                  (merge read-plan))
           (pos? full-hints-bytes)
           (assoc :hintSavingsRatio (ratio hint-savings-bytes full-hints-bytes))
           (pos? expansion-bytes)
@@ -108,7 +136,12 @@
             full-hints-bytes (long (or (:fullHintsBytes totals) 0))
             hint-savings-bytes (long (or (:hintSavingsBytes totals) 0))
             expansion-bytes (long (or (:expansionBytes totals) 0))
-            frontload-bytes (long (or (:frontloadBytes totals) 0))]
+            frontload-bytes (long (or (:frontloadBytes totals) 0))
+            read-plan-snippet-counts (vec (keep :readPlanSnippetCount rows))
+            read-plan-snippet-bytes (vec (keep :readPlanSnippetBytes rows))
+            read-plan-present? (seq read-plan-snippet-counts)
+            read-plan-snippet-count (reduce + 0 read-plan-snippet-counts)
+            read-plan-snippet-byte-total (reduce + 0 read-plan-snippet-bytes)]
         (cond-> {:runs (count rows)
                  :caseIds (->> rows
                                (map :case-id)
@@ -121,6 +154,17 @@
                                         [byte-key (aggregate-byte-field rows
                                                                         byte-key)]))
                                  byte-keys)}
+          read-plan-present?
+          (assoc-in [:totals :readPlanSnippetCount] read-plan-snippet-count)
+          read-plan-present?
+          (assoc-in [:totals :readPlanSnippetBytes]
+                    read-plan-snippet-byte-total)
+          read-plan-present?
+          (assoc-in [:averages :readPlanSnippetCount]
+                    (aggregate-byte-field rows :readPlanSnippetCount))
+          read-plan-present?
+          (assoc-in [:averages :readPlanSnippetBytes]
+                    (aggregate-byte-field rows :readPlanSnippetBytes))
           (pos? full-hints-bytes)
           (assoc :hintSavingsRatio (ratio hint-savings-bytes full-hints-bytes))
           (pos? expansion-bytes)
