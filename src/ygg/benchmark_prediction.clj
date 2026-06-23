@@ -1358,25 +1358,29 @@
 
 (defn- diversify-ranked-file-predictions
   [rows]
-  (loop [remaining (vec rows)
-         seen #{}
-         out []]
-    (if (empty? remaining)
-      (renumber-file-ranks out)
-      (let [[idx row] (or (->> remaining
-                               (map-indexed vector)
-                               (some (fn [[idx row]]
-                                       (when-let [k (prediction-diversity-key
-                                                     row)]
-                                         (when-not (contains? seen k)
-                                           [idx row])))))
-                          [0 (first remaining)])]
-        (recur (vec (concat (subvec remaining 0 idx)
-                            (subvec remaining (inc idx))))
-               (cond-> seen
-                 (prediction-diversity-key row)
-                 (conj (prediction-diversity-key row)))
-               (conj out row))))))
+  (if-let [head (first rows)]
+    (loop [remaining (vec (rest rows))
+           seen (cond-> #{}
+                  (prediction-diversity-key head)
+                  (conj (prediction-diversity-key head)))
+           out [head]]
+      (if (empty? remaining)
+        (renumber-file-ranks out)
+        (let [[idx row] (or (->> remaining
+                                 (map-indexed vector)
+                                 (some (fn [[idx row]]
+                                         (when-let [k (prediction-diversity-key
+                                                       row)]
+                                           (when-not (contains? seen k)
+                                             [idx row])))))
+                            [0 (first remaining)])]
+          (recur (vec (concat (subvec remaining 0 idx)
+                              (subvec remaining (inc idx))))
+                 (cond-> seen
+                   (prediction-diversity-key row)
+                   (conj (prediction-diversity-key row)))
+                 (conj out row)))))
+    []))
 
 (defn- row-source-kind
   [kind-by-path row]

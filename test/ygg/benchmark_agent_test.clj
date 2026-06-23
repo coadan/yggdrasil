@@ -2339,6 +2339,40 @@
             "consumer/metrics.go"]
            (mapv :path files)))))
 
+(deftest file-ranking-diversity-preserves-score-ranked-head
+  (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
+        rows [{:path "site/src/pages/index.astro"
+               :rank 1
+               :repo-id "bootstrap"
+               :metrics {:rankScore 5.5
+                         :candidateFileCount 1
+                         :docCount 0
+                         :entityCount 0
+                         :definitionKinds ["node"]}}
+              {:path "site/src/pages/docs/[version]/index.astro"
+               :rank 2
+               :repo-id "bootstrap"
+               :metrics {:rankScore 5.2
+                         :candidateFileCount 1
+                         :docCount 0
+                         :entityCount 0
+                         :architectureSupportBoost 1.0
+                         :definitionKinds ["node" "route"]}}
+              {:path "site/src/pages/docs/[version]/examples/index.astro"
+               :rank 3
+               :repo-id "bootstrap"
+               :metrics {:rankScore 4.8
+                         :candidateFileCount 1
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["node"]}}]
+        files (diversify rows)]
+    (is (= ["site/src/pages/index.astro"
+            "site/src/pages/docs/[version]/index.astro"
+            "site/src/pages/docs/[version]/examples/index.astro"]
+           (mapv :path files)))
+    (is (= [1 2 3] (mapv :rank files)))))
+
 (deftest file-ranking-keeps-single-row-candidate-rank-as-tiebreaker
   (let [root (temp-dir "ygg-bench-single-source-graph-candidate-rank")
         _ (spit-file! root "lib/adapters/http.js" "export default function httpAdapter() {}\n")
