@@ -78,12 +78,12 @@
                                {:project-id project-id
                                 :active? true})))
 
-(defn active-project-system-edges
+(defn active-project-system-edge-count
   [xtdb project-id]
-  (vec (store/constrained-rows xtdb
-                               (:system-edges store/tables)
-                               {:project-id project-id
-                                :active? true})))
+  (store/count-rows xtdb
+                    (:system-edges store/tables)
+                    {:project-id project-id
+                     :active? true}))
 
 (defn review
   [xtdb project {:keys [map-path limit]}]
@@ -91,7 +91,7 @@
         overlay (when (and map-path (map-store/file-exists? map-path))
                   (map-store/read-map map-path))
         systems (active-project-systems xtdb project-id)
-        edges (active-project-system-edges xtdb project-id)]
+        edge-count (active-project-system-edge-count xtdb project-id)]
     {:schema review-schema
      :project-id project-id
      :map-path map-path
@@ -100,7 +100,7 @@
                                  (take (or limit 50)
                                        (sort-by (juxt :repo-id :label) systems)))
                   :totalSystems (count systems)
-                  :totalEdges (count edges)}
+                  :totalEdges edge-count}
      :nextActions [{:kind "review"
                     :label "Accept a researched system"
                     :command "ygg map accept system <target> --kind KIND --label LABEL --include repo:path --reason TEXT --map ygg.map.json"}

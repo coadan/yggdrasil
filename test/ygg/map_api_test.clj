@@ -113,7 +113,7 @@
                       :candidate-types [:path-cluster]
                       :metrics {:degree 5}
                       :active? true}])
-                  map-api/active-project-system-edges (fn [_ _] [])]
+                  map-api/active-project-system-edge-count (fn [_ _] 0)]
       (let [out (with-out-str
                   (cli/dispatch "map" ["review" "project.edn"
                                        "--map" map-path

@@ -5,6 +5,7 @@
             [ygg.dependency :as dependency]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
+            [ygg.map-api :as map-api]
             [ygg.query :as query]
             [ygg.xtdb :as store]
             [clojure.string :as str]
@@ -583,6 +584,42 @@
       (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
               :args ["project-a" "app"]}
              ctx)))))
+
+(deftest map-review-counts-system-edges-with-count-pushdown
+  (let [calls (atom [])]
+    (with-redefs [map-api/active-project-systems
+                  (fn [_ project-id]
+                    [{:xt/id "system:app"
+                      :project-id project-id
+                      :repo-id "app"
+                      :label "App"
+                      :active? true}])
+                  store/count-rows
+                  (fn
+                    ([_ table constraints]
+                     (swap! calls conj {:table table
+                                        :constraints constraints
+                                        :ctx {}})
+                     7)
+                    ([_ table constraints ctx]
+                     (swap! calls conj {:table table
+                                        :constraints constraints
+                                        :ctx ctx})
+                     7))
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "system edge totals should not hydrate edge rows"
+                                    {})))]
+      (let [review (map-api/review {:node :stub}
+                                   {:id "project-a"}
+                                   {:limit 1})]
+        (is (= 7 (get-in review [:candidates :totalEdges])))
+        (is (= 1 (get-in review [:candidates :totalSystems])))))
+    (is (= [{:table (:system-edges store/tables)
+             :constraints {:project-id "project-a"
+                           :active? true}
+             :ctx {}}]
+           @calls))))
 
 (deftest active-row-count-pushes-active-unless-false-filter
   (let [calls (atom [])]
