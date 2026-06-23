@@ -381,6 +381,180 @@ def tree_sitter_parser_any(languages: Iterable[str]) -> Any | None:
     return None
 
 
+def strip_js_string_literal(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] in {"'", '"', "`"} and value[-1] == value[0]:
+        return value[1:-1]
+    return value
+
+
+def js_name_node(node: Any) -> Any | None:
+    by_field = node_child_by_field_name(node, "name")
+    if by_field is not None:
+        return by_field
+    for child in node_children(node):
+        if node_kind(child) in {
+            "identifier",
+            "property_identifier",
+            "private_property_identifier",
+            "type_identifier",
+        }:
+            return child
+    return None
+
+
+def js_definition_name(content: bytes, node: Any, type_stack: list[str]) -> str | None:
+    name_node = js_name_node(node)
+    if name_node is None:
+        return None
+    name = node_text(content, name_node)
+    if not name:
+        return None
+    return ".".join([*type_stack, name]) if type_stack else name
+
+
+def js_variable_function_kind(content: bytes, node: Any) -> str | None:
+    value = node_child_by_field_name(node, "value")
+    if value is None:
+        return None
+    value_kind = node_kind(value)
+    if value_kind in {"arrow_function", "function", "function_expression"}:
+        return "function"
+    if value_kind in {"class", "class_declaration", "class_expression"}:
+        return "class"
+    return None
+
+
+JS_DEFINITION_KINDS = {
+    "function_declaration": "function",
+    "generator_function_declaration": "function",
+    "class_declaration": "class",
+    "interface_declaration": "interface",
+    "type_alias_declaration": "type",
+    "enum_declaration": "enum",
+}
+
+
+def js_definitions(content: bytes, root: Any) -> list[dict[str, Any]]:
+    definitions: list[dict[str, Any]] = []
+
+    def visit(node: Any, type_stack: list[str]) -> None:
+        kind = node_kind(node)
+        next_stack = type_stack
+        if kind in JS_DEFINITION_KINDS:
+            name = js_definition_name(content, node, type_stack)
+            if name:
+                definitions.append(
+                    {
+                        "kind": JS_DEFINITION_KINDS[kind],
+                        "name": name,
+                        **node_line_range(node),
+                    }
+                )
+                if JS_DEFINITION_KINDS[kind] == "class":
+                    next_stack = [*type_stack, name.split(".")[-1]]
+        elif kind == "method_definition":
+            name = js_definition_name(content, node, type_stack)
+            if name:
+                definitions.append({"kind": "method", "name": name, **node_line_range(node)})
+        elif kind == "variable_declarator":
+            value_kind = js_variable_function_kind(content, node)
+            name = js_definition_name(content, node, type_stack) if value_kind else None
+            if name:
+                definitions.append({"kind": value_kind, "name": name, **node_line_range(node)})
+
+        for child in node_children(node):
+            visit(child, next_stack)
+
+    visit(root, [])
+    return definitions
+
+
+def js_string_descendant(content: bytes, node: Any) -> str | None:
+    string_node = first_descendant(node, {"string", "string_fragment"})
+    if string_node is None:
+        return None
+    return strip_js_string_literal(node_text(content, string_node))
+
+
+def js_call_expression_import(content: bytes, node: Any) -> dict[str, Any] | None:
+    if node_child_count(node) == 0:
+        return None
+    callee = node_child(node, 0)
+    if node_kind(callee) not in {"identifier", "import"}:
+        return None
+    callee_text = node_text(content, callee)
+    if callee_text not in {"require", "import"}:
+        return None
+    target = js_string_descendant(content, node)
+    if target:
+        return {"target": target, **node_line_range(node)}
+    return None
+
+
+def js_imports(content: bytes, root: Any) -> list[dict[str, Any]]:
+    imports: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, str | None]] = set()
+    for node in walk_nodes(root):
+        kind = node_kind(node)
+        row = None
+        if kind in {"import_statement", "export_statement"}:
+            target = js_string_descendant(content, node)
+            if target:
+                text = f" {node_text(content, node)} "
+                row = {"target": target, **node_line_range(node)}
+                if " type " in text:
+                    row["importKind"] = "type"
+        elif kind == "call_expression":
+            row = js_call_expression_import(content, node)
+        if row:
+            key = (str(row["target"]), int(row["line"]), row.get("importKind"))
+            if key not in seen:
+                seen.add(key)
+                imports.append(row)
+    return imports
+
+
+def parse_javascript_like(kind: str, path: str, content: str) -> dict[str, Any]:
+    if kind == "typescript":
+        languages = ["tsx", "typescript"] if path.endswith(".tsx") else ["typescript"]
+    else:
+        languages = ["javascript"]
+    parser = tree_sitter_parser_any(languages)
+    if parser is None:
+        return {
+            "definitions": [],
+            "imports": [],
+            "references": [],
+            "diagnostics": [
+                {
+                    "stage": "parser-worker",
+                    "line": None,
+                    "message": f"{kind} parser unavailable: install tree-sitter-language-pack",
+                }
+            ],
+        }
+
+    content_bytes = content.encode("utf-8")
+    tree = parser.parse(content)
+    root = tree.root_node()
+    diagnostics = []
+    if node_has_error(root):
+        diagnostics.append(
+            {
+                "stage": "parse",
+                "line": 1,
+                "message": "tree-sitter reported parse errors",
+            }
+        )
+    return {
+        "definitions": js_definitions(content_bytes, root),
+        "imports": js_imports(content_bytes, root),
+        "references": [],
+        "diagnostics": diagnostics,
+    }
+
+
 def dotnet_name_node(node: Any) -> Any | None:
     by_field = node_child_by_field_name(node, "name")
     if by_field is not None:
@@ -562,6 +736,8 @@ def parse_request(request: dict[str, Any]) -> dict[str, Any]:
         facts = parse_python(path, content)
     elif kind == "java":
         facts = parse_java(path, content)
+    elif kind in {"javascript", "typescript"}:
+        facts = parse_javascript_like(kind, path, content)
     elif kind == "dotnet":
         facts = parse_dotnet(path, content)
     else:

@@ -8,6 +8,32 @@
 (def ^:private typescript-declaration-member-before-lines 32)
 (def ^:private typescript-declaration-member-after-lines 8)
 (def ^:private typescript-declaration-member-limit 300)
+(defn- parser-worker-failure?
+  [diagnostic]
+  (= "parser-worker" (str (:stage diagnostic))))
+(defn- worker-diagnostic-row
+  [run-id file-id path diagnostic]
+  (common/diagnostic-row run-id
+                         file-id
+                         path
+                         (:stage diagnostic)
+                         (:line diagnostic)
+                         (:message diagnostic)))
+(defn- js-worker-definition-kind
+  [kind]
+  (case (keyword kind)
+    :class :class
+    :function :function
+    :method :method
+    :interface :interface
+    :type :type
+    :enum :enum
+    :var))
+(defn- js-chunk-kind
+  [kind]
+  (case kind
+    :typescript :typescript-file
+    :javascript-file))
 (defn- js-definition-chunk
   [run-id id-scope file-id path lines {:keys [label kind source-line]}]
   (let [chunk-text (->> lines
@@ -88,8 +114,37 @@
              :run-id run-id}
       (pos? line-count) (assoc :end-line (+ (inc start-idx) line-count -1))
       (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
-(defn extract-js-family
-  "Extract bounded module facts from JavaScript and TypeScript source files."
+(defn- js-declaration-member-chunks
+  [run-id id-scope file-id path module-name lines kind]
+  (if (and (= :typescript kind)
+           (typescript-declaration-path? path))
+    (->> lines
+         (map-indexed typescript-declaration-member-line)
+         (keep identity)
+         (take typescript-declaration-member-limit)
+         (mapv #(typescript-declaration-member-chunk run-id
+                                                     id-scope
+                                                     file-id
+                                                     path
+                                                     module-name
+                                                     lines
+                                                     %)))
+    []))
+(defn- js-import-edge
+  [run-id id-scope file-id path ns-node {:keys [target source-line line import-kind importKind]}]
+  (let [target (common/js-import-target path target)]
+    (when-not (str/blank? (str target))
+      (cond-> (common/edge-row run-id
+                               file-id
+                               path
+                               (:xt/id ns-node)
+                               (common/node-id id-scope :namespace target)
+                               :imports
+                               :extracted
+                               (or source-line line 1))
+        (or import-kind importKind) (assoc :import-kind
+                                           (keyword (or import-kind importKind)))))))
+(defn- extract-js-family-regex
   [run-id {:keys [id-scope file-id path content kind]}]
   (let [module-name (common/source-module-name path)
         ns-node (common/namespace-node run-id id-scope file-id path module-name)
@@ -121,25 +176,13 @@
         import-edges (->> lines
                           (map-indexed #(common/js-import-targets %1 path %2))
                           (mapcat identity)
-                          (mapv #(cond-> (common/edge-row
-                                          run-id
-                                          file-id
-                                          path
-                                          (:xt/id ns-node)
-                                          (common/node-id id-scope :namespace (:target %))
-                                          :imports
-                                          :extracted
-                                          (:source-line %))
-                                   (:import-kind %)
-                                   (assoc :import-kind (:import-kind %)))))
+                          (keep #(js-import-edge run-id id-scope file-id path ns-node %))
+                          vec)
         chunk-text (str/join "\n" (take 100 lines))
-        chunk-kind (case kind
-                     :typescript :typescript-file
-                     :javascript-file)
         chunk {:xt/id (common/chunk-id id-scope path module-name 1)
                :file-id file-id
                :path path
-               :kind chunk-kind
+               :kind (js-chunk-kind kind)
                :label module-name
                :text chunk-text
                :tokens (text/tokenize (str module-name "\n" chunk-text))
@@ -153,23 +196,112 @@
                                                       lines
                                                       %)
                                 defs)
-        declaration-member-chunks (if (and (= :typescript kind)
-                                           (typescript-declaration-path? path))
-                                    (->> lines
-                                         (map-indexed typescript-declaration-member-line)
-                                         (keep identity)
-                                         (take typescript-declaration-member-limit)
-                                         (mapv #(typescript-declaration-member-chunk
-                                                 run-id
-                                                 id-scope
-                                                 file-id
-                                                 path
-                                                 module-name
-                                                 lines
-                                                 %)))
-                                    [])]
+        declaration-member-chunks (js-declaration-member-chunks run-id
+                                                                id-scope
+                                                                file-id
+                                                                path
+                                                                module-name
+                                                                lines
+                                                                kind)]
     {:nodes (into [ns-node] defs)
      :edges (vec (concat define-edges import-edges))
      :chunks (into [chunk] (concat definition-chunks
                                    declaration-member-chunks))
      :diagnostics []}))
+(defn- extract-js-family-worker-facts
+  [run-id {:keys [id-scope file-id path content kind]} facts]
+  (let [module-name (common/source-module-name path)
+        ns-node (common/namespace-node run-id id-scope file-id path module-name)
+        lines (str/split-lines content)
+        definitions (vec (:definitions facts))
+        defs (mapv (fn [{:keys [kind name line]}]
+                     (let [label (str module-name "/" name)]
+                       {:xt/id (common/node-id id-scope :symbol label)
+                        :label label
+                        :kind (js-worker-definition-kind kind)
+                        :file-id file-id
+                        :path path
+                        :namespace module-name
+                        :name name
+                        :public? true
+                        :source-line (or line 1)
+                        :tokens (text/tokenize label)
+                        :active? true
+                        :run-id run-id}))
+                   definitions)
+        define-edges (mapv #(common/edge-row run-id file-id path
+                                             (:xt/id ns-node)
+                                             (:xt/id %)
+                                             :defines
+                                             :extracted
+                                             (:source-line %))
+                           defs)
+        import-edges (->> (:imports facts)
+                          (keep #(js-import-edge run-id
+                                                 id-scope
+                                                 file-id
+                                                 path
+                                                 ns-node
+                                                 %))
+                          vec)
+        chunk (common/source-text-chunk run-id
+                                        id-scope
+                                        file-id
+                                        path
+                                        (js-chunk-kind kind)
+                                        module-name
+                                        content
+                                        common/source-file-chunk-lines)
+        definition-chunks (mapv (fn [{:keys [kind name line endLine]}]
+                                  (common/source-definition-chunk
+                                   run-id
+                                   id-scope
+                                   file-id
+                                   path
+                                   (str module-name "/" name)
+                                   (js-worker-definition-kind kind)
+                                   (or line 1)
+                                   (common/source-range-text content
+                                                             (or line 1)
+                                                             (or endLine line))))
+                                definitions)
+        declaration-member-chunks (js-declaration-member-chunks run-id
+                                                                id-scope
+                                                                file-id
+                                                                path
+                                                                module-name
+                                                                lines
+                                                                kind)
+        diagnostics (mapv #(worker-diagnostic-row run-id file-id path %)
+                          (:diagnostics facts))]
+    {:nodes (into [ns-node] defs)
+     :edges (vec (concat define-edges import-edges))
+     :chunks (into [chunk] (concat definition-chunks
+                                   declaration-member-chunks))
+     :diagnostics diagnostics}))
+(defn- with-worker-diagnostics
+  [extraction run-id file-id path facts]
+  (update extraction
+          :diagnostics
+          into
+          (mapv #(worker-diagnostic-row run-id file-id path %)
+                (:diagnostics facts))))
+(defn extract-js-family
+  "Extract bounded module facts from JavaScript and TypeScript source files."
+  [run-id {:keys [file-id path] :as file}]
+  (let [facts (:parser-worker-facts file)
+        diagnostics (vec (:diagnostics facts))]
+    (cond
+      (nil? facts)
+      (extract-js-family-regex run-id file)
+
+      (some parser-worker-failure? diagnostics)
+      (with-worker-diagnostics
+        (extract-js-family-regex run-id file)
+        run-id
+        file-id
+        path
+        facts)
+
+      :else
+      (extract-js-family-worker-facts run-id file facts))))

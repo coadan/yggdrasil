@@ -124,8 +124,16 @@
     :svelte (extract.web-source/extract-sfc run-id file)
     :ci (extract.ci/extract-ci run-id file)
     :build (extract.build/extract-build run-id file)
-    :javascript (extract.source-js/extract-js-family run-id file)
-    :typescript (extract.source-js/extract-js-family run-id file)
+    :javascript (extract.source-js/extract-js-family
+                 run-id
+                 (cond-> file
+                   (parser-worker-enabled? :javascript)
+                   (assoc :parser-worker-facts (parser-worker-facts file))))
+    :typescript (extract.source-js/extract-js-family
+                 run-id
+                 (cond-> file
+                   (parser-worker-enabled? :typescript)
+                   (assoc :parser-worker-facts (parser-worker-facts file))))
     :python (extract.source-python/extract-python run-id file)
     :rust (extract.source-basic/extract-rust run-id file)
     :style (extract.text/extract-style run-id file)

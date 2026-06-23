@@ -201,6 +201,32 @@
         (is (contains? reference-targets "Result"))
         (is (contains? reference-targets "Input"))))))
 
+(deftest parser-worker-emits-rich-javascript-facts-when-parser-is-available
+  (let [[response] (worker! [{:id "javascript-rich"
+                              :kind "javascript"
+                              :path "adapter.js"
+                              :content (str "import base from './base.js';\n"
+                                            "const tunnel = require('https-proxy-agent');\n"
+                                            "class Adapter {\n"
+                                            "  request(config) { return base(config); }\n"
+                                            "}\n"
+                                            "export function createAdapter() {\n"
+                                            "  return new Adapter();\n"
+                                            "}\n"
+                                            "const retry = async (fn) => fn();\n")}])
+        facts (:facts response)
+        diagnostic (first (:diagnostics facts))]
+    (if diagnostic
+      (is (str/includes? (:message diagnostic) "javascript parser unavailable"))
+      (let [definitions (set (map (juxt :kind :name) (:definitions facts)))
+            imports (set (map :target (:imports facts)))]
+        (is (contains? definitions ["class" "Adapter"]))
+        (is (contains? definitions ["method" "Adapter.request"]))
+        (is (contains? definitions ["function" "createAdapter"]))
+        (is (contains? definitions ["function" "retry"]))
+        (is (contains? imports "./base.js"))
+        (is (contains? imports "https-proxy-agent"))))))
+
 (deftest parser-worker-uses-byte-offsets-for-tree-sitter-text
   (let [[java-response dotnet-response]
         (worker! [{:id "java-unicode"

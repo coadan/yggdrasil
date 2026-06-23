@@ -1024,6 +1024,71 @@
     (is (= #{(extract/node-id :namespace "src.assets.partials.snippets")}
            import-targets))))
 
+(deftest extracts-javascript-parser-worker-facts-when-present
+  (let [file {:file-id "file:src/adapters/http.js"
+              :path "src/adapters/http.js"
+              :kind :javascript
+              :content (str "import base from './base.js';\n"
+                            "import type Agent from 'https-proxy-agent';\n"
+                            "class Adapter {\n"
+                            "  request(config) {\n"
+                            "    return base(config);\n"
+                            "  }\n"
+                            "}\n")
+              :parser-worker-facts
+              {:definitions [{:kind "class"
+                              :name "Adapter"
+                              :line 3
+                              :endLine 7}
+                             {:kind "method"
+                              :name "Adapter.request"
+                              :line 4
+                              :endLine 6}]
+               :imports [{:target "./base.js" :line 1}
+                         {:target "https-proxy-agent"
+                          :line 2
+                          :importKind "type"}]
+               :references []
+               :diagnostics []}}
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        relations (frequencies (map :relation (:edges result)))
+        type-import-edge (some #(when (= (extract/node-id
+                                          :namespace
+                                          "https-proxy-agent")
+                                         (:target-id %))
+                                  %)
+                               (:edges result))
+        chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))]
+    (is (contains? labels "src.adapters.http/Adapter"))
+    (is (contains? labels "src.adapters.http/Adapter.request"))
+    (is (= 2 (get relations :defines 0)))
+    (is (= 2 (get relations :imports 0)))
+    (is (= :type (:import-kind type-import-edge)))
+    (is (str/includes?
+         (get-in chunks-by-label ["src.adapters.http/Adapter.request" :text])
+         "request(config)"))
+    (is (empty? (:diagnostics result)))))
+
+(deftest javascript-parser-worker-failure-preserves-fallback-extraction
+  (let [file {:file-id "file:src/routes.js"
+              :path "src/routes.js"
+              :kind :javascript
+              :content "export const route = '/panels';\n"
+              :parser-worker-facts
+              {:definitions []
+               :imports []
+               :references []
+               :diagnostics [{:stage "parser-worker"
+                              :line nil
+                              :message "javascript parser unavailable"}]}}
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))
+        diagnostic (first (:diagnostics result))]
+    (is (contains? labels "src.routes/route"))
+    (is (= :parser-worker (:stage diagnostic)))
+    (is (str/includes? (:message diagnostic) "javascript parser unavailable"))))
+
 (deftest extracts-typescript-commonjs-module-files
   (let [file {:file-id "file:scripts/panel.cts"
               :path "scripts/panel.cts"
