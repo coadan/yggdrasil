@@ -314,6 +314,25 @@ def source_surface(source: str) -> str:
     return source.split(":", 1)[0]
 
 
+def evidence_source(evidence: str) -> str:
+    prefix = "codebase-memory:"
+    if not evidence.startswith(prefix):
+        return evidence
+    return evidence[len(prefix) :].split(" path=", 1)[0]
+
+
+def compact_evidence_by_surface(evidence: list[str]) -> list[str]:
+    seen: set[str] = set()
+    compact: list[str] = []
+    for item in evidence:
+        surface = source_surface(evidence_source(item))
+        if surface in seen:
+            continue
+        seen.add(surface)
+        compact.append(item)
+    return compact
+
+
 def extract_paths_from_json(
     value: Any,
     root: Path,
@@ -413,6 +432,7 @@ def ranked_files(
     )
     suspected = []
     for idx, (path, evidence) in enumerate(rows[:limit], start=1):
+        evidence = compact_evidence_by_surface(evidence)
         support_count = len(source_surfaces.get(path, set()))
         first_source_rank = source_ranks.get(path, idx)
         confidence = min(1.0, 0.55 + (0.1 * support_count))

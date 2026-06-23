@@ -4407,6 +4407,8 @@
                  (mapv #(select-keys (:metrics %) [:supportCount
                                                    :firstSourceRank])
                        (:suspectedFiles result))))
+          (is (= [2 1]
+                 (mapv #(count (:evidence %)) (:suspectedFiles result))))
           (is (= "codebase-memory-result-surface-estimate"
                  (get-in result [:tokenUsage :source])))
           (is (pos? (get-in result [:tokenUsage :totalTokens])))
