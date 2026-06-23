@@ -195,3 +195,57 @@
     (is (some #(str/includes? % "Do not print entire Yggdrasil JSON")
               (get-in compact [:readPlan :rules])))
     (is (= ["rg proxy lib/adapters/http.js"] (:commands compact)))))
+
+(deftest compact-read-plan-uses-path-diverse-declaration-snippets
+  (let [root (str (java.nio.file.Files/createTempDirectory
+                   "ygg-bench-hints-progressive-read-plan"
+                   (make-array java.nio.file.attribute.FileAttribute 0)))
+        main-file (io/file root "src/main.clj")
+        a-file (io/file root "src/a.clj")
+        b-file (io/file root "src/b.clj")
+        write-lines! (fn [file markers]
+                       (.mkdirs (.getParentFile file))
+                       (spit file
+                             (str/join
+                              "\n"
+                              (map (fn [line-no]
+                                     (get markers line-no
+                                          (str ";; filler " line-no)))
+                                   (range 1 101)))))]
+    (write-lines! main-file {50 "(defn main-entry [] :main)"})
+    (write-lines! a-file {20 "(defn earlier [] :a)"
+                          80 "(defn later [] :a)"})
+    (write-lines! b-file {40 "(defn other [] :b)"})
+    (let [compact (progressive/compact-agent-hints
+                   {:schema "ygg.benchmark.agent-hints/v1"
+                    :topFiles [{:rank 1
+                                :path "src/main.clj"
+                                :sourceLine 50}]
+                    :topDeclarations [{:rank 1
+                                       :path "src/a.clj"
+                                       :label "later"
+                                       :kind "function"
+                                       :sourceLine 80}
+                                      {:rank 2
+                                       :path "src/a.clj"
+                                       :label "earlier"
+                                       :kind "function"
+                                       :sourceLine 20}
+                                      {:rank 3
+                                       :path "src/b.clj"
+                                       :label "other"
+                                       :kind "function"
+                                       :sourceLine 40}]}
+                   {:root root
+                    :limits {:read-plan-files 3
+                             :snippet-before-lines 1
+                             :snippet-after-lines 1
+                             :snippet-max-chars 1000}})
+          snippets (get-in compact [:readPlan :snippets])]
+      (is (= ["src/main.clj" "src/a.clj" "src/b.clj"]
+             (mapv :path snippets)))
+      (is (= {:start 19
+              :end 21}
+             (get-in snippets [1 :lines])))
+      (is (str/includes? (get-in snippets [1 :snippet])
+                         "20: (defn earlier [] :a)")))))

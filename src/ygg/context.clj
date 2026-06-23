@@ -91,6 +91,9 @@
 (def ^:private source-graph-declaration-path-diversity-limit
   12)
 
+(def ^:private source-graph-declaration-path-local-limit
+  6)
+
 (def ^:private source-graph-non-declaration-kinds
   #{:doc-file
     :doc-heading
@@ -1459,6 +1462,10 @@
   (or (:target-id row)
       [(:repo-id row) (:repo row) (:path row) (:kind row) (:label row) (:source-line row)]))
 
+(defn- source-graph-declaration-path-key
+  [row]
+  [(or (:repo-id row) (:repo row)) (:path row)])
+
 (defn- distinct-source-graph-declarations
   [rows]
   (loop [remaining (seq rows)
@@ -1484,8 +1491,7 @@
   [rows]
   (let [path-heads (->> rows
                         (reduce (fn [{:keys [seen selected] :as state} row]
-                                  (let [path-key [(or (:repo-id row) (:repo row))
-                                                  (:path row)]]
+                                  (let [path-key (source-graph-declaration-path-key row)]
                                     (if (or (contains? seen path-key)
                                             (<= source-graph-declaration-path-diversity-limit
                                                 (count selected)))
@@ -1495,8 +1501,14 @@
                                 {:seen #{}
                                  :selected []})
                         :selected)
-        selected-keys (set (map source-graph-declaration-key path-heads))]
-    (concat path-heads
+        rows-by-path (group-by source-graph-declaration-path-key rows)
+        path-local (mapcat (fn [row]
+                             (take source-graph-declaration-path-local-limit
+                                   (get rows-by-path
+                                        (source-graph-declaration-path-key row))))
+                           path-heads)
+        selected-keys (set (map source-graph-declaration-key path-local))]
+    (concat path-local
             (remove #(contains? selected-keys
                                 (source-graph-declaration-key %))
                     rows))))

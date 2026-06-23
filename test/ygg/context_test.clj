@@ -2792,6 +2792,87 @@
                   sort
                   vec))))))
 
+(deftest source-graph-declarations-preserve-path-local-candidate-declarations
+  (let [candidate-files [{:path "variables.tf"
+                          :rank 1
+                          :repo "app"}
+                         {:path "vpc-flow-logs.tf"
+                          :rank 2
+                          :repo "app"}
+                         {:path "main.tf"
+                          :rank 3
+                          :repo "app"}]]
+    (with-redefs [query/nodes-by-paths
+                  (fn [_ paths opts]
+                    (is (= ["variables.tf" "vpc-flow-logs.tf" "main.tf"] paths))
+                    (is (= {:project-id "fixture"
+                            :repo-id "app"}
+                           opts))
+                    [{:xt/id "node:var:role-name"
+                      :repo-id "app"
+                      :path "variables.tf"
+                      :kind :terraform-variable
+                      :label "var.vpc_flow_log_iam_role_name"
+                      :source-line 1511
+                      :active? true}
+                     {:xt/id "node:var:role-path"
+                      :repo-id "app"
+                      :path "variables.tf"
+                      :kind :terraform-variable
+                      :label "var.vpc_flow_log_iam_role_path"
+                      :source-line 1517
+                      :active? true}
+                     {:xt/id "node:resource:role"
+                      :repo-id "app"
+                      :path "vpc-flow-logs.tf"
+                      :kind :terraform-resource
+                      :label "aws_iam_role.vpc_flow_log_cloudwatch"
+                      :source-line 79
+                      :active? true}
+                     {:xt/id "node:resource:attachment"
+                      :repo-id "app"
+                      :path "vpc-flow-logs.tf"
+                      :kind :terraform-resource
+                      :label "aws_iam_role_policy_attachment.vpc_flow_log_cloudwatch"
+                      :source-line 118
+                      :active? true}
+                     {:xt/id "node:resource:flow"
+                      :repo-id "app"
+                      :path "vpc-flow-logs.tf"
+                      :kind :terraform-resource
+                      :label "aws_flow_log.this"
+                      :source-line 34
+                      :active? true}
+                     {:xt/id "node:resource:vpc"
+                      :repo-id "app"
+                      :path "main.tf"
+                      :kind :terraform-resource
+                      :label "aws_vpc.this"
+                      :source-line 28
+                      :active? true}])]
+      (let [declarations (#'context/source-graph-declarations
+                          {:node :stub}
+                          (text/tokenize-all
+                           "trace vpc flow log data ownership iam roles log destinations terraform resource")
+                          []
+                          candidate-files
+                          {:project-id "fixture"
+                           :repo-id "app"})
+            top-labels (set (map :label (take 6 declarations)))
+            flow-log (some #(when (= "aws_flow_log.this" (:label %)) %)
+                           declarations)]
+        (is (contains? top-labels "aws_flow_log.this"))
+        (is (= {:path "vpc-flow-logs.tf"
+                :kind "terraform-resource"
+                :sourceLine 34
+                :repo "app"
+                :repoId "app"}
+               (select-keys flow-log [:path
+                                      :kind
+                                      :sourceLine
+                                      :repo
+                                      :repoId])))))))
+
 (deftest source-graph-candidates-preserve-neighbor-kind-path-diversity
   (let [doc-count 48
         doc-seeds (mapv (fn [idx]

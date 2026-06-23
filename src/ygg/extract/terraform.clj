@@ -135,6 +135,16 @@
 (defn- terraform-blocks
   [lines]
   (hcl-blocks lines terraform-extra-block-start))
+(defn- path-scoped-node-label
+  [path label]
+  (str path ":" label))
+(defn- terraform-node-id
+  [id-scope path kind label]
+  (common/node-id id-scope kind (path-scoped-node-label path label)))
+(defn- terraform-node
+  [run-id id-scope file-id path kind label source-line]
+  (assoc (common/generic-node run-id id-scope file-id path kind label source-line)
+         :xt/id (terraform-node-id id-scope path kind label)))
 (defn- terraform-block-facts
   [blocks]
   (->> blocks
@@ -182,11 +192,11 @@
         block-facts (terraform-block-facts graph-blocks)
         nodes (into [file-node]
                     (map (fn [{:keys [kind name source-line]}]
-                           (common/generic-node run-id id-scope file-id path kind name source-line)))
+                           (terraform-node run-id id-scope file-id path kind name source-line)))
                     graph-blocks)
         fact-nodes (mapv (fn [{:keys [target-kind target-label source-line]}]
-                           (common/generic-node run-id id-scope file-id path
-                                                target-kind target-label source-line))
+                           (terraform-node run-id id-scope file-id path
+                                           target-kind target-label source-line))
                          block-facts)
         all-nodes (->> (concat nodes fact-nodes)
                        (reduce (fn [acc node]
@@ -200,14 +210,14 @@
                                               file-id
                                               path
                                               (:xt/id file-node)
-                                              (common/node-id id-scope kind name)
+                                              (terraform-node-id id-scope path kind name)
                                               :defines
                                               :extracted
                                               source-line))
                            graph-blocks)
         reference-edges (->> graph-blocks
                              (mapcat (fn [{:keys [kind name lines]}]
-                                       (let [source-id (common/node-id id-scope kind name)]
+                                       (let [source-id (terraform-node-id id-scope path kind name)]
                                          (keep (fn [{:keys [target source-line]}]
                                                  (when-let [target-id (hcl-reference-target-id node-by-name target)]
                                                    (when (not= source-id target-id)
@@ -227,8 +237,8 @@
                            (common/edge-row run-id
                                             file-id
                                             path
-                                            (common/node-id id-scope source-kind source-name)
-                                            (common/node-id id-scope target-kind target-label)
+                                            (terraform-node-id id-scope path source-kind source-name)
+                                            (terraform-node-id id-scope path target-kind target-label)
                                             relation
                                             :extracted
                                             source-line))

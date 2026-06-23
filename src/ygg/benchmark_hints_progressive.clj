@@ -281,12 +281,33 @@
         (:reason row) (assoc :reason (bounded-text (:reason-chars limits)
                                                    (:reason row)))))))
 
+(defn- row-path-key
+  [row]
+  [(or (:repoId row) (:repo-id row) (:repo row)) (:path row)])
+
+(defn- line-start
+  [row]
+  (long (or (:start (row-line-range row)) Long/MAX_VALUE)))
+
+(defn- path-diverse-declaration-rows
+  [rows]
+  (let [rows (vec rows)
+        rows-by-path (group-by row-path-key rows)
+        path-order (distinct (map row-path-key rows))]
+    (mapv (fn [path-key]
+            (->> (get rows-by-path path-key)
+                 (sort-by (juxt line-start
+                                #(long (or (:rank %) Long/MAX_VALUE))))
+                 first))
+          path-order)))
+
 (defn- compact-read-plan
   [hints opts limits]
   (let [primary-top-files (take 1 (:topFiles hints))
         primary-paths (set (keep :path primary-top-files))
-        declaration-rows (remove #(contains? primary-paths (:path %))
-                                 (:topDeclarations hints))
+        declaration-rows (->> (:topDeclarations hints)
+                              (remove #(contains? primary-paths (:path %)))
+                              path-diverse-declaration-rows)
         remaining-top-files (drop 1 (:topFiles hints))
         read-plan-rows (->> (concat primary-top-files
                                     declaration-rows

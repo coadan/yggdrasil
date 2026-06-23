@@ -789,6 +789,37 @@
     (is (= 5 (:references relations)))
     (is (= 2 (:uses relations)))
     (is (some #(= :terraform-block (:kind %)) (:chunks result)))))
+
+(deftest extracts-terraform-blocks-with-path-scoped-node-ids
+  (let [root-result (extract/extract-file
+                     "run/test"
+                     {:file-id "file:root-flow"
+                      :path "vpc-flow-logs.tf"
+                      :kind :terraform
+                      :content "resource \"aws_flow_log\" \"this\" {\n  vpc_id = var.vpc_id\n}\n"})
+        module-result (extract/extract-file
+                       "run/test"
+                       {:file-id "file:module-flow"
+                        :path "modules/flow-log/main.tf"
+                        :kind :terraform
+                        :content "resource \"aws_flow_log\" \"this\" {\n  eni_id = var.eni_id\n}\n"})
+        flow-node (fn [result]
+                    (some #(when (= "aws_flow_log.this" (:label %)) %)
+                          (:nodes result)))
+        root-flow (flow-node root-result)
+        module-flow (flow-node module-result)
+        define-targets (fn [result]
+                         (set (map :target-id
+                                   (filter #(= :defines (:relation %))
+                                           (:edges result)))))]
+    (is (= "aws_flow_log.this" (:label root-flow)))
+    (is (= "aws_flow_log.this" (:label module-flow)))
+    (is (= "vpc-flow-logs.tf" (:path root-flow)))
+    (is (= "modules/flow-log/main.tf" (:path module-flow)))
+    (is (not= (:xt/id root-flow) (:xt/id module-flow)))
+    (is (contains? (define-targets root-result) (:xt/id root-flow)))
+    (is (contains? (define-targets module-result) (:xt/id module-flow)))))
+
 (deftest extracts-openapi-paths-operations-and-schemas
   (let [file (fs/file-record "test/fixtures/sample-repo"
                              "test/fixtures/sample-repo/api/openapi.yaml")
