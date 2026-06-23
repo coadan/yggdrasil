@@ -1662,6 +1662,79 @@
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
            @edge-calls))))
 
+(deftest find-node-substring-uses-token-pushdown-for-real-handles
+  (let [calls (atom [])]
+    (with-redefs [store/rows-with-field-values
+                  (fn [& _] [])
+                  store/constrained-rows
+                  (fn [& _] [])
+                  store/rows-matching-any-token
+                  (fn [_ table fields tokens constraints ctx]
+                    (swap! calls conj {:table table
+                                       :fields fields
+                                       :tokens tokens
+                                       :constraints constraints
+                                       :ctx ctx})
+                    [{:xt/id "node:handler"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :label "AppHandler"
+                      :active? true}])
+                  query/all-nodes
+                  (fn [& _]
+                    (throw (ex-info "find-node should not hydrate all nodes for substring fallback"
+                                    {})))]
+      (is (= "node:handler"
+             (:xt/id (query/find-node
+                      {:node :stub}
+                      "handler"
+                      {:project-id "project-a"
+                       :repo-id "app"
+                       :valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= [{:table (:nodes store/tables)
+             :fields [:label]
+             :tokens ["handler"]
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @calls))))
+
+(deftest find-system-node-substring-uses-token-pushdown-for-real-handles
+  (let [calls (atom [])]
+    (with-redefs [store/rows-with-field-values
+                  (fn [& _] [])
+                  store/constrained-rows
+                  (fn [& _] [])
+                  store/rows-matching-any-token
+                  (fn [_ table fields tokens constraints ctx]
+                    (swap! calls conj {:table table
+                                       :fields fields
+                                       :tokens tokens
+                                       :constraints constraints
+                                       :ctx ctx})
+                    [{:xt/id "system:billing"
+                      :project-id "project-a"
+                      :system-key "billing-service"
+                      :label "Billing"
+                      :active? true}])
+                  query/all-system-nodes
+                  (fn [& _]
+                    (throw (ex-info "find-system-node should not hydrate all system nodes for substring fallback"
+                                    {})))]
+      (is (= "system:billing"
+             (:xt/id (query/find-system-node
+                      {:node :stub}
+                      "service"
+                      {:project-id "project-a"
+                       :valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= [{:table (:system-nodes store/tables)
+             :fields [:label :system-key]
+             :tokens ["service"]
+             :constraints {:project-id "project-a"
+                           :active? true}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @calls))))
+
 (deftest graph-path-batches-bfs-frontier-edge-reads
   (let [calls (atom [])
         nodes {"node:a" {:xt/id "node:a"

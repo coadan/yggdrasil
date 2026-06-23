@@ -589,6 +589,28 @@
          (distinct-by identity)
          vec)))
 
+(def ^:private node-substring-fields
+  [:label])
+
+(def ^:private system-node-substring-fields
+  [:label :system-key])
+
+(defn- substring-candidates
+  ([xtdb table fields token opts all-fn]
+   (substring-candidates xtdb table fields token opts all-fn {}))
+  ([xtdb table fields token opts all-fn constraints]
+   (if (store/xtdb-handle? xtdb)
+     (filter-scope
+      (store/rows-matching-any-token xtdb
+                                     table
+                                     fields
+                                     [token]
+                                     (merge (scope-constraints opts)
+                                            constraints)
+                                     (read-context opts))
+      opts)
+     (all-fn xtdb opts))))
+
 (defn find-node
   "Find node by exact id, label, namespace, name, or substring."
   ([xtdb value] (find-node xtdb value {}))
@@ -619,7 +641,12 @@
                              opts
                              {:name value}))
          (some #(when (str/includes? (str/lower-case (:label %)) needle) %)
-               (all-nodes xtdb opts))))))
+               (substring-candidates xtdb
+                                     (:nodes store/tables)
+                                     node-substring-fields
+                                     needle
+                                     opts
+                                     all-nodes))))))
 
 (defn find-system-node
   "Find system node by exact id, label, system key, or substring."
@@ -644,7 +671,13 @@
                              opts
                              {:active? true
                               :system-key value}))
-         (let [nodes (all-system-nodes xtdb opts)]
+         (let [nodes (substring-candidates xtdb
+                                           (:system-nodes store/tables)
+                                           system-node-substring-fields
+                                           needle
+                                           opts
+                                           all-system-nodes
+                                           {:active? true})]
            (or (some #(when (str/includes? (str/lower-case (:label %)) needle) %)
                      nodes)
                (some #(when (str/includes? (str/lower-case (:system-key %)) needle) %)
