@@ -1,7 +1,10 @@
 (ns ygg.benchmark-gate-script-test
-  (:require [clojure.java.shell :as shell]
+  (:require [charred.api :as json]
+            [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]
+            [ygg.benchmark-test-support :refer [spit-file! spit-json! temp-dir]]))
 
 (defn- run-gate
   [& args]
@@ -13,6 +16,52 @@
        str/split-lines
        (remove str/blank?)
        vec))
+
+(defn- run-prompt-gate
+  [& args]
+  (apply shell/sh "python3" "scripts/prompt-token-gate.py" args))
+
+(defn- estimate-prompt-tokens
+  [prompt]
+  (long (Math/ceil (/ (count (json/write-json-str prompt)) 4.0))))
+
+(defn- prompt-row
+  [mode case-id prompt]
+  {:mode mode
+   :caseId case-id
+   :promptBytes (count (.getBytes prompt "UTF-8"))
+   :estimatedPromptTokens (estimate-prompt-tokens prompt)})
+
+(defn- prompt-report!
+  [root {:keys [case-id shell-prompt ygg-prompt]}]
+  (let [source "run"
+        prompt-file (fn [mode prompt]
+                      (spit-file! root
+                                  (str source
+                                       "/"
+                                       mode
+                                       "/suite/cases/"
+                                       case-id
+                                       "/agent-prompts/probe.md")
+                                  prompt))]
+    (prompt-file "shell-only" shell-prompt)
+    (prompt-file "ygg" ygg-prompt)
+    (spit-json! root
+                "measure.json"
+                {:schema "ygg.dev.prompt-token-measure/v1"
+                 :suite "fixture"
+                 :source (.getPath (io/file root source))
+                 :rows [(prompt-row "shell-only" case-id shell-prompt)
+                        (prompt-row "ygg" case-id ygg-prompt)]})))
+
+(defn- prompt-report-with-relative-source!
+  [root opts]
+  (let [report-path (prompt-report! root opts)
+        report (json/read-json (slurp report-path) :key-fn keyword)]
+    (spit report-path
+          (json/write-json-str (assoc report :source "run")
+                               {:indent-str "  "}))
+    report-path))
 
 (deftest dry-run-prints-full-strict-gate
   (let [result (run-gate "--dry-run"
@@ -61,3 +110,62 @@
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result) "--check-only"))
     (is (str/includes? (:out result) "current artifacts already"))))
+
+(deftest prompt-token-gate-passes-when-ygg-prompt-is-smaller
+  (let [root (temp-dir "ygg-prompt-token-gate-pass")
+        report-path (prompt-report!
+                     root
+                     {:case-id "case-1"
+                      :shell-prompt "shell prompt with a longer contract and repeated instructions"
+                      :ygg-prompt "short ygg prompt"})
+        result (run-prompt-gate report-path "--min-shared-cases" "1")
+        parsed (json/read-json (:out result) :key-fn keyword)]
+    (is (= 0 (:exit result)) (:out result))
+    (is (= "passed" (:status parsed)))
+    (is (= 1 (:sharedCases parsed)))
+    (is (neg? (:totalTokenDelta parsed)))
+    (is (true? (:allYggReduced parsed)))))
+
+(deftest prompt-token-gate-resolves-relative-source-from-report-directory
+  (let [root (temp-dir "ygg-prompt-token-gate-relative")
+        report-path (prompt-report-with-relative-source!
+                     root
+                     {:case-id "case-1"
+                      :shell-prompt "shell prompt with a longer contract and repeated instructions"
+                      :ygg-prompt "short ygg prompt"})
+        result (run-prompt-gate report-path)
+        parsed (json/read-json (:out result) :key-fn keyword)]
+    (is (= 0 (:exit result)) (:out result))
+    (is (= "passed" (:status parsed)))
+    (is (str/ends-with? (:source parsed) "/run"))))
+
+(deftest prompt-token-gate-fails-when-report-does-not-match-artifact
+  (let [root (temp-dir "ygg-prompt-token-gate-stale")
+        report-path (prompt-report!
+                     root
+                     {:case-id "case-1"
+                      :shell-prompt "shell prompt with a longer contract"
+                      :ygg-prompt "short ygg prompt"})
+        report (json/read-json (slurp report-path) :key-fn keyword)
+        stale (assoc-in report [:rows 1 :estimatedPromptTokens] 999)]
+    (spit report-path (json/write-json-str stale {:indent-str "  "}))
+    (let [result (run-prompt-gate report-path)
+          parsed (json/read-json (:out result) :key-fn keyword)]
+      (is (= 1 (:exit result)))
+      (is (= "failed" (:status parsed)))
+      (is (some #(str/includes? % "estimatedPromptTokens mismatch")
+                (:failures parsed))))))
+
+(deftest prompt-token-gate-fails-without-per-case-reduction
+  (let [root (temp-dir "ygg-prompt-token-gate-regression")
+        report-path (prompt-report!
+                     root
+                     {:case-id "case-1"
+                      :shell-prompt "short shell prompt"
+                      :ygg-prompt "longer ygg prompt with extra guidance and context"})
+        result (run-prompt-gate report-path)
+        parsed (json/read-json (:out result) :key-fn keyword)]
+    (is (= 1 (:exit result)))
+    (is (= "failed" (:status parsed)))
+    (is (some #(str/includes? % "did not reduce tokens")
+              (:failures parsed)))))

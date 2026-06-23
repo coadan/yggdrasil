@@ -45,6 +45,14 @@
                                                 *command-line-args*)]
                       (System/exit exit))}
 
+  prompt-token-gate {:doc "Validate prompt-token reduction from a prompt-token measure report. Usage: bb prompt-token-gate REPORT [--min-shared-cases N]"
+                     :task (let [{:keys [exit]} (apply shell
+                                                       {:continue true}
+                                                       "python3"
+                                                       "scripts/prompt-token-gate.py"
+                                                       *command-line-args*)]
+                             (System/exit exit))}
+
   bench:repos {:doc "Check local benchmark repo inputs. Usage: bb bench:repos check [--manifest PATH] [--suite PATH] [--repo ID] [--json]"
                :task (let [{:keys [exit]} (apply shell
                                                  {:continue true}
