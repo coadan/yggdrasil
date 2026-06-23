@@ -6,6 +6,7 @@
             [ygg.graph :as graph]
             [ygg.index :as index]
             [ygg.query :as query]
+            [ygg.text :as text]
             [ygg.xtdb :as store]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -222,6 +223,43 @@
               first-result (first results)]
           (is (= ["consumer/consumer.go"] (mapv :path results)))
           (is (= 0.05 (get-in first-result [:score-components :exact]))))))))
+
+(deftest ranked-candidates-reuse-path-token-matches-for-exact-boost
+  (let [tokenize-calls (atom [])
+        internal-path-match-key (keyword "ygg.query" "path-token-matches")
+        docs [{:xt/id "search-doc:consumer"
+               :target-id "node:consumer"
+               :target-kind :node
+               :path "consumer/consumer.go"
+               :label "unrelated label"
+               :kind :namespace}
+              {:xt/id "search-doc:other"
+               :target-id "node:other"
+               :target-kind :node
+               :path "other/other.go"
+               :label "unrelated other"
+               :kind :namespace}]]
+    (with-redefs [text/tokenize
+                  (fn [value]
+                    (swap! tokenize-calls conj value)
+                    (case value
+                      "consumer/consumer.go" ["consumer" "go"]
+                      "other/other.go" ["other" "go"]
+                      "unrelated label" ["unrelated" "label"]
+                      []))]
+      (let [ranked (:ranked (#'query/ranked-candidates
+                             {:query-text "consumer contracts"
+                              :query-tokens ["consumer" "contracts"]
+                              :docs docs
+                              :lexical {}
+                              :semantic {}
+                              :neighbor-scores {}
+                              :retriever :lexical}))]
+        (is (= ["node:consumer"] (mapv :target-id ranked)))
+        (is (= 0.05 (get-in (first ranked) [:score-components :exact])))
+        (is (= 1 (count (filter #{"consumer/consumer.go"} @tokenize-calls))))
+        (is (= 1 (count (filter #{"other/other.go"} @tokenize-calls))))
+        (is (not-any? #(contains? % internal-path-match-key) ranked))))))
 
 (deftest search-report-includes-instrumentation-and-persists-query-run
   (store/with-node (temp-dir "ygg-query-report-xtdb")

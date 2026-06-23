@@ -638,16 +638,26 @@
          (mapv :target-id))))
 
 (defn- matching-query-token-count
-  [query-tokens text]
-  (let [query-token-set (set query-tokens)
-        text-token-set (set (text/tokenize text))]
+  [query-token-set text]
+  (let [text-token-set (set (text/tokenize text))]
     (count (filter text-token-set query-token-set))))
 
+(def ^:private path-token-match-key
+  ::path-token-matches)
+
+(defn- add-path-token-match-counts
+  [query-token-set docs]
+  (mapv (fn [doc]
+          (assoc doc
+                 path-token-match-key
+                 (matching-query-token-count query-token-set (:path doc))))
+        docs))
+
 (defn- path-token-candidate-ids
-  [query-tokens docs n]
+  [docs n]
   (->> docs
        (keep (fn [doc]
-               (let [matches (matching-query-token-count query-tokens (:path doc))]
+               (let [matches (long (or (get doc path-token-match-key) 0))]
                  (when (pos? matches)
                    {:target-id (:target-id doc)
                     :matches matches
@@ -702,14 +712,12 @@
          set)))
 
 (defn- exact-match-boost
-  [query-text query-tokens doc]
-  (let [query (str/lower-case (str/trim query-text))
+  [query query-token-set doc]
+  (let [path-token-matches (long (or (get doc path-token-match-key) 0))
         label (str/lower-case (:label doc))
-        label-token-match? (pos? (matching-query-token-count query-tokens (:label doc)))
+        label-token-match? (pos? (matching-query-token-count query-token-set (:label doc)))
         path-token-boost (min 0.15
-                              (* 0.05
-                                 (double (matching-query-token-count query-tokens
-                                                                     (:path doc)))))]
+                              (* 0.05 (double path-token-matches)))]
     (cond
       (exact-path-mentioned? query (:path doc)) 2.0
 
@@ -720,7 +728,10 @@
 
 (defn- ranked-candidates
   [{:keys [query-text query-tokens docs lexical semantic neighbor-scores retriever]}]
-  (let [docs-by-target (into {} (map (juxt :target-id identity)) docs)
+  (let [query (str/lower-case (str/trim query-text))
+        query-token-set (set query-tokens)
+        docs (add-path-token-match-counts query-token-set docs)
+        docs-by-target (into {} (map (juxt :target-id identity)) docs)
         semantic-candidates (concat (top-ids semantic default-semantic-candidates)
                                     (top-ids-by-kind semantic
                                                      docs
@@ -730,8 +741,7 @@
                                                     docs
                                                     default-kind-candidates))
         exact-path-candidates (exact-path-candidate-ids query-text docs)
-        path-token-candidates (path-token-candidate-ids query-tokens
-                                                        docs
+        path-token-candidates (path-token-candidate-ids docs
                                                         default-path-token-candidates)
         candidates (case retriever
                      :semantic (set (concat semantic-candidates
@@ -757,7 +767,7 @@
                          (let [semantic-score (double (get semantic (:target-id doc) 0.0))
                                lexical-score (double (get lexical (:target-id doc) 0.0))
                                graph-score (double (get neighbor-scores (:target-id doc) 0.0))
-                               exact-score (exact-match-boost query-text query-tokens doc)
+                               exact-score (exact-match-boost query query-token-set doc)
                                total (+ (case retriever
                                           :semantic semantic-score
                                           :lexical (+ lexical-score
@@ -766,18 +776,19 @@
                                              (* 0.20 lexical-score)
                                              (* hybrid-graph-weight graph-score)))
                                         exact-score)]
-                           (assoc doc
-                                  :result-kind (:target-kind doc)
-                                  :score total
-                                  :score-components {:semantic semantic-score
-                                                     :lexical lexical-score
-                                                     :graph graph-score
-                                                     :exact exact-score}
-                                  :reason (cond
-                                            (pos? semantic-score) "embedding match"
-                                            (pos? lexical-score) "lexical match"
-                                            (pos? graph-score) "graph neighbor"
-                                            :else "candidate")))))
+                           (-> doc
+                               (dissoc path-token-match-key)
+                               (assoc :result-kind (:target-kind doc)
+                                      :score total
+                                      :score-components {:semantic semantic-score
+                                                         :lexical lexical-score
+                                                         :graph graph-score
+                                                         :exact exact-score}
+                                      :reason (cond
+                                                (pos? semantic-score) "embedding match"
+                                                (pos? lexical-score) "lexical match"
+                                                (pos? graph-score) "graph neighbor"
+                                                :else "candidate"))))))
                   (filter #(pos? (:score %)))
                   (sort-by (juxt (comp - :score) :label :path))
                   vec)}))
