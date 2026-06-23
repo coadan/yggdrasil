@@ -78,6 +78,34 @@
     (is (= ["src/Target.java"] (mapv #(get-in % [:source :path]) docs)))
     (is (true? (:retrievedSource (first docs))))))
 
+(deftest inferred-docs-tokenizes-selected-labels-once
+  (let [inferred-docs @#'context/inferred-docs
+        tokenize text/tokenize
+        selected-label-text "Selected Entity One Selected Entity Two"
+        selected-label-tokenizations (atom 0)
+        chunks (mapv (fn [idx]
+                       {:xt/id (str "chunk:" idx)
+                        :path (str "docs/" idx ".md")
+                        :kind :markdown
+                        :label (str "Doc " idx)
+                        :text "target details"
+                        :tokens ["selected" "entity" "target"]
+                        :source-line 1})
+                     (range 6))]
+    (with-redefs [text/tokenize (fn [value]
+                                  (when (= selected-label-text (str value))
+                                    (swap! selected-label-tokenizations inc))
+                                  (tokenize value))]
+      (is (= (count chunks)
+             (count (inferred-docs
+                     ["target"]
+                     []
+                     chunks
+                     [{:label "Selected Entity One"}
+                      {:label "Selected Entity Two"}]
+                     900)))))
+    (is (= 1 @selected-label-tokenizations))))
+
 (deftest diversify-docs-promotes-distinct-source-files
   (let [diversify-docs @#'context/diversify-docs
         docs (diversify-docs

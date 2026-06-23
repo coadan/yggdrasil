@@ -386,7 +386,7 @@
 
 (defn- chunk-score
   [query-tokens
-   selected-labels
+   selected-label-tokens
    result-scores
    result-scores-by-path-label
    result-scores-by-file-path
@@ -401,8 +401,7 @@
      (* 0.45 (capped-token-score query-tokens
                                  (display-name (:definition-kind chunk))))
      (* 0.15 (min 1.0
-                  (text/token-score (text/tokenize (str/join " " selected-labels))
-                                    (:tokens chunk))))))
+                  (text/token-score selected-label-tokens (:tokens chunk))))))
 
 (defn- inferred-docs
   [query-tokens results chunks entities snippet-chars]
@@ -410,7 +409,7 @@
         result-scores-by-path-label (result-score-by-path-label results)
         result-scores-by-file-path (result-score-by-file-path results)
         results-by-target (result-by-target results)
-        selected-labels (map :label entities)]
+        selected-label-tokens (text/tokenize (str/join " " (map :label entities)))]
     (->> chunks
          (filter #(or (= :markdown (:kind %))
                       (result-score-for-chunk result-scores
@@ -418,7 +417,7 @@
                                               result-scores-by-file-path
                                               %)))
          (map #(assoc % :context-score (chunk-score query-tokens
-                                                    selected-labels
+                                                    selected-label-tokens
                                                     result-scores
                                                     result-scores-by-path-label
                                                     result-scores-by-file-path
