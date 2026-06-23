@@ -2677,6 +2677,102 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-boosts-doc-supported-architecture-token-evidence
+  (let [root (temp-dir "ygg-bench-doc-architecture-token")
+        _ (spit-file! root "src/core.cs" "public static class Core {}\n")
+        _ (spit-file! root "src/noise.cs" "public static class Noise {}\n")
+        packet {:query "prefer enum typehandlers settings core mapping"
+                :docs [{:source {:path "src/noise.cs"
+                                 :heading "Noise.Enum"}
+                        :score 5.0
+                        :snippet "enum typehandlers enum typehandlers"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/core.cs"
+                                 :heading "Core.Mapping"}
+                        :score 1.2
+                        :snippet "prefer enum typehandlers settings core mapping"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]
+                :architecture {:runtimeEvidence [{:path "src/core.cs"
+                                                  :kind "url"
+                                                  :fileKind "dotnet"
+                                                  :label "core mapping settings reference"
+                                                  :score 3.0}]}}
+        files (:suspectedFiles (benchmark/context-packet->agent-result packet
+                                                                       {:root root}))]
+    (is (= "src/core.cs" (:path (first files))))
+    (is (pos? (get-in files [0 :metrics :docSupportedArchitectureTokenBoost])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-does-not-stack-doc-architecture-token-boost-on-direct-file
+  (let [root (temp-dir "ygg-bench-doc-architecture-direct-file")
+        _ (spit-file! root "src/app.cs" "public static class App {}\n")
+        packet {:query "prefer enum typehandlers settings core mapping"
+                :docs [{:source {:path "src/app.cs"
+                                 :heading "App.Mapping"}
+                        :score 2.0
+                        :snippet "prefer enum typehandlers settings core mapping"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "src/app.cs"
+                                  :rank 2
+                                  :score 3.0
+                                  :targetKind "file"
+                                  :label "src/app.cs"
+                                  :supportLabels ["prefer enum typehandlers settings"]
+                                  :scoreComponents {:sourceGraph 3.0
+                                                    :lexical 0.6
+                                                    :graph 0.2}}]
+                :architecture {:runtimeEvidence [{:path "src/app.cs"
+                                                  :kind "url"
+                                                  :fileKind "dotnet"
+                                                  :label "core mapping settings reference"
+                                                  :score 3.0}]}}
+        file (-> (benchmark/context-packet->agent-result packet {:root root})
+                 :suspectedFiles
+                 first)]
+    (is (= "src/app.cs" (:path file)))
+    (is (nil? (get-in file [:metrics :docSupportedArchitectureTokenBoost])))))
+
+(deftest file-ranking-boosts-candidate-only-direct-file-with-architecture-and-graph
+  (let [root (temp-dir "ygg-bench-direct-file-architecture-graph")
+        _ (spit-file! root "src/settings.cs" "public static class Settings {}\n")
+        _ (spit-file! root "src/noise.cs" "public static class Noise {}\n")
+        packet {:query "prefer enum typehandler setting"
+                :candidateFiles [{:path "src/noise.cs"
+                                  :rank 1
+                                  :score 5.0
+                                  :targetKind "node"
+                                  :label "Fixture.TypeHandlerNoise"
+                                  :supportLabels ["Fixture.Enum"]
+                                  :scoreComponents {:sourceGraph 5.0
+                                                    :lexical 0.35
+                                                    :graph 0.2}}
+                                 {:path "src/settings.cs"
+                                  :rank 54
+                                  :score 3.3
+                                  :targetKind "file"
+                                  :label "src/settings.cs"
+                                  :supportLabels ["Settings.Settings"
+                                                  "Settings.CommandTimeout"
+                                                  "prefer enum typehandler setting"]
+                                  :scoreComponents {:sourceGraph 3.3
+                                                    :lexical 0.33
+                                                    :graph 0.2}}]
+                :architecture {:runtimeEvidence [{:path "src/settings.cs"
+                                                  :kind "url"
+                                                  :fileKind "dotnet"
+                                                  :label "prefer enum typehandler setting"
+                                                  :score 3.25}]}}
+        files (:suspectedFiles (benchmark/context-packet->agent-result packet
+                                                                       {:root root}))]
+    (is (= "src/settings.cs" (:path (first files))))
+    (is (pos? (get-in files [0 :metrics :directFileArchitectureGraphBoost])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
   (let [root (temp-dir "ygg-bench-candidate-file-quota")
         _ (doseq [path ["src/doc-1.clj" "src/doc-2.clj" "src/doc-3.clj"

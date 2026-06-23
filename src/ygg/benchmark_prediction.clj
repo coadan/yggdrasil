@@ -76,10 +76,26 @@
   0.45)
 (def ^:private rank-score-query-supported-architecture-only-cap
   2.0)
+(def ^:private rank-score-doc-architecture-token-min
+  5)
+(def ^:private rank-score-doc-architecture-token-weight
+  0.8)
+(def ^:private rank-score-doc-architecture-token-cap
+  4.0)
 (def ^:private rank-score-candidate-only-architecture-support-weight
   2.4)
 (def ^:private rank-score-candidate-only-architecture-support-cap
   3.8)
+(def ^:private rank-score-direct-file-architecture-graph-token-min
+  3)
+(def ^:private rank-score-direct-file-architecture-graph-base
+  2.2)
+(def ^:private rank-score-direct-file-architecture-graph-token-weight
+  0.6)
+(def ^:private rank-score-direct-file-architecture-graph-pair-weight
+  0.4)
+(def ^:private rank-score-direct-file-architecture-graph-cap
+  4.5)
 (def ^:private rank-score-candidate-lexical-component-weight
   0.15)
 (def ^:private rank-score-candidate-lexical-component-cap
@@ -434,6 +450,20 @@
          (* rank-score-query-supported-architecture-only-weight
             (double architecture-evidence-score)))
     0.0))
+(defn- doc-supported-architecture-token-boost
+  [doc-count
+   direct-file-candidate-count
+   architecture-evidence-count
+   matched-token-count]
+  (if (and (pos? (long doc-count))
+           (zero? (long direct-file-candidate-count))
+           (pos? (long architecture-evidence-count))
+           (<= rank-score-doc-architecture-token-min
+               (long matched-token-count)))
+    (min rank-score-doc-architecture-token-cap
+         (* rank-score-doc-architecture-token-weight
+            (double (min rank-score-token-cap matched-token-count))))
+    0.0))
 (defn- candidate-only-architecture-support-boost
   [doc-count
    support-count
@@ -450,6 +480,27 @@
     (min rank-score-candidate-only-architecture-support-cap
          (* rank-score-candidate-only-architecture-support-weight
             (double architecture-evidence-score)))
+    0.0))
+(defn- direct-file-architecture-graph-boost
+  [doc-count
+   direct-file-candidate-count
+   architecture-evidence-count
+   graph-neighbor-score
+   matched-token-count
+   matched-token-pair-count]
+  (if (and (zero? (long doc-count))
+           (pos? (long direct-file-candidate-count))
+           (pos? (long architecture-evidence-count))
+           (pos? (double graph-neighbor-score))
+           (<= rank-score-direct-file-architecture-graph-token-min
+               (long matched-token-count)))
+    (min rank-score-direct-file-architecture-graph-cap
+         (+ rank-score-direct-file-architecture-graph-base
+            (* rank-score-direct-file-architecture-graph-token-weight
+               (double (min rank-score-token-cap matched-token-count)))
+            (* rank-score-direct-file-architecture-graph-pair-weight
+               (double (min rank-score-ordered-pair-cap
+                            matched-token-pair-count)))))
     0.0))
 (defn- candidate-lexical-component-boost
   [candidate-lexical-score]
@@ -1132,9 +1183,25 @@
                               query-supported-architecture-evidence-count
                               architecture-support-evidence-score
                               (count matched-tokens))
+                             doc-supported-architecture-token-boost
+                             (doc-supported-architecture-token-boost
+                              doc-count
+                              direct-file-candidate-count
+                              architecture-evidence-count
+                              (count matched-tokens))
+                             direct-file-architecture-graph-boost
+                             (direct-file-architecture-graph-boost
+                              doc-count
+                              direct-file-candidate-count
+                              architecture-evidence-count
+                              graph-neighbor-score
+                              (count matched-tokens)
+                              (count matched-token-pairs))
                              architecture-rank-boost (+ architecture-support-boost
                                                         query-supported-architecture-only-boost
-                                                        candidate-only-architecture-support-boost)
+                                                        candidate-only-architecture-support-boost
+                                                        doc-supported-architecture-token-boost
+                                                        direct-file-architecture-graph-boost)
                              candidate-lexical-component-boost
                              (candidate-lexical-component-boost
                               candidate-lexical-score)
@@ -1267,6 +1334,12 @@
                                        (pos? architecture-rank-boost)
                                        (assoc :architectureSupportBoost
                                               architecture-rank-boost)
+                                       (pos? doc-supported-architecture-token-boost)
+                                       (assoc :docSupportedArchitectureTokenBoost
+                                              doc-supported-architecture-token-boost)
+                                       (pos? direct-file-architecture-graph-boost)
+                                       (assoc :directFileArchitectureGraphBoost
+                                              direct-file-architecture-graph-boost)
                                        (pos? candidate-lexical-component-boost)
                                        (assoc :candidateLexicalComponentBoost
                                               candidate-lexical-component-boost))]
