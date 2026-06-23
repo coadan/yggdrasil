@@ -984,7 +984,9 @@
                                                              (:id candidate)
                                                              (:kind candidate)
                                                              (:label candidate)
-                                                             (:summary candidate))]
+                                                             (:summary candidate))
+                                {:keys [matched-tokens matched-token-pairs]}
+                                (token-and-pair-matches query-tokens evidence-text)]
                             (cond-> {:path path
                                      :source-rank (+ 450 (* idx 100) path-idx)
                                      :confidence 0.75
@@ -993,11 +995,8 @@
                                      :retrieved-source? false
                                      :exact-path-source? false
                                      :definition-kind "decision-candidate"
-                                     :matched-tokens (token-matches query-tokens
-                                                                    evidence-text)
-                                     :matched-token-pairs
-                                     (compact-token-pair-matches query-tokens
-                                                                 evidence-text)
+                                     :matched-tokens matched-tokens
+                                     :matched-token-pairs matched-token-pairs
                                      :matched-compound-token-pairs
                                      (compact-compound-token-pair-matches
                                       query-tokens

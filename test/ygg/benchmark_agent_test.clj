@@ -1243,6 +1243,31 @@
     (is (= "include" (get-in choices-by-id ["plan-core-and-tests" :status])))
     (is (= "exclude" (get-in choices-by-id ["plan-core-only" :status])))))
 
+(deftest decision-candidate-ranking-tokenizes-evidence-text-once-for-token-pairs
+  (let [root (temp-dir "ygg-bench-decision-token-pairs")
+        _ (spit-file! root "src/core.cs" "namespace Demo;\n")
+        tokenize text/tokenize
+        evidence-text "src/core.cs\nplan-core\nchange-plan\nPlan core\njsonb handling"
+        calls (atom 0)]
+    (with-redefs [text/tokenize (fn [value]
+                                  (when (= evidence-text (str value))
+                                    (swap! calls inc))
+                                  (tokenize value))]
+      (let [file (-> (benchmark/context-packet->agent-result
+                      {:query "plan core jsonb handling"}
+                      {:root root
+                       :decision-kind "change-plan"
+                       :decision-candidates [{:id "plan-core"
+                                              :kind "change-plan"
+                                              :label "Plan core"
+                                              :summary "jsonb handling"
+                                              :paths ["src/core.cs"]}]})
+                     :suspectedFiles
+                     first)]
+        (is (= "src/core.cs" (:path file)))
+        (is (= 1 @calls))
+        (is (pos? (get-in file [:metrics :matchedTokenPairCount])))))))
+
 (deftest context-packet-agent-result-respects-declared-source-coverage
   (let [root (temp-dir "ygg-bench-source-coverage")
         _ (spit-file! root ".github/ISSUE_TEMPLATE/bug_report.md" "bug report\n")
