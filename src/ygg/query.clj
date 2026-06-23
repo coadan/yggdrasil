@@ -1114,8 +1114,8 @@
   "Return aggregate report data."
   ([xtdb] (report xtdb {}))
   ([xtdb opts]
-   (let [nodes (all-nodes xtdb opts)
-         edges (all-edges xtdb opts)
+   (let [node-count (scoped-row-count xtdb (:nodes store/tables) opts)
+         edge-count (scoped-row-count xtdb (:edges store/tables) opts)
          chunk-count (scoped-row-count xtdb (:chunks store/tables) opts)
          search-doc-count (scoped-row-count xtdb
                                             (:search-docs store/tables)
@@ -1126,16 +1126,25 @@
                                            opts
                                            {:active? true})
          diagnostics (all-diagnostics xtdb opts)
-         degree (frequencies (mapcat (juxt :source-id :target-id) edges))
-         nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
-         top-nodes (->> degree
-                        (sort-by (comp - val))
-                        (take 10)
-                        (mapv (fn [[id n]]
-                                {:node (get nodes-by-id id {:xt/id id :label (display-id id)})
-                                 :degree n})))]
-     {:counts {:nodes (count nodes)
-               :edges (count edges)
+         degree-counts (store/row-counts-by-any-field
+                        xtdb
+                        (:edges store/tables)
+                        [:source-id :target-id]
+                        (scope-constraints opts)
+                        (read-context opts))
+         top-degree-counts (vec (take 10 degree-counts))
+         top-node-ids (mapv :value top-degree-counts)
+         nodes-by-id (into {}
+                           (map (juxt :xt/id identity))
+                           (nodes-by-ids xtdb top-node-ids opts))
+         top-nodes (mapv (fn [{:keys [value count]}]
+                           {:node (get nodes-by-id value
+                                       {:xt/id value
+                                        :label (display-id value)})
+                            :degree count})
+                         top-degree-counts)]
+     {:counts {:nodes node-count
+               :edges edge-count
                :chunks chunk-count
                :search-docs search-doc-count
                :embeddings embedding-count

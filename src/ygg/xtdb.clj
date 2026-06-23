@@ -696,6 +696,34 @@
                (str/join ", " field-sqls))
      :args constraint-args}))
 
+(defn- counts-by-any-field-query
+  [table fields constraints active-unless-false?]
+  (let [constraints (->> (clean-constraints constraints)
+                         (sort-by (comp str key))
+                         vec)
+        {constraint-where :where constraint-args :args} (equality-sql constraints)
+        where-clauses (cond-> constraint-where
+                        active-unless-false? (conj (active-unless-false-sql)))
+        table-sql (sql-table-name table)
+        select-sql (fn [field]
+                     (str "SELECT "
+                          (sql-column-name field)
+                          " AS value FROM "
+                          table-sql
+                          (when (seq where-clauses)
+                            (str " WHERE " (str/join " AND " where-clauses)))))]
+    {:sql (str "SELECT value, COUNT(*) AS row_count FROM ("
+               (str/join " UNION ALL " (map select-sql fields))
+               ") AS grouped_values WHERE value IS NOT NULL GROUP BY value")
+     :args (vec (mapcat (constantly constraint-args) fields))}))
+
+(defn- sorted-count-rows
+  [rows]
+  (->> rows
+       (sort-by (juxt (comp - long :count)
+                      (comp str :value)))
+       vec))
+
 (defn active-row-counts-by-field
   "Return active row counts grouped by field.
 
@@ -725,10 +753,7 @@
                      (map (fn [[value n]]
                             {:value value
                              :count n}))))]
-     (->> rows
-          (sort-by (juxt (comp - long :count)
-                         (comp str :value)))
-          vec))))
+     (sorted-count-rows rows))))
 
 (defn active-row-counts-by-fields
   "Return active row counts grouped by fields.
@@ -775,6 +800,78 @@
               (sort-by (juxt (comp - long :count)
                              (comp pr-str :values)))
               vec))))))
+
+(defn row-counts-by-any-field
+  "Return row counts grouped across values from any supplied field.
+
+  This is useful for edge endpoint degree calculations where `source-id` and
+  `target-id` both contribute to one mechanical count. Real XTDB handles use one
+  SQL aggregate over a UNION ALL subquery; test doubles preserve the same shape
+  through constrained row reads."
+  ([xtdb table fields constraints] (row-counts-by-any-field
+                                    xtdb
+                                    table
+                                    fields
+                                    constraints
+                                    {}))
+  ([xtdb table fields constraints ctx]
+   (let [fields (vec (distinct fields))]
+     (cond
+       (empty? fields) []
+
+       (xtdb-handle? xtdb)
+       (let [{:keys [sql args]} (counts-by-any-field-query table
+                                                           fields
+                                                           constraints
+                                                           false)]
+         (sorted-count-rows
+          (map field-count-row (q xtdb sql (assoc ctx :args args)))))
+
+       :else
+       (->> (fallback-constrained-rows xtdb
+                                       table
+                                       (clean-constraints constraints)
+                                       ctx)
+            (mapcat (fn [row] (keep #(get row %) fields)))
+            frequencies
+            (map (fn [[value n]]
+                   {:value value
+                    :count n}))
+            sorted-count-rows)))))
+
+(defn active-row-counts-by-any-field
+  "Return active row counts grouped across values from any supplied field."
+  ([xtdb table fields constraints] (active-row-counts-by-any-field
+                                    xtdb
+                                    table
+                                    fields
+                                    constraints
+                                    {}))
+  ([xtdb table fields constraints ctx]
+   (let [fields (vec (distinct fields))]
+     (cond
+       (empty? fields) []
+
+       (xtdb-handle? xtdb)
+       (let [{:keys [sql args]} (counts-by-any-field-query table
+                                                           fields
+                                                           constraints
+                                                           true)]
+         (sorted-count-rows
+          (map field-count-row (q xtdb sql (assoc ctx :args args)))))
+
+       :else
+       (->> (fallback-constrained-rows xtdb
+                                       table
+                                       (clean-constraints constraints)
+                                       ctx)
+            (filter active-row?)
+            (mapcat (fn [row] (keep #(get row %) fields)))
+            frequencies
+            (map (fn [[value n]]
+                   {:value value
+                    :count n}))
+            sorted-count-rows)))))
 
 (defn rows-matching-any-token
   "Return rows where any selected field contains any token.

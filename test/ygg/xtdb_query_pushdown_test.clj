@@ -421,6 +421,167 @@
               :args ["project-a" "app"]}
              ctx)))))
 
+(deftest row-counts-by-any-field-uses-sql-union-aggregate-for-xtdb-handles
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (swap! calls conj {:query query
+                                       :ctx ctx})
+                    [{:value "node:a"
+                      :row_count 3}
+                     {:value "node:b"
+                      :row_count 1}])
+                  store/all-rows
+                  (fn [& _]
+                    (throw (ex-info "all-rows should not be used for endpoint counts"
+                                    {})))]
+      (is (= [{:value "node:a"
+               :count 3}
+              {:value "node:b"
+               :count 1}]
+             (store/row-counts-by-any-field
+              {:node :stub}
+              (:edges store/tables)
+              [:source-id :target-id]
+              {:project-id "project-a"
+               :repo-id "app"}
+              {:valid-at #inst "2026-01-01T00:00:00Z"}))))
+    (is (= 1 (count @calls)))
+    (let [{:keys [query ctx]} (first @calls)]
+      (is (string? query))
+      (is (str/includes? query "SELECT value, COUNT(*) AS row_count FROM"))
+      (is (str/includes? query "SELECT \"source_id\" AS value FROM ygg.edges"))
+      (is (str/includes? query "SELECT \"target_id\" AS value FROM ygg.edges"))
+      (is (str/includes? query "UNION ALL"))
+      (is (str/includes? query "WHERE value IS NOT NULL GROUP BY value"))
+      (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
+              :args ["project-a" "app" "project-a" "app"]}
+             ctx)))))
+
+(deftest active-row-counts-by-any-field-uses-sql-union-aggregate-for-xtdb-handles
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (swap! calls conj {:query query
+                                       :ctx ctx})
+                    [{:value "node:b"
+                      :row_count 2}
+                     {:value "node:a"
+                      :row_count 1}])
+                  store/all-rows
+                  (fn [& _]
+                    (throw (ex-info "all-rows should not be used for active endpoint counts"
+                                    {})))]
+      (is (= [{:value "node:b"
+               :count 2}
+              {:value "node:a"
+               :count 1}]
+             (store/active-row-counts-by-any-field
+              {:node :stub}
+              (:edges store/tables)
+              [:source-id :target-id]
+              {:project-id "project-a"
+               :repo-id "app"}
+              {:valid-at #inst "2026-01-01T00:00:00Z"}))))
+    (is (= 1 (count @calls)))
+    (let [{:keys [query ctx]} (first @calls)]
+      (is (string? query))
+      (is (str/includes? query "SELECT value, COUNT(*) AS row_count FROM"))
+      (is (str/includes? query "UNION ALL"))
+      (is (= 2 (count (re-seq (re-pattern
+                               (java.util.regex.Pattern/quote
+                                "\"active?\" IS NULL"))
+                              query))))
+      (is (= 2 (count (re-seq (re-pattern
+                               (java.util.regex.Pattern/quote
+                                "\"active?\" <> FALSE"))
+                              query))))
+      (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
+              :args ["project-a" "app" "project-a" "app"]}
+             ctx)))))
+
+(deftest row-counts-by-any-field-fallback-counts-endpoint-values
+  (let [calls (atom [])]
+    (with-redefs [store/all-rows
+                  (fn [_ table ctx]
+                    (swap! calls conj {:table table
+                                       :ctx ctx})
+                    [{:xt/id "edge:a->b"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :source-id "node:a"
+                      :target-id "node:b"
+                      :active? true}
+                     {:xt/id "edge:a->c"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :source-id "node:a"
+                      :target-id "node:c"
+                      :active? false}
+                     {:xt/id "edge:nil->b"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :source-id nil
+                      :target-id "node:b"
+                      :active? true}
+                     {:xt/id "edge:other"
+                      :project-id "project-a"
+                      :repo-id "other"
+                      :source-id "node:a"
+                      :target-id "node:ignored"
+                      :active? true}])]
+      (is (= [{:value "node:a"
+               :count 2}
+              {:value "node:b"
+               :count 2}
+              {:value "node:c"
+               :count 1}]
+             (store/row-counts-by-any-field
+              :fallback
+              (:edges store/tables)
+              [:source-id :target-id]
+              {:project-id "project-a"
+               :repo-id "app"}
+              {:valid-at #inst "2026-01-01T00:00:00Z"}))))
+    (is (= [{:table (:edges store/tables)
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @calls))))
+
+(deftest active-row-counts-by-any-field-fallback-filters-inactive-endpoints
+  (with-redefs [store/all-rows
+                (fn [_ table ctx]
+                  (is (= (:edges store/tables) table))
+                  (is (= {:valid-at #inst "2026-01-01T00:00:00Z"} ctx))
+                  [{:xt/id "edge:a->b"
+                    :project-id "project-a"
+                    :repo-id "app"
+                    :source-id "node:a"
+                    :target-id "node:b"
+                    :active? true}
+                   {:xt/id "edge:a->c"
+                    :project-id "project-a"
+                    :repo-id "app"
+                    :source-id "node:a"
+                    :target-id "node:c"
+                    :active? false}
+                   {:xt/id "edge:nil->b"
+                    :project-id "project-a"
+                    :repo-id "app"
+                    :source-id nil
+                    :target-id "node:b"
+                    :active? true}])]
+    (is (= [{:value "node:b"
+             :count 2}
+            {:value "node:a"
+             :count 1}]
+           (store/active-row-counts-by-any-field
+            :fallback
+            (:edges store/tables)
+            [:source-id :target-id]
+            {:project-id "project-a"
+             :repo-id "app"}
+            {:valid-at #inst "2026-01-01T00:00:00Z"})))))
+
 (deftest graph-readiness-reuses-precomputed-context-counts
   (let [active-calls (atom [])
         fail-duplicate-read (fn [& _]
@@ -536,35 +697,21 @@
 
 (deftest query-report-counts-index-only-tables-with-count-queries
   (let [count-calls (atom [])
+        degree-calls (atom [])
+        node-calls (atom [])
         constraints {:project-id "project-a"
                      :repo-id "app"}
         read-context {:valid-at #inst "2026-01-01T00:00:00Z"}
-        count-values {[:ygg/chunks constraints] 3
+        count-values {[:ygg/nodes constraints] 2
+                      [:ygg/edges constraints] 2
+                      [:ygg/chunks constraints] 3
                       [:ygg/search-docs (assoc constraints :active? true)] 4
                       [:ygg/embeddings (assoc constraints :active? true)] 5}
         fail-broad-read (fn [& _]
                           (throw (ex-info "query report should use count queries"
                                           {})))]
-    (with-redefs [query/all-nodes
-                  (fn [_ opts]
-                    (is (= {:project-id "project-a"
-                            :repo-id "app"
-                            :read-context read-context}
-                           opts))
-                    [{:xt/id "node:a"
-                      :label "A"}
-                     {:xt/id "node:b"
-                      :label "B"}])
-                  query/all-edges
-                  (fn [_ opts]
-                    (is (= {:project-id "project-a"
-                            :repo-id "app"
-                            :read-context read-context}
-                           opts))
-                    [{:source-id "node:a"
-                      :target-id "node:b"}
-                     {:source-id "node:a"
-                      :target-id "node:missing"}])
+    (with-redefs [query/all-nodes fail-broad-read
+                  query/all-edges fail-broad-read
                   query/all-diagnostics
                   (fn [_ opts]
                     (is (= {:project-id "project-a"
@@ -572,9 +719,29 @@
                             :read-context read-context}
                            opts))
                     [{:xt/id "diagnostic:a"}])
+                  query/nodes-by-ids
+                  (fn [_ ids opts]
+                    (swap! node-calls conj {:ids (vec ids)
+                                            :opts opts})
+                    [{:xt/id "node:a"
+                      :label "A"}
+                     {:xt/id "node:b"
+                      :label "B"}])
                   query/all-chunks fail-broad-read
                   query/all-search-docs fail-broad-read
                   query/all-embeddings fail-broad-read
+                  store/row-counts-by-any-field
+                  (fn [_ table fields constraints ctx]
+                    (swap! degree-calls conj {:table table
+                                              :fields fields
+                                              :constraints constraints
+                                              :ctx ctx})
+                    [{:value "node:a"
+                      :count 2}
+                     {:value "node:b"
+                      :count 1}
+                     {:value "node:missing"
+                      :count 1}])
                   store/count-rows
                   (fn [_ table constraints ctx]
                     (swap! count-calls conj {:table table
@@ -597,13 +764,29 @@
     (is (= #{{:table :ygg/chunks
               :constraints constraints
               :ctx read-context}
+             {:table :ygg/nodes
+              :constraints constraints
+              :ctx read-context}
+             {:table :ygg/edges
+              :constraints constraints
+              :ctx read-context}
              {:table :ygg/search-docs
               :constraints (assoc constraints :active? true)
               :ctx read-context}
              {:table :ygg/embeddings
               :constraints (assoc constraints :active? true)
               :ctx read-context}}
-           (set @count-calls)))))
+           (set @count-calls)))
+    (is (= [{:table :ygg/edges
+             :fields [:source-id :target-id]
+             :constraints constraints
+             :ctx read-context}]
+           @degree-calls))
+    (is (= [{:ids ["node:a" "node:b" "node:missing"]
+             :opts {:project-id "project-a"
+                    :repo-id "app"
+                    :read-context read-context}}]
+           @node-calls))))
 
 (deftest graph-readiness-real-handles-use-store-counts-with-precomputed-context-counts
   (let [active-calls (atom [])
@@ -945,36 +1128,45 @@
 
 (deftest query-report-uses-counts-for-index-tables
   (let [count-calls (atom [])
+        degree-calls (atom [])
+        node-calls (atom [])
         fail-broad-read (fn [& _]
                           (throw (ex-info "query report should use count queries"
                                           {})))]
-    (with-redefs [query/all-nodes
-                  (fn [_ opts]
-                    (is (= {:project-id "project-a"
-                            :repo-id "app"
-                            :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}
-                           opts))
+    (with-redefs [query/all-nodes fail-broad-read
+                  query/all-edges fail-broad-read
+                  query/all-diagnostics
+                  (fn [& _]
+                    [{:xt/id "diagnostic:a"}])
+                  query/nodes-by-ids
+                  (fn [_ ids opts]
+                    (swap! node-calls conj {:ids (vec ids)
+                                            :opts opts})
                     [{:xt/id "node:a"
                       :label "A"}
                      {:xt/id "node:b"
                       :label "B"}])
-                  query/all-edges
-                  (fn [& _]
-                    [{:xt/id "edge:a->b"
-                      :source-id "node:a"
-                      :target-id "node:b"}])
-                  query/all-diagnostics
-                  (fn [& _]
-                    [{:xt/id "diagnostic:a"}])
                   query/all-chunks fail-broad-read
                   query/all-search-docs fail-broad-read
                   query/all-embeddings fail-broad-read
+                  store/row-counts-by-any-field
+                  (fn [_ table fields constraints ctx]
+                    (swap! degree-calls conj {:table table
+                                              :fields fields
+                                              :constraints constraints
+                                              :ctx ctx})
+                    [{:value "node:a"
+                      :count 2}
+                     {:value "node:b"
+                      :count 1}])
                   store/count-rows
                   (fn [_ table constraints ctx]
                     (swap! count-calls conj {:table table
                                              :constraints constraints
                                              :ctx ctx})
                     (case table
+                      :ygg/nodes 2
+                      :ygg/edges 1
                       :ygg/chunks 3
                       :ygg/search-docs 4
                       :ygg/embeddings 5))]
@@ -992,7 +1184,15 @@
                (:counts summary)))
         (is (= #{"node:a" "node:b"}
                (set (map #(get-in % [:node :xt/id]) (:top-nodes summary)))))))
-    (is (= [{:table :ygg/chunks
+    (is (= [{:table :ygg/nodes
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+            {:table :ygg/edges
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+            {:table :ygg/chunks
              :constraints {:project-id "project-a"
                            :repo-id "app"}
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
@@ -1006,7 +1206,18 @@
                            :repo-id "app"
                            :active? true}
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
-           @count-calls))))
+           @count-calls))
+    (is (= [{:table :ygg/edges
+             :fields [:source-id :target-id]
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @degree-calls))
+    (is (= [{:ids ["node:a" "node:b"]
+             :opts {:project-id "project-a"
+                    :repo-id "app"
+                    :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}}]
+           @node-calls))))
 
 (deftest docs-for-and-audit-load-only-attachment-path-chunks
   (let [calls (atom [])
