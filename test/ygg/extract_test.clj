@@ -1034,6 +1034,9 @@
                             "  request(config) {\n"
                             "    return base(config);\n"
                             "  }\n"
+                            "}\n"
+                            "export function createAdapter() {\n"
+                            "  return new Adapter();\n"
                             "}\n")
               :parser-worker-facts
               {:definitions [{:kind "class"
@@ -1043,16 +1046,26 @@
                              {:kind "method"
                               :name "Adapter.request"
                               :line 4
-                              :endLine 6}]
+                              :endLine 6}
+                             {:kind "function"
+                              :name "createAdapter"
+                              :line 8
+                              :endLine 10}]
                :imports [{:target "./base.js" :line 1}
                          {:target "https-proxy-agent"
                           :line 2
                           :importKind "type"}]
-               :references []
+               :references [{:source "createAdapter"
+                             :target "Adapter"
+                             :kind "symbol"
+                             :line 9}]
                :diagnostics []}}
         result (extract/extract-file "run/test" file)
         labels (set (map :label (:nodes result)))
         relations (frequencies (map :relation (:edges result)))
+        reference-targets (set (map :target-id
+                                    (filter #(= :references (:relation %))
+                                            (:edges result))))
         type-import-edge (some #(when (= (extract/node-id
                                           :namespace
                                           "https-proxy-agent")
@@ -1062,8 +1075,12 @@
         chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))]
     (is (contains? labels "src.adapters.http/Adapter"))
     (is (contains? labels "src.adapters.http/Adapter.request"))
-    (is (= 2 (get relations :defines 0)))
+    (is (contains? labels "src.adapters.http/createAdapter"))
+    (is (= 3 (get relations :defines 0)))
     (is (= 2 (get relations :imports 0)))
+    (is (= 1 (get relations :references 0)))
+    (is (contains? reference-targets
+                   (extract/node-id :symbol "src.adapters.http/Adapter")))
     (is (= :type (:import-kind type-import-edge)))
     (is (str/includes?
          (get-in chunks-by-label ["src.adapters.http/Adapter.request" :text])

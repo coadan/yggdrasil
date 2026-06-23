@@ -515,6 +515,82 @@ def js_imports(content: bytes, root: Any) -> list[dict[str, Any]]:
     return imports
 
 
+JS_REFERENCE_NODE_KINDS = {
+    "identifier",
+    "private_property_identifier",
+    "property_identifier",
+    "shorthand_property_identifier",
+    "type_identifier",
+}
+
+
+def js_simple_name(name: str) -> str:
+    return name.split(".")[-1]
+
+
+def js_reference_definition(
+    content: bytes,
+    node: Any,
+    type_stack: list[str],
+) -> tuple[str | None, str | None]:
+    kind = node_kind(node)
+    if kind in JS_DEFINITION_KINDS:
+        return js_definition_name(content, node, type_stack), JS_DEFINITION_KINDS[kind]
+    if kind == "method_definition":
+        return js_definition_name(content, node, type_stack), "method"
+    if kind == "variable_declarator":
+        value_kind = js_variable_function_kind(content, node)
+        name = js_definition_name(content, node, type_stack) if value_kind else None
+        return name, value_kind
+    return None, None
+
+
+def js_references(
+    content: bytes,
+    root: Any,
+    definitions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    defined_simple_names = {js_simple_name(str(row["name"])) for row in definitions}
+    references: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, int, str]] = set()
+
+    def visit(node: Any, type_stack: list[str], source_name: str | None) -> None:
+        next_stack = type_stack
+        next_source = source_name
+        definition_name, definition_kind = js_reference_definition(content, node, type_stack)
+        if definition_name:
+            next_source = definition_name
+            if definition_kind == "class":
+                next_stack = [*type_stack, js_simple_name(definition_name)]
+
+        kind = node_kind(node)
+        if next_source and kind in JS_REFERENCE_NODE_KINDS:
+            target = node_text(content, node)
+            source_parts = next_source.split(".")
+            if (
+                target in defined_simple_names
+                and target != source_parts[0]
+                and target != source_parts[-1]
+            ):
+                key = (next_source, target, node_line_range(node)["line"], kind)
+                if key not in seen:
+                    seen.add(key)
+                    references.append(
+                        {
+                            "source": key[0],
+                            "target": target,
+                            "kind": "symbol",
+                            **node_line_range(node),
+                        }
+                    )
+
+        for child in node_children(node):
+            visit(child, next_stack, next_source)
+
+    visit(root, [], None)
+    return references
+
+
 def parse_javascript_like(kind: str, path: str, content: str) -> dict[str, Any]:
     if kind == "typescript":
         languages = ["tsx", "typescript"] if path.endswith(".tsx") else ["typescript"]
@@ -547,10 +623,11 @@ def parse_javascript_like(kind: str, path: str, content: str) -> dict[str, Any]:
                 "message": "tree-sitter reported parse errors",
             }
         )
+    definitions = js_definitions(content_bytes, root)
     return {
-        "definitions": js_definitions(content_bytes, root),
+        "definitions": definitions,
         "imports": js_imports(content_bytes, root),
-        "references": [],
+        "references": js_references(content_bytes, root, definitions),
         "diagnostics": diagnostics,
     }
 

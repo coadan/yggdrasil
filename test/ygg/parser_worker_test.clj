@@ -213,19 +213,27 @@
                                             "export function createAdapter() {\n"
                                             "  return new Adapter();\n"
                                             "}\n"
-                                            "const retry = async (fn) => fn();\n")}])
+                                            "const retry = async (fn) => fn();\n"
+                                            "export function boot() {\n"
+                                            "  return retry(createAdapter);\n"
+                                            "}\n")}])
         facts (:facts response)
         diagnostic (first (:diagnostics facts))]
     (if diagnostic
       (is (str/includes? (:message diagnostic) "javascript parser unavailable"))
       (let [definitions (set (map (juxt :kind :name) (:definitions facts)))
-            imports (set (map :target (:imports facts)))]
+            imports (set (map :target (:imports facts)))
+            references (set (map (juxt :source :target) (:references facts)))]
         (is (contains? definitions ["class" "Adapter"]))
         (is (contains? definitions ["method" "Adapter.request"]))
         (is (contains? definitions ["function" "createAdapter"]))
         (is (contains? definitions ["function" "retry"]))
+        (is (contains? definitions ["function" "boot"]))
         (is (contains? imports "./base.js"))
-        (is (contains? imports "https-proxy-agent"))))))
+        (is (contains? imports "https-proxy-agent"))
+        (is (contains? references ["createAdapter" "Adapter"]))
+        (is (contains? references ["boot" "retry"]))
+        (is (contains? references ["boot" "createAdapter"]))))))
 
 (deftest parser-worker-uses-byte-offsets-for-tree-sitter-text
   (let [[java-response dotnet-response]

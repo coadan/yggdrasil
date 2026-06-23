@@ -29,6 +29,32 @@
     :type :type
     :enum :enum
     :var))
+(defn- js-simple-name
+  [name]
+  (some-> name str (str/split #"\.") last not-empty))
+(defn- js-worker-source-name
+  [source definition-names]
+  (let [source (str source)]
+    (or (some #(when (or (= source %)
+                         (str/ends-with? % (str "." source)))
+                 %)
+              definition-names)
+        source)))
+(defn- js-worker-reference-target-name
+  [target]
+  (js-simple-name target))
+(defn- js-worker-reference-targets-by-simple-name
+  [definitions]
+  (->> definitions
+       (keep (fn [{:keys [name]}]
+               (when-let [simple-name (js-simple-name name)]
+                 [simple-name name])))
+       (group-by first)
+       (keep (fn [[simple-name rows]]
+               (let [names (set (map second rows))]
+                 (when (= 1 (count names))
+                   [simple-name (first names)]))))
+       (into {})))
 (defn- js-chunk-kind
   [kind]
   (case kind
@@ -229,6 +255,10 @@
                         :active? true
                         :run-id run-id}))
                    definitions)
+        definition-names (mapv :name definitions)
+        defined-names (set definition-names)
+        reference-targets-by-simple-name
+        (js-worker-reference-targets-by-simple-name definitions)
         define-edges (mapv #(common/edge-row run-id file-id path
                                              (:xt/id ns-node)
                                              (:xt/id %)
@@ -244,6 +274,37 @@
                                                  ns-node
                                                  %))
                           vec)
+        reference-edges (->> (:references facts)
+                             (keep (fn [{:keys [source target line]}]
+                                     (let [source-name (js-worker-source-name
+                                                        source
+                                                        definition-names)
+                                           target-name (js-worker-reference-target-name
+                                                        target)
+                                           target-definition
+                                           (get reference-targets-by-simple-name
+                                                target-name)]
+                                       (when (and (seq source-name)
+                                                  (seq target-definition)
+                                                  (contains? defined-names source-name)
+                                                  (not= (first (str/split source-name #"\."))
+                                                        target-name)
+                                                  (not= source-name target-definition))
+                                         (common/edge-row
+                                          run-id
+                                          file-id
+                                          path
+                                          (common/node-id id-scope
+                                                          :symbol
+                                                          (str module-name "/" source-name))
+                                          (common/node-id id-scope
+                                                          :symbol
+                                                          (str module-name "/" target-definition))
+                                          :references
+                                          :extracted
+                                          (or line 1))))))
+                             distinct
+                             vec)
         chunk (common/source-text-chunk run-id
                                         id-scope
                                         file-id
@@ -275,7 +336,7 @@
         diagnostics (mapv #(worker-diagnostic-row run-id file-id path %)
                           (:diagnostics facts))]
     {:nodes (into [ns-node] defs)
-     :edges (vec (concat define-edges import-edges))
+     :edges (vec (concat define-edges import-edges reference-edges))
      :chunks (into [chunk] (concat definition-chunks
                                    declaration-member-chunks))
      :diagnostics diagnostics}))
