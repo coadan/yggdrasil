@@ -293,7 +293,9 @@ def record_path(
     root: Path,
     existing: set[str],
     source: str,
+    source_rank: int | None,
     found: dict[str, list[str]],
+    source_ranks: dict[str, int],
 ) -> None:
     rel = normalize_path(value, root, existing)
     if rel is None:
@@ -302,6 +304,8 @@ def record_path(
     found.setdefault(rel, [])
     if evidence not in found[rel]:
         found[rel].append(evidence)
+    rank = source_rank or 1
+    source_ranks[rel] = min(rank, source_ranks.get(rel, rank))
 
 
 def extract_paths_from_json(
@@ -310,6 +314,8 @@ def extract_paths_from_json(
     existing: set[str],
     source: str,
     found: dict[str, list[str]],
+    source_ranks: dict[str, int],
+    source_rank: int | None = None,
 ) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
@@ -317,13 +323,23 @@ def extract_paths_from_json(
             if source == "get_architecture" and key_text in ARCHITECTURE_INVENTORY_KEYS:
                 continue
             if key_text in PATH_KEYS:
-                record_path(item, root, existing, source, found)
-            extract_paths_from_json(item, root, existing, source, found)
+                record_path(item, root, existing, source, source_rank, found, source_ranks)
+            extract_paths_from_json(
+                item, root, existing, source, found, source_ranks, source_rank
+            )
     elif isinstance(value, list):
-        for item in value:
-            extract_paths_from_json(item, root, existing, source, found)
+        for idx, item in enumerate(value, start=1):
+            extract_paths_from_json(
+                item,
+                root,
+                existing,
+                source,
+                found,
+                source_ranks,
+                source_rank or idx,
+            )
     elif isinstance(value, str) and len(value) <= MAX_TEXT_CHARS:
-        record_path(value, root, existing, source, found)
+        record_path(value, root, existing, source, source_rank, found, source_ranks)
 
 
 def extract_paths_from_text(
@@ -332,19 +348,23 @@ def extract_paths_from_text(
     existing: set[str],
     source: str,
     found: dict[str, list[str]],
+    source_ranks: dict[str, int],
 ) -> None:
-    for match in PATH_TOKEN_RE.finditer(text[:MAX_TEXT_CHARS]):
-        record_path(match.group(0), root, existing, source, found)
+    for idx, match in enumerate(PATH_TOKEN_RE.finditer(text[:MAX_TEXT_CHARS]), start=1):
+        record_path(match.group(0), root, existing, source, idx, found, source_ranks)
 
 
-def ranked_files(found: dict[str, list[str]], limit: int) -> list[dict]:
+def ranked_files(
+    found: dict[str, list[str]], source_ranks: dict[str, int], limit: int
+) -> list[dict]:
     rows = sorted(
         found.items(),
-        key=lambda item: (-len(item[1]), item[0]),
+        key=lambda item: (-len(item[1]), source_ranks.get(item[0], limit + 1), item[0]),
     )
     suspected = []
     for idx, (path, evidence) in enumerate(rows[:limit], start=1):
         support_count = len(evidence)
+        first_source_rank = source_ranks.get(path, idx)
         confidence = min(1.0, 0.55 + (0.1 * support_count))
         suspected.append(
             {
@@ -355,7 +375,7 @@ def ranked_files(found: dict[str, list[str]], limit: int) -> list[dict]:
                 "evidence": evidence,
                 "metrics": {
                     "supportCount": support_count,
-                    "firstSourceRank": idx,
+                    "firstSourceRank": first_source_rank,
                     "maxConfidence": confidence,
                 },
             }
@@ -446,6 +466,7 @@ def main(argv: list[str]) -> int:
     warnings: list[str] = []
     commands: list[str] = []
     found: dict[str, list[str]] = {}
+    source_ranks: dict[str, int] = {}
     existing = existing_repo_files(root)
 
     if shutil.which(binary) is None and not Path(binary).is_file():
@@ -474,11 +495,15 @@ def main(argv: list[str]) -> int:
         if tool_result.warning:
             warnings.append(tool_result.warning)
         if tool_result.parsed is not None:
-            extract_paths_from_json(tool_result.parsed, root, existing, source, found)
+            extract_paths_from_json(
+                tool_result.parsed, root, existing, source, found, source_ranks
+            )
         else:
-            extract_paths_from_text(tool_result.stdout, root, existing, source, found)
+            extract_paths_from_text(
+                tool_result.stdout, root, existing, source, found, source_ranks
+            )
 
-    suspected = ranked_files(found, limit)
+    suspected = ranked_files(found, source_ranks, limit)
     write_json(result_path, result_base(request, warnings, commands, suspected))
     return 0
 

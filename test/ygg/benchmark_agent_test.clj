@@ -4270,6 +4270,13 @@
           (is (= ["src/app.clj" "docs/readme.md"]
                  (mapv :path (:suspectedFiles result))))
           (is (every? #(seq (:evidence %)) (:suspectedFiles result)))
+          (is (= [{:supportCount 4
+                   :firstSourceRank 1}
+                  {:supportCount 3
+                   :firstSourceRank 1}]
+                 (mapv #(select-keys (:metrics %) [:supportCount
+                                                   :firstSourceRank])
+                       (:suspectedFiles result))))
           (is (= "codebase-memory-result-surface-estimate"
                  (get-in result [:tokenUsage :source])))
           (is (pos? (get-in result [:tokenUsage :totalTokens])))
