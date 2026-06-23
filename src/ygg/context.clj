@@ -557,15 +557,15 @@
   [(doc-root-key doc)
    (get-in doc [:source :definitionKind])])
 
-(defn- doc-definition-kind-query-score
-  [query-tokens doc]
+(defn- definition-kind-query-score
+  [query-tokens definition-kind]
   (if (seq query-tokens)
     (capped-token-score query-tokens
-                        (display-name (get-in doc [:source :definitionKind])))
+                        (display-name definition-kind))
     0.0))
 
 (defn- diversify-doc-row
-  [query-tokens doc]
+  [definition-kind-scores doc]
   (let [definition-kind-key (doc-definition-kind-key doc)
         root-definition-kind-key (doc-root-definition-kind-key doc)]
     {:doc doc
@@ -574,8 +574,9 @@
      :path-key (doc-path-key doc)
      :definition-kind-key definition-kind-key
      :root-definition-kind-key root-definition-kind-key
-     :definition-kind-query-score (doc-definition-kind-query-score query-tokens
-                                                                   doc)}))
+     :definition-kind-query-score (get definition-kind-scores
+                                       (get-in doc [:source :definitionKind])
+                                       0.0)}))
 
 (defn- row-novelty-score
   [seen-paths seen-definition-kinds row]
@@ -633,32 +634,40 @@
 (defn- diversify-docs
   ([docs] (diversify-docs [] docs))
   ([query-tokens docs]
-   (loop [remaining (mapv #(diversify-doc-row query-tokens %) docs)
-          seen-roots #{}
-          seen-paths #{}
-          seen-definition-kinds #{}
-          seen-root-definition-kinds #{}
-          out []]
-     (if (empty? remaining)
-       out
-       (let [[idx row] (selected-diversify-row remaining
-                                               seen-roots
-                                               seen-paths
-                                               seen-definition-kinds
-                                               seen-root-definition-kinds)
-             doc (:doc row)
-             definition-key (:definition-kind-key row)
-             root-definition-kind-key (:root-definition-kind-key row)]
-         (recur (vec (concat (subvec remaining 0 idx)
-                             (subvec remaining (inc idx))))
-                (conj seen-roots (:root-key row))
-                (conj seen-paths (:path-key row))
-                (cond-> seen-definition-kinds
-                  (second definition-key) (conj definition-key))
-                (cond-> seen-root-definition-kinds
-                  (second root-definition-kind-key)
-                  (conj root-definition-kind-key))
-                (conj out doc)))))))
+   (let [definition-kind-scores (into {}
+                                      (map (fn [definition-kind]
+                                             [definition-kind
+                                              (definition-kind-query-score
+                                                query-tokens
+                                                definition-kind)]))
+                                      (distinct (map #(get-in % [:source :definitionKind])
+                                                     docs)))]
+     (loop [remaining (mapv #(diversify-doc-row definition-kind-scores %) docs)
+            seen-roots #{}
+            seen-paths #{}
+            seen-definition-kinds #{}
+            seen-root-definition-kinds #{}
+            out []]
+       (if (empty? remaining)
+         out
+         (let [[idx row] (selected-diversify-row remaining
+                                                 seen-roots
+                                                 seen-paths
+                                                 seen-definition-kinds
+                                                 seen-root-definition-kinds)
+               doc (:doc row)
+               definition-key (:definition-kind-key row)
+               root-definition-kind-key (:root-definition-kind-key row)]
+           (recur (vec (concat (subvec remaining 0 idx)
+                               (subvec remaining (inc idx))))
+                  (conj seen-roots (:root-key row))
+                  (conj seen-paths (:path-key row))
+                  (cond-> seen-definition-kinds
+                    (second definition-key) (conj definition-key))
+                  (cond-> seen-root-definition-kinds
+                    (second root-definition-kind-key)
+                    (conj root-definition-kind-key))
+                  (conj out doc))))))))
 
 (defn- doc-source-path
   [doc]

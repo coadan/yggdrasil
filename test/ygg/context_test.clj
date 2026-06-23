@@ -257,7 +257,7 @@
             "consumer/logs.go"]
            (mapv #(get-in % [:source :path]) docs)))))
 
-(deftest diversify-docs-tokenizes-definition-kind-once-per-doc
+(deftest diversify-docs-tokenizes-definition-kind-once-per-kind
   (let [diversify-docs @#'context/diversify-docs
         tokenize text/tokenize
         calls (atom 0)
@@ -277,7 +277,7 @@
                                   (tokenize value))]
       (is (= (count docs)
              (count (diversify-docs query-tokens docs)))))
-    (is (= (count docs) @calls))))
+    (is (= 2 @calls))))
 
 (deftest select-docs-preserves-top-retrieved-path-coverage
   (let [select-docs @#'context/select-docs
