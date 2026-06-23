@@ -362,12 +362,30 @@
       (println "-" (:xt/id view) (:label view)))
     (println "- none")))
 
-(defn- active-project-systems
+(def ^:private candidate-system-kinds
+  [:candidate-system :repo-boundary])
+
+(def ^:private candidate-system-row-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :label
+   :kind
+   :candidate-types
+   :metrics
+   :path-prefix
+   :active?])
+
+(defn- candidate-system-rows
   [xtdb project-id]
-  (vec (store/constrained-rows xtdb
-                               (:system-nodes store/tables)
-                               {:project-id project-id
-                                :active? true})))
+  (vec (store/rows-with-field-values
+        xtdb
+        {:table (:system-nodes store/tables)
+         :field :kind
+         :values candidate-system-kinds
+         :constraints {:project-id project-id
+                       :active? true}
+         :return-fields candidate-system-row-fields})))
 
 (defn- project-deps
   []
@@ -791,7 +809,7 @@
           (store/with-node (store/storage-path)
             (fn [xtdb]
               (print-candidate-systems
-               (->> (active-project-systems xtdb project-id)
+               (->> (candidate-system-rows xtdb project-id)
                     (filter candidate-system?)
                     (sort-by (juxt :repo-id :label))
                     vec)

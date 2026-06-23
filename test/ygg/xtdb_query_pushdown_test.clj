@@ -1,5 +1,6 @@
 (ns ygg.xtdb-query-pushdown-test
   (:require [ygg.activity :as activity]
+            [ygg.cli :as cli]
             [ygg.context :as context]
             [ygg.coverage :as coverage]
             [ygg.dependency :as dependency]
@@ -620,6 +621,47 @@
                            :active? true}
              :ctx {}}]
            @calls))))
+
+(deftest cli-candidate-system-rows-use-kind-value-pushdown
+  (let [calls (atom [])]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    [{:xt/id "system:candidate"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :label "App"
+                      :kind :candidate-system
+                      :candidate-types [:path-cluster]
+                      :metrics {:file-count 2}
+                      :active? true}
+                     {:xt/id "system:repo"
+                      :project-id "project-a"
+                      :repo-id "lib"
+                      :label "Lib"
+                      :kind :repo-boundary
+                      :candidate-types [:manifest-root]
+                      :metrics {:file-count 1}
+                      :active? true}])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "candidate systems should not hydrate all system nodes"
+                                    {})))]
+      (is (= ["system:candidate" "system:repo"]
+             (mapv :xt/id
+                   (#'cli/candidate-system-rows {:node :stub} "project-a")))))
+    (is (= 1 (count @calls)))
+    (let [call (first @calls)]
+      (is (= (:system-nodes store/tables) (:table call)))
+      (is (= :kind (:field call)))
+      (is (= [:candidate-system :repo-boundary] (:values call)))
+      (is (= {:project-id "project-a"
+              :active? true}
+             (:constraints call)))
+      (is (some #{:xt/id} (:return-fields call)))
+      (is (some #{:kind} (:return-fields call)))
+      (is (some #{:metrics} (:return-fields call)))
+      (is (not-any? #{'*} (:return-fields call))))))
 
 (deftest active-row-count-pushes-active-unless-false-filter
   (let [calls (atom [])]
