@@ -1482,15 +1482,30 @@
                     (cond-> {}
                       project-id (assoc :project-id project-id))))
 
+(def ^:private system-search-doc-target-kinds
+  [:system-node :system-edge])
+
+(def ^:private system-search-doc-row-fields
+  [:xt/id :target-kind])
+
+(defn- project-system-search-docs
+  [xtdb project-id]
+  (rows-with-field-values
+   xtdb
+   {:table (:search-docs tables)
+    :field :target-kind
+    :values system-search-doc-target-kinds
+    :constraints (cond-> {}
+                   project-id (assoc :project-id project-id))
+    :return-fields system-search-doc-row-fields}))
+
 (defn commit-system-graph!
   "Replace derived system graph rows for project."
   [xtdb project-id {:keys [evidence nodes edges search-docs]}]
   (let [existing-evidence (project-rows xtdb (:system-evidence tables) project-id)
         existing-nodes (project-rows xtdb (:system-nodes tables) project-id)
         existing-edges (project-rows xtdb (:system-edges tables) project-id)
-        existing-search-docs (->> (project-rows xtdb (:search-docs tables) project-id)
-                                  (filter #(#{:system-node :system-edge}
-                                            (:target-kind %))))
+        existing-search-docs (project-system-search-docs xtdb project-id)
         evidence (map validate-system-evidence-row evidence)
         nodes (map validate-system-node-row nodes)
         edges (map validate-system-edge-row edges)

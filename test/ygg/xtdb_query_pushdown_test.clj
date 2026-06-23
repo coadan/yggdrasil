@@ -1082,6 +1082,60 @@
                     (= #{"file:a" "file:b"} (set (nnext %))))
               (first @txs)))))
 
+(deftest commit-system-graph-bounds-search-doc-replacement-by-target-kind
+  (let [constrained-calls (atom [])
+        value-calls (atom [])
+        txs (atom [])
+        summary (with-redefs [store/constrained-rows
+                              (fn [_ table constraints & [_ctx]]
+                                (swap! constrained-calls conj [table constraints])
+                                (case table
+                                  :ygg/system-evidence [{:xt/id "system-evidence:old"}]
+                                  :ygg/system-nodes [{:xt/id "system:old"}]
+                                  :ygg/system-edges [{:xt/id "system-edge:old"}]
+                                  :ygg/search-docs
+                                  (throw (ex-info "search-doc replacement should use target-kind read"
+                                                  {:constraints constraints}))
+                                  []))
+                              store/rows-with-field-values
+                              (fn [_ request]
+                                (swap! value-calls conj request)
+                                [{:xt/id "search-doc:system-node"
+                                  :target-kind :system-node}
+                                 {:xt/id "search-doc:system-edge"
+                                  :target-kind :system-edge}])
+                              xt/execute-tx
+                              (fn [_ ops]
+                                (swap! txs conj ops)
+                                {:tx-id 3})]
+                  (store/commit-system-graph!
+                   {:node :stub}
+                   "project-a"
+                   {:evidence []
+                    :nodes []
+                    :edges []
+                    :search-docs []}))]
+    (is (= {:system-evidence 0
+            :system-nodes 0
+            :system-edges 0
+            :search-docs 0}
+           summary))
+    (is (= [[(:system-evidence store/tables) {:project-id "project-a"}]
+            [(:system-nodes store/tables) {:project-id "project-a"}]
+            [(:system-edges store/tables) {:project-id "project-a"}]]
+           @constrained-calls))
+    (is (= [{:table (:search-docs store/tables)
+             :field :target-kind
+             :values [:system-node :system-edge]
+             :constraints {:project-id "project-a"}
+             :return-fields @#'store/system-search-doc-row-fields}]
+           @value-calls))
+    (is (some #(and (= :delete-docs (first %))
+                    (= (:search-docs store/tables) (second %))
+                    (= #{"search-doc:system-node" "search-doc:system-edge"}
+                       (set (nnext %))))
+              (first @txs)))))
+
 (deftest deps-loads-endpoint-nodes-with-batched-id-read
   (let [calls (atom [])
         edge-calls (atom [])
