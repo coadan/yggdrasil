@@ -1729,18 +1729,20 @@
     {:project project-row
      :repos (count repo-rows)}))
 
-(defn- project-rows
+(defn- project-row-ids
   [xtdb table project-id]
-  (constrained-rows xtdb
-                    table
-                    (cond-> {}
-                      project-id (assoc :project-id project-id))))
+  (mapv :xt/id
+        (ordered-rows xtdb
+                      {:table table
+                       :constraints (cond-> {}
+                                      project-id (assoc :project-id project-id))
+                       :return-fields [:xt/id]})))
 
 (def ^:private system-search-doc-target-kinds
   [:system-node :system-edge])
 
 (def ^:private system-search-doc-row-fields
-  [:xt/id :target-kind])
+  [:xt/id])
 
 (defn- project-system-search-docs
   [xtdb project-id]
@@ -1756,9 +1758,9 @@
 (defn commit-system-graph!
   "Replace derived system graph rows for project."
   [xtdb project-id {:keys [evidence nodes edges search-docs]}]
-  (let [existing-evidence (project-rows xtdb (:system-evidence tables) project-id)
-        existing-nodes (project-rows xtdb (:system-nodes tables) project-id)
-        existing-edges (project-rows xtdb (:system-edges tables) project-id)
+  (let [existing-evidence-ids (project-row-ids xtdb (:system-evidence tables) project-id)
+        existing-node-ids (project-row-ids xtdb (:system-nodes tables) project-id)
+        existing-edge-ids (project-row-ids xtdb (:system-edges tables) project-id)
         existing-search-docs (project-system-search-docs xtdb project-id)
         evidence (map validate-system-evidence-row evidence)
         nodes (map validate-system-node-row nodes)
@@ -1766,9 +1768,9 @@
         search-docs (map validate-search-doc-row search-docs)
         ops (vec
              (concat
-              (map #(delete-op (:system-evidence tables) (:xt/id %)) existing-evidence)
-              (map #(delete-op (:system-nodes tables) (:xt/id %)) existing-nodes)
-              (map #(delete-op (:system-edges tables) (:xt/id %)) existing-edges)
+              (map #(delete-op (:system-evidence tables) %) existing-evidence-ids)
+              (map #(delete-op (:system-nodes tables) %) existing-node-ids)
+              (map #(delete-op (:system-edges tables) %) existing-edge-ids)
               (map #(delete-op (:search-docs tables) (:xt/id %)) existing-search-docs)
               (map #(put-op (:system-evidence tables) %) evidence)
               (map #(put-op (:system-nodes tables) %) nodes)

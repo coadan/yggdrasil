@@ -1983,27 +1983,26 @@
               (first @txs)))))
 
 (deftest commit-system-graph-bounds-search-doc-replacement-by-target-kind
-  (let [constrained-calls (atom [])
+  (let [ordered-calls (atom [])
         value-calls (atom [])
         txs (atom [])
-        summary (with-redefs [store/constrained-rows
-                              (fn [_ table constraints & [_ctx]]
-                                (swap! constrained-calls conj [table constraints])
-                                (case table
+        summary (with-redefs [store/ordered-rows
+                              (fn [_ request]
+                                (swap! ordered-calls conj request)
+                                (case (:table request)
                                   :ygg/system-evidence [{:xt/id "system-evidence:old"}]
                                   :ygg/system-nodes [{:xt/id "system:old"}]
                                   :ygg/system-edges [{:xt/id "system-edge:old"}]
-                                  :ygg/search-docs
-                                  (throw (ex-info "search-doc replacement should use target-kind read"
-                                                  {:constraints constraints}))
                                   []))
+                              store/constrained-rows
+                              (fn [& _]
+                                (throw (ex-info "system graph replacement should not hydrate full rows"
+                                                {})))
                               store/rows-with-field-values
                               (fn [_ request]
                                 (swap! value-calls conj request)
-                                [{:xt/id "search-doc:system-node"
-                                  :target-kind :system-node}
-                                 {:xt/id "search-doc:system-edge"
-                                  :target-kind :system-edge}])
+                                [{:xt/id "search-doc:system-node"}
+                                 {:xt/id "search-doc:system-edge"}])
                               xt/execute-tx
                               (fn [_ ops]
                                 (swap! txs conj ops)
@@ -2020,16 +2019,35 @@
             :system-edges 0
             :search-docs 0}
            summary))
-    (is (= [[(:system-evidence store/tables) {:project-id "project-a"}]
-            [(:system-nodes store/tables) {:project-id "project-a"}]
-            [(:system-edges store/tables) {:project-id "project-a"}]]
-           @constrained-calls))
+    (is (= [{:table (:system-evidence store/tables)
+             :constraints {:project-id "project-a"}
+             :return-fields [:xt/id]}
+            {:table (:system-nodes store/tables)
+             :constraints {:project-id "project-a"}
+             :return-fields [:xt/id]}
+            {:table (:system-edges store/tables)
+             :constraints {:project-id "project-a"}
+             :return-fields [:xt/id]}]
+           (mapv #(select-keys % [:table :constraints :return-fields])
+                 @ordered-calls)))
     (is (= [{:table (:search-docs store/tables)
              :field :target-kind
              :values [:system-node :system-edge]
              :constraints {:project-id "project-a"}
-             :return-fields @#'store/system-search-doc-row-fields}]
+             :return-fields [:xt/id]}]
            @value-calls))
+    (is (some #(and (= :delete-docs (first %))
+                    (= (:system-evidence store/tables) (second %))
+                    (= ["system-evidence:old"] (vec (nnext %))))
+              (first @txs)))
+    (is (some #(and (= :delete-docs (first %))
+                    (= (:system-nodes store/tables) (second %))
+                    (= ["system:old"] (vec (nnext %))))
+              (first @txs)))
+    (is (some #(and (= :delete-docs (first %))
+                    (= (:system-edges store/tables) (second %))
+                    (= ["system-edge:old"] (vec (nnext %))))
+              (first @txs)))
     (is (some #(and (= :delete-docs (first %))
                     (= (:search-docs store/tables) (second %))
                     (= #{"search-doc:system-node" "search-doc:system-edge"}
