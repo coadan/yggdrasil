@@ -237,6 +237,54 @@
                       :candidates candidates})
        "```"
        ""])))
+(defn- ygg-mode?
+  [packet]
+  (= "ygg" (:mode packet)))
+
+(defn- compact-result-contract?
+  [packet profile]
+  (and (ygg-mode? packet)
+       (= "fast" profile)))
+
+(defn- ygg-artifact-lines
+  [packet]
+  (when (or (get-in packet [:artifacts :yggHintsPath])
+            (get-in packet [:artifacts :yggContextPath]))
+    ["- Yggdrasil artifacts: use `YGG_BENCH_YGG_HINTS` and `YGG_BENCH_YGG_CONTEXT`."]))
+
+(defn- result-contract-lines
+  [profile packet]
+  (if (compact-result-contract? packet profile)
+    ["## Result Contract"
+     (str "Write JSON with schema `" agent-result-schema
+          "` to `YGG_BENCH_RESULT`; use `YGG_BENCH_OUTPUT_SCHEMA` for fields.")
+     "For structured-output runners, return only JSON; otherwise write the file."
+     "Use repo-relative paths, and set `repoId` for multi-repo files."
+     ""]
+    ["## Result Contract"
+     (str "Write JSON with schema `" agent-result-schema "` to `YGG_BENCH_RESULT`.")
+     "When your agent runner supports structured output, use `YGG_BENCH_OUTPUT_SCHEMA`."
+     "For structured-output runners that capture the final response, return only the JSON result as the final response and do not also shell-write the result file."
+     "For plain shell runners, write the JSON result directly to `YGG_BENCH_RESULT`."
+     "Use repo-relative file paths from the base checkout. For multi-repo cases, set `repoId` on each suspectedFiles row."
+     ""
+     "```json"
+     (json-example (agent-result-contract))
+     "```"
+     ""]))
+
+(defn- ygg-mode-lines
+  [packet]
+  ["## Yggdrasil Mode"
+   (if (ygg-mode? packet)
+     (str "Yggdrasil is prepared. Read `YGG_BENCH_YGG_HINTS` first; use "
+          "`YGG_BENCH_YGG_CONTEXT` for snippets. Prefer `topFiles`, "
+          "`architecture`, and `auditScopes` before broad search. Treat "
+          "`sourceCoverage` and `diagnostics` as trust boundaries; run listed "
+          "`commands` or `architecture.validationGaps.nextActions` only for "
+          "weak or missing planes.")
+     "No Yggdrasil: use local shell inspection only.")
+   ""])
 (defn agent-run-prompt
   [packet result-path output-schema-path opts]
   (let [profile (agent-prompt-profile opts)
@@ -257,12 +305,9 @@
        (str "- Output JSON Schema: " output-schema-path)
        (str "- Worktree: " (:worktreeRoot packet))
        (str "- Project config: " (get-in packet [:artifacts :projectConfig]))
-       (str "- XTDB path: " (get-in packet [:artifacts :xtdbPath]))
-       (when-let [hints-path (get-in packet [:artifacts :yggHintsPath])]
-         (str "- Yggdrasil hints JSON: " hints-path))
-       (when-let [context-path (get-in packet [:artifacts :yggContextPath])]
-         (str "- Yggdrasil context JSON: " context-path))
-       ""
+       (str "- XTDB path: " (get-in packet [:artifacts :xtdbPath]))]
+      (ygg-artifact-lines packet)
+      [""
        "## Environment"
        "- `YGG_BENCH_PACKET` points to the packet JSON."
        "- `YGG_BENCH_YGG_HINTS` points to compact Yggdrasil hints when available."
@@ -283,33 +328,9 @@
        (str/join "\n" (task-rule-lines task))
        ""]
       (decision-prompt-lines packet)
-      ["## Result Contract"
-       (str "Write JSON with schema `" agent-result-schema "` to `YGG_BENCH_RESULT`.")
-       "When your agent runner supports structured output, use `YGG_BENCH_OUTPUT_SCHEMA`."
-       "For structured-output runners that capture the final response, return only the JSON result as the final response and do not also shell-write the result file."
-       "For plain shell runners, write the JSON result directly to `YGG_BENCH_RESULT`."
-       "Use repo-relative file paths from the base checkout. For multi-repo cases, set `repoId` on each suspectedFiles row."
-       ""
-       "```json"
-       (json-example (agent-result-contract))
-       "```"
-       ""
-       "## Yggdrasil Mode"
-       (if (= "ygg" (:mode packet))
-         (str "Yggdrasil is available and has already been prepared for this run. "
-              "Read `YGG_BENCH_YGG_HINTS` first when it is set; use "
-              "`YGG_BENCH_YGG_CONTEXT` for supporting snippets. In the "
-              "hints, prefer `topFiles`, `architecture`, and `auditScopes` "
-              "before broad shell search; treat `evidence`, "
-              "`sourceCoverage`, and `diagnostics` as trust boundaries. Use "
-              "`commands` as bounded follow-up checks, especially commands "
-              "copied from `architecture.validationGaps.nextActions` when a "
-              "plane is missing or weak. Use live ask/explore commands only if "
-              "the context artifact is missing or insufficient; run setup only "
-              "if graph commands report missing data.")
-         "Yggdrasil is not part of this run. Use ordinary local shell inspection only.")
-       ""
-       "## Run Metadata"
+      (result-contract-lines profile packet)
+      (ygg-mode-lines packet)
+      ["## Run Metadata"
        (str "- Suite: " (:suite-id packet))
        (str "- Case: " (:case-id packet))
        (str "- Repo: " (:repo-id packet))

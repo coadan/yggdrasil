@@ -329,15 +329,20 @@
                 schema-path
                 {:agent-id "agent"
                  :prompt-profile "fast"})]
-    (is (str/includes? prompt "Yggdrasil hints JSON: /tmp/hints.json"))
-    (is (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json"))
+    (is (str/includes? prompt
+                       "Yggdrasil artifacts: use `YGG_BENCH_YGG_HINTS` and `YGG_BENCH_YGG_CONTEXT`"))
+    (is (not (str/includes? prompt "Yggdrasil hints JSON: /tmp/hints.json")))
+    (is (not (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json")))
     (is (str/includes? prompt "`topFiles`, `architecture`, and `auditScopes`"))
     (is (str/includes? prompt
-                       "`evidence`, `sourceCoverage`, and `diagnostics`"))
+                       "`sourceCoverage` and `diagnostics`"))
     (is (str/includes? prompt
-                       "`commands` as bounded follow-up checks"))
+                       "run listed `commands`"))
     (is (str/includes? prompt
                        "`architecture.validationGaps.nextActions`"))
+    (is (str/includes? prompt
+                       "use `YGG_BENCH_OUTPUT_SCHEMA` for fields"))
+    (is (not (str/includes? prompt "\"tokenUsage\": null")))
     (is (str/includes? prompt "coverageSourceKinds"))
     (is (str/includes? prompt "runtime/config/setup file may need edits"))
     (is (str/includes? prompt "exact repo-relative path"))
