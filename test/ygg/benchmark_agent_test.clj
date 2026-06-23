@@ -4375,9 +4375,9 @@
           (is (= ["src/app.clj" "docs/readme.md"]
                  (mapv :path (:suspectedFiles result))))
           (is (every? #(seq (:evidence %)) (:suspectedFiles result)))
-          (is (= [{:supportCount 4
+          (is (= [{:supportCount 2
                    :firstSourceRank 1}
-                  {:supportCount 3
+                  {:supportCount 1
                    :firstSourceRank 1}]
                  (mapv #(select-keys (:metrics %) [:supportCount
                                                    :firstSourceRank])
