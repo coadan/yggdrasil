@@ -2547,9 +2547,9 @@
                     [{:xt/id "node:config"
                       :project-id "fixture"
                       :repo-id "app"
-                      :path "site/astro.config.ts"
+                      :path "site/runtime/a.ts"
                       :kind :web-framework-plugin
-                      :label "bootstrap"
+                      :label "bootstrap setup"
                       :source-line 12}]
                     :ygg/files []))
                 graph/system-graph (fn [_ project-id _]
@@ -2562,20 +2562,36 @@
                 query/chunks-by-paths (fn [& _] [])
                 query/all-system-evidence (fn [& _] [])
                 query/system-evidence-by-system-ids (fn [& _] [])
-                query/system-evidence-by-paths (fn [& _] [])
+                query/system-evidence-by-paths
+                (fn [_ paths _]
+                  (is (= #{"site/runtime/a.ts"
+                           "site/src/pages/docs/index.astro"}
+                         (set paths)))
+                  [{:xt/id "evidence:source-runtime"
+                    :system-id "system:runtime"
+                    :repo-id "app"
+                    :path "site/runtime/a.ts"
+                    :file-kind :env
+                    :kind :env-var
+                    :label "DATABASE_URL"
+                    :normalized-value "database-url"
+                    :source-line 4
+                    :confidence 0.8
+                    :active? true}])
                 dependency/package-report (fn [& _] (empty-dependency-report))
                 activity/select-activity (fn [& _] [])
                 context/query-evidence (fn [& _] {:status :ready})
                 coverage/context-summary (fn [& _] nil)]
     (let [packet (context/context-packet :xtdb
-                                         "Astro config bootstrap"
+                                         "bootstrap setup"
                                          {:project-id "fixture"
                                           :repo-id "app"
-                                          :retriever :lexical})]
-      (is (= {:path "site/astro.config.ts"
+                                          :retriever :lexical
+                                          :budget 100000})]
+      (is (= {:path "site/runtime/a.ts"
               :rank 1
               :targetKind "node"
-              :label "bootstrap"
+              :label "bootstrap setup"
               :kind "web-framework-plugin"
               :resultKind "node"
               :reason "query-matched source row"
@@ -2593,7 +2609,9 @@
                            :sourceLine])))
       (is (= (:score (first (:candidateFiles packet)))
              (get-in (first (:candidateFiles packet))
-                     [:scoreComponents :sourceGraph]))))))
+                     [:scoreComponents :sourceGraph])))
+      (is (= ["evidence:source-runtime"]
+             (mapv :id (get-in packet [:architecture :runtimeEvidence])))))))
 
 (deftest candidate-files-merge-line-range-from-duplicate-results
   (with-redefs [query/search-report (fn [_ _ _]

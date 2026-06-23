@@ -1941,7 +1941,7 @@
                                                      {:map-overlay overlay})
         runtime-evidence (select-system-evidence query-tokens
                                                  selected-system-ids
-                                                 results
+                                                 candidate-inputs
                                                  system-evidence
                                                  12)
         warnings (cond-> []
