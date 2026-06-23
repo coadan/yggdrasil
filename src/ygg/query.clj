@@ -741,14 +741,16 @@
         query-token-set (set query-tokens)
         docs (add-path-token-match-counts query-token-set docs)
         docs-by-target (into {} (map (juxt :target-id identity)) docs)
-        semantic-candidates (concat (top-ids semantic default-semantic-candidates)
-                                    (top-ids-by-kind semantic
-                                                     docs
-                                                     default-kind-candidates))
-        lexical-candidates (concat (top-ids lexical default-lexical-candidates)
-                                   (top-ids-by-kind lexical
-                                                    docs
-                                                    default-kind-candidates))
+        semantic-candidates (when (not= :lexical retriever)
+                              (concat (top-ids semantic default-semantic-candidates)
+                                      (top-ids-by-kind semantic
+                                                       docs
+                                                       default-kind-candidates)))
+        lexical-candidates (when (not= :semantic retriever)
+                             (concat (top-ids lexical default-lexical-candidates)
+                                     (top-ids-by-kind lexical
+                                                      docs
+                                                      default-kind-candidates)))
         exact-path-candidates (exact-path-candidate-ids query-text docs)
         path-token-candidates (path-token-candidate-ids docs
                                                         default-path-token-candidates)
