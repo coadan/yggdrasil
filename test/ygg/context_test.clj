@@ -336,6 +336,20 @@
     (is (some #{"important.clj"}
               (map #(get-in % [:source :path]) selected)))))
 
+(deftest source-graph-candidate-score-does-not-retokenize-token-vector
+  (let [source-graph-candidate-score @#'context/source-graph-candidate-score
+        tokenize text/tokenize
+        tokenize-calls (atom 0)]
+    (with-redefs [text/tokenize (fn [value]
+                                  (swap! tokenize-calls inc)
+                                  (tokenize value))]
+      (is (pos? (source-graph-candidate-score
+                 ["router" "proxy"]
+                 {:path "src/router/proxy.clj"
+                  :label "router proxy"
+                  :kind :namespace}))))
+    (is (zero? @tokenize-calls))))
+
 (deftest evidence-warns-when-indexer-diagnostics-exist
   (let [warnings (#'context/evidence-warnings
                   {:search-docs 1

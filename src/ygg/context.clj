@@ -1069,12 +1069,12 @@
 
 (defn- source-graph-candidate-score
   [query-tokens row]
-  (token-score query-tokens
-               (text/tokenize-all
-                (compact (:path row)
-                         (:label row)
-                         (:name row)
-                         (:kind row)))))
+  (text/token-score query-tokens
+                    (text/tokenize-all
+                     (compact (:path row)
+                              (:label row)
+                              (:name row)
+                              (:kind row)))))
 
 (defn- row-id
   [row]
