@@ -1365,12 +1365,27 @@
         (sort-by (juxt :project-id :created-at-ms :revision))
         vec)))
 
+(defn- latest-source-snapshot-row
+  [xtdb project-id]
+  (first
+   (q xtdb
+      (str "SELECT * FROM "
+           (sql-table-name (:source-snapshots tables))
+           " WHERE "
+           (sql-column-name :project-id)
+           " = ? ORDER BY "
+           (sql-column-name :basis-instant)
+           " DESC LIMIT 1")
+      {:args [project-id]})))
+
 (defn latest-source-snapshot
   "Return the latest source snapshot row for project, if any."
   [xtdb project-id]
-  (->> (rows-by-field xtdb (:source-snapshots tables) :project-id project-id)
-       (sort-by :basis-instant)
-       last))
+  (if (and project-id (xtdb-handle? xtdb))
+    (latest-source-snapshot-row xtdb project-id)
+    (->> (rows-by-field xtdb (:source-snapshots tables) :project-id project-id)
+         (sort-by :basis-instant)
+         last)))
 
 (defn file-row
   "Return stored file row by path."

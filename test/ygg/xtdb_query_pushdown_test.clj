@@ -98,6 +98,28 @@
                    :valid-at #inst "2026-01-01T00:00:00Z"}}]
            @calls))))
 
+(deftest latest-source-snapshot-uses-sql-order-limit-for-real-handles
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ sql ctx]
+                    (swap! calls conj {:sql sql
+                                       :ctx ctx})
+                    [{:xt/id "snapshot:new"
+                      :project-id "project-a"
+                      :basis-instant #inst "2026-01-02T00:00:00Z"}])
+                  store/rows-by-field
+                  (fn [& _]
+                    (throw (ex-info "latest source snapshot should not hydrate all project snapshots"
+                                    {})))]
+      (is (= "snapshot:new"
+             (:xt/id (store/latest-source-snapshot {:node :stub} "project-a")))))
+    (is (= 1 (count @calls)))
+    (let [{:keys [sql ctx]} (first @calls)]
+      (is (str/includes? sql "SELECT * FROM ygg.source_snapshots"))
+      (is (str/includes? sql "\"project_id\" = ?"))
+      (is (str/includes? sql "ORDER BY \"basis_instant\" DESC LIMIT 1"))
+      (is (= {:args ["project-a"]} ctx)))))
+
 (deftest constrained-rows-supports-legacy-non-xtdb-row-stubs
   (let [calls (atom [])]
     (with-redefs [store/rows-by-field
