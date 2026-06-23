@@ -116,6 +116,10 @@
   3)
 (def ^:private robust-candidate-only-boost
   3.5)
+(def ^:private unsaturated-decision-tail-min-files
+  3)
+(def ^:private unsaturated-decision-tail-score-ratio
+  0.5)
 (def ^:private inspection-direct-file-quota
   4)
 (defn- parse-double-safe
@@ -1349,12 +1353,22 @@
   [row]
   (let [definition-kind (prediction-primary-definition-kind row)]
     (when (and (or (pos? (long (or (get-in row [:metrics :docCount]) 0)))
+                   (pos? (long (or (get-in row [:metrics :decisionCandidateCount])
+                                   0)))
                    (pos? (double (or (get-in row [:metrics :architectureSupportBoost])
                                      0.0))))
                (not= :unknown definition-kind))
       [(or (:repo-id row) :unknown-repo)
        (prediction-path-root row)
        definition-kind])))
+
+(defn- prediction-rank-protected?
+  [row]
+  (pos? (long (or (get-in row [:metrics :decisionCandidateCount]) 0))))
+
+(defn- row-rank-score
+  [row]
+  (double (or (get-in row [:metrics :rankScore]) 0.0)))
 
 (defn- diversify-ranked-file-predictions
   [rows]
@@ -1367,6 +1381,11 @@
       (if (empty? remaining)
         (renumber-file-ranks out)
         (let [[idx row] (or (->> remaining
+                                 (map-indexed vector)
+                                 (some (fn [[idx row]]
+                                         (when (prediction-rank-protected? row)
+                                           [idx row]))))
+                            (->> remaining
                                  (map-indexed vector)
                                  (some (fn [[idx row]]
                                          (when-let [k (prediction-diversity-key
@@ -1599,6 +1618,48 @@
                    selected)
                  (subvec missing-kinds 1)))
         selected))))
+
+(defn- ordered-row-union
+  [& row-groups]
+  (->> (apply concat row-groups)
+       (reduce (fn [acc row]
+                 (if (contains? (:seen acc) (file-row-key row))
+                   acc
+                   (-> acc
+                       (update :seen conj (file-row-key row))
+                       (update :rows conj row))))
+               {:seen #{}
+                :rows []})
+       :rows
+       (sort-by #(or (:rank %) Long/MAX_VALUE))
+       vec))
+
+(defn- compact-unsaturated-decision-tail
+  [selected limit]
+  (let [selection-limit (when limit (long limit))
+        selected (vec selected)
+        protected (filterv prediction-rank-protected? selected)]
+    (if (and selection-limit
+             (< (count selected) selection-limit)
+             (< unsaturated-decision-tail-min-files (count selected))
+             (seq protected))
+      (let [protected-score-floor (apply min (map row-rank-score protected))]
+        (if (pos? protected-score-floor)
+          (let [score-floor (* unsaturated-decision-tail-score-ratio
+                               protected-score-floor)
+                minimum (take unsaturated-decision-tail-min-files selected)
+                scored (filterv #(or (prediction-rank-protected? %)
+                                     (<= score-floor (row-rank-score %)))
+                                selected)
+                compacted (ordered-row-union minimum scored)
+                pruned (- (count selected) (count compacted))]
+            (cond-> {:files (renumber-file-ranks compacted)}
+              (pos? pruned)
+              (assoc :unsaturatedDecisionTailPruned pruned
+                     :unsaturatedDecisionTailScoreFloor score-floor)))
+          {:files selected}))
+      {:files selected})))
+
 (defn- select-limited-suspected-files
   ([candidate-files limit]
    (select-limited-suspected-files candidate-files limit {}))
@@ -1624,8 +1685,11 @@
                               source-kinds
                               kind-by-path)
                              (sort-by :rank)
-                             renumber-file-ranks)]
-           (cond-> {:files selected}
+                             renumber-file-ranks)
+               compacted (if (seq source-kinds)
+                           {:files selected}
+                           (compact-unsaturated-decision-tail selected limit))]
+           (cond-> compacted
              (seq candidate-file-only)
              (assoc :candidateFileOnlyQuota quota
                     :candidateFileOnlySelected (count candidate-file-only))))))))
@@ -1881,6 +1945,12 @@
                      (:candidateFileOnlyQuota selected-files)
                      (assoc :candidateFileOnlyQuota (:candidateFileOnlyQuota selected-files)
                             :candidateFileOnlySelected (:candidateFileOnlySelected selected-files)))
+         selection (cond-> selection
+                     (:unsaturatedDecisionTailPruned selected-files)
+                     (assoc :unsaturatedDecisionTailPruned
+                            (:unsaturatedDecisionTailPruned selected-files)
+                            :unsaturatedDecisionTailScoreFloor
+                            (:unsaturatedDecisionTailScoreFloor selected-files)))
          selection (cond-> selection
                      (:inspectionDirectFileSelected selected-files)
                      (assoc :inspectionDirectFileSelected

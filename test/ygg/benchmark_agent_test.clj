@@ -2373,6 +2373,102 @@
            (mapv :path files)))
     (is (= [1 2 3] (mapv :rank files)))))
 
+(deftest file-ranking-diversity-keeps-decision-candidate-files-early
+  (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
+        rows [{:path "tests/docker-compose.yml"
+               :rank 1
+               :repo-id "dapper"
+               :metrics {:rankScore 13.0
+                         :candidateFileCount 2
+                         :docCount 0
+                         :entityCount 0
+                         :architectureSupportBoost 1.0
+                         :definitionKinds ["container-image-consumer"]}}
+              {:path "Dapper/SqlMapper.cs"
+               :rank 2
+               :repo-id "dapper"
+               :metrics {:rankScore 17.0
+                         :candidateFileCount 1
+                         :decisionCandidateCount 2
+                         :docCount 0
+                         :entityCount 0
+                         :definitionKinds ["file"]}}
+              {:path "tests/Dapper.Tests/TypeHandlerTests.cs"
+               :rank 3
+               :repo-id "dapper"
+               :metrics {:rankScore 15.0
+                         :candidateFileCount 1
+                         :decisionCandidateCount 1
+                         :docCount 0
+                         :entityCount 0
+                         :definitionKinds ["node"]}}
+              {:path "tests/Dapper.Tests/MiscTests.cs"
+               :rank 4
+               :repo-id "dapper"
+               :metrics {:rankScore 14.0
+                         :candidateFileCount 2
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["method"]}}]
+        files (diversify rows)]
+    (is (= ["tests/docker-compose.yml"
+            "Dapper/SqlMapper.cs"
+            "tests/Dapper.Tests/TypeHandlerTests.cs"]
+           (mapv :path (take 3 files))))
+    (is (= [1 2 3] (mapv :rank (take 3 files))))))
+
+(deftest file-ranking-diversity-keeps-consecutive-decision-candidates-ranked
+  (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
+        rows [{:path "tests/docker-compose.yml"
+               :rank 1
+               :repo-id "dapper"
+               :metrics {:rankScore 13.0
+                         :candidateFileCount 2
+                         :docCount 0
+                         :entityCount 0
+                         :architectureSupportBoost 1.0
+                         :definitionKinds ["container-image-consumer"]}}
+              {:path "Dapper/SqlMapper.cs"
+               :rank 2
+               :repo-id "dapper"
+               :metrics {:rankScore 17.0
+                         :candidateFileCount 1
+                         :decisionCandidateCount 2
+                         :docCount 0
+                         :entityCount 0
+                         :definitionKinds ["file"]}}
+              {:path "tests/Dapper.Tests/TypeHandlerTests.cs"
+               :rank 3
+               :repo-id "dapper"
+               :metrics {:rankScore 15.0
+                         :candidateFileCount 1
+                         :decisionCandidateCount 1
+                         :docCount 0
+                         :entityCount 0
+                         :definitionKinds ["node"]}}
+              {:path "tests/Dapper.Tests/MiscTests.cs"
+               :rank 4
+               :repo-id "dapper"
+               :metrics {:rankScore 14.0
+                         :candidateFileCount 2
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["method"]}}
+              {:path "Dapper/FeatureSupport.cs"
+               :rank 5
+               :repo-id "dapper"
+               :metrics {:rankScore 13.5
+                         :candidateFileCount 1
+                         :docCount 1
+                         :entityCount 0
+                         :definitionKinds ["class"]}}]
+        files (diversify rows)]
+    (is (= ["tests/docker-compose.yml"
+            "Dapper/SqlMapper.cs"
+            "tests/Dapper.Tests/TypeHandlerTests.cs"
+            "tests/Dapper.Tests/MiscTests.cs"]
+           (mapv :path (take 4 files))))))
+
 (deftest file-ranking-keeps-single-row-candidate-rank-as-tiebreaker
   (let [root (temp-dir "ygg-bench-single-source-graph-candidate-rank")
         _ (spit-file! root "lib/adapters/http.js" "export default function httpAdapter() {}\n")
@@ -2560,6 +2656,80 @@
             :candidateFileOnlyQuota 2
             :candidateFileOnlySelected 2}
            (:selection result)))))
+
+(deftest limited-agent-result-prunes-unsaturated-decision-tail
+  (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "package.json" 1
+                   {:decisionCandidateCount 2
+                    :candidateFileCount 1
+                    :docCount 0
+                    :entityCount 0
+                    :rankScore 20.0})
+              (row "site/astro.config.ts" 2
+                   {:decisionCandidateCount 1
+                    :candidateFileCount 1
+                    :docCount 0
+                    :entityCount 0
+                    :rankScore 18.0})
+              (row "site/src/pages/docs/[version]/[...slug].astro" 3
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :entityCount 0
+                    :rankScore 9.25})
+              (row "site/src/pages/docs/[version]/index.astro" 4
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :entityCount 0
+                    :rankScore 8.75})
+              (row "site/src/pages/docs/index.astro" 5
+                   {:docCount 0
+                    :candidateFileCount 1
+                    :entityCount 0
+                    :rankScore 2.0})]
+        result (select-limited rows 20)]
+    (is (= ["package.json"
+            "site/astro.config.ts"
+            "site/src/pages/docs/[version]/[...slug].astro"]
+           (mapv :path (:files result))))
+    (is (= 2 (:unsaturatedDecisionTailPruned result)))
+    (is (= [1 2 3] (mapv :rank (:files result))))))
+
+(deftest limited-agent-result-does-not-prune-declared-source-kind-tail
+  (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "src/app.clj" 1
+                   {:decisionCandidateCount 1
+                    :candidateFileCount 1
+                    :docCount 0
+                    :entityCount 0
+                    :rankScore 20.0})
+              (row "src/other.clj" 2
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :entityCount 0
+                    :rankScore 8.0})
+              (row "config/.env" 3
+                   {:docCount 0
+                    :candidateFileCount 1
+                    :entityCount 0
+                    :rankScore 1.0})]
+        result (select-limited rows
+                               20
+                               {:source-kinds ["code" "env"]
+                                :kind-by-path {"src/app.clj" "code"
+                                               "src/other.clj" "code"
+                                               "config/.env" "env"}})]
+    (is (= ["src/app.clj" "src/other.clj" "config/.env"]
+           (mapv :path (:files result))))
+    (is (nil? (:unsaturatedDecisionTailPruned result)))))
+
 (deftest inspection-file-result-scope-frontloads-file-and-repo-candidate-lanes
   (let [core-root (temp-dir "ygg-bench-inspection-core")
         contrib-root (temp-dir "ygg-bench-inspection-contrib")
