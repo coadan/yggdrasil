@@ -38,7 +38,8 @@ Commands run:
 
 ```sh
 bb headline baseline --out .dev/ygg/performance-benchmarks/headline
-bb headline codebase-memory --out .dev/ygg/performance-benchmarks/headline
+bb headline codebase-memory --out .dev/ygg/performance-benchmarks/headline \
+  --codebase-memory-bin "$PWD/.dev/tools/bin/codebase-memory-mcp"
 bb headline agents --out .dev/ygg/performance-benchmarks/headline --timeout-ms 600000
 bb headline reports --out .dev/ygg/performance-benchmarks/headline
 bb headline compare --out .dev/ygg/performance-benchmarks/headline
@@ -87,20 +88,41 @@ Source artifacts:
 
 ## Codebase Memory Slice
 
-`codebase-memory-mcp` was not available on `PATH`, so this run cannot be used
-as a real Codebase Memory quality or performance comparison. The generated lane
-contains five placeholder completions with parser worker source `missing`,
-commandless runs, invalid token placeholders, and 5/5 missed localization runs.
+`codebase-memory-mcp` is installed on `PATH` at
+`/Users/vegard/.local/bin/codebase-memory-mcp` and the benchmark run used the
+repo-local copy at `.dev/tools/bin/codebase-memory-mcp` (`0.8.1`). It was
+installed as a binary-only tool with agent configuration skipped, then passed a
+direct repo-index smoke test and the full Codebase Memory headline lane.
 
-| Lane | Status | Cases | Recall@10 | Tokens | Notes |
-| --- | --- | ---: | ---: | ---: | --- |
-| Shell-only Codex | measured | 5 | 0.83 | 1,333,896 | Direct agent baseline |
-| Yggdrasil Codex | measured | 5 | 0.93 | 1,863,283 | Better quality, higher token/time cost |
-| Yggdrasil deterministic baseline | measured | 5 | 1.00 | 3,627 | No external agent loop; graph/index baseline |
-| Codebase Memory | unavailable | 5 placeholders | N/A | N/A | `codebase-memory-mcp` missing; placeholder lane only |
+The Codebase Memory lane below is a real deterministic external-baseline run,
+not the previous missing-binary placeholder lane. Token usage is the benchmark
+result-surface estimate emitted by the worker, not LLM API usage.
+
+| Lane | Status | Cases | Recall@10 | MRR | Noise@20 | Tokens | Notes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Shell-only Codex | measured | 5 | 0.83 | 1.00 | 0.347 | 1,333,896 | Direct agent baseline |
+| Yggdrasil Codex | measured | 5 | 0.93 | 1.00 | 0.220 | 1,863,283 | Better quality, higher token/time cost |
+| Yggdrasil deterministic baseline | measured | 5 | 1.00 | 1.00 | 0.387 | 3,627 | No external agent loop; graph/index baseline |
+| Codebase Memory | measured | 5 | 0.27 | 0.43 | 0.960 | 11,841 | Real `codebase-memory-mcp` CLI lane; 70 tool commands, zero warnings |
+
+Codebase Memory aggregate details:
+
+| Metric | Value |
+| --- | ---: |
+| Completed cases | 5/5 |
+| Recall@5 | 0.17 |
+| Recall@10 | 0.27 |
+| Recall@20 | 0.37 |
+| MRR | 0.43 |
+| Evidence citation | 1.00 |
+| Expected evidence citation | 0.33 |
+| Path evidence citation | 0.00 |
+| Total worker elapsed | 37,050 ms |
+| Codebase Memory worker elapsed | 32,195 ms |
+| Warning runs | 0 |
+| Claim readiness | supported for the synthetic measured slice |
 
 Source artifacts:
 `.dev/ygg/performance-benchmarks/headline/codebase-memory/headline-architecture/agent-report.json`
 and
 `.dev/ygg/performance-benchmarks/headline/ygg-baseline/headline-architecture/agent-report.json`
-
