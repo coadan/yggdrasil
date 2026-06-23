@@ -9,7 +9,7 @@
   {:top-files 10
    :top-symbols 5
    :top-docs 5
-   :related-files 8
+   :related-files 12
    :candidate-systems 6
    :commands 6
    :audit-scopes 3

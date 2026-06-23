@@ -311,6 +311,8 @@
         prompt (#'benchmark/agent-run-prompt
                 {:suite-id "suite"
                  :case-id "case-1"
+                 :caseFingerprint "sha256:case"
+                 :agentInputFingerprint "sha256:input"
                  :repo-id "repo"
                  :project-id "project"
                  :mode "ygg"
@@ -341,19 +343,26 @@
     (is (not (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json")))
     (is (str/includes? prompt "Yggdrasil is prepared and warm"))
     (is (str/includes? prompt
-                       "`jq '{selection,topFiles:[.topFiles[:8][]|{rank,path,evidence}]"))
+                       "`jq '{selection,topFiles:[.topFiles[:8][]|{rank,path}]"))
     (is (str/includes? prompt
-                       "relatedFiles:[.relatedFiles[:8][]|{rank,path,relation,evidence}]"))
+                       "relatedFiles:[.relatedFiles[:12][]|{rank,path,relation}]"))
+    (is (str/includes? prompt
+                       "topSymbols:[.topSymbols[:6][]|{rank,name,path,kind}]"))
     (is (str/includes? prompt
                        "candidateSystems:[.candidateSystems[:6][]|{rank,path,score}]"))
     (is (str/includes? prompt
                        "readPlan:{snippets:[.readPlan.snippets[:3][]|{path,lines,command}]}"))
-    (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts or `readPlan.snippets[].snippet`"))
+    (is (str/includes? prompt
+                       "do not print entire Yggdrasil JSON artifacts, evidence arrays"))
     (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts"))
     (is (str/includes? prompt "`readPlan.snippets[].command`"))
     (is (str/includes? prompt
                        "`topFiles`, `relatedFiles`, `topSymbols`, `candidateSystems`, `readPlan`, `architecture`, and `auditScopes`"))
     (is (str/includes? prompt "Avoid broad `rg`"))
+    (is (str/includes? prompt
+                       "do not pass directories to `rg` when exact files"))
+    (is (str/includes? prompt
+                       "keep each `sed` window at 90 lines or fewer"))
     (is (str/includes? prompt
                        "Constrain `rg` to exact files or shallow globs and cap output"))
     (is (str/includes? prompt
@@ -377,6 +386,9 @@
     (is (str/includes? prompt "exact repo-relative path"))
     (is (str/includes? prompt "exact evidence path and label"))
     (is (str/includes? prompt "caseId, caseFingerprint, and agentInputFingerprint"))
+    (is (str/includes? prompt "do not run env, printenv, jq, or packet reads solely"))
+    (is (str/includes? prompt "- Case fingerprint: sha256:case"))
+    (is (str/includes? prompt "- Agent input fingerprint: sha256:input"))
     (is (str/includes? prompt "do not carry over stale graph-health text"))))
 (deftest ygg-agent-run-builds-context-artifacts-after-indexing
   (let [out (temp-dir "ygg-bench-agent-run-context-order")
@@ -426,6 +438,7 @@
                                                            :selection {:candidateFiles (count (:candidateFiles packet))}
                                                            :topFiles (:candidateFiles packet)})
                   query/nodes-by-paths (fn [& _] [])
+                  query/nodes-by-labels (fn [& _] [])
                   query/edges-by-file-ids (fn [& _] [])
                   query/nodes-by-path-prefixes (fn [& _] [])]
       (let [result (#'benchmark/prepare-agent-graph-and-artifacts! suite
@@ -498,6 +511,7 @@
                         :target-id "node:namespace:go.opentelemetry.io/collector/component"
                         :source-line 12
                         :active? true}]))
+                  query/nodes-by-labels (fn [& _] [])
                   query/nodes-by-path-prefixes
                   (fn [_ prefixes _scope]
                     (reset! prefix-calls (vec prefixes))
@@ -527,6 +541,177 @@
         (is (every? #(str/includes? (first (:evidence %))
                                     "connector/connector.go imports")
                     rows))))))
+
+(deftest graph-related-files-resolve-sibling-go-module-imports
+  (let [prefix-calls (atom [])
+        prepared {:project-id "project"
+                  :repo-id "repo"}
+        packet {:candidateFiles [{:path "connector/connector.go"
+                                  :rank 1}]}
+        seed-node {:xt/id "node:connector"
+                   :kind :namespace
+                   :project-id "project"
+                   :repo-id "repo"
+                   :file-id "file:connector"
+                   :path "connector/connector.go"
+                   :active? true}
+        connector-manifest {:xt/id "node:connector-go-mod"
+                            :kind :manifest
+                            :project-id "project"
+                            :repo-id "repo"
+                            :path "connector/go.mod"
+                            :label "go.opentelemetry.io/collector/connector"
+                            :active? true}
+        consumer-manifest {:xt/id "node:consumer-go-mod"
+                           :kind :manifest
+                           :project-id "project"
+                           :repo-id "repo"
+                           :path "consumer/go.mod"
+                           :label "go.opentelemetry.io/collector/consumer"
+                           :active? true}
+        component-manifest {:xt/id "node:component-go-mod"
+                            :kind :manifest
+                            :project-id "project"
+                            :repo-id "repo"
+                            :path "component/go.mod"
+                            :label "go.opentelemetry.io/collector/component"
+                            :active? true}
+        namespace-nodes [{:xt/id "node:consumer-traces"
+                          :kind :namespace
+                          :project-id "project"
+                          :repo-id "repo"
+                          :file-id "file:consumer-traces"
+                          :path "consumer/traces.go"
+                          :active? true}
+                         {:xt/id "node:component"
+                          :kind :namespace
+                          :project-id "project"
+                          :repo-id "repo"
+                          :file-id "file:component"
+                          :path "component/component.go"
+                          :active? true}]]
+    (with-redefs [query/nodes-by-paths
+                  (fn [_ paths _scope]
+                    (cond
+                      (= ["connector/connector.go"] (vec paths))
+                      [seed-node]
+
+                      :else
+                      (filter #(contains? (set paths) (:path %))
+                              [connector-manifest])))
+                  query/edges-by-file-ids
+                  (fn [_ file-ids _scope]
+                    (when (= ["file:connector"] (vec file-ids))
+                      [{:xt/id "edge:consumer"
+                        :project-id "project"
+                        :repo-id "repo"
+                        :file-id "file:connector"
+                        :path "connector/connector.go"
+                        :relation :imports
+                        :target-id "node:namespace:go.opentelemetry.io/collector/consumer"
+                        :source-line 11
+                        :active? true}
+                       {:xt/id "edge:component"
+                        :project-id "project"
+                        :repo-id "repo"
+                        :file-id "file:connector"
+                        :path "connector/connector.go"
+                        :relation :imports
+                        :target-id "node:namespace:go.opentelemetry.io/collector/component"
+                        :source-line 12
+                        :active? true}]))
+                  query/nodes-by-labels
+                  (fn [_ labels _scope]
+                    (filter #(contains? (set labels) (:label %))
+                            [consumer-manifest component-manifest]))
+                  query/nodes-by-path-prefixes
+                  (fn [_ prefixes _scope]
+                    (reset! prefix-calls (vec prefixes))
+                    (filterv (fn [node]
+                               (some #(or (= (:path node) %)
+                                          (str/starts-with? (:path node)
+                                                            (str % "/")))
+                                     prefixes))
+                             namespace-nodes))]
+      (let [rows (#'benchmark/graph-related-files nil prepared packet {})]
+        (is (= ["consumer" "component"] @prefix-calls))
+        (is (= ["component/component.go" "consumer/traces.go"]
+               (mapv :path rows)))
+        (is (every? #(str/includes? (first (:evidence %))
+                                    "via module go.opentelemetry.io/collector/")
+                    rows))))))
+
+(deftest graph-related-files-anchor-nested-go-module-imports-to-manifest-dir
+  (let [prefix-calls (atom [])
+        prepared {:project-id "project"
+                  :repo-id "repo"}
+        packet {:candidateFiles [{:path "connector/connector.go"
+                                  :rank 1}]}
+        seed-node {:xt/id "node:connector"
+                   :kind :namespace
+                   :project-id "project"
+                   :repo-id "repo"
+                   :file-id "file:connector"
+                   :path "connector/connector.go"
+                   :active? true}
+        manifest-node {:xt/id "node:connector-go-mod"
+                       :kind :manifest
+                       :project-id "project"
+                       :repo-id "repo"
+                       :path "connector/go.mod"
+                       :label "go.opentelemetry.io/collector/connector"
+                       :active? true}
+        namespace-nodes [{:xt/id "node:connector-internal"
+                          :kind :namespace
+                          :project-id "project"
+                          :repo-id "repo"
+                          :file-id "file:connector-internal"
+                          :path "connector/internal/testcomponents.go"
+                          :active? true}
+                         {:xt/id "node:unrelated-internal"
+                          :kind :namespace
+                          :project-id "project"
+                          :repo-id "repo"
+                          :file-id "file:unrelated-internal"
+                          :path "internal/cmd/pdatagen/internal/pdata/base_slices.go"
+                          :active? true}]]
+    (with-redefs [query/nodes-by-paths
+                  (fn [_ paths _scope]
+                    (cond
+                      (= ["connector/connector.go"] (vec paths))
+                      [seed-node]
+
+                      :else
+                      (filter #(contains? (set paths) (:path %))
+                              [manifest-node])))
+                  query/edges-by-file-ids
+                  (fn [_ file-ids _scope]
+                    (when (= ["file:connector"] (vec file-ids))
+                      [{:xt/id "edge:internal"
+                        :project-id "project"
+                        :repo-id "repo"
+                        :file-id "file:connector"
+                        :path "connector/connector.go"
+                        :relation :imports
+                        :target-id "node:namespace:go.opentelemetry.io/collector/connector/internal"
+                        :source-line 10
+                        :active? true}]))
+                  query/nodes-by-labels (fn [& _] [])
+                  query/nodes-by-path-prefixes
+                  (fn [_ prefixes _scope]
+                    (reset! prefix-calls (vec prefixes))
+                    (filterv (fn [node]
+                               (some #(or (= (:path node) %)
+                                          (str/starts-with? (:path node)
+                                                            (str % "/")))
+                                     prefixes))
+                             namespace-nodes))]
+      (let [rows (#'benchmark/graph-related-files nil prepared packet {})]
+        (is (= ["connector/internal"] @prefix-calls))
+        (is (= ["connector/internal/testcomponents.go"]
+               (mapv :path rows)))
+        (is (str/includes? (first (:evidence (first rows)))
+                           "-> package connector/internal"))))))
 
 (deftest ygg-agent-preparation-reuses-warm-artifacts
   (let [out (temp-dir "ygg-bench-agent-run-context-reuse")
@@ -572,6 +757,7 @@
                                                            :selection {:candidateFiles (count (:candidateFiles packet))}
                                                            :topFiles (:candidateFiles packet)})
                   query/nodes-by-paths (fn [& _] [])
+                  query/nodes-by-labels (fn [& _] [])
                   query/edges-by-file-ids (fn [& _] [])
                   query/nodes-by-path-prefixes (fn [& _] [])]
       (let [prepared-result (#'benchmark/prepare-agent-graph-and-artifacts! suite

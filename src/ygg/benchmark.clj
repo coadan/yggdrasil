@@ -174,6 +174,9 @@
                                  case
                                  prepared
                                  (cond-> opts
+                                   (:preparation ygg-prep)
+                                   (assoc :agent-preparation
+                                          (:preparation ygg-prep))
                                    (:context-path ygg-artifacts)
                                    (assoc :ygg-context-path
                                           (:context-path ygg-artifacts))
@@ -799,6 +802,7 @@
 
 (def ^:private related-file-seed-limit 8)
 (def ^:private related-file-limit 12)
+(def ^:private related-file-package-limit 5)
 
 (defn- dirname
   [path]
@@ -834,13 +838,26 @@
                   (- (count (or (dirname (:path node)) "")))))
        first))
 
-(defn- module-package-prefix
+(defn- module-package-suffix
   [module-label target]
   (let [module-label (str module-label)
         target (str target)
         prefix (str module-label "/")]
-    (when (str/starts-with? target prefix)
-      (not-empty (subs target (count prefix))))))
+    (cond
+      (= module-label target)
+      ""
+
+      (str/starts-with? target prefix)
+      (subs target (count prefix)))))
+
+(defn- module-package-path-prefix
+  [manifest target]
+  (when-some [package-suffix (module-package-suffix (:label manifest) target)]
+    (let [manifest-dir (not-empty (dirname (:path manifest)))
+          package-suffix (not-empty package-suffix)]
+      (not-empty (str/join "/" (cond-> []
+                                 manifest-dir (conj manifest-dir)
+                                 package-suffix (conj package-suffix)))))))
 
 (defn- related-file-scope
   [prepared opts]
@@ -889,12 +906,45 @@
                      (seq (:label %))))
        vec))
 
+(defn- manifest-node?
+  [row]
+  (and (= :manifest (:kind row))
+       (str/ends-with? (str (:path row)) "go.mod")
+       (seq (:label row))))
+
+(defn- target-module-label-candidates
+  [target]
+  (let [parts (str/split (str target) #"/")]
+    (->> (range (count parts) 0 -1)
+         (map #(str/join "/" (take % parts)))
+         distinct
+         vec)))
+
+(defn- manifest-nodes-for-imports
+  [xtdb targets scope]
+  (->> targets
+       (mapcat target-module-label-candidates)
+       distinct
+       (#(query/nodes-by-labels xtdb % scope))
+       (filter manifest-node?)
+       vec))
+
+(defn- matching-import-manifest
+  [manifest-nodes target]
+  (->> manifest-nodes
+       (filter #(module-package-path-prefix % target))
+       (sort-by (fn [manifest]
+                  (- (count (str (:label manifest))))))
+       first))
+
 (defn- import-package-prefixes
   [manifest-nodes seed-by-path edge]
   (when-let [seed (get seed-by-path (:path edge))]
-    (when-let [manifest (nearest-manifest-node manifest-nodes (:path seed))]
-      (when-let [target (import-common/namespace-target (:target-id edge))]
-        (when-let [prefix (module-package-prefix (:label manifest) target)]
+    (when-let [target (import-common/namespace-target (:target-id edge))]
+      (when-let [manifest (or (matching-import-manifest manifest-nodes target)
+                              (nearest-manifest-node manifest-nodes
+                                                     (:path seed)))]
+        (when-let [prefix (module-package-path-prefix manifest target)]
           [{:seed seed
             :edge edge
             :manifest manifest
@@ -905,6 +955,46 @@
   [row]
   (and (= :namespace (:kind row))
        (not (benchmark-util/blankish? (:path row)))))
+
+(defn- package-node-sort-key
+  [package-prefix node]
+  (let [path (str (:path node))
+        prefix (str package-prefix)
+        suffix (cond
+                 (= path prefix) ""
+                 (str/starts-with? path (str prefix "/")) (subs path
+                                                                (inc (count prefix)))
+                 :else path)
+        parts (if (str/blank? suffix)
+                []
+                (str/split suffix #"/"))
+        file-name (or (last parts) "")
+        package-name (last (str/split prefix #"/"))]
+    [(count parts)
+     (if (= file-name (str package-name ".go")) 0 1)
+     (if (str/ends-with? file-name "_test.go") 1 0)
+     path]))
+
+(defn- node-package-prefix
+  [package-prefixes node]
+  (some (fn [prefix]
+          (let [path (str (:path node))]
+            (when (or (= path prefix)
+                      (str/starts-with? path (str prefix "/")))
+              prefix)))
+        package-prefixes))
+
+(defn- cap-package-prefix-nodes
+  [nodes-by-prefix]
+  (reduce-kv (fn [acc prefix nodes]
+               (assoc acc
+                      prefix
+                      (->> nodes
+                           (sort-by #(package-node-sort-key prefix %))
+                           (take related-file-package-limit)
+                           vec)))
+             {}
+             nodes-by-prefix))
 
 (defn- related-file-evidence
   [{:keys [seed edge manifest target package-prefix]}]
@@ -967,7 +1057,19 @@
         import-edges (->> (query/edges-by-file-ids xtdb file-ids scope)
                           (filter go-import-edge?)
                           vec)
-        manifest-nodes (manifest-nodes-for-seeds xtdb seeds scope)
+        import-targets (->> import-edges
+                            (keep #(import-common/namespace-target
+                                    (:target-id %)))
+                            distinct
+                            vec)
+        manifest-nodes (->> (concat (manifest-nodes-for-seeds xtdb
+                                                              seeds
+                                                              scope)
+                                    (manifest-nodes-for-imports xtdb
+                                                                import-targets
+                                                                scope))
+                            (distinct)
+                            vec)
         prefix-matches (mapcat #(import-package-prefixes manifest-nodes
                                                          seed-by-path
                                                          %)
@@ -981,15 +1083,9 @@
                                                            scope)
                              (filter namespace-file-node?)
                              (remove #(contains? seed-paths (:path %)))
-                             (group-by (fn [node]
-                                         (some (fn [prefix]
-                                                 (when (or (= (:path node)
-                                                              prefix)
-                                                           (str/starts-with?
-                                                            (str (:path node))
-                                                            (str prefix "/")))
-                                                   prefix))
-                                               package-prefixes))))]
+                             (group-by #(node-package-prefix package-prefixes %))
+                             (#(dissoc % nil))
+                             cap-package-prefix-nodes)]
     (merge-related-file-rows
      (mapcat (fn [{:keys [package-prefix] :as prefix-match}]
                (map #(related-file-row prefix-match %)
@@ -1378,6 +1474,9 @@
                                             case
                                             prepared
                                             (cond-> opts
+                                              (:preparation ygg-prep)
+                                              (assoc :agent-preparation
+                                                     (:preparation ygg-prep))
                                               (:context-path ygg-artifacts)
                                               (assoc :ygg-context-path
                                                      (:context-path ygg-artifacts))

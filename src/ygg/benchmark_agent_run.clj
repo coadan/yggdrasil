@@ -42,7 +42,7 @@
    "When citing expected evidence from Yggdrasil hints, include the exact evidence path and label when available; do not rely on basenames."])
 
 (def result-integrity-rules
-  ["Copy caseId, caseFingerprint, and agentInputFingerprint from the current packet or YGG_BENCH_* environment variables."
+  ["Copy caseId, caseFingerprint, and agentInputFingerprint from Run Metadata below; do not run env, printenv, jq, or packet reads solely to recover them."
    "Do not read YGG_BENCH_PACKET only to recover issue text or identity fields when they are already present in the prompt or environment."
    "Use warnings only for current result-validity blockers verified in this run; do not carry over stale graph-health text from older results."])
 
@@ -319,15 +319,22 @@
   ["## Yggdrasil Mode"
    (if (ygg-mode? packet)
      (str "Yggdrasil is prepared and warm. Read `YGG_BENCH_YGG_HINTS` first "
-          "with a bounded projection such as `jq '{selection,topFiles:[.topFiles[:8][]|{rank,path,evidence}],"
-          "relatedFiles:[.relatedFiles[:8][]|{rank,path,relation,evidence}],topSymbols:[.topSymbols[:5][]|{rank,name,path,kind,evidence}],candidateSystems:[.candidateSystems[:6][]|{rank,path,score}],"
+          "with a compact bounded projection such as `jq '{selection,topFiles:[.topFiles[:8][]|{rank,path}],"
+          "relatedFiles:[.relatedFiles[:12][]|{rank,path,relation}],topSymbols:[.topSymbols[:6][]|{rank,name,path,kind}],candidateSystems:[.candidateSystems[:6][]|{rank,path,score}],"
           "readPlan:{snippets:[.readPlan.snippets[:3][]|{path,lines,command}]},diagnostics}' \"$YGG_BENCH_YGG_HINTS\"`; "
-          "do not print entire Yggdrasil JSON artifacts or `readPlan.snippets[].snippet` "
-          "in the first projection. Use `readPlan.snippets[].command` "
+          "do not print entire Yggdrasil JSON artifacts, evidence arrays, or "
+          "`readPlan.snippets[].snippet` in the first projection. Use "
+          "`readPlan.snippets[].command` "
           "and exact `topFiles`/`relatedFiles` paths for focused local file reads. Prefer "
           "`topFiles`, `relatedFiles`, `topSymbols`, `candidateSystems`, `readPlan`, "
           "`architecture`, and `auditScopes` before broad search. Avoid broad `rg`; use exact "
           "paths and narrow `sed` windows unless compact hints are insufficient. "
+          "In Yggdrasil mode, do not pass directories to `rg` when exact files "
+          "are listed in `topFiles`, `relatedFiles`, `topSymbols`, or `readPlan`; "
+          "search exact files only. "
+          "Prefer exact-file `rg -n` for named declarations and references before "
+          "long `sed` dumps; keep each `sed` window at 90 lines or fewer unless "
+          "a shorter read fails to expose required evidence. "
           "Do not run directory-wide `rg` just to reconfirm prepared top-file or "
           "read-plan hits; if related files are needed, cap `rg` output and use "
           "narrow globs. "
@@ -389,6 +396,8 @@
       ["## Run Metadata"
        (str "- Suite: " (:suite-id packet))
        (str "- Case: " (:case-id packet))
+       (str "- Case fingerprint: " (:caseFingerprint packet))
+       (str "- Agent input fingerprint: " (:agentInputFingerprint packet))
        (str "- Repo: " (:repo-id packet))
        (when (seq (:repos packet))
          (str "- Repos: "

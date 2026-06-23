@@ -1132,12 +1132,17 @@
                           case
                           prepared
                           {:out out
-                           :mode :ygg})
+                           :mode :ygg
+                           :agent-preparation {:status "reused"
+                                               :path "/tmp/ygg-preparation.json"}})
                   project (benchmark-agent-packet/agent-project prepared)
                   task-rules (get-in packet [:task :rules])]
               (is (= "provider" (:repo-id prepared)))
               (is (= "inspection-files" (:resultScope prepared)))
               (is (= "inspection-files" (get-in packet [:task :resultScope])))
+              (is (= {:status "reused"
+                      :path "/tmp/ygg-preparation.json"}
+                     (:agentPreparation packet)))
               (is (str/includes? (get-in packet [:task :objective])
                                  "should be inspected before editing"))
               (is (some #(str/includes? % "issue asks to inspect")

@@ -222,7 +222,10 @@
                                             "PR title or body"
                                             "post-fix issue comments"
                                             "post-fix commits"
-                                            "ground-truth benchmark artifacts"]}}]
+                                            "ground-truth benchmark artifacts"]}}
+        packet (cond-> packet
+                 (:agent-preparation opts)
+                 (assoc :agentPreparation (:agent-preparation opts)))]
     (benchmark-io/write-edn-file! project-path project-config)
     (benchmark-io/write-json-file! packet-path packet)
     packet))
