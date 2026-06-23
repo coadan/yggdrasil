@@ -262,6 +262,50 @@
                (into seen next-ids)
                (dec remaining))))))
 
+(defn- scope-constraints
+  [scope]
+  (select-keys scope [:project-id :repo-id]))
+
+(defn- active-edge-rows-touching-ids
+  [xtdb ids scope]
+  (->> (store/edge-rows-touching-ids xtdb
+                                     ids
+                                     (scope-constraints scope)
+                                     (store/read-context (:read-context scope)))
+       (filter :active?)
+       (reduce (fn [[rows seen] row]
+                 (let [id (:xt/id row)]
+                   (if (contains? seen id)
+                     [rows seen]
+                     [(conj rows row) (conj seen id)])))
+               [[] #{}])
+       first))
+
+(defn- expand-node-ids-bounded
+  [xtdb seed-ids depth scope]
+  (loop [frontier (set seed-ids)
+         seen (set seed-ids)
+         remaining depth]
+    (if (or (zero? remaining) (empty? frontier))
+      seen
+      (let [edges (active-edge-rows-touching-ids xtdb frontier scope)
+            next-ids (->> edges
+                          (mapcat (juxt :source-id :target-id))
+                          set)]
+        (recur (set/difference next-ids seen)
+               (into seen next-ids)
+               (dec remaining))))))
+
+(defn- active-items-by-ids
+  [xtdb ids scope]
+  (let [opts (merge (scope-constraints scope)
+                    (select-keys scope [:read-context]))
+        node-rows (filter :active? (query/nodes-by-ids xtdb ids opts))
+        chunk-rows (filter :active? (query/chunks-by-ids xtdb ids opts))]
+    (into {}
+          (map (juxt :xt/id identity))
+          (concat node-rows chunk-rows))))
+
 (defn- package-deps-edges
   [package-id edges]
   (let [version-edges (filter #(and (= :version-of (:relation %))
@@ -464,13 +508,13 @@
                                     :project-id project-id
                                     :repo-id repo-id
                                     :read-context (:read-context scope)})
-        edges (active-edges xtdb scope)
         score-by-id (into {} (map (juxt :target-id :score)) hits)
         seed-ids (mapv :target-id hits)
-        node-ids (expand-node-ids edges seed-ids depth)
-        nodes-by-id (into {} (map (juxt :xt/id identity)) (active-items xtdb scope))
+        node-ids (expand-node-ids-bounded xtdb seed-ids depth scope)
+        nodes-by-id (active-items-by-ids xtdb node-ids scope)
         nodes (nodes-for-ids node-ids nodes-by-id default-node-limit)
-        chosen-ids (mapv :xt/id nodes)]
+        chosen-ids (mapv :xt/id nodes)
+        edges (active-edge-rows-touching-ids xtdb chosen-ids scope)]
     (enrich-graph xtdb
                   (graph-data (str "Query: " query-text)
                               nodes

@@ -195,7 +195,8 @@
                (filter #(contains? id-set (:xt/id %)) (all-fn xtdb opts)))]
     (filter-scope (keep (into {} (map (juxt :xt/id identity)) rows) ids) opts)))
 
-(defn- nodes-by-ids
+(defn nodes-by-ids
+  "Return node rows for concrete node ids within the requested scope."
   [xtdb ids opts]
   (rows-by-ids xtdb (:nodes store/tables) ids opts all-nodes node-row-query-fields))
 

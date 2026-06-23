@@ -3,6 +3,7 @@
             [ygg.context :as context]
             [ygg.coverage :as coverage]
             [ygg.dependency :as dependency]
+            [ygg.graph :as graph]
             [ygg.query :as query]
             [ygg.xtdb :as store]
             [clojure.string :as str]
@@ -999,6 +1000,92 @@
                   edge-calls))
       (is (= [["node:a"] ["node:c"] ["node:b"]]
              (mapv (comp vec :values) node-calls))))))
+
+(deftest query-graph-uses-bounded-neighborhood-reads
+  (let [edge-calls (atom [])
+        node-calls (atom [])
+        chunk-calls (atom [])
+        edge {:xt/id "edge:seed-neighbor"
+              :project-id "project-a"
+              :repo-id "app"
+              :source-id "node:seed"
+              :target-id "node:neighbor"
+              :relation :references
+              :active? true}
+        nodes {"node:seed" {:xt/id "node:seed"
+                            :project-id "project-a"
+                            :repo-id "app"
+                            :label "Seed"
+                            :kind :var
+                            :active? true}
+               "node:neighbor" {:xt/id "node:neighbor"
+                                :project-id "project-a"
+                                :repo-id "app"
+                                :label "Neighbor"
+                                :kind :var
+                                :active? true}}]
+    (with-redefs [query/semantic-query
+                  (fn [& _]
+                    [{:target-id "node:seed"
+                      :score 1.0}])
+                  store/edge-rows-touching-ids
+                  (fn [_ ids constraints ctx]
+                    (swap! edge-calls conj {:ids (set ids)
+                                            :constraints constraints
+                                            :ctx ctx})
+                    (if (contains? (set ids) "node:seed")
+                      [edge]
+                      []))
+                  query/nodes-by-ids
+                  (fn [_ ids opts]
+                    (swap! node-calls conj {:ids (set ids)
+                                            :opts opts})
+                    (keep nodes ids))
+                  query/chunks-by-ids
+                  (fn [_ ids opts]
+                    (swap! chunk-calls conj {:ids (set ids)
+                                             :opts opts})
+                    [])
+                  query/all-edges
+                  (fn [& _]
+                    (throw (ex-info "query graph should not hydrate all edges"
+                                    {})))
+                  query/all-nodes
+                  (fn [& _]
+                    (throw (ex-info "query graph should not hydrate all nodes"
+                                    {})))
+                  query/all-chunks
+                  (fn [& _]
+                    (throw (ex-info "query graph should not hydrate all chunks"
+                                    {})))
+                  store/metadata-for-targets (fn [& _] [])
+                  store/metadata-defs (fn [& _] [])]
+      (let [result (graph/query-graph
+                    {:node :stub}
+                    "seed"
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :retriever :lexical
+                     :depth 1
+                     :limit 5
+                     :valid-at #inst "2026-01-01T00:00:00Z"})]
+        (is (= #{"node:seed" "node:neighbor"} (set (map :id (:nodes result)))))
+        (is (= ["edge:seed-neighbor"] (mapv :id (:edges result))))))
+    (is (= [{:ids #{"node:seed"}
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+            {:ids #{"node:seed" "node:neighbor"}
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @edge-calls))
+    (is (= [{:ids #{"node:seed" "node:neighbor"}
+             :opts {:project-id "project-a"
+                    :repo-id "app"
+                    :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}}]
+           @node-calls))
+    (is (= @node-calls @chunk-calls))))
 
 (deftest system-path-batches-bfs-frontier-edge-reads
   (let [calls (atom [])
