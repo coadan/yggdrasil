@@ -541,13 +541,32 @@
                               opts)
                   opts)))
 
+(def ^:private system-graph-node-row-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :system-key
+   :label
+   :kind
+   :path
+   :path-prefix
+   :source
+   :candidate-types
+   :evidence
+   :metrics
+   :repo-role
+   :aliases
+   :active?
+   :run-id])
+
 (defn- active-system-nodes
   [xtdb project-id opts]
-  (store/constrained-rows xtdb
-                          (:system-nodes store/tables)
-                          {:project-id project-id
-                           :active? true}
-                          (store/read-context opts)))
+  (store/ordered-rows xtdb
+                      {:table (:system-nodes store/tables)
+                       :constraints {:project-id project-id
+                                     :active? true}
+                       :return-fields system-graph-node-row-fields
+                       :read-context (store/read-context opts)}))
 
 (def ^:private system-graph-edge-row-fields
   [:xt/id

@@ -742,6 +742,38 @@
     (is (some #{:confidence} (:return-fields (first @calls))))
     (is (not-any? #{'*} (:return-fields (first @calls))))))
 
+(deftest system-graph-nodes-use-projected-active-read
+  (let [calls (atom [])]
+    (with-redefs [store/ordered-rows
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    [{:xt/id "system:a"
+                      :project-id "project-a"
+                      :label "A"
+                      :kind :service
+                      :active? true}])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "system graph nodes should use a projected read"
+                                    {})))]
+      (is (= ["system:a"]
+             (mapv :xt/id
+                   (#'graph/active-system-nodes
+                    :xtdb
+                    "project-a"
+                    {:valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= [{:table (:system-nodes store/tables)
+             :constraints {:project-id "project-a"
+                           :active? true}
+             :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           (mapv #(select-keys % [:table :constraints :read-context])
+                 @calls)))
+    (is (some #{:xt/id} (:return-fields (first @calls))))
+    (is (some #{:label} (:return-fields (first @calls))))
+    (is (some #{:kind} (:return-fields (first @calls))))
+    (is (some #{:metrics} (:return-fields (first @calls))))
+    (is (not-any? #{'*} (:return-fields (first @calls))))))
+
 (deftest map-review-uses-paged-system-read-and-count-pushdown
   (let [page-calls (atom [])
         count-calls (atom [])]
