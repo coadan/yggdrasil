@@ -149,6 +149,29 @@
           (is (= ["retrieval and graph match"] (mapv :why entities)))
           (is (= 1 @match-calls)))))))
 
+(deftest select-edges-tokenizes-each-relation-once
+  (let [select-edges @#'context/select-edges
+        tokenize text/tokenize
+        relation-tokenizations (atom 0)]
+    (with-redefs [text/tokenize (fn [value]
+                                  (when (= "depends-on" (str value))
+                                    (swap! relation-tokenizations inc))
+                                  (tokenize value))]
+      (let [edges (select-edges
+                   ["depends"]
+                   [{:id "node:a"}]
+                   {:edges [{:id "edge:1"
+                             :source "node:a"
+                             :target "node:b"
+                             :relation "depends-on"}
+                            {:id "edge:2"
+                             :source "node:a"
+                             :target "node:c"
+                             :relation "depends-on"}]}
+                   5)]
+        (is (= ["edge:1" "edge:2"] (mapv :id edges)))
+        (is (= 1 @relation-tokenizations))))))
+
 (deftest diversify-docs-promotes-distinct-source-files
   (let [diversify-docs @#'context/diversify-docs
         docs (diversify-docs

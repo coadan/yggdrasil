@@ -243,21 +243,30 @@
                                                         (:candidateEvidence node))
                  (:metrics node) (assoc :metrics (:metrics node)))))))
 
+(defn- edge-relation-scores
+  [query-tokens edges]
+  (into {}
+        (map (fn [relation]
+               [relation (token-score query-tokens relation)]))
+        (distinct (map :relation edges))))
+
 (defn- edge-score
-  [query-tokens selected-ids edge]
+  [selected-ids relation-scores edge]
   (+ (cond
        (and (contains? selected-ids (:source edge))
             (contains? selected-ids (:target edge))) 1.0
        (or (contains? selected-ids (:source edge))
            (contains? selected-ids (:target edge))) 0.5
        :else 0.0)
-     (* 0.15 (token-score query-tokens (:relation edge)))))
+     (* 0.15 (double (get relation-scores (:relation edge) 0.0)))))
 
 (defn- select-edges
   [query-tokens entities graph-data limit]
-  (let [selected-ids (set (map :id entities))]
-    (->> (:edges graph-data)
-         (map #(assoc % :context-score (edge-score query-tokens selected-ids %)))
+  (let [selected-ids (set (map :id entities))
+        edges (:edges graph-data)
+        relation-scores (edge-relation-scores query-tokens edges)]
+    (->> edges
+         (map #(assoc % :context-score (edge-score selected-ids relation-scores %)))
          (filter #(pos? (:context-score %)))
          (sort-by (juxt (comp - :context-score) :relation :source :target))
          (take limit)
