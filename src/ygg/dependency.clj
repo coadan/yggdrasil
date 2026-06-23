@@ -28,6 +28,15 @@
                                           :active? true})))
        vec))
 
+(def ^:private dependency-source-edge-relations
+  [:requires :resolves :version-of])
+
+(def ^:private package-import-candidate-relations
+  [:imports :uses])
+
+(def ^:private package-report-edge-relations
+  [:requires :resolves :version-of :imports-package :imports :uses])
+
 (defn- package-node?
   [node]
   (= :external-package (:kind node)))
@@ -147,9 +156,7 @@
          nodes (active-scope-rows xtdb (:nodes store/tables) scope)
          dependency-source-edges (active-scope-edge-rows xtdb
                                                          scope
-                                                         #{:requires
-                                                           :resolves
-                                                           :version-of})
+                                                         dependency-source-edge-relations)
          files-by-path (into {} (map (juxt :path identity)) files)
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
          alias-nodes (filterv import-common/module-path-alias-node? nodes)
@@ -163,7 +170,9 @@
          manifest-paths (set (keys packages-by-source))]
      (if-not (dependency-resolve/can-resolve-import-packages? packages-by-source map-overlay)
        []
-       (let [source-edges (active-scope-edge-rows xtdb scope #{:imports :uses})
+       (let [source-edges (active-scope-edge-rows xtdb
+                                                  scope
+                                                  package-import-candidate-relations)
              candidate-edges (->> source-edges
                                   (filter #(dependency-imports/package-import-candidate?
                                             {:files-by-path files-by-path
@@ -388,7 +397,7 @@
     {:keys [limit map-overlay ecosystem package with-conflicts? without-import-evidence?] :as opts}]
    (let [files (active-scope-rows xtdb (:files store/tables) scope)
          nodes (active-scope-rows xtdb (:nodes store/tables) scope)
-         edges (active-scope-rows xtdb (:edges store/tables) scope)
+         edges (active-scope-edge-rows xtdb scope package-report-edge-relations)
          files-by-path (into {} (map (juxt :path identity)) files)
          nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
          alias-nodes (filterv import-common/module-path-alias-node? nodes)

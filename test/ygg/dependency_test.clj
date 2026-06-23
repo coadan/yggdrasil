@@ -111,6 +111,70 @@
                           (:relation constraints)))
                       @constrained-queries))))))
 
+(deftest package-report-uses-relation-scoped-edge-reads
+  (let [constrained-queries (atom [])
+        manifest {:xt/id "manifest:npm"
+                  :kind :manifest
+                  :path "package.json"
+                  :active? true
+                  :project-id "project-a"
+                  :repo-id "repo-a"}
+        package {:xt/id "pkg:npm:react"
+                 :kind :external-package
+                 :label "npm:react"
+                 :ecosystem :npm
+                 :package-name "react"
+                 :active? true
+                 :project-id "project-a"
+                 :repo-id "repo-a"}
+        requires-edge {:source-id "manifest:npm"
+                       :target-id "pkg:npm:react"
+                       :relation :requires
+                       :path "package.json"
+                       :active? true
+                       :project-id "project-a"
+                       :repo-id "repo-a"}]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table constraints]
+                    (swap! constrained-queries conj [table constraints])
+                    (case table
+                      :ygg/files []
+                      :ygg/nodes [manifest package]
+                      :ygg/edges (case (:relation constraints)
+                                   :requires [requires-edge]
+                                   [])
+                      []))
+                  store/all-rows
+                  (fn [& _]
+                    (throw (ex-info "all-rows should not be used for package reports"
+                                    {})))]
+      (let [report (dependency/package-report
+                    {:node :node}
+                    {:project-id "project-a"
+                     :repo-id "repo-a"}
+                    {})]
+        (is (= 1 (get-in report [:counts :packages])))
+        (is (= 1 (get-in report [:counts :requires])))))
+    (is (contains? (set @constrained-queries)
+                   [(:files store/tables)
+                    {:project-id "project-a"
+                     :repo-id "repo-a"
+                     :active? true}]))
+    (is (contains? (set @constrained-queries)
+                   [(:nodes store/tables)
+                    {:project-id "project-a"
+                     :repo-id "repo-a"
+                     :active? true}]))
+    (is (= #{:imports :imports-package :requires :resolves :uses :version-of}
+           (set (keep (fn [[table constraints]]
+                        (when (= (:edges store/tables) table)
+                          (:relation constraints)))
+                      @constrained-queries))))
+    (is (not-any? (fn [[table constraints]]
+                    (and (= (:edges store/tables) table)
+                         (nil? (:relation constraints))))
+                  @constrained-queries))))
+
 (deftest derived-dependency-edge-replacement-pushes-relation-scope-constraints
   (let [calls (atom [])
         tx-ops (atom nil)]
