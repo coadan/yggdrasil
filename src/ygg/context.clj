@@ -419,6 +419,7 @@
 (defn- chunk-score
   [query-tokens
    selected-label-tokens
+   definition-kind-scores
    result-scores
    result-scores-by-path-label
    result-scores-by-file-path
@@ -430,10 +431,20 @@
                  0.0))
      (* 0.35 (capped-candidate-token-score query-tokens
                                            (chunk-search-tokens chunk)))
-     (* 0.45 (capped-token-score query-tokens
-                                 (display-name (:definition-kind chunk))))
+     (* 0.45 (double (get definition-kind-scores
+                          (:definition-kind chunk)
+                          0.0)))
      (* 0.15 (min 1.0
                   (text/token-score selected-label-tokens (:tokens chunk))))))
+
+(defn- chunk-definition-kind-scores
+  [query-tokens chunks]
+  (into {}
+        (map (fn [definition-kind]
+               [definition-kind
+                (capped-token-score query-tokens
+                                    (display-name definition-kind))]))
+        (distinct (map :definition-kind chunks))))
 
 (defn- inferred-docs
   [query-tokens results chunks entities snippet-chars]
@@ -441,6 +452,7 @@
         result-scores-by-path-label (result-score-by-path-label results)
         result-scores-by-file-path (result-score-by-file-path results)
         results-by-target (result-by-target results)
+        definition-kind-scores (chunk-definition-kind-scores query-tokens chunks)
         selected-label-tokens (text/tokenize (str/join " " (map :label entities)))]
     (->> chunks
          (filter #(or (= :markdown (:kind %))
@@ -450,6 +462,7 @@
                                               %)))
          (map #(assoc % :context-score (chunk-score query-tokens
                                                     selected-label-tokens
+                                                    definition-kind-scores
                                                     result-scores
                                                     result-scores-by-path-label
                                                     result-scores-by-file-path

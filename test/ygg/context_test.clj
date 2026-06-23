@@ -131,6 +131,33 @@
                     900)))))
     (is (zero? @body-tokenizations))))
 
+(deftest inferred-docs-tokenizes-definition-kinds-once-per-kind
+  (let [inferred-docs @#'context/inferred-docs
+        tokenize text/tokenize
+        definition-kind-tokenizations (atom 0)
+        chunks (mapv (fn [idx]
+                       {:xt/id (str "chunk:" idx)
+                        :path (str "docs/" idx ".md")
+                        :kind :markdown
+                        :definition-kind (if (even? idx) :interface :function)
+                        :label (str "Doc " idx)
+                        :text "target details"
+                        :tokens ["target"]
+                        :source-line 1})
+                     (range 6))]
+    (with-redefs [text/tokenize (fn [value]
+                                  (when (#{"interface" "function"} (str value))
+                                    (swap! definition-kind-tokenizations inc))
+                                  (tokenize value))]
+      (is (= (count chunks)
+             (count (inferred-docs
+                     ["interface" "target"]
+                     []
+                     chunks
+                     []
+                     900)))))
+    (is (= 2 @definition-kind-tokenizations))))
+
 (deftest select-entities-reuses-node-result-match
   (let [select-entities @#'context/select-entities
         match-calls (atom 0)]
