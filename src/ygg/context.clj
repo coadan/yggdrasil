@@ -57,6 +57,12 @@
 (def ^:private source-graph-neighbor-support-boost
   1.0)
 
+(def ^:private doc-diversify-candidate-limit-min
+  80)
+
+(def ^:private doc-diversify-candidate-limit-multiplier
+  12)
+
 (def ^:private source-graph-neighbor-score-cap
   4.8)
 
@@ -701,21 +707,39 @@
                    (next wanted))))
         selected))))
 
+(defn- doc-diversify-candidate-limit
+  [doc-limit result-path-count]
+  (max doc-diversify-candidate-limit-min
+       (* doc-diversify-candidate-limit-multiplier
+          (max 1 (long doc-limit)))
+       (long result-path-count)))
+
+(defn- doc-diversify-input
+  [docs result-paths doc-limit]
+  (let [candidate-limit (doc-diversify-candidate-limit doc-limit
+                                                       (count result-paths))
+        representatives (docs-by-path docs)]
+    (distinct-docs (concat (take candidate-limit docs)
+                           (keep representatives result-paths)))))
+
 (defn- select-docs
   ([docs results doc-limit]
    (select-docs docs results doc-limit []))
   ([docs results doc-limit query-tokens]
    (let [doc-limit (long doc-limit)
+         result-paths (ranked-result-paths results
+                                           (or (ranked-path-coverage-limit doc-limit)
+                                               0))
          docs (->> docs
                    distinct-docs
                    (sort-by (juxt doc-priority
                                   (comp - :score)
                                   :role
                                   #(get-in % [:source :path])))
-                   (diversify-docs query-tokens))
-         result-paths (ranked-result-paths results
-                                           (or (ranked-path-coverage-limit doc-limit)
-                                               0))]
+                   vec)
+         docs (-> docs
+                  (doc-diversify-input result-paths doc-limit)
+                  (#(diversify-docs query-tokens %)))]
      (-> docs
          (ensure-ranked-path-docs result-paths doc-limit)
          vec))))
