@@ -349,17 +349,6 @@
                 (seq diagnostics) (assoc :diagnostics diagnostics))))
           family-order)))
 
-(defn- kind-counts
-  [rows]
-  (->> rows
-       (map :kind)
-       frequencies
-       (map (fn [[kind n]]
-              {:kind kind
-               :count n}))
-       (sort-by (juxt (comp - long :count) (comp name :kind)))
-       vec))
-
 (defn- kind-counts-from-field-counts
   [counts]
   (mapv (fn [{:keys [value count]}]
@@ -368,10 +357,12 @@
         counts))
 
 (defn- evidence-kinds
-  [{:keys [file-facts system-evidence-kind-counts node-kind-counts
+  [{:keys [file-fact-kind-counts system-evidence-kind-counts node-kind-counts
            edge-relation-counts files]}]
   (cond-> {}
-    (seq file-facts) (assoc :file-facts (kind-counts file-facts))
+    (seq file-fact-kind-counts) (assoc :file-facts
+                                       (kind-counts-from-field-counts
+                                        file-fact-kind-counts))
     (seq system-evidence-kind-counts) (assoc :system-evidence
                                              (kind-counts-from-field-counts
                                               system-evidence-kind-counts))
@@ -887,7 +878,11 @@
                                                   {:map-overlay map-overlay
                                                    :limit 0})
         files (active-rows xtdb (:files store/tables) read-scope)
-        file-facts (active-rows xtdb (:file-facts store/tables) read-scope)
+        file-fact-count (active-row-total xtdb (:file-facts store/tables) read-scope)
+        file-fact-kind-counts (active-field-counts xtdb
+                                                   (:file-facts store/tables)
+                                                   :kind
+                                                   read-scope)
         node-kind-counts (active-field-counts xtdb (:nodes store/tables) :kind read-scope)
         edge-relation-counts (active-field-counts xtdb (:edges store/tables) :relation read-scope)
         node-count (active-row-total xtdb (:nodes store/tables) read-scope)
@@ -922,7 +917,7 @@
                                               activity-events)
         freshness (freshness-summary files project repo-id)
         counts (merge {:files (count files)
-                       :file-facts (count file-facts)
+                       :file-facts file-fact-count
                        :nodes node-count
                        :edges edge-count
                        :chunks chunk-count
@@ -966,7 +961,7 @@
         diagnostics (select-keys (:diagnostics coverage-report)
                                  [:total :by-stage :by-extractor])
         kinds (evidence-kinds {:files files
-                               :file-facts file-facts
+                               :file-fact-kind-counts file-fact-kind-counts
                                :node-kind-counts node-kind-counts
                                :edge-relation-counts edge-relation-counts
                                :system-evidence-kind-counts system-evidence-kind-counts})

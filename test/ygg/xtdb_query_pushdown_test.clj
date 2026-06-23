@@ -1272,6 +1272,8 @@
                                          :repo-id "app"}] 4
                       [:ygg/embeddings {:project-id "project-a"
                                         :repo-id "app"}] 5
+                      [:ygg/file-facts {:project-id "project-a"
+                                        :repo-id "app"}] 2
                       [:ygg/system-evidence {:project-id "project-a"
                                              :repo-id "app"}] 4
                       [:ygg/system-nodes {:project-id "project-a"}] 2
@@ -1313,7 +1315,6 @@
                                    :mtime-ms 1
                                    :size-bytes 1
                                    :active? true}]
-                      :ygg/file-facts []
                       (throw (ex-info "unexpected constrained read"
                                       {:table table
                                        :constraints constraints}))))
@@ -1338,6 +1339,10 @@
                                                :count 8}
                                               {:value :uses
                                                :count 1}]
+                      [:ygg/file-facts :kind] [{:value :auth-reference
+                                                :count 1}
+                                               {:value :url
+                                                :count 1}]
                       [:ygg/system-evidence :kind] [{:value :auth-reference
                                                      :count 2}
                                                     {:value :env-var
@@ -1388,6 +1393,7 @@
                 :chunks 3
                 :search-docs 4
                 :embeddings 5
+                :file-facts 2
                 :system-evidence 4
                 :runtime-config-evidence 4
                 :auth-references 2
@@ -1401,6 +1407,7 @@
                              :chunks
                              :search-docs
                              :embeddings
+                             :file-facts
                              :system-evidence
                              :runtime-config-evidence
                              :auth-references
@@ -1428,6 +1435,11 @@
                          :count 1}]}
                (get-in summary [:kinds :source-graph])))
         (is (= [{:kind :auth-reference
+                 :count 1}
+                {:kind :url
+                 :count 1}]
+               (get-in summary [:kinds :file-facts])))
+        (is (= [{:kind :auth-reference
                  :count 2}
                 {:kind :env-var
                  :count 1}
@@ -1441,6 +1453,11 @@
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
              {:table :ygg/edges
               :field :relation
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/file-facts
+              :field :kind
               :constraints {:project-id "project-a"
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
@@ -1473,6 +1490,10 @@
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
              {:table :ygg/embeddings
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/file-facts
               :constraints {:project-id "project-a"
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
