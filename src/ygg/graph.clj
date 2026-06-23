@@ -215,16 +215,6 @@
   ([xtdb opts]
    (filter :active? (query/all-edges xtdb opts))))
 
-(defn- active-chunks
-  ([xtdb] (active-chunks xtdb {}))
-  ([xtdb opts]
-   (filter :active? (query/all-chunks xtdb opts))))
-
-(defn- active-items
-  ([xtdb] (active-items xtdb {}))
-  ([xtdb opts]
-   (concat (active-nodes xtdb opts) (active-chunks xtdb opts))))
-
 (defn- stub-node
   [id]
   {:xt/id id
@@ -290,24 +280,65 @@
           (map (juxt :xt/id identity))
           (concat node-rows chunk-rows))))
 
-(defn- package-deps-edges
-  [package-id edges]
-  (let [version-edges (filter #(and (= :version-of (:relation %))
-                                    (= package-id (:target-id %)))
-                              edges)
-        version-ids (set (map :source-id version-edges))]
+(def ^:private package-edge-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :source-id
+   :target-id
+   :relation
+   :confidence
+   :ecosystem
+   :package-name
+   :version-range
+   :resolved-version
+   :dependency-scope
+   :import-name
+   :import-kind
+   :resolution-source
+   :source-kind
+   :file-id
+   :path
+   :source-line
+   :active?
+   :run-id])
+
+(defn- distinct-rows-by-id
+  [rows]
+  (->> rows
+       (reduce (fn [[out seen] row]
+                 (let [id (:xt/id row)]
+                   (if (contains? seen id)
+                     [out seen]
+                     [(conj out row) (conj seen id)])))
+               [[] #{}])
+       first))
+
+(defn- active-edge-rows-targeting-ids
+  [xtdb ids scope]
+  (let [ids (into [] (comp (remove nil?) (distinct)) ids)]
+    (->> (store/rows-with-field-values xtdb
+                                       {:table (:edges store/tables)
+                                        :field :target-id
+                                        :values ids
+                                        :constraints (scope-constraints scope)
+                                        :return-fields package-edge-row-query-fields
+                                        :read-context (store/read-context (:read-context scope))})
+         (filter :active?)
+         distinct-rows-by-id)))
+
+(defn- package-deps-edges-bounded
+  [xtdb package-id scope]
+  (let [package-target-edges (active-edge-rows-targeting-ids xtdb [package-id] scope)
+        version-edges (filter #(= :version-of (:relation %)) package-target-edges)
+        version-ids (set (map :source-id version-edges))
+        version-target-edges (active-edge-rows-targeting-ids xtdb version-ids scope)]
     (vec
      (concat
-      (filter #(and (= :requires (:relation %))
-                    (= package-id (:target-id %)))
-              edges)
-      (filter #(and (= :imports-package (:relation %))
-                    (= package-id (:target-id %)))
-              edges)
+      (filter #(= :requires (:relation %)) package-target-edges)
+      (filter #(= :imports-package (:relation %)) package-target-edges)
       version-edges
-      (filter #(and (= :resolves (:relation %))
-                    (contains? version-ids (:target-id %)))
-              edges)))))
+      (filter #(= :resolves (:relation %)) version-target-edges)))))
 
 (defn- package-deps-node-ids
   [package-id edges]
@@ -454,12 +485,9 @@
         target (query/find-node xtdb value scope)
         package-target? (= :external-package (:kind target))]
     (if package-target?
-      (let [edges (active-edges xtdb scope)
-            chosen-edges (package-deps-edges (:xt/id target) edges)
+      (let [chosen-edges (package-deps-edges-bounded xtdb (:xt/id target) scope)
             node-ids (package-deps-node-ids (:xt/id target) chosen-edges)
-            nodes-by-id (into {}
-                              (map (juxt :xt/id identity))
-                              (active-items xtdb scope))
+            nodes-by-id (active-items-by-ids xtdb node-ids scope)
             nodes (nodes-for-ids node-ids nodes-by-id limit)
             chosen-ids (mapv :xt/id nodes)]
         (enrich-graph xtdb

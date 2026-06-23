@@ -1171,6 +1171,169 @@
            @node-calls))
     (is (= @node-calls @chunk-calls))))
 
+(deftest deps-graph-uses-targeted-package-edge-reads
+  (let [edge-calls (atom [])
+        node-calls (atom [])
+        chunk-calls (atom [])
+        package {:xt/id "package:react"
+                 :project-id "project-a"
+                 :repo-id "app"
+                 :label "npm:react"
+                 :kind :external-package
+                 :active? true}
+        nodes {"package:react" package
+               "manifest:package-json" {:xt/id "manifest:package-json"
+                                        :project-id "project-a"
+                                        :repo-id "app"
+                                        :label "package.json"
+                                        :kind :dependency-lock
+                                        :active? true}
+               "node:src-app" {:xt/id "node:src-app"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :label "src.app"
+                               :kind :namespace
+                               :active? true}
+               "version:react-19" {:xt/id "version:react-19"
+                                   :project-id "project-a"
+                                   :repo-id "app"
+                                   :label "npm:react@19.1.0"
+                                   :kind :external-package-version
+                                   :active? true}
+               "lock:package-lock" {:xt/id "lock:package-lock"
+                                    :project-id "project-a"
+                                    :repo-id "app"
+                                    :label "package-lock.json"
+                                    :kind :dependency-lock
+                                    :active? true}}
+        package-target-edges [{:xt/id "edge:requires-react"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :source-id "manifest:package-json"
+                               :target-id "package:react"
+                               :relation :requires
+                               :active? true}
+                              {:xt/id "edge:imports-react"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :source-id "node:src-app"
+                               :target-id "package:react"
+                               :relation :imports-package
+                               :active? true}
+                              {:xt/id "edge:react-19-version"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :source-id "version:react-19"
+                               :target-id "package:react"
+                               :relation :version-of
+                               :active? true}
+                              {:xt/id "edge:inactive-requires-react"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :source-id "manifest:old"
+                               :target-id "package:react"
+                               :relation :requires
+                               :active? false}
+                              {:xt/id "edge:ignored-package-relation"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :source-id "node:other"
+                               :target-id "package:react"
+                               :relation :uses
+                               :active? true}]
+        version-target-edges [{:xt/id "edge:lock-resolves-react-19"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :source-id "lock:package-lock"
+                               :target-id "version:react-19"
+                               :relation :resolves
+                               :active? true}
+                              {:xt/id "edge:ignored-version-relation"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :source-id "node:other"
+                               :target-id "version:react-19"
+                               :relation :uses
+                               :active? true}]]
+    (with-redefs [query/find-node
+                  (fn [& _] package)
+                  store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! edge-calls conj request)
+                    (condp = (set (:values request))
+                      #{"package:react"} package-target-edges
+                      #{"version:react-19"} version-target-edges
+                      []))
+                  query/nodes-by-ids
+                  (fn [_ ids opts]
+                    (swap! node-calls conj {:ids (vec ids)
+                                            :opts opts})
+                    (keep nodes ids))
+                  query/chunks-by-ids
+                  (fn [_ ids opts]
+                    (swap! chunk-calls conj {:ids (vec ids)
+                                             :opts opts})
+                    [])
+                  query/all-edges
+                  (fn [& _]
+                    (throw (ex-info "package deps graph should not hydrate all edges"
+                                    {})))
+                  query/all-nodes
+                  (fn [& _]
+                    (throw (ex-info "package deps graph should not hydrate all nodes"
+                                    {})))
+                  query/all-chunks
+                  (fn [& _]
+                    (throw (ex-info "package deps graph should not hydrate all chunks"
+                                    {})))
+                  store/metadata-for-targets (fn [& _] [])
+                  store/metadata-defs (fn [& _] [])]
+      (let [result (graph/deps-graph
+                    {:node :stub}
+                    "npm:react"
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :depth 1
+                     :limit 10
+                     :valid-at #inst "2026-01-01T00:00:00Z"})]
+        (is (= #{"package:react"
+                 "manifest:package-json"
+                 "node:src-app"
+                 "version:react-19"
+                 "lock:package-lock"}
+               (set (map :id (:nodes result)))))
+        (is (= ["edge:requires-react"
+                "edge:imports-react"
+                "edge:react-19-version"
+                "edge:lock-resolves-react-19"]
+               (mapv :id (:edges result))))
+        (is (= ["requires" "imports-package" "version-of" "resolves"]
+               (mapv :relation (:edges result))))))
+    (is (= [{:table (:edges store/tables)
+             :field :target-id
+             :values ["package:react"]
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}
+            {:table (:edges store/tables)
+             :field :target-id
+             :values ["version:react-19"]
+             :constraints {:project-id "project-a"
+                           :repo-id "app"}
+             :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           (mapv #(select-keys % [:table :field :values :constraints :read-context])
+                 @edge-calls)))
+    (is (= [{:ids ["package:react"
+                   "manifest:package-json"
+                   "node:src-app"
+                   "version:react-19"
+                   "lock:package-lock"]
+             :opts {:project-id "project-a"
+                    :repo-id "app"
+                    :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}}]
+           @node-calls))
+    (is (= @node-calls @chunk-calls))))
+
 (deftest system-path-batches-bfs-frontier-edge-reads
   (let [calls (atom [])
         nodes {"system:a" {:xt/id "system:a"
