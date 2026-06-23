@@ -1,0 +1,4 @@
+{:id "historical-replay-full"
+ :project-id "historical-replay-full"
+ :description "Full historical replay lane for shell-only versus Yggdrasil comparisons, including heavy multi-repo and dependency-boundary cases."
+ :include-suites ["historical-replay.edn"]}

@@ -5,6 +5,7 @@
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
+            [ygg.benchmark-suite :as benchmark-suite]
             [ygg.fs :as fs]))
 
 (def default-manifest-path
@@ -53,7 +54,6 @@
       (throw (ex-info "Benchmark suite include is missing :path."
                       {:include include})))
     (canonical-or-relative base path)))
-
 (defn read-manifest
   "Read the tracked benchmark repo manifest."
   ([]
@@ -81,9 +81,9 @@
   [manifest]
   (into {} (map (juxt :id identity)) (:repos manifest)))
 
-(defn- suite-repo-ids
+(defn- raw-suite-repo-ids
   ([suite-path]
-   (->> (suite-repo-ids suite-path #{})
+   (->> (raw-suite-repo-ids suite-path #{})
         distinct
         sort
         vec))
@@ -95,11 +95,25 @@
                         :include-stack (vec seen)})))
      (let [suite (edn/read-string (slurp (io/file suite-path)))
            base (config-dir suite-path)
-           included-ids (mapcat #(suite-repo-ids (include-path base %)
-                                                 (conj seen suite-path))
+           included-ids (mapcat #(raw-suite-repo-ids (include-path base %)
+                                                     (conj seen suite-path))
                                 (:include-suites suite))]
        (concat included-ids
                (map (comp str :id) (:repos suite)))))))
+(defn- suite-repo-ids
+  [suite-path]
+  (try
+    (->> (:repos (benchmark-suite/read-suite suite-path))
+         (map :id)
+         distinct
+         sort
+         vec)
+    (catch clojure.lang.ExceptionInfo e
+      (if (contains? #{"Benchmark suite is missing :cases."
+                       "Benchmark suite is missing :repos."}
+                     (ex-message e))
+        (raw-suite-repo-ids suite-path)
+        (throw e)))))
 
 (defn- selected-repo-ids
   [manifest {:keys [suite-path repo-ids]}]

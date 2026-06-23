@@ -30,6 +30,27 @@
       (throw (ex-info "Benchmark suite include is missing :path."
                       {:include include})))
     (canonical-or-relative base path)))
+(defn- normalize-include-case-ids
+  [include]
+  (when (and (map? include)
+             (contains? include :case-ids))
+    (let [case-ids (cond
+                     (sequential? (:case-ids include)) (:case-ids include)
+                     (some? (:case-ids include)) [(:case-ids include)]
+                     :else [])]
+      (when-not (seq case-ids)
+        (throw (ex-info "Benchmark suite include :case-ids must not be empty."
+                        {:include include})))
+      (let [normalized (->> case-ids
+                            (map str)
+                            (map str/trim)
+                            (remove benchmark-util/blankish?)
+                            distinct
+                            vec)]
+        (when-not (seq normalized)
+          (throw (ex-info "Benchmark suite include :case-ids must not be blank."
+                          {:include include})))
+        normalized))))
 (defn- normalize-repo
   [base repo]
   (let [repo-id (some-> (:id repo) str)]
@@ -200,9 +221,38 @@
    :repos (count (:repos suite))
    :cases (count (:cases suite))})
 (declare read-suite-data)
+(defn- filter-included-suite
+  [suite include]
+  (if-let [case-ids (normalize-include-case-ids include)]
+    (let [case-id-set (set case-ids)
+          available-case-ids (set (map :id (:cases suite)))
+          missing-case-ids (->> case-ids
+                                (remove available-case-ids)
+                                vec)
+          selected-cases (->> (:cases suite)
+                              (filter #(contains? case-id-set (:id %)))
+                              vec)
+          selected-repo-ids (set (mapcat case-repo-ids selected-cases))]
+      (when (seq missing-case-ids)
+        (throw (ex-info "Benchmark suite include references unknown case ids."
+                        {:suite-id (:id suite)
+                         :path (:path suite)
+                         :case-ids case-ids
+                         :missing-case-ids missing-case-ids})))
+      (assoc suite
+             :repos (->> (:repos suite)
+                         (filter #(contains? selected-repo-ids (:id %)))
+                         vec)
+             :cases selected-cases))
+    suite))
+(defn- read-included-suite
+  [base include seen]
+  (filter-included-suite
+   (read-suite-data (include-path base include) seen)
+   include))
 (defn- read-included-suites
   [base includes seen]
-  (mapv #(read-suite-data (include-path base %) seen) includes))
+  (mapv #(read-included-suite base % seen) includes))
 (defn- read-suite-data
   [path seen]
   (let [path (fs/canonical-path path)]

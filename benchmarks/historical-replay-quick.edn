@@ -1,0 +1,11 @@
+{:id "historical-replay-quick"
+ :project-id "historical-replay-quick"
+ :description "Quick historical replay lane for shell-only versus Yggdrasil comparisons. Excludes the heavy multi-repo OTel case; keep full historical coverage in historical-replay-full.edn."
+ :include-suites [{:path "historical-replay.edn"
+                   :case-ids ["historical-terraform-vpc-endpoint-dns-record-ip-type"
+                              "historical-flask-autoescape-case-insensitive"
+                              "historical-junit-system-properties-extension-backup"
+                              "historical-bootstrap-toasts-doc-wording"
+                              "historical-bootstrap-node-version-workflows"
+                              "historical-dapper-reference-trimmer-dependencies"
+                              "historical-axios-formdata-epipe-test-lifecycle"]}]}

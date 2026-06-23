@@ -19,6 +19,10 @@ include order, and identical repo declarations are deduplicated. Use this for
 reviewable selectors such as `benchmarks/agent-efficiency-broad.edn` instead of
 copying case bodies into parallel suites.
 
+Include entries may also be maps with `:path` and explicit `:case-ids` to define
+lanes without copying case bodies. Filtered includes keep only the repos needed
+by the selected cases, so quick lanes do not preflight or index full-lane repos.
+
 Use `.dev/ygg/benchmark-repos/<repo-id>` as the common local checkout cache for
 suite `:repos` roots. Use `.dev/ygg/bench/<suite-id>/` or an explicit
 `.dev/ygg/...` `--out` path for run outputs. Promote an exploratory suite into
@@ -34,6 +38,23 @@ bb bench:repos check --suite benchmarks/architecture-synthetic.edn
 bb bench:repos check --suite benchmarks/agent-efficiency-broad.edn
 bb bench:repos check --suite benchmarks/multi-repo-quality.edn
 bb bench:gate --setup-check
+```
+
+Use the quick historical lane for routine shell-only versus Yggdrasil evidence:
+
+```sh
+bb agent-efficiency all \
+  --suite benchmarks/historical-replay-quick.edn \
+  --out .dev/ygg/agent-efficiency/historical-replay-quick
+```
+
+Use the full lane when the heavy multi-repo replay case should be part of the
+claim:
+
+```sh
+bb agent-efficiency all \
+  --suite benchmarks/historical-replay-full.edn \
+  --out .dev/ygg/agent-efficiency/historical-replay-full
 ```
 
 The deterministic gate runs the same preflight before doing benchmark work:

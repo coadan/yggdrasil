@@ -122,3 +122,50 @@
               :unknown 0}
              (:counts check)))
       (is (= ["included"] (mapv :id (:repos check)))))))
+
+(deftest check-repos-honors-filtered-included-suite-repos
+  (let [root (temp-dir "ygg-benchmark-repos-filtered-suite")
+        cache (io/file root "cache")
+        manifest-path (spit-edn!
+                       root
+                       "repos.edn"
+                       {:schema "ygg.benchmark.repos/v1"
+                        :cache-root (.getPath cache)
+                        :repos [{:id "fast"
+                                 :url "https://example.test/fast.git"
+                                 :dir "fast"}
+                                {:id "slow"
+                                 :url "https://example.test/slow.git"
+                                 :dir "slow"}]})
+        included-suite-path (spit-edn!
+                             root
+                             "included.edn"
+                             {:id "included-suite"
+                              :repos [{:id "fast"
+                                       :root "../cache/fast"}
+                                      {:id "slow"
+                                       :root "../cache/slow"}]
+                              :cases [{:id "fast-case"
+                                       :repo-id "fast"
+                                       :issue {:title "fast"}}
+                                      {:id "slow-case"
+                                       :repo-id "slow"
+                                       :issue {:title "slow"}}]})
+        suite-path (spit-edn!
+                    root
+                    "suite.edn"
+                    {:id "suite"
+                     :include-suites [{:path (.getName (io/file included-suite-path))
+                                       :case-ids ["fast-case"]}]})]
+    (mkdirs! (io/file cache "fast" ".git"))
+    (let [check (benchmark-repos/check-repos {:manifest-path manifest-path
+                                              :suite-path suite-path})]
+      (is (= "passed" (:status check)))
+      (is (= {:repos 1
+              :ready 1
+              :missing 0
+              :not-git 0
+              :missing-shas 0
+              :unknown 0}
+             (:counts check)))
+      (is (= ["fast"] (mapv :id (:repos check)))))))

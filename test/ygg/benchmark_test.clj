@@ -212,6 +212,62 @@
       (is (= ["problem-architecture" "problem-audit" "problem-maintenance"]
              (mapcat :tags (:cases suite)))))))
 
+(deftest read-suite-can-select-cases-from-included-suites
+  (let [suite-dir (temp-dir "ygg-bench-suite-include-case-filter")
+        child (.getPath (io/file suite-dir "child.edn"))
+        parent (.getPath (io/file suite-dir "parent.edn"))]
+    (spit child
+          (pr-str {:id "child"
+                   :repos [{:id "repo-a"
+                            :root "repo-a"}
+                           {:id "repo-b"
+                            :root "repo-b"}
+                           {:id "repo-c"
+                            :root "repo-c"}]
+                   :cases [{:id "case-a"
+                            :repo-id "repo-a"
+                            :issue {:title "a"}}
+                           {:id "case-b"
+                            :repo-id "repo-b"
+                            :issue {:title "b"}}
+                           {:id "case-c"
+                            :repos [{:repo-id "repo-b"}
+                                    {:repo-id "repo-c"}]
+                            :issue {:title "c"}}]}))
+    (spit parent
+          (pr-str {:id "parent"
+                   :include-suites [{:path "child.edn"
+                                     :case-ids ["case-c" "case-a"]}]}))
+    (let [suite (benchmark/read-suite parent)]
+      (is (= ["repo-a" "repo-b" "repo-c"]
+             (mapv :id (:repos suite))))
+      (is (= ["case-a" "case-c"]
+             (mapv :id (:cases suite))))
+      (is (= [{:id "child"
+               :path (-> child io/file .getCanonicalPath)
+               :repos 3
+               :cases 2}]
+             (:included-suites suite))))))
+
+(deftest read-suite-rejects-unknown-included-case-selection
+  (let [suite-dir (temp-dir "ygg-bench-suite-include-case-missing")
+        child (.getPath (io/file suite-dir "child.edn"))
+        parent (.getPath (io/file suite-dir "parent.edn"))]
+    (spit child
+          (pr-str {:id "child"
+                   :repos [{:id "repo"
+                            :root "repo"}]
+                   :cases [{:id "case-a"
+                            :repo-id "repo"
+                            :issue {:title "a"}}]}))
+    (spit parent
+          (pr-str {:id "parent"
+                   :include-suites [{:path "child.edn"
+                                     :case-ids ["case-a" "missing"]}]}))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Benchmark suite include references unknown case ids"
+                          (benchmark/read-suite parent)))))
+
 (deftest read-suite-dedupes-included-repos-with-suite-local-role-drift
   (let [suite-dir (temp-dir "ygg-bench-suite-include-role-drift")
         child-a (.getPath (io/file suite-dir "child-a.edn"))
@@ -479,10 +535,10 @@
             "architecture-coverage"
             "decision-quality-pilot"
             "feature-planning"
-            "historical-replay"]
+            "historical-replay-quick"]
            (mapv :id (:included-suites suite))))
-    (is (= 29 (count cases)))
-    (is (= 9 (count (:repos suite))))
+    (is (= 25 (count cases)))
+    (is (= 8 (count (:repos suite))))
     (is (every? suite-repo-ids
                 ["bootstrap"
                  "supabase-postgres"
@@ -491,11 +547,10 @@
                  "opentelemetry-collector"
                  "terraform-aws-vpc"
                  "flask"
-                 "junit-framework"
-                 "opentelemetry-collector-contrib"]))
+                 "junit-framework"]))
     (is (every? source-kinds
                 [:web-framework :manifest :env :sql :javascript :dotnet
-                 :compose :go :terraform :python :java]))
+                 :compose :go :terraform :python :java :ci :doc]))
     (is (every? tags
                 ["problem-architecture"
                  "problem-audit"
@@ -519,6 +574,30 @@
             "audit-scope-docs"
             "audit-scope-runtime-config"]
            measured-architecture-tags))))
+
+(deftest historical-replay-lanes-split-quick-and-full-coverage
+  (let [quick (benchmark/read-suite "benchmarks/historical-replay-quick.edn")
+        full (benchmark/read-suite "benchmarks/historical-replay-full.edn")
+        quick-case-ids (mapv :id (:cases quick))
+        full-case-ids (mapv :id (:cases full))
+        quick-repo-ids (set (map :id (:repos quick)))
+        full-repo-ids (set (map :id (:repos full)))]
+    (is (= "historical-replay-quick" (:id quick)))
+    (is (= "historical-replay-full" (:id full)))
+    (is (= 7 (count quick-case-ids)))
+    (is (= 11 (count full-case-ids)))
+    (is (not (contains? (set quick-case-ids)
+                        "historical-otel-routing-default-error-mode")))
+    (is (contains? (set full-case-ids)
+                   "historical-otel-routing-default-error-mode"))
+    (is (not (contains? quick-repo-ids "opentelemetry-collector-contrib")))
+    (is (contains? full-repo-ids "opentelemetry-collector-contrib"))
+    (is (every? (set full-case-ids) quick-case-ids))
+    (is (every? #(seq (get-in % [:coverage :source-kinds])) (:cases quick)))
+    (is (contains? (set (mapcat :tags (:cases quick)))
+                   "ygg-should-lose"))
+    (is (contains? (set (mapcat :tags (:cases quick)))
+                   "test-only-regression"))))
 
 (deftest scores-file-localization
   (let [result {:groundTruth {:changedFiles ["src/app.clj" "src/db.clj"]
