@@ -733,7 +733,7 @@
    (if (xtdb-handle? xtdb)
      (let [{:keys [sql args]} (count-query table constraints false)]
        (count-row-value (first (q xtdb sql (assoc ctx :args args)))))
-     (count (fallback-constrained-rows xtdb table (clean-constraints constraints) ctx)))))
+     (count (constrained-rows xtdb table constraints ctx)))))
 
 (defn ordered-rows
   "Return rows matching equality constraints, ordered and optionally limited.
@@ -759,10 +759,10 @@
            (q xtdb sql (assoc read-context :args args))))
 
     :else
-    (let [rows (fallback-constrained-rows xtdb
-                                          table
-                                          (clean-constraints constraints)
-                                          read-context)
+    (let [rows (constrained-rows xtdb
+                                 table
+                                 constraints
+                                 read-context)
           rows (if (seq order-fields)
                  (sort-by (apply juxt order-fields) rows)
                  rows)
@@ -789,10 +789,10 @@
                                               return-fields)]
       (map #(normalize-projected-sql-row return-fields %)
            (q xtdb sql (assoc read-context :args args))))
-    (let [rows (->> (fallback-constrained-rows xtdb
-                                               table
-                                               (clean-constraints constraints)
-                                               read-context)
+    (let [rows (->> (constrained-rows xtdb
+                                      table
+                                      constraints
+                                      read-context)
                     (filter #(<= (double min-value)
                                  (double (get % field)))))]
       (if (seq return-fields)
