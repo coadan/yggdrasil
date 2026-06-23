@@ -246,22 +246,6 @@
                   (contains? ids (:target-id %)))
             edges)))
 
-(defn- expand-node-ids
-  [edges seed-ids depth]
-  (loop [frontier (set seed-ids)
-         seen (set seed-ids)
-         remaining depth]
-    (if (zero? remaining)
-      seen
-      (let [next-ids (->> edges
-                          (filter #(or (contains? frontier (:source-id %))
-                                       (contains? frontier (:target-id %))))
-                          (mapcat (juxt :source-id :target-id))
-                          set)]
-        (recur (set/difference next-ids seen)
-               (into seen next-ids)
-               (dec remaining))))))
-
 (defn- scope-constraints
   [scope]
   (select-keys scope [:project-id :repo-id]))
@@ -468,32 +452,38 @@
                :or {depth default-depth limit default-node-limit}}]
   (let [scope (scope-options opts)
         target (query/find-node xtdb value scope)
-        edges (active-edges xtdb scope)
-        nodes-by-id (into {} (map (juxt :xt/id identity)) (active-items xtdb scope))
-        package-target? (= :external-package (:kind target))
-        chosen-edges (if package-target?
-                       (package-deps-edges (:xt/id target) edges)
-                       nil)
-        node-ids (cond
-                   package-target?
-                   (package-deps-node-ids (:xt/id target) chosen-edges)
-
-                   target
-                   (expand-node-ids edges [(:xt/id target)] depth)
-
-                   :else #{})
-        nodes (nodes-for-ids node-ids nodes-by-id limit)
-        chosen-ids (mapv :xt/id nodes)
-        edges* (if package-target?
-                 (induced-edges chosen-ids chosen-edges)
-                 (induced-edges chosen-ids edges))]
-    (enrich-graph xtdb
-                  (graph-data (str "Dependencies: " (or (:label target) value))
-                              nodes
-                              edges*
-                              {(:xt/id target) 1.0}
-                              opts)
-                  opts)))
+        package-target? (= :external-package (:kind target))]
+    (if package-target?
+      (let [edges (active-edges xtdb scope)
+            chosen-edges (package-deps-edges (:xt/id target) edges)
+            node-ids (package-deps-node-ids (:xt/id target) chosen-edges)
+            nodes-by-id (into {}
+                              (map (juxt :xt/id identity))
+                              (active-items xtdb scope))
+            nodes (nodes-for-ids node-ids nodes-by-id limit)
+            chosen-ids (mapv :xt/id nodes)]
+        (enrich-graph xtdb
+                      (graph-data (str "Dependencies: " (or (:label target) value))
+                                  nodes
+                                  (induced-edges chosen-ids chosen-edges)
+                                  {(:xt/id target) 1.0}
+                                  opts)
+                      opts))
+      (let [target-id (:xt/id target)
+            node-ids (if target-id
+                       (expand-node-ids-bounded xtdb [target-id] depth scope)
+                       #{})
+            nodes-by-id (active-items-by-ids xtdb node-ids scope)
+            nodes (nodes-for-ids node-ids nodes-by-id limit)
+            chosen-ids (mapv :xt/id nodes)
+            edges (active-edge-rows-touching-ids xtdb chosen-ids scope)]
+        (enrich-graph xtdb
+                      (graph-data (str "Dependencies: " (or (:label target) value))
+                                  nodes
+                                  (induced-edges chosen-ids edges)
+                                  (if target-id {target-id 1.0} {})
+                                  opts)
+                      opts)))))
 
 (defn query-graph
   "Return graph slice around query results."
