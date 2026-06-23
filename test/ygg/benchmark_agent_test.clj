@@ -2381,6 +2381,45 @@
     (is (<= (get-in file [:metrics :candidateSourceRankScore]) 0.2))
     (is (> (get-in file [:metrics :sourceRankScore]) 2.0))))
 
+(deftest file-ranking-boosts-doc-supported-source-graph-head
+  (let [root (temp-dir "ygg-bench-doc-source-graph-head")
+        _ (spit-file! root "tests/Dapper.Tests/TypeHandlerTests.cs" "namespace Dapper.Tests;\n")
+        _ (spit-file! root "tests/Dapper.Tests/ParameterTests.cs" "namespace Dapper.Tests;\n")
+        packet {:query "jsonb type handler tests"
+                :docs [{:source {:path "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                 :heading "Dapper.Tests.TypeHandlerTests"}
+                        :score 0.8
+                        :snippet "jsonb type handler tests"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "tests/Dapper.Tests/ParameterTests.cs"
+                                  :rank 12
+                                  :score 3.1
+                                  :targetKind "node"
+                                  :label "Dapper.Tests.ParameterTests.JsonbString"
+                                  :supportLabels ["Dapper.Tests.TypeHandlerTests.JsonbString"
+                                                  "Dapper.Tests.ParameterTests.TypeHandler"]
+                                  :scoreComponents {:sourceGraph 3.1
+                                                    :lexical 0.7
+                                                    :graph 0.2}}
+                                 {:path "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                  :rank 1
+                                  :score 1.3
+                                  :targetKind "node"
+                                  :label "Dapper.Tests.TypeHandlerTests.JsonbString"
+                                  :supportLabels ["Dapper.Tests.TypeHandlerTests.TypeHandler"
+                                                  "Dapper.Tests.TypeHandlerTests.Parse"]
+                                  :scoreComponents {:sourceGraph 1.3
+                                                    :lexical 0.55
+                                                    :graph 0.2}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)]
+    (is (= "tests/Dapper.Tests/TypeHandlerTests.cs"
+           (:path (first files))))
+    (is (pos? (get-in files [0 :metrics :docSupportedSourceGraphHeadBoost])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
   (let [root (temp-dir "ygg-bench-candidate-file-quota")
         _ (doseq [path ["src/doc-1.clj" "src/doc-2.clj" "src/doc-3.clj"

@@ -54,6 +54,12 @@
   2)
 (def ^:private rank-score-retrieved-support-label-weight
   2.4)
+(def ^:private rank-score-doc-supported-source-graph-head-window
+  3)
+(def ^:private rank-score-doc-supported-source-graph-head-max
+  3.0)
+(def ^:private rank-score-doc-supported-source-graph-head-step
+  0.5)
 (def ^:private rank-score-decision-candidate-count-cap
   2)
 (def ^:private rank-score-decision-candidate-path-weight
@@ -468,6 +474,24 @@
     (* rank-score-retrieved-support-label-weight
        (min rank-score-retrieved-support-label-cap
             (long retrieved-support-label-count)))
+    0.0))
+(defn- doc-supported-source-graph-head-boost
+  [doc-count
+   candidate-count
+   candidate-source-rank
+   matched-identity-compound-token-pair-count
+   retrieved-support-label-count]
+  (if (and (pos? (long doc-count))
+           (pos? (long candidate-count))
+           (pos? (long (or candidate-source-rank 0)))
+           (<= (long candidate-source-rank)
+               rank-score-doc-supported-source-graph-head-window)
+           (pos? (long matched-identity-compound-token-pair-count))
+           (pos? (long retrieved-support-label-count)))
+    (max 0.0
+         (- rank-score-doc-supported-source-graph-head-max
+            (* rank-score-doc-supported-source-graph-head-step
+               (dec (long candidate-source-rank)))))
     0.0))
 (defn- doc-prediction
   [root roots query-tokens idx doc]
@@ -1056,6 +1080,13 @@
                                                           doc-count
                                                           support-count
                                                           graph-neighbor-score)
+                             doc-supported-source-graph-head-boost
+                             (doc-supported-source-graph-head-boost
+                              doc-count
+                              candidate-count
+                              candidate-source-rank
+                              (count matched-identity-compound-token-pairs)
+                              retrieved-support-label-count)
                              max-evidence-score (apply max
                                                        0.0
                                                        (map :evidence-score ordered))
@@ -1145,6 +1176,7 @@
                                                    decision-candidate-count))
                                            candidate-source-rank-score
                                            candidate-only-robust-boost
+                                           doc-supported-source-graph-head-boost
                                            graph-neighbor-boost
                                            doc-supported-candidate-evidence-boost
                                            architecture-rank-boost
@@ -1201,6 +1233,9 @@
                                        (assoc :candidateSourceRank candidate-source-rank)
                                        (pos? candidate-source-rank-score)
                                        (assoc :candidateSourceRankScore candidate-source-rank-score)
+                                       (pos? doc-supported-source-graph-head-boost)
+                                       (assoc :docSupportedSourceGraphHeadBoost
+                                              doc-supported-source-graph-head-boost)
                                        (pos? direct-file-candidate-count)
                                        (assoc :directFileCandidateCount
                                               direct-file-candidate-count)

@@ -43,6 +43,7 @@
                  "candidateSourceRank" {"type" "integer"
                                         "minimum" 1}
                  "candidateSourceRankScore" {"type" "number"}
+                 "docSupportedSourceGraphHeadBoost" {"type" "number"}
                  "candidateSupportLabelCount" {"type" "integer"
                                                "minimum" 0}
                  "candidateSupportLabelScore" {"type" "number"}
