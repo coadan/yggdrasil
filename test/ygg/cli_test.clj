@@ -91,7 +91,7 @@
     (is (str/includes? usage "bench agent-run"))
     (is (str/includes? usage "bench agent-rerun"))
     (is (str/includes? usage "bench agent-score"))
-    (is (str/includes? usage "bench agent-score <benchmark.edn> --case ID --result result.json [--parser-worker none|java|dotnet|all]"))
+    (is (str/includes? usage "bench agent-score <benchmark.edn> --case ID --result result.json [--parser-worker none|java|dotnet|javascript|typescript|all]"))
     (is (str/includes? usage "bench agent-report"))
     (is (str/includes? usage "bench improve"))
     (is (str/includes? usage "bench agent-check"))
@@ -110,7 +110,7 @@
     (is (str/includes? usage "--max-context-rank-missing-runs N"))
     (is (str/includes? usage "--max-missed-but-present-in-context-runs N"))
     (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
-    (is (str/includes? usage "--require-parser-worker none|java|dotnet|all"))
+    (is (str/includes? usage "--require-parser-worker none|java|dotnet|javascript|typescript|all"))
     (is (not (str/includes? usage "overlay")))))
 
 (deftest plugin-install-dispatches-to-package-installer

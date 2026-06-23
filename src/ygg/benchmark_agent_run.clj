@@ -171,7 +171,7 @@
                :coverageFilteredCandidateFiles 0
                :limit 20
                :coverageSourceKinds []}
-   :parserWorker {:mode "none|java|dotnet|all"
+   :parserWorker {:mode "none|java|dotnet|javascript|typescript|all"
                   :source "option|env|default|agent-result|unknown"}
    :suspectedFiles [{:path "repo-relative/path.ext"
                      :repoId "repo id for multi-repo cases"

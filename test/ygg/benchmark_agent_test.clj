@@ -122,7 +122,7 @@
                     (get-in packet [:task :rules])))
           (is (some #(str/includes? % "do not carry over stale graph-health text")
                     (get-in packet [:task :rules])))
-          (is (= {:mode "none|java|dotnet|all"
+          (is (= {:mode "none|java|dotnet|javascript|typescript|all"
                   :source "option|env|default|agent-result|unknown"}
                  (get-in packet [:task :resultContract :parserWorker])))
           (is (not (contains? packet :groundTruth)))
