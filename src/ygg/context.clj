@@ -754,6 +754,15 @@
        distinct
        vec))
 
+(defn- attachment-chunks
+  [xtdb attachments {:keys [project-id repo-id read-context]}]
+  (query/chunks-by-paths
+   xtdb
+   (attachment-paths attachments)
+   {:project-id project-id
+    :repo-id repo-id
+    :read-context read-context}))
+
 (defn- context-chunks
   [xtdb results attachments candidate-inputs opts]
   (let [scope (select-keys opts [:project-id :repo-id :read-context])
@@ -768,6 +777,29 @@
                  {})
          vals
          vec)))
+
+(def ^:private doc-candidate-token-fields
+  [:label :path :text])
+
+(defn- doc-candidate-chunks
+  [xtdb target-tokens {:keys [project-id read-context]}]
+  (cond
+    (empty? target-tokens)
+    []
+
+    (store/xtdb-handle? xtdb)
+    (store/rows-matching-any-token
+     xtdb
+     (:chunks store/tables)
+     doc-candidate-token-fields
+     target-tokens
+     {:project-id project-id
+      :kind :markdown}
+     (store/read-context read-context))
+
+    :else
+    (query/all-chunks xtdb {:project-id project-id
+                            :read-context read-context})))
 
 (defn- frequency-summary
   [f rows limit]
@@ -1975,8 +2007,10 @@
                      snippet-chars default-snippet-chars}}]
   (let [target-text (str target)
         target-tokens (text/tokenize target-text)
-        chunks (vec (query/all-chunks xtdb {:project-id project-id
-                                            :read-context read-context}))]
+        chunks (doc-candidate-chunks xtdb
+                                     target-tokens
+                                     {:project-id project-id
+                                      :read-context read-context})]
     (->> chunks
          (filter #(= :markdown (:kind %)))
          (map #(assoc % :context-score (token-score target-tokens
@@ -1997,21 +2031,26 @@
   [xtdb target {:keys [project-id map-path map-overlay snippet-chars read-context]
                 :or {snippet-chars default-snippet-chars}}]
   (let [overlay (resolve-map-overlay map-path map-overlay project-id)
-        chunks (vec (query/all-chunks xtdb {:project-id project-id
-                                            :read-context read-context}))]
+        attachments (graph-map/docs-for-target overlay target)
+        chunks (attachment-chunks xtdb
+                                  attachments
+                                  {:project-id project-id
+                                   :read-context read-context})]
     {:schema "ygg.docs/v1"
      :target target
      :docs (mapv #(attachment->doc chunks snippet-chars %)
-                 (graph-map/docs-for-target overlay target))}))
+                 attachments)}))
 
 (defn docs-audit
   "Return maintenance findings for doc attachments and mapped systems."
   [xtdb {:keys [project-id map-path map-overlay read-context]}]
   (let [overlay (resolve-map-overlay map-path map-overlay project-id)
-        chunks (vec (query/all-chunks xtdb {:project-id project-id
-                                            :read-context read-context}))
         systems (:systems overlay)
         docs (:docs overlay)
+        chunks (attachment-chunks xtdb
+                                  docs
+                                  {:project-id project-id
+                                   :read-context read-context})
         docs-by-target (group-by :target docs)
         unresolved (->> docs
                         (map #(attachment->doc chunks default-snippet-chars %))

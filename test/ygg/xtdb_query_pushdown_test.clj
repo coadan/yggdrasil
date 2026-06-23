@@ -652,6 +652,101 @@
            (:read-context (first @calls))))
     (is (not-any? #{'*} (:return-fields (first @calls))))))
 
+(deftest doc-candidates-use-token-pushdown-for-real-handles
+  (let [calls (atom [])
+        rows (with-redefs [store/rows-matching-any-token
+                           (fn [_ table fields tokens constraints ctx]
+                             (swap! calls conj {:table table
+                                                :fields fields
+                                                :tokens tokens
+                                                :constraints constraints
+                                                :ctx ctx})
+                             [{:xt/id "chunk:billing"
+                               :project-id "project-a"
+                               :repo-id "app"
+                               :path "docs/billing.md"
+                               :kind :markdown
+                               :label "Billing API"
+                               :text "Billing API reference"
+                               :source-line 4
+                               :active? true}])
+                           query/all-chunks
+                           (fn [& _]
+                             (throw (ex-info "doc candidates should not hydrate all chunks"
+                                             {})))]
+               (context/doc-candidates
+                {:node :stub}
+                "billing api"
+                {:project-id "project-a"
+                 :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}))]
+    (is (= ["docs/billing.md"] (mapv #(get-in % [:source :path]) rows)))
+    (is (= [{:table (:chunks store/tables)
+             :fields [:label :path :text]
+             :tokens ["billing" "api"]
+             :constraints {:project-id "project-a"
+                           :kind :markdown}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @calls))))
+
+(deftest docs-for-and-audit-load-only-attachment-path-chunks
+  (let [calls (atom [])
+        overlay {:docs [{:target "system:billing"
+                         :role "contract"
+                         :status "accepted"
+                         :source {:repo "app"
+                                  :path "docs/billing.md"}}
+                        {:target "system:billing"
+                         :role "runbook"
+                         :status "accepted"
+                         :source {:repo "app"
+                                  :path "docs/missing.md"}}]
+                 :systems [{:id "system:billing"
+                            :label "Billing"
+                            :status "accepted"}]}
+        chunk {:xt/id "chunk:billing"
+               :project-id "project-a"
+               :repo-id "app"
+               :path "docs/billing.md"
+               :kind :markdown
+               :label "Billing"
+               :text "billing docs"
+               :source-line 1
+               :active? true}]
+    (with-redefs [query/chunks-by-paths
+                  (fn [_ paths opts]
+                    (swap! calls conj {:paths (vec paths)
+                                       :opts opts})
+                    (if (some #{"docs/billing.md"} paths)
+                      [chunk]
+                      []))
+                  query/all-chunks
+                  (fn [& _]
+                    (throw (ex-info "attachment docs should not hydrate all chunks"
+                                    {})))]
+      (let [docs-result (context/docs-for
+                         {:node :stub}
+                         "system:billing"
+                         {:project-id "project-a"
+                          :map-overlay overlay
+                          :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})
+            audit-result (context/docs-audit
+                          {:node :stub}
+                          {:project-id "project-a"
+                           :map-overlay overlay
+                           :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})]
+        (is (= ["accepted" "stale"] (mapv :status (:docs docs-result))))
+        (is (= ["docs/missing.md"] (mapv #(get-in % [:source :path])
+                                         (:unresolved audit-result))))))
+    (is (= [{:paths ["docs/billing.md" "docs/missing.md"]
+             :opts {:project-id "project-a"
+                    :repo-id nil
+                    :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}}
+            {:paths ["docs/billing.md" "docs/missing.md"]
+             :opts {:project-id "project-a"
+                    :repo-id nil
+                    :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}}]
+           @calls))))
+
 (defn- file-row
   [id path]
   {:xt/id id
