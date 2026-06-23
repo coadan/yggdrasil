@@ -748,19 +748,27 @@
           {}
           tokens))
 
+(defn- lexical-doc-stat
+  [query-token-set doc]
+  (let [tokens (:tokens doc)]
+    {:doc doc
+     :token-count (count tokens)
+     :query-token-frequencies (token-frequencies query-token-set tokens)}))
+
+(defn- document-frequencies-from-stats
+  [doc-stats]
+  (reduce
+   (fn [acc {:keys [query-token-frequencies]}]
+     (reduce #(update %1 %2 (fnil inc 0))
+             acc
+             (keys query-token-frequencies)))
+   {}
+   doc-stats))
+
 (defn- document-frequencies
   [query-token-set docs]
-  (reduce
-   (fn [acc doc]
-     (let [doc-query-tokens (reduce (fn [matches token]
-                                      (if (contains? query-token-set token)
-                                        (conj matches token)
-                                        matches))
-                                    #{}
-                                    (:tokens doc))]
-       (reduce #(update %1 %2 (fnil inc 0)) acc doc-query-tokens)))
-   {}
-   docs))
+  (document-frequencies-from-stats
+   (mapv #(lexical-doc-stat query-token-set %) docs)))
 
 (defn- inverse-document-frequencies
   [query-tokens doc-freqs doc-count]
@@ -773,14 +781,13 @@
         query-tokens))
 
 (defn- bm25-score
-  [query-tokens query-token-set idf-by-token avgdl doc]
+  [query-tokens idf-by-token avgdl token-count query-token-frequencies]
   (let [k1 1.2
         b 0.75
-        freqs (token-frequencies query-token-set (:tokens doc))
-        dl (max 1 (count (:tokens doc)))]
+        dl (max 1 token-count)]
     (reduce
      (fn [score token]
-       (let [tf (double (get freqs token 0))]
+       (let [tf (double (get query-token-frequencies token 0))]
          (if (zero? tf)
            score
            (let [idf (double (get idf-by-token token 0.0))
@@ -800,18 +807,23 @@
   [query-tokens docs]
   (let [doc-count (max 1 (count docs))
         query-token-set (set query-tokens)
-        doc-freqs (document-frequencies query-token-set docs)
+        doc-stats (mapv #(lexical-doc-stat query-token-set %) docs)
+        doc-freqs (document-frequencies-from-stats doc-stats)
         idf-by-token (inverse-document-frequencies query-tokens doc-freqs doc-count)
         avgdl (max 1.0
-                   (/ (double (reduce + 0 (map #(count (:tokens %)) docs)))
+                   (/ (double (reduce + 0 (map :token-count doc-stats)))
                       doc-count))]
-    (->> docs
-         (map (fn [doc]
+    (->> doc-stats
+         (map (fn [{:keys [doc token-count query-token-frequencies]}]
                 [(:target-id doc)
-                 (if (and (empty? (:tokens doc))
+                 (if (and (zero? token-count)
                           (number? (:score doc)))
                    (double (:score doc))
-                   (bm25-score query-tokens query-token-set idf-by-token avgdl doc))]))
+                   (bm25-score query-tokens
+                               idf-by-token
+                               avgdl
+                               token-count
+                               query-token-frequencies))]))
          (into {})
          normalize-scores)))
 
