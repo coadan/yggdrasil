@@ -2162,7 +2162,7 @@
                   :evidence {:warnings []}
                   :freshness {:warnings []}
                   :accepted-systems []
-                  :query-tokens ["proxy" "env" "test"]})
+                  :query-tokens ["proxy" "test"]})
         dependency-evidence (:dependencyEvidence section)]
     (is (= 8 (count dependency-evidence)))
     (is (some #(and (= "lib/adapters/http.js" (:path %))

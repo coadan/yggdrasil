@@ -1878,6 +1878,41 @@
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
 
+(deftest file-ranking-treats-single-package-identity-token-as-query-supported
+  (let [root (temp-dir "ygg-bench-package-identity-token-support")
+        _ (spit-file! root "lib/adapters/http.js"
+                      "import proxyFromEnv from 'proxy-from-env';\n")
+        _ (spit-file! root "tests/unit/fetch.test.js"
+                      "import axios from 'axios';\n")
+        packet {:query "proxy boundary"
+                :architecture {:dependencyEvidence [{:id "node:pkg:proxy-from-env:import:lib/adapters/http.js:5"
+                                                     :path "lib/adapters/http.js"
+                                                     :kind "package-import"
+                                                     :fileKind "javascript"
+                                                     :package "proxy-from-env"
+                                                     :label "npm:proxy-from-env"
+                                                     :ecosystem "npm"
+                                                     :relation "imports-package"
+                                                     :sourceLine 5
+                                                     :score 1.75}
+                                                    {:id "node:pkg:axios:import:tests/unit/fetch.test.js:1"
+                                                     :path "tests/unit/fetch.test.js"
+                                                     :kind "package-import"
+                                                     :fileKind "javascript"
+                                                     :package "axios"
+                                                     :label "npm:axios"
+                                                     :ecosystem "npm"
+                                                     :relation "imports-package"
+                                                     :sourceLine 1
+                                                     :score 1.75}]}}
+        files (:suspectedFiles (benchmark/context-packet->agent-result packet {:root root}))
+        file-by-path (into {} (map (juxt :path identity)) files)
+        proxy-file (get file-by-path "lib/adapters/http.js")
+        axios-file (get file-by-path "tests/unit/fetch.test.js")]
+    (is (= "lib/adapters/http.js" (:path (first files))))
+    (is (pos? (get-in proxy-file [:metrics :architectureSupportBoost])))
+    (is (not (contains? (:metrics axios-file) :architectureSupportBoost)))))
+
 (deftest file-ranking-boosts-query-supported-candidate-only-architecture-support
   (let [root (temp-dir "ygg-bench-candidate-only-architecture-support")
         _ (spit-file! root "tests/setup/server.js" "export const server = true;\n")
@@ -2913,6 +2948,33 @@
                  first)]
     (is (= "src/settings.cs" (:path file)))
     (is (not (contains? (:metrics file) :directFileArchitectureGraphBoost)))))
+
+(deftest file-ranking-uses-single-dependency-package-identity-token
+  (let [root (temp-dir "ygg-bench-dependency-import-single-token-support")
+        _ (spit-file! root "src/http-adapter.js" "import proxyAgent from 'https-proxy-agent';\n")
+        packet {:query "proxy package import adapter boundary"
+                :candidateFiles [{:path "src/http-adapter.js"
+                                  :rank 8
+                                  :score 3.0
+                                  :targetKind "file"
+                                  :label "src/http-adapter.js"
+                                  :supportLabels ["proxy adapter boundary"]
+                                  :scoreComponents {:sourceGraph 3.0
+                                                    :lexical 0.8
+                                                    :graph 0.7}}]
+                :architecture {:dependencyEvidence [{:path "src/http-adapter.js"
+                                                     :kind "package-import"
+                                                     :fileKind "javascript"
+                                                     :relation "imports-package"
+                                                     :label "npm:https-proxy-agent"
+                                                     :package "https-proxy-agent"
+                                                     :score 1.75}]}}
+        file (-> (benchmark/context-packet->agent-result packet {:root root})
+                 :suspectedFiles
+                 first)]
+    (is (= "src/http-adapter.js" (:path file)))
+    (is (pos? (get-in file [:metrics :directFileArchitectureGraphBoost])))
+    (is (pos? (get-in file [:metrics :architectureSupportBoost])))))
 
 (deftest limited-agent-result-reserves-candidate-file-only-evidence
   (let [root (temp-dir "ygg-bench-candidate-file-quota")

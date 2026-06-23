@@ -150,6 +150,8 @@
   4)
 (def ^:private score-elbow-tail-score-ratio
   0.65)
+(def ^:private dependency-package-identity-query-token-min
+  1)
 (def ^:private diversity-bypass-candidate-source-rank-window
   2)
 (def ^:private diversity-bypass-support-count-min
@@ -944,7 +946,8 @@
 (defn- architecture-query-supported?
   [query-tokens section row]
   (if (dependency-package-import-row? section row)
-    (<= 2 (dependency-package-identity-token-count query-tokens row))
+    (<= dependency-package-identity-query-token-min
+        (dependency-package-identity-token-count query-tokens row))
     (let [evidence-text (architecture-evidence-text row)]
       (or (<= 2 (count (token-matches query-tokens evidence-text)))
           (seq (compact-token-pair-matches query-tokens evidence-text))
@@ -978,7 +981,8 @@
                                         query-tokens
                                         row)
                                        0)
-        package-identity-boost (if (>= package-identity-token-count 2)
+        package-identity-boost (if (<= dependency-package-identity-query-token-min
+                                       package-identity-token-count)
                                  0.35
                                  0.0)]
     (min cap (+ (* weight raw-score)
