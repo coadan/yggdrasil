@@ -1327,18 +1327,19 @@
                    valid-from (assoc :valid-from valid-from))
         read-ctx (cond-> (read-context opts)
                    valid-from (assoc :valid-at valid-from))
-        rows (->> (constrained-rows xtdb
-                                    (:metadata tables)
-                                    {:target-id target-id
-                                     :key key
-                                     :source source
-                                     :project-id project-id
-                                     :repo-id repo-id}
-                                    read-ctx)
-                  vec)
-        ops (mapv #(delete-op (:metadata tables) (:xt/id %) temporal) rows)]
+        row-ids (mapv :xt/id
+                      (ordered-rows xtdb
+                                    {:table (:metadata tables)
+                                     :constraints {:target-id target-id
+                                                   :key key
+                                                   :source source
+                                                   :project-id project-id
+                                                   :repo-id repo-id}
+                                     :return-fields [:xt/id]
+                                     :read-context read-ctx}))
+        ops (mapv #(delete-op (:metadata tables) % temporal) row-ids)]
     (execute-tx! xtdb ops)
-    {:metadata-deleted (count rows)}))
+    {:metadata-deleted (count row-ids)}))
 
 (defn commit-graph-views!
   "Persist graph view rows."

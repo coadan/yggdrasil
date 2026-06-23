@@ -169,13 +169,17 @@
                 (mapv last))))
     (is (= 3 (count (filter #(= :put-docs (first %)) @tx-ops))))))
 
-(deftest metadata-delete-uses-constrained-key-source-scope-query
+(deftest metadata-delete-uses-projected-key-source-scope-query
   (let [calls (atom [])
         tx-ops (atom nil)]
-    (with-redefs [store/constrained-rows
-                  (fn [_ table constraints ctx]
-                    (swap! calls conj [table constraints ctx])
+    (with-redefs [store/ordered-rows
+                  (fn [_ request]
+                    (swap! calls conj request)
                     [{:xt/id "metadata:old"}])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "metadata deletion should not hydrate full rows"
+                                    {})))
                   store/execute-tx!
                   (fn [_ ops]
                     (reset! tx-ops ops)
@@ -189,17 +193,20 @@
                :project-id "test"
                :repo-id "repo"
                :valid-from t2}))))
-    (is (= [[(:metadata store/tables)
-             {:target-id "target:a"
-              :key :owner/team
-              :source :review
-              :project-id "test"
-              :repo-id "repo"}
-             {:project-id "test"
-              :repo-id "repo"
-              :valid-at t2}]]
-           @calls))
+    (is (= [{:table (:metadata store/tables)
+             :constraints {:target-id "target:a"
+                           :key :owner/team
+                           :source :review
+                           :project-id "test"
+                           :repo-id "repo"}
+             :return-fields [:xt/id]
+             :read-context {:project-id "test"
+                            :repo-id "repo"
+                            :valid-at t2}}]
+           (mapv #(select-keys % [:table :constraints :return-fields :read-context])
+                 @calls)))
     (is (= 1 (count @tx-ops)))
+    (is (= t2 (get-in (first @tx-ops) [1 :valid-from])))
     (is (= "metadata:old" (last (first @tx-ops))))))
 
 (deftest metadata-cardinality-is-bitemporal
