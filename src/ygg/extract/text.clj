@@ -26,6 +26,96 @@
              :run-id run-id}]
    :diagnostics []})
 
+(def ^:private source-map-source-limit
+  256)
+
+(defn- source-map-sources
+  [parsed]
+  (->> (:sources parsed)
+       (filter string?)
+       (remove str/blank?)
+       distinct
+       vec))
+
+(defn- source-map-limit-diagnostic
+  [run-id file-id path source-count]
+  (when (< source-map-source-limit source-count)
+    (common/diagnostic-row
+     run-id
+     file-id
+     path
+     "source-map-source-limit"
+     1
+     (str "Source map extraction retained "
+          source-map-source-limit
+          " of "
+          source-count
+          " sources; omitted "
+          (- source-count source-map-source-limit)
+          " to bound indexing fanout."))))
+
+(defn- source-map-summary-text
+  [path parsed sources]
+  (str/join "\n"
+            (remove str/blank?
+                    (concat [path
+                             "source-map"
+                             (:file parsed)
+                             (:sourceRoot parsed)
+                             (some-> (:version parsed) str)]
+                            sources))))
+
+(defn extract-source-map
+  "Extract bounded source-map references without indexing source content blobs."
+  [run-id {:keys [id-scope file-id path content kind]}]
+  (let [parsed (common/read-json-map content)
+        sources (if parsed (source-map-sources parsed) [])
+        retained-sources (vec (take source-map-source-limit sources))
+        root-node (common/generic-node run-id id-scope file-id path :source-map-file path 1)
+        source-facts (mapv (fn [source]
+                             {:kind :source-map-source
+                              :label source
+                              :source-line 1
+                              :relation :references})
+                           retained-sources)
+        source-nodes (mapv #(common/fact-node run-id id-scope file-id path %)
+                           source-facts)
+        source-edges (mapv #(common/fact-edge-row run-id
+                                                  file-id
+                                                  path
+                                                  (:xt/id root-node)
+                                                  id-scope
+                                                  %)
+                           source-facts)
+        summary-text (source-map-summary-text path parsed retained-sources)
+        limit-diagnostic (source-map-limit-diagnostic run-id
+                                                      file-id
+                                                      path
+                                                      (count sources))
+        diagnostics (cond-> []
+                      (nil? parsed) (conj (common/diagnostic-row
+                                           run-id
+                                           file-id
+                                           path
+                                           "parse"
+                                           1
+                                           "Source map extractor could not parse JSON object."))
+                      limit-diagnostic (conj limit-diagnostic))]
+    {:nodes (into [root-node] source-nodes)
+     :edges source-edges
+     :chunks [{:xt/id (common/chunk-id id-scope path path 1)
+               :file-id file-id
+               :path path
+               :kind :source-map-file
+               :file-kind kind
+               :label path
+               :text summary-text
+               :tokens (text/tokenize summary-text)
+               :source-line 1
+               :active? true
+               :run-id run-id}]
+     :diagnostics diagnostics}))
+
 (defn- env-var-facts
   [content]
   (->> (str/split-lines content)

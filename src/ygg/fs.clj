@@ -14,7 +14,7 @@
     ".dvc"
     ".cabal" ".ex" ".exs" ".erl" ".fsproj" ".gemspec" ".gql" ".go" ".gradle" ".graphql" ".groovy" ".h" ".hcl" ".hs" ".ini"
     ".gif" ".gz" ".hh" ".hpp" ".html" ".hxx" ".ico" ".ipynb" ".jar" ".java" ".jpeg" ".jpg" ".js" ".json" ".jsonc" ".jsx"
-    ".hrl" ".jl" ".key" ".lua"
+    ".hrl" ".jl" ".key" ".lua" ".map"
     ".kt" ".kts" ".m" ".md" ".mdx" ".mjs" ".ml" ".mli" ".mm" ".mo" ".mts" ".pm" ".pl" ".png" ".po" ".pbxproj" ".plist" ".pot" ".php"
     ".mp4" ".mustache" ".neon" ".nix" ".njk" ".odin" ".otf" ".out" ".patch" ".pem" ".penpot" ".ppm" ".prisma" ".properties" ".props" ".proto" ".py" ".r" ".R" ".rake" ".rb" ".rs" ".rst" ".sbt" ".scala" ".scss" ".sh"
     ".service" ".sln" ".snap" ".socket" ".sql" ".subj" ".svelte" ".swift" ".svg" ".targets" ".tf" ".tfvars" ".timer" ".tmpl" ".ttf"
@@ -389,6 +389,7 @@
         ".ipynb" :notebook
         ".java" :java
         (".js" ".jsx" ".mjs" ".cjs") :javascript
+        ".map" :source-map
         (".kt" ".kts") :kotlin
         (".m" ".mm") :objective-c
         ".swift" :swift

@@ -1224,6 +1224,37 @@
     (is (str/includes? (:message diagnostic) "retained 256"))
     (is (str/includes? (:message diagnostic) "omitted"))))
 
+(deftest extracts-source-map-as-bounded-source-references
+  (let [root (.toFile (java.nio.file.Files/createTempDirectory
+                       "ygg-source-map-extract"
+                       (make-array java.nio.file.attribute.FileAttribute 0)))
+        sources (mapv #(str "../src/module-" % ".js") (range 260))
+        source-json (fn [value] (str "\"" value "\""))
+        source-map-content (str "{\"version\":3,"
+                                "\"file\":\"bundle.js\","
+                                "\"sources\":["
+                                (str/join "," (map source-json sources))
+                                "],"
+                                "\"sourcesContent\":[\"large generated body\"]}")
+        source (doto (io/file root "bundle.js.map")
+                 (spit source-map-content))
+        file (fs/file-record (.getPath root) (.getPath source))
+        result (extract/extract-file "run/test" file)
+        node-kinds (frequencies (map :kind (:nodes result)))
+        relations (frequencies (map :relation (:edges result)))
+        chunk (first (:chunks result))
+        diagnostic (first (:diagnostics result))]
+    (is (= :source-map (:kind file)))
+    (is (= :source-map (fs/file-kind "bundle.js.map")))
+    (is (= 1 (:source-map-file node-kinds)))
+    (is (= 256 (:source-map-source node-kinds)))
+    (is (= 256 (:references relations)))
+    (is (= [:source-map-file] (mapv :kind (:chunks result))))
+    (is (str/includes? (:text chunk) "../src/module-0.js"))
+    (is (not (str/includes? (:text chunk) "large generated body")))
+    (is (= :source-map-source-limit (:stage diagnostic)))
+    (is (str/includes? (:message diagnostic) "retained 256"))))
+
 (deftest extracts-shell-as-searchable-source-chunk
   (let [shell-result (extract/extract-file
                       "run/test"

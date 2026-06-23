@@ -157,6 +157,7 @@
     :xml (extract.xml/extract-xml run-id file)
     :html (extract.text/extract-text-source run-id file :html-file)
     :env (extract.text/extract-env run-id file)
+    :source-map (extract.text/extract-source-map run-id file)
     :text (extract.text/extract-text-source run-id file :text-file)
     :unknown (extract.text/extract-text-source run-id file :unknown-file)
     (:archive-asset :compiled-artifact :font-asset :gettext-binary :image-asset :media-asset :opaque-asset :secret-material)
