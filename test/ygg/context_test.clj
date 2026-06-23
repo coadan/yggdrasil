@@ -106,6 +106,31 @@
                      900)))))
     (is (= 1 @selected-label-tokenizations))))
 
+(deftest inferred-docs-reuses-stored-chunk-tokens
+  (let [inferred-docs @#'context/inferred-docs
+        tokenize text/tokenize
+        body-text "target details with a large body that should already be tokenized"
+        body-tokenizations (atom 0)]
+    (with-redefs [text/tokenize (fn [value]
+                                  (when (.contains (str value) body-text)
+                                    (swap! body-tokenizations inc))
+                                  (tokenize value))]
+      (is (= ["docs/target.md"]
+             (mapv #(get-in % [:source :path])
+                   (inferred-docs
+                    ["target"]
+                    []
+                    [{:xt/id "chunk:target"
+                      :path "docs/target.md"
+                      :kind :markdown
+                      :label "Target notes"
+                      :text body-text
+                      :tokens ["target" "details" "large" "body"]
+                      :source-line 1}]
+                    []
+                    900)))))
+    (is (zero? @body-tokenizations))))
+
 (deftest diversify-docs-promotes-distinct-source-files
   (let [diversify-docs @#'context/diversify-docs
         docs (diversify-docs

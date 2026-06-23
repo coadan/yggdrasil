@@ -384,6 +384,17 @@
   [results]
   (into {} (map (juxt :target-id identity)) results))
 
+(defn- chunk-search-tokens
+  [chunk]
+  (if (seq (:tokens chunk))
+    (concat (text/tokenize (compact (:label chunk) (:path chunk)))
+            (:tokens chunk))
+    (text/tokenize (compact (:label chunk) (:path chunk) (:text chunk)))))
+
+(defn- capped-candidate-token-score
+  [query-tokens candidate-tokens]
+  (min 1.0 (text/token-score query-tokens candidate-tokens)))
+
 (defn- chunk-score
   [query-tokens
    selected-label-tokens
@@ -396,8 +407,8 @@
                                          result-scores-by-file-path
                                          chunk)
                  0.0))
-     (* 0.35 (capped-token-score query-tokens
-                                 (compact (:label chunk) (:path chunk) (:text chunk))))
+     (* 0.35 (capped-candidate-token-score query-tokens
+                                           (chunk-search-tokens chunk)))
      (* 0.45 (capped-token-score query-tokens
                                  (display-name (:definition-kind chunk))))
      (* 0.15 (min 1.0
