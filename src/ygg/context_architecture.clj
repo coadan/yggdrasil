@@ -574,7 +574,7 @@
 (def ^:private runtime-evidence-system-limit
   2)
 (def ^:private runtime-evidence-result-path-limit
-  20)
+  80)
 (defn- runtime-evidence-path-key
   [row]
   [(:repo row) (:path row)])

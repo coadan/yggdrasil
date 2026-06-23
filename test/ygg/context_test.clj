@@ -1951,6 +1951,53 @@
                 (filter #(#{"db/init.sql" "ops/auth.sql"} %))
                 set)))))
 
+(deftest runtime-evidence-preserves-lower-ranked-candidate-path-coverage
+  (let [noise-results (mapv (fn [idx]
+                              {:repo-id "app"
+                               :path (str "noise/path-" idx ".sql")
+                               :score (- 10.0 idx)})
+                            (range 1 25))
+        runtime-evidence (#'context/select-system-evidence
+                          ["trigger" "owner"]
+                          []
+                          (conj noise-results
+                                {:repo-id "app"
+                                 :path "db/init.sql"
+                                 :score 1.0})
+                          [{:xt/id "evidence:noise-a"
+                            :system-id "system:noise"
+                            :repo-id "app"
+                            :path "noise/a.sql"
+                            :file-kind :sql
+                            :kind :sql-security
+                            :label "trigger owner setup"
+                            :normalized-value "trigger-owner-setup"
+                            :source-line 10
+                            :confidence 0.68}
+                           {:xt/id "evidence:noise-b"
+                            :system-id "system:noise"
+                            :repo-id "app"
+                            :path "noise/b.sql"
+                            :file-kind :sql
+                            :kind :sql-security
+                            :label "trigger owner helper"
+                            :normalized-value "trigger-owner-helper"
+                            :source-line 11
+                            :confidence 0.68}
+                           {:xt/id "evidence:init-security"
+                            :system-id "system:db"
+                            :repo-id "app"
+                            :path "db/init.sql"
+                            :file-kind :sql
+                            :kind :sql-security
+                            :label "SECURITY DEFINER"
+                            :normalized-value "security-definer"
+                            :source-line 12
+                            :confidence 0.68}]
+                          2)]
+    (is (contains? (set (map :id runtime-evidence))
+                   "evidence:init-security"))))
+
 (deftest runtime-evidence-boosts-files-sharing-selected-fact-values
   (let [runtime-evidence (#'context/select-system-evidence
                           ["database" "runtime" "config" "env"]
@@ -2316,7 +2363,8 @@
                         :repo-id "app"
                         :path "src/other.clj"
                         :kind :clojure
-                        :active? true}])))]
+                        :active? true}])))
+                query/edges-touching-node-ids (fn [& _] [])]
     (let [rows (#'context/source-graph-candidates
                 :xtdb
                 (text/tokenize-all "Astro config bootstrap")
@@ -2361,6 +2409,101 @@
                                     :repo])
                    (:file by-kind)))))))
 
+(deftest source-graph-candidates-include-bounded-neighbor-endpoint-files
+  (with-redefs [store/xtdb-handle? (constantly true)
+                store/rows-matching-any-token
+                (fn [_ table fields tokens constraints ctx]
+                  (is (= {:valid-at "t"} ctx))
+                  (is (= #{"theme" "docs" "route"} (set tokens)))
+                  (case table
+                    :ygg/nodes
+                    (do
+                      (is (= [:path :label :name :kind] fields))
+                      (is (= {:project-id "fixture"
+                              :repo-id "app"}
+                             constraints))
+                      [{:xt/id "node:import:theme"
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :path "site/src/layouts/partials/BsThemes.astro"
+                        :kind :web-framework-import
+                        :label "@layouts/partials/BsThemes.astro"
+                        :source-line 4}])
+
+                    :ygg/files
+                    (do
+                      (is (= [:path :kind] fields))
+                      (is (= {:project-id "fixture"
+                              :repo-id "app"
+                              :active? true}
+                             constraints))
+                      [])))
+                query/edges-touching-node-ids
+                (fn [_ ids opts]
+                  (is (= #{"node:import:theme"} (set ids)))
+                  (is (= {:project-id "fixture"
+                          :repo-id "app"
+                          :read-context {:valid-at "t"}}
+                         opts))
+                  [{:xt/id "edge:theme-route"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :source-id "node:import:theme"
+                    :target-id "node:route:examples"
+                    :relation :imports
+                    :active? true}])
+                query/nodes-by-ids
+                (fn [_ ids opts]
+                  (is (= #{"node:route:examples"} (set ids)))
+                  (is (= {:project-id "fixture"
+                          :repo-id "app"
+                          :read-context {:valid-at "t"}}
+                         opts))
+                  [{:xt/id "node:route:examples"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :path "site/src/pages/docs/[version]/examples/index.astro"
+                    :kind :web-framework-route
+                    :label "/docs/{version}/examples"
+                    :source-line 1
+                    :active? true}])]
+    (let [rows (#'context/source-graph-candidates
+                :xtdb
+                (text/tokenize-all "theme docs route")
+                {:project-id "fixture"
+                 :repo-id "app"
+                 :read-context {:valid-at "t"}})
+          neighbor (some #(when (= "site/src/pages/docs/[version]/examples/index.astro"
+                                   (:path %))
+                            %)
+                         rows)]
+      (is (= {:path "site/src/pages/docs/[version]/examples/index.astro"
+              :target-kind :node
+              :target-id "node:route:examples"
+              :label "/docs/{version}/examples"
+              :kind :web-framework-route
+              :result-kind :node
+              :reason "graph-neighbor source row"
+              :repo-id "app"
+              :repo "app"
+              :source-line 1
+              :supportLabels ["@layouts/partials/BsThemes.astro"]}
+             (select-keys neighbor
+                          [:path
+                           :target-kind
+                           :target-id
+                           :label
+                           :kind
+                           :result-kind
+                           :reason
+                           :repo-id
+                           :repo
+                           :source-line
+                           :supportLabels])))
+      (is (pos? (:score neighbor)))
+      (is (= (:score neighbor)
+             (get-in neighbor [:score-components :sourceGraph]))))))
+
 (deftest source-graph-candidates-preserve-file-lane-when-nodes-dominate
   (with-redefs [store/xtdb-handle? (constantly true)
                 store/rows-matching-any-token
@@ -2386,7 +2529,8 @@
                       :repo-id "app"
                       :path "lib/adapters/http.js"
                       :kind :javascript
-                      :active? true}]))]
+                      :active? true}]))
+                query/edges-touching-node-ids (fn [& _] [])]
     (let [rows (#'context/source-graph-candidates
                 :xtdb
                 (text/tokenize-all "http adapter")
@@ -2411,7 +2555,8 @@
                                            idx)
                              :kind :javascript
                              :active? true})
-                          (range 45))))]
+                          (range 45))))
+                query/edges-touching-node-ids (fn [& _] [])]
     (let [rows (#'context/source-graph-candidates
                 :xtdb
                 (text/tokenize-all "http adapter")
@@ -2438,6 +2583,7 @@
                       :path "src/contract.go"
                       :kind :go
                       :active? true}]))
+                query/edges-touching-node-ids (fn [& _] [])
                 graph/system-graph (fn [_ project-id _]
                                      {:basis {:project-id project-id}
                                       :nodes []
@@ -2552,6 +2698,7 @@
                       :label "bootstrap setup"
                       :source-line 12}]
                     :ygg/files []))
+                query/edges-touching-node-ids (fn [& _] [])
                 graph/system-graph (fn [_ project-id _]
                                      {:basis {:project-id project-id}
                                       :nodes []

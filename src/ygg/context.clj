@@ -45,6 +45,25 @@
 (def ^:private source-graph-file-candidate-limit
   80)
 
+(def ^:private source-graph-neighbor-scan-limit
+  160)
+
+(def ^:private source-graph-neighbor-seed-limit
+  96)
+
+(def ^:private source-graph-neighbor-candidate-limit
+  40)
+
+(def ^:private source-graph-neighbor-support-boost
+  1.0)
+
+(def ^:private source-graph-neighbor-score-cap
+  4.8)
+
+(defn- active-row?
+  [row]
+  (not= false (:active? row)))
+
 (def ^:private candidate-input-root-diversity-limit
   8)
 
@@ -975,6 +994,13 @@
                          (:name row)
                          (:kind row)))))
 
+(defn- row-id
+  [row]
+  (or (:xt/id row)
+      (:id row)
+      (:_id row)
+      (get row "_id")))
+
 (defn- source-graph-candidate-row
   [query-tokens row]
   (let [path (not-empty (str (:path row)))
@@ -986,6 +1012,7 @@
                  :rank 0
                  :score score
                  :target-kind (if file-row? :file :node)
+                 :target-id (row-id row)
                  :label (or (:label row) path)
                  :kind (:kind row)
                  :result-kind (if file-row? :file :node)
@@ -1008,6 +1035,98 @@
        (map-indexed #(assoc %2 :rank (inc %1)))
        vec))
 
+(defn- source-graph-neighbor-id
+  [seed-ids {:keys [source-id target-id]}]
+  (cond
+    (and (contains? seed-ids source-id)
+         (not (contains? seed-ids target-id)))
+    target-id
+
+    (and (contains? seed-ids target-id)
+         (not (contains? seed-ids source-id)))
+    source-id))
+
+(defn- source-graph-neighbor-score
+  [seed edge]
+  (min source-graph-neighbor-score-cap
+       (+ (double (or (:score seed) 0.0))
+          source-graph-neighbor-support-boost
+          (double (get query/relation-graph-weights (:relation edge) 0.25)))))
+
+(defn- source-graph-neighbor-row
+  [node score support-labels]
+  (when-let [path (not-empty (str (:path node)))]
+    (let [support-labels (->> support-labels
+                              (remove str/blank?)
+                              distinct
+                              (take 4)
+                              vec)]
+      (cond-> {:path path
+               :rank 0
+               :score score
+               :target-kind :node
+               :target-id (:xt/id node)
+               :label (or (:label node) path)
+               :kind (:kind node)
+               :result-kind :node
+               :reason "graph-neighbor source row"
+               :score-components {:sourceGraph score}}
+        (:repo-id node) (assoc :repo-id (:repo-id node)
+                               :repo (:repo-id node))
+        (:source-line node) (assoc :source-line (:source-line node))
+        (:end-line node) (assoc :end-line (:end-line node))
+        (seq support-labels) (assoc :supportLabels support-labels)))))
+
+(defn- source-graph-neighbor-candidates
+  [xtdb seed-candidates scope]
+  (let [seeds (->> seed-candidates
+                   (filter #(= :node (:target-kind %)))
+                   (filter :target-id)
+                   (take source-graph-neighbor-seed-limit)
+                   vec)
+        seed-by-id (into {} (map (juxt :target-id identity)) seeds)
+        seed-ids (set (keys seed-by-id))]
+    (if (empty? seed-ids)
+      []
+      (let [edges (->> (query/edges-touching-node-ids xtdb seed-ids scope)
+                       (filter active-row?)
+                       vec)
+            candidate-state
+            (reduce (fn [out edge]
+                      (if-let [neighbor-id (source-graph-neighbor-id seed-ids edge)]
+                        (let [seed-id (if (contains? seed-ids (:source-id edge))
+                                        (:source-id edge)
+                                        (:target-id edge))
+                              seed (get seed-by-id seed-id)
+                              score (source-graph-neighbor-score seed edge)]
+                          (-> out
+                              (update-in [neighbor-id :score]
+                                         #(max (double (or % 0.0)) score))
+                              (update-in [neighbor-id :support-labels]
+                                         (fnil conj [])
+                                         (:label seed))))
+                        out))
+                    {}
+                    edges)]
+        (if-not (seq candidate-state)
+          []
+          (let [nodes-by-id (into {}
+                                  (map (juxt :xt/id identity))
+                                  (query/nodes-by-ids xtdb
+                                                      (keys candidate-state)
+                                                      scope))]
+            (->> candidate-state
+                 (keep (fn [[node-id {:keys [score support-labels]}]]
+                         (when-let [node (get nodes-by-id node-id)]
+                           (source-graph-neighbor-row node score support-labels))))
+                 (sort-by (juxt (comp - :score)
+                                :repo-id
+                                :path
+                                :label))
+                 (take source-graph-neighbor-candidate-limit)
+                 (map-indexed #(assoc %2 :rank (inc %1)))
+                 vec)))))))
+
 (def ^:private source-graph-node-token-fields
   [:path :label :name :kind])
 
@@ -1023,18 +1142,26 @@
   [xtdb query-tokens {:keys [project-id repo-id read-context]}]
   (if-not (store/xtdb-handle? xtdb)
     []
-    (let [constraints (source-graph-scope-constraints project-id repo-id)]
+    (let [constraints (source-graph-scope-constraints project-id repo-id)
+          matched-node-candidates (ranked-source-graph-candidates
+                                   query-tokens
+                                   (store/rows-matching-any-token
+                                    xtdb
+                                    (:nodes store/tables)
+                                    source-graph-node-token-fields
+                                    query-tokens
+                                    constraints
+                                    read-context)
+                                   source-graph-neighbor-scan-limit)
+          node-candidates (vec (take source-graph-candidate-limit
+                                     matched-node-candidates))
+          scope {:project-id project-id
+                 :repo-id repo-id
+                 :read-context read-context}]
       (vec
        (concat
-        (ranked-source-graph-candidates query-tokens
-                                        (store/rows-matching-any-token
-                                         xtdb
-                                         (:nodes store/tables)
-                                         source-graph-node-token-fields
-                                         query-tokens
-                                         constraints
-                                         read-context)
-                                        source-graph-candidate-limit)
+        node-candidates
+        (source-graph-neighbor-candidates xtdb matched-node-candidates scope)
         (ranked-source-graph-candidates query-tokens
                                         (store/rows-matching-any-token
                                          xtdb
@@ -1184,10 +1311,6 @@
     overlay overlay
     (and path (map-store/file-exists? path)) (map-store/read-map path)
     :else (graph-map/empty-map project-id)))
-
-(defn- active-row?
-  [row]
-  (not= false (:active? row)))
 
 (defn- count-scope-constraints
   [{:keys [project-id repo-id]}]
