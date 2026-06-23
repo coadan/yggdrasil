@@ -53,6 +53,14 @@
                                                        *command-line-args*)]
                              (System/exit exit))}
 
+  stage-time-gate {:doc "Validate completed benchmark stage timings from agent reports. Usage: bb stage-time-gate REPORT... [--max-case-stage-ms N] [--max-total-stage-ms N] [--stage NAME] [--out PATH]"
+                   :task (let [{:keys [exit]} (apply shell
+                                                     {:continue true}
+                                                     "python3"
+                                                     "scripts/stage-time-gate.py"
+                                                     *command-line-args*)]
+                           (System/exit exit))}
+
   bench:repos {:doc "Check local benchmark repo inputs. Usage: bb bench:repos check [--manifest PATH] [--suite PATH] [--repo ID] [--json]"
                :task (let [{:keys [exit]} (apply shell
                                                  {:continue true}

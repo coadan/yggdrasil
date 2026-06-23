@@ -8,7 +8,7 @@ DEFAULT_COMMAND="python3 \"$ROOT/scripts/codex-benchmark-agent.py\""
 
 usage() {
   cat <<'EOF'
-Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|prompt-token-check|token-check|compare|claim-pack|all [options]
+Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|prompt-token-check|stage-time-check|token-check|compare|claim-pack|all [options]
 
 Options:
   --suite PATH            Benchmark suite EDN. Default: benchmarks/headline.edn
@@ -20,6 +20,8 @@ Options:
   --case ID               Run one benchmark case.
   --cases IDS             Run comma-separated benchmark case ids.
   --max-total-tokens N    High-water token gate for each lane. Default: 999999999999.
+  --max-stage-elapsed-ms N
+                          Max completed stage ms for the deterministic baseline.
   --min-prompt-shared-cases N
                           Minimum shared cases for prompt-token-check. Default: 1.
   --skip-token-check      Skip token telemetry gates during all.
@@ -41,6 +43,8 @@ Commands:
   reports     Generate shell-only and Yggdrasil lane reports.
   prompt-token-check
               Check prompt-token reduction from existing prompt artifacts.
+  stage-time-check
+              Check completed stage timings from existing baseline reports.
   token-check Run token telemetry gates for both external lane reports.
   compare     Compare lane reports with bb efficiency.
   claim-pack  Write bundled efficiency, token, and improvement proof artifacts.
@@ -63,6 +67,7 @@ agent_command="$DEFAULT_COMMAND"
 prompt_profile="fast"
 timeout_ms=""
 max_total_tokens="999999999999"
+max_stage_elapsed_ms=""
 min_prompt_shared_cases="1"
 skip_token_check=false
 case_args=()
@@ -106,6 +111,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --max-total-tokens)
       max_total_tokens="$2"
+      shift 2
+      ;;
+    --max-stage-elapsed-ms)
+      max_stage_elapsed_ms="$2"
       shift 2
       ;;
     --min-prompt-shared-cases)
@@ -265,6 +274,17 @@ prompt_token_check() {
     --out "$gate_path"
 }
 
+stage_time_check() {
+  local report
+  report="$(report_path ygg-baseline)"
+  local args=("$ROOT/scripts/stage-time-gate.py" "$report" \
+    --out "$out/stage-time-gate.json")
+  if [[ -n "$max_stage_elapsed_ms" ]]; then
+    args+=(--max-case-stage-ms "$max_stage_elapsed_ms")
+  fi
+  run python3 "${args[@]}"
+}
+
 report_path() {
   local lane="$1"
   if [[ "$dry_run" == true ]]; then
@@ -320,6 +340,9 @@ case "$action" in
   prompt-token-check)
     prompt_token_check
     ;;
+  stage-time-check)
+    stage_time_check
+    ;;
   token-check)
     token_check
     ;;
@@ -337,6 +360,9 @@ case "$action" in
     if [[ "$skip_token_check" != true ]]; then
       prompt_token_check
       token_check
+    fi
+    if [[ -n "$max_stage_elapsed_ms" ]]; then
+      stage_time_check
     fi
     claim_pack
     ;;

@@ -110,7 +110,7 @@
   (let [result (run-headline "--help")]
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result)
-                       "baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|prompt-token-check|token-check|compare|claim-pack|all"))
+                       "baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|prompt-token-check|stage-time-check|token-check|compare|claim-pack|all"))
     (is (str/includes? (:out result) "--dry-run"))))
 
 (deftest dry-run-prints-prompt-token-check-workflow
@@ -132,6 +132,35 @@
     (is (str/includes? (nth lines 1) "--min-shared-cases 5"))
     (is (str/includes? (nth lines 1)
                        "--out .dev/ygg/headline-bench/custom/prompt-token-gate.json"))))
+
+(deftest dry-run-prints-stage-time-check-workflow
+  (let [result (run-headline "stage-time-check"
+                             "--dry-run"
+                             "--suite" "benchmarks/custom-headline.edn"
+                             "--out" ".dev/ygg/headline-bench/custom"
+                             "--max-stage-elapsed-ms" "120000")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 1 (count lines)))
+    (is (str/includes? (nth lines 0) "scripts/stage-time-gate.py"))
+    (is (str/includes? (nth lines 0)
+                       ".dev/ygg/headline-bench/custom/ygg-baseline/\\*/agent-report.json"))
+    (is (str/includes? (nth lines 0) "--max-case-stage-ms 120000"))
+    (is (str/includes? (nth lines 0)
+                       "--out .dev/ygg/headline-bench/custom/stage-time-gate.json"))))
+
+(deftest dry-run-all-runs-stage-time-check-when-threshold-is-set
+  (let [result (run-headline "all"
+                             "--dry-run"
+                             "--suite" "benchmarks/custom-headline.edn"
+                             "--out" ".dev/ygg/headline-bench/custom"
+                             "--max-stage-elapsed-ms" "120000")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 12 (count lines)))
+    (is (str/includes? (nth lines 10) "scripts/stage-time-gate.py"))
+    (is (str/includes? (nth lines 11)
+                       "bb bench claim-pack benchmarks/custom-headline.edn"))))
 
 (deftest dry-run-prints-codebase-memory-workflow
   (let [result (run-headline "codebase-memory"
