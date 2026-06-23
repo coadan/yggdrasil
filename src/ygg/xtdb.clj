@@ -1264,6 +1264,14 @@
        (= (:source row) (:source existing))
        (= (:project-id row) (:project-id existing))))
 
+(def ^:private metadata-replacement-row-fields
+  [:xt/id
+   :project-id
+   :target-id
+   :key
+   :source
+   :active?])
+
 (defn- existing-metadata-by-target
   [xtdb rows ctx]
   (let [target-ids (->> rows
@@ -1277,7 +1285,7 @@
             {:table (:metadata tables)
              :field :target-id
              :values target-ids
-             :return-fields metadata-row-query-fields
+             :return-fields metadata-replacement-row-fields
              :read-context ctx})
            (filter #(not= false (:active? %)))
            (group-by :target-id)))))

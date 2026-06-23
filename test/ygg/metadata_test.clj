@@ -159,9 +159,10 @@
     (is (= {:table (:metadata store/tables)
             :field :target-id
             :values ["target:a" "target:b"]
+            :return-fields @#'store/metadata-replacement-row-fields
             :read-context {:valid-at t2}}
            (select-keys (first @calls)
-                        [:table :field :values :read-context])))
+                        [:table :field :values :return-fields :read-context])))
     (is (not-any? #{'*} (:return-fields (first @calls))))
     (is (= ["metadata:old-a" "metadata:old-b"]
            (->> @tx-ops
