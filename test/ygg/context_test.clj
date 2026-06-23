@@ -131,6 +131,24 @@
                     900)))))
     (is (zero? @body-tokenizations))))
 
+(deftest select-entities-reuses-node-result-match
+  (let [select-entities @#'context/select-entities
+        match-calls (atom 0)]
+    (with-redefs-fn {#'context/result-matches-node? (fn [_result _node]
+                                                      (swap! match-calls inc)
+                                                      true)}
+      (fn []
+        (let [entities (select-entities
+                        ["target"]
+                        [{:target-id "node:target"
+                          :score 1.0}]
+                        {:nodes [{:id "node:target"
+                                  :label "Target"
+                                  :kind "candidate-system"}]}
+                        5)]
+          (is (= ["retrieval and graph match"] (mapv :why entities)))
+          (is (= 1 @match-calls)))))))
+
 (deftest diversify-docs-promotes-distinct-source-files
   (let [diversify-docs @#'context/diversify-docs
         docs (diversify-docs

@@ -186,13 +186,21 @@
                (nil? (:repo-id result))
                (= (:repo node) (:repo-id result))))))
 
+(defn- node-result-match
+  [results node]
+  (reduce (fn [match result]
+            (if (result-matches-node? result node)
+              {:matched? true
+               :score (max (double (:score match))
+                           (double (or (:score result) 0.0)))}
+              match))
+          {:matched? false
+           :score 0.0}
+          results))
+
 (defn- entity-score
-  [query-tokens results node]
-  (let [result-score (->> results
-                          (filter #(result-matches-node? % node))
-                          (map :score)
-                          (reduce max 0.0))
-        lexical-score (token-score query-tokens
+  [query-tokens result-match node]
+  (let [lexical-score (token-score query-tokens
                                    (compact (:label node)
                                             (:kind node)
                                             (:repo node)
@@ -201,13 +209,17 @@
                                             (pr-str (:attrs node))
                                             (str/join " " (:tags node))
                                             (pr-str (:metrics node))))]
-    (+ result-score (* 0.25 lexical-score))))
+    (+ (:score result-match) (* 0.25 lexical-score))))
 
 (defn- select-entities
   [query-tokens results graph-data limit]
   (->> (:nodes graph-data)
        (remove #(= "repo" (:kind %)))
-       (map #(assoc % :context-score (entity-score query-tokens results %)))
+       (map (fn [node]
+              (let [result-match (node-result-match results node)]
+                (assoc node
+                       :context-score (entity-score query-tokens result-match node)
+                       :result-match? (:matched? result-match)))))
        (filter #(pos? (:context-score %)))
        (sort-by (juxt (comp - :context-score) :label))
        (take limit)
@@ -221,7 +233,7 @@
                         :clusterId (:clusterId node)
                         :clusterLabel (:clusterLabel node)
                         :score (double (:context-score node))
-                        :why (if (some #(result-matches-node? % node) results)
+                        :why (if (:result-match? node)
                                "retrieval and graph match"
                                "graph label match")}
                  (:attrs node) (assoc :attrs (:attrs node))
