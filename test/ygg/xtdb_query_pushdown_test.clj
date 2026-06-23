@@ -714,6 +714,45 @@
       (is (some #{:metrics} (:return-fields call)))
       (is (not-any? #{'*} (:return-fields call))))))
 
+(deftest commit-activity-uses-projected-source-id-reads
+  (let [calls (atom [])
+        tx-ops (atom nil)]
+    (with-redefs [store/ordered-rows
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    (case (:table request)
+                      :ygg/activity-items [{:xt/id "activity-item:old"}]
+                      :ygg/activity-events [{:xt/id "activity-event:old"}]))
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "activity replacement should not hydrate full existing rows"
+                                    {})))
+                  store/execute-tx!
+                  (fn [_ ops]
+                    (reset! tx-ops ops))]
+      (is (= {:items 0
+              :events 0
+              :deleted-items 1
+              :deleted-events 1}
+             (activity/commit-activity! :xtdb
+                                        {:project-id "project-a"
+                                         :source :queue
+                                         :items []
+                                         :events []}))))
+    (is (= [{:table (:activity-items store/tables)
+             :constraints {:project-id "project-a"
+                           :source :queue}
+             :return-fields [:xt/id]}
+            {:table (:activity-events store/tables)
+             :constraints {:project-id "project-a"
+                           :source :queue}
+             :return-fields [:xt/id]}]
+           (mapv #(select-keys % [:table :constraints :return-fields])
+                 @calls)))
+    (is (= [[:delete-docs (:activity-items store/tables) "activity-item:old"]
+            [:delete-docs (:activity-events store/tables) "activity-event:old"]]
+           @tx-ops))))
+
 (deftest active-row-count-pushes-active-unless-false-filter
   (let [calls (atom [])]
     (with-redefs [store/q

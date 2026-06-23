@@ -348,32 +348,35 @@
         (map validate-event)
         vec)))
 
-(defn- rows-for-source
+(defn- row-ids-for-source
   [xtdb table project-id source]
-  (vec (store/constrained-rows xtdb
-                               table
-                               {:project-id project-id
-                                :source source})))
+  (mapv :xt/id
+        (store/ordered-rows
+         xtdb
+         {:table table
+          :constraints {:project-id project-id
+                        :source source}
+          :return-fields [:xt/id]})))
 
 (defn commit-activity!
   "Replace durable activity rows for one project/source."
   [xtdb {:keys [project-id source items events]}]
   (let [source (keyword source)
-        existing-items (rows-for-source xtdb (:activity-items store/tables) project-id source)
-        existing-events (rows-for-source xtdb (:activity-events store/tables) project-id source)
+        existing-item-ids (row-ids-for-source xtdb (:activity-items store/tables) project-id source)
+        existing-event-ids (row-ids-for-source xtdb (:activity-events store/tables) project-id source)
         items (map validate-item items)
         events (map validate-event events)
         ops (vec
              (concat
-              (map #(store/delete-op (:activity-items store/tables) (:xt/id %)) existing-items)
-              (map #(store/delete-op (:activity-events store/tables) (:xt/id %)) existing-events)
+              (map #(store/delete-op (:activity-items store/tables) %) existing-item-ids)
+              (map #(store/delete-op (:activity-events store/tables) %) existing-event-ids)
               (map #(store/put-op (:activity-items store/tables) %) items)
               (map #(store/put-op (:activity-events store/tables) %) events)))]
     (store/execute-tx! xtdb ops)
     {:items (count items)
      :events (count events)
-     :deleted-items (count existing-items)
-     :deleted-events (count existing-events)}))
+     :deleted-items (count existing-item-ids)
+     :deleted-events (count existing-event-ids)}))
 
 (defn- mismatch-summary
   [item]
