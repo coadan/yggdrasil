@@ -8,6 +8,7 @@
             [ygg.query :as query]
             [ygg.text :as text]
             [ygg.xtdb :as store]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (defn- empty-dependency-report
@@ -25,6 +26,16 @@
    :declared-without-import-evidence []
    :unresolved-imports []
    :version-conflicts []})
+
+(deftest architecture-token-score-lowercases-text-once
+  (let [token-score @#'context-architecture/token-score
+        lower-case str/lower-case
+        calls (atom 0)]
+    (with-redefs [str/lower-case (fn [value]
+                                   (swap! calls inc)
+                                   (lower-case value))]
+      (is (= 2 (token-score ["proxy" "env" "missing"] "Proxy ENV"))))
+    (is (= 1 @calls))))
 
 (def plugin-package-fixture
   {:id "datastar-hiccup"

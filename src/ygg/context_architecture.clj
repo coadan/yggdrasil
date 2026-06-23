@@ -29,7 +29,8 @@
 
 (defn- token-score
   [query-tokens text]
-  (count (filter #(str/includes? (str/lower-case (str text)) %) query-tokens)))
+  (let [text (str/lower-case (str text))]
+    (count (filter #(str/includes? text %) query-tokens))))
 
 (defn- capped-token-score
   [query-tokens text]
