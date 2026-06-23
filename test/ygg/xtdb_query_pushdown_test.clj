@@ -289,6 +289,104 @@
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
            @calls))))
 
+(deftest nodes-by-file-ids-and-paths-use-batched-value-queries
+  (let [calls (atom [])]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    (case (:field request)
+                      :file-id [{:xt/id "node:file"
+                                 :project-id "project-a"
+                                 :repo-id "app"
+                                 :file-id "file:app"
+                                 :active? true}]
+                      :path [{:xt/id "node:path"
+                              :project-id "project-a"
+                              :repo-id "app"
+                              :path "src/app.clj"
+                              :active? true}]))
+                  query/all-nodes
+                  (fn [& _]
+                    (throw (ex-info "all-nodes should not be used for batched node reads"
+                                    {})))]
+      (is (= ["node:file"]
+             (mapv :xt/id
+                   (query/nodes-by-file-ids
+                    {:node :stub}
+                    ["file:app" "file:app"]
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"}))))
+      (is (= ["node:path"]
+             (mapv :xt/id
+                   (query/nodes-by-paths
+                    {:node :stub}
+                    ["src/app.clj"]
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= [[:file-id ["file:app"]]
+            [:path ["src/app.clj"]]]
+           (mapv (juxt :field :values) @calls)))
+    (is (every? #(= {:project-id "project-a"
+                     :repo-id "app"}
+                    (:constraints %))
+                @calls))
+    (is (every? #(= {:valid-at #inst "2026-01-01T00:00:00Z"}
+                    (:read-context %))
+                @calls))
+    (is (every? #(not-any? #{'*} (:return-fields %)) @calls))))
+
+(deftest edges-by-file-ids-and-paths-use-batched-value-queries
+  (let [calls (atom [])]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    (case (:field request)
+                      :file-id [{:xt/id "edge:file"
+                                 :project-id "project-a"
+                                 :repo-id "app"
+                                 :file-id "file:app"
+                                 :active? true}]
+                      :path [{:xt/id "edge:path"
+                              :project-id "project-a"
+                              :repo-id "app"
+                              :path "src/app.clj"
+                              :active? true}]))
+                  query/all-edges
+                  (fn [& _]
+                    (throw (ex-info "all-edges should not be used for batched edge reads"
+                                    {})))]
+      (is (= ["edge:file"]
+             (mapv :xt/id
+                   (query/edges-by-file-ids
+                    {:node :stub}
+                    ["file:app"]
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"}))))
+      (is (= ["edge:path"]
+             (mapv :xt/id
+                   (query/edges-by-paths
+                    {:node :stub}
+                    ["src/app.clj"]
+                    {:project-id "project-a"
+                     :repo-id "app"
+                     :valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= [[:file-id ["file:app"]]
+            [:path ["src/app.clj"]]]
+           (mapv (juxt :field :values) @calls)))
+    (is (every? #(= {:project-id "project-a"
+                     :repo-id "app"}
+                    (:constraints %))
+                @calls))
+    (is (every? #(= {:valid-at #inst "2026-01-01T00:00:00Z"}
+                    (:read-context %))
+                @calls))
+    (is (every? #(not-any? #{'*} (:return-fields %)) @calls))
+    (is (every? #(some #{:file-id} (:return-fields %)) @calls))
+    (is (every? #(some #{:source-line} (:return-fields %)) @calls))))
+
 (deftest count-rows-uses-sql-count-for-xtdb-handles
   (let [calls (atom [])]
     (with-redefs [store/q

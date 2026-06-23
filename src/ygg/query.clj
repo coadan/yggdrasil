@@ -94,7 +94,7 @@
            [[] #{}]
            coll)))
 
-(declare all-nodes all-system-nodes)
+(declare all-nodes all-edges all-system-nodes)
 
 (def ^:private node-row-query-fields
   [:xt/id
@@ -176,6 +176,29 @@
    :active?
    :run-id])
 
+(def ^:private edge-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :source-id
+   :target-id
+   :relation
+   :confidence
+   :ecosystem
+   :package-name
+   :version-range
+   :resolved-version
+   :dependency-scope
+   :import-name
+   :import-kind
+   :resolution-source
+   :source-kind
+   :file-id
+   :path
+   :source-line
+   :active?
+   :run-id])
+
 (def ^:private path-system-edge-row-query-fields
   [:xt/id
    :project-id
@@ -229,6 +252,40 @@
   [xtdb ids opts]
   (rows-by-ids xtdb (:nodes store/tables) ids opts all-nodes node-row-query-fields))
 
+(defn- rows-by-field-values
+  [xtdb table field values opts return-fields]
+  (let [values (distinct-by identity values)
+        rows (store/rows-with-field-values
+              xtdb
+              {:table table
+               :field field
+               :values values
+               :constraints (scope-constraints opts)
+               :return-fields return-fields
+               :read-context (read-context opts)})
+        rows-by-value (group-by field (filter-scope rows opts))]
+    (mapcat #(get rows-by-value % []) values)))
+
+(defn nodes-by-file-ids
+  "Return node rows for concrete file ids within the requested scope."
+  [xtdb file-ids opts]
+  (rows-by-field-values xtdb
+                        (:nodes store/tables)
+                        :file-id
+                        file-ids
+                        opts
+                        node-row-query-fields))
+
+(defn nodes-by-paths
+  "Return node rows for concrete file paths within the requested scope."
+  [xtdb paths opts]
+  (rows-by-field-values xtdb
+                        (:nodes store/tables)
+                        :path
+                        paths
+                        opts
+                        node-row-query-fields))
+
 (defn system-nodes-by-ids
   "Return active system node rows for concrete ids within the requested scope."
   [xtdb ids opts]
@@ -259,6 +316,26 @@
   ([xtdb] (all-edges xtdb {}))
   ([xtdb opts]
    (scoped-rows xtdb (:edges store/tables) opts)))
+
+(defn edges-by-file-ids
+  "Return source graph edge rows for concrete file ids within scope."
+  [xtdb file-ids opts]
+  (rows-by-field-values xtdb
+                        (:edges store/tables)
+                        :file-id
+                        file-ids
+                        opts
+                        edge-row-query-fields))
+
+(defn edges-by-paths
+  "Return source graph edge rows for concrete file paths within scope."
+  [xtdb paths opts]
+  (rows-by-field-values xtdb
+                        (:edges store/tables)
+                        :path
+                        paths
+                        opts
+                        edge-row-query-fields))
 
 (defn all-chunks
   ([xtdb] (all-chunks xtdb {}))

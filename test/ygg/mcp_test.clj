@@ -332,6 +332,16 @@
                   :source-line 1
                   :active? true
                   :run-id "run"}
+        dep-row {:xt/id "node:app:dep"
+                 :project-id "fixture"
+                 :repo-id "app"
+                 :label "app/dep"
+                 :kind :namespace
+                 :file-id (:xt/id file-row)
+                 :path "src/app.clj"
+                 :source-line 2
+                 :active? true
+                 :run-id "run"}
         edge-row {:xt/id "edge:main:dep"
                   :project-id "fixture"
                   :repo-id "app"
@@ -356,20 +366,52 @@
                                      []))
                   query/all-nodes (fn [_ opts]
                                     (is (= "fixture" (:project-id opts)))
-                                    [node-row {:xt/id "node:app:dep"
-                                               :project-id "fixture"
-                                               :repo-id "app"
-                                               :label "app/dep"
-                                               :kind :namespace
-                                               :file-id (:xt/id file-row)
-                                               :path "src/app.clj"
-                                               :source-line 2
-                                               :active? true
-                                               :run-id "run"}])
-                  query/all-system-evidence (fn [_ _] [])
-                  query/all-edges (fn [_ opts]
-                                    (is (= "fixture" (:project-id opts)))
-                                    [edge-row])]
+                                    [node-row dep-row])
+                  query/system-evidence-by-ids (fn [_ ids opts]
+                                                 (is (= ["app:src/app.clj"] ids))
+                                                 (is (= "fixture" (:project-id opts)))
+                                                 [])
+                  query/all-system-evidence (fn [& _]
+                                              (throw (ex-info "broad system evidence read should not be used"
+                                                              {})))
+                  query/nodes-by-file-ids (fn [_ file-ids opts]
+                                            (is (= [(:xt/id file-row)] file-ids))
+                                            (is (= {:project-id "fixture"
+                                                    :repo-id "app"}
+                                                   opts))
+                                            [node-row dep-row])
+                  query/nodes-by-paths (fn [_ paths opts]
+                                         (is (= ["src/app.clj"] paths))
+                                         (is (= {:project-id "fixture"
+                                                 :repo-id "app"}
+                                                opts))
+                                         [])
+                  query/edges-by-file-ids (fn [_ file-ids opts]
+                                            (is (= [(:xt/id file-row)] file-ids))
+                                            (is (= {:project-id "fixture"
+                                                    :repo-id "app"}
+                                                   opts))
+                                            [edge-row])
+                  query/edges-by-paths (fn [_ paths opts]
+                                         (is (= ["src/app.clj"] paths))
+                                         (is (= {:project-id "fixture"
+                                                 :repo-id "app"}
+                                                opts))
+                                         [])
+                  query/edges-touching-node-ids (fn [_ ids opts]
+                                                  (is (= #{(:xt/id node-row)
+                                                           (:xt/id dep-row)}
+                                                         (set ids)))
+                                                  (is (= {:project-id "fixture"} opts))
+                                                  [])
+                  query/nodes-by-ids (fn [_ ids opts]
+                                       (is (= #{"node:app:main" "node:app:dep"}
+                                              (set ids)))
+                                       (is (= {:project-id "fixture"} opts))
+                                       [node-row dep-row])
+                  query/all-edges (fn [& _]
+                                    (throw (ex-info "broad edge read should not be used"
+                                                    {})))]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"])
                       (tool-call 13
@@ -655,8 +697,51 @@
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
                   query/all-nodes (fn [_ _] [package-row source-row])
-                  query/all-system-evidence (fn [_ _] [])
-                  query/all-edges (fn [_ _] [edge-row])]
+                  query/system-evidence-by-ids (fn [_ ids opts]
+                                                 (is (= ["npm:react"] ids))
+                                                 (is (= {:project-id "fixture"} opts))
+                                                 [])
+                  query/nodes-by-file-ids (fn [_ file-ids opts]
+                                            (is (= ["file:package-lock"] file-ids))
+                                            (is (= {:project-id "fixture"
+                                                    :repo-id "app"}
+                                                   opts))
+                                            [package-row])
+                  query/nodes-by-paths (fn [_ paths opts]
+                                         (is (= ["package-lock.json"] paths))
+                                         (is (= {:project-id "fixture"
+                                                 :repo-id "app"}
+                                                opts))
+                                         [])
+                  query/edges-by-file-ids (fn [_ file-ids opts]
+                                            (is (= ["file:package-lock"] file-ids))
+                                            (is (= {:project-id "fixture"
+                                                    :repo-id "app"}
+                                                   opts))
+                                            [])
+                  query/edges-by-paths (fn [_ paths opts]
+                                         (is (= ["package-lock.json"] paths))
+                                         (is (= {:project-id "fixture"
+                                                 :repo-id "app"}
+                                                opts))
+                                         [])
+                  query/edges-touching-node-ids (fn [_ ids opts]
+                                                  (is (= #{(:xt/id package-row)}
+                                                         (set ids)))
+                                                  (is (= {:project-id "fixture"} opts))
+                                                  [edge-row])
+                  query/nodes-by-ids (fn [_ ids opts]
+                                       (is (= #{"node:pkg:npm:react"
+                                                "node:src:app"}
+                                              (set ids)))
+                                       (is (= {:project-id "fixture"} opts))
+                                       [package-row source-row])
+                  query/all-system-evidence (fn [& _]
+                                              (throw (ex-info "broad system evidence read should not be used"
+                                                              {})))
+                  query/all-edges (fn [& _]
+                                    (throw (ex-info "broad edge read should not be used"
+                                                    {})))]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"])
                       (tool-call 17
@@ -760,8 +845,45 @@
                                      [file-row]
                                      []))
                   query/all-nodes (fn [_ _] [])
-                  query/all-system-evidence (fn [_ _] [evidence-row])
-                  query/all-edges (fn [_ _] [edge-row])
+                  query/system-evidence-by-ids (fn [_ ids opts]
+                                                 (is (= ["evidence:runtime-url"] ids))
+                                                 (is (= {:project-id "fixture"} opts))
+                                                 [evidence-row])
+                  query/nodes-by-file-ids (fn [_ file-ids opts]
+                                            (is (= [(:xt/id file-row)] file-ids))
+                                            (is (= {:project-id "fixture"
+                                                    :repo-id "app"}
+                                                   opts))
+                                            [])
+                  query/nodes-by-paths (fn [_ paths opts]
+                                         (is (= ["src/runtime.edn"] paths))
+                                         (is (= {:project-id "fixture"
+                                                 :repo-id "app"}
+                                                opts))
+                                         [])
+                  query/edges-by-file-ids (fn [_ file-ids opts]
+                                            (is (= [(:xt/id file-row)] file-ids))
+                                            (is (= {:project-id "fixture"
+                                                    :repo-id "app"}
+                                                   opts))
+                                            [edge-row])
+                  query/edges-by-paths (fn [_ paths opts]
+                                         (is (= ["src/runtime.edn"] paths))
+                                         (is (= {:project-id "fixture"
+                                                 :repo-id "app"}
+                                                opts))
+                                         [])
+                  query/nodes-by-ids (fn [_ ids opts]
+                                       (is (= #{"node:runtime" "node:config"}
+                                              (set ids)))
+                                       (is (= {:project-id "fixture"} opts))
+                                       [])
+                  query/all-system-evidence (fn [& _]
+                                              (throw (ex-info "broad system evidence read should not be used"
+                                                              {})))
+                  query/all-edges (fn [& _]
+                                    (throw (ex-info "broad edge read should not be used"
+                                                    {})))
                   graph/system-graph (fn [xtdb project-id opts]
                                        (is (= :xtdb xtdb))
                                        (is (= "fixture" project-id))

@@ -753,23 +753,69 @@
                %)
             files)))
 
+(defn- relationship-row-scope
+  [project-id row]
+  (cond-> {:project-id project-id}
+    (:repo-id row) (assoc :repo-id (:repo-id row))))
+
+(defn- project-scope
+  [project-id]
+  {:project-id project-id})
+
+(defn- match-file-id
+  [{:keys [target-kind row]}]
+  (case target-kind
+    :file (:xt/id row)
+    (:file-id row)))
+
+(defn- relationship-file-nodes
+  [xtdb project-id match]
+  (let [row (:row match)
+        scope (relationship-row-scope project-id row)]
+    (->> (concat (when-let [file-id (match-file-id match)]
+                   (query/nodes-by-file-ids xtdb [file-id] scope))
+                 (when-let [path (:path row)]
+                   (query/nodes-by-paths xtdb [path] scope))
+                 (when (#{:node :package} (:target-kind match))
+                   [row]))
+         (distinct-by :xt/id)
+         vec)))
+
+(defn- relationship-file-edges
+  [xtdb project-id match]
+  (let [row (:row match)
+        scope (relationship-row-scope project-id row)]
+    (->> (concat (when-let [file-id (match-file-id match)]
+                   (query/edges-by-file-ids xtdb [file-id] scope))
+                 (when-let [path (:path row)]
+                   (query/edges-by-paths xtdb [path] scope)))
+         (distinct-by :xt/id)
+         vec)))
+
+(defn- focus-node-ids
+  [match file-id nodes]
+  (->> (case (:target-kind match)
+         :package [(get-in match [:row :xt/id])]
+         :node [(get-in match [:row :xt/id])]
+         :file (->> nodes
+                    (filter #(= file-id (:file-id %)))
+                    (map :xt/id))
+         [])
+       (remove nil?)
+       set))
+
 (defn- incident-graph
-  [match nodes edges limit]
-  (let [nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
-        file-id (case (:target-kind match)
-                  :file (get-in match [:row :xt/id])
-                  :evidence (get-in match [:row :file-id])
-                  :package (get-in match [:row :file-id])
-                  :node (get-in match [:row :file-id])
-                  nil)
-        focus-node-ids (case (:target-kind match)
-                         :package #{(get-in match [:row :xt/id])}
-                         :node #{(get-in match [:row :xt/id])}
-                         :file (->> nodes
-                                    (filter #(= file-id (:file-id %)))
-                                    (map :xt/id)
-                                    set)
-                         #{})
+  [xtdb project-id match limit]
+  (let [file-id (match-file-id match)
+        file-nodes (relationship-file-nodes xtdb project-id match)
+        focus-node-ids (focus-node-ids match file-id file-nodes)
+        edges (->> (concat (relationship-file-edges xtdb project-id match)
+                           (when (seq focus-node-ids)
+                             (query/edges-touching-node-ids xtdb
+                                                            focus-node-ids
+                                                            (project-scope project-id))))
+                   (distinct-by :xt/id)
+                   vec)
         incident? (fn [edge]
                     (or (= file-id (:file-id edge))
                         (contains? focus-node-ids (:source-id edge))
@@ -783,7 +829,13 @@
                             vec)
         related-node-ids (set (concat focus-node-ids
                                       (mapcat (juxt :source-id :target-id)
-                                              selected-edges)))]
+                                              selected-edges)))
+        endpoint-nodes (query/nodes-by-ids xtdb
+                                           related-node-ids
+                                           (project-scope project-id))
+        nodes-by-id (into {} (map (juxt :xt/id identity))
+                          (distinct-by :xt/id
+                                       (concat file-nodes endpoint-nodes)))]
     {:nodes (->> related-node-ids
                  (keep nodes-by-id)
                  (sort-by (juxt :repo-id :path :source-line :label :xt/id))
@@ -921,12 +973,11 @@
               nodes (->> (query/all-nodes xtdb {:project-id project-id})
                          (filter active-row?)
                          vec)
-              evidence (->> (query/all-system-evidence xtdb {:project-id project-id})
+              evidence (->> (query/system-evidence-by-ids xtdb
+                                                          [target]
+                                                          {:project-id project-id})
                             (filter active-row?)
                             vec)
-              edges (->> (query/all-edges xtdb {:project-id project-id})
-                         (filter active-row?)
-                         vec)
               matches (inspect-matches target files nodes evidence overlay)]
           (cond
             (empty? matches)
@@ -968,7 +1019,10 @@
                        :project {:id project-id}
                        :status :found
                        :match (target-choice target-kind match row)
-                       :relationships (incident-graph selected nodes edges limit)}
+                       :relationships (incident-graph xtdb
+                                                      project-id
+                                                      selected
+                                                      limit)}
                 related-system-id (assoc :systemRelationships
                                          (system-relationships xtdb
                                                                project-id
