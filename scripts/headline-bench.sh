@@ -24,6 +24,7 @@ Options:
                           Max completed stage ms for the deterministic baseline.
   --min-prompt-shared-cases N
                           Minimum shared cases for prompt-token-check. Default: 1.
+  --skip-existing         Reuse existing baseline or agent-run artifacts.
   --skip-token-check      Skip token telemetry gates during all.
   --codebase-memory-bin PATH
                           codebase-memory-mcp binary for the external baseline.
@@ -70,6 +71,7 @@ max_total_tokens="999999999999"
 max_stage_elapsed_ms=""
 min_prompt_shared_cases="1"
 skip_token_check=false
+skip_existing=false
 case_args=()
 codebase_memory_bin=""
 codebase_memory_command=""
@@ -125,6 +127,10 @@ while [[ $# -gt 0 ]]; do
       skip_token_check=true
       shift
       ;;
+    --skip-existing)
+      skip_existing=true
+      shift
+      ;;
     --codebase-memory-bin)
       codebase_memory_bin="$2"
       shift 2
@@ -178,6 +184,9 @@ agent_run() {
   if [[ -n "$timeout_ms" ]]; then
     args+=(--timeout-ms "$timeout_ms")
   fi
+  if [[ "$skip_existing" == true ]]; then
+    args+=(--skip-existing)
+  fi
   run bb "${args[@]}"
 }
 
@@ -185,6 +194,9 @@ baseline() {
   local args=(bench agent-baseline "$suite")
   append_case_args
   args+=(--out "$out/ygg-baseline")
+  if [[ "$skip_existing" == true ]]; then
+    args+=(--skip-existing)
+  fi
   run bb "${args[@]}"
 
   args=(bench agent-report "$suite")
@@ -200,6 +212,9 @@ codebase_memory() {
   append_case_args
   args+=(--retriever codebase-memory
     --out "$out/codebase-memory")
+  if [[ "$skip_existing" == true ]]; then
+    args+=(--skip-existing)
+  fi
   if [[ -n "$codebase_memory_bin" ]]; then
     args+=(--codebase-memory-bin "$codebase_memory_bin")
   fi

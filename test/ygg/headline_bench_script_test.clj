@@ -77,6 +77,22 @@
     (is (not-any? #(str/includes? % "bench agent-check") lines))
     (is (not-any? #(str/includes? % "prompt-token-") lines))))
 
+(deftest dry-run-can-skip-existing-benchmark-artifacts
+  (let [result (run-headline "all"
+                             "--dry-run"
+                             "--skip-existing"
+                             "--suite" "benchmarks/custom-headline.edn"
+                             "--out" ".dev/ygg/headline-bench/custom")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (str/includes? (nth lines 0) "--skip-existing"))
+    (is (str/includes? (nth lines 2) "--skip-existing"))
+    (is (str/includes? (nth lines 3) "--skip-existing"))
+    (is (not (str/includes? (nth lines 1) "--skip-existing")))
+    (is (not-any? #(and (str/includes? % "bench agent-report")
+                        (str/includes? % "--skip-existing"))
+                  lines))))
+
 (deftest dry-run-propagates-case-filter-to-benchmark-phases
   (let [result (run-headline "all"
                              "--dry-run"
