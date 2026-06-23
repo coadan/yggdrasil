@@ -740,37 +740,38 @@
         repo-id (prediction-repo-id roots source-repo-id)
         file-root (row-root root roots {:repo-id source-repo-id :path path})]
     (when (existing-file-path? file-root path)
-      (cond-> {:path path
-               :source-rank (inc idx)
-               :confidence (bounded-confidence (:score doc))
-               :evidence-score (double (or (parse-double-safe (:score doc)) 0.0))
-               :evidence-kind :doc
-               :retrieved-source? (boolean (:retrievedSource doc))
-               :exact-path-source? (boolean (:exactPathSource doc))
-               :definition-kind (some-> (:definitionKind source) name)
-               :matched-tokens (token-matches query-tokens (evidence-text doc))
-               :matched-compound-token-pairs (compact-compound-token-pair-matches
-                                              query-tokens
-                                              (evidence-text doc))
-               :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
-                                                       query-tokens
-                                                       path)
-               :matched-identity-compound-token-span-length
-               (identity-compound-token-span-length query-tokens path (:heading source))
-               :evidence [(str "context-doc:"
-                               path
-                               (line-label source)
-                               " provenance="
-                               (or (:provenance doc) "unknown"))]
-               :reason (str "Yggdrasil context doc"
-                            (when-let [heading (:heading source)]
-                              (str " " (pr-str heading)))
-                            " from " path
-                            (line-label source)
-                            " with provenance "
-                            (or (:provenance doc) "unknown")
-                            ".")}
-        repo-id (assoc :repo-id repo-id)))))
+      (let [evidence-text (evidence-text doc)]
+        (cond-> {:path path
+                 :source-rank (inc idx)
+                 :confidence (bounded-confidence (:score doc))
+                 :evidence-score (double (or (parse-double-safe (:score doc)) 0.0))
+                 :evidence-kind :doc
+                 :retrieved-source? (boolean (:retrievedSource doc))
+                 :exact-path-source? (boolean (:exactPathSource doc))
+                 :definition-kind (some-> (:definitionKind source) name)
+                 :matched-tokens (token-matches query-tokens evidence-text)
+                 :matched-compound-token-pairs (compact-compound-token-pair-matches
+                                                query-tokens
+                                                evidence-text)
+                 :matched-identity-compound-token-pairs (identity-compound-token-pair-matches
+                                                         query-tokens
+                                                         path)
+                 :matched-identity-compound-token-span-length
+                 (identity-compound-token-span-length query-tokens path (:heading source))
+                 :evidence [(str "context-doc:"
+                                 path
+                                 (line-label source)
+                                 " provenance="
+                                 (or (:provenance doc) "unknown"))]
+                 :reason (str "Yggdrasil context doc"
+                              (when-let [heading (:heading source)]
+                                (str " " (pr-str heading)))
+                              " from " path
+                              (line-label source)
+                              " with provenance "
+                              (or (:provenance doc) "unknown")
+                              ".")}
+          repo-id (assoc :repo-id repo-id))))))
 (defn- entity-prediction
   [root roots query-tokens idx entity]
   (let [path (:path entity)

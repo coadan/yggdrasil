@@ -2743,6 +2743,30 @@
         (is (= 1 @calls))
         (is (pos? (get-in file [:metrics :matchedTokenCount])))))))
 
+(deftest doc-ranking-builds-evidence-text-once
+  (let [root (temp-dir "ygg-bench-doc-evidence-text")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        evidence-text @#'benchmark-prediction/evidence-text
+        calls (atom 0)]
+    (with-redefs-fn {#'benchmark-prediction/evidence-text
+                     (fn [doc]
+                       (swap! calls inc)
+                       (evidence-text doc))}
+      (fn []
+        (let [file (-> (benchmark/context-packet->agent-result
+                        {:query "app route"
+                         :docs [{:source {:path "src/app.clj"
+                                          :heading "app route"}
+                                 :score 1.0
+                                 :snippet "app route"
+                                 :provenance "retrieved-doc"}]}
+                        {:root root})
+                       :suspectedFiles
+                       first)]
+          (is (= "src/app.clj" (:path file)))
+          (is (= 1 @calls))
+          (is (pos? (get-in file [:metrics :matchedTokenCount]))))))))
+
 (deftest context-packet-agent-result-does-not-report-budget-trim-as-warning
   (let [root (temp-dir "ygg-bench-budget-trim-warning-scope")
         _ (spit-file! root "src/app.clj" "(ns app)\n")
