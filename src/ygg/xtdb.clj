@@ -580,6 +580,46 @@
                 constraints)
    :args (mapv val constraints)})
 
+(defn- sql-result-field-name
+  [field]
+  (cond
+    (= :xt/id field) "_id"
+    (namespace field) (str (namespace field) "/" (name field))
+    :else (name field)))
+
+(defn- select-sql
+  [return-fields]
+  (if (seq return-fields)
+    (->> return-fields
+         distinct
+         (map (fn [field]
+                (str (sql-column-name field)
+                     " AS "
+                     (sql-quote-ident (sql-result-field-name field)))))
+         (str/join ", "))
+    "*"))
+
+(defn- normalize-projected-sql-row
+  [return-fields row]
+  (reduce (fn [row field]
+            (let [field-name (sql-result-field-name field)
+                  field-key (keyword field-name)
+                  missing ::missing
+                  value (cond
+                          (contains? row field) (get row field)
+                          (contains? row field-key) (get row field-key)
+                          (contains? row field-name) (get row field-name)
+                          (and (= :xt/id field)
+                               (contains? row :_id)) (:_id row)
+                          (and (= :xt/id field)
+                               (contains? row "_id")) (get row "_id")
+                          :else missing)]
+              (if (= missing value)
+                row
+                (assoc row field value))))
+          row
+          return-fields))
+
 (defn- count-row-value
   [row]
   (long (or (:row-count row)
@@ -887,6 +927,8 @@
                                            constraints
                                            {}))
   ([xtdb table fields tokens constraints ctx]
+   (rows-matching-any-token xtdb table fields tokens constraints ctx nil))
+  ([xtdb table fields tokens constraints ctx return-fields]
    (let [fields (vec (distinct fields))
          tokens (->> tokens
                      (keep #(some-> % str str/lower-case not-empty))
@@ -894,7 +936,8 @@
                      vec)
          constraints (->> (clean-constraints constraints)
                           (sort-by (comp str key))
-                          vec)]
+                          vec)
+         return-fields (some-> return-fields distinct vec)]
      (cond
        (or (empty? fields) (empty? tokens))
        []
@@ -903,16 +946,22 @@
        (let [{token-where :where token-args :args} (token-match-sql fields tokens)
              {constraint-where :where constraint-args :args} (equality-sql constraints)
              where-clauses (cond-> constraint-where token-where (conj token-where))
-             sql (str "SELECT * FROM "
+             sql (str "SELECT "
+                      (select-sql return-fields)
+                      " FROM "
                       (sql-table-name table)
                       (when (seq where-clauses)
                         (str " WHERE "
                              (str/join " AND " where-clauses))))]
-         (q xtdb sql (assoc ctx :args (vec (concat constraint-args token-args)))))
+         (map #(normalize-projected-sql-row return-fields %)
+              (q xtdb sql (assoc ctx :args (vec (concat constraint-args token-args))))))
 
        :else
-       (->> (fallback-constrained-rows xtdb table (into {} constraints) ctx)
-            (filter #(token-match-row? fields tokens %)))))))
+       (let [rows (filter #(token-match-row? fields tokens %)
+                          (fallback-constrained-rows xtdb table (into {} constraints) ctx))]
+         (if (seq return-fields)
+           (map #(select-keys % return-fields) rows)
+           rows))))))
 
 (defn row-by-id
   "Return row by id from table."

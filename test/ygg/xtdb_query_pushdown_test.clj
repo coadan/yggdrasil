@@ -1723,12 +1723,13 @@
                   store/constrained-rows
                   (fn [& _] [])
                   store/rows-matching-any-token
-                  (fn [_ table fields tokens constraints ctx]
+                  (fn [_ table fields tokens constraints ctx return-fields]
                     (swap! calls conj {:table table
                                        :fields fields
                                        :tokens tokens
                                        :constraints constraints
-                                       :ctx ctx})
+                                       :ctx ctx
+                                       :return-fields return-fields})
                     [{:xt/id "node:handler"
                       :project-id "project-a"
                       :repo-id "app"
@@ -1751,7 +1752,10 @@
              :constraints {:project-id "project-a"
                            :repo-id "app"}
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
-           @calls))))
+           (mapv #(select-keys % [:table :fields :tokens :constraints :ctx]) @calls)))
+    (is (some #{:xt/id} (:return-fields (first @calls))))
+    (is (some #{:label} (:return-fields (first @calls))))
+    (is (not-any? #{'*} (:return-fields (first @calls))))))
 
 (deftest find-system-node-substring-uses-token-pushdown-for-real-handles
   (let [calls (atom [])]
@@ -1760,12 +1764,13 @@
                   store/constrained-rows
                   (fn [& _] [])
                   store/rows-matching-any-token
-                  (fn [_ table fields tokens constraints ctx]
+                  (fn [_ table fields tokens constraints ctx return-fields]
                     (swap! calls conj {:table table
                                        :fields fields
                                        :tokens tokens
                                        :constraints constraints
-                                       :ctx ctx})
+                                       :ctx ctx
+                                       :return-fields return-fields})
                     [{:xt/id "system:billing"
                       :project-id "project-a"
                       :system-key "billing-service"
@@ -1787,7 +1792,10 @@
              :constraints {:project-id "project-a"
                            :active? true}
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
-           @calls))))
+           (mapv #(select-keys % [:table :fields :tokens :constraints :ctx]) @calls)))
+    (is (some #{:xt/id} (:return-fields (first @calls))))
+    (is (some #{:system-key} (:return-fields (first @calls))))
+    (is (not-any? #{'*} (:return-fields (first @calls))))))
 
 (deftest graph-path-batches-bfs-frontier-edge-reads
   (let [calls (atom [])

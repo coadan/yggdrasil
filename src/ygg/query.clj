@@ -606,9 +606,9 @@
   [:label :system-key])
 
 (defn- substring-candidates
-  ([xtdb table fields token opts all-fn]
-   (substring-candidates xtdb table fields token opts all-fn {}))
-  ([xtdb table fields token opts all-fn constraints]
+  ([xtdb table fields token opts all-fn return-fields]
+   (substring-candidates xtdb table fields token opts all-fn {} return-fields))
+  ([xtdb table fields token opts all-fn constraints return-fields]
    (if (store/xtdb-handle? xtdb)
      (filter-scope
       (store/rows-matching-any-token xtdb
@@ -617,7 +617,8 @@
                                      [token]
                                      (merge (scope-constraints opts)
                                             constraints)
-                                     (read-context opts))
+                                     (read-context opts)
+                                     return-fields)
       opts)
      (all-fn xtdb opts))))
 
@@ -656,7 +657,8 @@
                                      node-substring-fields
                                      needle
                                      opts
-                                     all-nodes))))))
+                                     all-nodes
+                                     node-row-query-fields))))))
 
 (defn find-system-node
   "Find system node by exact id, label, system key, or substring."
@@ -687,7 +689,8 @@
                                            needle
                                            opts
                                            all-system-nodes
-                                           {:active? true})]
+                                           {:active? true}
+                                           system-node-row-query-fields)]
            (or (some #(when (str/includes? (str/lower-case (:label %)) needle) %)
                      nodes)
                (some #(when (str/includes? (str/lower-case (:system-key %)) needle) %)

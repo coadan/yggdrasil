@@ -212,6 +212,37 @@
                    :active? true}
                   {:valid-at t1}))))))
 
+(deftest rows-matching-any-token-supports-projected-return-fields
+  (with-redefs [store/q
+                (fn [xtdb sql ctx]
+                  (is (= {:node :stub} xtdb))
+                  (is (= (str "SELECT "
+                              "\"_id\" AS \"_id\", "
+                              "\"project_id\" AS \"project-id\", "
+                              "\"label\" AS \"label\" "
+                              "FROM ygg.token_match WHERE "
+                              "\"project_id\" = ? AND "
+                              "(LOWER(CAST(\"label\" AS VARCHAR)) LIKE ? ESCAPE '\\\\')")
+                         sql))
+                  (is (= {:args ["demo" "%alpha%"]
+                          :valid-at t1}
+                         ctx))
+                  [{"_id" "row:match"
+                    "project-id" "demo"
+                    "label" "Alpha"}])]
+    (is (= [{:xt/id "row:match"
+             :project-id "demo"
+             :label "Alpha"}]
+           (mapv #(select-keys % [:xt/id :project-id :label])
+                 (store/rows-matching-any-token
+                  {:node :stub}
+                  :ygg/token-match
+                  [:label]
+                  ["Alpha"]
+                  {:project-id "demo"}
+                  {:valid-at t1}
+                  [:xt/id :project-id :label]))))))
+
 (deftest constrained-rows-fallback-filters-test-stub-rows
   (with-redefs [store/all-rows (fn [_ table]
                                  (is (= :ygg/constrained-test table))
