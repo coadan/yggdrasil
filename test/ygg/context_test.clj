@@ -2244,6 +2244,34 @@
            (mapv #(dissoc % :score) rows)))
     (is (< 1.0 (:score (first rows))))))
 
+(deftest dependency-report-evidence-normalizes-query-tokens-once
+  (let [dependency-report (assoc (empty-dependency-report)
+                                 :packages
+                                 [{:id "node:pkg:proxy-from-env"
+                                   :package-name "proxy-from-env"
+                                   :label "npm:proxy-from-env"
+                                   :ecosystem :npm
+                                   :imported-by [{:path "lib/adapters/http.js"
+                                                  :line 5
+                                                  :kind :javascript
+                                                  :import-name "proxy-from-env"}]}])
+        distinct-query-tokens @#'context-architecture/distinct-query-tokens
+        calls (atom 0)]
+    (with-redefs-fn {#'context-architecture/distinct-query-tokens
+                     (fn [query-tokens]
+                       (swap! calls inc)
+                       (distinct-query-tokens query-tokens))}
+      (fn []
+        (let [rows (#'context-architecture/dependency-report-evidence
+                    ["proxy" "proxy" "env"]
+                    []
+                    []
+                    []
+                    dependency-report)]
+          (is (= 1 @calls))
+          (is (= ["lib/adapters/http.js"] (mapv :path rows)))
+          (is (= 1.5 (:score (first rows)))))))))
+
 (deftest dependency-evidence-preserves-selected-package-import-source
   (let [dependency-report (assoc (empty-dependency-report)
                                  :packages

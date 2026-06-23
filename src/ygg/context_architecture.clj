@@ -35,6 +35,10 @@
   [query-tokens text]
   (min 4 (token-score query-tokens text)))
 
+(defn- distinct-query-tokens
+  [query-tokens]
+  (vec (distinct query-tokens)))
+
 (defn- ranked-result-path-order
   [results n]
   (->> results
@@ -386,7 +390,7 @@
       selected)))
 (defn- dependency-identity-token-score
   [query-tokens row]
-  (capped-token-score (distinct query-tokens)
+  (capped-token-score query-tokens
                       (compact (:label row)
                                (:package row)
                                (:import row)
@@ -421,24 +425,25 @@
                  idx)))))
 (defn- preserve-query-supported-dependency-identity
   [query-tokens rows selected]
-  (loop [selected (vec selected)
-         candidates (seq (dependency-query-identity-candidates query-tokens
-                                                               rows
-                                                               selected))]
-    (if-let [candidate (first candidates)]
-      (let [replace-idx (dependency-query-identity-replacement-index query-tokens
-                                                                     selected)]
-        (recur (cond
-                 (< (count selected) dependency-evidence-display-limit)
-                 (conj selected candidate)
+  (let [query-tokens (distinct-query-tokens query-tokens)]
+    (loop [selected (vec selected)
+           candidates (seq (dependency-query-identity-candidates query-tokens
+                                                                 rows
+                                                                 selected))]
+      (if-let [candidate (first candidates)]
+        (let [replace-idx (dependency-query-identity-replacement-index query-tokens
+                                                                       selected)]
+          (recur (cond
+                   (< (count selected) dependency-evidence-display-limit)
+                   (conj selected candidate)
 
-                 replace-idx
-                 (assoc selected replace-idx candidate)
+                   replace-idx
+                   (assoc selected replace-idx candidate)
 
-                 :else
-                 selected)
-               (next candidates)))
-      selected)))
+                   :else
+                   selected)
+                 (next candidates)))
+        selected))))
 (defn- relationship-target-row
   [edge]
   (cond-> {:id (:id edge)
@@ -822,7 +827,7 @@
                 (:imported-by package))))
 (defn- dependency-token-score
   [query-tokens row]
-  (capped-token-score (distinct query-tokens)
+  (capped-token-score query-tokens
                       (compact (:kind row)
                                (:relation row)
                                (:label row)
@@ -949,7 +954,8 @@
                                dependency-report
                                nil))
   ([query-tokens results accepted-systems candidate-systems dependency-report candidate-inputs]
-   (let [selection (selected-source-paths results
+   (let [query-tokens (distinct-query-tokens query-tokens)
+         selection (selected-source-paths results
                                           accepted-systems
                                           candidate-systems
                                           candidate-inputs)
