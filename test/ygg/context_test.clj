@@ -279,6 +279,23 @@
              (count (diversify-docs query-tokens docs)))))
     (is (= 2 @calls))))
 
+(deftest diversify-doc-row-reuses-root-key
+  (let [diversify-doc-row @#'context/diversify-doc-row
+        root-key-calls (atom 0)
+        doc {:target "chunk:target"
+             :source {:repo "app"
+                      :path "src/target.clj"
+                      :definitionKind :function}}]
+    (with-redefs-fn {#'context/doc-root-key (fn [_doc]
+                                              (swap! root-key-calls inc)
+                                              ["app" "src"])}
+      (fn []
+        (let [row (diversify-doc-row {:function 0.75} doc)]
+          (is (= ["app" "src"] (:root-key row)))
+          (is (= [["app" "src"] :function]
+                 (:root-definition-kind-key row)))
+          (is (= 1 @root-key-calls)))))))
+
 (deftest select-docs-preserves-top-retrieved-path-coverage
   (let [select-docs @#'context/select-docs
         crowded-docs (for [idx (range 20)]

@@ -552,11 +552,6 @@
     [(or (:repo source) :unknown-repo)
      (get-in doc [:source :definitionKind])]))
 
-(defn- doc-root-definition-kind-key
-  [doc]
-  [(doc-root-key doc)
-   (get-in doc [:source :definitionKind])])
-
 (defn- definition-kind-query-score
   [query-tokens definition-kind]
   (if (seq query-tokens)
@@ -566,16 +561,20 @@
 
 (defn- diversify-doc-row
   [definition-kind-scores doc]
-  (let [definition-kind-key (doc-definition-kind-key doc)
-        root-definition-kind-key (doc-root-definition-kind-key doc)]
+  (let [source (:source doc)
+        repo (or (:repo source) :unknown-repo)
+        definition-kind (:definitionKind source)
+        root-key (doc-root-key doc)
+        definition-kind-key [repo definition-kind]
+        root-definition-kind-key [root-key definition-kind]]
     {:doc doc
      :priority (doc-priority doc)
-     :root-key (doc-root-key doc)
+     :root-key root-key
      :path-key (doc-path-key doc)
      :definition-kind-key definition-kind-key
      :root-definition-kind-key root-definition-kind-key
      :definition-kind-query-score (get definition-kind-scores
-                                       (get-in doc [:source :definitionKind])
+                                       definition-kind
                                        0.0)}))
 
 (defn- row-novelty-score
