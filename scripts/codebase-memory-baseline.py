@@ -50,6 +50,10 @@ PATH_KEYS = {
     "target_path",
 }
 PATH_TOKEN_RE = re.compile(r"(?<![\w.-])(?:[\w.@+-]+/)+[\w.@+~=-][\w.@+~=/,-]*")
+QUERY_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
+MAX_QUERY_PATTERNS = 8
+MIN_QUERY_PATTERN_LENGTH = 4
+ARCHITECTURE_INVENTORY_KEYS = {"file_tree"}
 
 
 @dataclass(frozen=True)
@@ -82,6 +86,20 @@ def issue_query(request: dict) -> str:
         "\n\n".join(input_data.get("comments") or []),
     ]
     return "\n\n".join(part for part in parts if part.strip())
+
+
+def query_patterns(query: str) -> list[str]:
+    seen: set[str] = set()
+    patterns: list[str] = []
+    for match in QUERY_TOKEN_RE.finditer(query):
+        token = match.group(0).lower()
+        if len(token) < MIN_QUERY_PATTERN_LENGTH or token in seen:
+            continue
+        seen.add(token)
+        patterns.append(token)
+        if len(patterns) >= MAX_QUERY_PATTERNS:
+            break
+    return patterns
 
 
 def codebase_memory_config(request: dict) -> dict:
@@ -278,6 +296,8 @@ def extract_paths_from_json(
     if isinstance(value, dict):
         for key, item in value.items():
             key_text = str(key).lower().replace("-", "_")
+            if source == "get_architecture" and key_text in ARCHITECTURE_INVENTORY_KEYS:
+                continue
             if key_text in PATH_KEYS:
                 record_path(item, root, existing, source, found)
             extract_paths_from_json(item, root, existing, source, found)
@@ -325,6 +345,25 @@ def ranked_files(found: dict[str, list[str]], limit: int) -> list[dict]:
     return suspected
 
 
+def discovered_project(root: Path, parsed: Any) -> str | None:
+    if not isinstance(parsed, dict):
+        return None
+    projects = parsed.get("projects")
+    if not isinstance(projects, list):
+        return None
+    root_text = root.resolve().as_posix()
+    first_name = None
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        name = project.get("name")
+        if not first_name and name:
+            first_name = str(name)
+        if str(project.get("root_path") or "") == root_text and name:
+            return str(name)
+    return first_name
+
+
 def result_base(request: dict, warnings: list[str], commands: list[str], suspected: list[dict]) -> dict:
     result = {
         "schema": "ygg.benchmark.agent-result/v2",
@@ -354,13 +393,28 @@ def result_base(request: dict, warnings: list[str], commands: list[str], suspect
     return result
 
 
-def tool_payloads(root: Path, query: str, limit: int) -> list[tuple[str, dict | None]]:
-    return [
-        ("index_repository", {"repo_path": str(root)}),
-        ("semantic_query", {"query": query, "limit": limit}),
-        ("search_code", {"query": query, "limit": limit, "output_mode": "files"}),
-        ("get_architecture", {"repo_path": str(root), "limit": limit}),
-    ]
+def tool_payloads(project: str | None, query: str, limit: int) -> list[tuple[str, str, dict | None]]:
+    if not project:
+        return []
+    payloads: list[tuple[str, str, dict | None]] = []
+    for pattern in query_patterns(query):
+        payloads.append(
+            (
+                f"search_code:{pattern}",
+                "search_code",
+                {"project": project, "pattern": pattern, "limit": limit},
+            )
+        )
+    for pattern in query_patterns(query)[:3]:
+        payloads.append(
+            (
+                f"search_graph:{pattern}",
+                "search_graph",
+                {"project": project, "name_pattern": f".*{re.escape(pattern)}.*", "limit": limit},
+            )
+        )
+    payloads.append(("get_architecture", "get_architecture", {"project": project, "limit": limit}))
+    return payloads
 
 
 def main(argv: list[str]) -> int:
@@ -389,14 +443,28 @@ def main(argv: list[str]) -> int:
         write_json(result_path, result_base(request, warnings, commands, []))
         return 0
 
-    for tool, payload in tool_payloads(root, query, limit):
+    index_result = run_tool(binary, root, cache, "index_repository", {"repo_path": str(root)})
+    commands.append(index_result.command)
+    if index_result.warning:
+        warnings.append(index_result.warning)
+
+    projects_result = run_tool(binary, root, cache, "list_projects", None)
+    commands.append(projects_result.command)
+    if projects_result.warning:
+        warnings.append(projects_result.warning)
+    project = discovered_project(root, projects_result.parsed)
+    if not project:
+        warnings.append("codebase-memory-mcp did not report an indexed project for the benchmark worktree.")
+
+    for source, tool, payload in tool_payloads(project, query, limit):
         tool_result = run_tool(binary, root, cache, tool, payload)
         commands.append(tool_result.command)
         if tool_result.warning:
             warnings.append(tool_result.warning)
         if tool_result.parsed is not None:
-            extract_paths_from_json(tool_result.parsed, root, existing, tool, found)
-        extract_paths_from_text(tool_result.stdout, root, existing, tool, found)
+            extract_paths_from_json(tool_result.parsed, root, existing, source, found)
+        else:
+            extract_paths_from_text(tool_result.stdout, root, existing, source, found)
 
     suspected = ranked_files(found, limit)
     write_json(result_path, result_base(request, warnings, commands, suspected))

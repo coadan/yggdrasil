@@ -178,6 +178,7 @@ def main(argv):
         default=1,
         help="Minimum shared shell-only/Ygg cases required.",
     )
+    parser.add_argument("--out", help="Write the gate result JSON to this path.")
     args = parser.parse_args(argv)
 
     report_path = pathlib.Path(args.report)
@@ -186,7 +187,12 @@ def main(argv):
         return 2
 
     result = check(report_path, args.min_shared_cases)
-    print(json.dumps(result, indent=2, sort_keys=True))
+    text = json.dumps(result, indent=2, sort_keys=True)
+    if args.out:
+        out = pathlib.Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text + "\n", encoding="utf-8")
+    print(text)
     return 0 if result["status"] == "passed" else 1
 
 

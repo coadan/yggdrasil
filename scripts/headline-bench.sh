@@ -8,7 +8,7 @@ DEFAULT_COMMAND="python3 \"$ROOT/scripts/codex-benchmark-agent.py\""
 
 usage() {
   cat <<'EOF'
-Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|token-check|compare|claim-pack|all [options]
+Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|ygg|agents|reports|prompt-token-check|token-check|compare|claim-pack|all [options]
 
 Options:
   --suite PATH            Benchmark suite EDN. Default: benchmarks/headline.edn
@@ -20,6 +20,8 @@ Options:
   --case ID               Run one benchmark case.
   --cases IDS             Run comma-separated benchmark case ids.
   --max-total-tokens N    High-water token gate for each lane. Default: 999999999999.
+  --min-prompt-shared-cases N
+                          Minimum shared cases for prompt-token-check. Default: 1.
   --skip-token-check      Skip token telemetry gates during all.
   --codebase-memory-bin PATH
                           codebase-memory-mcp binary for the external baseline.
@@ -37,6 +39,8 @@ Commands:
   ygg      Run the external Yggdrasil lane.
   agents      Run both external lanes.
   reports     Generate shell-only and Yggdrasil lane reports.
+  prompt-token-check
+              Check prompt-token reduction from existing prompt artifacts.
   token-check Run token telemetry gates for both external lane reports.
   compare     Compare lane reports with bb efficiency.
   claim-pack  Write bundled efficiency, token, and improvement proof artifacts.
@@ -59,6 +63,7 @@ agent_command="$DEFAULT_COMMAND"
 prompt_profile="fast"
 timeout_ms=""
 max_total_tokens="999999999999"
+min_prompt_shared_cases="1"
 skip_token_check=false
 case_args=()
 codebase_memory_bin=""
@@ -101,6 +106,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --max-total-tokens)
       max_total_tokens="$2"
+      shift 2
+      ;;
+    --min-prompt-shared-cases)
+      min_prompt_shared_cases="$2"
       shift 2
       ;;
     --skip-token-check)
@@ -245,6 +254,17 @@ token_check() {
   run bb "${args[@]}"
 }
 
+prompt_token_check() {
+  local measure_path="$out/prompt-token-measure.json"
+  local gate_path="$out/prompt-token-gate.json"
+  run python3 "$ROOT/scripts/prompt-token-measure.py" "$out" \
+    --suite "$suite" \
+    --out "$measure_path"
+  run python3 "$ROOT/scripts/prompt-token-gate.py" "$measure_path" \
+    --min-shared-cases "$min_prompt_shared_cases" \
+    --out "$gate_path"
+}
+
 report_path() {
   local lane="$1"
   if [[ "$dry_run" == true ]]; then
@@ -297,6 +317,9 @@ case "$action" in
   reports)
     reports
     ;;
+  prompt-token-check)
+    prompt_token_check
+    ;;
   token-check)
     token_check
     ;;
@@ -312,6 +335,7 @@ case "$action" in
     ygg
     reports
     if [[ "$skip_token_check" != true ]]; then
+      prompt_token_check
       token_check
     fi
     claim_pack

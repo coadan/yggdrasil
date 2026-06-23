@@ -21,6 +21,10 @@
   [& args]
   (apply shell/sh "python3" "scripts/prompt-token-gate.py" args))
 
+(defn- run-prompt-measure
+  [& args]
+  (apply shell/sh "python3" "scripts/prompt-token-measure.py" args))
+
 (defn- estimate-prompt-tokens
   [prompt]
   (long (Math/ceil (/ (count (json/write-json-str prompt)) 4.0))))
@@ -125,6 +129,36 @@
     (is (= 1 (:sharedCases parsed)))
     (is (neg? (:totalTokenDelta parsed)))
     (is (true? (:allYggReduced parsed)))))
+
+(deftest prompt-token-measure-scans-prompts-and-gate-writes-artifact
+  (let [root (temp-dir "ygg-prompt-token-measure")
+        source (io/file root "run")
+        measure-path (io/file root "measure.json")
+        gate-path (io/file root "gate.json")]
+    (spit-file! root
+                "run/shell-only/suite/cases/case-1/agent-prompts/probe.md"
+                "shell prompt with a longer contract and repeated instructions")
+    (spit-file! root
+                "run/ygg/suite/cases/case-1/agent-prompts/probe.md"
+                "short ygg prompt")
+    (let [measure-result (run-prompt-measure (.getPath source)
+                                             "--suite" "fixture"
+                                             "--out" (.getPath measure-path))
+          measure (json/read-json (slurp measure-path) :key-fn keyword)
+          gate-result (run-prompt-gate (.getPath measure-path)
+                                       "--out" (.getPath gate-path))
+          gate-stdout (json/read-json (:out gate-result) :key-fn keyword)
+          gate-file (json/read-json (slurp gate-path) :key-fn keyword)]
+      (is (= 0 (:exit measure-result)) (:out measure-result))
+      (is (= "ygg.dev.prompt-token-measure/v1" (:schema measure)))
+      (is (= "fixture" (:suite measure)))
+      (is (= "run" (:source measure)))
+      (is (= 2 (count (:rows measure))))
+      (is (= 1 (get-in measure [:summary :sharedCases])))
+      (is (true? (get-in measure [:summary :allYggReduced])))
+      (is (= 0 (:exit gate-result)) (:out gate-result))
+      (is (= "passed" (:status gate-stdout)))
+      (is (= gate-stdout gate-file)))))
 
 (deftest prompt-token-gate-resolves-relative-source-from-report-directory
   (let [root (temp-dir "ygg-prompt-token-gate-relative")

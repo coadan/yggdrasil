@@ -3680,14 +3680,19 @@
                      (str "#!/usr/bin/env python3\n"
                           "import json, sys\n"
                           "tool = sys.argv[2] if len(sys.argv) > 2 else ''\n"
+                          "payload = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}\n"
                           "if tool == 'index_repository':\n"
                           "    print(json.dumps({'indexed': True, 'path': 'src/app.clj'}))\n"
-                          "elif tool == 'semantic_query':\n"
-                          "    print(json.dumps({'results': [{'path': 'src/app.clj', 'score': 0.9}]}))\n"
+                          "elif tool == 'list_projects':\n"
+                          "    print(json.dumps({'projects': [{'name': 'fixture-project', 'root_path': '"
+                          repo
+                          "'}]}))\n"
                           "elif tool == 'search_code':\n"
-                          "    print(json.dumps({'matches': [{'file_path': 'docs/readme.md', 'count': 1}]}))\n"
+                          "    print(json.dumps({'results': [{'file': 'src/app.clj', 'score': 0.9}], 'project': payload.get('project')}))\n"
+                          "elif tool == 'search_graph':\n"
+                          "    print(json.dumps({'results': [{'file_path': 'docs/readme.md', 'score': 0.7}], 'project': payload.get('project')}))\n"
                           "elif tool == 'get_architecture':\n"
-                          "    print(json.dumps({'hotspots': [{'relative_path': 'src/app.clj'}]}))\n"
+                          "    print(json.dumps({'hotspots': [{'relative_path': 'src/app.clj'}], 'file_tree': [{'path': 'ignored.txt'}]}))\n"
                           "else:\n"
                           "    print(json.dumps({'error': tool}))\n"
                           "    sys.exit(1)\n"))
@@ -3729,7 +3734,7 @@
           (is (every? #(seq (:evidence %)) (:suspectedFiles result)))
           (is (= "codebase-memory-baseline" (get-in result [:tokenUsage :source])))
           (is (empty? (:warnings result)))
-          (is (= 4 (count (:commands result)))))))))
+          (is (= 9 (count (:commands result)))))))))
 
 (deftest codebase-memory-worker-emits-warned-empty-result-when-binary-is-missing
   (let [repo (temp-dir "ygg-bench-codebase-memory-missing-repo")

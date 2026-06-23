@@ -45,7 +45,7 @@
                                                 *command-line-args*)]
                       (System/exit exit))}
 
-  prompt-token-gate {:doc "Validate prompt-token reduction from a prompt-token measure report. Usage: bb prompt-token-gate REPORT [--min-shared-cases N]"
+  prompt-token-gate {:doc "Validate prompt-token reduction from a prompt-token measure report. Usage: bb prompt-token-gate REPORT [--min-shared-cases N] [--out PATH]"
                      :task (let [{:keys [exit]} (apply shell
                                                        {:continue true}
                                                        "python3"
