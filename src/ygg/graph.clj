@@ -658,6 +658,7 @@
         detail (keyword detail)
         visible-ids (ordered-distinct focus-ids frontier-ids)
         opts {:project-id project-id
+              :min-confidence min-confidence
               :read-context read-context}
         nodes (vec (query/system-nodes-by-ids xtdb visible-ids opts))
         visible-id-set (set visible-ids)

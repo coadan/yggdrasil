@@ -514,23 +514,29 @@
   [xtdb ids opts]
   (let [constraints (assoc (scope-constraints opts) :active? true)
         ctx (read-context opts)
+        min-confidence (some-> (:min-confidence opts) double)
+        confidence-filter (when (some? min-confidence)
+                            {:min-field :confidence
+                             :min-value min-confidence})
         rows (concat
               (store/rows-with-field-values
                xtdb
-               {:table (:system-edges store/tables)
-                :field :source-id
-                :values ids
-                :constraints constraints
-                :return-fields system-edge-row-query-fields
-                :read-context ctx})
+               (merge {:table (:system-edges store/tables)
+                       :field :source-id
+                       :values ids
+                       :constraints constraints
+                       :return-fields system-edge-row-query-fields
+                       :read-context ctx}
+                      confidence-filter))
               (store/rows-with-field-values
                xtdb
-               {:table (:system-edges store/tables)
-                :field :target-id
-                :values ids
-                :constraints constraints
-                :return-fields system-edge-row-query-fields
-                :read-context ctx}))]
+               (merge {:table (:system-edges store/tables)
+                       :field :target-id
+                       :values ids
+                       :constraints constraints
+                       :return-fields system-edge-row-query-fields
+                       :read-context ctx}
+                      confidence-filter)))]
     (->> rows
          (filter :active?)
          (#(filter-scope % opts))

@@ -663,6 +663,45 @@
               :args [true "project-a" 0.55]}
              ctx)))))
 
+(deftest rows-with-field-values-can-push-numeric-min-into-xtql
+  (let [calls (atom [])]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (swap! calls conj {:query query
+                                       :ctx ctx})
+                    [{:xt/id "edge:a"
+                      :source-id "system:a"
+                      :confidence 0.8}])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "bounded min field reads should not hydrate all rows"
+                                    {})))]
+      (is (= [{:xt/id "edge:a"
+               :source-id "system:a"
+               :confidence 0.8}]
+             (mapv #(select-keys % [:xt/id :source-id :confidence])
+                   (store/rows-with-field-values
+                    {:node :stub}
+                    {:table (:system-edges store/tables)
+                     :field :source-id
+                     :values ["system:a" "system:b" "system:a"]
+                     :constraints {:project-id "project-a"
+                                   :active? true}
+                     :min-field :confidence
+                     :min-value 0.55
+                     :return-fields [:xt/id :source-id :confidence]
+                     :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})))))
+    (is (= 1 (count @calls)))
+    (let [{:keys [query ctx]} (first @calls)
+          query-text (pr-str query)]
+      (is (str/includes? query-text "unify"))
+      (is (str/includes? query-text "rel"))
+      (is (str/includes? query-text "where"))
+      (is (str/includes? query-text "(>= min-field-value min-value)"))
+      (is (not (str/includes? query-text "*")))
+      (is (= [true "project-a" 0.55] (vec (rest query))))
+      (is (= {:valid-at #inst "2026-01-01T00:00:00Z"} ctx)))))
+
 (deftest system-graph-edges-use-confidence-pushdown
   (let [calls (atom [])]
     (with-redefs [store/rows-with-min-field-value
@@ -1670,6 +1709,60 @@
       (is (some #(str/includes? % ":source-id match-value") queries))
       (is (some #(str/includes? % ":target-id match-value") queries))
       (is (not-any? #(str/includes? % "*") queries)))))
+
+(deftest system-edges-touching-ids-pass-min-confidence-to-bounded-reads
+  (let [calls (atom [])]
+    (with-redefs [store/rows-with-field-values
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    [(case (:field request)
+                       :source-id {:xt/id "system-edge:out"
+                                   :project-id "project-a"
+                                   :source-id "system:a"
+                                   :target-id "system:out"
+                                   :relation :calls-http
+                                   :confidence 0.9
+                                   :active? true}
+                       :target-id {:xt/id "system-edge:in"
+                                   :project-id "project-a"
+                                   :source-id "system:in"
+                                   :target-id "system:a"
+                                   :relation :calls-http
+                                   :confidence 0.9
+                                   :active? true})])
+                  store/constrained-rows
+                  (fn [& _]
+                    (throw (ex-info "system adjacency should use bounded reads"
+                                    {})))]
+      (is (= ["system-edge:out" "system-edge:in"]
+             (mapv :xt/id
+                   (query/system-edges-touching-ids
+                    :xtdb
+                    ["system:a" "system:b" "system:a"]
+                    {:project-id "project-a"
+                     :min-confidence 0.55
+                     :valid-at #inst "2026-01-01T00:00:00Z"})))))
+    (is (= [{:field :source-id
+             :min-field :confidence
+             :min-value 0.55
+             :constraints {:active? true
+                           :project-id "project-a"}
+             :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}
+            {:field :target-id
+             :min-field :confidence
+             :min-value 0.55
+             :constraints {:active? true
+                           :project-id "project-a"}
+             :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           (mapv #(select-keys % [:field
+                                  :min-field
+                                  :min-value
+                                  :constraints
+                                  :read-context])
+                 @calls)))
+    (is (every? #(= (:system-edges store/tables) (:table %)) @calls))
+    (is (every? #(some #{:confidence} (:return-fields %)) @calls))
+    (is (every? #(not-any? #{'*} (:return-fields %)) @calls))))
 
 (deftest chunks-by-ids-use-batched-id-read-and-preserve-input-order
   (let [calls (atom [])

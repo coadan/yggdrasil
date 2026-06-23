@@ -290,41 +290,56 @@
    :run-id])
 
 (defn- field-values-query
-  [table field values constraints return-fields]
-  (let [value-rows (mapv (fn [value] {:match-value value}) values)
-        constraints (->> (dissoc (clean-constraints constraints) field)
-                         (sort-by (comp str key))
-                         vec)
-        terms (map-indexed (fn [idx [constraint-field value]]
-                             [constraint-field (symbol (str "v" idx)) value])
-                           constraints)
-        args (mapv second terms)
-        base-bindings (into {field 'match-value}
-                            (map (fn [[constraint-field arg _]]
-                                   [constraint-field arg]))
-                            terms)
-        return-fields (vec (distinct return-fields))
-        return-bindings (->> return-fields
-                             (remove #(contains? base-bindings %))
-                             (map-indexed (fn [idx return-field]
-                                            [return-field
-                                             (symbol (str "ret" idx))]))
-                             (into {}))
-        bindings (merge base-bindings return-bindings)
-        return-projections (into {}
-                                 (map (fn [return-field]
-                                        [return-field
-                                         (get bindings return-field)]))
-                                 return-fields)
-        values (mapv (fn [[_ _ value]] value) terms)]
-    (into [(list 'fn
-                 args
-                 (list '->
-                       (list 'unify
-                             (list 'rel value-rows '[match-value])
-                             (list 'from table [bindings]))
-                       (list 'return return-projections)))]
-          values)))
+  ([table field values constraints return-fields]
+   (field-values-query table field values constraints return-fields nil nil))
+  ([table field values constraints return-fields min-field min-value]
+   (let [value-rows (mapv (fn [value] {:match-value value}) values)
+         constraints (->> (dissoc (clean-constraints constraints) field)
+                          (sort-by (comp str key))
+                          vec)
+         terms (map-indexed (fn [idx [constraint-field value]]
+                              [constraint-field (symbol (str "v" idx)) value])
+                            constraints)
+         args (mapv second terms)
+         min-filter? (and min-field (some? min-value))
+         min-value-symbol 'min-value
+         bound-fields (set (cons field (map first terms)))
+         base-bindings (cond-> (into {field 'match-value}
+                                     (map (fn [[constraint-field arg _]]
+                                            [constraint-field arg]))
+                                     terms)
+                         (and min-filter?
+                              (not (contains? bound-fields min-field)))
+                         (assoc min-field 'min-field-value))
+         return-fields (vec (distinct return-fields))
+         return-bindings (->> return-fields
+                              (remove #(contains? base-bindings %))
+                              (map-indexed (fn [idx return-field]
+                                             [return-field
+                                              (symbol (str "ret" idx))]))
+                              (into {}))
+         bindings (merge base-bindings return-bindings)
+         return-projections (into {}
+                                  (map (fn [return-field]
+                                         [return-field
+                                          (get bindings return-field)]))
+                                  return-fields)
+         values (cond-> (mapv (fn [[_ _ value]] value) terms)
+                  min-filter? (conj min-value))
+         args (cond-> args
+                min-filter? (conj min-value-symbol))
+         pipeline (cond-> [(list 'unify
+                                 (list 'rel value-rows '[match-value])
+                                 (list 'from table [bindings]))]
+                    min-filter? (conj (list 'where
+                                            (list '>=
+                                                  (get bindings min-field)
+                                                  min-value-symbol)))
+                    true (conj (list 'return return-projections)))]
+     (into [(list 'fn
+                  args
+                  (apply list '-> pipeline))]
+           values))))
 
 (defn- tuple-values-query
   [table tuple-fields tuples constraints return-fields]
@@ -387,9 +402,10 @@
   "Return rows where field equals any value.
 
   Real XTDB handles use XTQL `rel`/`unify` so a bounded value set is pushed into
-  one table read. `return-fields` must be explicit because XTDB 2.x disallows
-  `*` projection inside `unify`."
-  [xtdb {:keys [table field values constraints return-fields read-context]
+  one table read. Optional `min-field`/`min-value` adds a numeric lower-bound
+  predicate to the same read. `return-fields` must be explicit because XTDB 2.x
+  disallows `*` projection inside `unify`."
+  [xtdb {:keys [table field values constraints return-fields read-context min-field min-value]
          :or {constraints {}
               read-context {}}}]
   (let [values (->> (seq values) (remove nil?) distinct vec)]
@@ -399,13 +415,18 @@
 
       (xtdb-handle? xtdb)
       (q xtdb
-         (field-values-query table field values constraints return-fields)
+         (field-values-query table field values constraints return-fields min-field min-value)
          read-context)
 
       :else
       (let [value-set (set values)]
         (->> (fallback-constrained-rows xtdb table constraints read-context)
-             (filter #(contains? value-set (get % field))))))))
+             (filter #(contains? value-set (get % field)))
+             (filter (fn [row]
+                       (or (nil? min-field)
+                           (nil? min-value)
+                           (<= (double min-value)
+                               (double (get row min-field)))))))))))
 
 (defn rows-with-field-tuples
   "Return rows where tuple-fields equal any supplied tuple.
