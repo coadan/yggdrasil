@@ -439,49 +439,31 @@
     (cond-> summary
       (seq actions) (assoc :nextActions actions))))
 
-(defn- indexed-extractor-fingerprint-summary
-  [xtdb project-id]
-  (if-not xtdb
-    []
-    (->> (scoped-active-index-rows xtdb
-                                   (:files store/tables)
-                                   {:project-id project-id})
-         (group-by (juxt :kind extractor-fingerprint-value))
-         (map (fn [[[kind fingerprint] files]]
-                {:kind (display-value kind)
-                 :extractor-version (get extract/extractor-versions kind "none/v1")
-                 :extractor-fingerprint fingerprint
-                 :files (count files)}))
-         (sort-by (juxt :kind :extractor-version :extractor-fingerprint))
-         vec)))
-
 (defn- active-project-rows
   [xtdb table project-id]
   (scoped-active-index-rows xtdb table {:project-id project-id}))
 
-(defn- indexed-connectivity-summary
+(defn- indexed-project-rows
   [xtdb project-id]
   (when xtdb
-    (let [files (active-project-rows xtdb (:files store/tables) project-id)
-          nodes (active-project-rows xtdb (:nodes store/tables) project-id)
-          edges (active-project-rows xtdb (:edges store/tables) project-id)]
-      (indexed-connectivity-from-rows files nodes edges))))
+    {:files (active-project-rows xtdb (:files store/tables) project-id)
+     :nodes (active-project-rows xtdb (:nodes store/tables) project-id)
+     :edges (active-project-rows xtdb (:edges store/tables) project-id)
+     :diagnostics (active-project-rows xtdb (:diagnostics store/tables) project-id)}))
+
+(defn- indexed-connectivity-summary
+  [{:keys [files nodes edges]}]
+  (when files
+    (indexed-connectivity-from-rows files nodes edges)))
 
 (defn- diagnostics-summary
-  [xtdb project-id]
-  (if-not xtdb
+  [{:keys [files diagnostics]}]
+  (if-not files
     {:total 0
      :by-stage []
      :by-extractor []
      :samples []}
-    (let [files-by-id (->> (active-project-rows xtdb
-                                                (:files store/tables)
-                                                project-id)
-                           (map (juxt :xt/id identity))
-                           (into {}))
-          diagnostics (active-project-rows xtdb
-                                           (:diagnostics store/tables)
-                                           project-id)
+    (let [files-by-id (into {} (map (juxt :xt/id identity)) files)
           diagnostic-extractor (fn [diagnostic]
                                  (let [file (get files-by-id (:file-id diagnostic))
                                        kind (or (:kind file) :unknown)]
@@ -516,6 +498,20 @@
                                             :source-line
                                             :file-id])))})))
 
+(defn- indexed-extractor-fingerprint-summary
+  [files]
+  (if-not files
+    []
+    (->> files
+         (group-by (juxt :kind extractor-fingerprint-value))
+         (map (fn [[[kind fingerprint] files]]
+                {:kind (display-value kind)
+                 :extractor-version (get extract/extractor-versions kind "none/v1")
+                 :extractor-fingerprint fingerprint
+                 :files (count files)}))
+         (sort-by (juxt :kind :extractor-version :extractor-fingerprint))
+         vec)))
+
 (defn project-coverage
   "Return source type coverage for project repos.
 
@@ -523,7 +519,8 @@
   to summarize parser/extractor failures by source kind and extractor version."
   ([project] (project-coverage nil project {}))
   ([xtdb {:keys [id repos path] :as _project} {:keys [config-path]}]
-   (let [repos (mapv repo-coverage repos)
+   (let [indexed-rows (indexed-project-rows xtdb id)
+         repos (mapv repo-coverage repos)
          report {:schema schema
                  :project-id id
                  :totals (project-totals repos)
@@ -536,9 +533,10 @@
                                                                :skipped-by-reason
                                                                :reason)
                  :extractors (merge-extractors repos)
-                 :extractor-fingerprints (indexed-extractor-fingerprint-summary xtdb id)
-                 :indexedConnectivity (indexed-connectivity-summary xtdb id)
-                 :diagnostics (diagnostics-summary xtdb id)
+                 :extractor-fingerprints (indexed-extractor-fingerprint-summary
+                                          (:files indexed-rows))
+                 :indexedConnectivity (indexed-connectivity-summary indexed-rows)
+                 :diagnostics (diagnostics-summary indexed-rows)
                  :repos repos}
          actions (coverage-next-actions report (or config-path path))]
      (cond-> report

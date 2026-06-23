@@ -115,6 +115,70 @@
                  :command "ygg sync coverage project.edn --json"}]
                (:nextActions report)))))))
 
+(deftest project-coverage-reuses-indexed-rows-for-xtdb-summaries
+  (let [root (temp-dir "ygg-coverage-indexed-row-reuse")
+        calls (atom [])
+        active-project {:project-id "fixture"
+                        :active? true}]
+    (spit-file! root "src/app.clj" "(ns app)\n")
+    (with-redefs [store/constrained-rows
+                  (fn [_ table constraints & [_ctx]]
+                    (swap! calls conj [table constraints])
+                    (case table
+                      :ygg/files [{:xt/id "file:app"
+                                   :project-id "fixture"
+                                   :repo-id "app"
+                                   :path "src/app.clj"
+                                   :kind :code
+                                   :extractor-fingerprint "extractor:clj-a"
+                                   :active? true}
+                                  {:xt/id "file:worker"
+                                   :project-id "fixture"
+                                   :repo-id "app"
+                                   :path "src/Worker.java"
+                                   :kind :java
+                                   :extractor-fingerprint "extractor:java-a"
+                                   :active? true}]
+                      :ygg/nodes [{:xt/id "node:app"
+                                   :project-id "fixture"
+                                   :repo-id "app"
+                                   :file-id "file:app"
+                                   :active? true}
+                                  {:xt/id "node:worker"
+                                   :project-id "fixture"
+                                   :repo-id "app"
+                                   :file-id "file:worker"
+                                   :active? true}]
+                      :ygg/edges [{:xt/id "edge:app-worker"
+                                   :project-id "fixture"
+                                   :repo-id "app"
+                                   :source-id "node:app"
+                                   :target-id "node:worker"
+                                   :active? true}]
+                      :ygg/index-diagnostics [{:file-id "file:worker"
+                                               :project-id "fixture"
+                                               :repo-id "app"
+                                               :stage :parse
+                                               :message "parser failed"
+                                               :active? true}]
+                      []))]
+      (let [report (coverage/project-coverage
+                    :xtdb
+                    {:id "fixture"
+                     :repos [{:id "app"
+                              :root root
+                              :role :application}]}
+                    {})]
+        (is (= 2 (get-in report [:indexedConnectivity :indexedFiles])))
+        (is (= 1 (get-in report [:diagnostics :total])))
+        (is (= #{"extractor:clj-a" "extractor:java-a"}
+               (set (map :extractor-fingerprint (:extractor-fingerprints report)))))))
+    (is (= [[(:files store/tables) active-project]
+            [(:nodes store/tables) active-project]
+            [(:edges store/tables) active-project]
+            [(:diagnostics store/tables) active-project]]
+           @calls))))
+
 (deftest context-summary-groups-indexed-files-and-diagnostics
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
