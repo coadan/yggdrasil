@@ -200,6 +200,8 @@
 
 (def ^:private style-section-chunk-lines
   120)
+(def ^:private style-rule-range-limit
+  256)
 (defn- style-variable-facts
   [lines]
   (->> lines
@@ -279,6 +281,30 @@
               (recur (rest remaining) nil 0 (conj out (assoc rule :end-line (inc idx))))))
           (recur (rest remaining) nil 0 out)))
       out)))
+(defn- limited-style-rule-ranges
+  [run-id file-id path rule-ranges]
+  (let [rule-ranges (vec rule-ranges)
+        rule-count (count rule-ranges)
+        limit style-rule-range-limit]
+    (if (<= rule-count limit)
+      {:ranges rule-ranges
+       :diagnostics []}
+      (let [omitted (- rule-count limit)
+            first-omitted (nth rule-ranges limit nil)]
+        {:ranges (subvec rule-ranges 0 limit)
+         :diagnostics [(common/diagnostic-row
+                        run-id
+                        file-id
+                        path
+                        "style-rule-limit"
+                        (:source-line first-omitted)
+                        (str "Style rule extraction retained "
+                             limit
+                             " of "
+                             rule-count
+                             " rules; omitted "
+                             omitted
+                             " to bound indexing fanout."))]}))))
 (defn- style-section-chunk
   [kind run-id id-scope file-id path lines {:keys [label source-line end-line]}]
   (let [line-count (max 0 (inc (- (long end-line) (long source-line))))
@@ -324,7 +350,9 @@
         root-node (common/generic-node run-id id-scope file-id path :style-file path 1)
         variable-facts (style-variable-facts lines)
         section-ranges (style-section-ranges lines)
-        rule-ranges (style-rule-ranges lines)
+        raw-rule-ranges (style-rule-ranges lines)
+        limited-rules (limited-style-rule-ranges run-id file-id path raw-rule-ranges)
+        rule-ranges (:ranges limited-rules)
         fact-nodes (mapv (fn [{:keys [kind label source-line]}]
                            (common/generic-node run-id id-scope file-id path
                                                 kind label source-line))
@@ -367,4 +395,4 @@
                           section-chunks
                           rule-chunks
                           variable-chunks))
-     :diagnostics []}))
+     :diagnostics (:diagnostics limited-rules)}))

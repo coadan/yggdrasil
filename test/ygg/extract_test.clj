@@ -1193,6 +1193,37 @@
     (is (str/includes? (:text (first (get chunks-by-label "$panel-radius")))
                        "$panel-radius: .25rem"))))
 
+(deftest caps-style-rule-fanout-with-diagnostic
+  (let [root (.toFile (java.nio.file.Files/createTempDirectory
+                       "ygg-style-extract"
+                       (make-array java.nio.file.attribute.FileAttribute 0)))
+        source (doto (io/file root "theme.scss")
+                 (spit (str "$theme-color: red;\n"
+                            "// scss-docs-start theme-docs\n"
+                            ".theme-docs { color: $theme-color; }\n"
+                            "// scss-docs-end theme-docs\n"
+                            (str/join
+                             "\n"
+                             (map (fn [idx]
+                                    (str ".rule-" idx " { color: red; }"))
+                                  (range 300)))
+                            "\n")))
+        result (extract/extract-file "run/test"
+                                     (fs/file-record (.getPath root)
+                                                     (.getPath source)))
+        chunk-kinds (frequencies (map :kind (:chunks result)))
+        labels (set (map :label (:nodes result)))
+        diagnostic (first (:diagnostics result))]
+    (is (= 1 (:style-file chunk-kinds)))
+    (is (= 1 (:style-section chunk-kinds)))
+    (is (= 1 (:style-variable chunk-kinds)))
+    (is (= 256 (:style-rule chunk-kinds)))
+    (is (contains? labels "$theme-color"))
+    (is (contains? labels "theme-docs"))
+    (is (= :style-rule-limit (:stage diagnostic)))
+    (is (str/includes? (:message diagnostic) "retained 256"))
+    (is (str/includes? (:message diagnostic) "omitted"))))
+
 (deftest extracts-shell-as-searchable-source-chunk
   (let [shell-result (extract/extract-file
                       "run/test"
