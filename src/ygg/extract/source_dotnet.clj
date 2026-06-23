@@ -107,9 +107,70 @@
              :name (str (:name current-type) "." name)
              :public? (= "public" visibility)
              :source-line (inc idx)}))))))
+(defn- bounded-balanced-curly-block
+  [^String content ^long start ^long end]
+  (let [content (or content "")
+        length (min (count content) end)
+        open-idx (str/index-of content "{" start)]
+    (when (and open-idx (< open-idx length))
+      (loop [idx open-idx
+             depth 0
+             in-string? false
+             string-delim nil
+             escaped? false]
+        (if (< idx length)
+          (let [ch (.charAt content (int idx))
+                escaped-next? (and in-string?
+                                   (not escaped?)
+                                   (= \\ ch)
+                                   (not= \` string-delim))
+                closing-string? (and in-string?
+                                     (not escaped?)
+                                     (not escaped-next?)
+                                     (= ch string-delim))
+                opening-string? (and (not in-string?)
+                                     (or (= \" ch) (= \' ch) (= \` ch)))
+                in-string-next? (cond
+                                  closing-string? false
+                                  escaped-next? true
+                                  opening-string? true
+                                  :else in-string?)
+                string-delim-next (cond
+                                    closing-string? nil
+                                    opening-string? ch
+                                    :else string-delim)
+                depth-next (cond
+                             in-string-next? depth
+                             (= \{ ch) (inc depth)
+                             (= \} ch) (dec depth)
+                             :else depth)]
+            (if (and (not in-string-next?) (zero? depth-next) (pos? depth))
+              (subs content start (inc idx))
+              (recur (inc idx)
+                     depth-next
+                     in-string-next?
+                     string-delim-next
+                     escaped-next?)))
+          (subs content start length))))))
+
+(defn- dotnet-definition-text
+  [content line-starts line-count idx line form]
+  (let [source-line (or (:source-line form) (inc idx))
+        start (+ (get line-starts idx 0)
+                 (or (some->> [(:name form)]
+                              first
+                              (str/index-of line))
+                     0))
+        end-line-idx (min line-count (+ idx common/source-family-definition-chunk-lines))
+        end (if (< end-line-idx (count line-starts))
+              (get line-starts end-line-idx)
+              (count content))]
+    (or (bounded-balanced-curly-block content start end)
+        line)))
 (defn- dotnet-definition-forms
   [content]
   (let [lines (vec (str/split-lines content))
+        line-count (count lines)
         line-starts (common/line-start-offsets content)]
     (loop [remaining (map-indexed vector lines)
            depth 0
@@ -131,15 +192,14 @@
                       property-form (conj property-form)
                       method-form (conj method-form))
               forms (mapv (fn [{:keys [source-line] :as form}]
-                            (let [start (+ (get line-starts idx 0)
-                                           (or (some->> [(:name form)]
-                                                        first
-                                                        (str/index-of line))
-                                               0))]
-                              (assoc form
-                                     :text (or (common/balanced-curly-block content start)
-                                               line)
-                                     :source-line source-line)))
+                            (assoc form
+                                   :text (dotnet-definition-text content
+                                                                 line-starts
+                                                                 line-count
+                                                                 idx
+                                                                 line
+                                                                 form)
+                                   :source-line source-line))
                           forms)
               delta (common/curly-depth-delta line)
               depth* (+ depth delta)
