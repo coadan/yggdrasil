@@ -692,6 +692,36 @@
     (is (.contains markdown "- totalTokens: improved (shell: 12000.0, ygg: 7000.0, delta: -5000.0)"))
     (is (.contains markdown "- costUsd: improved (shell: 0.6, ygg: 0.35, delta: -0.25)"))))
 
+(deftest tradeoff-status-follows-total-tokens-over-output-token-regression
+  (let [shell (assoc-in shell-report
+                        [:agentDiagnostics :tokenTelemetry]
+                        {:totalTokens 12000
+                         :inputTokens 11000
+                         :outputTokens 1000
+                         :costUsd 0.0})
+        ygg (assoc-in shell-report
+                      [:agentDiagnostics :tokenTelemetry]
+                      {:totalTokens 10000
+                       :inputTokens 8000
+                       :outputTokens 2000
+                       :costUsd 0.0})
+        comparison (agent-efficiency/compare-reports shell ygg)
+        markdown (agent-efficiency/markdown-report comparison)]
+    (is (= "same-quality-lower-token-cost"
+           (get-in comparison [:qualityCostTradeoff :status])))
+    (is (= {:primaryMetric :totalTokens
+            :primaryResult "improved"
+            :improvedMetrics 2
+            :regressedMetrics 1
+            :unchangedMetrics 1}
+           (select-keys (get-in comparison [:qualityCostTradeoff :tokenCost])
+                        [:primaryMetric
+                         :primaryResult
+                         :improvedMetrics
+                         :regressedMetrics
+                         :unchangedMetrics])))
+    (is (.contains markdown "- Status: same-quality-lower-token-cost"))))
+
 (deftest reports-context-artifact-telemetry-for-progressive-disclosure
   (let [ygg (assoc-in ygg-report
                       [:agentDiagnostics :contextArtifactTelemetry]

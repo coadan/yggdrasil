@@ -328,6 +328,10 @@
     :outputTokens
     :costUsd})
 
+(def ^:private primary-token-tradeoff-keys
+  [:totalTokens
+   :costUsd])
+
 (def ^:private case-token-metric-specs
   [{:key :taskTotalTokens
     :label "taskTotalTokens"
@@ -706,6 +710,23 @@
                   [key delta])))
         rows))
 
+(defn- row-by-key
+  [rows]
+  (into {} (map (juxt :key identity)) rows))
+
+(defn- primary-token-tradeoff-row
+  [token-rows]
+  (let [rows-by-key (row-by-key token-rows)]
+    (some (fn [key]
+            (let [row (get rows-by-key key)]
+              (when (:available row)
+                row)))
+          primary-token-tradeoff-keys)))
+
+(defn- tradeoff-result?
+  [result row]
+  (= result (:result row)))
+
 (defn- quality-token-tradeoff
   [deltas]
   (let [quality-rows (tradeoff-rows deltas quality-tradeoff-metric-keys)
@@ -715,12 +736,17 @@
                              token-rows)
         quality-counts (tradeoff-counts quality-rows)
         token-counts (tradeoff-counts token-rows)
+        primary-token-row (primary-token-tradeoff-row token-rows)
         quality-improved? (pos? (:improvedMetrics quality-counts))
         quality-regressed? (pos? (:regressedMetrics quality-counts))
-        token-improved? (pos? (:improvedMetrics token-counts))
-        token-regressed? (pos? (:regressedMetrics token-counts))
+        token-improved? (if primary-token-row
+                          (tradeoff-result? "improved" primary-token-row)
+                          (pos? (:improvedMetrics token-counts)))
+        token-regressed? (if primary-token-row
+                           (tradeoff-result? "regressed" primary-token-row)
+                           (pos? (:regressedMetrics token-counts)))
         token-incomplete? (and token-present?
-                               (pos? (:unavailableMetrics token-counts)))
+                               (nil? primary-token-row))
         status (cond
                  (not token-present?) nil
                  token-incomplete? "token-metrics-incomplete"
@@ -747,8 +773,12 @@
       {:status status
        :quality (assoc quality-counts
                        :metrics (mapv compact-tradeoff-delta quality-rows))
-       :tokenCost (assoc token-counts
-                         :metrics (mapv compact-tradeoff-delta token-rows))
+       :tokenCost (cond-> (assoc token-counts
+                                 :metrics (mapv compact-tradeoff-delta
+                                                token-rows))
+                    primary-token-row
+                    (assoc :primaryMetric (:key primary-token-row)
+                           :primaryResult (:result primary-token-row)))
        :headlineDeltas (merge (tradeoff-deltas-by-key quality-rows)
                               (tradeoff-deltas-by-key token-rows))})))
 
