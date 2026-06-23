@@ -347,6 +347,8 @@
     (is (str/includes? prompt
                        "relatedFiles:[.relatedFiles[:12][]|{rank,path,relation}]"))
     (is (str/includes? prompt
+                       "importPackages:[.importPackages[:6][]|{rank,packagePrefix,target,files:[.files[:12][]|{path,kind}]}]"))
+    (is (str/includes? prompt
                        "topSymbols:[.topSymbols[:6][]|{rank,name,path,kind}]"))
     (is (str/includes? prompt
                        "candidateSystems:[.candidateSystems[:6][]|{rank,path,score}]"))
@@ -357,7 +359,7 @@
     (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts"))
     (is (str/includes? prompt "`readPlan.snippets[].command`"))
     (is (str/includes? prompt
-                       "`topFiles`, `relatedFiles`, `topSymbols`, `candidateSystems`, `readPlan`, `architecture`, and `auditScopes`"))
+                       "`topFiles`, `relatedFiles`, `importPackages`, `topSymbols`"))
     (is (str/includes? prompt "Avoid broad `rg`"))
     (is (str/includes? prompt
                        "do not pass directories to `rg` when exact files"))
@@ -530,7 +532,8 @@
                       :path "component/component.go"
                       :active? true}
                      seed-node])]
-      (let [rows (#'benchmark/graph-related-files nil prepared packet {})]
+      (let [artifacts (#'benchmark/graph-related-artifacts nil prepared packet {})
+            rows (:related-files artifacts)]
         (is (= ["consumer" "component"] @prefix-calls))
         (is (= ["component/component.go" "consumer/traces.go"]
                (mapv :path rows)))
@@ -633,10 +636,19 @@
                                                             (str % "/")))
                                      prefixes))
                              namespace-nodes))]
-      (let [rows (#'benchmark/graph-related-files nil prepared packet {})]
+      (let [artifacts (#'benchmark/graph-related-artifacts nil prepared packet {})
+            rows (:related-files artifacts)]
         (is (= ["consumer" "component"] @prefix-calls))
         (is (= ["component/component.go" "consumer/traces.go"]
                (mapv :path rows)))
+        (is (= [{:prefix "component"
+                 :files ["component/component.go"]}
+                {:prefix "consumer"
+                 :files ["consumer/traces.go"]}]
+               (mapv (fn [package]
+                       {:prefix (:packagePrefix package)
+                        :files (mapv :path (:files package))})
+                     (:import-packages artifacts))))
         (is (every? #(str/includes? (first (:evidence %))
                                     "via module go.opentelemetry.io/collector/")
                     rows))))))
@@ -706,7 +718,8 @@
                                                             (str % "/")))
                                      prefixes))
                              namespace-nodes))]
-      (let [rows (#'benchmark/graph-related-files nil prepared packet {})]
+      (let [artifacts (#'benchmark/graph-related-artifacts nil prepared packet {})
+            rows (:related-files artifacts)]
         (is (= ["connector/internal"] @prefix-calls))
         (is (= ["connector/internal/testcomponents.go"]
                (mapv :path rows)))

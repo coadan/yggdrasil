@@ -806,12 +806,26 @@
     :else
     "mixed"))
 
+(defn- prepared-agent-setup-policy
+  [summary]
+  (cond
+    (nil? summary)
+    "preparation evidence unavailable: do not treat warmElapsedMs as a strict prepared-agent measurement."
+
+    (true? (:allRunsReadyBeforeAgent summary))
+    "strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs."
+
+    :else
+    "not strict warm: at least one Yggdrasil run prepared or lacked preparation evidence during the benchmark lane; setup is separated from warmElapsedMs but not proven pre-agent for every run."))
+
 (defn- prepared-agent-evidence
   [shell-report ygg-report]
   (let [shell-preparation (:agentPreparation shell-report)
         ygg-preparation (:agentPreparation ygg-report)]
     (when (or shell-preparation ygg-preparation)
       {:status (prepared-agent-status ygg-preparation)
+       :strictWarmBenchmark (true? (:allRunsReadyBeforeAgent ygg-preparation))
+       :setupCostPolicy (prepared-agent-setup-policy ygg-preparation)
        :shellOnly shell-preparation
        :ygg ygg-preparation
        :primaryWarmBasis "Yggdrasil warmElapsedMs is strongest when the Ygg lane reports allRunsReadyBeforeAgent=true; otherwise setup was only amortized or preparation evidence is missing."})))
@@ -1972,6 +1986,10 @@
                   "## Prepared-Agent Evidence"
                   ""
                   (str "- Status: " (:status prepared-agent-evidence))
+                  (str "- Strict warm benchmark: "
+                       (:strictWarmBenchmark prepared-agent-evidence))
+                  (str "- Setup cost policy: "
+                       (:setupCostPolicy prepared-agent-evidence))
                   (str "- Basis: "
                        (:primaryWarmBasis prepared-agent-evidence))]
                  (keep identity

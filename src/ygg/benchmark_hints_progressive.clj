@@ -10,6 +10,8 @@
    :top-symbols 5
    :top-docs 5
    :related-files 12
+   :import-packages 6
+   :import-package-files 12
    :candidate-systems 6
    :commands 6
    :audit-scopes 3
@@ -83,6 +85,16 @@
       (compact-reason limits)
       (compact-row-evidence limits)
       (update :via #(takev 2 %))))
+
+(defn- compact-import-package
+  [limits row]
+  (-> row
+      (select-keys [:rank :packagePrefix :target :relation :seedPaths :evidence :files])
+      (compact-row-evidence limits)
+      (update :seedPaths #(takev 4 %))
+      (update :files #(mapv (fn [file]
+                              (select-keys file [:path :repoId :repo :kind]))
+                            (take (:import-package-files limits) %)))))
 
 (defn- compact-symbol
   [limits row]
@@ -279,6 +291,7 @@
    :topSymbols (count (:topSymbols hints))
    :topDocs (count (:topDocs hints))
    :relatedFiles (count (:relatedFiles hints))
+   :importPackages (count (:importPackages hints))
    :candidateSystems (count (:candidateSystems hints))
    :commands (count (:commands hints))
    :auditScopes (count (:auditScopes hints))})
@@ -327,6 +340,10 @@
        (assoc :relatedFiles (mapv #(compact-related-file limits %)
                                   (take (:related-files limits)
                                         (:relatedFiles hints))))
+       (seq (:importPackages hints))
+       (assoc :importPackages (mapv #(compact-import-package limits %)
+                                    (take (:import-packages limits)
+                                          (:importPackages hints))))
        (seq (:candidateSystems hints))
        (assoc :candidateSystems (mapv compact-system
                                       (take (:candidate-systems limits)

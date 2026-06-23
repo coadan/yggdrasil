@@ -134,6 +134,12 @@
   [result]
   (some-> result :agentPreparation :status str not-empty))
 
+(def ^:private strict-warm-setup-policy
+  "strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs.")
+
+(def ^:private amortized-warm-setup-policy
+  "not strict warm: at least one Yggdrasil run prepared or lacked preparation evidence during the benchmark lane; setup is separated from warmElapsedMs but not proven pre-agent for every run.")
+
 (defn- agent-preparation-summary
   [results]
   (let [results (vec results)
@@ -172,6 +178,12 @@
        :otherStatusCaseIds (result-case-ids other)
        :otherStatuses other-statuses
        :allRunsReadyBeforeAgent all-reused?
+       :strictWarmBenchmark all-reused?
+       :primaryElapsedMetric "warmElapsedMs"
+       :excludedFromPrimaryElapsed ["graph-setup" "agent-preparation"]
+       :setupCostPolicy (if all-reused?
+                          strict-warm-setup-policy
+                          amortized-warm-setup-policy)
        :basis "reused means the graph DB, context packet, and compact hints were prepared before the measured agent process started; prepared means the same agent-run command created them and warmElapsedMs only amortizes that setup cost."
        :warnings (cond-> []
                    (seq prepared)

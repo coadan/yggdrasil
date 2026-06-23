@@ -803,6 +803,8 @@
 (def ^:private related-file-seed-limit 8)
 (def ^:private related-file-limit 12)
 (def ^:private related-file-package-limit 5)
+(def ^:private import-package-limit 8)
+(def ^:private import-package-file-limit 12)
 
 (defn- dirname
   [path]
@@ -1009,6 +1011,46 @@
        " -> package "
        package-prefix))
 
+(defn- package-file-row
+  [node]
+  (cond-> {:path (:path node)}
+    (or (:repoId node) (:repo-id node))
+    (assoc :repoId (or (:repoId node) (:repo-id node)))
+
+    (:repo node)
+    (assoc :repo (:repo node))
+
+    (:kind node)
+    (assoc :kind (:kind node))))
+
+(defn- import-package-candidate-key
+  [{:keys [prefix matches nodes]}]
+  [(or (->> matches
+            (keep (comp :rank :seed))
+            seq
+            (apply min))
+       Long/MAX_VALUE)
+   (- (count (distinct (map (comp :path :seed) matches))))
+   (- (count nodes))
+   prefix])
+
+(defn- import-package-row
+  [rank prefix prefix-matches nodes]
+  (let [first-match (first prefix-matches)]
+    {:rank rank
+     :packagePrefix prefix
+     :target (:target first-match)
+     :relation "imports-package"
+     :seedPaths (->> prefix-matches
+                     (map (comp :path :seed))
+                     distinct
+                     vec)
+     :evidence [(related-file-evidence first-match)]
+     :files (->> nodes
+                 (sort-by #(package-node-sort-key prefix %))
+                 (take import-package-file-limit)
+                 (mapv package-file-row))}))
+
 (defn- related-file-row
   [prefix-match node]
   (let [{:keys [seed edge target package-prefix]} prefix-match]
@@ -1046,7 +1088,7 @@
        (take related-file-limit)
        vec))
 
-(defn- graph-related-files
+(defn- graph-related-artifacts
   [xtdb prepared packet opts]
   (let [seeds (candidate-file-seeds packet)
         scope (related-file-scope prepared opts)
@@ -1085,12 +1127,31 @@
                              (remove #(contains? seed-paths (:path %)))
                              (group-by #(node-package-prefix package-prefixes %))
                              (#(dissoc % nil))
-                             cap-package-prefix-nodes)]
-    (merge-related-file-rows
-     (mapcat (fn [{:keys [package-prefix] :as prefix-match}]
-               (map #(related-file-row prefix-match %)
-                    (get nodes-by-prefix package-prefix)))
-             prefix-matches))))
+                             cap-package-prefix-nodes)
+        matches-by-prefix (group-by :package-prefix prefix-matches)
+        related-files (merge-related-file-rows
+                       (mapcat (fn [{:keys [package-prefix] :as prefix-match}]
+                                 (map #(related-file-row prefix-match %)
+                                      (get nodes-by-prefix package-prefix)))
+                               prefix-matches))
+        import-packages (->> package-prefixes
+                             (keep (fn [prefix]
+                                     (when-let [nodes (seq (get nodes-by-prefix
+                                                                prefix))]
+                                       {:prefix prefix
+                                        :matches (get matches-by-prefix prefix)
+                                        :nodes nodes})))
+                             (sort-by import-package-candidate-key)
+                             (take import-package-limit)
+                             (map-indexed (fn [idx {:keys [prefix matches nodes]}]
+                                            (import-package-row
+                                             (inc idx)
+                                             prefix
+                                             matches
+                                             nodes)))
+                             vec)]
+    {:related-files related-files
+     :import-packages import-packages}))
 
 (defn- prepare-agent-graph-and-artifacts!
   [suite case prepared opts]
@@ -1162,17 +1223,22 @@
                            :entities (count (:entities packet))
                            :edges (count (:edges packet))
                            :warnings (count (:warnings packet))}))
-                related-files (benchmark-progress/progress-stage!
-                               suite
-                               case
-                               opts
-                               :context-related-files
-                               #(graph-related-files xtdb prepared packet opts)
-                               (fn [rows]
-                                 {:relatedFiles (count rows)}))
+                related-artifacts (benchmark-progress/progress-stage!
+                                   suite
+                                   case
+                                   opts
+                                   :context-related-files
+                                   #(graph-related-artifacts xtdb prepared packet opts)
+                                   (fn [artifacts]
+                                     {:relatedFiles (count (:related-files artifacts))
+                                      :importPackages (count (:import-packages artifacts))}))
+                related-files (:related-files related-artifacts)
+                import-packages (:import-packages related-artifacts)
                 packet (cond-> packet
                          (seq related-files)
-                         (assoc :relatedFiles related-files))
+                         (assoc :relatedFiles related-files)
+                         (seq import-packages)
+                         (assoc :importPackages import-packages))
                 artifacts (canonical-ygg-agent-artifacts paths)]
             (benchmark-progress/progress-stage!
              suite

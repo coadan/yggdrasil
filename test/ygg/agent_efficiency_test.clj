@@ -749,6 +749,10 @@
                      :otherStatusCaseIds []
                      :otherStatuses []
                      :allRunsReadyBeforeAgent true
+                     :strictWarmBenchmark true
+                     :primaryElapsedMetric "warmElapsedMs"
+                     :excludedFromPrimaryElapsed ["graph-setup" "agent-preparation"]
+                     :setupCostPolicy "strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs."
                      :basis "reused means the graph DB, context packet, and compact hints were prepared before the measured agent process started; prepared means the same agent-run command created them and warmElapsedMs only amortizes that setup cost."
                      :warnings []}
         comparison (agent-efficiency/compare-reports
@@ -756,6 +760,8 @@
                     (assoc ygg-report :agentPreparation preparation))
         markdown (agent-efficiency/markdown-report comparison)]
     (is (= {:status "ready-before-agent"
+            :strictWarmBenchmark true
+            :setupCostPolicy "strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs."
             :shellOnly nil
             :ygg preparation
             :primaryWarmBasis "Yggdrasil warmElapsedMs is strongest when the Ygg lane reports allRunsReadyBeforeAgent=true; otherwise setup was only amortized or preparation evidence is missing."}
@@ -764,6 +770,9 @@
            (get-in comparison [:ygg :agentPreparation])))
     (is (.contains markdown "## Prepared-Agent Evidence"))
     (is (.contains markdown "- Status: ready-before-agent"))
+    (is (.contains markdown "- Strict warm benchmark: true"))
+    (is (.contains markdown
+                   "- Setup cost policy: strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs."))
     (is (.contains markdown
                    "- Yggdrasil: reused 2/2, prepared during agent-run 0, missing evidence 0, ready before agent true"))))
 

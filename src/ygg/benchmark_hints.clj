@@ -92,6 +92,17 @@
                     :samples])
       (update :topEvidenceTypes #(takev 5 %))
       (update :samples #(takev 3 %))))
+
+(defn- hint-import-package
+  [idx package]
+  (-> package
+      (select-keys [:packagePrefix :target :relation :seedPaths :evidence :files])
+      (assoc :rank (inc idx))
+      (update :seedPaths #(takev 4 %))
+      (update :evidence #(takev 1 %))
+      (update :files #(mapv (fn [file]
+                              (select-keys file [:path :repoId :repo :kind]))
+                            (take 12 %)))))
 (defn- audit-scope-issue?
   [scope]
   (or (= "unclassified-extractor" (:kind scope))
@@ -231,5 +242,9 @@
       (assoc :relatedFiles (mapv hint-related-file
                                  (range)
                                  (take 12 (:relatedFiles packet))))
+      (seq (:importPackages packet))
+      (assoc :importPackages (mapv hint-import-package
+                                   (range)
+                                   (take 8 (:importPackages packet))))
       (seq diagnostics)
       (assoc :diagnostics diagnostics))))

@@ -257,6 +257,10 @@
               :otherStatusCaseIds []
               :otherStatuses []
               :allRunsReadyBeforeAgent true
+              :strictWarmBenchmark true
+              :primaryElapsedMetric "warmElapsedMs"
+              :excludedFromPrimaryElapsed ["graph-setup" "agent-preparation"]
+              :setupCostPolicy "strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs."
               :basis "reused means the graph DB, context packet, and compact hints were prepared before the measured agent process started; prepared means the same agent-run command created them and warmElapsedMs only amortizes that setup cost."
               :warnings []}
              (:agentPreparation report)))

@@ -64,6 +64,16 @@
                                :relation "imports-package"
                                :sourceLine 10
                                :evidence ["source-graph: lib/adapters/http.js imports lib/core line 3"]}]
+               :importPackages [{:rank 1
+                                 :packagePrefix "lib/core"
+                                 :target "lib/core"
+                                 :relation "imports-package"
+                                 :seedPaths ["lib/adapters/http.js"]
+                                 :evidence ["source-graph: lib/adapters/http.js imports lib/core line 3"]
+                                 :files [{:path "lib/core/connection.js"
+                                          :kind "namespace"}
+                                         {:path "lib/core/pool.js"
+                                          :kind "namespace"}]}]
                :topSymbols [{:rank 1
                              :name "setProxy"
                              :path "lib/adapters/http.js"
@@ -97,6 +107,8 @@
                            :top-symbols 1
                            :top-docs 1
                            :related-files 1
+                           :import-packages 1
+                           :import-package-files 1
                            :candidate-systems 1
                            :commands 1
                            :audit-scopes 1
@@ -113,12 +125,22 @@
             :topSymbols 1
             :topDocs 1
             :relatedFiles 1
+            :importPackages 1
             :candidateSystems 1
             :commands 2
             :auditScopes 0}
            (get-in compact [:progressive :sourceCounts])))
     (is (= ["lib/adapters/http.js"] (mapv :path (:topFiles compact))))
     (is (= ["lib/core/connection.js"] (mapv :path (:relatedFiles compact))))
+    (is (= [{:rank 1
+             :packagePrefix "lib/core"
+             :target "lib/core"
+             :relation "imports-package"
+             :seedPaths ["lib/adapters/http.js"]
+             :evidence ["source-graph: lib/adapters/http.js imports lib/core line 3"]
+             :files [{:path "lib/core/connection.js"
+                      :kind "namespace"}]}]
+           (:importPackages compact)))
     (is (= 2 (get-in compact [:topFiles 0 :evidenceCount])))
     (is (= ["context-doc:lib/adapters/http.js lines 24-26"]
            (get-in compact [:topFiles 0 :evidence])))
