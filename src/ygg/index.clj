@@ -24,11 +24,27 @@
         finished (now-ms)]
     [result (assoc timings k (max 0 (- finished started)))]))
 
+(defn- elapsed-ms
+  [started-ns]
+  (max 0 (long (/ (- (System/nanoTime) started-ns) 1000000))))
+
 (defn- stats-with-timings
   [stats timings started-at-ms finished-at-ms]
   (assoc stats
          :timings-ms (assoc timings
                             :total-ms (max 0 (- finished-at-ms started-at-ms)))))
+
+(defn- extraction-kind-stats
+  [entries]
+  (->> entries
+       (keep :extraction-timing)
+       (group-by :kind)
+       (map (fn [[kind rows]]
+              {:kind kind
+               :files (count rows)
+               :elapsed-ms (reduce + 0 (map :elapsed-ms rows))}))
+       (sort-by (juxt (comp - :elapsed-ms) :kind))
+       vec))
 
 (defn deadline-ns
   [timeout-ms]
@@ -492,7 +508,8 @@
                                                  :files-changed (count changed)
                                                  :files-extracted idx
                                                  :path (:path file)})
-                                               (let [file (if-let [facts (get parser-worker-facts
+                                               (let [started-ns (System/nanoTime)
+                                                     file (if-let [facts (get parser-worker-facts
                                                                               (:path file))]
                                                             (assoc file
                                                                    :parser-worker-facts
@@ -524,7 +541,10 @@
                                                                          file
                                                                          extraction)
                                                             :existing? existing?
-                                                            :valid-from valid-from}]
+                                                            :valid-from valid-from
+                                                            :extraction-timing {:kind (:kind file)
+                                                                                :elapsed-ms (elapsed-ms
+                                                                                             started-ns)}}]
                                                  (progress! progress-fn
                                                             project-id
                                                             repo-id
@@ -618,7 +638,9 @@
               summary (-> (:stats initial)
                           (assoc :files-skipped (:skipped planned)
                                  :files-indexed (count (:changed planned))
-                                 :files-deleted (:files-deleted deletes))
+                                 :files-deleted (:files-deleted deletes)
+                                 :extraction {:by-kind (extraction-kind-stats
+                                                        (:changed planned))})
                           (update :nodes + (:nodes result))
                           (update :edges + (:edges result))
                           (update :chunks + (:chunks result))

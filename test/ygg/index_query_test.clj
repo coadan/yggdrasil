@@ -1401,6 +1401,11 @@
                          :scan-ms))
           (is (contains? (get-in first-summary [:stats :timings-ms])
                          :extract-ms))
+          (let [code-extraction (some #(when (= :code (:kind %)) %)
+                                      (get-in first-summary
+                                              [:stats :extraction :by-kind]))]
+            (is (= 1 (:files code-extraction)))
+            (is (not (neg? (:elapsed-ms code-extraction)))))
           (is (= 1 (get-in second-summary [:stats :files-skipped])))
           (is (string? (:extractor-fingerprint row)))
           (with-redefs [index/extractor-fingerprint (fn [& _]
