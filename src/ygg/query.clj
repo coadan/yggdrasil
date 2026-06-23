@@ -514,11 +514,20 @@
    {}
    docs))
 
+(defn- inverse-document-frequencies
+  [query-tokens doc-freqs doc-count]
+  (into {}
+        (map (fn [token]
+               (let [df (double (get doc-freqs token 0))]
+                 [token (Math/log (+ 1.0
+                                     (/ (+ (- doc-count df) 0.5)
+                                        (+ df 0.5))))])))
+        query-tokens))
+
 (defn- bm25-score
-  [query-tokens docs doc-freqs avgdl doc]
+  [query-tokens idf-by-token avgdl doc]
   (let [k1 1.2
         b 0.75
-        n (max 1 (count docs))
         freqs (token-frequencies (:tokens doc))
         dl (max 1 (count (:tokens doc)))]
     (reduce
@@ -526,9 +535,7 @@
        (let [tf (double (get freqs token 0))]
          (if (zero? tf)
            score
-           (let [df (double (get doc-freqs token 0))
-                 idf (Math/log (+ 1.0 (/ (+ (- n df) 0.5)
-                                         (+ df 0.5))))
+           (let [idf (double (get idf-by-token token 0.0))
                  denom (+ tf (* k1 (+ (- 1.0 b) (* b (/ dl avgdl)))))]
              (+ score (* idf (/ (* tf (+ k1 1.0)) denom)))))))
      0.0
@@ -543,17 +550,19 @@
 
 (defn- lexical-scores
   [query-tokens docs]
-  (let [doc-freqs (document-frequencies docs)
+  (let [doc-count (max 1 (count docs))
+        doc-freqs (document-frequencies docs)
+        idf-by-token (inverse-document-frequencies query-tokens doc-freqs doc-count)
         avgdl (max 1.0
                    (/ (double (reduce + 0 (map #(count (:tokens %)) docs)))
-                      (max 1 (count docs))))]
+                      doc-count))]
     (->> docs
          (map (fn [doc]
                 [(:target-id doc)
                  (if (and (empty? (:tokens doc))
                           (number? (:score doc)))
                    (double (:score doc))
-                   (bm25-score query-tokens docs doc-freqs avgdl doc))]))
+                   (bm25-score query-tokens idf-by-token avgdl doc))]))
          (into {})
          normalize-scores)))
 
