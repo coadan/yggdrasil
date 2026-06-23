@@ -25,6 +25,10 @@
   [& args]
   (apply shell/sh "python3" "scripts/prompt-token-measure.py" args))
 
+(defn- run-stage-gate
+  [& args]
+  (apply shell/sh "python3" "scripts/stage-time-gate.py" args))
+
 (defn- estimate-prompt-tokens
   [prompt]
   (long (Math/ceil (/ (count (json/write-json-str prompt)) 4.0))))
@@ -66,6 +70,20 @@
           (json/write-json-str (assoc report :source "run")
                                {:indent-str "  "}))
     report-path))
+
+(defn- stage-report!
+  [root path {:keys [total-ms case-ms]}]
+  (spit-json! root
+              path
+              {:schema "ygg.benchmark.agent-report/v2"
+               :suite-id "fixture"
+               :timings {:cases 1
+                         :stageElapsedMs [{:stage "index-project"
+                                           :elapsedMs total-ms}]}
+               :caseProgress [{:case-id "case-1"
+                               :repo-id "fixture-repo"
+                               :stageElapsedMs [{:stage "index-project"
+                                                 :elapsedMs case-ms}]}]}))
 
 (deftest dry-run-prints-full-strict-gate
   (let [result (run-gate "--dry-run"
@@ -203,3 +221,59 @@
     (is (= "failed" (:status parsed)))
     (is (some #(str/includes? % "did not reduce tokens")
               (:failures parsed)))))
+
+(deftest stage-time-gate-compares-current-report-to-baseline-artifact
+  (let [root (temp-dir "ygg-stage-time-gate-compare")
+        baseline-path (stage-report! root
+                                     "baseline.json"
+                                     {:total-ms 1000
+                                      :case-ms 500})
+        current-path (stage-report! root
+                                    "current.json"
+                                    {:total-ms 1300
+                                     :case-ms 700})
+        result (run-stage-gate current-path
+                               "--baseline-report" baseline-path
+                               "--max-total-stage-regression-ratio" "1.2"
+                               "--max-case-stage-regression-ms" "100"
+                               "--min-stage-regression-ms" "50")
+        parsed (json/read-json (:out result) :key-fn keyword)
+        failure-metrics (set (map :metric (:failures parsed)))]
+    (is (= 1 (:exit result)))
+    (is (= "failed" (:status parsed)))
+    (is (= 1 (count (:baselineReports parsed))))
+    (is (= #{"totalStageRegressionRatio"
+             "caseStageRegressionMs"}
+           failure-metrics))
+    (is (= {:stage "index-project"
+            :baselineElapsedMs 1000
+            :currentElapsedMs 1300
+            :deltaMs 300
+            :regression true}
+           (select-keys (first (:stageDeltas parsed))
+                        [:stage
+                         :baselineElapsedMs
+                         :currentElapsedMs
+                         :deltaMs
+                         :regression])))))
+
+(deftest stage-time-gate-ignores-comparison-noise-below-floor
+  (let [root (temp-dir "ygg-stage-time-gate-noise-floor")
+        baseline-path (stage-report! root
+                                     "baseline.json"
+                                     {:total-ms 1000
+                                      :case-ms 500})
+        current-path (stage-report! root
+                                    "current.json"
+                                    {:total-ms 1040
+                                     :case-ms 550})
+        result (run-stage-gate current-path
+                               "--baseline-report" baseline-path
+                               "--max-total-stage-regression-ratio" "1.01"
+                               "--max-case-stage-regression-ms" "10"
+                               "--min-stage-regression-ms" "50")
+        parsed (json/read-json (:out result) :key-fn keyword)]
+    (is (= 0 (:exit result)) (:out result))
+    (is (= "passed" (:status parsed)))
+    (is (= 40 (:deltaMs (first (:stageDeltas parsed)))))
+    (is (= [] (:failures parsed)))))

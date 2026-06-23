@@ -53,7 +53,7 @@
                                                        *command-line-args*)]
                              (System/exit exit))}
 
-  stage-time-gate {:doc "Validate completed benchmark stage timings from agent reports. Usage: bb stage-time-gate REPORT... [--max-case-stage-ms N] [--max-total-stage-ms N] [--stage NAME] [--out PATH]"
+  stage-time-gate {:doc "Validate completed benchmark stage timings from agent reports. Usage: bb stage-time-gate REPORT... [--baseline-report REPORT] [--max-case-stage-ms N] [--max-total-stage-ms N] [--max-case-stage-regression-ms N] [--max-total-stage-regression-ms N] [--max-case-stage-regression-ratio N] [--max-total-stage-regression-ratio N] [--min-stage-regression-ms N] [--stage NAME] [--out PATH]"
                    :task (let [{:keys [exit]} (apply shell
                                                      {:continue true}
                                                      "python3"
