@@ -1217,12 +1217,30 @@
     (is (= 1 (:style-file chunk-kinds)))
     (is (= 1 (:style-section chunk-kinds)))
     (is (= 1 (:style-variable chunk-kinds)))
-    (is (= 256 (:style-rule chunk-kinds)))
+    (is (= 128 (:style-rule chunk-kinds)))
     (is (contains? labels "$theme-color"))
     (is (contains? labels "theme-docs"))
     (is (= :style-rule-limit (:stage diagnostic)))
-    (is (str/includes? (:message diagnostic) "retained 256"))
+    (is (str/includes? (:message diagnostic) "retained 128"))
     (is (str/includes? (:message diagnostic) "omitted"))))
+
+(deftest bounds-large-style-file-chunk-text
+  (let [root (.toFile (java.nio.file.Files/createTempDirectory
+                       "ygg-style-file-chunk"
+                       (make-array java.nio.file.attribute.FileAttribute 0)))
+        content (str ".head { color: red; }\n"
+                     (apply str (repeat 60000 "x"))
+                     "\n.tail { color: blue; }\n")
+        source (doto (io/file root "large.css")
+                 (spit content))
+        result (extract/extract-file "run/test"
+                                     (fs/file-record (.getPath root)
+                                                     (.getPath source)))
+        style-file-chunk (first (filter #(= :style-file (:kind %))
+                                        (:chunks result)))]
+    (is (< (count (:text style-file-chunk)) (count content)))
+    (is (str/includes? (:text style-file-chunk) ".head"))
+    (is (str/includes? (:text style-file-chunk) ".tail"))))
 
 (deftest extracts-source-map-as-bounded-source-references
   (let [root (.toFile (java.nio.file.Files/createTempDirectory

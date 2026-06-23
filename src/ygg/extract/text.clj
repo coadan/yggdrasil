@@ -29,9 +29,55 @@
 (def ^:private source-map-source-limit
   256)
 
+(defn- json-array-text
+  [content key-name]
+  (when-let [key-idx (str/index-of content (str "\"" key-name "\""))]
+    (when-let [colon-idx (str/index-of content ":" key-idx)]
+      (let [length (count content)]
+        (loop [idx (inc colon-idx)]
+          (when (< idx length)
+            (let [ch (.charAt ^String content idx)]
+              (cond
+                (Character/isWhitespace ch) (recur (inc idx))
+                (= \[ ch) (let [start-idx idx]
+                            (loop [idx idx
+                                   depth 0
+                                   in-string? false
+                                   escaped? false]
+                              (when (< idx length)
+                                (let [ch (.charAt ^String content idx)
+                                      escaped-next? (and in-string? (not escaped?) (= \\ ch))
+                                      in-string-next? (if (or escaped? escaped-next?)
+                                                        in-string?
+                                                        (if (= \" ch)
+                                                          (not in-string?)
+                                                          in-string?))
+                                      depth-next (cond
+                                                   in-string-next? depth
+                                                   (= \[ ch) (inc depth)
+                                                   (= \] ch) (dec depth)
+                                                   :else depth)]
+                                  (if (and (not in-string-next?)
+                                           (zero? depth-next)
+                                           (pos? depth))
+                                    (subs content start-idx (inc idx))
+                                    (recur (inc idx)
+                                           depth-next
+                                           in-string-next?
+                                           escaped-next?))))))
+                :else nil))))))))
+
+(defn- json-field-value
+  [content key-name]
+  (when-let [[_ value] (re-find (re-pattern (str "\"" key-name "\"\\s*:\\s*"
+                                                 "(\"(?:\\\\.|[^\"\\\\])*\"|-?\\d+(?:\\.\\d+)?)"))
+                                content)]
+    (common/read-json-value value)))
+
 (defn- source-map-sources
-  [parsed]
-  (->> (:sources parsed)
+  [content]
+  (->> (some-> (json-array-text content "sources")
+               common/read-json-value)
        (filter string?)
        (remove str/blank?)
        distinct
@@ -55,21 +101,23 @@
           " to bound indexing fanout."))))
 
 (defn- source-map-summary-text
-  [path parsed sources]
+  [path source-map sources]
   (str/join "\n"
             (remove str/blank?
                     (concat [path
                              "source-map"
-                             (:file parsed)
-                             (:sourceRoot parsed)
-                             (some-> (:version parsed) str)]
+                             (:file source-map)
+                             (:source-root source-map)
+                             (some-> (:version source-map) str)]
                             sources))))
 
 (defn extract-source-map
   "Extract bounded source-map references without indexing source content blobs."
   [run-id {:keys [id-scope file-id path content kind]}]
-  (let [parsed (common/read-json-map content)
-        sources (if parsed (source-map-sources parsed) [])
+  (let [source-map {:file (json-field-value content "file")
+                    :source-root (json-field-value content "sourceRoot")
+                    :version (json-field-value content "version")}
+        sources (source-map-sources content)
         retained-sources (vec (take source-map-source-limit sources))
         root-node (common/generic-node run-id id-scope file-id path :source-map-file path 1)
         source-facts (mapv (fn [source]
@@ -87,19 +135,20 @@
                                                   id-scope
                                                   %)
                            source-facts)
-        summary-text (source-map-summary-text path parsed retained-sources)
+        summary-text (source-map-summary-text path source-map retained-sources)
         limit-diagnostic (source-map-limit-diagnostic run-id
                                                       file-id
                                                       path
                                                       (count sources))
         diagnostics (cond-> []
-                      (nil? parsed) (conj (common/diagnostic-row
-                                           run-id
-                                           file-id
-                                           path
-                                           "parse"
-                                           1
-                                           "Source map extractor could not parse JSON object."))
+                      (nil? (json-array-text content "sources"))
+                      (conj (common/diagnostic-row
+                             run-id
+                             file-id
+                             path
+                             "parse"
+                             1
+                             "Source map extractor could not parse sources array."))
                       limit-diagnostic (conj limit-diagnostic))]
     {:nodes (into [root-node] source-nodes)
      :edges source-edges
@@ -291,7 +340,37 @@
 (def ^:private style-section-chunk-lines
   120)
 (def ^:private style-rule-range-limit
-  256)
+  128)
+(def ^:private style-file-chunk-char-limit
+  50000)
+
+(defn- bounded-edge-text
+  [content limit]
+  (let [content (str (or content ""))
+        limit (long limit)]
+    (if (or (not (pos? limit))
+            (<= (count content) limit))
+      content
+      (let [edge-size (max 1 (quot limit 2))
+            tail-start (max edge-size (- (count content) edge-size))]
+        (str (subs content 0 edge-size)
+             "\n"
+             (subs content tail-start))))))
+
+(defn- style-file-chunk
+  [run-id id-scope file-id path content kind]
+  (let [chunk-text (bounded-edge-text content style-file-chunk-char-limit)]
+    {:xt/id (common/chunk-id id-scope path path 1)
+     :file-id file-id
+     :path path
+     :kind :style-file
+     :file-kind kind
+     :label path
+     :text chunk-text
+     :tokens (text/tokenize chunk-text)
+     :source-line 1
+     :active? true
+     :run-id run-id}))
 (defn- style-variable-facts
   [lines]
   (->> lines
@@ -434,9 +513,8 @@
       (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
 (defn extract-style
   "Extract CSS/SCSS as searchable style chunks plus mechanical SCSS structure."
-  [run-id {:keys [id-scope file-id path content] :as file}]
-  (let [base-result (extract-text-source run-id file :style-file)
-        lines (str/split-lines content)
+  [run-id {:keys [id-scope file-id path content kind]}]
+  (let [lines (str/split-lines content)
         root-node (common/generic-node run-id id-scope file-id path :style-file path 1)
         variable-facts (style-variable-facts lines)
         section-ranges (style-section-ranges lines)
@@ -481,7 +559,7 @@
                               variable-facts)]
     {:nodes (into [root-node] fact-nodes)
      :edges fact-edges
-     :chunks (vec (concat (:chunks base-result)
+     :chunks (vec (concat [(style-file-chunk run-id id-scope file-id path content kind)]
                           section-chunks
                           rule-chunks
                           variable-chunks))
