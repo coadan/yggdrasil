@@ -1058,6 +1058,7 @@
 (deftest graph-readiness-real-handles-use-store-counts-with-precomputed-context-counts
   (let [active-calls (atom [])
         exact-calls (atom [])
+        schema-count-calls (atom [])
         fail-broad-read (fn [& _]
                           (throw (ex-info "graph readiness should use count queries"
                                           {})))
@@ -1087,6 +1088,8 @@
                                           :active? true}] 2
                       [:ygg/system-edges {:project-id "project-a"
                                           :active? true}] 1
+                      [:ygg/activity-items {:project-id "project-a"
+                                            :active? true}] 14
                       [:ygg/activity-events {:project-id "project-a"
                                              :active? true}] 4
                       [:ygg/activity-events {:project-id "project-a"
@@ -1107,6 +1110,24 @@
                                              :constraints constraints
                                              :ctx ctx})
                     (get exact-counts [table constraints] 0))
+                  store/active-row-counts-by-fields
+                  (fn [_ table fields constraints ctx]
+                    (swap! schema-count-calls conj {:table table
+                                                    :fields fields
+                                                    :constraints constraints
+                                                    :ctx ctx})
+                    [{:values {:expected-result-schema "schema/a"
+                               :result-schema "schema/a"}
+                      :count 2}
+                     {:values {:expected-result-schema "schema/a"
+                               :result-schema "schema/b"}
+                      :count 1}
+                     {:values {:expected-result-schema "schema/c"}
+                      :count 1}
+                     {:values {:result-schema "schema/d"}
+                      :count 1}
+                     {:values {}
+                      :count 9}])
                   query/all-nodes fail-broad-read
                   query/all-edges fail-broad-read
                   query/all-chunks fail-broad-read
@@ -1118,7 +1139,7 @@
                   query/all-diagnostics fail-broad-read
                   coverage/index-run-skipped-files (fn [& _] 0)
                   dependency/package-report fail-duplicate-read
-                  activity/all-items (fn [& _] [])
+                  activity/all-items fail-broad-read
                   activity/all-events fail-broad-read]
       (let [evidence (#'context/query-evidence
                       {:node :stub}
@@ -1155,9 +1176,19 @@
                 :embeddings 0
                 :system-nodes 2
                 :system-edges 1
+                :activity-items 14
                 :activity-events 4
                 :validation-events 1
                 :result-schema-mismatch-events 2
+                :result-schema-statuses {:matching 2
+                                         :mismatch 1
+                                         :missing-result 1
+                                         :unexpected-result 1}
+                :result-schema-status-items 5
+                :result-schema-matching-items 2
+                :result-schema-mismatch-items 1
+                :result-schema-missing-result-items 1
+                :result-schema-unexpected-result-items 1
                 :diagnostics 0}
                (select-keys (:counts evidence)
                             [:files
@@ -1176,9 +1207,16 @@
                              :embeddings
                              :system-nodes
                              :system-edges
+                             :activity-items
                              :activity-events
                              :validation-events
                              :result-schema-mismatch-events
+                             :result-schema-statuses
+                             :result-schema-status-items
+                             :result-schema-matching-items
+                             :result-schema-mismatch-items
+                             :result-schema-missing-result-items
+                             :result-schema-unexpected-result-items
                              :diagnostics])))))
     (is (= #{{:table :ygg/files
               :constraints {:project-id "project-a"
@@ -1224,6 +1262,10 @@
               :constraints {:project-id "project-a"
                             :active? true}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/activity-items
+              :constraints {:project-id "project-a"
+                            :active? true}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
              {:table :ygg/activity-events
               :constraints {:project-id "project-a"
                             :active? true}
@@ -1238,7 +1280,13 @@
                             :active? true
                             :event-kind :result-schema-mismatch}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
-           (set @exact-calls)))))
+           (set @exact-calls)))
+    (is (= [{:table :ygg/activity-items
+             :fields [:expected-result-schema :result-schema]
+             :constraints {:active? true
+                           :project-id "project-a"}
+             :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}]
+           @schema-count-calls))))
 
 (deftest system-edges-touching-ids-use-bounded-xtql-unify-queries
   (let [calls (atom [])]

@@ -1419,7 +1419,12 @@
         project-scope {:project-id project-id
                        :read-context read-context}
         package-counts (dependency-counts xtdb overlay opts)
-        activity-items (activity/all-items xtdb project-scope)
+        activity-item-count (scoped-count xtdb
+                                          (:activity-items store/tables)
+                                          project-scope
+                                          {:active? true})
+        activity-schema-counts (activity/result-schema-counts-for-scope xtdb
+                                                                        project-scope)
         activity-event-count (scoped-count xtdb
                                            (:activity-events store/tables)
                                            project-scope
@@ -1482,12 +1487,12 @@
                                   (:system-edges store/tables)
                                   project-scope
                                   {:active? true})
-      :activity-items (count activity-items)
+      :activity-items activity-item-count
       :activity-events activity-event-count
       :validation-events validation-event-count
       :result-schema-mismatch-events result-schema-mismatch-event-count
       :diagnostics (scoped-active-count xtdb (:diagnostics store/tables) scope)}
-     (activity/result-schema-counts activity-items)
+     activity-schema-counts
      (overlay-counts overlay))))
 
 (defn- capability-counts

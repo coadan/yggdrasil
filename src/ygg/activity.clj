@@ -140,16 +140,41 @@
   [statuses status]
   (long (get statuses status 0)))
 
+(defn- result-schema-count-summary
+  [statuses]
+  {:result-schema-statuses statuses
+   :result-schema-status-items (reduce + 0 (vals statuses))
+   :result-schema-matching-items (result-schema-status-count statuses :matching)
+   :result-schema-mismatch-items (result-schema-status-count statuses :mismatch)
+   :result-schema-missing-result-items (result-schema-status-count statuses :missing-result)
+   :result-schema-unexpected-result-items (result-schema-status-count statuses :unexpected-result)})
+
 (defn result-schema-counts
   "Return mechanical result-schema status counts for durable activity item rows."
   [items]
-  (let [statuses (result-schema-status-counts items)]
-    {:result-schema-statuses statuses
-     :result-schema-status-items (reduce + 0 (vals statuses))
-     :result-schema-matching-items (result-schema-status-count statuses :matching)
-     :result-schema-mismatch-items (result-schema-status-count statuses :mismatch)
-     :result-schema-missing-result-items (result-schema-status-count statuses :missing-result)
-     :result-schema-unexpected-result-items (result-schema-status-count statuses :unexpected-result)}))
+  (result-schema-count-summary (result-schema-status-counts items)))
+
+(defn result-schema-counts-for-scope
+  "Return mechanical result-schema status counts without hydrating item rows."
+  [xtdb {:keys [project-id read-context]}]
+  (let [constraints (cond-> {:active? true}
+                      (not (str/blank? (str project-id)))
+                      (assoc :project-id project-id))
+        statuses (reduce
+                  (fn [counts {:keys [values count]}]
+                    (let [status (result-schema-status* (:expected-result-schema values)
+                                                        (:result-schema values))]
+                      (cond-> counts
+                        (not= :none status)
+                        (update status (fnil + 0) (long count)))))
+                  (sorted-map)
+                  (store/active-row-counts-by-fields
+                   xtdb
+                   (:activity-items store/tables)
+                   [:expected-result-schema :result-schema]
+                   constraints
+                   (store/read-context read-context)))]
+    (result-schema-count-summary statuses)))
 
 (defn- result-schema-status
   [item]
