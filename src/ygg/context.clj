@@ -1069,21 +1069,31 @@
 (defn- candidate-files
   [results]
   (let [support-label-limit 4
-        support-labels (fn [candidate]
-                         (let [label (not-empty (str (:label candidate)))]
-                           (cond-> []
-                             (and label (:sourceLine candidate))
-                             (conj label)
-
-                             (seq (:supportLabels candidate))
-                             (into (:supportLabels candidate)))))
-        merged-support-labels (fn [primary-label candidates]
-                                (->> candidates
-                                     (mapcat support-labels)
-                                     (remove #(= primary-label %))
-                                     distinct
-                                     (take support-label-limit)
-                                     vec))
+        add-support-label (fn [state label]
+                            (if (or (nil? label)
+                                    (= (:primary-label state) label)
+                                    (contains? (:seen state) label)
+                                    (<= support-label-limit
+                                        (count (:labels state))))
+                              state
+                              (-> state
+                                  (update :seen conj label)
+                                  (update :labels conj label))))
+        add-candidate-support-labels (fn [state candidate]
+                                       (let [label (not-empty (str (:label candidate)))
+                                             state (cond-> state
+                                                     (and label (:sourceLine candidate))
+                                                     (add-support-label label))]
+                                         (reduce add-support-label
+                                                 state
+                                                 (:supportLabels candidate))))
+        merged-support-labels (fn [primary-label earlier later]
+                                (:labels
+                                 (reduce add-candidate-support-labels
+                                         {:primary-label primary-label
+                                          :seen #{}
+                                          :labels []}
+                                         [earlier later])))
         max-components (fn [a b]
                          (merge-with #(max (double (or %1 0.0))
                                            (double (or %2 0.0)))
@@ -1097,7 +1107,8 @@
                                     existing)
                           later (if (identical? earlier row) existing row)
                           support-labels (merged-support-labels (:label earlier)
-                                                                [earlier later])]
+                                                                earlier
+                                                                later)]
                       (cond-> (assoc earlier
                                      :score (max (double (or (:score existing) 0.0))
                                                  (double (or (:score row) 0.0))))
